@@ -71,7 +71,11 @@ describe("AI发现中栏事件渲染契约", () => {
     expect(html).toContain('data-discovery-event="skill"');
     expect(html).toContain('data-discovery-event-index="1"');
     expect(html).toContain("采集线索");
-    expect(html).toContain("技能交互模板 · 只读");
+    // 当前组件以语义模板标题和扁平结构表达只读说明；它不再渲染旧的
+    // 装饰性“· 只读”文案。仍须保证本事件不伪装成可以提交采集的控件。
+    expect(html).toContain("技能交互模板");
+    expect(html).not.toMatch(/<(?:button|input|textarea)\b/);
+    expect(html).not.toContain("data-discovery-start-confirm");
     expect(html).toContain('data-skill-template-flat="true"');
     expect(html).toContain("使用边界");
     expect(html).toContain("异常与恢复");
@@ -210,7 +214,7 @@ describe("AI发现中栏事件渲染契约", () => {
       inFlight: true,
       crawlState: "running",
       canStop: true,
-      onStop: () => {},
+      onStop: () => { },
     }));
     expect(running).toContain("data-discovery-run-stop");
     expect(running).toContain("进行中");
@@ -222,7 +226,7 @@ describe("AI发现中栏事件渲染契约", () => {
       steps: [STEP("step", "任务开始处理")],
       inFlight: true,
       canStop: false,
-      onStop: () => {},
+      onStop: () => { },
     }));
     expect(neverStarted).not.toContain("data-discovery-run-stop");
     expect(neverStarted).toContain("尚未开始");
@@ -295,7 +299,7 @@ describe("AI发现中栏事件渲染契约", () => {
       error: "",
       blockedReason: "",
       missingParams: ["方向"],
-      onGotoParams: () => {},
+      onGotoParams: () => { },
     }));
     expect(html).toContain("参数还没选齐");
     expect(html).toContain("还差方向没选");

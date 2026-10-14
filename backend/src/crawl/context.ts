@@ -3,11 +3,11 @@ import { authorizeConnector, type RuntimeContext } from "../runtime/execution.js
 import type { Json } from "../types.js";
 import { candidateAnalysisView } from "./candidate-evidence.js";
 import { runtimeCandidateViews } from "./candidate-actions.js";
-
 /** Permission-checked snapshots from this conversation, bounded before model input. */
 export async function discoveryResultContext(context: RuntimeContext): Promise<Json[]> {
-  if (context.skillId !== "crawler_collect" || !context.sessionId) return [];
-  authorizeConnector(context, "claw");
+  if (context.skillId !== "crawler_collect" || !context.sessionId)
+    return [];
+  (await authorizeConnector(context, "claw"));
   const { rows } = await postgresPool().query(`SELECT c.id,c.remote_task_id,c.state,c.result_state,c.result_json,c.result_error
     FROM runtime_crawl_jobs c JOIN runtime_actions a ON a.id=c.id
     WHERE a.actor_id=$1 AND a.session_id=$2 AND a.context_json->>'agentId'=$3
@@ -22,14 +22,16 @@ export async function discoveryResultContext(context: RuntimeContext): Promise<J
     for (const candidate of all) {
       const safeCandidate = candidateAnalysisView(candidate);
       const text = JSON.stringify(safeCandidate);
-      if (candidates.length >= 80 || text.length > budget) break;
-      budget -= text.length; candidates.push(safeCandidate);
+      if (candidates.length >= 80 || text.length > budget)
+        break;
+      budget -= text.length;
+      candidates.push(safeCandidate);
     }
     result.push({ task_id: row.remote_task_id, collection_state: row.state, result_state: row.result_state,
       result_error: row.result_error, captured_at: snapshot?.captured_at || null,
       result_complete: snapshot?.complete === true, candidate_count: all.length,
       included_count: candidates.length, context_truncated: candidates.length < all.length, candidates });
   }
-  authorizeConnector(context, "claw");
+  (await authorizeConnector(context, "claw"));
   return result;
 }

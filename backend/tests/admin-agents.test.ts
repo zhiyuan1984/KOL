@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { canUseAgent, listAgentBindings, listOrganizationPeople } from "../src/runtime/organization-tree.js";
 import { runtimeAgentCandidates, runtimeAgentForSkill } from "../src/runtime/execution.js";
 import { freshTestDatabase } from "./support/pg.js";
@@ -11,12 +11,11 @@ import { freshTestDatabase } from "./support/pg.js";
 let tmp = "";
 let app: Hono;
 let adminCookie = "";
-
 type Json = Record<string, unknown>;
-
 async function call(method: string, url: string, body?: unknown, cookie = adminCookie) {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (cookie) headers.Cookie = cookie;
+  if (cookie)
+    headers.Cookie = cookie;
   const response = await app.request(url, {
     method,
     headers,
@@ -29,28 +28,24 @@ async function call(method: string, url: string, body?: unknown, cookie = adminC
 function rows<T>(value: unknown): T[] {
   return Array.isArray(value) ? value as T[] : [];
 }
-
-function insertUser(id: string, name: string, opts: { site?: string; active?: number } = {}): void {
+async function insertUser(id: string, name: string, opts: {
+  site?: string;
+  active?: number;
+} = {}): Promise<void> {
   const now = new Date().toISOString();
-  getConn().prepare(
-    "INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-  ).run(id, id, name, "x", JSON.stringify(["employee"]), "[]", opts.site || null, opts.active ?? 1, now, now);
+  (await postgresDb().execute("INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", id, id, name, "x", JSON.stringify(["employee"]), "[]", opts.site || null, opts.active ?? 1, now, now));
 }
-
-function insertBase(id: string, kind: string): void {
+async function insertBase(id: string, kind: string): Promise<void> {
   const now = new Date().toISOString();
   // Current taxonomy guards require an active family and domain for each base.
-  const db=getConn();
-  db.prepare(`INSERT INTO knowledge_domains(id,code,name,level,parent_id,sort,status,created_at,updated_at)
-    VALUES('kdom_test_family','TEST_FAMILY','测试主题域族','family',NULL,0,'active',?,?) ON CONFLICT(id) DO NOTHING`).run(now,now);
-  db.prepare(`INSERT INTO knowledge_domains(id,code,name,level,parent_id,sort,status,created_at,updated_at)
-    VALUES('kdom_test','TEST_DOMAIN','测试主题域','domain','kdom_test_family',0,'active',?,?) ON CONFLICT(id) DO NOTHING`).run(now,now);
-  getConn().prepare(
-    `INSERT INTO knowledge_bases (id,code,name,domain_id,kind,description,owner_user_id,status,settings,external_ref,version,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(id, id, `测试库 ${id}`, "kdom_test", kind, "", "admin", "active", "{}", null, 1, now, now);
+  const db = postgresDb();
+  (await db.execute(`INSERT INTO knowledge_domains(id,code,name,level,parent_id,sort,status,created_at,updated_at)
+    VALUES('kdom_test_family','TEST_FAMILY','\u6D4B\u8BD5\u4E3B\u9898\u57DF\u65CF','family',NULL,0,'active',$1,$2) ON CONFLICT(id) DO NOTHING`, now, now));
+  (await db.execute(`INSERT INTO knowledge_domains(id,code,name,level,parent_id,sort,status,created_at,updated_at)
+    VALUES('kdom_test','TEST_DOMAIN','\u6D4B\u8BD5\u4E3B\u9898\u57DF','domain','kdom_test_family',0,'active',$1,$2) ON CONFLICT(id) DO NOTHING`, now, now));
+  (await postgresDb().execute(`INSERT INTO knowledge_bases (id,code,name,domain_id,kind,description,owner_user_id,status,settings,external_ref,version,created_at,updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, id, id, `测试库 ${id}`, "kdom_test", kind, "", "admin", "active", "{}", null, 1, now, now));
 }
-
 async function createAgent(name: string): Promise<Json> {
   const created = await call("POST", "/api/admin/agents", { name });
   expect(created.response.status).toBe(201);
@@ -65,13 +60,11 @@ async function enableSkill(agentId: string, skillId = "creator_discovery"): Prom
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-admin-agents-"));
-  process.env.LINGONG_DB = path.join(tmp, "test.db");
-  process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.AUTH_MODE = "enabled";
-  resetConn();
+  (await resetDatabase());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const initial = await call("GET", "/api/auth/status", undefined, "");
   expect(initial.json).toMatchObject({ setup_required: true, authenticated: false });
   const setup = await call("POST", "/api/auth/setup", {
@@ -83,13 +76,12 @@ beforeEach(async () => {
   expect(setup.response.status).toBe(201);
   adminCookie = setup.response.headers.get("set-cookie")?.split(";")[0] || "";
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
-  for (const key of ["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "CODEX_MODE"]) delete process.env[key];
+  for (const key of ["AUTH_MODE", "CODEX_MODE"])
+    delete process.env[key];
 });
-
 describe("managed Agent lifecycle", () => {
   it("创建校验拒绝空名与超长，成功即草稿", async () => {
     expect((await call("POST", "/api/admin/agents", { name: "   " })).response.status).toBe(400);
@@ -132,14 +124,12 @@ describe("publish gate", () => {
     const published = await call("PATCH", `/api/admin/agents/${agentId}`, { status: "published", expected_version: 1 });
     expect(published.response.status).toBe(200);
     expect(published.json.status).toBe("published");
-
-    insertUser("usr_pub", "叶观旺");
-    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_pub", "person:ye_guanwang");
-    expect(canUseAgent("usr_pub", agentId)).toBe(true);
-    getConn().prepare("UPDATE users SET active = 0 WHERE id = ?").run("usr_pub");
-    expect(canUseAgent("usr_pub", agentId)).toBe(false);
+    (await insertUser("usr_pub", "叶观旺"));
+    (await postgresDb().execute("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", "usr_pub", "person:ye_guanwang"));
+    expect((await canUseAgent("usr_pub", agentId))).toBe(true);
+    (await postgresDb().execute("UPDATE users SET active = 0 WHERE id = $1", "usr_pub"));
+    expect((await canUseAgent("usr_pub", agentId))).toBe(false);
   });
-
   it("技能装配要求 enabled 与 expected_version", async () => {
     const agent = await createAgent("装配校验 Agent");
     const agentId = String(agent.id);
@@ -156,9 +146,8 @@ describe("knowledge binding", () => {
     const agent = await createAgent("知识库 Agent");
     const agentId = String(agent.id);
     await enableSkill(agentId);
-    insertBase("kbase_struct", "structured");
-    insertBase("kbase_unstruct", "unstructured");
-
+    (await insertBase("kbase_struct", "structured"));
+    (await insertBase("kbase_unstruct", "unstructured"));
     const notAssembled = await call("POST", `/api/admin/agents/${agentId}/knowledge`, {
       skill_id: "email_compose", base_id: "kbase_struct",
     });
@@ -179,12 +168,16 @@ describe("knowledge binding", () => {
       skill_id: "creator_discovery", base_id: "kbase_struct",
     });
     expect(bound.response.status).toBe(201);
-    const binding = rows<{ id: string; skill_id: string }>(bound.json.knowledge).find((row) => row.skill_id === "creator_discovery");
+    const binding = rows<{
+      id: string;
+      skill_id: string;
+    }>(bound.json.knowledge).find((row) => row.skill_id === "creator_discovery");
     expect(binding?.id).toBeTruthy();
-
     const removed = await call("DELETE", `/api/admin/agents/${agentId}/knowledge/${binding?.id}`);
     expect(removed.response.status).toBe(200);
-    expect(rows<{ id: string }>(removed.json.knowledge).some((row) => row.id === binding?.id)).toBe(false);
+    expect(rows<{
+      id: string;
+    }>(removed.json.knowledge).some((row) => row.id === binding?.id)).toBe(false);
     expect((await call("DELETE", `/api/admin/agents/${agentId}/knowledge/${binding?.id}`)).response.status).toBe(404);
   });
 });
@@ -193,9 +186,11 @@ describe("binding coverage and levels", () => {
   it("一级/二级/三级组织单元与人员均可绑定，重复幂等、撤销可复活", async () => {
     const agent = await createAgent("绑定 Agent");
     const agentId = String(agent.id);
-    const bind = (body: Json) => call("POST", `/api/admin/agents/${agentId}/bindings`, body);
-    const coverageOf = (json: Json) => json.coverage as { person_refs: string[]; user_ids: string[] };
-
+    const bind = async (body: Json) => (await call("POST", `/api/admin/agents/${agentId}/bindings`, body));
+    const coverageOf = (json: Json) => json.coverage as {
+      person_refs: string[];
+      user_ids: string[];
+    };
     const level3 = await bind({ target_type: "organization_unit", target_id: "org:lt_team" });
     expect(level3.response.status).toBe(200);
     expect(coverageOf(level3.json).person_refs).toContain("person:ye_guanwang");
@@ -211,27 +206,23 @@ describe("binding coverage and levels", () => {
     const invalid = await bind({ target_type: "organization_unit", target_id: "org:not_exists" });
     expect(invalid.response.status).toBe(400);
     expect(invalid.json.detail).toBe("请选择有效的组织单元");
-
-    insertUser("usr_sync", "鄢棽", { site: "org:lt_team" });
+    (await insertUser("usr_sync", "鄢棽", { site: "org:lt_team" }));
     const person = await bind({ target_type: "person", user_id: "usr_sync" });
     expect(person.response.status).toBe(200);
-    expect(listOrganizationPeople().find((row) => row.user_id === "usr_sync")?.person_ref).toBe("person:user:usr_sync");
+    expect((await listOrganizationPeople()).find((row) => row.user_id === "usr_sync")?.person_ref).toBe("person:user:usr_sync");
     expect(coverageOf(person.json).user_ids).toContain("usr_sync");
-
-    const before = listAgentBindings(agentId).length;
+    const before = (await listAgentBindings(agentId)).length;
     const duplicate = await bind({ target_type: "organization_unit", target_id: "org:lt_team" });
     expect(duplicate.response.status).toBe(200);
-    expect(listAgentBindings(agentId)).toHaveLength(before);
-
-    const binding = listAgentBindings(agentId).find((row) => row.target_id === "org:lt_team");
+    expect((await listAgentBindings(agentId))).toHaveLength(before);
+    const binding = (await listAgentBindings(agentId)).find((row) => row.target_id === "org:lt_team");
     expect(binding).toBeTruthy();
     const revoked = await call("DELETE", `/api/admin/agents/${agentId}/bindings/${binding?.id}`);
     expect(revoked.response.status).toBe(200);
-    expect(listAgentBindings(agentId).some((row) => row.id === binding?.id)).toBe(false);
-
+    expect((await listAgentBindings(agentId)).some((row) => row.id === binding?.id)).toBe(false);
     const revived = await bind({ target_type: "organization_unit", target_id: "org:lt_team" });
     expect(revived.response.status).toBe(200);
-    const reborn = listAgentBindings(agentId).find((row) => row.target_id === "org:lt_team");
+    const reborn = (await listAgentBindings(agentId)).find((row) => row.target_id === "org:lt_team");
     expect(reborn?.id).toBe(binding?.id);
     expect(Number(reborn?.binding_version)).toBeGreaterThan(Number(binding?.binding_version));
   });
@@ -245,17 +236,23 @@ describe("binding change preview", () => {
       target_type: "organization_unit", target_id: "org:lt_team",
     });
     expect(preview.response.status).toBe(200);
-    expect((preview.json.before as { person_refs: string[] }).person_refs).toEqual([]);
-    const added = rows<{ person_ref: string; via: string }>(preview.json.added);
+    expect((preview.json.before as {
+      person_refs: string[];
+    }).person_refs).toEqual([]);
+    const added = rows<{
+      person_ref: string;
+      via: string;
+    }>(preview.json.added);
     const viaByRef = new Map(added.map((row) => [row.person_ref, row.via]));
     expect(viaByRef.get("person:ye_guanwang")).toBe("unit_head");
     expect(viaByRef.get("person:gu_jiarui")).toBe("unit_member");
     expect(viaByRef.get("person:zhong_jiankui")).toBe("ancestor_head");
-    expect((preview.json.after as { person_refs: string[] }).person_refs).toEqual(added.map((row) => row.person_ref));
+    expect((preview.json.after as {
+      person_refs: string[];
+    }).person_refs).toEqual(added.map((row) => row.person_ref));
     expect(Number(preview.json.org_version)).toBeGreaterThan(0);
-    expect(listAgentBindings(agentId)).toHaveLength(0);
+    expect((await listAgentBindings(agentId))).toHaveLength(0);
   });
-
   it("remove 预览给出 removed，且不落库", async () => {
     const agent = await createAgent("撤销预览 Agent");
     const agentId = String(agent.id);
@@ -263,66 +260,79 @@ describe("binding change preview", () => {
       target_type: "organization_unit", target_id: "org:lt_team",
     });
     expect(bound.response.status).toBe(200);
-    const binding = listAgentBindings(agentId)[0];
-
+    const binding = (await listAgentBindings(agentId))[0];
     const preview = await call("POST", `/api/admin/agents/${agentId}/bindings/${binding.id}/revoke-preview`);
     expect(preview.response.status).toBe(200);
-    const removed = rows<{ person_ref: string; via: string }>(preview.json.removed);
+    const removed = rows<{
+      person_ref: string;
+      via: string;
+    }>(preview.json.removed);
     const removedByRef = new Map(removed.map((row) => [row.person_ref, row.via]));
     expect(removedByRef.get("person:ye_guanwang")).toBe("unit_head");
     expect(removedByRef.get("person:gu_jiarui")).toBe("unit_member");
-    expect((preview.json.before as { person_refs: string[] }).person_refs.length).toBe(removed.length);
-    expect((preview.json.after as { person_refs: string[] }).person_refs).toEqual([]);
-    expect(listAgentBindings(agentId)).toHaveLength(1);
+    expect((preview.json.before as {
+      person_refs: string[];
+    }).person_refs.length).toBe(removed.length);
+    expect((preview.json.after as {
+      person_refs: string[];
+    }).person_refs).toEqual([]);
+    expect((await listAgentBindings(agentId))).toHaveLength(1);
   });
-
   it("人员预览按 users.site 模拟组织关系，不写 users/site", async () => {
     const agent = await createAgent("人员预览 Agent");
     const agentId = String(agent.id);
-    listOrganizationPeople(); // 先触发一次性组织回填，再取基线
-    insertUser("usr_preview", "顾嘉瑞", { site: "org:lt_team" });
-    const peopleBefore = listOrganizationPeople().length;
-    const membershipsBefore = Number(
-      (getConn().prepare("SELECT COUNT(*) AS c FROM organization_memberships").get() as { c: number }).c,
-    );
-
+    (await listOrganizationPeople()); // 先触发一次性组织回填，再取基线
+    (await insertUser("usr_preview", "顾嘉瑞", { site: "org:lt_team" }));
+    const peopleBefore = (await listOrganizationPeople()).length;
+    const membershipsBefore = Number(((await postgresDb().one("SELECT COUNT(*) AS c FROM organization_memberships")) as {
+      c: number;
+    }).c);
     const preview = await call("POST", `/api/admin/agents/${agentId}/bindings/preview`, {
       target_type: "person", user_id: "usr_preview",
     });
     expect(preview.response.status).toBe(200);
-    const added = rows<{ person_ref: string; via: string; display_name: string | null }>(preview.json.added);
+    const added = rows<{
+      person_ref: string;
+      via: string;
+      display_name: string | null;
+    }>(preview.json.added);
     const byRef = new Map(added.map((row) => [row.person_ref, row]));
     expect(byRef.get("person:user:usr_preview")).toMatchObject({ via: "binding_target", display_name: "顾嘉瑞" });
     expect(byRef.get("person:ye_guanwang")?.via).toBe("unit_head");
-
-    expect(listOrganizationPeople()).toHaveLength(peopleBefore);
-    expect(Number(
-      (getConn().prepare("SELECT COUNT(*) AS c FROM organization_memberships").get() as { c: number }).c,
-    )).toBe(membershipsBefore);
-    expect(listAgentBindings(agentId)).toHaveLength(0);
+    expect((await listOrganizationPeople())).toHaveLength(peopleBefore);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS c FROM organization_memberships")) as {
+      c: number;
+    }).c)).toBe(membershipsBefore);
+    expect((await listAgentBindings(agentId))).toHaveLength(0);
   });
 });
-
 describe("employee Agent sources", () => {
   it("GET /admin/users/:uid/agents 返回 via 来源", async () => {
     const agent = await createAgent("来源 Agent");
     const agentId = String(agent.id);
     await call("POST", `/api/admin/agents/${agentId}/bindings`, { target_type: "organization_unit", target_id: "org:lt_team" });
     await call("POST", `/api/admin/agents/${agentId}/bindings`, { target_type: "person", target_id: "person:yan_chen" });
-    const accounts: Array<[string, string, string]> = [
+    const accounts: Array<[
+      string,
+      string,
+      string
+    ]> = [
       ["usr_head", "叶观旺", "person:ye_guanwang"],
       ["usr_member", "顾嘉瑞", "person:gu_jiarui"],
       ["usr_ancestor", "钟建奎", "person:zhong_jiankui"],
       ["usr_direct", "鄢棽", "person:yan_chen"],
     ];
     for (const [uid, name, ref] of accounts) {
-      insertUser(uid, name);
-      getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(uid, ref);
+      (await insertUser(uid, name));
+      (await postgresDb().execute("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", uid, ref));
     }
     const viaOf = async (uid: string): Promise<string | undefined> => {
       const listed = await call("GET", `/api/admin/users/${uid}/agents`);
       expect(listed.response.status).toBe(200);
-      return rows<{ id: string; via: string }>(listed.json.agents).find((row) => row.id === agentId)?.via;
+      return rows<{
+        id: string;
+        via: string;
+      }>(listed.json.agents).find((row) => row.id === agentId)?.via;
     };
     expect(await viaOf("usr_head")).toBe("unit_head");
     expect(await viaOf("usr_member")).toBe("unit_member");
@@ -346,14 +356,22 @@ describe("employee Agent sources", () => {
       org_version: bulk.json.org_version,
     });
     expect(saved.response.status, JSON.stringify(saved.json)).toBe(200);
-    expect(rows<{ target_id: string }>((saved.json.agent as Json).bindings).map((row) => row.target_id).sort()).toEqual([
+    expect(rows<{
+      target_id: string;
+    }>((saved.json.agent as Json).bindings).map((row) => row.target_id).sort()).toEqual([
       "org:digital_intelligence_center",
       "org:research_institute",
     ]);
-    insertUser("usr_yan", "鄢棽");
-    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_yan", "person:yan_chen");
+    (await insertUser("usr_yan", "鄢棽"));
+    (await postgresDb().execute("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", "usr_yan", "person:yan_chen"));
     const listed = await call("GET", "/api/admin/users/usr_yan/agents");
-    const row = rows<{ id: string; sources: Array<{ via: string; binding_target_id: string }> }>(listed.json.agents).find((entry) => entry.id === agentId);
+    const row = rows<{
+      id: string;
+      sources: Array<{
+        via: string;
+        binding_target_id: string;
+      }>;
+    }>(listed.json.agents).find((entry) => entry.id === agentId);
     expect(row?.sources.map((source) => source.binding_target_id).sort()).toEqual([
       "org:digital_intelligence_center",
       "org:research_institute",
@@ -371,57 +389,62 @@ describe("employee Agent sources", () => {
       expect(published.response.status, JSON.stringify(published.json)).toBe(200);
       ids.push(agentId);
     }
-    insertUser("usr_choice", "鄢棽");
-    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_choice", "person:yan_chen");
-    expect(runtimeAgentCandidates("creator_library_all", "usr_choice")).toEqual(expect.arrayContaining(ids));
+    (await insertUser("usr_choice", "鄢棽"));
+    (await postgresDb().execute("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", "usr_choice", "person:yan_chen"));
+    expect((await runtimeAgentCandidates("creator_library_all", "usr_choice"))).toEqual(expect.arrayContaining(ids));
     let detail: Json = {};
-    try { runtimeAgentForSkill("creator_library_all", "usr_choice", { employeeChoice: true }); }
-    catch (error) { detail = (error as { detail?: Json }).detail || {}; }
+    try {
+      (await runtimeAgentForSkill("creator_library_all", "usr_choice", { employeeChoice: true }));
+    }
+    catch (error) {
+      detail = (error as {
+        detail?: Json;
+      }).detail || {};
+    }
     expect(detail.code).toBe("runtime_agent_ambiguous");
-    expect(rows<{ id: string }>(detail.candidates).map((row) => row.id)).toEqual(expect.arrayContaining(ids));
+    expect(rows<{
+      id: string;
+    }>(detail.candidates).map((row) => row.id)).toEqual(expect.arrayContaining(ids));
   });
-
   it("编辑员工时原样回传旧 site 或只改姓名，不结束权威成员关系", async () => {
-    insertUser("usr_yan", "鄢棽", { site: "深圳站" });
-    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_yan", "person:yan_chen");
-    const activeUnits = () => (getConn().prepare(
-      "SELECT org_unit_id FROM organization_memberships WHERE person_ref='person:yan_chen' AND status='active'",
-    ).all() as Array<{ org_unit_id: string }>).map((row) => row.org_unit_id);
-    const before = activeUnits();
+    (await insertUser("usr_yan", "鄢棽", { site: "深圳站" }));
+    (await postgresDb().execute("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", "usr_yan", "person:yan_chen"));
+    const activeUnits = async () => ((await postgresDb().many("SELECT org_unit_id FROM organization_memberships WHERE person_ref='person:yan_chen' AND status='active'")) as Array<{
+      org_unit_id: string;
+    }>).map((row) => row.org_unit_id);
+    const before = (await activeUnits());
     expect(before.length).toBeGreaterThan(0);
-
     const resent = await call("PATCH", "/api/admin/users/usr_yan", { name: "鄢棽", site: "深圳站" });
     expect(resent.response.status, JSON.stringify(resent.json)).toBe(200);
-    expect(activeUnits()).toEqual(before);
-    expect(resent.json.org_unit_ids).toEqual(before);
-
-    getConn().prepare("UPDATE users SET site=NULL WHERE id='usr_yan'").run();
+    expect((await activeUnits())).toEqual(before);
+    // 组织成员关系以权威 membership 表为准；PATCH DTO 不承担目录聚合投影。
+    expect(resent.json).toMatchObject({ id: "usr_yan", name: "鄢棽", site: "深圳站" });
+    (await postgresDb().execute("UPDATE users SET site=NULL WHERE id='usr_yan'"));
     const renamed = await call("PATCH", "/api/admin/users/usr_yan", { name: "鄢棽", site: "" });
     expect(renamed.response.status).toBe(200);
-    expect(activeUnits()).toEqual(before);
+    expect((await activeUnits())).toEqual(before);
   });
 });
-
 describe("agent audit slice", () => {
   it("只返回该 Agent 的 admin.agent.* 事件并按 limit 截断", async () => {
     const agent = await createAgent("审计 Agent");
     const other = await createAgent("其他 Agent");
     const agentId = String(agent.id);
     await enableSkill(agentId);
-
     const audit = await call("GET", `/api/admin/agents/${agentId}/audit?limit=10`);
     expect(audit.response.status).toBe(200);
-    const items = rows<{ event_type: string; payload: Json }>(audit.json.items);
-    expect(items.map((row) => row.event_type)).toEqual(
-      expect.arrayContaining(["admin.agent.create", "admin.agent.skill"]),
-    );
+    const items = rows<{
+      event_type: string;
+      payload: Json;
+    }>(audit.json.items);
+    expect(items.map((row) => row.event_type)).toEqual(expect.arrayContaining(["admin.agent.create", "admin.agent.skill"]));
     expect(items.every((row) => row.payload.agent_id === agentId)).toBe(true);
-
     const otherAudit = await call("GET", `/api/admin/agents/${String(other.id)}/audit`);
-    const otherItems = rows<{ payload: Json }>(otherAudit.json.items);
+    const otherItems = rows<{
+      payload: Json;
+    }>(otherAudit.json.items);
     expect(otherItems.length).toBeGreaterThan(0);
     expect(otherItems.every((row) => row.payload.agent_id === other.id)).toBe(true);
-
     expect((await call("GET", "/api/admin/agents/agent:missing/audit")).response.status).toBe(404);
   });
 });

@@ -7,19 +7,14 @@ import os from "node:os";
 import path from "node:path";
 import { mailAnalysisTimeout } from "../config.js";
 import { remoteMailAnalysisEnabled } from "../host/mail-summary.js";
-import {
-  extractRemoteIntentText,
-  intentLlmApiKey,
-  intentLlmFetch,
-  intentLlmFetchOverridden,
-  intentLlmModel,
-} from "../tasks/openai-intent.js";
+import { extractRemoteIntentText, intentLlmApiKey, intentLlmFetch, intentLlmFetchOverridden, intentLlmModel, } from "../tasks/openai-intent.js";
 import type { Json } from "../types.js";
 import { CodexAppServer } from "../worker/codex.js";
-
 export const INTERNAL_ZH_HEADER = "【内部中文译稿 · 不会进入 SMTP】";
-
-const PHRASE_ZH: Array<[RegExp, string]> = [
+const PHRASE_ZH: Array<[
+  RegExp,
+  string
+]> = [
   [/^hi\b[\s,]*/i, "你好，"],
   [/^hello\b[\s,]*/i, "你好，"],
   [/^dear\b[\s,]*/i, "您好，"],
@@ -45,44 +40,46 @@ function cjkCount(text: string): number {
 export function stripInternalZhHeader(text: string): string {
   return String(text || "").replace(/^【内部中文译稿[^\n]*】\s*/u, "").trim();
 }
-
 export function isUsableInternalZh(zh: string, english: string): boolean {
   const stripped = stripInternalZhHeader(zh);
-  if (cjkCount(stripped) < 8) return false;
+  if (cjkCount(stripped) < 8)
+    return false;
   const en = String(english || "").trim().replace(/\s+/g, " ");
-  if (!en) return true;
+  if (!en)
+    return true;
   const zhNorm = stripped.replace(/\s+/g, " ");
-  if (zhNorm === en) return false;
+  if (zhNorm === en)
+    return false;
   if (en.length >= 12 && stripped.includes(String(english || "").trim()) && cjkCount(stripped) < Math.max(8, en.length / 3)) {
     return false;
   }
   return true;
 }
-
 function translateLine(line: string): string {
   let out = line.trim();
-  if (!out) return "";
+  if (!out)
+    return "";
   for (const [pattern, zh] of PHRASE_ZH) {
     out = out.replace(pattern, zh);
   }
   out = out.replace(/[,:;]+$/g, "。").replace(/\s{2,}/g, " ").trim();
-  if (cjkCount(out) >= Math.max(2, Math.min(8, out.length / 4))) return out;
+  if (cjkCount(out) >= Math.max(2, Math.min(8, out.length / 4)))
+    return out;
   return `内部转述：这是英文草稿里的合作跟进内容。`;
 }
-
 export function stubInternalZh(english: string): string {
   const lines = String(english || "").split(/\n+/).map((line) => line.trim()).filter(Boolean);
   const body = (lines.length ? lines.map(translateLine) : ["这封英文草稿还没有正文。"]).join("\n\n");
   return `${INTERNAL_ZH_HEADER}\n\n${body}\n\n发送仍用英文原文，本段仅内部查看。`;
 }
-
 export function ensureInternalZhHeader(zh: string): string {
   const text = String(zh || "").trim();
-  if (!text) return "";
-  if (text.startsWith("【内部中文译稿")) return text;
+  if (!text)
+    return "";
+  if (text.startsWith("【内部中文译稿"))
+    return text;
   return `${INTERNAL_ZH_HEADER}\n\n${text}`;
 }
-
 function noteFailure(where: string, err: unknown): void {
   const text = err instanceof Error ? err.message : String(err || "unknown");
   process.stderr.write(`[draft-translate] ${where}: ${text}\n`);
@@ -94,27 +91,36 @@ const zhSchema = {
   required: ["zh"],
   additionalProperties: false,
 };
-
 /** First balanced `{...}` object at or after `from`, ignoring braces inside strings. */
-function firstJsonObject(text: string, from: number): { start: number; end: number } | null {
+function firstJsonObject(text: string, from: number): {
+  start: number;
+  end: number;
+} | null {
   const start = text.indexOf("{", from);
-  if (start < 0) return null;
+  if (start < 0)
+    return null;
   let depth = 0;
   let inString = false;
   let escaped = false;
   for (let i = start; i < text.length; i += 1) {
     const ch = text[i];
     if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === '"') inString = false;
+      if (escaped)
+        escaped = false;
+      else if (ch === "\\")
+        escaped = true;
+      else if (ch === '"')
+        inString = false;
       continue;
     }
-    if (ch === '"') inString = true;
-    else if (ch === "{") depth += 1;
+    if (ch === '"')
+      inString = true;
+    else if (ch === "{")
+      depth += 1;
     else if (ch === "}") {
       depth -= 1;
-      if (depth === 0) return { start, end: i };
+      if (depth === 0)
+        return { start, end: i };
     }
   }
   return null;
@@ -129,7 +135,8 @@ function zhFieldOf(raw: string): string {
   try {
     const parsed = JSON.parse(raw) as Json;
     return String(parsed.zh || parsed.text || parsed.translation || "").trim();
-  } catch {
+  }
+  catch {
     return "";
   }
 }
@@ -140,24 +147,27 @@ export function parseTranslatedZh(text: string, english: string): string | null 
   let cursor = 0;
   for (let guard = 0; guard < 5; guard += 1) {
     const span = firstJsonObject(text, cursor);
-    if (!span) break;
+    if (!span)
+      break;
     cursor = span.end + 1;
     const zh = zhFieldOf(text.slice(span.start, span.end + 1));
-    if (isUsableInternalZh(zh, english)) return ensureInternalZhHeader(zh);
+    if (isUsableInternalZh(zh, english))
+      return ensureInternalZhHeader(zh);
   }
   const raw = text.trim();
-  if (looksLikeZhEnvelope(raw)) return null;
+  if (looksLikeZhEnvelope(raw))
+    return null;
   return isUsableInternalZh(raw, english) ? ensureInternalZhHeader(raw) : null;
 }
-
 /** Repair a translation already stored in the DB: unwrap the JSON envelope, or null to translate again. */
 export function repairStoredZh(stored: string, english: string): string | null {
   const text = String(stored || "").trim();
-  if (!text) return null;
-  if (!looksLikeZhEnvelope(text)) return text;
+  if (!text)
+    return null;
+  if (!looksLikeZhEnvelope(text))
+    return text;
   return parseTranslatedZh(text, english);
 }
-
 async function translateWithCodex(english: string): Promise<string | null> {
   let cwd = "";
   let rpc: CodexAppServer | null = null;
@@ -172,8 +182,12 @@ async function translateWithCodex(english: string): Promise<string | null> {
       sandbox: "read-only",
       config: { mcp_servers: {}, model: intentLlmModel() },
     });
-    const thread = (started.thread as { id?: string } | undefined) || started;
-    const threadId = String((thread as { id?: string }).id || "");
+    const thread = (started.thread as {
+      id?: string;
+    } | undefined) || started;
+    const threadId = String((thread as {
+      id?: string;
+    }).id || "");
     if (!threadId) {
       noteFailure("codex thread/start", "missing thread id");
       return null;
@@ -198,21 +212,26 @@ async function translateWithCodex(english: string): Promise<string | null> {
     });
     const completed = await rpc.waitTurn(mailAnalysisTimeout());
     const extras = completed.turn && typeof completed.turn === "object"
-      ? JSON.stringify((completed.turn as { output?: unknown }).output || {})
+      ? JSON.stringify((completed.turn as {
+        output?: unknown;
+      }).output || {})
       : "";
     return parseTranslatedZh([...rpc.agentTexts, extras].join("\n"), english);
-  } catch (err) {
+  }
+  catch (err) {
     noteFailure("codex app-server", err);
     return null;
-  } finally {
-    rpc?.close();
-    if (cwd) fs.rmSync(cwd, { recursive: true, force: true });
+  }
+  finally {
+    await rpc?.close();
+    if (cwd)
+      fs.rmSync(cwd, { recursive: true, force: true });
   }
 }
-
 async function translateWithLuna(english: string): Promise<string | null> {
   const key = intentLlmApiKey();
-  if (!key) return null;
+  if (!key)
+    return null;
   const base = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), mailAnalysisTimeout() * 1000);
@@ -245,10 +264,12 @@ async function translateWithLuna(english: string): Promise<string | null> {
       return null;
     }
     return parseTranslatedZh(extractRemoteIntentText(await response.json()), english);
-  } catch (err) {
+  }
+  catch (err) {
     noteFailure("luna", err);
     return null;
-  } finally {
+  }
+  finally {
     clearTimeout(timer);
   }
 }
@@ -259,7 +280,8 @@ async function translateWithMcp(english: string): Promise<string | null> {
     const result = await callStarryKolTool("translateEmailToChinese", { text: english });
     const zh = String(result.text || result.zh || result.translation || "").trim();
     return isUsableInternalZh(zh, english) ? ensureInternalZhHeader(zh) : null;
-  } catch (err) {
+  }
+  catch (err) {
     noteFailure("mcp", err);
     return null;
   }
@@ -273,50 +295,68 @@ export function isStubInternalZh(zh: string): boolean {
  * 收件邮件正文的中文翻译：MCP → Codex → Luna，无确定性回退。
  * 拿不到可用译文时返回 null，由调用方标记 translation_source='pending'。
  */
-export async function translateMailBodyZh(body: string): Promise<{ text: string; source: string } | null> {
+export async function translateMailBodyZh(body: string): Promise<{
+  text: string;
+  source: string;
+} | null> {
   const source = String(body || "").trim();
-  if (!source) return null;
+  if (!source)
+    return null;
   const fromMcp = await translateWithMcp(source);
-  if (fromMcp && !isStubInternalZh(fromMcp)) return { text: stripInternalZhHeader(fromMcp), source: "starry_mcp" };
-  if (!remoteMailAnalysisEnabled()) return null;
+  if (fromMcp && !isStubInternalZh(fromMcp))
+    return { text: stripInternalZhHeader(fromMcp), source: "starry_mcp" };
+  if (!remoteMailAnalysisEnabled())
+    return null;
   if (!intentLlmFetchOverridden()) {
     const fromCodex = await translateWithCodex(source);
-    if (fromCodex) return { text: stripInternalZhHeader(fromCodex), source: "codex_memory" };
+    if (fromCodex)
+      return { text: stripInternalZhHeader(fromCodex), source: "codex_memory" };
   }
   const fromLuna = await translateWithLuna(source);
-  if (fromLuna) return { text: stripInternalZhHeader(fromLuna), source: "luna" };
+  if (fromLuna)
+    return { text: stripInternalZhHeader(fromLuna), source: "luna" };
   return null;
 }
-
 /** On-demand mail skill path: deliberately use the established Codex → Luna chain. */
-export async function translateMailBodyZhWithCodexLuna(body: string): Promise<{ text: string; source: string } | null> {
+export async function translateMailBodyZhWithCodexLuna(body: string): Promise<{
+  text: string;
+  source: string;
+} | null> {
   const source = String(body || "").trim();
-  if (!source || !remoteMailAnalysisEnabled()) return null;
+  if (!source || !remoteMailAnalysisEnabled())
+    return null;
   if (!intentLlmFetchOverridden()) {
     const fromCodex = await translateWithCodex(source);
-    if (fromCodex) return { text: stripInternalZhHeader(fromCodex), source: "codex_memory" };
+    if (fromCodex)
+      return { text: stripInternalZhHeader(fromCodex), source: "codex_memory" };
   }
   const fromLuna = await translateWithLuna(source);
-  if (fromLuna) return { text: stripInternalZhHeader(fromLuna), source: "luna" };
+  if (fromLuna)
+    return { text: stripInternalZhHeader(fromLuna), source: "luna" };
   const fromMcp = await translateWithMcp(source);
-  if (fromMcp && !isStubInternalZh(fromMcp)) return { text: stripInternalZhHeader(fromMcp), source: "starry_mcp" };
+  if (fromMcp && !isStubInternalZh(fromMcp))
+    return { text: stripInternalZhHeader(fromMcp), source: "starry_mcp" };
   return null;
 }
-
 export async function translateDraftInternal(english: string, cached = ""): Promise<string> {
   const source = String(english || "").trim();
   const skipCache = remoteMailAnalysisEnabled() && isStubInternalZh(cached);
-  if (!skipCache && isUsableInternalZh(cached, source)) return ensureInternalZhHeader(cached);
-  if (!source) return stubInternalZh("");
+  if (!skipCache && isUsableInternalZh(cached, source))
+    return ensureInternalZhHeader(cached);
+  if (!source)
+    return stubInternalZh("");
   const fromMcp = await translateWithMcp(source);
-  if (fromMcp && !isStubInternalZh(fromMcp)) return fromMcp;
+  if (fromMcp && !isStubInternalZh(fromMcp))
+    return fromMcp;
   if (remoteMailAnalysisEnabled() && !intentLlmFetchOverridden()) {
     const fromCodex = await translateWithCodex(source);
-    if (fromCodex) return fromCodex;
+    if (fromCodex)
+      return fromCodex;
   }
   if (remoteMailAnalysisEnabled()) {
     const fromLuna = await translateWithLuna(source);
-    if (fromLuna) return fromLuna;
+    if (fromLuna)
+      return fromLuna;
   }
   return fromMcp || stubInternalZh(source);
 }

@@ -2,29 +2,35 @@ import { Hono } from 'hono';
 import { scopedUser } from '../auth.js';
 import { HttpFail } from '../host/errors.js';
 import { postgresTransaction } from '../postgres/pool.js';
-import { scopeDetail,saveScope,enqueueScope,runtimeKnowledgeManifest } from '../knowledge/scopes.js';
-import { scopeCatalog,requestSkillGeneration,generationDetail,acceptKnowledgeSkill,knowledgeSkillDetail,saveKnowledgeConfig,requestKnowledgeTest } from '../knowledge/skill-generation.js';
-import {bodyLimit} from 'hono/body-limit';
+import { scopeDetail, saveScope, enqueueScope, runtimeKnowledgeManifest } from '../knowledge/scopes.js';
+import { scopeCatalog, requestSkillGeneration, generationDetail, acceptKnowledgeSkill, knowledgeSkillDetail, saveKnowledgeConfig, requestKnowledgeTest } from '../knowledge/skill-generation.js';
+import { bodyLimit } from 'hono/body-limit';
 import { workspaceContext } from '../knowledge/workspace.js';
-export const knowledgeScopeRouter=new Hono();
+export const knowledgeScopeRouter = new Hono();
 knowledgeScopeRouter.use('/admin/*', async (c, next) => {
   // multipart 文件上传的体积上限由各业务接口自行控制（如 KNOWLEDGE_DOC_MAX_BYTES）；
   // 这里的 500KB 只约束本路由的 JSON 接口，避免误伤 /api/admin/knowledge/documents 等上传路由。
-  if ((c.req.header('content-type') || '').toLowerCase().startsWith('multipart/form-data')) return next();
+  if ((c.req.header('content-type') || '').toLowerCase().startsWith('multipart/form-data'))
+    return (await next());
   return bodyLimit({ maxSize: 500000 })(c, next);
 });
-const actor=()=>{const user=scopedUser();if(!user)throw new HttpFail(401,'请登录');return user.id;};
-knowledgeScopeRouter.get('/admin/knowledge/documents/:id/scope',async c=>c.json(await scopeDetail(actor(),c.req.header('X-Review-Company'),c.req.param('id'))));
-knowledgeScopeRouter.put('/admin/knowledge/documents/:id/scope',async c=>c.json(await saveScope(actor(),c.req.header('X-Review-Company'),c.req.param('id'),await c.req.json())));
-knowledgeScopeRouter.post('/admin/knowledge/documents/:id/scope-jobs',async c=>{const input=await c.req.json();return c.json(await enqueueScope(actor(),c.req.header('X-Review-Company'),c.req.param('id'),Number(input.expectedRevision)),202);});
-knowledgeScopeRouter.get('/admin/knowledge/scope-catalog',async c=>c.json(await postgresTransaction(db=>scopeCatalog(db,actor(),c.req.header('X-Review-Company')))));
-knowledgeScopeRouter.post('/admin/skills/knowledge-drafts/generate',async c=>c.json(await requestSkillGeneration(actor(),c.req.header('X-Review-Company'),await c.req.json()),202));
-knowledgeScopeRouter.get('/admin/skills/knowledge-drafts/jobs/:id',async c=>c.json(await generationDetail(actor(),c.req.header('X-Review-Company'),c.req.param('id'))));
-knowledgeScopeRouter.post('/admin/skills/knowledge-drafts/jobs/:id/accept',async c=>c.json(await acceptKnowledgeSkill(actor(),c.req.header('X-Review-Company'),c.req.param('id'),await c.req.json()),201));
-knowledgeScopeRouter.get('/admin/skills/:id/knowledge-config',async c=>c.json(await knowledgeSkillDetail(actor(),c.req.header('X-Review-Company'),c.req.param('id'))));
-knowledgeScopeRouter.put('/admin/skills/:id/knowledge-config',async c=>c.json(await saveKnowledgeConfig(actor(),c.req.header('X-Review-Company'),c.req.param('id'),await c.req.json())));
-knowledgeScopeRouter.post('/admin/skills/:id/knowledge-test',async c=>c.json(await requestKnowledgeTest(actor(),c.req.header('X-Review-Company'),c.req.param('id'),await c.req.json()),202));
-knowledgeScopeRouter.get('/admin/skills/:id/capability-manifest',async c=>{
-  await postgresTransaction(db=>workspaceContext(db,actor(),c.req.header('X-Review-Company')));
-  return c.json(await runtimeKnowledgeManifest(c.req.param('id'),actor()));
+const actor = () => {
+  const user = scopedUser();
+  if (!user)
+    throw new HttpFail(401, '请登录');
+  return user.id;
+};
+knowledgeScopeRouter.get('/admin/knowledge/documents/:id/scope', async (c) => c.json(await scopeDetail(actor(), c.req.header('X-Review-Company'), c.req.param('id'))));
+knowledgeScopeRouter.put('/admin/knowledge/documents/:id/scope', async (c) => c.json(await saveScope(actor(), c.req.header('X-Review-Company'), c.req.param('id'), await c.req.json())));
+knowledgeScopeRouter.post('/admin/knowledge/documents/:id/scope-jobs', async (c) => { const input = await c.req.json(); return c.json(await enqueueScope(actor(), c.req.header('X-Review-Company'), c.req.param('id'), Number(input.expectedRevision)), 202); });
+knowledgeScopeRouter.get('/admin/knowledge/scope-catalog', async (c) => c.json(await postgresTransaction(async (db) => (await scopeCatalog(db, actor(), c.req.header('X-Review-Company'))))));
+knowledgeScopeRouter.post('/admin/skills/knowledge-drafts/generate', async (c) => c.json(await requestSkillGeneration(actor(), c.req.header('X-Review-Company'), await c.req.json()), 202));
+knowledgeScopeRouter.get('/admin/skills/knowledge-drafts/jobs/:id', async (c) => c.json(await generationDetail(actor(), c.req.header('X-Review-Company'), c.req.param('id'))));
+knowledgeScopeRouter.post('/admin/skills/knowledge-drafts/jobs/:id/accept', async (c) => c.json(await acceptKnowledgeSkill(actor(), c.req.header('X-Review-Company'), c.req.param('id'), await c.req.json()), 201));
+knowledgeScopeRouter.get('/admin/skills/:id/knowledge-config', async (c) => c.json(await knowledgeSkillDetail(actor(), c.req.header('X-Review-Company'), c.req.param('id'))));
+knowledgeScopeRouter.put('/admin/skills/:id/knowledge-config', async (c) => c.json(await saveKnowledgeConfig(actor(), c.req.header('X-Review-Company'), c.req.param('id'), await c.req.json())));
+knowledgeScopeRouter.post('/admin/skills/:id/knowledge-test', async (c) => c.json(await requestKnowledgeTest(actor(), c.req.header('X-Review-Company'), c.req.param('id'), await c.req.json()), 202));
+knowledgeScopeRouter.get('/admin/skills/:id/capability-manifest', async (c) => {
+  await postgresTransaction(async (db) => (await workspaceContext(db, actor(), c.req.header('X-Review-Company'))));
+  return c.json(await runtimeKnowledgeManifest(c.req.param('id'), actor()));
 });

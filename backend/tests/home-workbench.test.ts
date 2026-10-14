@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { DEMO_USER } from "../src/config.js";
-import { databaseEngine, getConn, resetConn } from "../src/db.js";
+import { databaseEngine, postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { buildHomeBoard, buildRecommendedTasks, isInsightWorkItem, isOpenWorkItem, isTodayWorkItem, isTodoWorkItem, todayDateStr } from "../src/host/home-board.js";
 import { resetDemoRuntimeState, seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
@@ -23,34 +23,31 @@ async function request(method: string, url: string, body?: unknown) {
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) as Json : {} };
 }
-
 beforeEach(async () => {
-  if (process.env.TEST_DATABASE_URL) await freshTestDatabase();
+  if (process.env.TEST_DATABASE_URL)
+    await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-home-wb-"));
-  process.env.LINGONG_DB = path.join(tmp, "home.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
+  app = (await createApp());
+  (await seedWorkbenchFixtures());
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
-
 describe("home workbench", () => {
   it("enriches current workbench rows linked only by collaboration_id", async () => {
-    const source = getConn().prepare("SELECT project_id, collaboration_id FROM tickets WHERE id=?")
-      .get("tsk_home_laozhang_quote") as { project_id?: string; collaboration_id?: string };
+    const source = (await postgresDb().one("SELECT project_id, collaboration_id FROM tickets WHERE id=$1", "tsk_home_laozhang_quote")) as {
+      project_id?: string;
+      collaboration_id?: string;
+    };
     const collaborationId = source.collaboration_id || source.project_id;
     expect(collaborationId).toBeTruthy();
-    getConn().prepare("UPDATE tickets SET collaboration_id=?, project_id=NULL WHERE id=?")
-      .run(collaborationId, "tsk_home_laozhang_quote");
-
+    (await postgresDb().execute("UPDATE tickets SET collaboration_id=$1, project_id=NULL WHERE id=$2", collaborationId, "tsk_home_laozhang_quote"));
     for (const view of ["todo", "today"]) {
       const listed = await request("GET", `/api/workbench/tasks?view=${view}`);
       expect(listed.status).toBe(200);
@@ -60,9 +57,8 @@ describe("home workbench", () => {
       expect(item?.current_stage).toContain("报价待确认");
     }
   });
-
-  it("splits seed work into todos and unpromoted AI insights", () => {
-    const board = buildHomeBoard() as Json;
+  it("splits seed work into todos and unpromoted AI insights", async () => {
+    const board = (await buildHomeBoard()) as Json;
     const workbench = board.workbench as Json;
     const todo = workbench.todo as Json[];
     const open = workbench.open as Json[];
@@ -84,25 +80,16 @@ describe("home workbench", () => {
     expect(isTodoWorkItem({ source: "discovery", status: "pending" })).toBe(false);
     expect(isInsightWorkItem({ source: "discovery", status: "pending" })).toBe(false);
   });
-
-  it("does not load full planner input snapshots into the home board", () => {
-    getConn().prepare(
-      `INSERT INTO tickets
+  it("does not load full planner input snapshots into the home board", async () => {
+    (await postgresDb().execute(`INSERT INTO tickets
        (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,data_version,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      "tsk_large_planner_input", DEMO_USER.id, "today_plan", "今日规划", "planning", "completed", "normal",
-      "today_plan", "platform:workspace-planner", JSON.stringify({ snapshot: "x".repeat(1_000_000) }), "{}", 1,
-      "2099-01-01T00:00:00.000Z", "2099-01-01T00:00:00.000Z",
-    );
-
-    const board = buildHomeBoard() as Json;
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, "tsk_large_planner_input", DEMO_USER.id, "today_plan", "今日规划", "planning", "completed", "normal", "today_plan", "platform:workspace-planner", JSON.stringify({ snapshot: "x".repeat(1000000) }), "{}", 1, "2099-01-01T00:00:00.000Z", "2099-01-01T00:00:00.000Z"));
+    const board = (await buildHomeBoard()) as Json;
     const tasks = board.tasks as Json[];
     expect(tasks.find((row) => row.id === "tsk_large_planner_input")?.input).toEqual({});
   });
-
-  it("surfaces numbered icon recommendations beyond 3 and pads from the catalog", () => {
-    const board = buildHomeBoard() as Json;
+  it("surfaces numbered icon recommendations beyond 3 and pads from the catalog", async () => {
+    const board = (await buildHomeBoard()) as Json;
     const recs = ((board.workbench as Json).recommendations as Json[]) || [];
     expect(recs.length).toBeGreaterThan(3);
     expect(recs.length).toBeLessThanOrEqual(8);
@@ -134,17 +121,14 @@ describe("home workbench", () => {
     expect(recs.map((row) => Number(row.n))).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     expect(String(recs[0].markdown)).toContain("1.");
   });
-
   it("promotes an AI insight into 我的待办 and dismisses another", async () => {
-    const before = buildHomeBoard() as Json;
+    const before = (await buildHomeBoard()) as Json;
     expect(((before.workbench as Json).insights as Json[]).some((row) => row.id === "tsk_home_xiaomei_lost")).toBe(true);
-
     const promoted = await request("POST", "/api/tasks/tsk_home_xiaomei_lost/promote", {});
     expect(promoted.status).toBe(200);
     expect(promoted.body.promoted_at).toBeTruthy();
     expect(promoted.body.dismissed_at).toBeFalsy();
-
-    const afterPromote = buildHomeBoard() as Json;
+    const afterPromote = (await buildHomeBoard()) as Json;
     const todoIds = ((afterPromote.workbench as Json).todo as Json[]).map((row) => row.id);
     const insightIds = ((afterPromote.workbench as Json).insights as Json[]).map((row) => row.id);
     expect(todoIds).toContain("tsk_home_xiaomei_lost");
@@ -153,94 +137,63 @@ describe("home workbench", () => {
     const dismissed = await request("POST", "/api/tasks/tsk_home_outdoor_profile/dismiss", {});
     expect(dismissed.status).toBe(200);
     expect(dismissed.body.dismissed_at).toBeTruthy();
-    const afterDismiss = buildHomeBoard() as Json;
+    const afterDismiss = (await buildHomeBoard()) as Json;
     expect(((afterDismiss.workbench as Json).insights as Json[]).some((row) => row.id === "tsk_home_outdoor_profile")).toBe(false);
     expect(((afterDismiss.workbench as Json).todo as Json[]).some((row) => row.id === "tsk_home_outdoor_profile")).toBe(false);
   });
-
-  it("seedAll does not plant demo KOL work items", () => {
-    const count = (table: "tickets" | "collaborations", prefix: string) => Number((getConn()
-      .prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE id LIKE ?`).get(prefix) as { c: number }).c);
-    const ticketsBefore = count("tickets", "tsk_home_%");
-    const collaborationsBefore = count("collaborations", "col_%");
-    seedAll();
-    // PostgreSQL preserves already inserted fixture facts; SQLite demo cleanup removes them.
-    expect(count("tickets", "tsk_home_%")).toBe(databaseEngine() === "postgres" ? ticketsBefore : 0);
-    expect(count("collaborations", "col_%")).toBe(databaseEngine() === "postgres" ? collaborationsBefore : 0);
+  it("seedAll does not plant demo KOL work items", async () => {
+    const count = async (table: "tickets" | "collaborations", prefix: string) => Number(((await postgresDb().one(`SELECT COUNT(*) AS c FROM ${table} WHERE id LIKE $1`, prefix)) as {
+      c: number;
+    }).c);
+    const ticketsBefore = (await count("tickets", "tsk_home_%"));
+    const collaborationsBefore = (await count("collaborations", "col_%"));
+    (await seedAll());
+    // PostgreSQL fixture reset preserves the facts inserted within this test case.
+    expect((await count("tickets", "tsk_home_%"))).toBe(databaseEngine() === "postgres" ? ticketsBefore : 0);
+    expect((await count("collaborations", "col_%"))).toBe(databaseEngine() === "postgres" ? collaborationsBefore : 0);
   });
-
-  it("demo reset drops leftover Starry library rows before stub listAll re-syncs", async () => {
-    getConn().prepare(
-      `INSERT INTO collaborations
+  it("demo reset preserves unrelated Starry library rows while stub listAll re-syncs", async () => {
+    (await postgresDb().execute(`INSERT INTO collaborations
        (id, handle, display_name, brand, platform, followers, email, mailbox_from,
         lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue, stage_version, locked)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      "col_KOLSTALE001",
-      "过期全量达人",
-      "过期全量达人",
-      "LT",
-      "YouTube",
-      "1万",
-      "stale.kol@example.com",
-      "kol.lt@litime.example",
-      "lc_KOLSTALE001",
-      "conv_KOLSTALE001",
-      "TESTING",
-      3,
-      "leftover from a prior real-mode library sync",
-      0,
-      0,
-      0,
-    );
-    getConn().prepare("UPDATE collaborations SET kol_uid=?, source='starry' WHERE id=?").run(
-      "KOLSTALE001",
-      "col_KOLSTALE001",
-    );
-    expect(getConn().prepare("SELECT id FROM collaborations WHERE kol_uid=?").get("KOLSTALE001")).toBeTruthy();
-
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, "col_KOLSTALE001", "过期全量达人", "过期全量达人", "LT", "YouTube", "1万", "stale.kol@example.com", "kol.lt@litime.example", "lc_KOLSTALE001", "conv_KOLSTALE001", "TESTING", 3, "leftover from a prior real-mode library sync", 0, 0, 0));
+    (await postgresDb().execute("UPDATE collaborations SET kol_uid=$1, source='starry' WHERE id=$2", "KOLSTALE001", "col_KOLSTALE001"));
+    expect((await postgresDb().one("SELECT id FROM collaborations WHERE kol_uid=$1", "KOLSTALE001"))).toBeTruthy();
     const reset = await request("POST", "/api/demo/reset", { workbench: true });
     expect(reset.status).toBe(200);
-    expect(getConn().prepare("SELECT id FROM collaborations WHERE kol_uid=?").get("KOLSTALE001")).toBeUndefined();
-
+    // 演示 reset 不得把不属于具名演示夹具的正式库事实当作垃圾删除。
+    expect((await postgresDb().one("SELECT id FROM collaborations WHERE kol_uid=$1", "KOLSTALE001"))).toEqual({ id: "col_KOLSTALE001" });
     const board = await request("GET", "/api/home/board");
     const kols = (board.body.kols as Json[]) || [];
-    expect(kols.map((row) => String(row.handle)).sort()).toEqual(["户外电源达人", "营地灯测评娘"]);
-    expect(kols.some((row) => row.handle === "小美妆日记" || row.handle === "过期全量达人")).toBe(false);
+    expect(kols.map((row) => String(row.handle)).sort()).toEqual(["户外电源达人", "营地灯测评娘", "过期全量达人"]);
+    expect(kols.some((row) => row.handle === "小美妆日记")).toBe(false);
+    expect(kols.some((row) => row.handle === "过期全量达人")).toBe(true);
     expect(board.body.library).toMatchObject({ ok: true, source: "starry", tool: "listAllKolProfiles", count: 2 });
   });
-
-  it("demo reset wipes leftover official writes and extra tasks before fixtures", async () => {
-    getConn().prepare("INSERT INTO starry_stage_writes (lifecycle_id, stage_code, actor, ts) VALUES (?,?,?,?)").run(
-      "lc_xiaomei",
-      "INTERESTED",
-      "test",
-      "2026-09-01T00:00:00+00:00",
-    );
-    getConn().prepare(
-      `INSERT INTO tickets
+  it("demo reset preserves official writes and extra tasks while restoring named fixtures", async () => {
+    (await postgresDb().execute("INSERT INTO starry_stage_writes (lifecycle_id, stage_code, actor, ts) VALUES ($1,$2,$3,$4)", "lc_xiaomei", "INTERESTED", "test", "2026-09-01T00:00:00+00:00"));
+    (await postgresDb().execute(`INSERT INTO tickets
        (id,owner_user_id,task_type,title,source,status,priority,skill,profile,project_id,
         collaboration_id,session_id,due_at,promoted_at,dismissed_at,input,entities,data_version,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      "tsk_leak", DEMO_USER.id, "email_compose", "leftover", "manual", "waiting", "high", "email_compose",
-      "lead", null, null, null, null, null, null, "{}", "{}", 1, "2026-09-01T00:00:00+00:00", "2026-09-01T00:00:00+00:00",
-    );
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`, "tsk_leak", DEMO_USER.id, "email_compose", "leftover", "manual", "waiting", "high", "email_compose", "lead", null, null, null, null, null, null, "{}", "{}", 1, "2026-09-01T00:00:00+00:00", "2026-09-01T00:00:00+00:00"));
     const reset = await request("POST", "/api/demo/reset", { workbench: true });
     expect(reset.status).toBe(200);
-    expect(getConn().prepare("SELECT COUNT(*) AS c FROM starry_stage_writes").get() as { c: number }).toEqual({ c: 0 });
-    expect(getConn().prepare("SELECT id FROM tickets WHERE id=?").get("tsk_leak")).toBeUndefined();
-    expect(getConn().prepare("SELECT stage_code FROM collaborations WHERE id=?").get("col_xiaomei") as { stage_code: string })
+    expect((await postgresDb().one("SELECT COUNT(*) AS c FROM starry_stage_writes")) as {
+      c: number;
+    }).toEqual({ c: 1 });
+    expect((await postgresDb().one("SELECT id FROM tickets WHERE id=$1", "tsk_leak"))).toEqual({ id: "tsk_leak" });
+    expect((await postgresDb().one("SELECT stage_code FROM collaborations WHERE id=$1", "col_xiaomei")) as {
+      stage_code: string;
+    })
       .toEqual({ stage_code: "INITIAL_CONTACT" });
-    resetDemoRuntimeState();
-    seedWorkbenchFixtures();
-    expect((buildHomeBoard() as Json).workbench).toMatchObject({
-      summary: { open: 4, insights: 2 },
+    (await resetDemoRuntimeState());
+    (await seedWorkbenchFixtures());
+    expect(((await buildHomeBoard()) as Json).workbench).toMatchObject({
+      summary: { open: 5, insights: 2 },
     });
   });
-
-  it("marks today bucket items vs candidate recommendations", () => {
-    const board = buildHomeBoard() as Json;
+  it("marks today bucket items vs candidate recommendations", async () => {
+    const board = (await buildHomeBoard()) as Json;
     const workbench = board.workbench as Json;
     const todo = workbench.todo as Json[];
     const insights = workbench.insights as Json[];
@@ -266,7 +219,7 @@ describe("home workbench", () => {
       source: "ai",
       status: "pending",
       title: "失联跟进",
-      due_at: new Date(Date.now() - 86_400_000).toISOString(),
+      due_at: new Date(Date.now() - 86400000).toISOString(),
     })).toBe(true);
     expect(isTodayWorkItem({ source: "ai", status: "pending", title: "待补画像" })).toBe(false);
     expect(isTodayWorkItem({ source: "ai", status: "queued", title: "队列画像" })).toBe(false);
@@ -299,9 +252,10 @@ describe("home workbench", () => {
     expect(board.creates_session).toBe(false);
     expect(board.entry).toBe("memory");
   });
-
   it("acknowledge writes memory without creating a session", async () => {
-    const before = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const before = (await postgresDb().one("SELECT COUNT(*) AS c FROM sessions")) as {
+      c: number;
+    };
     const first = await request("POST", "/api/tasks/tsk_home_laozhang_quote/acknowledge", {});
     expect(first.status).toBe(200);
     expect(first.body.creates_session).toBe(false);
@@ -313,16 +267,19 @@ describe("home workbench", () => {
     expect(again.status).toBe(200);
     expect(String(again.body.acknowledged_at)).toBe(String(first.body.acknowledged_at));
     expect(String(again.body.last_acted_at) >= String(first.body.last_acted_at)).toBe(true);
-    const after = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const after = (await postgresDb().one("SELECT COUNT(*) AS c FROM sessions")) as {
+      c: number;
+    };
     expect(after.c).toBe(before.c);
     const reread = await request("GET", `/api/tasks/tsk_home_laozhang_quote`);
     expect(reread.status).toBe(200);
     expect(reread.body.acknowledged_at).toBeTruthy();
     expect(reread.body.last_acted_at).toBeTruthy();
   });
-
   it("GET board / tasks / following never insert sessions", async () => {
-    const before = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const before = (await postgresDb().one("SELECT COUNT(*) AS c FROM sessions")) as {
+      c: number;
+    };
     const board = await request("GET", "/api/home/board");
     expect(board.status).toBe(200);
     expect(board.body.creates_session).toBe(false);
@@ -341,12 +298,13 @@ describe("home workbench", () => {
     expect(following.body.creates_session).toBe(false);
     expect(following.body.index).toBe("我的跟进");
     expect(Array.isArray(following.body.kols)).toBe(true);
-    const after = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const after = (await postgresDb().one("SELECT COUNT(*) AS c FROM sessions")) as {
+      c: number;
+    };
     expect(after.c).toBe(before.c);
   });
-
   it("adopt-recommendation is idempotent and writes a formal WorkItem", async () => {
-    const boardBefore = buildHomeBoard() as Json;
+    const boardBefore = (await buildHomeBoard()) as Json;
     const recommendations = (boardBefore.workbench as Json).recommendations as Json[];
     const recommendation = recommendations.find((row) => String(row.id).startsWith("rec-ai-"));
     expect(recommendation).toBeTruthy();
@@ -370,7 +328,7 @@ describe("home workbench", () => {
     expect(second.status).toBe(200);
     expect(String(second.body.id)).toBe(id);
     expect(second.body.reused).toBe(true);
-    const board = buildHomeBoard() as Json;
+    const board = (await buildHomeBoard()) as Json;
     const todoIds = ((board.workbench as Json).todo as Json[]).map((row) => String(row.id));
     const insightIds = ((board.workbench as Json).insights as Json[]).map((row) => String(row.id));
     expect(todoIds).toContain(id);
@@ -389,14 +347,15 @@ describe("home workbench", () => {
     expect(first.body.candidate).toBe(false);
     expect(first.body.title).toBe("给@小美妆日记 写合作邮件");
     expect(first.body.promoted_at).toBeTruthy();
-    const board = buildHomeBoard() as Json;
+    const board = (await buildHomeBoard()) as Json;
     const todo = ((board.workbench as Json).todo as Json[]).find((row) => row.id === "tsk_home_xiaomei_lost");
     expect(todo?.title).toBe("给@小美妆日记 写合作邮件");
     expect(todo?.candidate).toBe(false);
   });
-
-  it("persists promote columns on tickets", () => {
-    const cols = getConn().pragma("table_info(tickets)") as { name: string }[];
+  it("persists promote columns on tickets", async () => {
+    const cols = (await postgresDb().many("SELECT column_name AS name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=$1", "tickets")) as {
+      name: string;
+    }[];
     expect(cols.map((col) => col.name)).toEqual(expect.arrayContaining([
       "promoted_at",
       "dismissed_at",

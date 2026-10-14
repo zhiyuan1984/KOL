@@ -10,7 +10,7 @@ import { callMcpTool } from "../../mcp/tools.js";
 import { writeBoxCodexConfig } from "../../mcp/codex-config.js";
 import { boxDir } from "../config.js";
 import { runtimeSkillsRoot, writeRuntimeSkill, writeSkillIntoBox } from "../host/skill-sop.js";
-import { audit } from "../db.js";
+import { audit } from "../postgres/access.js";
 import { nid } from "../ids.js";
 import { profileFor } from "../profiles.js";
 import { groupedStageTracks, label, legalTargets, stageChecklist } from "../stages.js";
@@ -29,11 +29,12 @@ import { isEmailMcpTask } from "../starrykol/service.js";
 import { isKolClawTask } from "../kolclaw/service.js";
 import { collectDealMemoryItems, collectStageSopItems, completeTurnItems } from "./session-items.js";
 import type { WorkerProgress } from "./progress.js";
-
 function attachmentNames(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
+  if (!Array.isArray(value))
+    return [];
   return value.map((item) => {
-    if (typeof item === "string") return item;
+    if (typeof item === "string")
+      return item;
     if (item && typeof item === "object") {
       const row = item as Json;
       return String(row.name || row.url || row.path || "");
@@ -54,51 +55,40 @@ function judgmentInput(extra: Json, evidence: Json = {}, current?: string | null
     current_stage: current || (evidence.stage_code ? String(evidence.stage_code) : null),
   };
 }
-
-function writeBox(wid: string, skill: string, prompt: string, extra: Json): string {
+async function writeBox(wid: string, skill: string, prompt: string, extra: Json): Promise<string> {
   const profile = profileFor(skill);
   const definition = requireTaskDefinition(skill);
   fs.mkdirSync(boxDir(), { recursive: true });
   const box = path.join(boxDir(), wid);
   fs.mkdirSync(box, { recursive: true });
-  writeSkillIntoBox(box, skill);
+  (await writeSkillIntoBox(box, skill));
   const planning = extra.mode === "today_plan" || extra.mode === "today_analyze" || extra.mode === "todo_plan" || extra.skip_user_memory === true;
   const planningMount = planning ? planningHarnessMount(skill) : null;
-  fs.writeFileSync(
-    path.join(box, "CONTEXT.md"),
-    `# CONTEXT\n\nprofile: ${profile.name}\nskill: ${skill}\nprompt: ${prompt}\nplanning_harness: ${JSON.stringify(planningMount)}\nextra: ${JSON.stringify(workerSafeExtra(extra))}\n`,
-    "utf8",
-  );
+  fs.writeFileSync(path.join(box, "CONTEXT.md"), `# CONTEXT\n\nprofile: ${profile.name}\nskill: ${skill}\nprompt: ${prompt}\nplanning_harness: ${JSON.stringify(planningMount)}\nextra: ${JSON.stringify(workerSafeExtra(extra))}\n`, "utf8");
   writeAttachmentContext(box, extra);
-  fs.writeFileSync(
-    path.join(box, "AGENTS.md"),
-    [
+  fs.writeFileSync(path.join(box, "AGENTS.md"), [
       `# 灵工 Codex Profile · ${profile.name}`,
       "所有 Profile 共用同一 Codex app-server harness，不是独立运行时。",
       "读数用 MCP starry.* / claw.*。禁止裸 HTTP。",
       "只写 Item JSON。无 SMTP / WeCom secret / 阶段库凭据。",
       ...(planning ? ["规划会话只读。禁止 follow / send / confirm-stage。"] : []),
       ...(skill === "business_approval" ? approvalBoxGuardrails() : []),
-    ].join("\n") + "\n",
-    "utf8",
-  );
+  ].join("\n") + "\n", "utf8");
   writeBoxCodexConfig(box, planningMount ? planningMount.tools : definition.mcp);
   return box;
 }
-
-function mcp(log: Json[], server: "starry" | "claw", name: string, args: Json = {}): Json {
+async function mcp(log: Json[], server: "starry" | "claw", name: string, args: Json = {}): Promise<Json> {
   log.push({ method: "mcp/tool/call", params: { server, name } });
-  return callMcpTool(server, name, args);
+  return (await callMcpTool(server, name, args));
 }
-
-function collab(log: Json[], handle?: string | null): Json {
-  const row = mcp(log, "starry", "get_collaboration", { handle: handle || "" });
-  if (row.found === false) return {};
+async function collab(log: Json[], handle?: string | null): Promise<Json> {
+  const row = (await mcp(log, "starry", "get_collaboration", { handle: handle || "" }));
+  if (row.found === false)
+    return {};
   return row;
 }
-
-function listOverdue(log: Json[]): Json {
-  const rows = mcp(log, "claw", "list_overdue", {});
+async function listOverdue(log: Json[]): Promise<Json> {
+  const rows = (await mcp(log, "claw", "list_overdue", {}));
   return {
     type: "list_overdue",
     items: rows.items || [],
@@ -113,16 +103,17 @@ const TASK_TITLES: Record<string, string> = {
   deal_memory: "Deal Memory",
   risk_scan: "在途风险扫描",
 };
-
-function genericResult(log: Json[], skill: string, col: Json, extra: Json = {}): Json {
+async function genericResult(log: Json[], skill: string, col: Json, extra: Json = {}): Promise<Json> {
   let evidence = col;
   if (["creator_discovery", "creator_profile", "creator_scoring"].includes(skill)) {
-    evidence = mcp(log, "claw", "get_creators", {});
-  } else if (skill === "risk_scan") {
-    evidence = mcp(log, "starry", "list_collaborations", {});
-  } else if (!Object.keys(evidence).length) {
+    evidence = (await mcp(log, "claw", "get_creators", {}));
+  }
+  else if (skill === "risk_scan") {
+    evidence = (await mcp(log, "starry", "list_collaborations", {}));
+  }
+  else if (!Object.keys(evidence).length) {
     const hinted = String(extra.handle || col.handle || "");
-    evidence = hinted ? collab(log, hinted) : {};
+    evidence = hinted ? (await collab(log, hinted)) : {};
   }
   const handle = String(evidence.handle || col.handle || "当前 KOL 组合");
   const title = TASK_TITLES[skill] || `${skill} 结果`;
@@ -159,9 +150,7 @@ function genericResult(log: Json[], skill: string, col: Json, extra: Json = {}):
       sections: [{
         title: skill === "creator_scoring" ? "候选推荐" : "达人资料",
         body: "仅使用平台 ID、昵称、粉丝与最近播放；未推测互动、转化或邮箱。",
-        items: records.slice(0, 10).map((record) =>
-          `${record.platform || "unknown"}:${record.platform_creator_id || record.id} · ${record.nickname || record.name || record.handle} · score ${record.score || 0}`,
-        ),
+          items: records.slice(0, 10).map((record) => `${record.platform || "unknown"}:${record.platform_creator_id || record.id} · ${record.nickname || record.name || record.handle} · score ${record.score || 0}`),
       }],
       metrics: [{ label: "候选数", value: String(records.length), detail: "真实持久化记录" }],
       recommended_actions: ["复核基础评分", "补充并核验联系方式（contact-needed）"],
@@ -243,9 +232,8 @@ function genericResult(log: Json[], skill: string, col: Json, extra: Json = {}):
     recommended_actions: ["复核证据", "按建议创建后续人工确认任务"],
   };
 }
-
-function stageProposal(log: Json[], col: Json, extra: Json = {}): Json {
-  const c = Object.keys(col).length ? col : collab(log, String(col.handle || extra.handle || ""));
+async function stageProposal(log: Json[], col: Json, extra: Json = {}): Promise<Json> {
+  const c = Object.keys(col).length ? col : (await collab(log, String(col.handle || extra.handle || "")));
   const current = String(c.stage_code || "INITIAL_CONTACT");
   const entities = extra.entities && typeof extra.entities === "object" ? extra.entities as Json : {};
   const hinted = String(entities.proposed_stage || extra.proposed_stage || "").trim();
@@ -278,12 +266,15 @@ function stageProposal(log: Json[], col: Json, extra: Json = {}): Json {
     flags: judgment.flags,
   };
 }
-
 /** Stub stand-in for business_approval/SKILL.md NLU. Real Codex follows the Skill. */
-function stubFollowSkillNlu(prompt: string): { amount?: number; currency?: string; requester_name?: string; purpose?: string } {
+function stubFollowSkillNlu(prompt: string): {
+  amount?: number;
+  currency?: string;
+  requester_name?: string;
+  purpose?: string;
+} {
   return readExpenseFactsFromText(prompt);
 }
-
 function stubExpenseItem(extra: Json): Json {
   const prompt = String(extra.raw || extra.text || extra.prompt || "");
   const entities = extra.entities && typeof extra.entities === "object" ? extra.entities as Json : {};
@@ -387,15 +378,9 @@ function stubTodayBrief(extra: Json): Json {
       : "增量空，历史未了结任务继续保留",
   };
 }
-
-async function produceItems(
-  log: Json[],
-  skill: string,
-  extra: Json,
-  onProgress?: (progress: WorkerProgress) => void,
-): Promise<Json[]> {
+async function produceItems(log: Json[], skill: string, extra: Json, onProgress?: (progress: WorkerProgress) => void): Promise<Json[]> {
   const handle = extra.handle as string | undefined;
-  const col = handle ? collab(log, handle) : {};
+  const col = handle ? (await collab(log, handle)) : {};
   if (skill === "today_plan" || skill === "todo_plan") {
     log.push({ method: "planning_harness", params: planningHarnessMount(skill) });
     return [stubTodayBrief(extra)];
@@ -415,15 +400,18 @@ async function produceItems(
       recommended_actions: ["打开对象", "需要时人工确认阶段"],
     }];
   }
-  if (skill === "confirm_stage") return [stageProposal(log, col, extra)];
-  if (skill === "deal_memory") return collectDealMemoryItems(col, String(handle || col.handle || ""));
+  if (skill === "confirm_stage")
+    return [(await stageProposal(log, col, extra))];
+  if (skill === "deal_memory")
+    return (await collectDealMemoryItems(col, String(handle || col.handle || "")));
   if (isStageSopSkill(skill)) {
     return collectStageSopItems(String(extra.stage_code || extra.stage || col.stage_code || "INITIAL_CONTACT"), String(handle || col.handle || extra.handle || ""));
   }
   if (isEmailMcpTask(skill) || isKolClawTask(skill)) {
-    return completeTurnItems(skill, extra, [], log, onProgress);
+    return (await completeTurnItems(skill, extra, [], log, onProgress));
   }
-  if (skill === "risk_scan") return [genericResult(log, skill, col, extra), listOverdue(log)];
+  if (skill === "risk_scan")
+    return [(await genericResult(log, skill, col, extra)), (await listOverdue(log))];
   if (skill === "business_approval") {
     return [stubExpenseItem(extra)];
   }
@@ -508,24 +496,17 @@ async function produceItems(
       recommended_actions: candidates.length ? ["ingest", "ignore"] : ["ignore"],
     }];
   }
-  return [genericResult(log, skill, col, extra)];
+  return [(await genericResult(log, skill, col, extra))];
 }
-
-export async function runStub(
-  sessionId: string,
-  skill: string,
-  prompt: string,
-  extra: Json = {},
-  onProgress?: (progress: WorkerProgress) => void,
-): Promise<WorkerResult> {
+export async function runStub(sessionId: string, skill: string, prompt: string, extra: Json = {}, onProgress?: (progress: WorkerProgress) => void): Promise<WorkerResult> {
   const wid = nid("wrk");
   const profile = profileFor(skill);
   const log: Json[] = [];
   log.push({ method: "initialize", params: { protocol: "codex-app-server", worker_id: wid } });
   log.push({ method: "profile/select", params: { id: profile.id, name: profile.name, harness: profile.harness } });
   log.push({ method: "model/tier", params: { tier: extra.model_tier || "balanced" } });
-  const box = writeBox(wid, skill, prompt, extra);
-  const skillPath = writeRuntimeSkill(skill);
+  const box = await writeBox(wid, skill, prompt, extra);
+  const skillPath = (await writeRuntimeSkill(skill));
   const skillsRoot = runtimeSkillsRoot();
   log.push({ method: "skills/extraRoots/set", params: { extraRoots: [skillsRoot] } });
   log.push({ method: "skills/config/write", params: { path: skillPath, enabled: true } });
@@ -535,10 +516,10 @@ export async function runStub(
   log.push({ method: "thread/start", params: { resume: false, mcp: mcpNames } });
   log.push({ method: "turn/start", params: { prompt, skill } });
   const items = await produceItems(log, skill, { ...extra, raw: extra.raw || extra.text || prompt, text: extra.text || prompt }, onProgress);
-  assertKolAnalyzeVerbsSafe(skill, { items }, extra.work_item_id ? String(extra.work_item_id) : null);
-  audit("worker", "skill.invoked", {
+  (await assertKolAnalyzeVerbsSafe(skill, { items }, extra.work_item_id ? String(extra.work_item_id) : null));
+  (await audit("worker", "skill.invoked", {
     session_id: sessionId, worker_id: wid, skill, profile: profile.id,
-  });
+  }));
   log.push({ method: "turn/completed", params: { items: items.map((i) => i.type) } });
   for (const i of items) {
     if (["send_mail", "wecom_send", "confirm_stage", "starry_stage"].includes(String(i.type))) {
@@ -555,13 +536,13 @@ export async function runStub(
     items,
     box_path: box,
   };
-  persistWorker(result, sessionId);
-  audit("worker", "skill.result", {
+  (await persistWorker(result, sessionId));
+  (await audit("worker", "skill.result", {
     session_id: sessionId,
     worker_id: wid,
     skill,
     profile: profile.id,
     item_types: items.map((item) => String(item.type)),
-  });
+  }));
   return result;
 }

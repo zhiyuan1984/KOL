@@ -18,19 +18,13 @@
  * 数据、非静默回退），不是 cron 模块治理所禁止的「悄悄走业务仓储兼容层」。
  */
 import { HttpFail } from "../host/errors.js";
-import { getConn } from "../db.js";
+import { postgresDb } from "../postgres/access.js";
 import { getConnectorConfig, type ConnectorConfig } from "../runtime/store.js";
 import { createConfiguredClient, type RuntimeContext, type RuntimeRemote } from "../runtime/execution.js";
 import { RemoteMcpClient, type RemoteMcpOptions } from "../mcp/remote.js";
-import {
-  isPlatformAgent,
-  isPlatformPrincipal,
-  PLATFORM_PRINCIPAL,
-  PLATFORM_SYNC_AGENT,
-} from "../runtime/platform-principal.js";
+import { isPlatformAgent, isPlatformPrincipal, PLATFORM_PRINCIPAL, PLATFORM_SYNC_AGENT, } from "../runtime/platform-principal.js";
 import { START_FIELDS } from "./tool-contract.js";
 import type { Json, Row } from "../types.js";
-
 export const BACKGROUND_CRAWL_SKILL = "crawler_collect";
 const CRAWL_PLATFORMS = ["youtube", "instagram", "facebook"];
 const CRAWL_MODES = ["search", "detail", "creator"];
@@ -54,31 +48,26 @@ export function backgroundCrawlContext(runRef: string): RuntimeContext {
  * 只做参数合法性，不做身份校验，供两条通道共用。
  */
 export function assertBackgroundCrawlArgs(args: Json): void {
-  if (
-    !Array.isArray(args.platforms) ||
+  if (!Array.isArray(args.platforms) ||
     args.platforms.length !== 1 ||
-    !CRAWL_PLATFORMS.includes(String(args.platforms[0]))
-  ) {
+    !CRAWL_PLATFORMS.includes(String(args.platforms[0]))) {
     fail("runtime_crawl_platform_invalid");
   }
-  if (!CRAWL_MODES.includes(String(args.crawler_type))) fail("runtime_crawl_mode_invalid");
+  if (!CRAWL_MODES.includes(String(args.crawler_type)))
+    fail("runtime_crawl_mode_invalid");
   // Additional remote switches may enable uploads or broaden scope; only reviewed fields are accepted.
-  if (Object.keys(args).some((key) => !START_FIELDS.includes(key))) fail("runtime_crawl_scope_invalid");
-  if (
-    args.max_notes_count !== undefined &&
+  if (Object.keys(args).some((key) => !START_FIELDS.includes(key)))
+    fail("runtime_crawl_scope_invalid");
+  if (args.max_notes_count !== undefined &&
     (!Number.isSafeInteger(args.max_notes_count) ||
       Number(args.max_notes_count) < 1 ||
-      Number(args.max_notes_count) > 10000)
-  ) {
+      Number(args.max_notes_count) > 10000)) {
     fail("runtime_crawl_scope_invalid");
   }
-  if (
-    ["enable_comments", "enable_sub_comments"].some((key) => args[key] !== undefined && args[key] !== false)
-  ) {
+  if (["enable_comments", "enable_sub_comments"].some((key) => args[key] !== undefined && args[key] !== false)) {
     fail("runtime_crawl_scope_invalid");
   }
-  const required =
-    args.crawler_type === "search"
+  const required = args.crawler_type === "search"
       ? "keywords"
       : args.crawler_type === "detail"
         ? "specified_ids"
@@ -87,24 +76,23 @@ export function assertBackgroundCrawlArgs(args: Json): void {
     fail("runtime_crawl_input_required");
   }
 }
-
 export type CrawlConnectorAuth = {
-  configuration: { config: ConnectorConfig; version: number };
+  configuration: {
+    config: ConnectorConfig;
+    version: number;
+  };
   connector: Row;
 };
-
 /**
  * 采集连接器可用性校验：连接器行已启用 + 配置存在（含服务地址）。
  * 组织级凭据可被平台主体解析；个人账号凭据会如实失败（见 ADR-2026-10-06）。
  */
-export function assertCrawlConnectorAvailable(): CrawlConnectorAuth {
-  const connector = getConn().prepare("SELECT id,enabled,updated_at FROM connectors WHERE id=?").get("claw") as
-    | Row
-    | undefined;
+export async function assertCrawlConnectorAvailable(): Promise<CrawlConnectorAuth> {
+  const connector = (await postgresDb().one("SELECT id,enabled,updated_at FROM connectors WHERE id=$1", "claw")) as Row | undefined;
   if (!connector?.enabled) {
     throw new HttpFail(409, { code: "runtime_connector_disabled" });
   }
-  const configuration = getConnectorConfig("claw");
+  const configuration = (await getConnectorConfig("claw"));
   if (!configuration) {
     throw new HttpFail(409, { code: "runtime_connector_not_configured" });
   }
@@ -119,17 +107,20 @@ export function assertCrawlConnectorAvailable(): CrawlConnectorAuth {
  * 使用资格校验（平台同步 Agent 只读装配是既有治理，本通道不触碰它），
  * 连接器「已启用 + 已配置」校验保留。
  */
-export function authorizeBackgroundCrawl(context: RuntimeContext): CrawlConnectorAuth {
+export async function authorizeBackgroundCrawl(context: RuntimeContext): Promise<CrawlConnectorAuth> {
   if (!isPlatformPrincipal(context.userId) || !isPlatformAgent(context.agentId)) {
     fail("runtime_agent_not_usable");
   }
-  return assertCrawlConnectorAvailable();
+  return (await assertCrawlConnectorAvailable());
 }
-
 /** 与 SkillExecution 的 {discover, invoke, close} 子集结构兼容的后台执行器。 */
 export interface BackgroundToolInvoker {
   discover(): Promise<{
-    tools: Array<{ connectorId: string; remoteName: string; exposed: Json }>;
+    tools: Array<{
+      connectorId: string;
+      remoteName: string;
+      exposed: Json;
+    }>;
   }>;
   invoke(name: string, args: Json): Promise<Json>;
   close(): Promise<void> | void;
@@ -142,12 +133,9 @@ const BACKGROUND_TOOLS = ["get_crawl_status", "get_creators"] as const;
  * 只装只读技能），直接按已登记的 claw 工具契约调用。调用前必须已完成
  * authorizeBackgroundCrawl（入队/出队时已做，出队只是履约）。
  */
-export function backgroundToolRuntime(
-  context: RuntimeContext,
-  mcpFactory: (options: RemoteMcpOptions) => RuntimeRemote = (options) => new RemoteMcpClient(options),
-): BackgroundToolInvoker {
-  const { configuration } = authorizeBackgroundCrawl(context);
-  const client = createConfiguredClient(context, configuration.config, mcpFactory);
+export async function backgroundToolRuntime(context: RuntimeContext, mcpFactory: (options: RemoteMcpOptions) => RuntimeRemote = (options) => new RemoteMcpClient(options)): Promise<BackgroundToolInvoker> {
+  const { configuration } = (await authorizeBackgroundCrawl(context));
+  const client = (await createConfiguredClient(context, configuration.config, mcpFactory));
   let closed = false;
   return {
     async discover() {
@@ -166,8 +154,10 @@ export function backgroundToolRuntime(
       };
     },
     async invoke(name: string, args: Json): Promise<Json> {
-      if (closed) fail("runtime_run_closed", 410);
-      if (!(BACKGROUND_TOOLS as readonly string[]).includes(name)) fail("runtime_tool_not_discovered");
+      if (closed)
+        fail("runtime_run_closed", 410);
+      if (!(BACKGROUND_TOOLS as readonly string[]).includes(name))
+        fail("runtime_tool_not_discovered");
       const raw = (await client.callToolRaw(name, args)) as unknown as Json;
       return raw;
     },

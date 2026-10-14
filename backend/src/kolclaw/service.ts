@@ -1,4 +1,4 @@
-import { audit } from "../db.js";
+import { audit } from "../postgres/access.js";
 import { HttpFail } from "../host/errors.js";
 import { RemoteMcpClient } from "../mcp/remote.js";
 import { codexMode, kolClawConfigured, kolClawMcpToken, kolClawMcpUrl } from "../config.js";
@@ -34,7 +34,8 @@ export function normalizeKolClawResult(value: Json): Json {
     try {
       const parsed = JSON.parse(value.result);
       return parsed && typeof parsed === "object" ? json(parsed) : { value: parsed };
-    } catch {
+    }
+    catch {
       return { text: value.result };
     }
   }
@@ -53,23 +54,29 @@ function mockCall(name: string, args: Json): Json {
     status: "待建联",
     expected_price: 1800,
   };
-  if (name === "list_creators") return { total: 1, creators: [creator] };
-  if (name === "add_creator") return { ok: true, creator: { ...creator, id: 101 }, created: true };
-  if (name === "update_creator_status") return { ok: true, creator: { ...creator, status: args.status || creator.status } };
-  if (name === "analyze_creators") return { total: 1, items: [creator], priority_uncontacted: [creator] };
-  if (name === "analyze_creator") return creator;
+  if (name === "list_creators")
+    return { total: 1, creators: [creator] };
+  if (name === "add_creator")
+    return { ok: true, creator: { ...creator, id: 101 }, created: true };
+  if (name === "update_creator_status")
+    return { ok: true, creator: { ...creator, status: args.status || creator.status } };
+  if (name === "analyze_creators")
+    return { total: 1, items: [creator], priority_uncontacted: [creator] };
+  if (name === "analyze_creator")
+    return creator;
   if (name === "generate_outreach_script") {
     return { ...creator, dm_script: "您好，想邀请您体验我们的户外电源产品。", wechat_script: "您好，期待进一步沟通合作。" };
   }
-  if (name === "get_daily_tasks") return { total_tasks: 1, priority_uncontacted: [creator], pending_followup: [] };
+  if (name === "get_daily_tasks")
+    return { total_tasks: 1, priority_uncontacted: [creator], pending_followup: [] };
   if (name === "get_budget_report") {
     return { campaign_id: Number(args.campaign_id || 1), project_name: "户外电源推广", total_budget: 45000, remaining_budget: 43200, pending: [creator] };
   }
   throw new Error(`unknown kol-claw tool: ${name}`);
 }
-
 async function call(name: string, args: Json): Promise<Json> {
-  if (!clientFactory && codexMode() === "stub") return mockCall(name, args);
+  if (!clientFactory && codexMode() === "stub")
+    return mockCall(name, args);
   if (!clientFactory && !kolClawConfigured()) {
     throw new HttpFail(503, {
       code: "kolclaw_not_configured",
@@ -82,7 +89,8 @@ async function call(name: string, args: Json): Promise<Json> {
     : new RemoteMcpClient({ url: kolClawMcpUrl(), token: kolClawMcpToken() });
   try {
     return normalizeKolClawResult(await client.callTool(name, args));
-  } finally {
+  }
+  finally {
     await client.close().catch(() => undefined);
   }
 }
@@ -91,9 +99,11 @@ function number(value: unknown, fallback = 0): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
-
-type Operation = { name: string; label: string; status: "running" | "done" | "failed" };
-
+type Operation = {
+  name: string;
+  label: string;
+  status: "running" | "done" | "failed";
+};
 function creatorIdentity(entities: Json): Json {
   const name = String(entities.name || entities.creator_name || entities.handle || "").trim();
   const creatorId = number(entities.creator_id);
@@ -102,14 +112,10 @@ function creatorIdentity(entities: Json): Json {
     ...(creatorId ? { creator_id: creatorId } : {}),
   };
 }
-
-async function firstCreator(
-  entities: Json,
-  operations: Operation[],
-  onOperation?: (operation: Operation) => void,
-): Promise<Json> {
+async function firstCreator(entities: Json, operations: Operation[], onOperation?: (operation: Operation) => void): Promise<Json> {
   const identity = creatorIdentity(entities);
-  if (identity.name || identity.creator_id) return identity;
+  if (identity.name || identity.creator_id)
+    return identity;
   const operation: Operation = { name: "kolclaw.list_creators", label: "选择达人", status: "running" };
   operations.push(operation);
   onOperation?.(operation);
@@ -121,26 +127,28 @@ async function firstCreator(
     const first = creators[0] || {};
     const name = String(first.name || first.nickname || "").trim();
     const creatorId = number(first.id);
-    if (!name && !creatorId) return { needs_input: true, missing_fields: ["name"] };
+    if (!name && !creatorId)
+      return { needs_input: true, missing_fields: ["name"] };
     return {
       ...(name ? { name } : {}),
       ...(creatorId ? { creator_id: creatorId } : {}),
     };
-  } catch (error) {
+  }
+  catch (error) {
     operation.status = "failed";
     onOperation?.(operation);
     throw error;
   }
 }
-
 function rows(data: Json): Json[] {
   for (const key of ["creators", "items", "priority_uncontacted", "pending", "pending_followup", "negotiating"]) {
-    if (Array.isArray(data[key])) return data[key] as Json[];
+    if (Array.isArray(data[key]))
+      return data[key] as Json[];
   }
-  if (data.nickname || data.name || data.dm_script || data.score != null) return [data];
+  if (data.nickname || data.name || data.dm_script || data.score != null)
+    return [data];
   return [];
 }
-
 function rowText(row: Json): string {
   const name = String(row.nickname || row.name || `ID ${row.id || "—"}`);
   const details = [
@@ -183,8 +191,10 @@ export function kolClawResultCard(task: KolClawTask, data: Json): Json {
   if (Array.isArray(data.missing_fields) && data.missing_fields.length) {
     sections.push({ title: "待补充字段", items: (data.missing_fields as unknown[]).map((field) => fieldLabel(String(field))) });
   }
-  if (items.length) sections.push({ title: "明细", items: items.slice(0, 50).map(rowText) });
-  if (primitiveItems.length) sections.push({ title: "摘要数据", items: primitiveItems });
+  if (items.length)
+    sections.push({ title: "明细", items: items.slice(0, 50).map(rowText) });
+  if (primitiveItems.length)
+    sections.push({ title: "摘要数据", items: primitiveItems });
   if (data.dm_script || data.wechat_script) {
     sections.unshift({
       title: "建联话术",
@@ -215,13 +225,7 @@ export function kolClawResultCard(task: KolClawTask, data: Json): Json {
     persistent: true,
   };
 }
-
-export async function executeKolClawTask(
-  task: KolClawTask,
-  entities: Json,
-  actor = "host",
-  onOperation?: (operation: Operation) => void,
-): Promise<{
+export async function executeKolClawTask(task: KolClawTask, entities: Json, actor = "host", onOperation?: (operation: Operation) => void): Promise<{
   data: Json;
   operations: Json[];
 }> {
@@ -235,7 +239,8 @@ export async function executeKolClawTask(
       operation.status = "done";
       onOperation?.(operation);
       return result;
-    } catch (error) {
+    }
+    catch (error) {
       operation.status = "failed";
       onOperation?.(operation);
       throw error;
@@ -251,7 +256,8 @@ export async function executeKolClawTask(
         target_cpm: number(entities.target_cpm, 15),
         limit: Math.max(1, Math.min(100, number(entities.limit, 20))),
       });
-  } else if (task === "creator_outreach") {
+  }
+  else if (task === "creator_outreach") {
     const identity = await firstCreator(entities, operations, onOperation);
     data = identity.needs_input
       ? identity
@@ -260,16 +266,18 @@ export async function executeKolClawTask(
         wechat: String(entities.wechat || "[你的微信号]"),
         product: String(entities.product || "户外电源"),
       });
-  } else if (task === "creator_daily_tasks") {
+  }
+  else if (task === "creator_daily_tasks") {
     data = await invoke("get_daily_tasks", {});
-  } else {
+  }
+  else {
     const campaignId = number(entities.campaign_id, 1);
     data = await invoke("get_budget_report", { campaign_id: campaignId });
   }
-  audit(actor, `kolclaw.${task}`, {
+  (await audit(actor, `kolclaw.${task}`, {
     task,
     operations: operations.map((operation) => ({ name: operation.name, status: operation.status })),
     write: false,
-  });
+  }));
   return { data, operations };
 }

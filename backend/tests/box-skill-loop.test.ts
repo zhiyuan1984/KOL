@@ -1,10 +1,10 @@
-import { getConn } from "../src/db.js";
+import { postgresDb } from "../src/postgres/access.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resetConn } from "../src/db.js";
+import { resetDatabase } from "../src/postgres/access.js";
 import { seedAll } from "../src/seed.js";
 import { setIntentLlmFetch } from "../src/tasks/openai-intent.js";
 import { freshTestDatabase } from "./support/pg.js";
@@ -30,18 +30,15 @@ async function request(method: string, url: string, body?: unknown) {
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-box-loop-"));
-  process.env.LINGONG_DB = path.join(tmp, "box.db");
-  process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.INTENT_LLM_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.INTENT_LLM_MODE;
 });
@@ -55,7 +52,10 @@ describe("box loop: 起箱 → 识别 → skill → 追问/工具", () => {
       act: "ask",
     });
     expect(posted.status).toBe(200);
-    const rows = (posted.body.messages as Array<{ kind: string; payload?: Json }>) || [];
+    const rows = (posted.body.messages as Array<{
+      kind: string;
+      payload?: Json;
+    }>) || [];
     expect(rows.some((row) => row.kind === "me")).toBe(true);
     const supplement = rows.find((row) => row.kind === "supplement_card");
     expect(supplement).toBeUndefined();
@@ -70,7 +70,10 @@ describe("box loop: 起箱 → 识别 → skill → 追问/工具", () => {
       act: "ask",
     });
     expect(previewed.status).toBe(200);
-    const previewCard = ((previewed.body.messages as Array<{ kind: string; payload?: Json }>) || [])
+    const previewCard = ((previewed.body.messages as Array<{
+      kind: string;
+      payload?: Json;
+    }>) || [])
       .find((row) => row.kind === "task_result_card");
     expect(previewCard?.payload?.skill).toBe("email_compose");
     expect(JSON.stringify(previewCard)).toContain("确认发送");
@@ -79,19 +82,27 @@ describe("box loop: 起箱 → 识别 → skill → 追问/工具", () => {
       act: "ask",
     });
     expect(sent.status).toBe(200);
-    const rows = (sent.body.messages as Array<{ kind: string; payload?: Json }>) || [];
+    const rows = (sent.body.messages as Array<{
+      kind: string;
+      payload?: Json;
+    }>) || [];
     const card = [...rows].reverse().find((row) => row.kind === "task_result_card");
     expect(card?.payload).toMatchObject({ skill: "email_compose" });
     expect(sent.body).toMatchObject({ needs_confirmation: true, sent: false });
     expect(JSON.stringify(rows)).toContain("请在右栏草稿");
     expect(JSON.stringify(card?.payload?.starrykol_data || {})).not.toMatch(/"sent":true/);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: unknown }).n)).toBe(0);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM starry_sends")) as {
+      n: unknown;
+    }).n)).toBe(0);
     const another = await request("POST", `/api/sessions/${created.body.id}/messages`, {
       text: "加一封",
       act: "ask",
     });
     expect(another.status).toBe(200);
-    const nextRows = (another.body.messages as Array<{ kind: string; payload?: Json }>) || [];
+    const nextRows = (another.body.messages as Array<{
+      kind: string;
+      payload?: Json;
+    }>) || [];
     const nextCard = [...nextRows].reverse().find((row) => row.kind === "task_result_card");
     expect(nextCard?.payload?.skill).toBe("email_compose");
     expect(String(nextCard?.payload?.summary || "")).toContain("确认发送");
@@ -106,7 +117,10 @@ describe("box loop: 起箱 → 识别 → skill → 追问/工具", () => {
       act: "ask",
     });
     expect(posted.status).toBe(200);
-    const rows = (posted.body.messages as Array<{ kind: string; payload?: Json }>) || [];
+    const rows = (posted.body.messages as Array<{
+      kind: string;
+      payload?: Json;
+    }>) || [];
     const asked = rows.find((row) => row.kind === "supplement_card" || row.kind === "task_result_card");
     expect(asked).toBeTruthy();
     expect(JSON.stringify(asked)).toMatch(/发件邮箱|收件邮箱|主题/);
@@ -120,7 +134,10 @@ describe("box loop: 起箱 → 识别 → skill → 追问/工具", () => {
       act: "ask",
     });
     expect(posted.status).toBe(200);
-    const supplement = ((posted.body.messages as Array<{ kind: string; payload?: Json }>) || [])
+    const supplement = ((posted.body.messages as Array<{
+      kind: string;
+      payload?: Json;
+    }>) || [])
       .find((row) => row.kind === "supplement_card");
     expect(supplement?.payload).toMatchObject({ clarification_kind: "direction" });
   });
@@ -152,18 +169,28 @@ describe("box loop: API key is enough to recognize", () => {
         act: "ask",
       });
       expect(posted.status).toBe(200);
-      const rows = (posted.body.messages as Array<{ kind: string; payload?: Json }>) || [];
+      const rows = (posted.body.messages as Array<{
+        kind: string;
+        payload?: Json;
+      }>) || [];
       const blocked = rows.find((row) => row.kind === "error_card" && String(row.payload?.message || "").includes("识别服务未就绪"));
       expect(blocked).toBeUndefined();
       expect(JSON.stringify(rows)).not.toMatch(/codex login/);
-    } finally {
+    }
+    finally {
       setIntentLlmFetch();
-      if (prevMode === undefined) delete process.env.INTENT_LLM_MODE;
-      else process.env.INTENT_LLM_MODE = prevMode;
-      if (prevKey === undefined) delete process.env.OPENAI_API_KEY;
-      else process.env.OPENAI_API_KEY = prevKey;
-      if (prevPath === undefined) delete process.env.PATH;
-      else process.env.PATH = prevPath;
+      if (prevMode === undefined)
+        delete process.env.INTENT_LLM_MODE;
+      else
+        process.env.INTENT_LLM_MODE = prevMode;
+      if (prevKey === undefined)
+        delete process.env.OPENAI_API_KEY;
+      else
+        process.env.OPENAI_API_KEY = prevKey;
+      if (prevPath === undefined)
+        delete process.env.PATH;
+      else
+        process.env.PATH = prevPath;
     }
   });
 });

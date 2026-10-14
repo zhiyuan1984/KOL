@@ -93,31 +93,32 @@ export const REVISE_OUTPUT_SCHEMA: Json = {
   required: ["type", "fields"],
   additionalProperties: false,
 };
-
 function payloadOf(row: Json): Json {
   const raw = row.payload;
-  if (raw && typeof raw === "object") return raw as Json;
+  if (raw && typeof raw === "object")
+    return raw as Json;
   if (typeof raw === "string") {
     try {
       return JSON.parse(raw) as Json;
-    } catch {
+    }
+    catch {
       return {};
     }
   }
   return {};
 }
-
 function isSentCard(payload: Json): boolean {
-  if (String(payload.title || "") === "邮件已发送") return true;
+  if (String(payload.title || "") === "邮件已发送")
+    return true;
   const nested = payload.starrykol_data && typeof payload.starrykol_data === "object"
     ? payload.starrykol_data as Json
     : (payload.emailmcp_data && typeof payload.emailmcp_data === "object" ? payload.emailmcp_data as Json : {});
   return Boolean(payload.sent || nested.sent);
 }
-
 function lastEmailCard(rows: Json[]): Json | null {
   for (let i = rows.length - 1; i >= 0; i--) {
-    if (String(rows[i].kind) === "email_card") return payloadOf(rows[i]);
+    if (String(rows[i].kind) === "email_card")
+      return payloadOf(rows[i]);
   }
   return null;
 }
@@ -155,16 +156,18 @@ export function snapshotFromCards(card: Json, draft?: Json | null): ResultSnapsh
     stage: String(nested.current_stage || prior.stage || ""),
   };
 }
-
 export function lastUnsentResult(rows: Json[]): LastUnsentResult | null {
   for (let i = rows.length - 1; i >= 0; i--) {
-    if (String(rows[i].kind) !== "task_result_card") continue;
+    if (String(rows[i].kind) !== "task_result_card")
+      continue;
     const card = payloadOf(rows[i]);
-    if (isSentCard(card)) return null;
+    if (isSentCard(card))
+      return null;
     const draft = lastEmailCard(rows.slice(0, i + 1));
     const snapshot = snapshotFromCards(card, draft);
     const skill = snapshot.skill || String(card.skill || "");
-    if (!skill && !card.compose_loop && !draft) continue;
+    if (!skill && !card.compose_loop && !draft)
+      continue;
     return {
       skill: skill || "task_result",
       snapshot,
@@ -178,14 +181,17 @@ export function lastUnsentResult(rows: Json[]): LastUnsentResult | null {
   }
   return null;
 }
-
 function leadingSkillId(text: string): string | null {
   const trimmed = text.trim().replace(/^(请|帮我)/, "");
-  let best: { id: string; len: number } | null = null;
+  let best: {
+    id: string;
+    len: number;
+  } | null = null;
   for (const definition of taskDefinitions()) {
     for (const name of [definition.title, definition.id, ...definition.aliases]) {
       const token = String(name || "").trim();
-      if (token.length < 2) continue;
+      if (token.length < 2)
+        continue;
       if (trimmed.startsWith(token) && (!best || token.length > best.len)) {
         best = { id: definition.id, len: token.length };
       }
@@ -193,44 +199,51 @@ function leadingSkillId(text: string): string | null {
   }
   return best?.id || null;
 }
-
-export function isResultRevision(
-  text: string,
-  last: LastUnsentResult | null,
-  opts?: { lockedIntent?: string | null; boundTask?: boolean },
-): boolean {
+export async function isResultRevision(text: string, last: LastUnsentResult | null, opts?: {
+  lockedIntent?: string | null;
+  boundTask?: boolean;
+}): Promise<boolean> {
   const raw = String(text || "").trim();
-  if (!raw || !last || last.sent) return false;
-  if (opts?.boundTask) return false;
-  if (opts?.lockedIntent && taskDefinitions().some((row) => row.id === opts.lockedIntent)) return false;
-  if (CONFIRM_SEND_RE.test(raw) || ANOTHER_LETTER_RE.test(raw) || RESTART_RE.test(raw)) return false;
-  const handle = String(extractTaskEntities(raw).handle || "");
-  if (handle && last.handle && handle !== last.handle) return false;
-  if (leadingSkillId(raw)) return false;
+  if (!raw || !last || last.sent)
+    return false;
+  if (opts?.boundTask)
+    return false;
+  if (opts?.lockedIntent && taskDefinitions().some((row) => row.id === opts.lockedIntent))
+    return false;
+  if (CONFIRM_SEND_RE.test(raw) || ANOTHER_LETTER_RE.test(raw) || RESTART_RE.test(raw))
+    return false;
+  const handle = String((await extractTaskEntities(raw)).handle || "");
+  if (handle && last.handle && handle !== last.handle)
+    return false;
+  if (leadingSkillId(raw))
+    return false;
   return true;
 }
-
-export function mergeReviseFields(snapshot: ResultSnapshot, fields: Json): { next: ResultSnapshot; changed: string[] } {
+export function mergeReviseFields(snapshot: ResultSnapshot, fields: Json): {
+  next: ResultSnapshot;
+  changed: string[];
+} {
   const next: ResultSnapshot = { ...snapshot };
   const changed: string[] = [];
   for (const key of REVISE_KEYS) {
-    if (fields[key] == null || fields[key] === "") continue;
+    if (fields[key] == null || fields[key] === "")
+      continue;
     const value = key === "amount_usd" ? Number(fields[key]) : fields[key];
-    if (String(next[key] ?? "") === String(value)) continue;
+    if (String(next[key] ?? "") === String(value))
+      continue;
     (next as Record<string, unknown>)[key] = value;
     changed.push(key);
   }
   return { next, changed };
 }
-
 function replaceToken(body: string, from: string, to: string): string {
-  if (!from || from === to) return body;
+  if (!from || from === to)
+    return body;
   return body.split(from).join(to);
 }
-
-export function stubReviseFields(text: string, snapshot: ResultSnapshot): Json {
+export async function stubReviseFields(text: string, snapshot: ResultSnapshot): Promise<Json> {
   const fields: Json = {};
-  const extracted = extractTaskEntities(text);
+  const extracted = (await extractTaskEntities(text));
   const offer = parseQuoteOffer(text);
   const amountMatch = extracted.amount_usd != null && Number.isFinite(Number(extracted.amount_usd))
     ? Number(extracted.amount_usd)
@@ -250,9 +263,11 @@ export function stubReviseFields(text: string, snapshot: ResultSnapshot): Json {
       body = replaceToken(body, String(snapshot.amount_usd), String(fields.amount_usd));
     }
     body = ensureQuoteInBody(body, nextOffer);
-    if (body && body !== String(snapshot.body || "")) fields.body = body;
+    if (body && body !== String(snapshot.body || ""))
+      fields.body = body;
     const zh = ensureQuoteInZh(String(snapshot.body_zh_internal || ""), nextOffer);
-    if (zh && zh !== String(snapshot.body_zh_internal || "")) fields.body_zh_internal = zh;
+    if (zh && zh !== String(snapshot.body_zh_internal || ""))
+      fields.body_zh_internal = zh;
   }
   if (extracted.tracking) {
     fields.tracking = String(extracted.tracking);
@@ -260,8 +275,10 @@ export function stubReviseFields(text: string, snapshot: ResultSnapshot): Json {
       fields.body = replaceToken(String(fields.body || snapshot.body), String(snapshot.tracking), String(fields.tracking));
     }
   }
-  if (extracted.carrier) fields.carrier = String(extracted.carrier);
-  if (extracted.subject) fields.subject = String(extracted.subject);
+  if (extracted.carrier)
+    fields.carrier = String(extracted.carrier);
+  if (extracted.subject)
+    fields.subject = String(extracted.subject);
   const swap = /把\s*[「"']?(.+?)[」"']?\s*(?:改成|换成)\s*[「"']?(.+?)[」"']?\s*$/.exec(text.trim());
   if (swap && snapshot.body && String(snapshot.body).includes(swap[1])) {
     fields.body = replaceToken(String(fields.body || snapshot.body), swap[1], swap[2]);
@@ -279,9 +296,12 @@ function parseReviseFields(raw: string): Json {
     try {
       const parsed = JSON.parse(value) as Json;
       const fields = parsed.fields && typeof parsed.fields === "object" ? parsed.fields as Json : parsed;
-      if (parsed.type === "revise_result" && parsed.fields) return parsed.fields as Json;
-      if (fields && typeof fields === "object") return fields;
-    } catch {
+      if (parsed.type === "revise_result" && parsed.fields)
+        return parsed.fields as Json;
+      if (fields && typeof fields === "object")
+        return fields;
+    }
+    catch {
       return null;
     }
     return null;
@@ -289,14 +309,17 @@ function parseReviseFields(raw: string): Json {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
   if (fenced) {
     const parsed = tryParse(fenced[1]);
-    if (parsed) return parsed;
+    if (parsed)
+      return parsed;
   }
   const direct = tryParse(text);
-  if (direct) return direct;
+  if (direct)
+    return direct;
   const start = text.indexOf("{");
   if (start >= 0) {
     const parsed = tryParse(text.slice(start));
-    if (parsed) return parsed;
+    if (parsed)
+      return parsed;
   }
   return {};
 }
@@ -315,11 +338,10 @@ function revisePrompt(snapshot: ResultSnapshot, text: string): string {
     text,
   ].join("\n");
 }
-
-export async function reviseWithCodex(
-  snapshot: ResultSnapshot,
-  text: string,
-): Promise<{ fields: Json; thread_id: string | null }> {
+export async function reviseWithCodex(snapshot: ResultSnapshot, text: string): Promise<{
+  fields: Json;
+  thread_id: string | null;
+}> {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-result-revise-"));
   const rpc = new CodexAppServer(mailAnalysisTimeout());
   try {
@@ -335,16 +357,20 @@ export async function reviseWithCodex(
     if (snapshot.thread_id) {
       try {
         started = await rpc.request("thread/resume", { threadId: snapshot.thread_id });
-      } catch (error) {
-        if (!(error instanceof CodexUnavailable)) throw error;
+      }
+      catch (error) {
+        if (!(error instanceof CodexUnavailable))
+          throw error;
         started = await rpc.request("thread/start", threadParams);
       }
-    } else {
+    }
+    else {
       started = await rpc.request("thread/start", threadParams);
     }
     const thread = (started.thread as Json) || started;
     const threadId = String(thread.id || "");
-    if (!threadId) throw new CodexUnavailable("thread/start 未返回 thread.id。", "升级 Codex CLI 后重试。");
+    if (!threadId)
+      throw new CodexUnavailable("thread/start 未返回 thread.id。", "升级 Codex CLI 后重试。");
     await rpc.request("turn/start", {
       threadId,
       input: [{ type: "text", text: revisePrompt(snapshot, text) }],
@@ -357,35 +383,33 @@ export async function reviseWithCodex(
     });
     const completed = await rpc.waitTurn(mailAnalysisTimeout());
     const extras = completed.turn && typeof completed.turn === "object"
-      ? JSON.stringify((completed.turn as { output?: unknown }).output || {})
+      ? JSON.stringify((completed.turn as {
+        output?: unknown;
+      }).output || {})
       : "";
     const fields = parseReviseFields([...rpc.agentTexts, extras].join("\n"));
     return { fields, thread_id: threadId };
-  } finally {
+  }
+  finally {
     rpc.close();
     fs.rmSync(cwd, { recursive: true, force: true });
   }
 }
-
-export async function collectReviseFields(
-  snapshot: ResultSnapshot,
-  text: string,
-): Promise<{ fields: Json; thread_id: string | null }> {
+export async function collectReviseFields(snapshot: ResultSnapshot, text: string): Promise<{
+  fields: Json;
+  thread_id: string | null;
+}> {
   if (codexMode() === "stub") {
-    return { fields: stubReviseFields(text, snapshot), thread_id: snapshot.thread_id || null };
+    return { fields: (await stubReviseFields(text, snapshot)), thread_id: snapshot.thread_id || null };
   }
-  return reviseWithCodex(snapshot, text);
+  return (await reviseWithCodex(snapshot, text));
 }
-
-export function stampResultRevise(
-  card: Json,
-  meta: {
+export function stampResultRevise(card: Json, meta: {
     skill: string;
     snapshot: ResultSnapshot;
     thread_id?: string | null;
     changed?: string[];
-  },
-): Json {
+}): Json {
   return {
     ...card,
     result_revise: {

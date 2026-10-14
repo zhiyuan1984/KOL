@@ -4,19 +4,18 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { setConnectorConfig } from "../src/runtime/store.js";
 import { freshTestDatabase } from "./support/pg.js";
-
 let tmp = "";
 let app: Hono;
 let adminCookie = "";
 const originalMediaCrawlerUrl = process.env.MEDIACRAWLER_MCP_URL;
-
 const SKILL = "creator_profile";
-
-type ApiResult = { status: number; body: unknown };
-
+type ApiResult = {
+  status: number;
+  body: unknown;
+};
 function isJson(response: Response): boolean {
   return String(response.headers.get("content-type") || "").includes("json");
 }
@@ -41,7 +40,8 @@ async function bindingVersion(listUrl: string, connectorId: string): Promise<num
 function setEnabled(connectorId: string, expected: number, code?: string): Promise<ApiResult> {
   return call("PATCH", `/api/admin/connectors/${connectorId}`, { enabled: true }).then((result) => {
     expect(result.status, JSON.stringify(result.body)).toBe(expected);
-    if (code) expect(result.body).toMatchObject({ detail: { code } });
+    if (code)
+      expect(result.body).toMatchObject({ detail: { code } });
     return result;
   });
 }
@@ -52,13 +52,12 @@ async function verifiedConnector(id: string): Promise<void> {
   expect(created.status, JSON.stringify(created.body)).toBe(201);
   const verified = await call("PATCH", `/api/admin/connectors/${id}`, { status: "verified" });
   expect(verified.status).toBe(200);
-  setConnectorConfig(id, { url: "https://fixture.example/mcp", allow_unauthenticated: true }, 0);
+  (await setConnectorConfig(id, { url: "https://fixture.example/mcp", allow_unauthenticated: true }, 0));
   await call("GET", `/api/admin/runtime/connectors/${id}/activity`);
-  getConn().prepare(`INSERT INTO runtime_connector_probes
+  (await postgresDb().execute(`INSERT INTO runtime_connector_probes
     (connector_id,config_version,actor_id,checked_at,status,probe_kind,tool_count,duration_ms,error_code)
-    VALUES(?,1,'admin','now','succeeded','mcp_tools_list',1,1,NULL)`).run(id);
+    VALUES($1,1,'admin','now','succeeded','mcp_tools_list',1,1,NULL)`, id));
 }
-
 async function bindTool(id: string, toolName = "list_records"): Promise<void> {
   const linked = await call("PUT", `/api/admin/runtime/skills/${SKILL}/connectors/${id}`, { enabled: true, expected_version: 0 });
   expect(linked.status).toBe(200);
@@ -73,14 +72,12 @@ async function bindTool(id: string, toolName = "list_records"): Promise<void> {
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-connector-gate-"));
-  process.env.LINGONG_DB = path.join(tmp, "test.db");
-  process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "real";
   process.env.AUTH_MODE = "enabled";
   process.env.NODE_ENV = "test";
-  resetConn();
+  (await resetDatabase());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const setup = await app.request("/api/auth/setup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -90,40 +87,37 @@ beforeEach(async () => {
   adminCookie = setup.headers.get("set-cookie")?.split(";")[0] || "";
   expect(adminCookie).toBeTruthy();
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
-  delete process.env.LINGONG_DB;
-  delete process.env.LINGONG_DATA;
   process.env.CODEX_MODE = "stub";
-  if (originalMediaCrawlerUrl === undefined) delete process.env.MEDIACRAWLER_MCP_URL;
-  else process.env.MEDIACRAWLER_MCP_URL = originalMediaCrawlerUrl;
+  if (originalMediaCrawlerUrl === undefined)
+    delete process.env.MEDIACRAWLER_MCP_URL;
+  else
+    process.env.MEDIACRAWLER_MCP_URL = originalMediaCrawlerUrl;
 });
-
 describe("connector enable gate follows Skill bindings only", () => {
   it("requires a version-matched directory probe and Skill mount for MediaCrawler", async () => {
     const id = "gate_hostcrawler";
     await verifiedConnector(id);
     process.env.MEDIACRAWLER_MCP_URL = "https://crawler.example/mcp";
-    configureCrawlerFixture("https://crawler.example/mcp");
-    setConnectorConfig(id, { url: process.env.MEDIACRAWLER_MCP_URL, allow_unauthenticated: true }, 1);
+    (await configureCrawlerFixture("https://crawler.example/mcp"));
+    (await setConnectorConfig(id, { url: process.env.MEDIACRAWLER_MCP_URL, allow_unauthenticated: true }, 1));
     const saved = await call("GET", `/api/admin/runtime/connectors/${id}/config`);
     expect(saved.body).toMatchObject({ version: 2 });
     expect(saved.body).not.toHaveProperty("probe_mode");
     await setEnabled(id, 409, "connector_verification_required");
     expect((await call("GET", `/api/admin/runtime/connectors/${id}/activity`)).status).toBe(200);
-    getConn().prepare(`INSERT INTO runtime_connector_probes
+    (await postgresDb().execute(`INSERT INTO runtime_connector_probes
       (connector_id,config_version,actor_id,checked_at,status,probe_kind,tool_count,duration_ms,error_code)
-      VALUES(?,2,'admin','now','succeeded','mcp_tools_list',1,100,NULL)`).run(id);
+      VALUES($1,2,'admin','now','succeeded','mcp_tools_list',1,100,NULL)`, id));
     await setEnabled(id, 409, "connector_skill_binding_required");
     await bindTool(id);
     await setEnabled(id, 200);
-    setConnectorConfig(id, { url: process.env.MEDIACRAWLER_MCP_URL, allow_unauthenticated: true }, 2);
+    (await setConnectorConfig(id, { url: process.env.MEDIACRAWLER_MCP_URL, allow_unauthenticated: true }, 2));
     await setEnabled(id, 409, "connector_verification_required");
   });
-
   it("requires verification plus enabled Skill→Connector and Skill→Tool bindings", async () => {
     const draft = await call("POST", "/api/admin/connectors", { id: "gate_draft", label: "Gate Draft", purpose: "启用门禁用例" });
     expect(draft.status, JSON.stringify(draft.body)).toBe(201);

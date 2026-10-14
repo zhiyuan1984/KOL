@@ -5,16 +5,9 @@
  * 「有方向 / 有地区」当成资料完整度。这里把口径收成一个受控对象，随评分一起提交给模型，并写进
  * 评分回执与卡片 tooltip（口径不同的两次评分不该看起来一样）。
  */
-import { getConn, type SqliteConn } from "../db.js";
-import {
-  DEFAULT_DISCOVERY_THRESHOLDS,
-  DISCOVERY_PLATFORMS,
-  MAX_DISCOVERY_DIRECTIONS,
-  isDiscoveryPlatform,
-  isDiscoveryRegion,
-} from "../discovery-template.js";
+import { postgresDb, type PgRepository } from "../postgres/access.js";
+import { DEFAULT_DISCOVERY_THRESHOLDS, DISCOVERY_PLATFORMS, MAX_DISCOVERY_DIRECTIONS, isDiscoveryPlatform, isDiscoveryRegion, } from "../discovery-template.js";
 import type { Json, Row } from "../types.js";
-
 export type KolScoringCriteria = {
   platforms: string[];
   region: string;
@@ -26,13 +19,11 @@ export type KolScoringCriteria = {
   expect_count: number;
   brand: string | null;
 };
-
 const MAX_KEYWORDS = 8;
 const MAX_TEXT = 40;
-const MAX_FOLLOWERS = 1_000_000_000;
-const MAX_AVG_PLAYS = 100_000_000;
+const MAX_FOLLOWERS = 1000000000;
+const MAX_AVG_PLAYS = 100000000;
 const MAX_EXPECT = 80;
-
 function boundedText(value: unknown, max = MAX_TEXT): string {
   return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 }
@@ -42,26 +33,29 @@ function boundedList(value: unknown, limit: number, guard?: (item: string) => bo
   const out: string[] = [];
   for (const item of raw) {
     const text = boundedText(item);
-    if (!text || out.includes(text)) continue;
-    if (guard && !guard(text)) continue;
+    if (!text || out.includes(text))
+      continue;
+    if (guard && !guard(text))
+      continue;
     out.push(text);
-    if (out.length >= limit) break;
+    if (out.length >= limit)
+      break;
   }
   return out;
 }
-
 function boundedNumber(value: unknown, fallback: number, min: number, max: number): number {
   const n = Number(value);
-  if (!Number.isFinite(n)) return fallback;
+  if (!Number.isFinite(n))
+    return fallback;
   return Math.min(max, Math.max(min, Math.floor(n)));
 }
-
 /**
  * 收紧一份（可能来自客户端的）条件：平台/地区必须命中字典，其余按上限截断；
  * 门槛保持区间关系（min ≤ max），避免模型看到自相矛盾的条件。
  */
 export function normalizeScoringCriteria(value: unknown): KolScoringCriteria | null {
-  if (!value || typeof value !== "object") return null;
+  if (!value || typeof value !== "object")
+    return null;
   const raw = value as Json;
   const platforms = boundedList(raw.platforms, DISCOVERY_PLATFORMS.length, isDiscoveryPlatform);
   const regionRaw = boundedText(raw.region);
@@ -69,25 +63,14 @@ export function normalizeScoringCriteria(value: unknown): KolScoringCriteria | n
   const directions = boundedList(raw.directions, MAX_DISCOVERY_DIRECTIONS);
   const keywords = boundedList(raw.keywords, MAX_KEYWORDS);
   const thresholds = (raw.thresholds && typeof raw.thresholds === "object" ? raw.thresholds : raw) as Json;
-  const minFollowers = boundedNumber(
-    thresholds.min_followers, DEFAULT_DISCOVERY_THRESHOLDS.min_followers, 0, MAX_FOLLOWERS,
-  );
+  const minFollowers = boundedNumber(thresholds.min_followers, DEFAULT_DISCOVERY_THRESHOLDS.min_followers, 0, MAX_FOLLOWERS);
   const maxFollowers = thresholds.max_followers == null ? null
     : boundedNumber(thresholds.max_followers, minFollowers, minFollowers, MAX_FOLLOWERS);
-  const minAvgPlays = boundedNumber(
-    thresholds.min_avg_plays_10 ?? thresholds.min_avg_views_10,
-    DEFAULT_DISCOVERY_THRESHOLDS.min_avg_views_10,
-    0,
-    MAX_AVG_PLAYS,
-  );
-  const expectCount = boundedNumber(
-    thresholds.expect_count ?? thresholds.target_count,
-    DEFAULT_DISCOVERY_THRESHOLDS.target_count,
-    1,
-    MAX_EXPECT,
-  );
+  const minAvgPlays = boundedNumber(thresholds.min_avg_plays_10 ?? thresholds.min_avg_views_10, DEFAULT_DISCOVERY_THRESHOLDS.min_avg_views_10, 0, MAX_AVG_PLAYS);
+  const expectCount = boundedNumber(thresholds.expect_count ?? thresholds.target_count, DEFAULT_DISCOVERY_THRESHOLDS.target_count, 1, MAX_EXPECT);
   const brand = boundedText(raw.brand, 20) || null;
-  if (!platforms.length && !region && !directions.length && !keywords.length && !brand) return null;
+  if (!platforms.length && !region && !directions.length && !keywords.length && !brand)
+    return null;
   return {
     platforms, region, directions, keywords,
     min_followers: minFollowers, max_followers: maxFollowers,
@@ -104,7 +87,8 @@ function safeJson(value: string): Json {
   try {
     const parsed = JSON.parse(value);
     return parsed && typeof parsed === "object" ? parsed as Json : {};
-  } catch {
+  }
+  catch {
     return {};
   }
 }
@@ -113,16 +97,16 @@ function safeJson(value: string): Json {
  * 员工最近一次 AI 发现请求的条件：这是他自己声明过的目标，属于他自己写下的意图，不是推断。
  * 没有记录就返回 null——此时按公开资料的通用口径评分，并在回执里说明。
  */
-export function latestDiscoveryCriteria(employeeId: string, db: SqliteConn = getConn()): KolScoringCriteria | null {
+export async function latestDiscoveryCriteria(employeeId: string, db: PgRepository = postgresDb()): Promise<KolScoringCriteria | null> {
   let row: Row | undefined;
   try {
-    row = db.prepare(
-      "SELECT * FROM discovery_requests WHERE owner_user_id=? ORDER BY created_at DESC LIMIT 1",
-    ).get(employeeId) as Row | undefined;
-  } catch {
+    row = (await db.one("SELECT * FROM discovery_requests WHERE owner_user_id=$1 ORDER BY created_at DESC LIMIT 1", employeeId)) as Row | undefined;
+  }
+  catch {
     return null;
   }
-  if (!row) return null;
+  if (!row)
+    return null;
   const filters = (typeof row.filters === "string" ? safeJson(String(row.filters)) : row.filters) as Json;
   return normalizeScoringCriteria({
     platforms: storedList(row.platforms),
@@ -154,15 +138,15 @@ export function criteriaState(criteria: KolScoringCriteria): string {
     },
   });
 }
-
 function wan(value: number): string {
-  if (!Number.isFinite(value)) return "未设置";
-  return value >= 10_000 ? `${Math.round(value / 10_000)}万` : String(value);
+  if (!Number.isFinite(value))
+    return "未设置";
+  return value >= 10000 ? `${Math.round(value / 10000)}万` : String(value);
 }
-
 /** 一行人类可读口径：回执、卡片 tooltip 与审计都用它，保证「同样的分 = 同样的口径」。 */
 export function criteriaSummary(criteria: KolScoringCriteria | null): string {
-  if (!criteria) return "";
+  if (!criteria)
+    return "";
   const parts = [
     criteria.platforms.length ? `平台 ${criteria.platforms.join("/")}` : "",
     criteria.region ? `地区 ${criteria.region}` : "",

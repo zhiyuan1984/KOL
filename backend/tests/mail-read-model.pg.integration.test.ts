@@ -34,50 +34,41 @@ function actor(id: string): AppUser {
     exam_module: "",
   };
 }
-
-async function request(path: string): Promise<{ status: number; body: Record<string, unknown> }> {
+async function request(path: string): Promise<{
+  status: number;
+  body: Record<string, unknown>;
+}> {
   const response = await withScopedUser(ACTOR, () => app.request(path));
   return { status: response.status, body: await response.json() as Record<string, unknown> };
 }
-
 async function insertUser(): Promise<void> {
-  await postgresPool().query(
-    `INSERT INTO users(id,username,name,password_hash,created_at,updated_at)
-     VALUES ($1,$2,$3,'isolated-test-only',now(),now())`,
-    [ACTOR.id, ACTOR.username, ACTOR.name],
-  );
+  await postgresPool().query(`INSERT INTO users(id,username,name,password_hash,created_at,updated_at)
+     VALUES ($1,$2,$3,'isolated-test-only',now(),now())`, [ACTOR.id, ACTOR.username, ACTOR.name]);
 }
-
 async function bind(mailbox: string, isDefault = false): Promise<void> {
-  await postgresPool().query(
-    `INSERT INTO user_starry_bindings(user_id,mailbox_email,is_default,status,updated_at)
+  await postgresPool().query(`INSERT INTO user_starry_bindings(user_id,mailbox_email,is_default,status,updated_at)
      VALUES ($1,$2,$3,'connected',now())
      ON CONFLICT (user_id,mailbox_email)
-     DO UPDATE SET is_default=EXCLUDED.is_default,status='connected',updated_at=now()`,
-    [ACTOR.id, mailbox, isDefault ? 1 : 0],
-  );
+     DO UPDATE SET is_default=EXCLUDED.is_default,status='connected',updated_at=now()`, [ACTOR.id, mailbox, isDefault ? 1 : 0]);
 }
-
 async function insertThread(id: string, conversationId: string, mailbox: string, subject = "Local mail"): Promise<void> {
-  await postgresPool().query(
-    `INSERT INTO kol_mail_threads
+  await postgresPool().query(`INSERT INTO kol_mail_threads
      (id,conversation_id,mailbox,subject,unread_count,last_at,created_at,updated_at,last_preview,digest_text,digest_source)
-     VALUES ($1,$2,$3,$4,2,now(),now(),now(),'local preview','stored digest','body_analysis')`,
-    [id, conversationId, mailbox, subject],
-  );
+     VALUES ($1,$2,$3,$4,2,now(),now(),now(),'local preview','stored digest','body_analysis')`, [id, conversationId, mailbox, subject]);
 }
-
-async function insertItem(input: { id: string; threadId: string; conversationId: string; body?: string; translationSource?: string }): Promise<void> {
-  await postgresPool().query(
-    `INSERT INTO kol_mail_items
+async function insertItem(input: {
+  id: string;
+  threadId: string;
+  conversationId: string;
+  body?: string;
+  translationSource?: string;
+}): Promise<void> {
+  await postgresPool().query(`INSERT INTO kol_mail_items
       (id,thread_id,conversation_id,provider_message_id,direction,subject,title,snippet,unread,occurred_at,created_at,
        from_addr,from_name,to_addr,body_text,translation_source)
      VALUES ($1,$2,$3,$4,'inbound','Local mail','Provider title','preview',1,now(),now(),
-             'peer@example.test','Peer','reader-a@example.test',$5,$6)`,
-    [input.id, input.threadId, input.conversationId, `provider-${input.id}`, input.body || null, input.translationSource || ""],
-  );
+             'peer@example.test','Peer','reader-a@example.test',$5,$6)`, [input.id, input.threadId, input.conversationId, `provider-${input.id}`, input.body || null, input.translationSource || ""]);
 }
-
 /** A detail read must not mutate any legacy or current mail-memory state. */
 async function rejectMailReadWrites(): Promise<void> {
   await postgresPool().query(`
@@ -100,16 +91,13 @@ beforeEach(async () => {
   await insertItem({ id: "item-a-header", threadId: "thread-a", conversationId: "conversation-a" });
   await insertThread("thread-b", "conversation-b", BOX_B, "Foreign mailbox");
   await insertItem({ id: "item-b", threadId: "thread-b", conversationId: "conversation-b", body: "Foreign original" });
-  await postgresPool().query(
-    "INSERT INTO app_state(key,value) VALUES ($1,$2)",
-    [`mail_person_digest:${BOX_A}:peer@example.test`, JSON.stringify({
-      text: "Stored person digest", source: "body_analysis", mail_count: 2, fingerprint: "fixture", generated_at: "2026-10-12T00:00:00.000Z",
-    })],
-  );
-
+  await postgresPool().query(`INSERT INTO kol_mail_person_memory
+       (id,mailbox,peer_email,digest_text,digest_source,digest_fingerprint,mail_count,generated_at,attempts)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,1)`, ["person-memory-a", BOX_A, "peer@example.test", "Stored person digest", "body_analysis", "fixture", 2, "2026-10-12T00:00:00.000Z"]);
   const router = operationRouter(mailOperations);
   router.onError((error, context) => {
-    if (error instanceof HttpFail) return context.json({ detail: error.detail }, error.status as 400);
+    if (error instanceof HttpFail)
+      return context.json({ detail: error.detail }, error.status as 400);
     return context.json({ detail: error instanceof Error ? error.message : "internal error" }, 500);
   });
   app = router;
@@ -150,14 +138,13 @@ describe("mail local read model PostgreSQL integration", () => {
     expect(messages.find((message) => message.id === "item-a-header")).toMatchObject({
       body_status: "not_synced", translation_status: "not_started",
     });
-
     expect(person.status).toBe(200);
     expect(person.body).toMatchObject({
-      mailbox: BOX_A, peer_email: "peer@example.test", digest_text: "Stored person digest",
-      digest_source: "body_analysis", digest_generated_at: "2026-10-12T00:00:00.000Z",
+      mailbox: BOX_A, peer_email: "peer@example.test", digest_text: "Stored person digest", digest_source: "body_analysis",
     });
+    // pg 将 timestamptz 解为 Date；接口当前保留同一瞬间而不承诺 Date#toString 的展示格式。
+    expect(new Date(String(person.body.digest_generated_at)).toISOString()).toBe("2026-10-12T00:00:00.000Z");
   });
-
   it("enforces explicit mailbox scope, isolates a same-user second mailbox, and leaks nothing after revocation", async () => {
     expect((await request(`/queries/mail.conversations?box=${encodeURIComponent(BOX_B)}`)).status).toBe(403);
     expect((await request(`/queries/mail.conversation?box=${encodeURIComponent(BOX_B)}&id=thread-b`)).status).toBe(403);

@@ -4,14 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import {
-  resetCollectorConnectionCache,
-  setCollectorProbeClientFactory,
-  setCollectorProbeFetch,
-} from "../src/crawl/connection.js";
+import { resetCollectorConnectionCache, setCollectorProbeClientFactory, setCollectorProbeFetch, } from "../src/crawl/connection.js";
 import { setCrawlMcpClientFactory } from "../src/crawl/service.js";
 import { monitorCrawlJob } from "../src/crawl/service.js";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { seedAll } from "../src/seed.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import { buildHomeBoard, buildRecommendedTasks, isInsightWorkItem, isTodoWorkItem } from "../src/host/home-board.js";
@@ -30,8 +26,7 @@ let creators: Json[] = [{
   nickname: "OutdoorPower",
   followers: 12000,
   recent_views: [1000, 2000, 1500],
-}];
-
+  }];
 function mockMcp() {
   return {
     async callTool(name: string, args: Json = {}) {
@@ -40,19 +35,21 @@ function mockMcp() {
         crawlStartArgs.push(args);
         return { task_id: "remote-disc-1", status: "running" };
       }
-      if (name === "get_crawl_status") return { task_id: "remote-disc-1", status: "idle" };
-      if (name === "get_crawl_logs") return { logs: ["Authorization: Bearer hidden-secret"] };
+      if (name === "get_crawl_status")
+        return { task_id: "remote-disc-1", status: "idle" };
+      if (name === "get_crawl_logs")
+        return { logs: ["Authorization: Bearer hidden-secret"] };
       if (name === "get_creators") {
         creatorCallArgs.push(args);
         return { creators, has_more: false };
       }
-      if (name === "stop_crawl") return { stopped: true };
+      if (name === "stop_crawl")
+        return { stopped: true };
       return {};
     },
-    async close() {},
+    async close() { },
   };
 }
-
 function assertGetCreatorsMcpContract(args: Json, platform: string): void {
   expect(args).toEqual(expect.objectContaining({
     platform,
@@ -73,29 +70,29 @@ async function request(method: string, url: string, body?: unknown, headers?: Re
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) as Json : {}, text };
 }
-
-function sideEffects() {
+async function sideEffects() {
   return {
-    sends: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: number }).n),
-    stageWrites: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_stage_writes").get() as { n: number }).n),
-    transitions: Number((getConn().prepare("SELECT COUNT(*) AS n FROM stage_transitions").get() as { n: number }).n),
+    sends: Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM starry_sends")) as {
+      n: number;
+    }).n),
+    stageWrites: Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM starry_stage_writes")) as {
+      n: number;
+    }).n),
+    transitions: Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM stage_transitions")) as {
+      n: number;
+    }).n),
   };
 }
-
 function assertEmployeeCopy(value: unknown): void {
   const text = JSON.stringify(value);
-  expect(text).not.toMatch(
-    /MediaCrawler|mediacrawler|MCP|Codex|Job ID|crawl_job|remote_task|hidden-secret|Streamable|ECONNREFUSED|Failed to fetch|HTTP 404/i,
-  );
+  expect(text).not.toMatch(/MediaCrawler|mediacrawler|MCP|Codex|Job ID|crawl_job|remote_task|hidden-secret|Streamable|ECONNREFUSED|Failed to fetch|HTTP 404/i);
 }
-
-function crawlJobIdFor(requestId: string): string {
-  const row = getConn().prepare(
-    "SELECT crawl_job_id FROM discovery_runs WHERE request_id=? ORDER BY created_at DESC LIMIT 1",
-  ).get(requestId) as { crawl_job_id?: string } | undefined;
+async function crawlJobIdFor(requestId: string): Promise<string> {
+  const row = (await postgresDb().one("SELECT crawl_job_id FROM discovery_runs WHERE request_id=$1 ORDER BY created_at DESC LIMIT 1", requestId)) as {
+    crawl_job_id?: string;
+  } | undefined;
   return String(row?.crawl_job_id || "");
 }
-
 async function confirmAndComplete(keywords = ["portable power", "camping battery"]): Promise<{
   requestId: string;
   runId: string;
@@ -114,7 +111,7 @@ async function confirmAndComplete(keywords = ["portable power", "camping battery
   expect(started.status).toBe(202);
   expect(started.body.status_label).toMatch(/排队中|采集中|已完成/);
   expect(OVERSEAS_CRAWL_PLATFORMS).toContain(started.body.platform);
-  const jobId = crawlJobIdFor(String(created.body.id));
+  const jobId = (await crawlJobIdFor(String(created.body.id)));
   expect(jobId).toMatch(/^crawl_/);
   await monitorCrawlJob(jobId);
   const results = await request("GET", `/api/discovery/requests/${created.body.id}/results`);
@@ -130,7 +127,6 @@ async function confirmAndComplete(keywords = ["portable power", "camping battery
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-discovery-"));
-  process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.CLAW_MODE = "mock";
@@ -146,24 +142,23 @@ beforeEach(async () => {
     followers: 12000,
     recent_views: [1000, 2000, 1500],
   }];
-  resetConn();
-  seedAll();
-  configureCrawlerFixture();
+  (await resetDatabase());
+  (await seedAll());
+  (await configureCrawlerFixture());
   resetCollectorConnectionCache();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();
   setCrawlMcpClientFactory(mockMcp);
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
-
-afterEach(() => {
+afterEach(async () => {
   setCrawlMcpClientFactory();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();
   setStarryKolClientFactory();
   resetCollectorConnectionCache();
-  resetConn();
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.MEDIACRAWLER_MCP_URL;
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
@@ -257,14 +252,12 @@ describe("discovery run lifecycle", () => {
     expect(candidates[0]).not.toHaveProperty("platform_creator_id");
     expect(results.run).not.toHaveProperty("crawl_job_id");
     expect(results.run).not.toHaveProperty("remote_task_id");
-
-    expect(Number((getConn().prepare(
-      "SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'",
-    ).get() as { n: number }).n)).toBe(0);
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'")) as {
+      n: number;
+    }).n)).toBe(0);
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
 });
-
 describe("follow and dismiss", () => {
   it("follow creates Collaboration once; dismiss does not; neither sends nor writes stage", async () => {
     creators = [
@@ -309,36 +302,37 @@ describe("follow and dismiss", () => {
     expect(again.body.created).toBe(false);
     expect((again.body.collaboration as Json).id).toBe((followed.body.collaboration as Json).id);
     expect((again.body.collaboration as Json).kol_uid).toBe((followed.body.collaboration as Json).kol_uid);
-    expect(Number((getConn().prepare(
-      "SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'",
-    ).get() as { n: number }).n)).toBe(1);
-
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'")) as {
+      n: number;
+    }).n)).toBe(1);
     if (second) {
       const dismissed = await request("POST", `/api/discovery/candidates/${second.id}/dismiss`);
       expect(dismissed.status).toBe(200);
       expect(dismissed.body.status).toBe("dismissed");
       expect(dismissed.body.collaboration_id).toBeNull();
     }
-
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
-
   it("mocked REAL get_creators page contract still unblocks results and follow", async () => {
     setCrawlMcpClientFactory(() => ({
       async callTool(name: string, args: Json = {}) {
         calls.push(name);
-        if (name === "start_crawl") return { task_id: "remote-disc-1", status: "running" };
-        if (name === "get_crawl_status") return { task_id: "remote-disc-1", status: "idle" };
-        if (name === "get_crawl_logs") return { logs: [] };
+        if (name === "start_crawl")
+          return { task_id: "remote-disc-1", status: "running" };
+        if (name === "get_crawl_status")
+          return { task_id: "remote-disc-1", status: "idle" };
+        if (name === "get_crawl_logs")
+          return { logs: [] };
         if (name === "get_creators") {
           creatorCallArgs.push(args);
           const extra = Object.keys(args).filter((key) => !["platform", "offset", "limit"].includes(key));
-          if (extra.length) throw new Error(`pydantic: unexpected fields ${extra.join(",")}`);
+          if (extra.length)
+            throw new Error(`pydantic: unexpected fields ${extra.join(",")}`);
           return { creators, has_more: false, total: creators.length };
         }
         return {};
       },
-      async close() {},
+      async close() { },
     }));
     const { results } = await confirmAndComplete();
     const items = results.candidates as Json[];
@@ -351,37 +345,36 @@ describe("follow and dismiss", () => {
     expect(String((followed.body.collaboration as Json).kol_uid)).toMatch(/^KOL/i);
     expect(String((followed.body.collaboration as Json).kol_uid)).not.toMatch(/^disc_/);
     assertEmployeeCopy(followed.body);
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
-
   it("does not auto-create Collaboration when crawl completes", async () => {
     await confirmAndComplete();
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'").get() as { n: unknown }).n)).toBe(0);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM creator_candidates WHERE status='suggested'").get() as { n: unknown }).n)).toBe(1);
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'")) as {
+      n: unknown;
+    }).n)).toBe(0);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM creator_candidates WHERE status='suggested'")) as {
+      n: unknown;
+    }).n)).toBe(1);
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
 });
-
 describe("AI发现 is not 今日任务 recommendations", () => {
   it("keeps CreatorCandidate off buildRecommendedTasks and out of todos", async () => {
     expect(isTodoWorkItem({ source: "discovery", status: "pending" })).toBe(false);
     expect(isInsightWorkItem({ source: "discovery", status: "pending" })).toBe(false);
-
     const { results } = await confirmAndComplete();
     const candidate = (results.candidates as Json[])[0];
-    const board = buildHomeBoard() as Json;
+    const board = (await buildHomeBoard()) as Json;
     const recs = ((board.workbench as Json).recommendations as Json[]) || [];
     expect(recs.some((row) => row.candidate_id === candidate.id)).toBe(false);
     expect(recs.every((row) => row.source_label !== "AI发现")).toBe(true);
     expect(JSON.stringify(board.workbench)).not.toContain(String(candidate.id));
     expect((buildRecommendedTasks([], []) as Json[]).some((row) => row.candidate_id)).toBe(false);
     expect(((board.workbench as Json).todo as Json[]).some((row) => String(row.source) === "discovery")).toBe(false);
-
     await request("POST", `/api/discovery/candidates/${candidate.id}/follow`, { confirmed: true });
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
 });
-
 describe("discovery filters directions and region", () => {
   it("trims, dedupes, and persists directions with a Chinese region label in the plan", async () => {
     const created = await request("POST", "/api/discovery/requests", {
@@ -403,9 +396,9 @@ describe("discovery filters directions and region", () => {
     expect(String(created.body.plan_summary)).toContain("camping");
     expect(String(created.body.plan_summary)).toContain("美国");
     expect(String(created.body.plan_summary)).not.toMatch(/MediaCrawler|MCP|Job ID/i);
-    const stored = getConn().prepare("SELECT filters FROM discovery_requests WHERE id=?").get(created.body.id) as
-      | { filters?: string }
-      | undefined;
+    const stored = (await postgresDb().one("SELECT filters FROM discovery_requests WHERE id=$1", created.body.id)) as {
+      filters?: string;
+    } | undefined;
     expect(JSON.parse(String(stored?.filters || "{}"))).toEqual({
       region: "us",
       directions: ["户外电源", "camping"],
@@ -451,9 +444,10 @@ describe("discovery filters directions and region", () => {
     expect(started.status).toBe(202);
     expect(started.body.platform).toBe("youtube");
     expect(started.body.search_keywords).toEqual(["portable power station", "outdoor review", "USA"]);
-    const job = getConn().prepare(
-      "SELECT platform, parameters FROM crawl_jobs ORDER BY created_at DESC LIMIT 1",
-    ).get() as { platform?: string; parameters?: string } | undefined;
+    const job = (await postgresDb().one("SELECT platform, parameters FROM crawl_jobs ORDER BY created_at DESC LIMIT 1")) as {
+      platform?: string;
+      parameters?: string;
+    } | undefined;
     expect(job?.platform).toBe("youtube");
     expect(JSON.parse(String(job?.parameters || "{}"))).toMatchObject({
       region: "us",
@@ -553,9 +547,9 @@ describe("discovery auth and secrets", () => {
   it("requires authentication when AUTH_MODE is enabled", async () => {
     process.env.AUTH_MODE = "enabled";
     process.env.CODEX_MODE = "real";
-    resetConn();
+    (await resetDatabase());
     const { createApp } = await import("../src/app.js");
-    app = createApp();
+    app = (await createApp());
     expect((await request("GET", "/api/discovery/requests")).status).toBe(401);
     expect((await request("POST", "/api/discovery/requests", {
       keywords: ["battery"],
@@ -568,7 +562,7 @@ describe("discovery auth and secrets", () => {
       async callTool() {
         throw new Error("Authorization: Bearer super-secret-token failed");
       },
-      async close() {},
+      async close() { },
     }));
     const created = await request("POST", "/api/discovery/requests", {
       keywords: ["battery"],
@@ -582,9 +576,9 @@ describe("discovery auth and secrets", () => {
     });
     expect(JSON.stringify(started.body)).not.toContain("super-secret-token");
     assertEmployeeCopy(started.body);
-    const failed = getConn().prepare("SELECT error FROM discovery_runs ORDER BY created_at DESC LIMIT 1").get() as
-      | { error?: string }
-      | undefined;
+    const failed = (await postgresDb().one("SELECT error FROM discovery_runs ORDER BY created_at DESC LIMIT 1")) as {
+      error?: string;
+    } | undefined;
     expect(String(failed?.error || "")).toBe("采集服务连接失败");
     expect(String(failed?.error || "")).not.toContain("super-secret-token");
   });

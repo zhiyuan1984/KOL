@@ -1,21 +1,21 @@
 /** External mail is committed only here, with a claimed human-confirmed snapshot. */
 import { starry } from "../adapters/clients.js";
 import { codexMode } from "../config.js";
-import { audit, getConn, nowIso } from "../db.js";
+import { audit, postgresDb, nowIso } from "../postgres/access.js";
 import { executeStarryKolTask } from "../starrykol/service.js";
 import type { Json, Row } from "../types.js";
 import { assertClaimedMailSend, validateMailSend, completeMailSend, markMailSendUnknown } from "../host/mail-send-confirmation.js";
 import { withMailSendAuthority } from "./mail-authority.js";
 import { assertReplySendCurrent } from "../mail/reply-send.js";
-
 export async function sendDraft(draftId: string, via = "operator", requestId = ""): Promise<Json> {
-  assertClaimedMailSend(draftId, requestId);
-  const d = getConn().prepare("SELECT * FROM drafts WHERE id = ?").get(draftId) as Row | undefined;
-  if (!d) throw new Error(draftId);
+  (await assertClaimedMailSend(draftId, requestId));
+  const d = (await postgresDb().one("SELECT * FROM drafts WHERE id = $1", draftId)) as Row | undefined;
+  if (!d)
+    throw new Error(draftId);
   await assertReplySendCurrent(d, requestId);
-  validateMailSend(d);
+  (await validateMailSend(d));
   const col = d.collaboration_id
-    ? getConn().prepare("SELECT * FROM collaborations WHERE id = ?").get(d.collaboration_id) as Row | undefined
+    ? (await postgresDb().one("SELECT * FROM collaborations WHERE id = $1", d.collaboration_id)) as Row | undefined
     : undefined;
   const conversationId = String(col?.conversation_id || `conv_${draftId}`);
   const payload = {
@@ -25,7 +25,7 @@ export async function sendDraft(draftId: string, via = "operator", requestId = "
   let result: Json;
   try {
     if (codexMode() !== "stub") {
-      const remote = await withMailSendAuthority(draftId, requestId, () => executeStarryKolTask("email_compose", {
+      const remote = await withMailSendAuthority(draftId, requestId, async () => (await executeStarryKolTask("email_compose", {
         conversationId: Number(conversationId) || undefined,
         mailboxEmail: d.from_addr,
         from: d.from_addr,
@@ -35,43 +35,50 @@ export async function sendDraft(draftId: string, via = "operator", requestId = "
         body: d.body_en,
         confirm_send: true,
         ...(col?.kol_uid ? { kolUid: col.kol_uid } : {}),
-      }, via), async () => { await assertReplySendCurrent(d, requestId); validateMailSend(d); });
+      }, via)), async () => { await assertReplySendCurrent(d, requestId); (await validateMailSend(d)); });
       result = remote.data;
-      if (!Boolean(result.sent)) throw new Error("provider_result_unconfirmed");
-    } else {
-      result = starry.sendConversation(conversationId, payload);
+      if (!Boolean(result.sent))
+        throw new Error("provider_result_unconfirmed");
+    }
+    else {
+      result = (await starry.sendConversation(conversationId, payload));
     }
     // A durable receipt must precede memory refresh or UI notifications.
     const receipt = { ok: true, send: result, request_id: requestId, official_stage: col?.stage_code ?? null, stage_changed: false };
-    completeMailSend(draftId, requestId, receipt);
-  } catch (error) {
+    (await completeMailSend(draftId, requestId, receipt));
+  }
+  catch (error) {
     // Once the network call may have started, do not assume an error means unsent.
-    markMailSendUnknown(draftId, requestId);
+    (await markMailSendUnknown(draftId, requestId));
     throw error;
   }
   let extra: Json = {};
-  try { extra = JSON.parse(String(d.extra || "{}")) as Json; } catch { /* no extra */ }
+  try {
+    extra = JSON.parse(String(d.extra || "{}")) as Json;
+  }
+  catch { /* no extra */ }
   try {
     if (col?.kol_uid) {
       const { recordEffectiveCorrespondence, recordFollowedMailMemory } = await import("../host/kol-memory.js");
-      recordEffectiveCorrespondence({
+      (await recordEffectiveCorrespondence({
         kolUid: String(col.kol_uid), collaborationId: String(col.id || ""), scopeBrand: String(col.brand || ""),
         direction: "outbound", occurredAt: nowIso(), gatewaySuccess: true, kind: "human",
         subject: String(d.subject || ""), body: String(d.body_en || ""),
-      });
-      recordFollowedMailMemory({
+      }));
+      (await recordFollowedMailMemory({
         kolUid: String(col.kol_uid), collaborationId: String(col.id || ""), scopeBrand: String(col.brand || ""),
         conversationId, subject: String(d.subject || ""), summary: String(d.body_en || ""), body: String(d.body_en || ""),
         direction: "outbound", occurredAt: nowIso(), gatewaySuccess: true, sourceVersion: `gateway.send:${draftId}`,
-      });
+      }));
     }
-  } catch {
-    audit("gateway", "gateway.send.memory_pending", { draft_id: draftId, request_id: requestId, sent: true });
+    }
+  catch {
+    (await audit("gateway", "gateway.send.memory_pending", { draft_id: draftId, request_id: requestId, sent: true }));
   }
-  audit("gateway", "gateway.send", {
+  (await audit("gateway", "gateway.send", {
     draft_id: draftId, request_id: requestId, via, conversation_id: conversationId,
     stage_untouched: true, official_stage: col?.stage_code ?? null,
     knowledge_id: extra.knowledge_id || null, knowledge_version: extra.knowledge_version || null, follow_created: false,
-  });
+  }));
   return { ok: true, send: result, request_id: requestId, official_stage: col?.stage_code ?? null, stage_changed: false };
 }

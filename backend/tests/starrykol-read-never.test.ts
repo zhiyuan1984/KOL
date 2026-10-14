@@ -2,23 +2,19 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
-import {
-  isStarryKolReadTask,
-  isStarryKolWriteTask,
-  setEmailMcpClientFactory,
-  STARRY_KOL_READ_TASKS,
-} from "../src/starrykol/service.js";
+import { isStarryKolReadTask, isStarryKolWriteTask, setEmailMcpClientFactory, STARRY_KOL_READ_TASKS, } from "../src/starrykol/service.js";
 import type { Json } from "../src/types.js";
 import { CodexUnavailable } from "../src/worker/errors.js";
 import { completeTurnItems, hasUsableStarryReadResult, starryReadBlockedByApproval } from "../src/worker/session-items.js";
 import { freshTestDatabase } from "./support/pg.js";
-
 const WRITE_TOOLS = ["sendEmailNow", "changeLifecycleStage", "decryptKolContact", "updateKolProfile", "addKolProfile"];
-const calls: Array<{ name: string; args: Json }> = [];
-
+const calls: Array<{
+  name: string;
+  args: Json;
+}> = [];
 function mockClient() {
   return {
     async callTool(name: string, args: Json = {}): Promise<Json> {
@@ -52,10 +48,9 @@ function mockClient() {
       }
       throw new Error(`unexpected tool ${name}`);
     },
-    async close() { /* noop */ },
+    async close() { },
   };
 }
-
 describe("Starry KOL L1 reads under approvalPolicy never", () => {
   let tmp = "";
   let previousMode: string | undefined;
@@ -63,25 +58,24 @@ describe("Starry KOL L1 reads under approvalPolicy never", () => {
   beforeEach(async () => {
     await freshTestDatabase();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-read-never-"));
-    process.env.LINGONG_DB = path.join(tmp, "read-never.db");
     process.env.LINGONG_DATA = tmp;
     previousMode = process.env.CODEX_MODE;
     process.env.CODEX_MODE = "real";
     calls.length = 0;
     setEmailMcpClientFactory(mockClient);
-    resetConn();
-    seedAll();
-    seedWorkbenchFixtures();
+    (await resetDatabase());
+    (await seedAll());
+    (await seedWorkbenchFixtures());
   });
-
-  afterEach(() => {
+  afterEach(async () => {
     setEmailMcpClientFactory();
-    resetConn();
-    if (previousMode === undefined) delete process.env.CODEX_MODE;
-    else process.env.CODEX_MODE = previousMode;
+    (await resetDatabase());
+    if (previousMode === undefined)
+      delete process.env.CODEX_MODE;
+    else
+      process.env.CODEX_MODE = previousMode;
     fs.rmSync(tmp, { recursive: true, force: true });
   });
-
   it("classifies 达人库查询 and 风险扫描 as L1 reads (not implicit execution grants)", () => {
     expect(STARRY_KOL_READ_TASKS).toEqual(expect.arrayContaining([
       "creator_library_query",
@@ -114,16 +108,14 @@ describe("Starry KOL L1 reads under approvalPolicy never", () => {
   it("stub fixture can synthesize pageKolProfiles output", async () => {
     process.env.CODEX_MODE = "stub";
     const log: Json[] = [];
-    const seen: Array<{ name: string; status: string }> = [];
-    const items = await completeTurnItems(
-      "creator_library_query",
-      { raw: "查询达人库 关键词：户外电源" },
-      [],
-      log,
-      (progress) => {
-        if (progress.operation) seen.push({ name: progress.operation.name, status: progress.operation.status });
-      },
-    );
+    const seen: Array<{
+      name: string;
+      status: string;
+    }> = [];
+    const items = await completeTurnItems("creator_library_query", { raw: "查询达人库 关键词：户外电源" }, [], log, (progress) => {
+      if (progress.operation)
+        seen.push({ name: progress.operation.name, status: progress.operation.status });
+    });
     expect(calls.map((row) => row.name)).toEqual(["pageKolProfiles", "getKolProfileSidebarMetrics"]);
     expect(calls.map((row) => row.name).some((name) => WRITE_TOOLS.includes(name))).toBe(false);
     const card = items.find((item) => item.type === "task_result");
@@ -143,20 +135,14 @@ describe("Starry KOL L1 reads under approvalPolicy never", () => {
     }));
     expect(seen.some((row) => row.name === "starrykol.pageKolProfiles" && row.status === "done")).toBe(true);
   });
-
   it("stub fixture can replace a blocked card with fixture data", async () => {
     process.env.CODEX_MODE = "stub";
-    const items = await completeTurnItems(
-      "creator_library_query",
-      { raw: "查询达人库" },
-      [{
+    const items = await completeTurnItems("creator_library_query", { raw: "查询达人库" }, [{
         type: "task_result",
         title: "达人库查询未完成",
         summary: "工具需要审批但当前政策禁止审批（approval_policy=never）",
         starrykol_data: { error: "禁止审批", metrics: { approval_policy: "never" } },
-      }],
-      [],
-    );
+      }], []);
     const card = items.find((item) => item.type === "task_result");
     expect(card?.title).toBe("达人库查询结果");
     expect(String(card?.summary)).not.toMatch(/未完成|禁止审批|数据限制/);
@@ -178,10 +164,11 @@ describe("Starry KOL L1 reads under approvalPolicy never", () => {
       expect.objectContaining({ name: "starrykol.pageRiskConversations", status: "done" }),
       expect.objectContaining({ name: "starrykol.summarizeRiskConversations", status: "done" }),
     ]);
-    const overdue = getConn().prepare("SELECT handle FROM collaborations WHERE overdue = 1").all() as { handle: string }[];
+    const overdue = (await postgresDb().many("SELECT handle FROM collaborations WHERE overdue = 1")) as {
+      handle: string;
+    }[];
     expect(overdue.some((row) => row.handle === "小美妆日记")).toBe(true);
   });
-
   it.each(["creator_library_query", "risk_scan"])("real %s never bypasses the authorized runtime with Host fallback", async (skill) => {
     await expect(completeTurnItems(skill, { raw: "读取数据" }, [], [])).rejects.toBeInstanceOf(CodexUnavailable);
     expect(calls).toEqual([]);

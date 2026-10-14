@@ -49,6 +49,10 @@ jobs:
             "DEPLOY_REVISION='${SHA}' bash -s" <<'REMOTE'
           set -Eeuo pipefail
           cd ~/kol
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Production checkout has local changes; preserve and reconcile them before repair." >&2
+            exit 1
+          fi
           git fetch github "$DEPLOY_REVISION"
           git reset --hard "$DEPLOY_REVISION"
           bash scripts/apply-postgres-schema.sh

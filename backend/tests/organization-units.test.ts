@@ -3,18 +3,34 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { resetConn } from "../src/db.js";
+import { resetDatabase } from "../src/postgres/access.js";
 import { HttpFail } from "../src/host/errors.js";
 import { organizationUnitsRouter } from "../src/routers/organization-units.js";
 import { freshTestDatabase } from "./support/pg.js";
-
-type UnitRow = { id: string; display_name: string; type: string | null; parent: string | null; level: number; head: string | null };
-type PersonRow = { display_name: string; role: string | null; org_unit: string | null; user_ref: string | null };
-type Directory = { company: { id: string; display_name: string } | null; units: UnitRow[]; people: PersonRow[] };
-
+type UnitRow = {
+  id: string;
+  display_name: string;
+  type: string | null;
+  parent: string | null;
+  level: number;
+  head: string | null;
+};
+type PersonRow = {
+  display_name: string;
+  role: string | null;
+  org_unit: string | null;
+  user_ref: string | null;
+};
+type Directory = {
+  company: {
+    id: string;
+    display_name: string;
+  } | null;
+  units: UnitRow[];
+  people: PersonRow[];
+};
 let tmp = "";
 let app: Hono;
-
 function testApp(): Hono {
   const a = new Hono();
   a.onError((e, c) => e instanceof HttpFail
@@ -23,8 +39,10 @@ function testApp(): Hono {
   a.route("/api", organizationUnitsRouter);
   return a;
 }
-
-async function directory(): Promise<{ status: number; body: Directory }> {
+async function directory(): Promise<{
+  status: number;
+  body: Directory;
+}> {
   const res = await app.request("/api/admin/organization-units");
   return { status: res.status, body: (await res.json()) as Directory };
 }
@@ -32,18 +50,17 @@ async function directory(): Promise<{ status: number; body: Directory }> {
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-organization-units-"));
-  Object.assign(process.env, { LINGONG_DB: path.join(tmp, "db.sqlite"), LINGONG_DATA: tmp, AUTH_MODE: "disabled", NODE_ENV: "test" });
-  resetConn();
+  Object.assign(process.env, { AUTH_MODE: "disabled", NODE_ENV: "test" });
+  (await resetDatabase());
   app = testApp();
 });
-
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
-  resetConn();
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
-  for (const key of ["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "NODE_ENV"]) delete process.env[key];
+  for (const key of ["AUTH_MODE", "NODE_ENV"])
+    delete process.env[key];
 });
-
 describe("admin organization unit directory", () => {
   it("returns the confirmed registry tree with levels computed from parent chains", async () => {
     const { status, body } = await directory();
@@ -91,12 +108,16 @@ describe("admin organization unit directory", () => {
   it("fails loudly when the registry cannot be read instead of serving an empty directory", async () => {
     const original = fs.readFileSync;
     vi.spyOn(fs, "readFileSync").mockImplementation(((file: unknown, ...rest: unknown[]) => {
-      if (String(file).includes("org-registry.yaml")) throw new Error("registry missing");
+      if (String(file).includes("org-registry.yaml"))
+        throw new Error("registry missing");
       return (original as (...args: unknown[]) => unknown)(file, ...rest);
     }) as unknown as typeof fs.readFileSync);
-
     const res = await app.request("/api/admin/organization-units");
     expect(res.status).toBe(503);
-    expect(((await res.json()) as { detail: { code: string } }).detail).toEqual({ code: "organization_registry_unavailable" });
+    expect(((await res.json()) as {
+      detail: {
+        code: string;
+      };
+    }).detail).toEqual({ code: "organization_registry_unavailable" });
   });
 });

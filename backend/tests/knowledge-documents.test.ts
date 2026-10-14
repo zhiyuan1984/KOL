@@ -3,15 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as bridge from "../src/knowledge-bridge.js";
-import { tokenDigest,withScopedUser,requireAdmin,authDisabled } from "../src/auth.js";
+import { tokenDigest, withScopedUser, requireAdmin, authDisabled } from "../src/auth.js";
 import type { Hono } from "hono";
-import { getConn, resetConn,txImmediate } from "../src/db.js";
+import { postgresDb, resetDatabase, pgSerialTransaction } from "../src/postgres/access.js";
 import { randomUUID } from "node:crypto";
 import { ensureOrganizationTree } from "../src/runtime/organization-tree.js";
 import { reviewContextForActor } from "../src/approval/review-access.js";
 import { ReviewService } from "../src/approval/review-service.js";
 import { knowledgeReviewDefinition } from "../../shared/review.js";
-import { bindPublication,preparePublication,guardKnowledgeReview } from "../src/knowledge/publication.js";
+import { bindPublication, preparePublication, guardKnowledgeReview } from "../src/knowledge/publication.js";
 import { processExecutionJobById } from "../src/execution-jobs/dispatcher.js";
 import { seedAll } from "../src/seed.js";
 import { setPersona } from "../src/host/persona.js";
@@ -24,28 +24,27 @@ import { createAgentBinding, revokeAgentBinding, canUseAgent } from "../src/runt
 import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
 import { setIntentLlmFetch } from "../src/tasks/openai-intent.js";
 import { queryDocuments } from "../src/host/knowledge-documents.js";
-
 type Json = Record<string, unknown>;
-
 let tmp: string;
 let app: Hono;
-
-async function request(
-  method: string,
-  url: string,
-  body?: unknown,
-  cookie = "",
-): Promise<{ status: number; cookie: string; json: () => Promise<Json>; text: () => Promise<string> }> {
+async function request(method: string, url: string, body?: unknown, cookie = ""): Promise<{
+  status: number;
+  cookie: string;
+  json: () => Promise<Json>;
+  text: () => Promise<string>;
+}> {
   const init: RequestInit = { method, headers: {} };
   const headers = init.headers as Record<string, string>;
-  if (cookie) headers.Cookie = cookie;
+  if (cookie)
+    headers.Cookie = cookie;
   if (body instanceof FormData) {
     init.body = body;
-  } else if (body !== undefined) {
+  }
+  else if (body !== undefined) {
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
-  const res = await (authDisabled() ? withScopedUser(requireAdmin(),()=>app.request(url,init)) : app.request(url,init));
+  const res = await (authDisabled() ? withScopedUser((await requireAdmin()), () => app.request(url, init)) : app.request(url, init));
   const text = await res.text();
   return {
     status: res.status,
@@ -54,11 +53,11 @@ async function request(
     json: async () => (text ? (JSON.parse(text) as Json) : {}),
   };
 }
-
-async function detailCode(res: { json: () => Promise<Json> }): Promise<string> {
+async function detailCode(res: {
+  json: () => Promise<Json>;
+}): Promise<string> {
   return String(((await res.json()).detail as Json | undefined)?.code || "");
 }
-
 function pdfBytes(marker = ""): Buffer {
   return Buffer.from(`%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n${marker}\n%%EOF\n`, "utf8");
 }
@@ -103,87 +102,94 @@ async function waitStatus(id: string, statuses: string[], timeoutMs = 8000): Pro
   for (;;) {
     const body = await docDetail(id);
     const doc = body.document as Json;
-    if (statuses.includes(String(doc.status))) return doc;
-    if (Date.now() > deadline) throw new Error(`waitStatus timeout: ${String(doc.status)}`);
+    if (statuses.includes(String(doc.status)))
+      return doc;
+    if (Date.now() > deadline)
+      throw new Error(`waitStatus timeout: ${String(doc.status)}`);
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
 }
-
 async function auditCount(eventType: string): Promise<number> {
-  const row = getConn().prepare("SELECT COUNT(*) AS n FROM audit_events WHERE event_type=?").get(eventType) as { n: unknown };
+  const row = (await postgresDb().one("SELECT COUNT(*) AS n FROM audit_events WHERE event_type=$1", eventType)) as {
+    n: unknown;
+  };
   return Number(row.n || 0);
 }
-
-async function approveAndPublish(id:string,base:string){
-  const context=(actor="sriphy")=>reviewContextForActor(getConn(),actor,"company:amperetime");
-  const definition=knowledgeReviewDefinition();definition.nodes.find(n=>n.type==="review")!.assignee={kind:"named",userIds:["pdf-reviewer"]};
-  const template=txImmediate(db=>new ReviewService(db,context()).saveTemplate(undefined,undefined,definition));
-  txImmediate(db=>{const service=new ReviewService(db,context()),command={action:"publish" as const,templateId:template.id,expectedVersion:template.version};
-    const prepare=service.prepare(command);service.execute(command,prepare.confirmationId,randomUUID());});
-  await bindPublication(base,template.id,0,context());
-  const prepare=await preparePublication(id,"核对原文后发布",context());await guardKnowledgeReview(prepare.command,context());
-  const submit=txImmediate(db=>new ReviewService(db,context()).execute(prepare.command,prepare.confirmationId,randomUUID()));
-  const instance=String(submit.resourceId),service=new ReviewService(getConn(),context("pdf-reviewer")),view=service.instance(instance);
-  const command={action:"approve" as const,instanceId:instance,expectedVersion:view.version,reason:"已核对"};await guardKnowledgeReview(command,context("pdf-reviewer"));
-  txImmediate(db=>{const s=new ReviewService(db,context("pdf-reviewer")),p=s.prepare(command);s.execute(command,p.confirmationId,randomUUID());});
-  expect((await processExecutionJobById(`knowledge-publish:company:amperetime:${instance}`,"pdf-test"))?.outcome).toBe("processed");
+async function approveAndPublish(id: string, base: string) {
+  const context = async (actor = "sriphy") => (await reviewContextForActor(postgresDb(), actor, "company:amperetime"));
+  const definition = knowledgeReviewDefinition();
+  definition.nodes.find(n => n.type === "review")!.assignee = { kind: "named", userIds: ["pdf-reviewer"] };
+  const template = (await pgSerialTransaction(async (db) => (await new ReviewService(db, (await context())).saveTemplate(undefined, undefined, definition))));
+  (await pgSerialTransaction(async (db) => {
+    const service = new ReviewService(db, (await context())), command = { action: "publish" as const, templateId: template.id, expectedVersion: template.version };
+    const prepare = (await service.prepare(command));
+    (await service.execute(command, prepare.confirmationId, randomUUID()));
+  }));
+  await bindPublication(base, template.id, 0, (await context()));
+  const prepare = await preparePublication(id, "核对原文后发布", (await context()));
+  await guardKnowledgeReview(prepare.command, (await context()));
+  const submit = (await pgSerialTransaction(async (db) => (await new ReviewService(db, (await context())).execute(prepare.command, prepare.confirmationId, randomUUID()))));
+  const instance = String(submit.resourceId), service = new ReviewService(postgresDb(), (await context("pdf-reviewer"))), view = (await service.instance(instance));
+  const command = { action: "approve" as const, instanceId: instance, expectedVersion: view.version, reason: "已核对" };
+  await guardKnowledgeReview(command, (await context("pdf-reviewer")));
+  (await pgSerialTransaction(async (db) => { const s = new ReviewService(db, (await context("pdf-reviewer"))), p = (await s.prepare(command)); (await s.execute(command, p.confirmationId, randomUUID())); }));
+  expect((await processExecutionJobById(`knowledge-publish:company:amperetime:${instance}`, "pdf-test"))?.outcome).toBe("processed");
 }
-
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-kdoc-"));
-  process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
+  process.env.LG_DATA_DIR = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.KNOWLEDGE_ENGINE_MODE = "stub";
   delete process.env.KNOWLEDGE_STUB_NORMALIZE_MS;
-  resetConn();
-  seedAll();
-  process.env.AUTH_MODE="disabled";ensureOrganizationTree();
-  const db=getConn(),time=new Date().toISOString();
-  for(const [id,roles] of [["sriphy",'["employee","admin"]'],["pdf-reviewer",'["employee"]']])
-    db.prepare("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)")
-      .run(id,id,id,"unused",roles,'[]','',1,time,time);
-  db.prepare("UPDATE organization_people SET user_id='sriphy' WHERE person_ref='person:yan_chen'").run();
-  db.prepare("UPDATE organization_people SET user_id='pdf-reviewer' WHERE person_ref='person:zhang_gan'").run();
+  (await resetDatabase());
+  (await seedAll());
+  process.env.AUTH_MODE = "disabled";
+  (await ensureOrganizationTree());
+  const db = postgresDb(), time = new Date().toISOString();
+  for (const [id, roles] of [["sriphy", '["employee","admin"]'], ["pdf-reviewer", '["employee"]']])
+    (await db.execute("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", id, id, id, "unused", roles, '[]', '', 1, time, time));
+  (await db.execute("UPDATE organization_people SET user_id='sriphy' WHERE person_ref='person:yan_chen'"));
+  (await db.execute("UPDATE organization_people SET user_id='pdf-reviewer' WHERE person_ref='person:zhang_gan'"));
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
-
-afterEach(() => {
+afterEach(async () => {
   setIntentLlmFetch();
   vi.restoreAllMocks();
-  resetConn();
+  (await resetDatabase());
   delete process.env.KNOWLEDGE_ENGINE_MODE;
   delete process.env.KNOWLEDGE_STUB_NORMALIZE_MS;
+  delete process.env.LINGONG_DATA;
+  delete process.env.LG_DATA_DIR;
   fs.rmSync(tmp, { recursive: true, force: true });
 });
-
 describe("knowledge documents (P1 pipeline)", () => {
   it("rejects uploading into a base with a foreign organization scope before creating documents or jobs", async () => {
     const base = await createUnstructuredBase();
     const original = await upload(String(base.id), "组织原件.pdf", pdfBytes());
     await waitStatus(String(original.id), ["pending_review"]);
-    getConn().prepare("INSERT INTO knowledge_document_scopes(document_id,tenant,explanation,fingerprint,updated_at) VALUES(?,?,?,?,?)")
-      .run(original.id, "foreign-company", "", "foreign", new Date().toISOString());
-    const before = getConn().prepare("SELECT count(*) AS n FROM knowledge_documents").get();
+    (await postgresDb().execute("INSERT INTO knowledge_document_scopes(document_id,tenant,explanation,fingerprint,updated_at) VALUES($1,$2,$3,$4,$5)", original.id, "foreign-company", "", "foreign", new Date().toISOString()));
+    const before = (await postgresDb().one("SELECT count(*) AS n FROM knowledge_documents"));
     const form = new FormData();
     form.append("base_id", String(base.id));
     form.append("file", new File([blobPart(pdfBytes())], "越界文件.pdf"));
     const response = await request("POST", "/api/admin/knowledge/documents", form);
     expect(response.status).toBe(403);
     expect(await detailCode(response)).toBe("knowledge_base_scope_forbidden");
-    expect(getConn().prepare("SELECT count(*) AS n FROM knowledge_documents").get()).toEqual(before);
+    expect((await postgresDb().one("SELECT count(*) AS n FROM knowledge_documents"))).toEqual(before);
   });
   it("validates scope explanations before saving files or starting parsing", async () => {
     const base = await createUnstructuredBase();
     const form = new FormData();
-    form.append("base_id", String(base.id)); form.append("scope_flow", "true");
+    form.append("base_id", String(base.id));
+    form.append("scope_flow", "true");
     form.append("explanation", "字".repeat(4001));
     form.append("file", new File([blobPart(pdfBytes())], "无效说明.pdf"));
     const response = await request("POST", "/api/admin/knowledge/documents", form);
     expect(response.status).toBe(422);
-    expect(getConn().prepare("SELECT count(*) AS n FROM knowledge_documents").get()).toMatchObject({ n: 0 });
+    expect((await postgresDb().one("SELECT count(*) AS n FROM knowledge_documents"))).toMatchObject({ n: 0 });
     expect(fs.existsSync(path.join(tmp, "knowledge"))).toBe(false);
   });
   it("bounds multipart uploads before parsing and creates no records for oversized requests", async () => {
@@ -191,21 +197,26 @@ describe("knowledge documents (P1 pipeline)", () => {
     const previous = process.env.KNOWLEDGE_DOC_MAX_BYTES;
     try {
       process.env.KNOWLEDGE_DOC_MAX_BYTES = "1024";
-      const form = new FormData(); form.append("base_id", String(base.id));
+      const form = new FormData();
+      form.append("base_id", String(base.id));
       form.append("file", new File([blobPart(Buffer.alloc(70000))], "large.mp4"));
       const response = await request("POST", "/api/admin/knowledge/documents", form);
       expect(response.status).toBe(413);
       expect(await detailCode(response)).toBe("knowledge_document_too_large");
-      expect(getConn().prepare("SELECT count(*) AS n FROM knowledge_documents").get()).toMatchObject({ n: 0 });
-    } finally {
-      if (previous === undefined) delete process.env.KNOWLEDGE_DOC_MAX_BYTES;
-      else process.env.KNOWLEDGE_DOC_MAX_BYTES = previous;
+      expect((await postgresDb().one("SELECT count(*) AS n FROM knowledge_documents"))).toMatchObject({ n: 0 });
+    }
+    finally {
+      if (previous === undefined)
+        delete process.env.KNOWLEDGE_DOC_MAX_BYTES;
+      else
+        process.env.KNOWLEDGE_DOC_MAX_BYTES = previous;
     }
   });
   it("saves a PDF draft without jobs, starts explicitly once, and keeps it unpublished", async () => {
     const base = await createUnstructuredBase();
     const form = new FormData();
-    form.append("base_id", String(base.id)); form.append("draft", "true");
+    form.append("base_id", String(base.id));
+    form.append("draft", "true");
     form.append("file", new File([blobPart(pdfBytes())], "产品规格.pdf"));
     const response = await request("POST", "/api/admin/knowledge/documents", form);
     expect(response.status).toBe(201);
@@ -217,31 +228,33 @@ describe("knowledge documents (P1 pipeline)", () => {
     expect((await request("POST", `/api/admin/knowledge/documents/${doc.id}/start`)).status).toBe(409);
     await waitStatus(String(doc.id), ["pending_review"]);
   });
-
   it("product consultation uses published bound PDFs through the runtime and rechecks user access", async () => {
-    login(DEMO_ADMIN.handle, DEMO_ADMIN.password);
+    (await login(DEMO_ADMIN.handle, DEMO_ADMIN.password));
     const base = await createUnstructuredBase();
     const create = await request("POST", "/api/admin/skills", {
       id: "product_consultation", title: "产品咨询", body: "使用知识文档问答工具回答并保留页码。", mcp: ["knowledge.ask_documents"],
     });
     expect(create.status, await create.text()).toBe(201);
     for (const stage of ["editing", "testing", "published"]) {
+      if (stage === "published") {
+        const owner = await request("PATCH", "/api/admin/skills/product_consultation/lifecycle", { owner: "产品资料测试负责人" });
+        expect(owner.status, await owner.text()).toBe(200);
+      }
       const result = await request("POST", "/api/admin/skills/product_consultation/stage", { stage });
       expect(result.status, await result.text()).toBe(200);
     }
-    seedPublishedAgent("agent_product_test", "产品专家");
+    (await seedPublishedAgent("agent_product_test", "产品专家"));
     const enabled = await request("PUT", "/api/admin/agents/agent_product_test/skills/product_consultation", { enabled: true, expected_version: 0 });
     expect(enabled.status).toBe(200);
     const binding = await request("POST", "/api/admin/agents/agent_product_test/knowledge", { skill_id: "product_consultation", base_id: base.id });
     expect(binding.status, await binding.text()).toBe(201);
-    const db = getConn();
-    db.prepare("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)")
-      .run("product-user", "product-user", "产品测试用户", "no-login", '["employee"]', '[]', '', 1, "now", "now");
-    db.prepare("UPDATE organization_people SET user_id=? WHERE person_ref=?").run("product-user", "person:ye_guanwang");
-    const access = createAgentBinding({ agent_id: "agent_product_test", target_type: "person", target_id: "person:ye_guanwang", company_id: "company:amperetime", source: "test" });
-    expect(canUseAgent("product-user", "agent_product_test")).toBe(true);
-    expect(runtimeAgentForSkill("product_consultation", "product-user")).toBe("agent_product_test");
-    expect(runtimeAgentScopeContext("agent_product_test").execution_scope).toBe("skill-resources");
+    const db = postgresDb();
+    (await db.execute("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", "product-user", "product-user", "产品测试用户", "no-login", '["employee"]', '[]', '', 1, "now", "now"));
+    (await db.execute("UPDATE organization_people SET user_id=$1 WHERE person_ref=$2", "product-user", "person:ye_guanwang"));
+    const access = (await createAgentBinding({ agent_id: "agent_product_test", target_type: "person", target_id: "person:ye_guanwang", company_id: "company:amperetime", source: "test" }));
+    expect((await canUseAgent("product-user", "agent_product_test"))).toBe(true);
+    expect((await runtimeAgentForSkill("product_consultation", "product-user"))).toBe("agent_product_test");
+    expect((await runtimeAgentScopeContext("agent_product_test")).execution_scope).toBe("skill-resources");
     const runtime = new SkillExecution({ agentId: "agent_product_test", skillId: "product_consultation", userId: "product-user", runId: "product-test" });
     try {
       const catalog = await runtime.discover();
@@ -251,7 +264,7 @@ describe("knowledge documents (P1 pipeline)", () => {
       const doc = await upload(String(base.id), "产品规格.pdf", pdfBytes());
       await waitStatus(String(doc.id), ["pending_review"]);
       await expect(runtime.invoke("knowledge.ask_documents", { query: "规格？" })).rejects.toMatchObject({ detail: { code: "knowledge_no_published_documents" } });
-      await approveAndPublish(String(doc.id),String(base.id));
+      await approveAndPublish(String(doc.id), String(base.id));
       const result = await runtime.invoke("knowledge.ask_documents", { query: "规格？" });
       const answer = JSON.parse(String((result.content as Json[])[0].text));
       expect(answer.citations[0]).toMatchObject({ document_id: doc.id, page: 1 });
@@ -259,19 +272,21 @@ describe("knowledge documents (P1 pipeline)", () => {
       const invalid = vi.spyOn(bridge, "runBridge").mockResolvedValueOnce({ ok: true, answer: "untrusted", citations: [{ doc_id: "outside-scope", page: 1 }] });
       await expect(runtime.invoke("knowledge.ask_documents", { query: "规格？" })).rejects.toMatchObject({ detail: { code: "knowledge_invalid_citation" } });
       invalid.mockRestore();
-      db.prepare("INSERT INTO auth_sessions(id_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)")
-        .run(tokenDigest("product-source-test"), "product-user", new Date(Date.now() + 60000).toISOString(), new Date().toISOString());
+      (await db.execute("INSERT INTO auth_sessions(id_hash,user_id,expires_at,created_at) VALUES($1,$2,$3,$4)", tokenDigest("product-source-test"), "product-user", new Date(Date.now() + 60000).toISOString(), new Date().toISOString()));
       process.env.AUTH_MODE = "enabled";
       const sourceUrl = String(answer.citations[0].source_url).split("#")[0];
       expect((await request("GET", sourceUrl, undefined, "lingong_session=product-source-test")).status).toBe(200);
       process.env.AUTH_MODE = "disabled";
-      db.prepare("UPDATE knowledge_bases SET status='archived' WHERE id=?").run(base.id);
+      const dependency = await db.one("SELECT id FROM knowledge_bindings WHERE skill_id=$1", "product_consultation") as Json;
+      const detached = await request("DELETE", `/api/admin/agents/agent_product_test/knowledge/${dependency.id}`);
+      expect(detached.status, await detached.text()).toBe(200);
       await expect(runtime.invoke("knowledge.ask_documents", { query: "规格？" })).rejects.toMatchObject({ detail: { code: "knowledge_scope_unavailable" } });
-      db.prepare("UPDATE knowledge_bases SET status='active' WHERE id=?").run(base.id);
+      const restored = await request("POST", "/api/admin/agents/agent_product_test/knowledge", { skill_id: "product_consultation", base_id: base.id });
+      expect(restored.status, await restored.text()).toBe(201);
       const originalBridge = bridge.runBridge;
       const revoked = vi.spyOn(bridge, "runBridge").mockImplementationOnce(async (call) => {
         const outcome = await originalBridge(call);
-        revokeAgentBinding(access.id, { reason: "查询过程中撤权" });
+        (await revokeAgentBinding(access.id, { reason: "查询过程中撤权" }));
         return outcome;
       });
       await expect(runtime.invoke("knowledge.ask_documents", { query: "规格？" })).rejects.toMatchObject({ detail: { code: "runtime_agent_not_usable" } });
@@ -280,7 +295,11 @@ describe("knowledge documents (P1 pipeline)", () => {
       expect((await request("GET", sourceUrl, undefined, "lingong_session=product-source-test")).status).toBe(403);
       process.env.AUTH_MODE = "disabled";
       await expect(runtime.invoke("knowledge.ask_documents", { query: "规格？" })).rejects.toMatchObject({ detail: { code: "runtime_agent_not_usable" } });
-    } finally { runtime.close(); process.env.AUTH_MODE = "disabled"; }
+    }
+    finally {
+      runtime.close();
+      process.env.AUTH_MODE = "disabled";
+    }
   });
   it("accepts supported media; rejects mislabeled PPTX and bad magic", async () => {
     const structuredFamily = (await (await request("POST", "/api/admin/knowledge/domains", {
@@ -350,12 +369,17 @@ describe("knowledge documents (P1 pipeline)", () => {
     expect(original.status).toBe(200);
     expect((await original.text()).startsWith("PK")).toBe(true);
     const preview = await request("GET", `/api/admin/knowledge/documents/${doc.id}/preview`);
-    expect(preview.status).toBe(200); expect((await preview.text()).startsWith("%PDF-")).toBe(true);
+    expect(preview.status).toBe(200);
+    expect((await preview.text()).startsWith("%PDF-")).toBe(true);
     expect(((await docDetail(String(doc.id))).text_preview as Json).text).toContain("Strategy slide 2");
-    const draftForm = new FormData(); draftForm.append("base_id", String(base.id)); draftForm.append("draft", "true");
+    const draftForm = new FormData();
+    draftForm.append("base_id", String(base.id));
+    draftForm.append("draft", "true");
     draftForm.append("file", new File([blobPart(pdfBytes())], "draft.pdf"));
     const draft = (await (await request("POST", "/api/admin/knowledge/documents", draftForm)).json()).document as Json;
-    const replacement = new FormData(); replacement.append("file", new File([blobPart(bytes)], "新版.pptx")); replacement.append("updated_at", String(draft.updated_at));
+    const replacement = new FormData();
+    replacement.append("file", new File([blobPart(bytes)], "新版.pptx"));
+    replacement.append("updated_at", String(draft.updated_at));
     expect((await request("PUT", `/api/admin/knowledge/documents/${draft.id}/draft-file`, replacement)).status).toBe(200);
     expect(((await docDetail(String(draft.id))).document as Json).media_type).toBe("pptx");
   });
@@ -364,18 +388,20 @@ describe("knowledge documents (P1 pipeline)", () => {
     process.env.KNOWLEDGE_ENGINE_MODE = "real";
     process.env.KNOWLEDGE_PAGEINDEX_PYTHON = "python3";
     const actual = bridge.runBridge;
-    vi.spyOn(bridge, "runBridge").mockImplementation(call => call.cmd === "index"
-      ? Promise.resolve({ ok: true, doc_id: "mixed_test_index", pages: 3 }) : actual(call));
+    vi.spyOn(bridge, "runBridge").mockImplementation(async (call) => call.cmd === "index"
+      ? Promise.resolve({ ok: true, doc_id: "mixed_test_index", pages: 3 }) : (await actual(call)));
     const ocr = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: "Image body: execution targets, OCR verified.\n".repeat(120) } }], usage: { prompt_tokens: 1, completion_tokens: 1 } })));
     setIntentLlmFetch(ocr);
     const base = await createUnstructuredBase();
     const bytes = fs.readFileSync(new URL("./fixtures/pptx/mixed-3.pptx", import.meta.url));
     const doc = await upload(String(base.id), "混合资料.pptx", bytes);
     const ready = await waitStatus(String(doc.id), ["pending_review", "failed"], 30000);
-    expect(ready.error).toBeNull(); expect(ready.status).toBe("pending_review");
+    expect(ready.error).toBeNull();
+    expect(ready.status).toBe("pending_review");
     expect(ocr).toHaveBeenCalledTimes(2);
     const normalize = (ready.artifacts as Json).normalize as Json;
-    expect(normalize.mode).toBe("pptx-ocr"); expect(normalize.ocr_pages).toEqual([2, 3]);
+    expect(normalize.mode).toBe("pptx-ocr");
+    expect(normalize.ocr_pages).toEqual([2, 3]);
     expect((normalize.page_map as Json)["1"]).toBe(1);
     const mapping = normalize.page_map as Json;
     expect(Object.keys(mapping).length).toBeGreaterThan(3);
@@ -386,10 +412,10 @@ describe("knowledge documents (P1 pipeline)", () => {
     expect((answer.citations as Json[])[0].page).toBe(2);
     expect(((await docDetail(String(doc.id))).text_preview as Json).text).toContain("OCR verified");
     const preview = await request("GET", `/api/admin/knowledge/documents/${doc.id}/preview`);
-    expect(preview.status).toBe(200); expect((await preview.text()).startsWith("%PDF-")).toBe(true);
+    expect(preview.status).toBe(200);
+    expect((await preview.text()).startsWith("%PDF-")).toBe(true);
     delete process.env.KNOWLEDGE_PAGEINDEX_PYTHON;
   });
-
   it("transcribes audio with real segment progress in stub mode", async () => {
     const base = await createUnstructuredBase();
     const bytes = Buffer.concat([Buffer.from("ID3"), Buffer.from("STUB_MEDIA_SEGMENTS=3")]);
@@ -450,16 +476,16 @@ describe("knowledge documents (P1 pipeline)", () => {
     const base = await createUnstructuredBase();
     const doc = await upload(String(base.id), "选手手册.pdf", pdfBytes());
     await waitStatus(String(doc.id), ["pending_review"]);
-
-    await approveAndPublish(String(doc.id),String(base.id));
+    await approveAndPublish(String(doc.id), String(base.id));
     const published = (await docDetail(String(doc.id))).document as Json;
     expect(published.status).toBe("published");
     expect(published.published_at).toBeTruthy();
-
-    const answer = await (await request("POST", "/api/admin/knowledge/search", {
+    const answerResponse = await request("POST", "/api/admin/knowledge/search", {
       query: "这份资料的要点是什么？",
       base_id: base.id,
-    })).json();
+    });
+    expect(answerResponse.status, await answerResponse.text()).toBe(200);
+    const answer = await answerResponse.json();
     expect(String(answer.answer)).toContain("stub 试算答案");
     expect(String(answer.answer)).toContain("这份资料的要点是什么？");
     const citations = answer.citations as Json[];
@@ -475,21 +501,22 @@ describe("knowledge documents (P1 pipeline)", () => {
     const base = await createUnstructuredBase();
     const publishedDoc = await upload(String(base.id), "已发布.pdf", pdfBytes());
     await waitStatus(String(publishedDoc.id), ["pending_review"]);
-    await approveAndPublish(String(publishedDoc.id),String(base.id));
+    await approveAndPublish(String(publishedDoc.id), String(base.id));
     const pendingDoc = await upload(String(base.id), "未发布.pdf", pdfBytes());
     await waitStatus(String(pendingDoc.id), ["pending_review"]);
-
-    const trial = await (await request("POST", "/api/admin/knowledge/search", {
+    const trialResponse = await request("POST", "/api/admin/knowledge/search", {
       query: "范围？", base_id: base.id,
-    })).json();
+    });
+    expect(trialResponse.status, await trialResponse.text()).toBe(200);
+    const trial = await trialResponse.json();
     const citations = trial.citations as Json[];
     expect(citations.map((item) => item.document_id)).toEqual([publishedDoc.id]);
-
-    const scoped = await (await request("POST", "/api/admin/knowledge/search", {
+    const scopedResponse = await request("POST", "/api/admin/knowledge/search", {
       query: "审批前试算", base_id: base.id, include_pending: true, doc_ids: [pendingDoc.id],
-    })).json();
+    });
+    expect(scopedResponse.status, await scopedResponse.text()).toBe(200);
+    const scoped = await scopedResponse.json();
     expect((scoped.citations as Json[]).map((item) => item.document_id)).toEqual([pendingDoc.id]);
-
     const tooMany = await request("POST", "/api/admin/knowledge/search", {
       query: "x", base_id: base.id, include_pending: true, doc_ids: [publishedDoc.id, pendingDoc.id],
     });
@@ -541,8 +568,7 @@ describe("knowledge documents (P1 pipeline)", () => {
     const base = await createUnstructuredBase();
     const doc = await upload(String(base.id), "先发布.pdf", pdfBytes());
     await waitStatus(String(doc.id), ["pending_review"]);
-    await approveAndPublish(String(doc.id),String(base.id));
-
+    await approveAndPublish(String(doc.id), String(base.id));
     const blocked = await request("DELETE", `/api/admin/knowledge/documents/${doc.id}`);
     expect(blocked.status).toBe(409);
     expect(await detailCode(blocked)).toBe("knowledge_document_frozen");
@@ -575,7 +601,8 @@ describe("knowledge documents (P1 pipeline)", () => {
       expect([401, 403]).toContain(denied.status);
       const deniedSearch = await request("POST", "/api/admin/knowledge/search", { query: "x", base_id: base.id });
       expect([401, 403]).toContain(deniedSearch.status);
-    } finally {
+    }
+    finally {
       delete process.env.AUTH_MODE;
     }
     const allowed = await request("GET", "/api/admin/knowledge/documents");

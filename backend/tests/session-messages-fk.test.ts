@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { databaseEngine, getConn, isSqliteForeignKeyError, resetConn } from "../src/db.js";
+import { postgresDb, isDatabaseForeignKeyError, resetDatabase } from "../src/postgres/access.js";
 import { HttpFail } from "../src/host/errors.js";
 import { ingestKolMail } from "../src/host/kol-journey.js";
 import { insertSessionMessage, isSessionNotFound } from "../src/host/session-messages.js";
@@ -11,17 +11,16 @@ import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import type { Json } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
-
 let tmp: string;
 let app: Hono;
-
-async function request(
-  method: string,
-  url: string,
-  body?: unknown,
-): Promise<{ status: number; json: () => Promise<Json>; text: () => Promise<string> }> {
+async function request(method: string, url: string, body?: unknown): Promise<{
+  status: number;
+  json: () => Promise<Json>;
+  text: () => Promise<string>;
+}> {
   const init: RequestInit = { method, headers: { "Content-Type": "application/json" } };
-  if (body !== undefined) init.body = JSON.stringify(body);
+  if (body !== undefined)
+    init.body = JSON.stringify(body);
   const res = await app.request(url, init);
   const text = await res.text();
   return {
@@ -30,64 +29,51 @@ async function request(
     json: async () => (text ? (JSON.parse(text) as Json) : {}),
   };
 }
-
-function rawInsertMessage(sid: string): void {
-  getConn().prepare(
-    "INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES (?,?,?,?,?,?)",
-  ).run("msg_orphan_fk", sid, "assistant", "assistant", JSON.stringify({ text: "fk" }), new Date().toISOString());
+async function rawInsertMessage(sid: string): Promise<void> {
+  (await postgresDb().execute("INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES ($1,$2,$3,$4,$5,$6)", "msg_orphan_fk", sid, "assistant", "assistant", JSON.stringify({ text: "fk" }), new Date().toISOString()));
 }
-
 beforeEach(async () => {
-  if (process.env.TEST_DATABASE_URL) await freshTestDatabase();
+  if (process.env.TEST_DATABASE_URL)
+    await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-msg-fk-"));
-  process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
+  app = (await createApp());
+  (await seedWorkbenchFixtures());
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
-
 describe("messages.session_id foreign key", () => {
-  it("raw INSERT still enforces FK when session_id is missing", () => {
-    if (databaseEngine() === "sqlite") {
-      const fk = getConn().pragma("foreign_keys");
-      const enabled = Array.isArray(fk)
-        ? fk.some((row) => Number((row as { foreign_keys?: number }).foreign_keys ?? Object.values(row as object)[0]) === 1)
-        : Number(fk) === 1 || String(fk).includes("1");
-      expect(enabled, "foreign_keys must stay ON").toBe(true);
-    }
-
+  it("raw INSERT still enforces FK when session_id is missing", async () => {
     let thrown: unknown;
     try {
-      rawInsertMessage("ses_does_not_exist");
-    } catch (error) {
+      (await rawInsertMessage("ses_does_not_exist"));
+    }
+    catch (error) {
       thrown = error;
     }
     expect(thrown).toBeTruthy();
-    expect(isSqliteForeignKeyError(thrown)).toBe(true);
+    expect(isDatabaseForeignKeyError(thrown)).toBe(true);
     expect(String(thrown)).toMatch(/foreign key/i);
   });
-
-  it("insertSessionMessage fail-closes with session_not_found instead of SqliteError", async () => {
+  it("insertSessionMessage fail-closes with session_not_found instead of a database error", async () => {
     let thrown: unknown;
     try {
-      insertSessionMessage("ses_does_not_exist", "assistant", "confirm_stage_card", {
+      (await insertSessionMessage("ses_does_not_exist", "assistant", "confirm_stage_card", {
         text: "would have crashed Host",
-      });
-    } catch (error) {
+      }));
+    }
+    catch (error) {
       thrown = error;
     }
     expect(thrown).toBeInstanceOf(HttpFail);
     expect(isSessionNotFound(thrown)).toBe(true);
-    expect(isSqliteForeignKeyError(thrown)).toBe(false);
+    expect(isDatabaseForeignKeyError(thrown)).toBe(false);
     const fail = thrown as HttpFail;
     expect(fail.status).toBe(404);
     expect(fail.detail).toMatchObject({
@@ -104,13 +90,14 @@ describe("messages.session_id foreign key", () => {
     const created = await request("POST", "/api/sessions", { title: "fk-ok" });
     expect(created.status).toBe(200);
     const sid = String((await created.json()).id || "");
-    const row = insertSessionMessage(sid, "assistant", "assistant", { text: "会话仍在" });
+    const row = (await insertSessionMessage(sid, "assistant", "assistant", { text: "会话仍在" }));
     expect(row.session_id).toBe(sid);
     expect(row.kind).toBe("assistant");
-    const stored = getConn().prepare("SELECT kind FROM messages WHERE id=?").get(row.id) as { kind: string };
+    const stored = (await postgresDb().one("SELECT kind FROM messages WHERE id=$1", row.id)) as {
+      kind: string;
+    };
     expect(stored.kind).toBe("assistant");
   });
-
   it("POST /sessions/:sid/messages on a missing sid returns 404 and Host stays up", async () => {
     const missing = await request("POST", "/api/sessions/ses_ghost/messages", {
       text: "记状态",
@@ -132,18 +119,18 @@ describe("messages.session_id foreign key", () => {
   it("ingestKolMail with a stale session_id fails closed and does not crash", async () => {
     let thrown: unknown;
     try {
-      ingestKolMail("col_xiaomei", {
+      (await ingestKolMail("col_xiaomei", {
         subject: "Re: collab",
         body: "interested",
         session_id: "ses_stale_from_other_datadir",
-      });
-    } catch (error) {
+      }));
+    }
+    catch (error) {
       thrown = error;
     }
     expect(thrown).toBeInstanceOf(HttpFail);
     expect(isSessionNotFound(thrown)).toBe(true);
-    expect(isSqliteForeignKeyError(thrown)).toBe(false);
-
+    expect(isDatabaseForeignKeyError(thrown)).toBe(false);
     const viaApi = await request("POST", "/api/collaborations/col_xiaomei/ingest-mail", {
       subject: "Re: collab",
       body: "interested",
@@ -163,10 +150,10 @@ describe("messages.session_id foreign key", () => {
     expect(opened.status).toBe(200);
     const sid = String((await opened.json()).id || "");
     expect(sid).toMatch(/^ses_/);
-    const live = insertSessionMessage(sid, "assistant", "confirm_stage_card", {
+    const live = (await insertSessionMessage(sid, "assistant", "confirm_stage_card", {
       collaboration_id: "col_xiaomei",
       proposed_stage: "INTERESTED",
-    });
+    }));
     expect(live.kind).toBe("confirm_stage_card");
   });
 });

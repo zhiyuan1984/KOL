@@ -1,21 +1,19 @@
 import { Hono } from "hono";
 import { requireConnector } from "../auth.js";
-import { getConn } from "../db.js";
+import { postgresDb } from "../postgres/access.js";
 import { collabActions } from "../host/kol-journey.js";
 import { restoreOfficialCollaborationStage } from "../starrykol/library-sync.js";
 import { BY_CODE, MAIN_STAGES, PIPELINE_COLUMNS, SIDE_STAGES, coarse, label, normalizeStage } from "../stages.js";
 import type { Json, Row } from "../types.js";
-
 export const pipeline = new Hono();
-
-pipeline.get("/pipeline", (c) => {
-  requireConnector("starry", "read");
-  requireConnector("starry", "read");
-  const rows = getConn().prepare("SELECT * FROM collaborations").all() as Row[];
+pipeline.get("/pipeline", async (c) => {
+  (await requireConnector("starry", "read"));
+  (await requireConnector("starry", "read"));
+  const rows = (await postgresDb().many("SELECT * FROM collaborations")) as Row[];
   const cols: Record<string, Json[]> = Object.fromEntries(PIPELINE_COLUMNS.map((col) => [col, []]));
   const ledger: Json[] = [];
   for (const r of rows) {
-    restoreOfficialCollaborationStage(r);
+    (await restoreOfficialCollaborationStage(r));
     const card = {
       ...r,
       stage_label: label(String(r.stage_code)),
@@ -26,8 +24,10 @@ pipeline.get("/pipeline", (c) => {
       exception: !BY_CODE[normalizeStage(String(r.stage_code))]?.main,
     };
     const bucket = coarse(String(r.stage_code));
-    if (bucket == null) ledger.push(card);
-    else cols[bucket].push(card);
+    if (bucket == null)
+      ledger.push(card);
+    else
+      cols[bucket].push(card);
   }
   return c.json({
     columns: PIPELINE_COLUMNS,

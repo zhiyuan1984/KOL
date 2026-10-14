@@ -1,4 +1,4 @@
-import { getConn, isSqliteForeignKeyError, nowIso, tx, type SqliteConn } from "../db.js";
+import { postgresDb, isDatabaseForeignKeyError, nowIso, pgTransaction, type PgRepository } from "../postgres/access.js";
 import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
 import { HttpFail } from "./errors.js";
@@ -11,51 +11,48 @@ export function sessionNotFoundFail(sid: string): HttpFail {
     session_id: String(sid || ""),
   });
 }
-
 export function isSessionNotFound(error: unknown): boolean {
-  if (!(error instanceof HttpFail) || error.status !== 404) return false;
+  if (!(error instanceof HttpFail) || error.status !== 404)
+    return false;
   const detail = error.detail;
   if (detail && typeof detail === "object" && !Array.isArray(detail) && (detail as Json).code === "session_not_found") {
     return true;
   }
   return detail === "session not found" || error.message === "session not found";
 }
-
 /** Live session row, or fail-closed. Soft-deleted rows are treated as missing. */
-export function assertSessionRowExists(sid: string, db: SqliteConn = getConn()): Row {
+export async function assertSessionRowExists(sid: string, db: PgRepository = postgresDb()): Promise<Row> {
   const key = String(sid || "").trim();
-  if (!key) throw sessionNotFoundFail(sid);
-  const row = db.prepare("SELECT id, deleted_at FROM sessions WHERE id=?").get(key) as
-    | { id: string; deleted_at?: string | null }
-    | undefined;
-  if (!row || row.deleted_at) throw sessionNotFoundFail(key);
+  if (!key)
+    throw sessionNotFoundFail(sid);
+  const row = (await db.one("SELECT id, deleted_at FROM sessions WHERE id=$1", key)) as {
+    id: string;
+    deleted_at?: string | null;
+  } | undefined;
+  if (!row || row.deleted_at)
+    throw sessionNotFoundFail(key);
   return row as Row;
 }
-
 /**
  * Insert a session message. Never throws raw SQLite FOREIGN KEY — missing
  * session becomes HttpFail 404 so Host request/background paths can fail closed
  * without process-crashing. Does not disable foreign_keys.
  */
-export function insertSessionMessage(sid: string, role: string, kind: string, payload: Json): Json {
+export async function insertSessionMessage(sid: string, role: string, kind: string, payload: Json): Promise<Json> {
   const mid = nid("msg");
   const now = nowIso();
   try {
-    tx((c) => {
-      assertSessionRowExists(sid, c);
-      c.prepare("INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES (?,?,?,?,?,?)").run(
-        mid,
-        sid,
-        role,
-        kind,
-        JSON.stringify(payload),
-        now,
-      );
-      c.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(now, sid);
-    });
-  } catch (error) {
-    if (error instanceof HttpFail) throw error;
-    if (isSqliteForeignKeyError(error)) throw sessionNotFoundFail(sid);
+    (await pgTransaction(async (c) => {
+      (await assertSessionRowExists(sid, c));
+      (await c.execute("INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES ($1,$2,$3,$4,$5,$6)", mid, sid, role, kind, JSON.stringify(payload), now));
+      (await c.execute("UPDATE sessions SET updated_at = $1 WHERE id = $2", now, sid));
+    }));
+  }
+  catch (error) {
+    if (error instanceof HttpFail)
+      throw error;
+    if (isDatabaseForeignKeyError(error))
+      throw sessionNotFoundFail(sid);
     throw error;
   }
   const row = { id: mid, session_id: sid, role, kind, payload, created_at: now };

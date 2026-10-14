@@ -8,16 +8,9 @@ import path from "node:path";
 import { mailAnalysisTimeout } from "../config.js";
 import { remoteMailAnalysisEnabled } from "../host/mail-summary.js";
 import { label } from "../stages.js";
-import {
-  extractRemoteIntentText,
-  intentLlmApiKey,
-  intentLlmFetch,
-  intentLlmFetchOverridden,
-  intentLlmModel,
-} from "../tasks/openai-intent.js";
+import { extractRemoteIntentText, intentLlmApiKey, intentLlmFetch, intentLlmFetchOverridden, intentLlmModel, } from "../tasks/openai-intent.js";
 import type { Json } from "../types.js";
 import { CodexAppServer } from "../worker/codex.js";
-
 export type ProfileBriefing = {
   summary: string;
   briefing: string;
@@ -40,26 +33,29 @@ const ENUM_ZH: Record<string, string> = {
   PENDING_SUPPLEMENT: "待补充",
   PENDING: "待处理",
 };
-
 function firstString(...values: unknown[]): string {
   for (const value of values) {
-    if (Array.isArray(value) && value.length) return firstString(value[0]);
+    if (Array.isArray(value) && value.length)
+      return firstString(value[0]);
     const text = String(value ?? "").trim();
-    if (text) return text;
+    if (text)
+      return text;
   }
   return "";
 }
-
 function humanEnum(value: unknown): string {
   const raw = String(value || "").trim();
-  if (!raw) return "";
-  if (ENUM_ZH[raw]) return ENUM_ZH[raw];
+  if (!raw)
+    return "";
+  if (ENUM_ZH[raw])
+    return ENUM_ZH[raw];
   const staged = label(raw);
-  if (staged && staged !== raw) return staged;
-  if (/^[A-Z0-9]+(?:_[A-Z0-9]+)+$/.test(raw)) return "";
+  if (staged && staged !== raw)
+    return staged;
+  if (/^[A-Z0-9]+(?:_[A-Z0-9]+)+$/.test(raw))
+    return "";
   return raw;
 }
-
 export function profileFactsForModel(data: Json): Json {
   const name = firstString(data.kolName, data.nickname, data.name, data.handle);
   const uid = firstString(data.kolUid, data.kol_uid);
@@ -76,10 +72,14 @@ export function profileFactsForModel(data: Json): Json {
   const niche = firstString(data.nicheTagsText, data.niche, data.tags);
   const notes = firstString(data.notes, data.remark, data.bio);
   const missing: string[] = [];
-  if (!platform) missing.push("主平台");
-  if (followers == null || followers === "") missing.push("粉丝数");
-  if (!email) missing.push("联系邮箱");
-  if (sync === "待补充" || String(data.crawlerSyncStatus || "").includes("待补充")) missing.push("爬虫同步");
+  if (!platform)
+    missing.push("主平台");
+  if (followers == null || followers === "")
+    missing.push("粉丝数");
+  if (!email)
+    missing.push("联系邮箱");
+  if (sync === "待补充" || String(data.crawlerSyncStatus || "").includes("待补充"))
+    missing.push("爬虫同步");
   return {
     name: name || "这位红人",
     uid,
@@ -106,25 +106,38 @@ export function profileBriefingFromFacts(data: Json): ProfileBriefing {
   paragraphs.push(`${name} 已在红人库。下面只根据已核验字段说明，缺的会标明待补充。`);
   if (facts.stage) {
     paragraphs.push(`合作阶段是${facts.stage}。发送邮件不会改阶段，要推进需人确认。`);
-  } else {
+  }
+  else {
     paragraphs.push("合作阶段还没有落到人话标签，不能当成已推进。");
   }
   const bits: string[] = [];
-  if (facts.owner) bits.push(`负责人 ${facts.owner}`);
-  if (facts.platform) bits.push(`平台 ${facts.platform}`);
-  if (facts.followers != null && facts.followers !== "") bits.push(`粉丝 ${facts.followers}`);
-  if (facts.language) bits.push(`沟通语言 ${facts.language}`);
-  if (facts.email_masked) bits.push(`联系邮箱已脱敏为 ${facts.email_masked}，未解密`);
-  if (facts.follow) bits.push(`跟进方式 ${facts.follow}`);
-  if (facts.risk) bits.push(`风险：${facts.risk}`);
-  if (facts.sync) bits.push(`同步状态 ${facts.sync}`);
-  if (facts.niche) bits.push(`内容方向 ${facts.niche}`);
-  if (bits.length) paragraphs.push(bits.join("。") + "。");
-  if (facts.notes) paragraphs.push(`库内备注：${facts.notes}`);
+  if (facts.owner)
+    bits.push(`负责人 ${facts.owner}`);
+  if (facts.platform)
+    bits.push(`平台 ${facts.platform}`);
+  if (facts.followers != null && facts.followers !== "")
+    bits.push(`粉丝 ${facts.followers}`);
+  if (facts.language)
+    bits.push(`沟通语言 ${facts.language}`);
+  if (facts.email_masked)
+    bits.push(`联系邮箱已脱敏为 ${facts.email_masked}，未解密`);
+  if (facts.follow)
+    bits.push(`跟进方式 ${facts.follow}`);
+  if (facts.risk)
+    bits.push(`风险：${facts.risk}`);
+  if (facts.sync)
+    bits.push(`同步状态 ${facts.sync}`);
+  if (facts.niche)
+    bits.push(`内容方向 ${facts.niche}`);
+  if (bits.length)
+    paragraphs.push(bits.join("。") + "。");
+  if (facts.notes)
+    paragraphs.push(`库内备注：${facts.notes}`);
   const missing = Array.isArray(facts.missing) ? facts.missing as string[] : [];
   if (missing.length) {
     paragraphs.push(`待补充：${missing.join("、")}。不要编造受众、互动或明文联系方式。`);
-  } else {
+  }
+  else {
     paragraphs.push("基础字段已齐，可以据此写跟进，但仍不要擅自解密联系方式。");
   }
   const highlights = [
@@ -174,13 +187,16 @@ function profileAnalysisPrompt(data: Json): string {
 function parseBriefing(text: string, fallback: ProfileBriefing): ProfileBriefing | null {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
+  if (start < 0 || end <= start)
+    return null;
   try {
     const parsed = JSON.parse(text.slice(start, end + 1)) as Json;
     const briefing = String(parsed.briefing || parsed.body || "").trim();
     const summary = String(parsed.summary || "").trim();
-    if (!briefing && !summary) return null;
-    if (/这项信息|摘要数据|\bMCP\b|\bCodex\b|\bHost\b/i.test(`${summary}\n${briefing}`)) return null;
+    if (!briefing && !summary)
+      return null;
+    if (/这项信息|摘要数据|\bMCP\b|\bCodex\b|\bHost\b/i.test(`${summary}\n${briefing}`))
+      return null;
     const highlights = Array.isArray(parsed.highlights)
       ? parsed.highlights.map((item) => String(item || "").trim()).filter(Boolean)
       : fallback.highlights;
@@ -194,7 +210,8 @@ function parseBriefing(text: string, fallback: ProfileBriefing): ProfileBriefing
       recommended_actions: actions.length ? actions : fallback.recommended_actions,
       briefing_source: "codex",
     };
-  } catch {
+  }
+  catch {
     return null;
   }
 }
@@ -218,8 +235,12 @@ async function briefingWithCodexAppServer(data: Json, fallback: ProfileBriefing)
       sandbox: "read-only",
       config: { mcp_servers: {}, model: intentLlmModel() },
     });
-    const thread = (started.thread as { id?: string } | undefined) || started;
-    const threadId = String((thread as { id?: string }).id || "");
+    const thread = (started.thread as {
+      id?: string;
+    } | undefined) || started;
+    const threadId = String((thread as {
+      id?: string;
+    }).id || "");
     if (!threadId) {
       noteFailure("codex thread/start", "missing thread id");
       return null;
@@ -236,23 +257,29 @@ async function briefingWithCodexAppServer(data: Json, fallback: ProfileBriefing)
     });
     const completed = await rpc.waitTurn(mailAnalysisTimeout());
     const extras = completed.turn && typeof completed.turn === "object"
-      ? JSON.stringify((completed.turn as { output?: unknown }).output || {})
+      ? JSON.stringify((completed.turn as {
+        output?: unknown;
+      }).output || {})
       : "";
     const parsed = parseBriefing([...rpc.agentTexts, extras].join("\n"), fallback);
-    if (!parsed) noteFailure("codex parse", "no briefing in app-server output");
+    if (!parsed)
+      noteFailure("codex parse", "no briefing in app-server output");
     return parsed;
-  } catch (err) {
+  }
+  catch (err) {
     noteFailure("codex app-server", err);
     return null;
-  } finally {
-    rpc?.close();
-    if (cwd) fs.rmSync(cwd, { recursive: true, force: true });
+  }
+  finally {
+    await rpc?.close();
+    if (cwd)
+      fs.rmSync(cwd, { recursive: true, force: true });
   }
 }
-
 async function briefingWithLuna(data: Json, fallback: ProfileBriefing): Promise<ProfileBriefing | null> {
   const key = intentLlmApiKey();
-  if (!key) return null;
+  if (!key)
+    return null;
   const base = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), mailAnalysisTimeout() * 1000);
@@ -285,26 +312,31 @@ async function briefingWithLuna(data: Json, fallback: ProfileBriefing): Promise<
       return null;
     }
     const parsed = parseBriefing(extractRemoteIntentText(await response.json()), fallback);
-    if (!parsed) noteFailure("luna parse", "no briefing in response");
-    if (parsed) parsed.briefing_source = "luna";
+    if (!parsed)
+      noteFailure("luna parse", "no briefing in response");
+    if (parsed)
+      parsed.briefing_source = "luna";
     return parsed;
-  } catch (err) {
+  }
+  catch (err) {
     noteFailure("luna", err);
     return null;
-  } finally {
+  }
+  finally {
     clearTimeout(timer);
   }
 }
-
 export async function analyzeCreatorProfile(data: Json): Promise<ProfileBriefing> {
   const fallback = profileBriefingFromFacts(data);
-  if (!remoteMailAnalysisEnabled()) return fallback;
+  if (!remoteMailAnalysisEnabled())
+    return fallback;
   if (intentLlmFetchOverridden()) {
     const luna = await briefingWithLuna(data, fallback);
     return luna || fallback;
   }
   const fromCodex = await briefingWithCodexAppServer(data, fallback);
-  if (fromCodex) return fromCodex;
+  if (fromCodex)
+    return fromCodex;
   const fromLuna = await briefingWithLuna(data, fallback);
   return fromLuna || fallback;
 }

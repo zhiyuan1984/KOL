@@ -26,16 +26,17 @@ const MAIL_SYNC_SKILLS = ["email_conversation_list", "email_conversation_read"] 
 const TERMINAL_MAIL_SYNC_CODES = new Set([
   "mail_source_unauthorized", "mail_source_forbidden", "mail_source_not_found", "mail_sync_storage_unavailable",
   "mailbox_access_denied", "mailbox_credential_required", "starry_credential_migration_required",
-  "agent_not_usable", "mail_sync_account_unavailable", "mailbox_binding_changed",
+  "agent_not_usable", "mail_sync_account_unavailable", "mailbox_binding_changed", "mail_conversation_association_mismatch",
 ]);
-
 function stringArray(value: unknown): string[] {
   try {
     const parsed = typeof value === "string" ? JSON.parse(value) : value;
     return Array.isArray(parsed) ? parsed.map(String) : [];
-  } catch { return []; }
+  }
+  catch {
+    return [];
+  }
 }
-
 function nativeActor(row: Row): AppUser {
   const roles = stringArray(row.roles);
   const username = String(row.username || row.id || "");
@@ -49,20 +50,21 @@ function nativeActor(row: Row): AppUser {
     exam_passed: true, exam_todo_count: 0, exam_module: "",
   };
 }
-
 async function activeActor(userId: string): Promise<AppUser> {
   const row = (await postgresPool().query<Row>("SELECT * FROM users WHERE id=$1 AND active=1", [userId])).rows[0];
-  if (!row) throw new HttpFail(403, { code: "mail_sync_account_unavailable" });
+  if (!row)
+    throw new HttpFail(403, { code: "mail_sync_account_unavailable" });
   return nativeActor(row);
 }
-
 /** PostgreSQL equivalent of canUseSkill/canUseAgent. It retains direct person,
  * member/head descendant, and ancestor-head Agent coverage; admins retain the
  * established explicit bypass. */
 async function actorCanUseMailSkill(actor: AppUser, skillId: string): Promise<boolean> {
-  if (actor.roles.includes("admin")) return true;
-  const result = await postgresPool().query<{ permitted: boolean }>(
-    `WITH RECURSIVE unit_tree AS (
+  if (actor.roles.includes("admin"))
+    return true;
+  const result = await postgresPool().query<{
+    permitted: boolean;
+  }>(`WITH RECURSIVE unit_tree AS (
        SELECT id AS ancestor_id,id AS descendant_id,company_id FROM organization_units WHERE status='active'
        UNION
        SELECT tree.ancestor_id,child.id,tree.company_id FROM unit_tree tree
@@ -112,33 +114,33 @@ async function actorCanUseMailSkill(actor: AppUser, skillId: string): Promise<bo
            )
          ))
        )
-     ) AS permitted`,
-    [actor.id, skillId],
-  );
+     ) AS permitted`, [actor.id, skillId]);
   return Boolean(result.rows[0]?.permitted);
 }
-
 /** Direct PG authorization used by request, operation-job scope reads, and
  * every worker checkpoint. No synchronous binding or skill adapter is used. */
 export async function authorizeMailSync(mailbox: string): Promise<MailSyncAuthorization> {
   const scoped = scopedUser();
-  if (!scoped?.active) throw new HttpFail(401, "authentication required");
+  if (!scoped?.active)
+    throw new HttpFail(401, "authentication required");
   const actor = await activeActor(scoped.id);
   const box = normalizeEmail(mailbox);
-  if (!box) throw new HttpFail(403, { code: "mailbox_access_denied" });
+  if (!box)
+    throw new HttpFail(403, { code: "mailbox_access_denied" });
   for (const skill of MAIL_SYNC_SKILLS) {
-    if (!await actorCanUseMailSkill(actor, skill)) throw new HttpFail(403, { code: "agent_not_usable", skill_id: skill });
+    if (!await actorCanUseMailSkill(actor, skill))
+      throw new HttpFail(403, { code: "agent_not_usable", skill_id: skill });
   }
-  const binding = (await postgresPool().query<Row>(
-    `SELECT mailbox_email,owner_name,owner_open_id,owner_verified_at,bearer_token
+  const binding = (await postgresPool().query<Row>(`SELECT mailbox_email,owner_name,owner_open_id,owner_verified_at,bearer_token
        FROM user_starry_bindings
-      WHERE user_id=$1 AND lower(mailbox_email)=lower($2) AND status='connected'`,
-    [actor.id, box],
-  )).rows[0];
-  if (!binding) throw new HttpFail(403, { code: "mailbox_access_denied" });
+      WHERE user_id=$1 AND lower(mailbox_email)=lower($2) AND status='connected'`, [actor.id, box])).rows[0];
+  if (!binding)
+    throw new HttpFail(403, { code: "mailbox_access_denied" });
   const credentialId = String(binding.bearer_token || "").trim();
-  if (!credentialId) throw new HttpFail(409, { code: "mailbox_credential_required" });
-  if (!/^cred_[A-Za-z0-9_-]{8,160}$/.test(credentialId)) throw new HttpFail(409, { code: "starry_credential_migration_required" });
+  if (!credentialId)
+    throw new HttpFail(409, { code: "mailbox_credential_required" });
+  if (!/^cred_[A-Za-z0-9_-]{8,160}$/.test(credentialId))
+    throw new HttpFail(409, { code: "starry_credential_migration_required" });
   return {
     actor, credentialId,
     scope: {
@@ -154,9 +156,11 @@ export async function startMailSyncJob(input: Json): Promise<Json> {
   const authorization = await authorizeMailSync(mailbox);
   const actor = authorization.actor.id;
   const requestId = String(input.request_id || nid("sync"));
-  if (!/^[\w-]{1,160}$/.test(requestId)) throw new HttpFail(400, "invalid request_id");
+  if (!/^[\w-]{1,160}$/.test(requestId))
+    throw new HttpFail(400, "invalid request_id");
   const conversationId = input.conversation_id === undefined ? "" : String(input.conversation_id || "").trim();
-  if (conversationId && !/^[A-Za-z0-9_.:-]{1,160}$/.test(conversationId)) throw new HttpFail(400, "invalid conversation_id");
+  if (conversationId && !/^[A-Za-z0-9_.:-]{1,160}$/.test(conversationId))
+    throw new HttpFail(400, "invalid conversation_id");
   const { job } = await pgEnqueueExecutionJob({
     job_type: "mail.sync", actor_ref: actor, tenant_ref: actor,
     idempotency_key: `mail.sync:${actor}:${mailbox}:${requestId}`,
@@ -171,31 +175,28 @@ export async function startMailSyncJob(input: Json): Promise<Json> {
 function receiptProgress(progress: MailSyncProgress): Json {
   return { index: progress.index, body: progress.body } as Json;
 }
-
 async function persistMailSyncReceipt(job: ClaimedExecutionJob, checkpoint: () => Promise<void>, receipt: Json): Promise<void> {
   await checkpoint();
-  const updated = await postgresPool().query(
-    `UPDATE execution_jobs
+  const updated = await postgresPool().query(`UPDATE execution_jobs
         SET receipt_json=(COALESCE(NULLIF(receipt_json,'')::jsonb,'{}'::jsonb) || $1::jsonb)::text,updated_at=$2
       WHERE id=$3 AND status='running' AND lease_owner=$4
-      RETURNING id`,
-    [JSON.stringify(receipt), new Date().toISOString(), job.id, job.worker_id],
-  );
-  if (!updated.rows[0]) throw new Error("execution_job_claim_lost_or_cancelled");
+      RETURNING id`, [JSON.stringify(receipt), new Date().toISOString(), job.id, job.worker_id]);
+  if (!updated.rows[0])
+    throw new Error("execution_job_claim_lost_or_cancelled");
 }
-
 function boundedRetryAfter(value: unknown): number | undefined {
   const milliseconds = Number(value);
-  return Number.isFinite(milliseconds) && milliseconds >= 0 ? Math.min(120_000, Math.round(milliseconds)) : undefined;
+  return Number.isFinite(milliseconds) && milliseconds >= 0 ? Math.min(120000, Math.round(milliseconds)) : undefined;
 }
-
 /** Used exclusively by dispatcher.ts's mail.sync branch so HttpFail JSON does
  * not become execution_handler_error and Retry-After survives safely. */
 export function mailSyncDispatchFailure(error: unknown): MailSyncDispatchFailure | undefined {
-  if (!(error instanceof HttpFail) || !error.detail || typeof error.detail !== "object" || Array.isArray(error.detail)) return undefined;
+  if (!(error instanceof HttpFail) || !error.detail || typeof error.detail !== "object" || Array.isArray(error.detail))
+    return undefined;
   const detail = error.detail as Record<string, unknown>;
   const code = String(detail.code || "");
-  if (!code || (!code.startsWith("mail_") && !code.startsWith("mailbox_") && code !== "agent_not_usable" && code !== "starry_credential_migration_required")) return undefined;
+  if (!code || (!code.startsWith("mail_") && !code.startsWith("mailbox_") && code !== "agent_not_usable" && code !== "starry_credential_migration_required"))
+    return undefined;
   const retryAfterMs = boundedRetryAfter(detail.retry_after_ms);
   return {
     code,
@@ -204,8 +205,16 @@ export function mailSyncDispatchFailure(error: unknown): MailSyncDispatchFailure
     ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
   };
 }
-
-function fallbackProgress(result: { ok: boolean; listed?: number; inserted?: number; updated?: number; cursor_at?: string; body_pending?: number; body_completed?: number; body_failed?: number }): MailSyncProgress {
+function fallbackProgress(result: {
+  ok: boolean;
+  listed?: number;
+  inserted?: number;
+  updated?: number;
+  cursor_at?: string;
+  body_pending?: number;
+  body_completed?: number;
+  body_failed?: number;
+}): MailSyncProgress {
   const pending = Number(result.body_pending || 0);
   const completed = Number(result.body_completed || 0);
   const failed = Number(result.body_failed || 0);
@@ -225,7 +234,7 @@ export async function executeMailSyncJob(job: ClaimedExecutionJob, checkpoint: (
   let latestProgress: MailSyncProgress | undefined;
   const authorizeCurrent = async () => {
     const actor = await activeActor(String(job.actor_ref));
-    return await withScopedUser(actor, () => authorizeMailSync(mailbox));
+    return await withScopedUser(actor, async () => (await authorizeMailSync(mailbox)));
   };
   const initial = await authorizeCurrent();
   authorization = initial;
@@ -239,7 +248,7 @@ export async function executeMailSyncJob(job: ClaimedExecutionJob, checkpoint: (
   };
   // The binding stays the authorization boundary; it must not replace the
   // verified organization connector Authorization used to read the mailbox.
-  return await withScopedUser(initial.actor, () => withStarryConnectorAuth(async () => {
+  return await withScopedUser(initial.actor, async () => (await withStarryConnectorAuth(async () => {
     const onProgress = async (progress: MailSyncProgress) => {
       latestProgress = progress;
       await persistMailSyncReceipt(job, check, {
@@ -267,5 +276,5 @@ export async function executeMailSyncJob(job: ClaimedExecutionJob, checkpoint: (
       note: "邮件索引已同步；正文补全完成；摘要与翻译未生成。", diagnostic_id: result.diagnostic_id || null,
       ...receiptProgress(progress), ai: { summary: "not_generated", translation: "not_generated" },
     };
-  }));
+  })));
 }

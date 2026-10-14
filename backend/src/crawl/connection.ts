@@ -4,17 +4,11 @@
  * Never logs tokens or employee-facing URLs.
  */
 import { createMediaCrawlerClient, mediaCrawlerConfig, mediaCrawlerConfigured } from "./managed-connection.js";
-import { nowIso } from "../db.js";
-import {
-  COLLECTOR_CONNECT_MESSAGE,
-  COLLECTOR_NOT_CONFIGURED_MESSAGE,
-  isConnectionClassError,
-} from "../discovery-errors.js";
+import { nowIso } from "../postgres/access.js";
+import { COLLECTOR_CONNECT_MESSAGE, COLLECTOR_NOT_CONFIGURED_MESSAGE, isConnectionClassError, } from "../discovery-errors.js";
 import { RemoteMcpClient } from "../mcp/remote.js";
 import type { Json } from "../types.js";
-
 export type CollectorStatus = "not_configured" | "unchecked" | "unreachable" | "ok";
-
 export type CollectorConnection = {
   status: CollectorStatus;
   credentials_present: boolean;
@@ -38,17 +32,14 @@ const STATUS_MESSAGE: Record<CollectorStatus, string> = {
   unreachable: COLLECTOR_CONNECT_MESSAGE,
   ok: "采集服务可用",
 };
-
 type ProbeClient = Pick<RemoteMcpClient, "listTools" | "close">;
-
-let clientFactory: () => ProbeClient = () => createMediaCrawlerClient();
+type ProbeClientFactory = () => ProbeClient | Promise<ProbeClient>;
+let clientFactory: ProbeClientFactory = async () => (await createMediaCrawlerClient());
 let fetchImpl: typeof fetch = fetch;
 let lastProbe: CollectorConnection | null = null;
-
-export function setCollectorProbeClientFactory(factory?: () => ProbeClient): void {
-  clientFactory = factory || (() => createMediaCrawlerClient());
+export function setCollectorProbeClientFactory(factory?: ProbeClientFactory): void {
+  clientFactory = factory || (async () => (await createMediaCrawlerClient()));
 }
-
 export function setCollectorProbeFetch(fn?: typeof fetch): void {
   fetchImpl = fn || fetch;
 }
@@ -63,19 +54,17 @@ export function resetCollectorConnectionCache(): void {
  * line and reported a healthy collector as unreachable.
  */
 const PROBE_TIMEOUT_DEFAULT_MS = 8000;
-
 export function probeTimeoutMs(): number {
   const n = Number(process.env.MEDIACRAWLER_PROBE_TIMEOUT_MS || String(PROBE_TIMEOUT_DEFAULT_MS));
-  if (!Number.isFinite(n) || n <= 0) return PROBE_TIMEOUT_DEFAULT_MS;
-  return Math.min(Math.max(n, 250), 10_000);
+  if (!Number.isFinite(n) || n <= 0)
+    return PROBE_TIMEOUT_DEFAULT_MS;
+  return Math.min(Math.max(n, 250), 10000);
 }
-
-export function mediaCrawlerCredentialsPresent(): boolean {
-  return mediaCrawlerConfigured();
+export async function mediaCrawlerCredentialsPresent(): Promise<boolean> {
+  return (await mediaCrawlerConfigured());
 }
-
-function snapshot(status: CollectorStatus, extras: Partial<CollectorConnection> = {}): CollectorConnection {
-  const credentials = extras.credentials_present ?? mediaCrawlerCredentialsPresent();
+async function snapshot(status: CollectorStatus, extras: Partial<CollectorConnection> = {}): Promise<CollectorConnection> {
+  const credentials = extras.credentials_present ?? (await mediaCrawlerCredentialsPresent());
   const checked = extras.checked_at !== undefined ? extras.checked_at : nowIso();
   const reachable = extras.reachable !== undefined
     ? extras.reachable
@@ -101,19 +90,17 @@ function snapshot(status: CollectorStatus, extras: Partial<CollectorConnection> 
     status_label: extras.status_label || STATUS_LABEL[status],
   };
 }
-
-export function getCollectorConnectionSnapshot(): CollectorConnection {
-  if (!mediaCrawlerCredentialsPresent()) {
-    return snapshot("not_configured", { credentials_present: false, reachable: false, connected: false });
+export async function getCollectorConnectionSnapshot(): Promise<CollectorConnection> {
+  if (!(await mediaCrawlerCredentialsPresent())) {
+    return (await snapshot("not_configured", { credentials_present: false, reachable: false, connected: false }));
   }
-  if (lastProbe) return lastProbe;
-  return snapshot("unchecked", { credentials_present: true, reachable: null, connected: null, checked_at: null });
+  if (lastProbe)
+    return lastProbe;
+  return (await snapshot("unchecked", { credentials_present: true, reachable: null, connected: null, checked_at: null }));
 }
-
-function mediaCrawlerUrl(): string {
-  return mediaCrawlerConfig().url!;
+async function mediaCrawlerUrl(): Promise<string> {
+  return (await mediaCrawlerConfig()).url!;
 }
-
 async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -123,16 +110,18 @@ async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: s
         timer = setTimeout(() => reject(new Error(`${label} timeout`)), timeoutMs);
       }),
     ]);
-  } finally {
-    if (timer) clearTimeout(timer);
+  }
+  finally {
+    if (timer)
+      clearTimeout(timer);
   }
 }
-
 async function httpHostUp(url: string, timeoutMs: number): Promise<boolean> {
   let origin: string;
   try {
     origin = new URL(url).origin;
-  } catch {
+  }
+  catch {
     return false;
   }
   const targets = [`${origin}/health`, url];
@@ -145,7 +134,8 @@ async function httpHostUp(url: string, timeoutMs: number): Promise<boolean> {
         signal: AbortSignal.timeout(timeoutMs),
       });
       return true;
-    } catch (error) {
+    }
+    catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       if (isConnectionClassError(text) || /abort|timeout/i.test(text)) {
         sawNetworkFailure = true;
@@ -156,13 +146,13 @@ async function httpHostUp(url: string, timeoutMs: number): Promise<boolean> {
   }
   return !sawNetworkFailure;
 }
-
 async function mcpInitializeOk(timeoutMs: number): Promise<boolean> {
-  const client = clientFactory();
+  const client = await clientFactory();
   try {
     const tools = await withTimeout(client.listTools(), timeoutMs, "collector probe");
     return Array.isArray(tools);
-  } finally {
+  }
+  finally {
     await client.close().catch(() => undefined);
   }
 }
@@ -170,40 +160,39 @@ async function mcpInitializeOk(timeoutMs: number): Promise<boolean> {
 function warnProbe(reason: string): void {
   console.warn("[discovery.connection] probe failed", { status: "unreachable", reason });
 }
-
 export async function probeMediaCrawlerConnection(): Promise<CollectorConnection> {
   const checkedAt = nowIso();
-  if (!mediaCrawlerCredentialsPresent()) {
-    lastProbe = snapshot("not_configured", {
+  if (!(await mediaCrawlerCredentialsPresent())) {
+    lastProbe = (await snapshot("not_configured", {
       credentials_present: false,
       reachable: false,
       connected: false,
       checked_at: checkedAt,
-    });
+    }));
     return lastProbe;
   }
-
   const timeoutMs = probeTimeoutMs();
-  const url = mediaCrawlerUrl();
+  const url = (await mediaCrawlerUrl());
   try {
     const httpUp = await withTimeout(httpHostUp(url, timeoutMs), timeoutMs, "collector http");
     if (!httpUp) {
       warnProbe("http_unreachable");
-      lastProbe = snapshot("unreachable", { credentials_present: true, reachable: false, connected: false, checked_at: checkedAt });
+      lastProbe = (await snapshot("unreachable", { credentials_present: true, reachable: false, connected: false, checked_at: checkedAt }));
       return lastProbe;
     }
     const connected = await mcpInitializeOk(timeoutMs);
     if (!connected) {
       warnProbe("mcp_initialize_empty");
-      lastProbe = snapshot("unreachable", { credentials_present: true, reachable: true, connected: false, checked_at: checkedAt });
+      lastProbe = (await snapshot("unreachable", { credentials_present: true, reachable: true, connected: false, checked_at: checkedAt }));
       return lastProbe;
     }
-    lastProbe = snapshot("ok", { credentials_present: true, reachable: true, connected: true, checked_at: checkedAt });
+    lastProbe = (await snapshot("ok", { credentials_present: true, reachable: true, connected: true, checked_at: checkedAt }));
     return lastProbe;
-  } catch (error) {
+  }
+  catch (error) {
     const reason = isConnectionClassError(error) ? "mcp_unreachable" : "probe_failed";
     warnProbe(reason);
-    lastProbe = snapshot("unreachable", { credentials_present: true, reachable: false, connected: false, checked_at: checkedAt });
+    lastProbe = (await snapshot("unreachable", { credentials_present: true, reachable: false, connected: false, checked_at: checkedAt }));
     return lastProbe;
   }
 }

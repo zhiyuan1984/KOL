@@ -3,31 +3,34 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
-import { setPersona } from "../src/host/persona.js";
+import { mapUser, withScopedUser } from "../src/auth.js";
 import { assertUsableKnowledge, resolveForSkill } from "../src/host/knowledge.js";
 import type { Row } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
-
+import { loginKnowledgeAdministrator, loginKnowledgeEmployee, publishKnowledgeThroughApproval } from "./helpers/finalfix-knowledge-management.js";
 type Json = Record<string, unknown>;
-
 let tmp: string;
 let app: Hono;
-
-async function request(
-  method: string,
-  url: string,
-  body?: unknown,
-  cookie = "",
-): Promise<{ status: number; cookie: string; json: () => Promise<Json>; text: () => Promise<string> }> {
+let adminCookie = "";
+let employeeCookie = "";
+let previousAuthMode: string | undefined;
+async function request(method: string, url: string, body?: unknown, cookie = adminCookie): Promise<{
+  status: number;
+  cookie: string;
+  json: () => Promise<Json>;
+  text: () => Promise<string>;
+}> {
   const init: RequestInit = { method, headers: {} };
   const headers = init.headers as Record<string, string>;
-  if (cookie) headers.Cookie = cookie;
+  if (cookie)
+    headers.Cookie = cookie;
   if (body instanceof FormData) {
     init.body = body;
-  } else if (body !== undefined) {
+  }
+  else if (body !== undefined) {
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
@@ -44,28 +47,32 @@ async function request(
 async function rows(url: string): Promise<Json[]> {
   return (await (await request("GET", url)).json()) as unknown as Json[];
 }
-
-async function detailCode(res: { json: () => Promise<Json> }): Promise<string> {
+async function detailCode(res: {
+  json: () => Promise<Json>;
+}): Promise<string> {
   return String(((await res.json()).detail as Json | undefined)?.code || "");
 }
-
 async function createFamily(code: string, name = "族"): Promise<Json> {
-  const body = (await (await request("POST", "/api/admin/knowledge/domains", { code, name, level: "family" })).json()) as {
+  const response = await request("POST", "/api/admin/knowledge/domains", { code, name, level: "family" }, adminCookie);
+  expect(response.status, await response.text()).toBe(201);
+  const body = (await response.json()) as {
     domain: Json;
   };
   return body.domain;
 }
-
 async function createDomain(parentId: string, code: string, name = "域"): Promise<Json> {
-  const body = (await (await request("POST", "/api/admin/knowledge/domains", {
+  const response = await request("POST", "/api/admin/knowledge/domains", {
     code,
     name,
     level: "domain",
     parent_id: parentId,
-  })).json()) as { domain: Json };
+  }, adminCookie);
+  expect(response.status, await response.text()).toBe(201);
+  const body = (await response.json()) as {
+    domain: Json;
+  };
   return body.domain;
 }
-
 async function createBase(input: {
   code: string;
   name: string;
@@ -73,28 +80,35 @@ async function createBase(input: {
   kind: string;
   external_ref?: unknown;
 }): Promise<Json> {
-  const body = (await (await request("POST", "/api/admin/knowledge/bases", input)).json()) as { base: Json };
+  const response = await request("POST", "/api/admin/knowledge/bases", input, adminCookie);
+  expect(response.status, await response.text()).toBe(201);
+  const body = (await response.json()) as {
+    base: Json;
+  };
   return body.base;
 }
-
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-kbbase-"));
-  process.env.LINGONG_DB = path.join(tmp, "t.db");
-  process.env.LINGONG_DATA = tmp;
+  previousAuthMode = process.env.AUTH_MODE;
+  process.env.AUTH_MODE = "enabled";
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
+  app = (await createApp());
+  adminCookie = await loginKnowledgeAdministrator(app);
+  employeeCookie = await loginKnowledgeEmployee(app);
+  (await seedWorkbenchFixtures());
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
+  if (previousAuthMode === undefined)
+    delete process.env.AUTH_MODE;
+  else
+    process.env.AUTH_MODE = previousAuthMode;
 });
-
 describe("knowledge domains and bases (P2)", () => {
   it("creates families and domains with parent/child rules and code conflicts", async () => {
     const fam = await createFamily("content", "内容");
@@ -135,29 +149,33 @@ describe("knowledge domains and bases (P2)", () => {
     // 不同父下同 code 允许
     const fam2 = await createFamily("support", "支持");
     expect((await createDomain(fam2.id as string, "templates", "模板域2")).code).toBe("templates");
-
     // 族在前
-    const list = (await (await request("GET", "/api/admin/knowledge/domains")).json()) as { domains: Json[] };
+    const list = (await (await request("GET", "/api/admin/knowledge/domains")).json()) as {
+      domains: Json[];
+    };
     expect(list.domains[0].level).toBe("family");
-
     const edited = (await (await request("PUT", `/api/admin/knowledge/domains/${dom.id}`, {
       name: "模板域（改）", sort: 5,
-    })).json()) as { domain: Json };
+      expected_updated_at: dom.updated_at,
+    }, adminCookie)).json()) as {
+      domain: Json;
+    };
     expect(edited.domain.name).toBe("模板域（改）");
     // 不允许改 code/level/parent_id（PUT 只接受 name/sort/status/note）
     expect(edited.domain.code).toBe("templates");
-
     // 归档仍有子域的族 → 409
-    const archFamily = await request("PUT", `/api/admin/knowledge/domains/${fam.id}`, { status: "archived" });
+    const archFamily = await request("PUT", `/api/admin/knowledge/domains/${fam.id}`, {
+      status: "archived", confirmed: true, expected_updated_at: fam.updated_at,
+    }, adminCookie);
     expect(archFamily.status).toBe(409);
     expect(await detailCode(archFamily)).toBe("knowledge_domain_in_use");
-
     // 归档仍有库的域 → 409
     await createBase({ code: "tmpl", name: "模板库", domain_id: dom.id as string, kind: "structured" });
-    const archDomain = await request("PUT", `/api/admin/knowledge/domains/${dom.id}`, { status: "archived" });
+    const archDomain = await request("PUT", `/api/admin/knowledge/domains/${dom.id}`, {
+      status: "archived", confirmed: true, expected_updated_at: edited.domain.updated_at,
+    }, adminCookie);
     expect(archDomain.status).toBe(409);
     expect(await detailCode(archDomain)).toBe("knowledge_domain_in_use");
-
     const events = (await rows("/api/audit")).map((row) => String(row.event_type));
     expect(events).toContain("knowledge.domain.save");
   });
@@ -196,14 +214,16 @@ describe("knowledge domains and bases (P2)", () => {
     });
     expect(dup.status).toBe(409);
     expect(await detailCode(dup)).toBe("knowledge_base_code_conflict");
-
     // 过滤
-    const byDomain = (await (await request("GET", `/api/admin/knowledge/bases?domain_id=${dom.id}`)).json()) as { bases: Json[] };
+    const byDomain = (await (await request("GET", `/api/admin/knowledge/bases?domain_id=${dom.id}`)).json()) as {
+      bases: Json[];
+    };
     expect(byDomain.bases.map((row) => row.id)).toEqual(expect.arrayContaining([base.id, un.id]));
-    const structuredOnly = (await (await request("GET", "/api/admin/knowledge/bases?kind=structured")).json()) as { bases: Json[] };
+    const structuredOnly = (await (await request("GET", "/api/admin/knowledge/bases?kind=structured")).json()) as {
+      bases: Json[];
+    };
     expect(structuredOnly.bases.length).toBeGreaterThan(0);
     expect(structuredOnly.bases.every((row) => row.kind === "structured")).toBe(true);
-
     // expected_version 必填；过期 409；成功后 +1
     expect((await request("PUT", `/api/admin/knowledge/bases/${base.id}`, { name: "x" })).status).toBe(400);
     const stale = await request("PUT", `/api/admin/knowledge/bases/${base.id}`, { name: "x", expected_version: 99 });
@@ -211,7 +231,9 @@ describe("knowledge domains and bases (P2)", () => {
     expect(await detailCode(stale)).toBe("knowledge_base_version_conflict");
     const updated = (await (await request("PUT", `/api/admin/knowledge/bases/${base.id}`, {
       name: "模板库（改）", expected_version: 1,
-    })).json()) as { base: Json };
+    })).json()) as {
+      base: Json;
+    };
     expect(updated.base.name).toBe("模板库（改）");
     expect(Number(updated.base.version)).toBe(2);
     // 同值 domain_id 允许（不改动）；改 kind 拒绝
@@ -265,11 +287,13 @@ describe("knowledge domains and bases (P2)", () => {
       structured: { body: "写一封信", variables: ["kol"] },
     })).json();
     expect(prompt.structured).toEqual({ body: "写一封信", variables: ["kol"] });
-    const stored = getConn().prepare("SELECT source_body FROM knowledge WHERE id=?").get(String(prompt.id)) as Row;
+    const stored = (await postgresDb().one("SELECT source_body FROM knowledge WHERE id=$1", String(prompt.id))) as Row;
     expect(String(stored.source_body)).toBe("正文");
-
     // 归档库拒绝写入
-    await request("PUT", `/api/admin/knowledge/bases/${unstructured.id}`, { status: "archived", expected_version: 1 });
+    const archivedBase = await request("PUT", `/api/admin/knowledge/bases/${unstructured.id}`, {
+      status: "archived", expected_version: 1, confirmed: true, expected_updated_at: unstructured.updated_at,
+    });
+    expect(archivedBase.status, await archivedBase.text()).toBe(200);
     const archived = await request("POST", "/api/admin/knowledge", {
       title: "x", body: "y", kind: "policy", base_id: unstructured.id,
     });
@@ -288,14 +312,14 @@ describe("knowledge domains and bases (P2)", () => {
     const dom = await createDomain(fam.id as string, "templates");
     const base = await createBase({ code: "tmpl", name: "模板库", domain_id: dom.id as string, kind: "structured" });
     const other = await createBase({ code: "other", name: "其它库", domain_id: dom.id as string, kind: "structured" });
-
     const inBase = await (await request("POST", "/api/admin/knowledge", {
-      title: "库内", body: "x", kind: "policy", base_id: base.id, status: "published",
-    })).json();
+      title: "库内", body: "x", kind: "policy", base_id: base.id, status: "draft",
+    }, adminCookie)).json();
     const otherEntry = await (await request("POST", "/api/admin/knowledge", {
-      title: "库外", body: "x", kind: "policy", base_id: other.id, status: "published",
-    })).json();
-
+      title: "库外", body: "x", kind: "policy", base_id: other.id, status: "draft",
+    }, adminCookie)).json();
+    await publishKnowledgeThroughApproval(String(inBase.id));
+    await publishKnowledgeThroughApproval(String(otherEntry.id));
     const byBase = await rows(`/api/admin/knowledge?base=${base.id}`);
     expect(byBase.map((row) => row.id)).toContain(inBase.id);
     expect(byBase.map((row) => row.id)).not.toContain(otherEntry.id);
@@ -308,10 +332,8 @@ describe("knowledge domains and bases (P2)", () => {
     const both = [inBase.id, otherEntry.id].sort();
     expect((await rows("/api/admin/knowledge?domain=templates")).map((row) => row.id).sort()).toEqual(both);
     expect((await rows("/api/admin/knowledge?family=content")).map((row) => row.id).sort()).toEqual(both);
-
-    // 员工面同样按 SQL 过滤并暴露分类
-    setPersona("employee");
-    const employee = await rows("/api/knowledge?base=tmpl");
+    // 员工面同样按 SQL 过滤并暴露分类（真实普通员工会话）。
+    const employee = (await (await request("GET", "/api/knowledge?base=tmpl", undefined, employeeCookie)).json()) as unknown as Json[];
     expect(employee.map((row) => row.id)).toEqual([inBase.id]);
     expect(employee[0].base_id).toBe(base.id);
     expect(employee[0].family_name).toBe("族");
@@ -322,18 +344,18 @@ describe("knowledge domains and bases (P2)", () => {
     const dom = await createDomain(fam.id as string, "templates");
     const un = await createBase({ code: "u", name: "非结构化库", domain_id: dom.id as string, kind: "unstructured" });
     const entry = await (await request("POST", "/api/admin/knowledge", {
-      title: "非结构化制度", body: "x", kind: "policy", base_id: un.id, status: "published", skill_id: "email_compose",
-    })).json();
-
+      title: "非结构化制度", body: "x", kind: "policy", base_id: un.id, status: "draft", skill_id: "email_compose",
+    }, adminCookie)).json();
+    await publishKnowledgeThroughApproval(String(entry.id));
     await request("POST", `/api/knowledge/${entry.id}/cite`, {});
     // 注入闸门直接拒绝
-    expect(() => assertUsableKnowledge(String(entry.id))).toThrowError(/结构化/);
-
+    const admin = await mapUser((await postgresDb().one("SELECT * FROM users WHERE id=$1", "sriphy")) as Row);
+    await expect((async () => await withScopedUser(admin, () => assertUsableKnowledge(String(entry.id))))()).rejects.toThrowError(/结构化/);
     await request("POST", "/api/admin/knowledge/bindings", {
       skill_id: "email_compose",
       selector: { ids: [entry.id] },
     });
-    const result = resolveForSkill("email_compose", {});
+    const result = await withScopedUser(admin, () => resolveForSkill("email_compose", {}));
     expect(result.bound).toBe(true);
     expect(result.resolved.map((item) => item.id)).not.toContain(entry.id);
     expect(result.skipped).toContainEqual(expect.objectContaining({ knowledge_id: entry.id, reason: "wrong_base_type" }));

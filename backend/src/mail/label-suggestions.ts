@@ -23,15 +23,14 @@ import { CodexAppServer } from "../worker/codex.js";
  */
 const RUNTIME_SKILL_ID = "mail_summary";
 const MAX_MESSAGES = 24;
-const MAX_FIELD_CHARS = 8_000;
+const MAX_FIELD_CHARS = 8000;
 const MAX_SUGGESTIONS = 5;
 /** New model-created labels are deliberately narrow, human-readable Chinese names. */
 export const GENERATED_LABEL_MIN_HAN_CHARS = 2;
 export const GENERATED_LABEL_MAX_HAN_CHARS = 16;
 /** A candidate remains an explicit employee-confirmation proposal, never an auto-save. */
-export const LABEL_SUGGESTION_RECEIPT_TTL_MS = 10 * 60 * 1_000;
+export const LABEL_SUGGESTION_RECEIPT_TTL_MS = 10 * 60 * 1000;
 const RECEIPT_KEY_PREFIX = "mail.label_suggestion_receipt:";
-
 const THINK = {
   entry: "think" as const,
   kind: "think" as const,
@@ -39,10 +38,15 @@ const THINK = {
   creates_turn: true,
   calls_model: true,
 };
-
-type Actor = { id: string; active: boolean };
+type Actor = {
+  id: string;
+  active: boolean;
+};
 type QueryClient = Pick<PoolClient, "query">;
-type ExistingLabel = { id: string; name: string };
+type ExistingLabel = {
+  id: string;
+  name: string;
+};
 type MailMessageEvidence = {
   id: string;
   provider_message_id: string;
@@ -74,8 +78,11 @@ type LoadedEvidence = {
   evidence: LabelSuggestionEvidence;
   sourceFingerprint: string;
 };
-
-type HarnessSuggestion = { label_id: string; name: string; reason: string };
+type HarnessSuggestion = {
+  label_id: string;
+  name: string;
+  reason: string;
+};
 export type LabelSuggestionHarnessInput = {
   agentId: string;
   skillId: typeof RUNTIME_SKILL_ID;
@@ -83,8 +90,9 @@ export type LabelSuggestionHarnessInput = {
   sourceFingerprint: string;
   evidence: LabelSuggestionEvidence;
 };
-export type LabelSuggestionHarness = (input: LabelSuggestionHarnessInput) => Promise<{ suggestions: HarnessSuggestion[] }>;
-
+export type LabelSuggestionHarness = (input: LabelSuggestionHarnessInput) => Promise<{
+  suggestions: HarnessSuggestion[];
+}>;
 export type MailLabelSuggestion = {
   /** Opaque candidate identity, usable only with its exact receipt. */
   id: string;
@@ -137,34 +145,40 @@ function currentActor(): Actor {
   const user = scopedUser();
   // This endpoint is intentionally never given an auth-disabled/demo fallback:
   // a model turn may only receive a concrete current employee identity.
-  if (!user) throw new HttpFail(401, { code: "authentication_required" });
-  if (!user.active) throw new HttpFail(403, { code: "actor_inactive" });
+  if (!user)
+    throw new HttpFail(401, { code: "authentication_required" });
+  if (!user.active)
+    throw new HttpFail(403, { code: "actor_inactive" });
   return { id: user.id, active: user.active };
 }
-
 function requiredMailbox(raw: unknown): string {
-  if (typeof raw !== "string" || /\p{Cc}/u.test(raw)) throw new HttpFail(400, { code: "mailbox_invalid" });
+  if (typeof raw !== "string" || /\p{Cc}/u.test(raw))
+    throw new HttpFail(400, { code: "mailbox_invalid" });
   const mailbox = normalizeEmail(raw);
-  if (!mailbox) throw new HttpFail(400, { code: "mailbox_required" });
-  if (!MAILBOX_EMAIL.test(mailbox)) throw new HttpFail(400, { code: "mailbox_invalid" });
+  if (!mailbox)
+    throw new HttpFail(400, { code: "mailbox_required" });
+  if (!MAILBOX_EMAIL.test(mailbox))
+    throw new HttpFail(400, { code: "mailbox_invalid" });
   return mailbox;
 }
-
 function requiredConversationId(raw: unknown): string {
-  if (typeof raw !== "string" || /\p{Cc}/u.test(raw)) throw new HttpFail(400, { code: "conversation_id_invalid" });
+  if (typeof raw !== "string" || /\p{Cc}/u.test(raw))
+    throw new HttpFail(400, { code: "conversation_id_invalid" });
   const id = raw.trim();
-  if (!id || id.length > 240) throw new HttpFail(400, { code: "conversation_id_required" });
+  if (!id || id.length > 240)
+    throw new HttpFail(400, { code: "conversation_id_required" });
   return id;
 }
-
 function optionalAgentId(raw: unknown): string {
-  if (raw === undefined) return "";
-  if (typeof raw !== "string") throw new HttpFail(400, { code: "agent_id_invalid" });
+  if (raw === undefined)
+    return "";
+  if (typeof raw !== "string")
+    throw new HttpFail(400, { code: "agent_id_invalid" });
   const id = raw.trim();
-  if (!/^agent:[a-z][a-z0-9-]*$/.test(id)) throw new HttpFail(400, { code: "agent_id_invalid" });
+  if (!/^agent:[a-z][a-z0-9-]*$/.test(id))
+    throw new HttpFail(400, { code: "agent_id_invalid" });
   return id;
 }
-
 function boundedText(value: unknown): string {
   return String(value || "").replace(/\u0000/g, "").slice(0, MAX_FIELD_CHARS);
 }
@@ -172,17 +186,13 @@ function boundedText(value: unknown): string {
 function fingerprint(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
-
 async function assertMailboxBound(client: QueryClient, actorId: string, mailbox: string): Promise<void> {
-  const result = await client.query(
-    `SELECT 1 FROM user_starry_bindings
+  const result = await client.query(`SELECT 1 FROM user_starry_bindings
      WHERE user_id=$1 AND lower(mailbox_email)=lower($2) AND status='connected'
-     LIMIT 1`,
-    [actorId, mailbox],
-  );
-  if (!result.rows[0]) throw new HttpFail(403, { code: "mailbox_access_denied" });
+     LIMIT 1`, [actorId, mailbox]);
+  if (!result.rows[0])
+    throw new HttpFail(403, { code: "mailbox_access_denied" });
 }
-
 /**
  * Reads a single mailbox/conversation only after the employee binding check.
  * No arbitrary message, collaboration, or label ID is accepted from the client.
@@ -192,45 +202,46 @@ async function assertMailboxBound(client: QueryClient, actorId: string, mailbox:
  * It lives here (rather than importing labels into this module) so `labels.ts`
  * can reuse it without creating a labels ↔ suggestions circular dependency.
  */
-export async function loadLabelSuggestionEvidence(
-  client: QueryClient,
-  actor: Actor,
-  mailbox: string,
-  conversationId: string,
-  options: { lockSource?: boolean } = {},
-): Promise<LoadedEvidence> {
+export async function loadLabelSuggestionEvidence(client: QueryClient, actor: Actor, mailbox: string, conversationId: string, options: {
+  lockSource?: boolean;
+} = {}): Promise<LoadedEvidence> {
   await assertMailboxBound(client, actor.id, mailbox);
   const threadResult = await client.query<{
-    id: string; subject: string; digest_text: string | null; digest_source: string | null; digest_fingerprint: string | null;
-  }>(
-    `SELECT id, subject, digest_text, digest_source, digest_fingerprint
+    id: string;
+    subject: string;
+    digest_text: string | null;
+    digest_source: string | null;
+    digest_fingerprint: string | null;
+  }>(`SELECT id, subject, digest_text, digest_source, digest_fingerprint
        FROM kol_mail_threads
       WHERE conversation_id=$1 AND lower(mailbox)=lower($2)
-      LIMIT 1 ${options.lockSource ? "FOR SHARE" : ""}`,
-    [conversationId, mailbox],
-  );
+      LIMIT 1 ${options.lockSource ? "FOR SHARE" : ""}`, [conversationId, mailbox]);
   const thread = threadResult.rows[0];
-  if (!thread) throw new HttpFail(404, { code: "conversation_not_found" });
-
+  if (!thread)
+    throw new HttpFail(404, { code: "conversation_not_found" });
   // Receipt adoption holds a share lock over every bounded message that enters
   // the fingerprint. A concurrent body update therefore cannot slip between
   // source validation and the later label assignment commit.
   if (options.lockSource) {
-    await client.query(
-      `SELECT id FROM kol_mail_items
+    await client.query(`SELECT id FROM kol_mail_items
         WHERE thread_id=$1
         ORDER BY occurred_at DESC NULLS LAST, created_at DESC
-        LIMIT $2 FOR SHARE`,
-      [thread.id, MAX_MESSAGES],
-    );
+        LIMIT $2 FOR SHARE`, [thread.id, MAX_MESSAGES]);
   }
-
   const messageResult = await client.query<{
-    id: string; provider_message_id: string | null; occurred_at: string | null; direction: string | null; subject: string | null;
-    body_text: string | null; summary: string | null; summary_zh: string | null; summary_source: string | null;
-    translation_zh: string | null; translation_source: string | null; memory_fingerprint: string | null;
-  }>(
-    `SELECT recent.id, recent.provider_message_id, recent.occurred_at, recent.direction, recent.subject, recent.body_text,
+    id: string;
+    provider_message_id: string | null;
+    occurred_at: string | null;
+    direction: string | null;
+    subject: string | null;
+    body_text: string | null;
+    summary: string | null;
+    summary_zh: string | null;
+    summary_source: string | null;
+    translation_zh: string | null;
+    translation_source: string | null;
+    memory_fingerprint: string | null;
+  }>(`SELECT recent.id, recent.provider_message_id, recent.occurred_at, recent.direction, recent.subject, recent.body_text,
             recent.summary, recent.summary_zh, recent.summary_source, recent.translation_zh, recent.translation_source,
             recent.memory_fingerprint
        FROM (
@@ -242,33 +253,25 @@ export async function loadLabelSuggestionEvidence(
           ORDER BY i.occurred_at DESC NULLS LAST, i.created_at DESC
           LIMIT $2
        ) recent
-      ORDER BY recent.occurred_at ASC NULLS LAST, recent.evidence_created_at ASC`,
-    [thread.id, MAX_MESSAGES],
-  );
-  const assignedResult = await client.query<{ label_id: string }>(
-    `SELECT label_id FROM mail_private_label_assignments
+      ORDER BY recent.occurred_at ASC NULLS LAST, recent.evidence_created_at ASC`, [thread.id, MAX_MESSAGES]);
+  const assignedResult = await client.query<{
+    label_id: string;
+  }>(`SELECT label_id FROM mail_private_label_assignments
       WHERE user_id=$1 AND mailbox=$2 AND conversation_id=$3
-      ORDER BY label_id`,
-    [actor.id, mailbox, conversationId],
-  );
+      ORDER BY label_id`, [actor.id, mailbox, conversationId]);
   const assignedLabelIds = assignedResult.rows.map((row) => String(row.label_id));
-  const labelResult = await client.query<ExistingLabel>(
-    `SELECT id, name FROM mail_private_labels
+  const labelResult = await client.query<ExistingLabel>(`SELECT id, name FROM mail_private_labels
       WHERE user_id=$1 AND mailbox=$2
         AND NOT EXISTS (
           SELECT 1 FROM mail_private_label_assignments a
            WHERE a.user_id=mail_private_labels.user_id AND a.mailbox=mail_private_labels.mailbox
              AND a.label_id=mail_private_labels.id AND a.conversation_id=$3
         )
-      ORDER BY normalized_name, id`,
-    [actor.id, mailbox, conversationId],
-  );
-  const stateResult = await client.query<{ version: number | string }>(
-    `SELECT version FROM mail_private_label_states
-      WHERE user_id=$1 AND mailbox=$2`,
-    [actor.id, mailbox],
-  );
-
+      ORDER BY normalized_name, id`, [actor.id, mailbox, conversationId]);
+  const stateResult = await client.query<{
+    version: number | string;
+  }>(`SELECT version FROM mail_private_label_states
+      WHERE user_id=$1 AND mailbox=$2`, [actor.id, mailbox]);
   const evidence: LabelSuggestionEvidence = {
     mailbox,
     conversation_id: conversationId,
@@ -307,13 +310,9 @@ export async function loadLabelSuggestionEvidence(
     messages: evidence.messages,
   }) };
 }
-
 function hasMailEvidence(evidence: LabelSuggestionEvidence): boolean {
-  return Boolean(evidence.thread_digest.trim()) || evidence.messages.some((message) =>
-    Boolean(message.body_text.trim() || message.summary.trim() || message.translation_zh.trim()),
-  );
+  return Boolean(evidence.thread_digest.trim()) || evidence.messages.some((message) => Boolean(message.body_text.trim() || message.summary.trim() || message.translation_zh.trim()));
 }
-
 function suggestionPrompt(input: LabelSuggestionHarnessInput): string {
   return [
     "这是员工明确点击发起的、只读的邮件标签推荐请求。",
@@ -354,7 +353,8 @@ function parseJsonObject(text: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(clean);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
-  } catch {
+  }
+  catch {
     return null;
   }
 }
@@ -362,9 +362,11 @@ function parseJsonObject(text: string): Record<string, unknown> | null {
 function parseHarnessSuggestions(agentTexts: string[]): HarnessSuggestion[] {
   for (const text of [...agentTexts].reverse()) {
     const parsed = parseJsonObject(text);
-    if (!parsed || !Array.isArray(parsed.suggestions)) continue;
+    if (!parsed || !Array.isArray(parsed.suggestions))
+      continue;
     const suggestions = parsed.suggestions.map((item) => {
-      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+      if (!item || typeof item !== "object" || Array.isArray(item))
+        return null;
       const row = item as Record<string, unknown>;
       return {
         label_id: typeof row.label_id === "string" ? row.label_id.trim() : "",
@@ -372,7 +374,8 @@ function parseHarnessSuggestions(agentTexts: string[]): HarnessSuggestion[] {
         reason: typeof row.reason === "string" ? row.reason.normalize("NFKC").trim() : "",
       };
     });
-    if (suggestions.some((item) => !item)) throw new HttpFail(502, { code: "label_suggestion_invalid_model_output" });
+    if (suggestions.some((item) => !item))
+      throw new HttpFail(502, { code: "label_suggestion_invalid_model_output" });
     return suggestions as HarnessSuggestion[];
   }
   throw new HttpFail(502, { code: "label_suggestion_invalid_model_output" });
@@ -383,12 +386,14 @@ function parseHarnessSuggestions(agentTexts: string[]): HarnessSuggestion[] {
  * protocol and existing published read-only mail-summary skill assembly as the
  * worker, with no OpenAI client, no fallback model, no tools and no second turn.
  */
-export async function runLabelSuggestionHarness(input: LabelSuggestionHarnessInput): Promise<{ suggestions: HarnessSuggestion[] }> {
+export async function runLabelSuggestionHarness(input: LabelSuggestionHarnessInput): Promise<{
+  suggestions: HarnessSuggestion[];
+}> {
   let cwd = "";
   let rpc: CodexAppServer | null = null;
   try {
     cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-mail-label-suggestions-"));
-    const skillPath = writeRuntimeSkill(input.skillId);
+    const skillPath = (await writeRuntimeSkill(input.skillId));
     rpc = new CodexAppServer(120, []);
     await rpc.handshake();
     await rpc.requireAuth();
@@ -400,9 +405,14 @@ export async function runLabelSuggestionHarness(input: LabelSuggestionHarnessInp
       sandbox: "read-only",
       config: { mcp_servers: {} },
     });
-    const thread = (started.thread as { id?: string } | undefined) || started;
-    const threadId = String((thread as { id?: string }).id || "");
-    if (!threadId) throw new HttpFail(503, { code: "label_suggestion_harness_unavailable" });
+    const thread = (started.thread as {
+      id?: string;
+    } | undefined) || started;
+    const threadId = String((thread as {
+      id?: string;
+    }).id || "");
+    if (!threadId)
+      throw new HttpFail(503, { code: "label_suggestion_harness_unavailable" });
     await rpc.request("turn/start", {
       threadId,
       input: [
@@ -417,35 +427,42 @@ export async function runLabelSuggestionHarness(input: LabelSuggestionHarnessInp
       outputSchema: suggestionSchema,
     });
     const completed = await rpc.waitTurn();
-    const turn = (completed.turn as { status?: unknown } | undefined) || {};
-    if (turn.status && turn.status !== "completed") throw new HttpFail(503, { code: "label_suggestion_harness_unavailable" });
+    const turn = (completed.turn as {
+      status?: unknown;
+    } | undefined) || {};
+    if (turn.status && turn.status !== "completed")
+      throw new HttpFail(503, { code: "label_suggestion_harness_unavailable" });
     return { suggestions: parseHarnessSuggestions(rpc.agentTexts) };
-  } catch (error) {
-    if (error instanceof HttpFail) throw error;
+  }
+  catch (error) {
+    if (error instanceof HttpFail)
+      throw error;
     // Do not pass through app-server, credential, or mail-content error text.
     throw new HttpFail(503, { code: "label_suggestion_harness_unavailable" });
-  } finally {
+  }
+  finally {
     rpc?.close();
-    if (cwd) fs.rmSync(cwd, { recursive: true, force: true });
+    if (cwd)
+      fs.rmSync(cwd, { recursive: true, force: true });
   }
 }
-
 export function isLegalGeneratedMailLabelName(value: unknown): value is string {
-  if (typeof value !== "string") return false;
+  if (typeof value !== "string")
+    return false;
   const name = value.normalize("NFKC").trim();
   return new RegExp(`^[\\p{Script=Han}]{${GENERATED_LABEL_MIN_HAN_CHARS},${GENERATED_LABEL_MAX_HAN_CHARS}}$`, "u").test(name);
 }
-
 function validReason(value: string, isNewCandidate: boolean): boolean {
-  if (!value || value.length > 280 || /\p{Cc}/u.test(value)) return false;
+  if (!value || value.length > 280 || /\p{Cc}/u.test(value))
+    return false;
   // New labels have no stage source whatsoever. The prompt and the evidence
   // boundary enforce this semantically; this guard also rejects an explicit
   // stage assertion if a model attempts to smuggle one into the rationale.
   return !isNewCandidate || !/(?:合作)?阶段|stage(?:\s*[:：]|\s+is\b)/iu.test(value);
 }
-
 function validateSuggestions(raw: HarnessSuggestion[], evidence: LabelSuggestionEvidence, sourceFingerprint: string): MailLabelSuggestion[] {
-  if (raw.length > MAX_SUGGESTIONS) throw new HttpFail(502, { code: "label_suggestion_invalid_model_output" });
+  if (raw.length > MAX_SUGGESTIONS)
+    throw new HttpFail(502, { code: "label_suggestion_invalid_model_output" });
   const allowed = new Map(evidence.available_labels.map((label) => [label.id, label.name]));
   const normalizedExistingNames = new Set(evidence.available_labels.map((label) => label.name.normalize("NFKC").trim().toLowerCase()));
   const seen = new Set<string>();
@@ -456,12 +473,10 @@ function validateSuggestions(raw: HarnessSuggestion[], evidence: LabelSuggestion
     const reason = suggestion.reason.normalize("NFKC").trim();
     const isNew = !labelId;
     const dedupeKey = isNew ? `new:${name}` : `existing:${labelId}`;
-    if (
-      (!isNew && (!selectedExistingName || selectedExistingName !== name))
+    if ((!isNew && (!selectedExistingName || selectedExistingName !== name))
       || (isNew && (!isLegalGeneratedMailLabelName(name) || normalizedExistingNames.has(name.toLowerCase())))
       || !validReason(reason, isNew)
-      || seen.has(dedupeKey)
-    ) {
+      || seen.has(dedupeKey)) {
       throw new HttpFail(502, { code: "label_suggestion_invalid_model_output" });
     }
     seen.add(dedupeKey);
@@ -505,8 +520,8 @@ export function parseMailLabelSuggestionReceipt(value: string, expectedReceiptId
       || typeof parsed.issued_at !== "string" || !Number.isFinite(Date.parse(parsed.issued_at))
       || typeof parsed.expires_at !== "string" || !Number.isFinite(Date.parse(parsed.expires_at))
       || (parsed.consumed_at !== null && (typeof parsed.consumed_at !== "string" || !Number.isFinite(Date.parse(parsed.consumed_at))))
-      || !Array.isArray(parsed.candidates) || parsed.candidates.length > MAX_SUGGESTIONS
-    ) return null;
+      || !Array.isArray(parsed.candidates) || parsed.candidates.length > MAX_SUGGESTIONS)
+      return null;
     const receiptId = parsed.receipt_id as string;
     const actorId = parsed.actor_id as string;
     const mailbox = parsed.mailbox as string;
@@ -524,14 +539,15 @@ export function parseMailLabelSuggestionReceipt(value: string, expectedReceiptId
         || typeof candidate.reason !== "string"
         || candidate.source_fingerprint !== parsed.source_fingerprint
         || candidate.mailbox !== parsed.mailbox
-        || candidate.conversation_id !== parsed.conversation_id
-      ) return null;
+        || candidate.conversation_id !== parsed.conversation_id)
+        return null;
       const name = candidate.name.normalize("NFKC").trim();
       const reason = candidate.reason.normalize("NFKC").trim();
       const id = candidate.id as string;
       const labelId = candidate.label_id as string | null;
       const isNew = labelId === null;
-      if (!name || !validReason(reason, isNew) || (isNew && !isLegalGeneratedMailLabelName(name))) return null;
+      if (!name || !validReason(reason, isNew) || (isNew && !isLegalGeneratedMailLabelName(name)))
+        return null;
       return {
         id,
         label_id: labelId,
@@ -542,7 +558,8 @@ export function parseMailLabelSuggestionReceipt(value: string, expectedReceiptId
         conversation_id: conversationId,
       };
     });
-    if (candidates.some((candidate) => !candidate)) return null;
+    if (candidates.some((candidate) => !candidate))
+      return null;
     return {
       kind: "mail_label_suggestion_receipt_v1",
       receipt_id: receiptId,
@@ -556,18 +573,12 @@ export function parseMailLabelSuggestionReceipt(value: string, expectedReceiptId
       consumed_at: consumedAt,
       candidates: candidates as MailLabelSuggestionReceiptCandidate[],
     };
-  } catch {
+  }
+  catch {
     return null;
   }
 }
-
-async function persistSuggestionReceipt(
-  client: PoolClient,
-  actor: Actor,
-  evidence: LabelSuggestionEvidence,
-  sourceFingerprint: string,
-  suggestions: MailLabelSuggestion[],
-): Promise<MailLabelSuggestionReceipt> {
+async function persistSuggestionReceipt(client: PoolClient, actor: Actor, evidence: LabelSuggestionEvidence, sourceFingerprint: string, suggestions: MailLabelSuggestion[]): Promise<MailLabelSuggestionReceipt> {
   const now = new Date();
   const receipt: MailLabelSuggestionReceipt = {
     kind: "mail_label_suggestion_receipt_v1",
@@ -582,27 +593,25 @@ async function persistSuggestionReceipt(
     consumed_at: null,
     candidates: suggestions,
   };
-  await client.query(
-    `INSERT INTO app_state(key,value) VALUES ($1,$2)`,
-    [labelSuggestionReceiptKey(receipt.receipt_id), JSON.stringify(receipt)],
-  );
+  await client.query(`INSERT INTO app_state(key,value) VALUES ($1,$2)`, [labelSuggestionReceiptKey(receipt.receipt_id), JSON.stringify(receipt)]);
   return receipt;
 }
-
-function selectAuthorizedAgent(actor: Actor, requestedAgentId: string): { agentId: string; skillVersion: string } {
-  const agentId = requestedAgentId || runtimeAgentForSkill(RUNTIME_SKILL_ID, actor.id, { employeeChoice: true });
-  if (requestedAgentId && !runtimeAgentCandidates(RUNTIME_SKILL_ID, actor.id).includes(agentId)) {
+async function selectAuthorizedAgent(actor: Actor, requestedAgentId: string): Promise<{
+  agentId: string;
+  skillVersion: string;
+}> {
+  const agentId = requestedAgentId || (await runtimeAgentForSkill(RUNTIME_SKILL_ID, actor.id, { employeeChoice: true }));
+  if (requestedAgentId && !(await runtimeAgentCandidates(RUNTIME_SKILL_ID, actor.id)).includes(agentId)) {
     throw new HttpFail(403, { code: "runtime_agent_not_usable" });
   }
-  const authorization = assertRuntimeSkill({
+  const authorization = (await assertRuntimeSkill({
     agentId,
     skillId: RUNTIME_SKILL_ID,
     userId: actor.id,
     runId: `mail-label-suggestions:${randomUUID()}`,
-  });
+  }));
   return { agentId, skillVersion: authorization.skillVersion };
 }
-
 async function recordSuggestionAudit(input: {
   actorId: string;
   mailbox: string;
@@ -613,10 +622,8 @@ async function recordSuggestionAudit(input: {
   errorCode?: string;
 }): Promise<void> {
   try {
-    await postgresPool().query(
-      `INSERT INTO mail_sync_audit(id,ts,actor,event_type,payload_json)
-       VALUES ($1,now(),$2,$3,$4::jsonb)`,
-      [
+    await postgresPool().query(`INSERT INTO mail_sync_audit(id,ts,actor,event_type,payload_json)
+       VALUES ($1,now(),$2,$3,$4::jsonb)`, [
         nid("msa"),
         input.actorId,
         "mail.label_suggestions.think",
@@ -630,28 +637,31 @@ async function recordSuggestionAudit(input: {
           status: input.status,
           error_code: input.errorCode || null,
         }),
-      ],
-    );
-  } catch {
+    ]);
+  }
+  catch {
     // Observability must never publish a model result after an access failure or
     // turn an otherwise honest model failure into a fabricated success.
   }
 }
-
-export function createMailLabelSuggestionOperations(options: { harness?: LabelSuggestionHarness } = {}): Operation[] {
+export function createMailLabelSuggestionOperations(options: {
+  harness?: LabelSuggestionHarness;
+} = {}): Operation[] {
   const harness = options.harness || runLabelSuggestionHarness;
   const suggest: Operation["handle"] = async (c, input) => {
     c.header("Cache-Control", "no-store");
     const actor = currentActor();
-    const mailbox = requiredMailbox((input as { box?: unknown }).box);
-    const conversationId = requiredConversationId((input as { conversation_id?: unknown }).conversation_id);
-    const requestedAgentId = optionalAgentId((input as { agent_id?: unknown }).agent_id);
-    const runtime = selectAuthorizedAgent(actor, requestedAgentId);
-    const first = await postgresTransaction(
-      (client) => loadLabelSuggestionEvidence(client, actor, mailbox, conversationId),
-      { isolation: "REPEATABLE READ" },
-    );
-
+    const mailbox = requiredMailbox((input as {
+      box?: unknown;
+    }).box);
+    const conversationId = requiredConversationId((input as {
+      conversation_id?: unknown;
+    }).conversation_id);
+    const requestedAgentId = optionalAgentId((input as {
+      agent_id?: unknown;
+    }).agent_id);
+    const runtime = (await selectAuthorizedAgent(actor, requestedAgentId));
+    const first = await postgresTransaction(async (client) => (await loadLabelSuggestionEvidence(client, actor, mailbox, conversationId)), { isolation: "REPEATABLE READ" });
     if (!hasMailEvidence(first.evidence)) {
       await recordSuggestionAudit({ actorId: actor.id, mailbox, conversationId, sourceFingerprint: first.sourceFingerprint,
         runtimeAgentId: runtime.agentId, status: "no_mail_evidence" });
@@ -666,24 +676,32 @@ export function createMailLabelSuggestionOperations(options: { harness?: LabelSu
     try {
       raw = (await harness({ agentId: runtime.agentId, skillId: RUNTIME_SKILL_ID, runId: `mail-label-suggestions:${randomUUID()}`,
         sourceFingerprint: first.sourceFingerprint, evidence: first.evidence })).suggestions;
-    } catch (error) {
+    }
+    catch (error) {
       const code = error instanceof HttpFail && error.detail && typeof error.detail === "object"
-        ? String((error.detail as { code?: unknown }).code || "label_suggestion_harness_unavailable")
+        ? String((error.detail as {
+          code?: unknown;
+        }).code || "label_suggestion_harness_unavailable")
         : "label_suggestion_harness_unavailable";
       await recordSuggestionAudit({ actorId: actor.id, mailbox, conversationId, sourceFingerprint: first.sourceFingerprint,
         runtimeAgentId: runtime.agentId, status: "failed", errorCode: code });
-      if (error instanceof HttpFail) throw error;
+      if (error instanceof HttpFail)
+        throw error;
       throw new HttpFail(503, { code: "label_suggestion_harness_unavailable" });
     }
-
     // Re-read scope and source after the turn. A revoked binding, deleted
     // conversation, source update, or label dictionary update may not publish a
     // stale recommendation into a newly selected mail object.
-    let published: { current: LoadedEvidence; suggestions: MailLabelSuggestion[]; receipt: MailLabelSuggestionReceipt };
+    let published: {
+      current: LoadedEvidence;
+      suggestions: MailLabelSuggestion[];
+      receipt: MailLabelSuggestionReceipt;
+    };
     try {
       published = await postgresTransaction(async (client) => {
         const current = await loadLabelSuggestionEvidence(client, actor, mailbox, conversationId);
-        if (current.sourceFingerprint !== first.sourceFingerprint) throw new HttpFail(409, { code: "mail_source_changed" });
+        if (current.sourceFingerprint !== first.sourceFingerprint)
+          throw new HttpFail(409, { code: "mail_source_changed" });
         // The state version is serialised by mail.label. Including it here makes
         // an intervening dictionary/assignment write invalidate every candidate,
         // not just labels on the currently visible conversation.
@@ -696,9 +714,12 @@ export function createMailLabelSuggestionOperations(options: { harness?: LabelSu
         const receipt = await persistSuggestionReceipt(client, actor, current.evidence, first.sourceFingerprint, suggestions);
         return { current, suggestions, receipt };
       }, { isolation: "REPEATABLE READ" });
-    } catch (error) {
+    }
+    catch (error) {
       const code = error instanceof HttpFail && error.detail && typeof error.detail === "object"
-        ? String((error.detail as { code?: unknown }).code || "label_suggestion_publish_failed")
+        ? String((error.detail as {
+          code?: unknown;
+        }).code || "label_suggestion_publish_failed")
         : "label_suggestion_publish_failed";
       await recordSuggestionAudit({ actorId: actor.id, mailbox, conversationId, sourceFingerprint: first.sourceFingerprint,
         runtimeAgentId: runtime.agentId, status: "stale", errorCode: code });

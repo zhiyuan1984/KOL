@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mcpServerSpecs, writeBoxCodexConfig } from "../mcp/codex-config.js";
 import { filterTools } from "../mcp/stdio.js";
 import { STARRY_TOOLS } from "../mcp/tools.js";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { appendTaskEvent } from "../src/task-events.js";
 import { SKILL_CATALOG } from "../src/host/skills-catalog.js";
 import { profileFor } from "../src/profiles.js";
@@ -32,20 +32,17 @@ async function request(method: string, url: string, body?: unknown) {
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-tasks-"));
-  process.env.LINGONG_DB = path.join(tmp, "tasks.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
-
 describe("manifest task registry", () => {
   it("loads complete, unique and read-only definitions without the retired per-stage SOPs", () => {
     const definitions = taskDefinitions();
@@ -73,19 +70,17 @@ describe("manifest task registry", () => {
     }
   });
 });
-
 describe("task intent resolution", () => {
-  it("keeps explicit task_type authoritative even when text names another task", () => {
-    const result = resolveTaskIntent({
+  it("keeps explicit task_type authoritative even when text names another task", async () => {
+    const result = (await resolveTaskIntent({
       task_type: "risk_scan",
       text: "请执行合同审查",
-    });
+    }));
     expect(result.task_type).toBe("risk_scan");
     expect(result.confidence).toBe(1);
   });
-
-  it("returns clarification for low-confidence free text", () => {
-    const result = resolveTaskIntent({ text: "帮我看看这个" });
+  it("returns clarification for low-confidence free text", async () => {
+    const result = (await resolveTaskIntent({ text: "帮我看看这个" }));
     expect(result.task_type).toBeNull();
     expect(result.needs_clarification).toBe(true);
     expect(result.alternatives.map((item) => item.task_type)).toEqual([
@@ -94,9 +89,8 @@ describe("task intent resolution", () => {
       "risk_scan",
     ]);
   });
-
-  it("offers Email MCP skills when mailbox language is too vague to auto-run", () => {
-    const result = resolveTaskIntent({ text: "帮我看一下邮箱情况" });
+  it("offers Email MCP skills when mailbox language is too vague to auto-run", async () => {
+    const result = (await resolveTaskIntent({ text: "帮我看一下邮箱情况" }));
     expect(result.task_type).toBeNull();
     expect(result.needs_clarification).toBe(true);
     expect(result.alternatives.map((item) => item.task_type)).toEqual([
@@ -105,15 +99,13 @@ describe("task intent resolution", () => {
       "email_compose",
     ]);
   });
-
-  it("does not pick a skill from operator text without a locked task_type", () => {
-    expect(resolveTaskIntent({ text: "写合作邮件" }).task_type).toBeNull();
-    expect(resolveTaskIntent({ text: "搜索 YouTube 露营达人" }).clarification_kind).toBe("direction");
-    expect(resolveTaskIntent({ text: "记状态 @小美妆日记" }).task_type).toBeNull();
+  it("does not pick a skill from operator text without a locked task_type", async () => {
+    expect((await resolveTaskIntent({ text: "写合作邮件" })).task_type).toBeNull();
+    expect((await resolveTaskIntent({ text: "搜索 YouTube 露营达人" })).clarification_kind).toBe("direction");
+    expect((await resolveTaskIntent({ text: "记状态 @小美妆日记" })).task_type).toBeNull();
   });
-
-  it("recognizes platform creator-search language and extracts crawl entities", () => {
-    const result = stubResolveTaskIntent({ text: "搜索 YouTube 露营达人" });
+  it("recognizes platform creator-search language and extracts crawl entities", async () => {
+    const result = (await stubResolveTaskIntent({ text: "搜索 YouTube 露营达人" }));
     expect(result).toMatchObject({
       task_type: "creator_discovery",
       confidence: 0.97,
@@ -124,19 +116,17 @@ describe("task intent resolution", () => {
       needs_clarification: false,
     });
   });
-
-  it("accepts a scalar platform entity when it pre-fills a one-item multiple-select field", () => {
-    const result = resolveTaskIntent({
+  it("accepts a scalar platform entity when it pre-fills a one-item multiple-select field", async () => {
+    const result = (await resolveTaskIntent({
       task_type: "creator_discovery",
       text: "搜索 YouTube 露营达人",
       entities: { platform: "youtube", keywords: ["露营"] },
-    });
+    }));
     expect(result.invalid_fields).toBeUndefined();
     expect(result.needs_clarification).toBe(false);
   });
-
-  it("splits quoted Chinese keyword lists for crawl plans", () => {
-    expect(stubResolveTaskIntent({ text: "搜索 Instagram“户外电源、房车露营”达人。" })).toMatchObject({
+  it("splits quoted Chinese keyword lists for crawl plans", async () => {
+    expect((await stubResolveTaskIntent({ text: "搜索 Instagram“户外电源、房车露营”达人。" }))).toMatchObject({
       task_type: "creator_discovery",
       entities: {
         platform: "instagram",
@@ -144,121 +134,118 @@ describe("task intent resolution", () => {
       },
     });
   });
-
-  it("keeps YouTube as a first-class MediaCrawler platform instead of falling back to xhs", () => {
-    expect(stubResolveTaskIntent({ text: "搜索 YouTube 户外电源达人" })).toMatchObject({
+  it("keeps YouTube as a first-class MediaCrawler platform instead of falling back to xhs", async () => {
+    expect((await stubResolveTaskIntent({ text: "搜索 YouTube 户外电源达人" }))).toMatchObject({
       task_type: "creator_discovery",
       entities: { platform: "youtube", keywords: ["户外电源"] },
     });
   });
-
   it("recognizes Email MCP library and KOL Claw scoring phrases", async () => {
-    expect(stubResolveTaskIntent({ text: "查询达人库 关键词：户外电源 状态：待建联" })).toMatchObject({
+    expect((await stubResolveTaskIntent({ text: "查询达人库 关键词：户外电源 状态：待建联" }))).toMatchObject({
       task_type: "creator_library_query",
       entities: { keyword: "户外电源", status: "待建联" },
     });
-    expect(stubResolveTaskIntent({ text: "达人库查询 Wendell Fishing" })).toMatchObject({
+    expect((await stubResolveTaskIntent({ text: "达人库查询 Wendell Fishing" }))).toMatchObject({
       task_type: "creator_library_query",
       entities: { keyword: "Wendell Fishing" },
     });
-    expect(stubResolveTaskIntent({ text: "达人库查询 [关键词]" }).entities.keyword).toBeUndefined();
-    expect(stubResolveTaskIntent({ text: "按关键词、合作阶段和风险标签分页查询红人库" }).entities.keyword).toBeUndefined();
-    expect(stubResolveTaskIntent({ text: "添加达人 户外电源达人 粉丝 85000 播放量 120000、110000" })).toMatchObject({
+    expect((await stubResolveTaskIntent({ text: "达人库查询 [关键词]" })).entities.keyword).toBeUndefined();
+    expect((await stubResolveTaskIntent({ text: "按关键词、合作阶段和风险标签分页查询红人库" })).entities.keyword).toBeUndefined();
+    expect((await stubResolveTaskIntent({ text: "添加达人 户外电源达人 粉丝 85000 播放量 120000、110000" }))).toMatchObject({
       task_type: "creator_library_sync",
       entities: { name: "户外电源达人", followers: 85000, views: [120000, 110000] },
     });
-    expect(stubResolveTaskIntent({ text: "达人画像 达人 UID KOLTEST001" })).toMatchObject({
+    expect((await stubResolveTaskIntent({ text: "达人画像 达人 UID KOLTEST001" }))).toMatchObject({
       task_type: "creator_profile",
       entities: { kolUid: "KOLTEST001" },
     });
-    expect(stubResolveTaskIntent({ text: "达人评分 目标CPM 12" })).toMatchObject({
+    expect((await stubResolveTaskIntent({ text: "达人评分 目标CPM 12" }))).toMatchObject({
       task_type: "creator_scoring",
       entities: { target_cpm: 12 },
     });
-    expect(stubResolveTaskIntent({ text: "生成建联话术 达人名称：户外电源达人 产品：露营灯" })).toMatchObject({
+    expect((await stubResolveTaskIntent({ text: "生成建联话术 达人名称：户外电源达人 产品：露营灯" }))).toMatchObject({
       task_type: "creator_outreach",
       entities: { name: "户外电源达人", product: "露营灯" },
     });
-    expect(stubResolveTaskIntent({ text: "更新达人状态 达人名称：户外电源达人 状态：已建联" })).toMatchObject({
+    expect((await stubResolveTaskIntent({ text: "更新达人状态 达人名称：户外电源达人 状态：已建联" }))).toMatchObject({
       task_type: "creator_status_update",
       entities: { name: "户外电源达人", status: "已建联" },
     });
-    expect(stubResolveTaskIntent({ text: "把达人 UID KOLTEST001 标记为已签约" })).toMatchObject({
+    expect((await stubResolveTaskIntent({ text: "把达人 UID KOLTEST001 标记为已签约" }))).toMatchObject({
       task_type: "confirm_stage",
       entities: { kolUid: "KOLTEST001" },
     });
-    expect(stubResolveTaskIntent({ text: "更新红人负责人 达人 UID KOLTEST001 负责人：王主管" })).toMatchObject({
+    expect((await stubResolveTaskIntent({ text: "更新红人负责人 达人 UID KOLTEST001 负责人：王主管" }))).toMatchObject({
       task_type: "creator_owner_update",
       entities: { kolUid: "KOLTEST001", owner: "王主管" },
     });
-    expect(stubResolveTaskIntent({ text: "全量达人库" })).toMatchObject({ task_type: "creator_library_all" });
-    expect(stubResolveTaskIntent({ text: "解密达人联系方式 达人 UID KOLTEST001" })).toMatchObject({
+    expect((await stubResolveTaskIntent({ text: "全量达人库" }))).toMatchObject({ task_type: "creator_library_all" });
+    expect((await stubResolveTaskIntent({ text: "解密达人联系方式 达人 UID KOLTEST001" }))).toMatchObject({
       task_type: "creator_contact_decrypt",
       entities: { kolUid: "KOLTEST001" },
     });
-    expect(stubResolveTaskIntent({ text: "合作生命周期看板" })).toMatchObject({ task_type: "creator_lifecycle_kanban" });
-    expect(stubResolveTaskIntent({ text: "达人风险会话" })).toMatchObject({ task_type: "creator_risk_conversations" });
-    expect(stubResolveTaskIntent({ text: "风险扫描" })).toMatchObject({ task_type: "risk_scan" });
-    expect(stubResolveTaskIntent({ text: "扫描在途风险" })).toMatchObject({ task_type: "risk_scan" });
-    expect(stubResolveTaskIntent({ text: "扫描" })).toMatchObject({ task_type: "risk_scan" });
-    expect(stubResolveTaskIntent({ text: "T8" })).toMatchObject({ task_type: "risk_scan" });
-    expect(stubResolveTaskIntent({ text: "达人筛选字典" })).toMatchObject({ task_type: "creator_filter_options" });
-    expect(stubResolveTaskIntent({ text: "达人筛选 关键词：户外电源" })).toMatchObject({
+    expect((await stubResolveTaskIntent({ text: "合作生命周期看板" }))).toMatchObject({ task_type: "creator_lifecycle_kanban" });
+    expect((await stubResolveTaskIntent({ text: "达人风险会话" }))).toMatchObject({ task_type: "creator_risk_conversations" });
+    expect((await stubResolveTaskIntent({ text: "风险扫描" }))).toMatchObject({ task_type: "risk_scan" });
+    expect((await stubResolveTaskIntent({ text: "扫描在途风险" }))).toMatchObject({ task_type: "risk_scan" });
+    expect((await stubResolveTaskIntent({ text: "扫描" }))).toMatchObject({ task_type: "risk_scan" });
+    expect((await stubResolveTaskIntent({ text: "T8" }))).toMatchObject({ task_type: "risk_scan" });
+    expect((await stubResolveTaskIntent({ text: "达人筛选字典" }))).toMatchObject({ task_type: "creator_filter_options" });
+    expect((await stubResolveTaskIntent({ text: "达人筛选 关键词：户外电源" }))).toMatchObject({
       task_type: "creator_library_query",
       entities: { keyword: "户外电源" },
     });
-    expect(stubResolveTaskIntent({ text: "应用邮件会话" })).toMatchObject({ task_type: "email_app_conversation_list" });
-    expect(stubResolveTaskIntent({ text: "今日KOL任务" })).toMatchObject({ task_type: "creator_daily_tasks" });
-    expect(stubResolveTaskIntent({ text: "延期关怀 @小美妆日记" })).toMatchObject({ task_type: "risk_scan" });
-    expect(stubResolveTaskIntent({ text: "失联跟进 @小美妆日记" })).toMatchObject({ task_type: "risk_scan" });
-    expect(stubResolveTaskIntent({ text: "记状态 @小美妆日记" })).toMatchObject({ task_type: "confirm_stage" });
-    expect(stubResolveTaskIntent({ text: "Deal Memory @旅行电源菌" })).toMatchObject({ task_type: "deal_memory" });
-    expect(stubResolveTaskIntent({ text: "KOL预算 项目ID 1" })).toMatchObject({
+    expect((await stubResolveTaskIntent({ text: "应用邮件会话" }))).toMatchObject({ task_type: "email_app_conversation_list" });
+    expect((await stubResolveTaskIntent({ text: "今日KOL任务" }))).toMatchObject({ task_type: "creator_daily_tasks" });
+    expect((await stubResolveTaskIntent({ text: "延期关怀 @小美妆日记" }))).toMatchObject({ task_type: "risk_scan" });
+    expect((await stubResolveTaskIntent({ text: "失联跟进 @小美妆日记" }))).toMatchObject({ task_type: "risk_scan" });
+    expect((await stubResolveTaskIntent({ text: "记状态 @小美妆日记" }))).toMatchObject({ task_type: "confirm_stage" });
+    expect((await stubResolveTaskIntent({ text: "Deal Memory @旅行电源菌" }))).toMatchObject({ task_type: "deal_memory" });
+    expect((await stubResolveTaskIntent({ text: "KOL预算 项目ID 1" }))).toMatchObject({
       task_type: "creator_budget_report",
       entities: { campaign_id: 1 },
     });
-    expect(stubResolveTaskIntent({ text: "黎玉燕要申请5万美国KOL推广预算" }).task_type).toBe("business_approval");
-    expect(stubResolveTaskIntent({ text: "expense approval 50000 USD" }).task_type).toBe("business_approval");
-    expect(stubResolveTaskIntent({ text: "写报价信 金额 680" }).task_type).toBe("email_compose");
-    expect(stubResolveTaskIntent({ text: "给@小美妆日记 写阶段跟进邮件" })).toMatchObject({
+    expect((await stubResolveTaskIntent({ text: "黎玉燕要申请5万美国KOL推广预算" })).task_type).toBe("business_approval");
+    expect((await stubResolveTaskIntent({ text: "expense approval 50000 USD" })).task_type).toBe("business_approval");
+    expect((await stubResolveTaskIntent({ text: "写报价信 金额 680" })).task_type).toBe("email_compose");
+    expect((await stubResolveTaskIntent({ text: "给@小美妆日记 写阶段跟进邮件" }))).toMatchObject({
       task_type: "email_compose",
       needs_clarification: false,
       missing_fields: [],
       entities: { handle: "小美妆日记" },
     });
-    expect(stubResolveTaskIntent({ text: "催大纲 [红人或合作]" })).toMatchObject({
+    expect((await stubResolveTaskIntent({ text: "催大纲 [红人或合作]" }))).toMatchObject({
       task_type: "email_compose",
       needs_clarification: false,
       missing_fields: [],
     });
   });
-
-  it("recognizes Email MCP mailbox and compose phrases", () => {
-    expect(stubResolveTaskIntent({ text: "查发件箱和授权" })).toMatchObject({
+  it("recognizes Email MCP mailbox and compose phrases", async () => {
+    expect((await stubResolveTaskIntent({ text: "查发件箱和授权" }))).toMatchObject({
       task_type: "email_mailbox_list",
       confidence: 0.97,
       needs_clarification: false,
     });
-    expect(stubResolveTaskIntent({ text: "帮我查一下发件箱授权" })).toMatchObject({
+    expect((await stubResolveTaskIntent({ text: "帮我查一下发件箱授权" }))).toMatchObject({
       task_type: "email_mailbox_list",
     });
-    expect(stubResolveTaskIntent({ text: "查收件会话 qiyou1984@gmail.com" })).toMatchObject({
+    expect((await stubResolveTaskIntent({ text: "查收件会话 qiyou1984@gmail.com" }))).toMatchObject({
       task_type: "email_conversation_list",
       entities: { email: "qiyou1984@gmail.com" },
     });
-    expect(stubResolveTaskIntent({ text: "品牌邮箱列表" })).toMatchObject({
+    expect((await stubResolveTaskIntent({ text: "品牌邮箱列表" }))).toMatchObject({
       task_type: "email_mailbox_list",
     });
-    expect(stubResolveTaskIntent({ text: "邮件会话列表" })).toMatchObject({
+    expect((await stubResolveTaskIntent({ text: "邮件会话列表" }))).toMatchObject({
       task_type: "email_conversation_list",
     });
-    expect(stubResolveTaskIntent({ text: "读取邮件会话 会话ID 101" })).toMatchObject({
+    expect((await stubResolveTaskIntent({ text: "读取邮件会话 会话ID 101" }))).toMatchObject({
       task_type: "email_conversation_read",
       entities: { conversationId: 101 },
     });
-    expect(stubResolveTaskIntent({
+    expect((await stubResolveTaskIntent({
       text: "回复会话 320 发件: larry.zhao@amperetime.com 收件: qiyou1984@gmail.com 主题: Re: KOL合作",
-    })).toMatchObject({
+    }))).toMatchObject({
       task_type: "email_compose",
       entities: {
         conversationId: 320,
@@ -267,13 +254,13 @@ describe("task intent resolution", () => {
         subject: "Re: KOL合作",
       },
     });
-    expect(stubResolveTaskIntent({ text: "分析回复 qiyou1984@gmail.com" })).toMatchObject({
+    expect((await stubResolveTaskIntent({ text: "分析回复 qiyou1984@gmail.com" }))).toMatchObject({
       task_type: "reply_analysis",
       entities: { email: "qiyou1984@gmail.com" },
     });
-    expect(stubResolveTaskIntent({
+    expect((await stubResolveTaskIntent({
       text: "写合作邮件 qiyou1984@gmail.com qiyouhuang@163.com 主题：LiTime MCP 连通测试 确认发送",
-    })).toMatchObject({
+    }))).toMatchObject({
       task_type: "email_compose",
       needs_clarification: true,
       missing_fields: ["mailboxEmail"],
@@ -284,9 +271,9 @@ describe("task intent resolution", () => {
         confirm_send: true,
       },
     });
-    expect(stubResolveTaskIntent({
+    expect((await stubResolveTaskIntent({
       text: "写合作邮件 发件箱 henry.wei@amperetime.com 发给 qiyou1984@gmail.com qiyouhuang@163.com 主题：LiTime MCP 连通测试 确认发送",
-    })).toMatchObject({
+    }))).toMatchObject({
       task_type: "email_compose",
       needs_clarification: false,
       missing_fields: [],
@@ -298,11 +285,10 @@ describe("task intent resolution", () => {
       },
     });
   });
-
-  it("treats template placeholders as missing compose fields", () => {
-    const result = stubResolveTaskIntent({
+  it("treats template placeholders as missing compose fields", async () => {
+    const result = (await stubResolveTaskIntent({
       text: "写合作邮件 发件箱 [发件邮箱] 发给 [收件邮箱] 主题：[主题]",
-    });
+    }));
     expect(result.task_type).toBe("email_compose");
     expect(result.missing_fields).toEqual(["mailboxEmail", "to", "subject"]);
     expect(result.entities.subject).toBeUndefined();
@@ -331,11 +317,7 @@ describe("task CRUD and run flow", () => {
       intent: "risk_scan",
     });
     const pending = queued.body.pending_message as Json;
-    const executed = await request(
-      "POST",
-      `/api/sessions/${queued.body.session_id}/messages`,
-      pending,
-    );
+    const executed = await request("POST", `/api/sessions/${queued.body.session_id}/messages`, pending);
     expect(executed.status).toBe(200);
     const bySession = await request("GET", `/api/tasks/by-session/${queued.body.session_id}`);
     expect(bySession.body.id).toBe(taskId);
@@ -352,9 +334,9 @@ describe("task CRUD and run flow", () => {
     expect(rows.every((event) => event.type && event.title && event.created_at)).toBe(true);
     expect(rows.map((event) => event.event_type)).toContain("run.completed");
     expect(rows.find((event) => event.event_type === "run.completed")?.summary).toContain("只读查询已结束");
-    getConn().prepare("UPDATE task_runs SET status='running' WHERE id=?").run(queued.body.run_id);
+    (await postgresDb().execute("UPDATE task_runs SET status='running' WHERE id=$1", queued.body.run_id));
     expect(((await request("GET", `/api/tasks/${taskId}`)).body.execution as Json).result_ready).toBe(false);
-    getConn().prepare("UPDATE task_runs SET status='completed' WHERE id=?").run(queued.body.run_id);
+    (await postgresDb().execute("UPDATE task_runs SET status='completed' WHERE id=$1", queued.body.run_id));
     expect((await request("GET", `/api/tasks/${taskId}`)).body.status).toBe("waiting");
     const retired = await request("POST", `/api/tasks/${taskId}/complete`, {});
     expect(retired.status).toBe(410);
@@ -372,7 +354,7 @@ describe("task CRUD and run flow", () => {
     const reader = response.body!.getReader();
     const first = await Promise.race([
       reader.read(),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("SSE snapshot timed out")), 1_000)),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("SSE snapshot timed out")), 1000)),
     ]);
     const payload = new TextDecoder().decode(first.value);
     expect(payload).toContain("event: snapshot");
@@ -391,21 +373,13 @@ describe("task CRUD and run flow", () => {
       title: "有界任务中心投影",
     });
     const taskId = String(created.body.id);
-    const oversized = "x".repeat(256_000);
-    getConn().prepare("UPDATE tickets SET input=?, entities=?, content=? WHERE id=?").run(
-      JSON.stringify({ payload: oversized }),
-      JSON.stringify({ payload: oversized }),
-      oversized,
-      taskId,
-    );
+    const oversized = "x".repeat(256000);
+    (await postgresDb().execute("UPDATE tickets SET input=$1, entities=$2, content=$3 WHERE id=$4", JSON.stringify({ payload: oversized }), JSON.stringify({ payload: oversized }), oversized, taskId));
     const now = new Date().toISOString();
     // Bypass the write-side safe-summary guard: this models a legacy oversized
     // record already present in production and tests the read projection alone.
-    getConn().prepare(
-      `INSERT INTO task_events (id,work_item_id,run_id,sequence,event_type,label,status,safe_summary,time,created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
-    ).run("evt_task_center_oversized", taskId, null, 999, "run.completed", "超大回执", "completed", oversized, now, now);
-
+    (await postgresDb().execute(`INSERT INTO task_events (id,work_item_id,run_id,sequence,event_type,label,status,safe_summary,time,created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, "evt_task_center_oversized", taskId, null, 999, "run.completed", "超大回执", "completed", oversized, now, now));
     const listed = await request("GET", "/api/tasks?view=history");
     expect(listed.status).toBe(200);
     const row = (listed.body as unknown as Json[]).find((task) => String(task.id) === taskId)!;
@@ -413,14 +387,13 @@ describe("task CRUD and run flow", () => {
     expect(row.entities_truncated).toBe(true);
     expect(row.content_truncated).toBe(true);
     expect(String(row.content)).toHaveLength(4096);
-    expect(Number(row.input_size)).toBeGreaterThan(256_000);
-    expect(Number(row.entities_size)).toBeGreaterThan(256_000);
+    expect(Number(row.input_size)).toBeGreaterThan(256000);
+    expect(Number(row.entities_size)).toBeGreaterThan(256000);
     const history = row.history as Json[];
     expect(history.length).toBeGreaterThan(0);
     expect(String(history.at(-1)?.summary)).toHaveLength(4096);
-    expect(JSON.stringify(listed.body).length).toBeLessThan(32_000);
+    expect(JSON.stringify(listed.body).length).toBeLessThan(32000);
   });
-
   it("pages employee task-center rows without silently dropping historical tasks", async () => {
     const ids: string[] = [];
     for (const title of ["分页任务一", "分页任务二", "分页任务三"]) {
@@ -436,9 +409,11 @@ describe("task CRUD and run flow", () => {
     const received = new Set<string>();
     let page = first.body;
     while (true) {
-      for (const item of page.items as Json[]) received.add(String(item.id));
+      for (const item of page.items as Json[])
+        received.add(String(item.id));
       const cursor = (page.page as Json).next_cursor;
-      if (!cursor) break;
+      if (!cursor)
+        break;
       const next = await request("GET", `/api/tasks?view=history&limit=1&q=%E5%88%86%E9%A1%B5%E4%BB%BB%E5%8A%A1&cursor=${encodeURIComponent(String(cursor))}`);
       expect(next.status).toBe(200);
       page = next.body;
@@ -475,14 +450,11 @@ describe("task CRUD and run flow", () => {
     expect(run.body.message).toEqual(expect.stringContaining("缺少："));
     expect(run.body.message).toEqual(expect.stringContaining("合作红人"));
   });
-
   it("accepts explicit mail collaboration and target stage without a 422", async () => {
-    getConn().prepare(
-      `INSERT INTO collaborations
+    (await postgresDb().execute(`INSERT INTO collaborations
        (id, handle, display_name, brand, platform, email, mailbox_from, lifecycle_id, conversation_id, stage_code)
        VALUES ('col_mail_stage', 'mailstagekol', 'Mail Stage KOL', 'LT', 'youtube',
-               'kol@example.com', 'larry.zhao@amperetime.com', 'lc_mail_stage', 'conv_mail_stage', 'QUOTE_PENDING')`,
-    ).run();
+               'kol@example.com', 'larry.zhao@amperetime.com', 'lc_mail_stage', 'conv_mail_stage', 'QUOTE_PENDING')`));
     const created = await request("POST", "/api/tasks/from-text", {
       text: "提出阶段变更 @mailstagekol 到 商务谈判",
       collaboration_id: "col_mail_stage",
@@ -496,10 +468,9 @@ describe("task CRUD and run flow", () => {
     const run = await request("POST", `/api/tasks/${task.id}/run`, {});
     expect(run.status).toBe(202);
     expect(run.body.session_id).toEqual(expect.any(String));
-    expect(getConn().prepare("SELECT stage_code FROM collaborations WHERE id=?").get("col_mail_stage"))
+    expect((await postgresDb().one("SELECT stage_code FROM collaborations WHERE id=$1", "col_mail_stage")))
       .toMatchObject({ stage_code: "QUOTE_PENDING" });
   });
-
   it("routes a creator-search phrase into the discovery workspace without calling remote start", async () => {
     const created = await request("POST", "/api/tasks/from-text", { text: "搜索 YouTube 露营达人" });
     expect(created.status).toBe(200);
@@ -510,9 +481,10 @@ describe("task CRUD and run flow", () => {
       handoff: { kind: "workspace", pane: "discovery", task_type: "creator_discovery" },
       resolution: { entities: { platform: "youtube", keywords: ["露营"] } },
     });
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM crawl_jobs").get() as { n: unknown }).n)).toBe(0);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM crawl_jobs")) as {
+      n: unknown;
+    }).n)).toBe(0);
   });
-
   it("keeps YouTube discovery as a first-class workspace platform instead of falling back to xhs", async () => {
     const created = await request("POST", "/api/tasks/from-text", { text: "搜索 YouTube 户外电源达人" });
     expect(created.status).toBe(200);
@@ -521,16 +493,17 @@ describe("task CRUD and run flow", () => {
       handoff: { kind: "workspace", pane: "discovery", task_type: "creator_discovery" },
       resolution: { entities: { platform: "youtube", keywords: ["户外电源"] } },
     });
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM crawl_jobs").get() as { n: unknown }).n)).toBe(0);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM crawl_jobs")) as {
+      n: unknown;
+    }).n)).toBe(0);
   });
-
   it("skips task events when the work item or run is already gone", async () => {
     const created = await request("POST", "/api/tasks", { task_type: "risk_scan", title: "扫描风险" });
     expect(created.status).toBe(201);
     const task = created.body as Json;
     const queued = await request("POST", `/api/tasks/${task.id}/run`, {});
     const runId = String(queued.body.run_id || "");
-    expect(appendTaskEvent(String(task.id), runId, "run.progress", "准备任务", "running")).toMatchObject({
+    expect((await appendTaskEvent(String(task.id), runId, "run.progress", "准备任务", "running"))).toMatchObject({
       work_item_id: task.id,
       run_id: runId,
       event_type: "run.progress",
@@ -538,12 +511,11 @@ describe("task CRUD and run flow", () => {
     // The original task.created fact is deliberately append-only. Remove only
     // mutable run trace, then simulate a missing run and a separate missing
     // ticket without deleting retained lifecycle evidence.
-    getConn().prepare("DELETE FROM task_events WHERE work_item_id=? AND event_class='run_trace'").run(task.id);
-    getConn().prepare("DELETE FROM task_runs WHERE work_item_id=?").run(task.id);
-    expect(appendTaskEvent(String(task.id), runId, "crawl.start_failed", "远程采集启动失败", "failed")).toBeNull();
-    expect(appendTaskEvent("wi_missing", null, "task.created", "gone", "pending")).toBeNull();
+    (await postgresDb().execute("DELETE FROM task_events WHERE work_item_id=$1 AND event_class='run_trace'", task.id));
+    (await postgresDb().execute("DELETE FROM task_runs WHERE work_item_id=$1", task.id));
+    expect((await appendTaskEvent(String(task.id), runId, "crawl.start_failed", "远程采集启动失败", "failed"))).toBeNull();
+    expect((await appendTaskEvent("wi_missing", null, "task.created", "gone", "pending"))).toBeNull();
   });
-
   it("routes an Instagram search phrase into the discovery workspace", async () => {
     const created = await request("POST", "/api/tasks/from-text", { text: "搜索 Instagram camping 达人" });
     expect(created.status).toBe(200);
@@ -559,7 +531,9 @@ describe("MCP minimization", () => {
   it("filters exact tools and passes per-task allowlists to servers", () => {
     expect(filterTools(STARRY_TOOLS, ["get_collaboration"]).map((tool) => tool.name)).toEqual(["get_collaboration"]);
     const definition = taskDefinitions().find((item) => item.id === "confirm_stage")!;
-    const specs = mcpServerSpecs(definition.mcp) as Record<string, { args: string[] }>;
+    const specs = mcpServerSpecs(definition.mcp) as Record<string, {
+      args: string[];
+    }>;
     expect(Object.keys(specs)).toEqual(["starry"]);
     expect(specs.starry.args.join(" ")).toContain("get_collaboration");
   });
@@ -598,7 +572,8 @@ describe("MCP minimization", () => {
       expect(toml).not.toContain("starry-bearer");
       expect(toml).not.toContain("sk-test-key");
       fs.rmSync(box, { recursive: true, force: true });
-    } finally {
+    }
+    finally {
       restoreEnv("STARRY_KOL_MCP_URL", previous.url);
       restoreEnv("STARRY_KOL_MCP_API_KEY", previous.key);
       restoreEnv("STARRY_KOL_MCP_BEARER", previous.bearer);
@@ -607,8 +582,9 @@ describe("MCP minimization", () => {
     }
   });
 });
-
 function restoreEnv(name: string, value: string | undefined): void {
-  if (value == null) delete process.env[name];
-  else process.env[name] = value;
+  if (value == null)
+    delete process.env[name];
+  else
+    process.env[name] = value;
 }

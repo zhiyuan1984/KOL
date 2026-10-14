@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { dataDir, publishedSkillsDir, codexMode } from "../config.js";
-import { audit, getConn, nowIso } from "../db.js";
+import { audit, postgresDb, nowIso, pgTransaction } from "../postgres/access.js";
 import { nid } from "../ids.js";
 import { skillToolProfile, unmountedDeclaredTools, unregisteredDeclaredTools } from "../runtime/skill-coverage.js";
 import { taskDefinition } from "../tasks/registry.js";
@@ -22,11 +22,14 @@ export type SkillOrigin = "official" | "third_party";
  * What employees run today. A bundled skill that is live but has never been
  * snapshotted runs its packaged SKILL.md; that is a real release, not "unpublished".
  */
-export type SkillRelease =
-  | { kind: "versioned"; version: number }
-  | { kind: "bundled_baseline" }
-  | { kind: "none" };
-
+export type SkillRelease = {
+  kind: "versioned";
+  version: number;
+} | {
+  kind: "bundled_baseline";
+} | {
+  kind: "none";
+};
 export const SKILL_STAGE_LABELS: Record<SkillStage, string> = {
   draft: "新建草稿",
   editing: "编辑配置",
@@ -53,54 +56,72 @@ function versionsRoot(id: string): string {
   fs.mkdirSync(root, { recursive: true });
   return root;
 }
-
 function requireSkill(id: string): void {
-  if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
+  if (!catalogSkill(id))
+    throw new HttpFail(404, "unknown skill");
 }
-
-function lifecycleRow(id: string): { skill_id: string; stage: string; origin: SkillOrigin | null; owner: string | null; business_stage: string | null; tags: string | null; biz_family: string | null; biz_domain: string | null; updated_at: string } | undefined {
-  return getConn().prepare("SELECT * FROM skill_lifecycle WHERE skill_id = ?").get(id) as
-    | { skill_id: string; stage: string; origin: SkillOrigin | null; owner: string | null; business_stage: string | null; tags: string | null; biz_family: string | null; biz_domain: string | null; updated_at: string }
-    | undefined;
+async function lifecycleRow(id: string): Promise<{
+  skill_id: string;
+  stage: string;
+  origin: SkillOrigin | null;
+  owner: string | null;
+  business_stage: string | null;
+  tags: string | null;
+  biz_family: string | null;
+  biz_domain: string | null;
+  updated_at: string;
+} | undefined> {
+  return (await postgresDb().one("SELECT * FROM skill_lifecycle WHERE skill_id = $1", id)) as {
+    skill_id: string;
+    stage: string;
+    origin: SkillOrigin | null;
+    owner: string | null;
+    business_stage: string | null;
+    tags: string | null;
+    biz_family: string | null;
+    biz_domain: string | null;
+    updated_at: string;
+  } | undefined;
 }
-
-function currentStage(id: string): SkillStage {
-  const row = lifecycleRow(id);
+async function currentStage(id: string): Promise<SkillStage> {
+  const row = (await lifecycleRow(id));
   const stage = (row?.stage || "draft") as SkillStage;
   return SKILL_STAGES.includes(stage) ? stage : "draft";
 }
-
 /** 待发布的「所需工具」：有草稿改动时以草稿为准（发布会应用草稿），否则取现行技能声明。 */
-function pendingDeclaredTools(id: string): string[] {
-  const drafted = getSkillDraft(id).patch.mcp;
-  if (Array.isArray(drafted)) return drafted.map(String);
-  if (typeof drafted === "string") return drafted.split(/[,，]/).map((tool) => tool.trim()).filter(Boolean);
+async function pendingDeclaredTools(id: string): Promise<string[]> {
+  const drafted = (await getSkillDraft(id)).patch.mcp;
+  if (Array.isArray(drafted))
+    return drafted.map(String);
+  if (typeof drafted === "string")
+    return drafted.split(/[,，]/).map((tool) => tool.trim()).filter(Boolean);
   return [...(taskDefinition(id)?.mcp || [])];
 }
-
 /**
  * 技能风险等级：读取时从声明工具的风险策略派生（取最高），不另存列，
  * 保证「工具风险变了，技能风险自动跟着变」的单一事实源。
  */
-export function skillRiskLevel(id: string): "L1" | "L2" | "L3" | null {
-  return skillToolProfile(id, pendingDeclaredTools(id)).risk;
+export async function skillRiskLevel(id: string): Promise<"L1" | "L2" | "L3" | null> {
+  return (await skillToolProfile(id, (await pendingDeclaredTools(id)))).risk;
 }
-
-export function skillDependencyIssues(id: string): { unregistered: string[]; unmounted: string[] } {
-  const tools = pendingDeclaredTools(id);
+export async function skillDependencyIssues(id: string): Promise<{
+  unregistered: string[];
+  unmounted: string[];
+}> {
+  const tools = (await pendingDeclaredTools(id));
   return {
-    unregistered: unregisteredDeclaredTools(tools).map((tool) => tool.declared_as),
-    unmounted: unmountedDeclaredTools(id, tools).map((tool) => tool.declared_as),
+    unregistered: (await unregisteredDeclaredTools(tools)).map((tool) => tool.declared_as),
+    unmounted: (await unmountedDeclaredTools(id, tools)).map((tool) => tool.declared_as),
   };
 }
-
 /**
  * 进入测试或发布前：所需工具必须已登记并已挂载，宁可拦住不放行。
  * stub 模式不走挂载链（执行由本地桩完成），因此只在真实执行模式下拦截。
  */
-function assertDeclaredToolsReady(id: string): void {
-  if (codexMode() === "stub") return;
-  const issues = skillDependencyIssues(id);
+async function assertDeclaredToolsReady(id: string): Promise<void> {
+  if (codexMode() === "stub")
+    return;
+  const issues = (await skillDependencyIssues(id));
   if (issues.unregistered.length) {
     throw new HttpFail(409, {
       code: "skill_tools_unregistered",
@@ -116,8 +137,7 @@ function assertDeclaredToolsReady(id: string): void {
     });
   }
 }
-
-export function skillLifecycleMeta(id: string): {
+export async function skillLifecycleMeta(id: string): Promise<{
   stage: SkillStage;
   stage_label: string;
   origin: SkillOrigin;
@@ -132,26 +152,35 @@ export function skillLifecycleMeta(id: string): {
   current_version: number | null;
   release: SkillRelease;
   /** 读取时派生：所需工具里未登记 / 未挂载的项（编写时提示，进入测试或发布时拦截）。 */
-  dependencies: { unregistered: string[]; unmounted: string[] };
-  test_summary: { total: number; pass_rate: number | null; failing: number; last_run_at: string | null };
-} {
+  dependencies: {
+    unregistered: string[];
+    unmounted: string[];
+  };
+  test_summary: {
+    total: number;
+    pass_rate: number | null;
+    failing: number;
+    last_run_at: string | null;
+  };
+}> {
   requireSkill(id);
-  const stage = currentStage(id);
-  const row = lifecycleRow(id);
+  const stage = (await currentStage(id));
+  const row = (await lifecycleRow(id));
   const tags = row?.tags ? (JSON.parse(row.tags) as string[]) : [];
-  const conn = getConn();
-  const version = conn
-    .prepare("SELECT MAX(version) AS v FROM skill_versions WHERE skill_id = ? AND status = 'published'")
-    .get(id) as { v: number | null };
-  const tests = conn.prepare("SELECT COUNT(*) AS n FROM skill_tests WHERE skill_id = ?").get(id) as { n: number };
-  const lastRuns = conn
-    .prepare(
-      "SELECT passed, ran_at FROM skill_test_runs WHERE skill_id = ? AND id IN (SELECT MAX(id) FROM skill_test_runs WHERE skill_id = ? GROUP BY test_id)",
-    )
-    .all(id, id) as { passed: number; ran_at: string }[];
-  const lastRunAt = (
-    conn.prepare("SELECT MAX(ran_at) AS t FROM skill_test_runs WHERE skill_id = ?").get(id) as { t: string | null }
-  ).t;
+  const conn = postgresDb();
+  const version = (await conn.one("SELECT MAX(version) AS v FROM skill_versions WHERE skill_id = $1 AND status = 'published'", id)) as {
+    v: number | null;
+  };
+  const tests = (await conn.one("SELECT COUNT(*) AS n FROM skill_tests WHERE skill_id = $1", id)) as {
+    n: number;
+  };
+  const lastRuns = (await conn.many("SELECT passed, ran_at FROM skill_test_runs WHERE skill_id = $1 AND id IN (SELECT MAX(id) FROM skill_test_runs WHERE skill_id = $2 GROUP BY test_id)", id, id)) as {
+    passed: number;
+    ran_at: string;
+  }[];
+  const lastRunAt = ((await conn.one("SELECT MAX(ran_at) AS t FROM skill_test_runs WHERE skill_id = $1", id)) as {
+    t: string | null;
+  }).t;
   const failing = lastRuns.filter((r) => !r.passed).length;
   return {
     stage,
@@ -162,14 +191,14 @@ export function skillLifecycleMeta(id: string): {
     tags,
     biz_family: row?.biz_family || null,
     biz_domain: row?.biz_domain || null,
-    risk: skillRiskLevel(id),
+    risk: (await skillRiskLevel(id)),
     current_version: version.v ?? null,
     release: version.v
       ? { kind: "versioned", version: version.v }
       : stage === "published" && isBundledSkill(id)
         ? { kind: "bundled_baseline" }
         : { kind: "none" },
-    dependencies: skillDependencyIssues(id),
+    dependencies: (await skillDependencyIssues(id)),
     test_summary: {
       total: tests.n,
       pass_rate: lastRuns.length ? Math.round(((lastRuns.length - failing) / lastRuns.length) * 1000) / 10 : null,
@@ -178,68 +207,59 @@ export function skillLifecycleMeta(id: string): {
     },
   };
 }
-
-export function setSkillOrigin(id: string, origin: SkillOrigin): void {
+export async function setSkillOrigin(id: string, origin: SkillOrigin): Promise<void> {
   requireSkill(id);
-  const row = lifecycleRow(id);
+  const row = (await lifecycleRow(id));
   const previous = row?.origin || (row?.tags?.includes("第三方") ? "third_party" : "official");
-  if (previous === origin) return;
-  const operator = currentUser().handle;
-  getConn().prepare(
-    `INSERT INTO skill_lifecycle (skill_id, stage, origin, owner, business_stage, tags, updated_at)
-     VALUES (?,?,?,?,?,?,?)
-     ON CONFLICT(skill_id) DO UPDATE SET origin=excluded.origin, updated_at=excluded.updated_at`,
-  ).run(id, row?.stage || "draft", origin, row?.owner || null, row?.business_stage || null, row?.tags || "[]", nowIso());
-  audit(operator, "skill.origin.change", { skill: id, from: previous, to: origin });
+  if (previous === origin)
+    return;
+  const operator = (await currentUser()).handle;
+  (await postgresDb().execute(`INSERT INTO skill_lifecycle (skill_id, stage, origin, owner, business_stage, tags, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT(skill_id) DO UPDATE SET origin=excluded.origin, updated_at=excluded.updated_at`, id, row?.stage || "draft", origin, row?.owner || null, row?.business_stage || null, row?.tags || "[]", nowIso()));
+  (await audit(operator, "skill.origin.change", { skill: id, from: previous, to: origin }));
 }
-
-export function skillStageHistory(id: string): Json[] {
-  return getConn()
-    .prepare("SELECT * FROM skill_stage_history WHERE skill_id = ? ORDER BY at DESC")
-    .all(id) as Json[];
+export async function skillStageHistory(id: string): Promise<Json[]> {
+  return (await postgresDb().many("SELECT * FROM skill_stage_history WHERE skill_id = $1 ORDER BY at DESC", id)) as Json[];
 }
-
-export function transitionSkillStage(id: string, toStage: string, reason?: string): { stage: SkillStage } {
+export async function transitionSkillStage(id: string, toStage: string, reason?: string): Promise<{
+  stage: SkillStage;
+}> {
   requireSkill(id);
   const to = toStage as SkillStage;
-  if (!SKILL_STAGES.includes(to)) throw new HttpFail(400, `unknown stage ${toStage}`);
-  const from = currentStage(id);
-  if (from === to) return { stage: from };
+  if (!SKILL_STAGES.includes(to))
+    throw new HttpFail(400, `unknown stage ${toStage}`);
+  const from = (await currentStage(id));
+  if (from === to)
+    return { stage: from };
   if (!ALLOWED_TRANSITIONS[from].includes(to)) {
     throw new HttpFail(400, `cannot move from ${from} to ${to}`);
   }
   if (from !== "draft" && to === "disabled" && !String(reason || "").trim()) {
     throw new HttpFail(400, "reason required to disable a published skill");
   }
-  if (to === "testing" || to === "published") assertDeclaredToolsReady(id);
-  if (to === "published") assertSkillPublishAllowed(id);
-  if (to === "published") applySkillDraft(id);
-  const conn = getConn();
-  const operator = currentUser().handle;
-  conn
-    .prepare(
-      "INSERT INTO skill_stage_history (id, skill_id, from_stage, to_stage, operator, reason, at) VALUES (?,?,?,?,?,?,?)",
-    )
-    .run(nid("ssh"), id, from, to, operator, reason || null, nowIso());
-  conn
-    .prepare(
-      "INSERT INTO skill_lifecycle (skill_id, stage, updated_at) VALUES (?,?,?) ON CONFLICT(skill_id) DO UPDATE SET stage=excluded.stage, updated_at=excluded.updated_at",
-    )
-    .run(id, to, nowIso());
+  if (to === "testing" || to === "published")
+    (await assertDeclaredToolsReady(id));
+  if (to === "published")
+    (await assertSkillPublishAllowed(id));
+  if (to === "published")
+    (await applySkillDraft(id));
+  const conn = postgresDb();
+  const operator = (await currentUser()).handle;
+  (await conn.execute("INSERT INTO skill_stage_history (id, skill_id, from_stage, to_stage, operator, reason, at) VALUES ($1,$2,$3,$4,$5,$6,$7)", nid("ssh"), id, from, to, operator, reason || null, nowIso()));
+  (await conn.execute("INSERT INTO skill_lifecycle (skill_id, stage, updated_at) VALUES ($1,$2,$3) ON CONFLICT(skill_id) DO UPDATE SET stage=excluded.stage, updated_at=excluded.updated_at", id, to, nowIso()));
   if (to === "published") {
-    publishSkillVersion(id, reason);
+    (await publishSkillVersion(id, reason));
   }
-  audit(operator, "skill.stage", { skill: id, from, to, reason: reason || null });
+  (await audit(operator, "skill.stage", { skill: id, from, to, reason: reason || null }));
   return { stage: to };
 }
-
-function currentPublishedVersion(id: string): number {
-  const row = getConn()
-    .prepare("SELECT MAX(version) AS v FROM skill_versions WHERE skill_id = ? AND status = 'published'")
-    .get(id) as { v: number | null };
+async function currentPublishedVersion(id: string): Promise<number> {
+  const row = (await postgresDb().one("SELECT MAX(version) AS v FROM skill_versions WHERE skill_id = $1 AND status = 'published'", id)) as {
+    v: number | null;
+  };
   return row.v || 0;
 }
-
 export type SkillPublishApprovalSummary = {
   approval_id: string;
   status: string;
@@ -250,17 +270,25 @@ export type SkillPublishApprovalSummary = {
 export function approvalStatusLabel(status: string): string {
   return { pending: "待审批", consumed: "已通过", rejected: "已驳回" }[status] || status;
 }
-
 /** 该技能最新一条技能发布审批（走统一审批引擎，kind=skill_publish，CEO 终审链）。 */
-export function latestSkillPublishApproval(id: string): SkillPublishApprovalSummary {
-  const rows = getConn()
-    .prepare("SELECT id, status, payload FROM approvals WHERE kind = 'skill_publish' ORDER BY created_at DESC")
-    .all() as { id: string; status: string; payload: string | null }[];
+export async function latestSkillPublishApproval(id: string): Promise<SkillPublishApprovalSummary> {
+  const rows = (await postgresDb().many("SELECT id, status, payload FROM approvals WHERE kind = 'skill_publish' ORDER BY created_at DESC")) as {
+    id: string;
+    status: string;
+    payload: string | null;
+  }[];
   for (const row of rows) {
-    let payload: { skill_id?: string; base_version?: number } = {};
+    let payload: {
+      skill_id?: string;
+      base_version?: number;
+    } = {};
     try {
-      payload = JSON.parse(row.payload || "{}") as { skill_id?: string; base_version?: number };
-    } catch {
+      payload = JSON.parse(row.payload || "{}") as {
+        skill_id?: string;
+        base_version?: number;
+      };
+    }
+    catch {
       /* 审批 payload 解析失败就跳过，不拦发布检查 */
     }
     if (payload.skill_id === id) {
@@ -277,16 +305,18 @@ export function latestSkillPublishApproval(id: string): SkillPublishApprovalSumm
  *    且该审批的 base_version 必须等于当前已发布版本（一次审批只放行一次发布，发布后即失效）。
  * 未通过时抛 403/400 中文原因，前端直接展示。
  */
-export function assertSkillPublishAllowed(id: string): void {
+export async function assertSkillPublishAllowed(id: string): Promise<void> {
   requireSkill(id);
-  const row = lifecycleRow(id);
+  const row = (await lifecycleRow(id));
   if (!row?.owner || !row.owner.trim()) {
     throw new HttpFail(400, { code: "skill_owner_required", message: "请先设置技能负责人，再发布。" });
   }
-  if (skillRiskLevel(id) !== "L3") return;
-  const base = currentPublishedVersion(id);
-  const approval = latestSkillPublishApproval(id);
-  if (approval && approval.status === "consumed" && approval.base_version === base) return;
+  if ((await skillRiskLevel(id)) !== "L3")
+    return;
+  const base = (await currentPublishedVersion(id));
+  const approval = (await latestSkillPublishApproval(id));
+  if (approval && approval.status === "consumed" && approval.base_version === base)
+    return;
   throw new HttpFail(403, {
     code: "skill_publish_approval_required",
     message: "该技能为 R3 高风险技能，发布前必须先发起发布审批并获得通过（CEO 终审）。",
@@ -300,67 +330,90 @@ export type SkillPublishCheck = {
   biz_family: string | null;
   biz_domain: string | null;
   checks: {
-    tests: { ok: boolean; total: number; pass_rate: number | null; failing: number; detail: string };
-    tools: { ok: boolean; unregistered: string[]; unmounted: string[]; detail: string };
-    knowledge: { ok: boolean; detail: string };
-    approval: { required: boolean; ok: boolean; status: string; approval_id: string | null; detail: string };
-    owner: { ok: boolean; detail: string };
+    tests: {
+      ok: boolean;
+      total: number;
+      pass_rate: number | null;
+      failing: number;
+      detail: string;
+    };
+    tools: {
+      ok: boolean;
+      unregistered: string[];
+      unmounted: string[];
+      detail: string;
+    };
+    knowledge: {
+      ok: boolean;
+      detail: string;
+    };
+    approval: {
+      required: boolean;
+      ok: boolean;
+      status: string;
+      approval_id: string | null;
+      detail: string;
+    };
+    owner: {
+      ok: boolean;
+      detail: string;
+    };
   };
   can_publish: boolean;
   reasons: string[];
 };
-
 /** 发布前检查：有一项不通过就不能发布，前端逐项展示中文原因。 */
-export function skillPublishCheck(id: string): SkillPublishCheck {
+export async function skillPublishCheck(id: string): Promise<SkillPublishCheck> {
   requireSkill(id);
-  const meta = skillLifecycleMeta(id);
+  const meta = (await skillLifecycleMeta(id));
   const reasons: string[] = [];
-
   const t = meta.test_summary;
   const testsOk = t.total > 0 && t.failing === 0;
-  if (t.total === 0) reasons.push("暂无测试用例，请先添加并运行测试");
-  else if (t.failing > 0) reasons.push(`有 ${t.failing} 个测试未通过`);
-
+  if (t.total === 0)
+    reasons.push("暂无测试用例，请先添加并运行测试");
+  else if (t.failing > 0)
+    reasons.push(`有 ${t.failing} 个测试未通过`);
   const dep = meta.dependencies;
   const toolsOk = dep.unregistered.length === 0 && dep.unmounted.length === 0;
-  if (dep.unregistered.length > 0) reasons.push(`${dep.unregistered.length} 个声明工具未在平台登记`);
-  if (dep.unmounted.length > 0) reasons.push(`${dep.unmounted.length} 个声明工具未挂载到本技能`);
-
+  if (dep.unregistered.length > 0)
+    reasons.push(`${dep.unregistered.length} 个声明工具未在平台登记`);
+  if (dep.unmounted.length > 0)
+    reasons.push(`${dep.unmounted.length} 个声明工具未挂载到本技能`);
   let knowledgeOk = true;
   let knowledgeDetail = "无知识依赖";
-  const kc = getConn()
-    .prepare("SELECT revision, published_revision, update_policy FROM skill_knowledge_configs WHERE skill_id = ?")
-    .get(id) as { revision: number; published_revision: number | null; update_policy: string } | undefined;
+  const kc = (await postgresDb().one("SELECT revision, published_revision, update_policy FROM skill_knowledge_configs WHERE skill_id = $1", id)) as {
+    revision: number;
+    published_revision: number | null;
+    update_policy: string;
+  } | undefined;
   if (kc) {
     if (kc.published_revision == null) {
       knowledgeOk = false;
       knowledgeDetail = "知识配置尚未发布";
       reasons.push("知识配置尚未发布");
-    } else if (kc.update_policy === "follow_published" && kc.published_revision !== kc.revision) {
+    }
+    else if (kc.update_policy === "follow_published" && kc.published_revision !== kc.revision) {
       knowledgeOk = false;
       knowledgeDetail = `知识依赖有未发布的新版本（草稿 r${kc.revision}，已发布 r${kc.published_revision}）`;
       reasons.push("知识依赖有未发布的新版本");
-    } else {
+    }
+    else {
       knowledgeDetail = `知识依赖已发布（r${kc.published_revision}）`;
     }
   }
-
   const needApproval = meta.risk === "L3";
-  const approval = latestSkillPublishApproval(id);
-  const base = currentPublishedVersion(id);
+  const approval = (await latestSkillPublishApproval(id));
+  const base = (await currentPublishedVersion(id));
   // 审批引擎终态：consumed=链走完（通过），rejected=驳回，pending=待审批。
   const approvalOk = !needApproval || Boolean(approval && approval.status === "consumed" && approval.base_version === base);
   if (!approvalOk) {
-    reasons.push(
-      approval && approval.status === "pending"
+    reasons.push(approval && approval.status === "pending"
         ? "发布审批待 CEO 终审，通过后才能发布"
-        : "R3 高风险技能发布前必须先发起发布审批并获得通过（CEO 终审）",
-    );
+      : "R3 高风险技能发布前必须先发起发布审批并获得通过（CEO 终审）");
   }
-
   const ownerOk = Boolean(meta.owner && meta.owner.trim());
-  if (!ownerOk) reasons.push("请先设置技能负责人");
-
+  if (!ownerOk)
+    reasons.push("请先设置技能负责人");
   return {
     id,
     risk: meta.risk,
@@ -399,54 +452,40 @@ export function skillPublishCheck(id: string): SkillPublishCheck {
     reasons,
   };
 }
-
-export function updateSkillLifecycleMeta(
-  id: string,
-  patch: { owner?: string; business_stage?: string; tags?: string[]; biz_family?: string; biz_domain?: string },
-): void {
+export async function updateSkillLifecycleMeta(id: string, patch: {
+  owner?: string;
+  business_stage?: string;
+  tags?: string[];
+  biz_family?: string;
+  biz_domain?: string;
+}): Promise<void> {
   requireSkill(id);
-  const row = lifecycleRow(id);
+  const row = (await lifecycleRow(id));
   const stage = row?.stage || "draft";
   const owner = patch.owner ?? row?.owner ?? null;
   const businessStage = patch.business_stage ?? row?.business_stage ?? null;
   const tags = JSON.stringify(patch.tags ?? (row?.tags ? JSON.parse(row.tags) : []));
   const bizFamily = patch.biz_family ?? row?.biz_family ?? null;
   const bizDomain = patch.biz_domain ?? row?.biz_domain ?? null;
-  getConn()
-    .prepare(
-      "INSERT INTO skill_lifecycle (skill_id, stage, origin, owner, business_stage, tags, biz_family, biz_domain, updated_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(skill_id) DO UPDATE SET owner=excluded.owner, business_stage=excluded.business_stage, tags=excluded.tags, biz_family=excluded.biz_family, biz_domain=excluded.biz_domain, updated_at=excluded.updated_at",
-    )
-    .run(
-      id,
-      stage,
-      row?.origin || (row?.tags?.includes("第三方") ? "third_party" : "official"),
-      owner,
-      businessStage,
-      tags,
-      bizFamily,
-      bizDomain,
-      nowIso(),
-    );
+  (await postgresDb().execute("INSERT INTO skill_lifecycle (skill_id, stage, origin, owner, business_stage, tags, biz_family, biz_domain, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(skill_id) DO UPDATE SET owner=excluded.owner, business_stage=excluded.business_stage, tags=excluded.tags, biz_family=excluded.biz_family, biz_domain=excluded.biz_domain, updated_at=excluded.updated_at", id, stage, row?.origin || (row?.tags?.includes("第三方") ? "third_party" : "official"), owner, businessStage, tags, bizFamily, bizDomain, nowIso()));
 }
-
 // ---------------------------------------------------------------- versions
-
-export function listSkillVersions(id: string): Json[] {
+export async function listSkillVersions(id: string): Promise<Json[]> {
   requireSkill(id);
-  return getConn()
-    .prepare("SELECT * FROM skill_versions WHERE skill_id = ? ORDER BY version DESC")
-    .all(id) as Json[];
+  return (await postgresDb().many("SELECT * FROM skill_versions WHERE skill_id = $1 ORDER BY version DESC", id)) as Json[];
 }
-
-export function publishSkillVersion(id: string, description?: string, version?: number): { version: number } {
+export async function publishSkillVersion(id: string, description?: string, version?: number): Promise<{
+  version: number;
+}> {
   requireSkill(id);
   // 发布门禁：负责人必填；R3 无已通过审批单时 403。两条发布路径（阶段流转 / 直接发版）都走这里。
-  assertSkillPublishAllowed(id);
+  (await assertSkillPublishAllowed(id));
   const bundled = isBundledSkill(id);
   const dir = bundled ? packagedSkillDir(id) : skillDir(id);
-  if (!dir || !fs.existsSync(path.join(dir, "SKILL.md"))) throw new HttpFail(400, "skill pack not found");
-  const conn = getConn();
-  const maxRow = conn.prepare("SELECT MAX(version) AS v FROM skill_versions WHERE skill_id = ?").get(id) as {
+  if (!dir || !fs.existsSync(path.join(dir, "SKILL.md")))
+    throw new HttpFail(400, "skill pack not found");
+  const conn = postgresDb();
+  const maxRow = (await conn.one("SELECT MAX(version) AS v FROM skill_versions WHERE skill_id = $1", id)) as {
     v: number | null;
   };
   const next = version ?? (maxRow.v || 0) + 1;
@@ -454,169 +493,139 @@ export function publishSkillVersion(id: string, description?: string, version?: 
   fs.rmSync(snapshot, { recursive: true, force: true });
   fs.cpSync(dir, snapshot, { recursive: true });
   if (bundled) {
-    fs.writeFileSync(path.join(snapshot, ".skill-sop-overlay.json"), JSON.stringify(overlayRow(id)), "utf8");
+    fs.writeFileSync(path.join(snapshot, ".skill-sop-overlay.json"), JSON.stringify((await overlayRow(id))), "utf8");
   }
-  conn
-    .prepare(
-      "INSERT INTO skill_versions (id, skill_id, version, status, description, snapshot_path, published_by, published_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(skill_id, version) DO UPDATE SET status='published', description=excluded.description, snapshot_path=excluded.snapshot_path, published_by=excluded.published_by, published_at=excluded.published_at",
-    )
-    .run(
-      nid("sv"),
-      id,
-      next,
-      "published",
-      description || null,
-      snapshot,
-      currentUser().handle,
-      nowIso(),
-    );
-  audit(currentUser().handle, "skill.version.publish", { skill: id, version: next });
+  (await conn.execute("INSERT INTO skill_versions (id, skill_id, version, status, description, snapshot_path, published_by, published_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(skill_id, version) DO UPDATE SET status='published', description=excluded.description, snapshot_path=excluded.snapshot_path, published_by=excluded.published_by, published_at=excluded.published_at", nid("sv"), id, next, "published", description || null, snapshot, (await currentUser()).handle, nowIso()));
+  (await audit((await currentUser()).handle, "skill.version.publish", { skill: id, version: next }));
   return { version: next };
 }
-
-export function rollbackSkillVersion(id: string, version: number): { version: number } {
+export async function rollbackSkillVersion(id: string, version: number): Promise<{
+  version: number;
+}> {
   requireSkill(id);
-  const row = getConn()
-    .prepare("SELECT * FROM skill_versions WHERE skill_id = ? AND version = ?")
-    .get(id, version) as { snapshot_path: string } | undefined;
+  const row = (await postgresDb().one("SELECT * FROM skill_versions WHERE skill_id = $1 AND version = $2", id, version)) as {
+    snapshot_path: string;
+  } | undefined;
   if (!row || !row.snapshot_path || !fs.existsSync(path.join(row.snapshot_path, "SKILL.md"))) {
     throw new HttpFail(404, `version ${version} snapshot not found`);
   }
   if (isBundledSkill(id)) {
     const overlayFile = path.join(row.snapshot_path, ".skill-sop-overlay.json");
     if (fs.existsSync(overlayFile)) {
-      const overlay = JSON.parse(fs.readFileSync(overlayFile, "utf8")) as { summary?: string; body?: string; updated_at?: string } | null;
+      const overlay = JSON.parse(fs.readFileSync(overlayFile, "utf8")) as {
+        summary?: string;
+        body?: string;
+        updated_at?: string;
+      } | null;
       if (overlay?.summary && overlay.body) {
-        getConn().prepare(
-          "INSERT INTO skill_sops (id,summary,body,updated_at) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET summary=excluded.summary,body=excluded.body,updated_at=excluded.updated_at",
-        ).run(id, overlay.summary, overlay.body, overlay.updated_at || nowIso());
-      } else {
-        getConn().prepare("DELETE FROM skill_sops WHERE id=?").run(id);
+        (await postgresDb().execute("INSERT INTO skill_sops (id,summary,body,updated_at) VALUES ($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET summary=excluded.summary,body=excluded.body,updated_at=excluded.updated_at", id, overlay.summary, overlay.body, overlay.updated_at || nowIso()));
+      }
+      else {
+        (await postgresDb().execute("DELETE FROM skill_sops WHERE id=$1", id));
       }
     }
-  } else {
+  }
+  else {
     const dir = skillDir(id);
     fs.rmSync(dir, { recursive: true, force: true });
     fs.cpSync(row.snapshot_path, dir, { recursive: true });
   }
-  activateSkillForHarness(id);
-  audit(currentUser().handle, "skill.version.rollback", { skill: id, version });
+  await activateSkillForHarness(id);
+  (await audit((await currentUser()).handle, "skill.version.rollback", { skill: id, version }));
   return { version };
 }
-
 export function deleteSkillVersionSnapshots(id: string): void {
   fs.rmSync(path.join(dataDir(), "skill-versions", id), { recursive: true, force: true });
 }
-
 // ---------------------------------------------------------------- tests
-
-export type SkillTestInput = { name?: string; input?: string; expected?: string };
-
-export function listSkillTests(id: string): Json[] {
+export type SkillTestInput = {
+  name?: string;
+  input?: string;
+  expected?: string;
+};
+export async function listSkillTests(id: string): Promise<Json[]> {
   requireSkill(id);
-  return getConn()
-    .prepare("SELECT * FROM skill_tests WHERE skill_id = ? ORDER BY created_at DESC")
-    .all(id) as Json[];
+  return (await postgresDb().many("SELECT * FROM skill_tests WHERE skill_id = $1 ORDER BY created_at DESC", id)) as Json[];
 }
-
-export function createSkillTest(id: string, input: SkillTestInput): Json {
+export async function createSkillTest(id: string, input: SkillTestInput): Promise<Json> {
   requireSkill(id);
   const name = String(input.name || "").trim();
-  if (!name) throw new HttpFail(400, "test name required");
+  if (!name)
+    throw new HttpFail(400, "test name required");
   const row = {
     id: nid("st"),
     skill_id: id,
     name,
     input: String(input.input || ""),
     expected: String(input.expected || ""),
-    created_by: currentUser().handle,
+    created_by: (await currentUser()).handle,
     created_at: nowIso(),
   };
-  getConn()
-    .prepare("INSERT INTO skill_tests (id, skill_id, name, input, expected, created_by, created_at) VALUES (?,?,?,?,?,?,?)")
-    .run(row.id, row.skill_id, row.name, row.input, row.expected, row.created_by, row.created_at);
+  (await postgresDb().execute("INSERT INTO skill_tests (id, skill_id, name, input, expected, created_by, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)", row.id, row.skill_id, row.name, row.input, row.expected, row.created_by, row.created_at));
   return row as unknown as Json;
 }
-
-export function deleteSkillTest(id: string, testId: string): { ok: true } {
+export async function deleteSkillTest(id: string, testId: string): Promise<{
+  ok: true;
+}> {
   requireSkill(id);
-  getConn().prepare("DELETE FROM skill_tests WHERE id = ? AND skill_id = ?").run(testId, id);
-  getConn().prepare("DELETE FROM skill_test_runs WHERE test_id = ?").run(testId);
+  (await postgresDb().execute("DELETE FROM skill_tests WHERE id = $1 AND skill_id = $2", testId, id));
+  (await postgresDb().execute("DELETE FROM skill_test_runs WHERE test_id = $1", testId));
   return { ok: true };
 }
-
 /**
  * Record a test run. v1 records the operator's verdict per case; wiring the
  * agent runtime for automatic grading is a follow-up.
  */
-export function recordSkillTestRun(
-  id: string,
-  results: { test_id: string; passed: boolean; fail_reason?: string; duration_ms?: number }[],
-  version?: number,
-): { total: number; passed: number; failed: number } {
+export async function recordSkillTestRun(id: string, results: {
+  test_id: string;
+  passed: boolean;
+  fail_reason?: string;
+  duration_ms?: number;
+}[], version?: number): Promise<{
+  total: number;
+  passed: number;
+  failed: number;
+}> {
   requireSkill(id);
-  const conn = getConn();
-  const operator = currentUser().handle;
-  const tx = conn.transaction(() => {
+  const operator = (await currentUser()).handle;
+  await pgTransaction(async (db) => {
     for (const r of results) {
-      const test = conn.prepare("SELECT name FROM skill_tests WHERE id = ? AND skill_id = ?").get(r.test_id, id) as
-        | { name: string }
-        | undefined;
-      if (!test) throw new HttpFail(404, `unknown test ${r.test_id}`);
-      conn
-        .prepare(
-          "INSERT INTO skill_test_runs (id, skill_id, test_id, test_name, version, passed, fail_reason, ran_by, ran_at, duration_ms) VALUES (?,?,?,?,?,?,?,?,?,?)",
-        )
-        .run(
-          nid("str"),
-          id,
-          r.test_id,
-          test.name,
-          version ?? null,
-          r.passed ? 1 : 0,
-          r.passed ? null : String(r.fail_reason || "未通过"),
-          operator,
-          nowIso(),
-          r.duration_ms ?? null,
-        );
+      const test = (await db.one("SELECT name FROM skill_tests WHERE id=$1 AND skill_id=$2", r.test_id, id)) as {
+        name: string;
+      } | undefined;
+      if (!test)
+        throw new HttpFail(404, `unknown test ${r.test_id}`);
+      await db.execute("INSERT INTO skill_test_runs (id,skill_id,test_id,test_name,version,passed,fail_reason,ran_by,ran_at,duration_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", nid("str"), id, r.test_id, test.name, version ?? null, r.passed ? 1 : 0, r.passed ? null : String(r.fail_reason || "未通过"), operator, nowIso(), r.duration_ms ?? null);
     }
   });
-  tx();
-  audit(operator, "skill.test.run", { skill: id, total: results.length });
+  (await audit(operator, "skill.test.run", { skill: id, total: results.length }));
   const passed = results.filter((r) => r.passed).length;
   return { total: results.length, passed, failed: results.length - passed };
 }
-
-export function listSkillTestRuns(id: string, limit = 50): Json[] {
+export async function listSkillTestRuns(id: string, limit = 50): Promise<Json[]> {
   requireSkill(id);
-  return getConn()
-    .prepare("SELECT * FROM skill_test_runs WHERE skill_id = ? ORDER BY ran_at DESC LIMIT ?")
-    .all(id, limit) as Json[];
+  return (await postgresDb().many("SELECT * FROM skill_test_runs WHERE skill_id = $1 ORDER BY ran_at DESC LIMIT $2", id, limit)) as Json[];
 }
-
 // ---------------------------------------------------------------- metrics
-
-export function skillMetrics(id: string, days = 7): Json {
+export async function skillMetrics(id: string, days = 7): Promise<Json> {
   requireSkill(id);
-  const since = new Date(Date.now() - days * 86400_000).toISOString();
-  const conn = getConn();
-  const totals = conn
-    .prepare(
-      "SELECT COUNT(*) AS calls, SUM(CASE WHEN status IN ('completed','approved','done','succeeded') THEN 1 ELSE 0 END) AS ok, SUM(CASE WHEN status IN ('failed','error') THEN 1 ELSE 0 END) AS failed FROM tickets WHERE skill = ? AND created_at >= ?",
-    )
-    .get(id, since) as { calls: number; ok: number | null; failed: number | null };
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const conn = postgresDb();
+  const totals = (await conn.one("SELECT COUNT(*) AS calls, SUM(CASE WHEN status IN ('completed','approved','done','succeeded') THEN 1 ELSE 0 END) AS ok, SUM(CASE WHEN status IN ('failed','error') THEN 1 ELSE 0 END) AS failed FROM tickets WHERE skill = $1 AND created_at >= $2", id, since)) as {
+    calls: number;
+    ok: number | null;
+    failed: number | null;
+  };
   const calls = totals.calls || 0;
   const ok = totals.ok || 0;
-  const daily = conn
-    .prepare(
-      "SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS n FROM tickets WHERE skill = ? AND created_at >= ? GROUP BY day ORDER BY day",
-    )
-    .all(id, since) as { day: string; n: number }[];
-  const durationRows = conn
-    .prepare(
-      "SELECT r.created_at AS created_at, r.completed_at AS completed_at FROM task_runs r JOIN tickets w ON w.id = r.work_item_id WHERE w.skill = ? AND r.created_at >= ? AND r.completed_at IS NOT NULL",
-    )
-    .all(id, since) as { created_at: string; completed_at: string }[];
+  const daily = (await conn.many("SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS n FROM tickets WHERE skill = $1 AND created_at >= $2 GROUP BY day ORDER BY day", id, since)) as {
+    day: string;
+    n: number;
+  }[];
+  const durationRows = (await conn.many("SELECT r.created_at AS created_at, r.completed_at AS completed_at FROM task_runs r JOIN tickets w ON w.id = r.work_item_id WHERE w.skill = $1 AND r.created_at >= $2 AND r.completed_at IS NOT NULL", id, since)) as {
+    created_at: string;
+    completed_at: string;
+  }[];
   // 在 TS 侧求平均：SQLite 的 julianday() 在 PostgreSQL 不存在，避免引擎分支。
   const durationSamples = durationRows
     .map((row) => Date.parse(row.completed_at) - Date.parse(row.created_at))
@@ -624,11 +633,9 @@ export function skillMetrics(id: string, days = 7): Json {
   const avgDurationMs = durationSamples.length
     ? durationSamples.reduce((total, ms) => total + ms, 0) / durationSamples.length
     : null;
-  const alerts = conn
-    .prepare(
-      "SELECT COUNT(*) AS n FROM tickets WHERE skill = ? AND created_at >= ? AND status IN ('failed','error','blocked')",
-    )
-    .get(id, since) as { n: number };
+  const alerts = (await conn.one("SELECT COUNT(*) AS n FROM tickets WHERE skill = $1 AND created_at >= $2 AND status IN ('failed','error','blocked')", id, since)) as {
+    n: number;
+  };
   return {
     days,
     calls,

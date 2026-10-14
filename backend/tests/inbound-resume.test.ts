@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { inboundIdentity } from "../src/host/inbound-identity.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
@@ -26,21 +26,18 @@ async function request(method: string, url: string, body?: unknown) {
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-inbound-"));
-  process.env.LINGONG_DB = path.join(tmp, "inbound.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
+  app = (await createApp());
+  (await seedWorkbenchFixtures());
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
-
 describe("inbound list resume and identity", () => {
   it("lists the inbound table with cursor paging and can resume a deferred row", async () => {
     const listed = await request("GET", "/api/inbound?limit=1");
@@ -60,14 +57,11 @@ describe("inbound list resume and identity", () => {
     const active = await request("GET", "/api/inbound?deferred=0");
     expect((active.body.items as Json[]).map((row) => row.id)).toContain("inb_unbound_1");
   });
-
   it("pages with a cursor instead of a hard 200-row slice", async () => {
-    const db = getConn();
+    const db = postgresDb();
     for (let i = 0; i < 3; i += 1) {
-      db.prepare(
-        `INSERT INTO inbound (id, from_addr, subject, snippet, bound, deferred, ts)
-         VALUES (?,?,?,?,0,0,?)`,
-      ).run(`inb_page_${i}`, `p${i}@example.com`, `s${i}`, "x", `2026-09-0${7 - i}T00:00:00+00:00`);
+      (await db.execute(`INSERT INTO inbound (id, from_addr, subject, snippet, bound, deferred, ts)
+         VALUES ($1,$2,$3,$4,0,0,$5)`, `inb_page_${i}`, `p${i}@example.com`, `s${i}`, "x", `2026-09-0${7 - i}T00:00:00+00:00`));
     }
     const first = await request("GET", "/api/inbound?limit=2");
     expect((first.body.items as Json[]).length).toBe(2);
@@ -125,7 +119,10 @@ describe("inbound list resume and identity", () => {
       intent: "creator_lifecycle_kanban",
     });
     expect(posted.status).toBe(200);
-    const messages = posted.body.messages as { kind: string; payload: Json }[];
+    const messages = posted.body.messages as {
+      kind: string;
+      payload: Json;
+    }[];
     const inbound = messages.find((row) => row.kind === "inbound_card");
     expect(inbound?.payload.inbound_id).toBe("inb_unbound_1");
     expect(JSON.stringify(inbound?.payload || "")).toMatch(/vanlife\.kit@example.com/);

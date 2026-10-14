@@ -5,16 +5,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { seedAll } from "../src/seed.js";
-import {
-  clearExpertCache,
-  clearExpertPublishOverrides,
-  expertPublished,
-  findExpertManifest,
-  listPublishedExperts,
-  setExpertPublishOverride,
-} from "../src/experts.js";
+import { clearExpertCache, clearExpertPublishOverrides, expertPublished, findExpertManifest, listPublishedExperts, setExpertPublishOverride, } from "../src/experts.js";
 import { freshTestDatabase } from "./support/pg.js";
 import { agentTestUser } from "./support/agent-user.js";
 import { withScopedUser, type AppUser } from "../src/auth.js";
@@ -45,14 +38,14 @@ const PUBLISHED_IDS = ["expert:kol", "expert:crawler", "expert:approver"];
 let tmp: string;
 let app: Hono;
 let employee: AppUser;
-
-async function request(
-  method: string,
-  url: string,
-  body?: unknown,
-): Promise<{ status: number; json: () => Promise<Json | Json[]>; text: () => Promise<string> }> {
+async function request(method: string, url: string, body?: unknown): Promise<{
+  status: number;
+  json: () => Promise<Json | Json[]>;
+  text: () => Promise<string>;
+}> {
   const init: RequestInit = { method, headers: { "Content-Type": "application/json" } };
-  if (body !== undefined) init.body = JSON.stringify(body);
+  if (body !== undefined)
+    init.body = JSON.stringify(body);
   const res = await withScopedUser(employee, () => app.request(url, init));
   const text = await res.text();
   return {
@@ -61,48 +54,54 @@ async function request(
     json: async () => (text ? (JSON.parse(text) as Json | Json[]) : {}),
   };
 }
-
-function sideEffects(sessionId?: string) {
+async function sideEffects(sessionId?: string) {
   const messages = sessionId
-    ? (getConn().prepare("SELECT kind FROM messages WHERE session_id=?").all(sessionId) as { kind: string }[])
+    ? ((await postgresDb().many("SELECT kind FROM messages WHERE session_id=$1", sessionId)) as {
+      kind: string;
+    }[])
     : [];
   return {
     messages: messages.map((row) => row.kind),
     drafts: sessionId
-      ? Number((getConn().prepare("SELECT COUNT(*) AS n FROM drafts WHERE session_id=?").get(sessionId) as { n: number }).n)
+      ? Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM drafts WHERE session_id=$1", sessionId)) as {
+        n: number;
+      }).n)
       : 0,
-    sends: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: number }).n),
-    stageWrites: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_stage_writes").get() as { n: number }).n),
-    transitions: Number((getConn().prepare("SELECT COUNT(*) AS n FROM stage_transitions").get() as { n: number }).n),
+    sends: Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM starry_sends")) as {
+      n: number;
+    }).n),
+    stageWrites: Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM starry_stage_writes")) as {
+      n: number;
+    }).n),
+    transitions: Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM stage_transitions")) as {
+      n: number;
+    }).n),
   };
 }
-
-function sessionCount(expertId: string): number {
-  return Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions WHERE expert_id=?").get(expertId) as { n: number }).n);
+async function sessionCount(expertId: string): Promise<number> {
+  return Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM sessions WHERE expert_id=$1", expertId)) as {
+    n: number;
+  }).n);
 }
-
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-experts-"));
-  process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   clearExpertCache();
   clearExpertPublishOverrides();
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  employee = agentTestUser();
+  app = (await createApp());
+  employee = (await agentTestUser());
 });
-
-afterEach(() => {
+afterEach(async () => {
   clearExpertCache();
   clearExpertPublishOverrides();
-  resetConn();
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
-
 describe("ExpertManifest loader", () => {
   it("loads the three published digital employees with platform fields", () => {
     const kol = findExpertManifest("expert:kol");
@@ -284,7 +283,7 @@ describe("POST /api/experts/:id/summon", () => {
     expect(String(body.session_id)).toMatch(/^ses_/);
     expect(String(body.intro)).toContain("KOL推广");
     expect(String(body.intro)).not.toMatch(/MCP|Codex|LIVE/i);
-    const row = getConn().prepare("SELECT expert_id, expert_version, title FROM sessions WHERE id=?").get(body.session_id) as {
+    const row = (await postgresDb().one("SELECT expert_id, expert_version, title FROM sessions WHERE id=$1", body.session_id)) as {
       expert_id?: string;
       expert_version?: string;
       title?: string;
@@ -298,7 +297,7 @@ describe("POST /api/experts/:id/summon", () => {
       expert_id: "expert:kol",
       expert_version: "0.1.0",
     });
-    expect(sideEffects(String(body.session_id))).toEqual({
+    expect((await sideEffects(String(body.session_id)))).toEqual({
       messages: [],
       drafts: 0,
       sends: 0,
@@ -323,13 +322,11 @@ describe("POST /api/experts/:id/summon", () => {
       next_action: "open_approval_queue",
     });
     expect(String(approverDetail.message)).toContain("审批队列");
-
-    expect(sessionCount("expert:crawler")).toBe(1);
-    expect(sessionCount("expert:approver")).toBe(0);
-    expect(sideEffects().sends).toBe(0);
-    expect(sideEffects().stageWrites).toBe(0);
+    expect((await sessionCount("expert:crawler"))).toBe(1);
+    expect((await sessionCount("expert:approver"))).toBe(0);
+    expect((await sideEffects()).sends).toBe(0);
+    expect((await sideEffects()).stageWrites).toBe(0);
   });
-
   it("returns 404 for unknown and 409 for unpublished experts", async () => {
     const missing = await request("POST", "/api/experts/expert:nope/summon", {});
     expect(missing.status).toBe(404);
@@ -338,19 +335,23 @@ describe("POST /api/experts/:id/summon", () => {
     const blocked = await request("POST", "/api/experts/expert:kol/summon", {});
     expect(blocked.status).toBe(409);
     expect(await blocked.json()).toMatchObject({ detail: { code: "expert_not_published" } });
-    expect(sessionCount("expert:kol")).toBe(0);
-    expect(sideEffects().sends).toBe(0);
-    expect(sideEffects().stageWrites).toBe(0);
+    expect((await sessionCount("expert:kol"))).toBe(0);
+    expect((await sideEffects()).sends).toBe(0);
+    expect((await sideEffects()).stageWrites).toBe(0);
   });
 });
-
 describe("validate:contracts expert gate", () => {
   it("accepts the three published digital-employee manifests", () => {
     const raw = execFileSync(process.execPath, ["scripts/validate-contracts.mjs"], {
       cwd: path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."),
       encoding: "utf8",
     });
-    const result = JSON.parse(raw) as { status: string; expert: string; expertCount: number; errors: string[] };
+    const result = JSON.parse(raw) as {
+      status: string;
+      expert: string;
+      expertCount: number;
+      errors: string[];
+    };
     expect(result.status).toBe("valid");
     expect(result.expert).toBe("expert:kol");
     expect(result.expertCount).toBe(3);
@@ -362,14 +363,15 @@ describe("experts auth", () => {
   it("requires authentication when AUTH_MODE is enabled", async () => {
     process.env.AUTH_MODE = "enabled";
     process.env.CODEX_MODE = "real";
-    resetConn();
+    (await resetDatabase());
     const { createApp } = await import("../src/app.js");
-    app = createApp();
+    app = (await createApp());
     try {
       expect((await request("GET", "/api/experts")).status).toBe(401);
       expect((await request("GET", "/api/experts/expert:kol")).status).toBe(401);
       expect((await request("POST", "/api/experts/expert:kol/summon", {})).status).toBe(401);
-    } finally {
+    }
+    finally {
       delete process.env.AUTH_MODE;
       process.env.CODEX_MODE = "stub";
     }

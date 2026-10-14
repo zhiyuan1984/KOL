@@ -18,7 +18,6 @@ ENV KNOWLEDGE_PAGEINDEX_PYTHON=/opt/knowledge-python/bin/python
 RUN npm install -g @openai/codex
 COPY backend/package.json backend/package-lock.json* backend/.npmrc* /app/backend/
 RUN cd /app/backend && npm install --omit=dev --ignore-scripts=false --foreground-scripts \
-  && (npm rebuild better-sqlite3 --ignore-scripts=false || true) \
   && (npm rebuild esbuild --ignore-scripts=false || node ./node_modules/esbuild/install.js)
 COPY backend /app/backend
 COPY --from=fe /src/frontend/dist /app/frontend/dist

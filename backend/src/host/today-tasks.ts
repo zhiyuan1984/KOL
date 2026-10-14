@@ -1,31 +1,18 @@
-import { getConn, nowIso, tx } from "../db.js";
+import { postgresDb, nowIso, pgTransaction } from "../postgres/access.js";
 import { nid } from "../ids.js";
-import {
-  TASK_RESULT_MEMORY,
-  TODO_TASK_RESULT_MEMORY,
-  type TodayTaskResultRow,
-  type TodayTaskResults,
-} from "./memory-kinds.js";
+import { TASK_RESULT_MEMORY, TODO_TASK_RESULT_MEMORY, type TodayTaskResultRow, type TodayTaskResults, } from "./memory-kinds.js";
 import { listMemories } from "./employee-memory.js";
 import { briefPointerTable, type PlanScope } from "./today-plan-context.js";
-
+import { pgPlaceholders } from "./pg-placeholders.js";
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
 }
-
-function ensureResultArtifactColumn(scope: PlanScope): void {
-  try {
-    getConn().exec(`ALTER TABLE ${briefPointerTable(scope)} ADD COLUMN result_artifact_id TEXT`);
-  } catch {
-    /* column may already exist */
-  }
-}
-
 export function parseTodayTaskResults(raw: unknown): TodayTaskResults | null {
   const root = asRecord(raw);
-  if (!root) return null;
+  if (!root)
+    return null;
   const list = Array.isArray(root.items)
     ? root.items
     : Array.isArray(root.display_tasks)
@@ -33,12 +20,14 @@ export function parseTodayTaskResults(raw: unknown): TodayTaskResults | null {
       : Array.isArray(root.todo_layout)
         ? root.todo_layout
         : null;
-  if (!list) return null;
+  if (!list)
+    return null;
   const items: TodayTaskResultRow[] = [];
   for (const [index, entry] of list.entries()) {
     const row = asRecord(entry);
     const workItemId = String(row?.work_item_id || row?.id || "").trim();
-    if (!workItemId) continue;
+    if (!workItemId)
+      continue;
     items.push({
       work_item_id: workItemId,
       rank: Number(row?.rank || index + 1),
@@ -54,21 +43,22 @@ export function parseTodayTaskResults(raw: unknown): TodayTaskResults | null {
     });
   }
   // Missing/malformed rows are invalid; a present empty array is not.
-  if (list.length > 0 && !items.length) return null;
+  if (list.length > 0 && !items.length)
+    return null;
   return { items, planned_at: typeof root.planned_at === "string" ? root.planned_at : undefined };
 }
-
-function itemsFromDisplayMemory(owner: string, scope: PlanScope): TodayTaskResults | null {
-  const rows = listMemories({
+async function itemsFromDisplayMemory(owner: string, scope: PlanScope): Promise<TodayTaskResults | null> {
+  const rows = (await listMemories({
     owner,
     memory_kind: scope === "todo" ? "todo_display" : "task_display",
     limit: 200,
-  });
+  }));
   const items: TodayTaskResultRow[] = [];
   for (const [index, row] of rows.entries()) {
     const payload = asRecord(row.payload) || {};
     const workItemId = String(payload.work_item_id || payload.id || row.item_key || "").trim();
-    if (!workItemId) continue;
+    if (!workItemId)
+      continue;
     items.push({
       work_item_id: workItemId,
       rank: Number(payload.rank || index + 1),
@@ -81,95 +71,94 @@ function itemsFromDisplayMemory(owner: string, scope: PlanScope): TodayTaskResul
       view: payload.view === "today" || payload.view === "todo" ? payload.view as "today" | "todo" : undefined,
     });
   }
-  if (!items.length) return null;
+  if (!items.length)
+    return null;
   items.sort((a, b) => a.rank - b.rank);
   return { items };
 }
-
-export function writeTodayTaskResults(input: {
+export async function writeTodayTaskResults(input: {
   owner: string;
   workItemId: string;
   runId: string | null;
   results: TodayTaskResults | unknown;
   scope?: PlanScope;
-}): { ok: true; artifact_id: string } | { ok: false; reason: string } {
+}): Promise<{
+  ok: true;
+  artifact_id: string;
+} | {
+  ok: false;
+  reason: string;
+}> {
   const scope = input.scope ?? "today";
   const parsed = parseTodayTaskResults(input.results);
-  if (!parsed) return { ok: false, reason: "规划结果缺少有效的任务展示列表" };
+  if (!parsed)
+    return { ok: false, reason: "规划结果缺少有效的任务展示列表" };
   const now = nowIso();
   const artifactId = nid("art");
-  ensureResultArtifactColumn(scope);
-  tx((db) => {
-    db.prepare(
-      `INSERT INTO task_artifacts
+  (await pgTransaction(async (db) => {
+    (await db.execute(`INSERT INTO task_artifacts
        (id,work_item_id,run_id,artifact_type,message_id,version,payload,created_at)
-       VALUES (?,?,?,?,?,?,?,?)`,
-    ).run(
-      artifactId,
-      input.workItemId,
-      input.runId,
-      scope === "todo" ? "todo_tasks" : "today_tasks",
-      null,
-      1,
-      JSON.stringify({
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, artifactId, input.workItemId, input.runId, scope === "todo" ? "todo_tasks" : "today_tasks", null, 1, JSON.stringify({
         memory_kind: scope === "todo" ? TODO_TASK_RESULT_MEMORY : TASK_RESULT_MEMORY,
         items: parsed.items,
         planned_at: now,
-      }),
-      now,
-    );
-    db.prepare(
-      `UPDATE ${briefPointerTable(scope)}
-          SET result_artifact_id=?, updated_at=?
-        WHERE owner_user_id=?`,
-    ).run(artifactId, now, input.owner);
-  });
+    }), now));
+    (await db.execute(`UPDATE ${briefPointerTable(scope)}
+          SET result_artifact_id=$1, updated_at=$2
+        WHERE owner_user_id=$3`, artifactId, now, input.owner));
+  }));
   return { ok: true, artifact_id: artifactId };
 }
-
 const DISPLAY_CLOSED = new Set(["completed", "done", "cancelled"]);
-
 /** TECH-BE-06: source rows closed/dismissed/deleted must drop out of display memory at read time. */
-function dropClosedItems(results: TodayTaskResults | null): TodayTaskResults | null {
-  if (!results?.items.length) return results;
+async function dropClosedItems(results: TodayTaskResults | null): Promise<TodayTaskResults | null> {
+  if (!results?.items.length)
+    return results;
   const ids = results.items.map((item) => item.work_item_id);
-  const placeholders = ids.map(() => "?").join(",");
-  const rows = getConn().prepare(
-    `SELECT id, status, dismissed_at FROM tickets WHERE id IN (${placeholders})`,
-  ).all(...ids) as Array<{ id: string; status?: unknown; dismissed_at?: unknown }>;
+  const placeholders = pgPlaceholders(ids.length);
+  const rows = (await postgresDb().many(`SELECT id, status, dismissed_at FROM tickets WHERE id IN (${placeholders})`, ...ids)) as Array<{
+    id: string;
+    status?: unknown;
+    dismissed_at?: unknown;
+  }>;
   const hostById = new Map(rows.map((row) => [String(row.id), row]));
   const items = results.items.filter((item) => {
     const host = hostById.get(item.work_item_id);
-    if (!host) return false;
+    if (!host)
+      return false;
     return !DISPLAY_CLOSED.has(String(host.status || "")) && !host.dismissed_at;
   });
-  if (!items.length) return null;
+  if (!items.length)
+    return null;
   return { ...results, items };
 }
-
-export function loadTodayTaskResults(owner: string, scope: PlanScope = "today"): TodayTaskResults | null {
-  ensureResultArtifactColumn(scope);
-  let pointer: { result_artifact_id?: string } | undefined;
+export async function loadTodayTaskResults(owner: string, scope: PlanScope = "today"): Promise<TodayTaskResults | null> {
+  let pointer: {
+    result_artifact_id?: string;
+  } | undefined;
   try {
-    pointer = getConn().prepare(
-      `SELECT result_artifact_id FROM ${briefPointerTable(scope)} WHERE owner_user_id=?`,
-    ).get(owner) as { result_artifact_id?: string } | undefined;
-  } catch {
-    return dropClosedItems(itemsFromDisplayMemory(owner, scope));
+    pointer = (await postgresDb().one(`SELECT result_artifact_id FROM ${briefPointerTable(scope)} WHERE owner_user_id=$1`, owner)) as {
+      result_artifact_id?: string;
+    } | undefined;
+  }
+  catch {
+    return (await dropClosedItems((await itemsFromDisplayMemory(owner, scope))));
   }
   if (pointer?.result_artifact_id) {
-    const row = getConn().prepare("SELECT payload FROM task_artifacts WHERE id=?").get(pointer.result_artifact_id) as
-      | { payload: string }
-      | undefined;
+    const row = (await postgresDb().one("SELECT payload FROM task_artifacts WHERE id=$1", pointer.result_artifact_id)) as {
+      payload: string;
+    } | undefined;
     if (row) {
       try {
         const parsed = parseTodayTaskResults(JSON.parse(row.payload));
         // Empty is authoritative too: do not resurrect an older memory list.
-        if (parsed) return dropClosedItems(parsed);
-      } catch {
+        if (parsed)
+          return (await dropClosedItems(parsed));
+      }
+      catch {
         /* fall through to display memory */
       }
     }
   }
-  return dropClosedItems(itemsFromDisplayMemory(owner, scope));
+  return (await dropClosedItems((await itemsFromDisplayMemory(owner, scope))));
 }

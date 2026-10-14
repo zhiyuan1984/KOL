@@ -4,23 +4,21 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import {
-  resetCollectorConnectionCache,
-  setCollectorProbeClientFactory,
-  setCollectorProbeFetch,
-} from "../src/crawl/connection.js";
+import { resetCollectorConnectionCache, setCollectorProbeClientFactory, setCollectorProbeFetch, } from "../src/crawl/connection.js";
 import { setCrawlMcpClientFactory } from "../src/crawl/service.js";
 import { monitorCrawlJob } from "../src/crawl/service.js";
 import { HOME_ENTRY_REGISTRY } from "../src/host/entry-registry.js";
 import { isStarryTimeout, lookupImportedKolUid } from "../src/gateway/import-creator.js";
-import { getConn, listAudit, resetConn } from "../src/db.js";
+import { postgresDb, listAudit, resetDatabase } from "../src/postgres/access.js";
 import { DEMO_USER } from "../src/config.js";
 import { seedAll } from "../src/seed.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import type { Json, Row } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
-
-const starryCalls: Array<{ name: string; args: Json }> = [];
+const starryCalls: Array<{
+  name: string;
+  args: Json;
+}> = [];
 let tmp = "";
 let app: Hono;
 let creators: Json[] = [];
@@ -33,46 +31,47 @@ function kolUidFor(kolName: unknown): string {
   const slug = String(kolName || "DISC").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 12) || "DISC";
   return `KOL${slug}`;
 }
-
-function starryTools(names: string[]): Array<{ name: string; args: Json }> {
+function starryTools(names: string[]): Array<{
+  name: string;
+  args: Json;
+}> {
   return starryCalls.filter((row) => names.includes(row.name));
 }
-
-function addBodyOf(call: { args: Json } | undefined): Json {
+function addBodyOf(call: {
+  args: Json;
+} | undefined): Json {
   try {
     return JSON.parse(String(call?.args.requestJson || "{}")) as Json;
-  } catch {
+  }
+  catch {
     return {};
   }
 }
-
 /** 工作台绑定：入库靠它取负责人邮箱 / mailbox_id，openId 只能再从 Starry 邮箱清单取。 */
-function bindStarryMailbox(): void {
+async function bindStarryMailbox(): Promise<void> {
   const now = new Date().toISOString();
-  getConn().prepare(
-    `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-  ).run(DEMO_USER.id, DEMO_USER.handle, DEMO_USER.name, "x", JSON.stringify(["employee", "admin"]), "[]", "", 1, now, now);
-  getConn().prepare(
-    `INSERT INTO user_starry_bindings
+  (await postgresDb().execute(`INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING`, DEMO_USER.id, DEMO_USER.handle, DEMO_USER.name, "x", JSON.stringify(["employee", "admin"]), "[]", "", 1, now, now));
+  (await postgresDb().execute(`INSERT INTO user_starry_bindings
      (user_id,mailbox_email,is_default,mailbox_id,owner_name,bearer_token,status,updated_at)
-     VALUES (?,?,1,?,?,?,'connected',?)`,
-  ).run(DEMO_USER.id, BOUND_MAILBOX, "6", "赵良玉", "test-bearer", now);
+     VALUES ($1,$2,1,$3,$4,$5,'connected',$6)`, DEMO_USER.id, BOUND_MAILBOX, "6", "赵良玉", "test-bearer", now));
 }
-
 function mockCrawl() {
   return {
     async callTool(name: string) {
-      if (name === "start_crawl") return { task_id: "remote-ingest-gate-1", status: "running" };
-      if (name === "get_crawl_status") return { task_id: "remote-ingest-gate-1", status: "idle" };
-      if (name === "get_crawl_logs") return { logs: [] };
-      if (name === "get_creators") return { creators, has_more: false };
+      if (name === "start_crawl")
+        return { task_id: "remote-ingest-gate-1", status: "running" };
+      if (name === "get_crawl_status")
+        return { task_id: "remote-ingest-gate-1", status: "idle" };
+      if (name === "get_crawl_logs")
+        return { logs: [] };
+      if (name === "get_creators")
+        return { creators, has_more: false };
       return {};
     },
-    async close() {},
+    async close() { },
   };
 }
-
 async function request(method: string, url: string, body?: unknown) {
   const response = await app.request(url, {
     method,
@@ -82,26 +81,38 @@ async function request(method: string, url: string, body?: unknown) {
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) as Json : {}, text };
 }
-
-function sideEffects() {
+async function sideEffects() {
   return {
-    sends: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: number }).n),
-    stageWrites: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_stage_writes").get() as { n: number }).n),
-    transitions: Number((getConn().prepare("SELECT COUNT(*) AS n FROM stage_transitions").get() as { n: number }).n),
-    follows: Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index").get() as { n: number }).n),
-    collabs: Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'").get() as { n: number }).n),
+    sends: Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM starry_sends")) as {
+      n: number;
+    }).n),
+    stageWrites: Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM starry_stage_writes")) as {
+      n: number;
+    }).n),
+    transitions: Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM stage_transitions")) as {
+      n: number;
+    }).n),
+    follows: Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM kol_follow_index")) as {
+      n: number;
+    }).n),
+    collabs: Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'")) as {
+      n: number;
+    }).n),
   };
 }
-
-function crawlJobIdFor(requestId: string): string {
-  const row = getConn().prepare(
-    "SELECT crawl_job_id FROM discovery_runs WHERE request_id=? ORDER BY created_at DESC LIMIT 1",
-  ).get(requestId) as { crawl_job_id?: string } | undefined;
+async function crawlJobIdFor(requestId: string): Promise<string> {
+  const row = (await postgresDb().one("SELECT crawl_job_id FROM discovery_runs WHERE request_id=$1 ORDER BY created_at DESC LIMIT 1", requestId)) as {
+    crawl_job_id?: string;
+  } | undefined;
   return String(row?.crawl_job_id || "");
 }
-
-async function readyRun(extraCreators?: Json[]): Promise<{ runId: string; candidates: Json[]; briefVersion: number }> {
-  if (extraCreators) creators = extraCreators;
+async function readyRun(extraCreators?: Json[]): Promise<{
+  runId: string;
+  candidates: Json[];
+  briefVersion: number;
+}> {
+  if (extraCreators)
+    creators = extraCreators;
   const created = await request("POST", "/api/discovery/requests", {
     keywords: ["portable power"],
     platforms: ["youtube"],
@@ -111,7 +122,7 @@ async function readyRun(extraCreators?: Json[]): Promise<{ runId: string; candid
   expect(created.status).toBe(201);
   const started = await request("POST", `/api/discovery/requests/${created.body.id}/runs`, {});
   expect(started.status).toBe(202);
-  await monitorCrawlJob(crawlJobIdFor(String(created.body.id)));
+  await monitorCrawlJob((await crawlJobIdFor(String(created.body.id))));
   const results = await request("GET", `/api/discovery/requests/${created.body.id}/results`);
   const items = results.body.candidates as Json[];
   expect(items.length).toBeGreaterThan(0);
@@ -126,7 +137,6 @@ async function readyRun(extraCreators?: Json[]): Promise<{ runId: string; candid
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-ingest-gate-"));
-  process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.CLAW_MODE = "mock";
@@ -143,10 +153,10 @@ beforeEach(async () => {
     profile_url: "https://youtube.com/@outdoorpower",
     email: "business@outdoorpower.example",
   }];
-  resetConn();
-  seedAll();
-  configureCrawlerFixture();
-  bindStarryMailbox();
+  (await resetDatabase());
+  (await seedAll());
+  (await configureCrawlerFixture());
+  (await bindStarryMailbox());
   resetCollectorConnectionCache();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();
@@ -190,23 +200,24 @@ beforeEach(async () => {
           }],
         };
       }
-      if (name === "pageKolProfiles") return { list: [] };
-      if (name === "listAllKolProfiles") return { list: [] };
+      if (name === "pageKolProfiles")
+        return { list: [] };
+      if (name === "listAllKolProfiles")
+        return { list: [] };
       throw new Error(`unexpected tool ${name}`);
     },
-    async close() {},
+    async close() { },
   }));
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
-
-afterEach(() => {
+afterEach(async () => {
   setCrawlMcpClientFactory();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();
   setStarryKolClientFactory();
   resetCollectorConnectionCache();
-  resetConn();
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.MEDIACRAWLER_MCP_URL;
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
@@ -236,9 +247,8 @@ describe("POST /api/home/discovery/ingest", () => {
     expect(unconfirmed.body.status).toBe("needs_confirmation");
     expect(unconfirmed.body.creates_session).toBe(false);
     expect(starryTools(["addKolProfile", "importKolProfilesFromCrawler"])).toEqual([]);
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0, follows: 0, collabs: 0 });
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0, follows: 0, collabs: 0 });
   });
-
   it("2. cancelled L3 → no Starry call", async () => {
     const ready = await readyRun();
     const cancelled = await request("POST", "/api/home/discovery/ingest", {
@@ -259,9 +269,8 @@ describe("POST /api/home/discovery/ingest", () => {
     expect(confirmedAfterCancel.status).toBe(409);
     expect(confirmedAfterCancel.body.detail).toMatchObject({ code: "l3_cancelled" });
     expect(starryTools(["addKolProfile", "importKolProfilesFromCrawler"])).toEqual([]);
-    expect(sideEffects().follows).toBe(0);
+    expect((await sideEffects()).follows).toBe(0);
   });
-
   it("3. re-import same key → already_imported + same kolUid", async () => {
     const ready = await readyRun();
     const body = {
@@ -287,9 +296,8 @@ describe("POST /api/home/discovery/ingest", () => {
     // 已在库就不该再建档、再导入一次。
     expect(starryTools(["importKolProfilesFromCrawler"])).toHaveLength(imports);
     expect(starryTools(["addKolProfile"])).toHaveLength(adds);
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0, follows: 0, collabs: 0 });
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0, follows: 0, collabs: 0 });
   });
-
   it("4. no existing profile → adds, then imports the platform fields with the returned uid", async () => {
     const ready = await readyRun();
     const ingested = await request("POST", "/api/home/discovery/ingest", {
@@ -323,15 +331,12 @@ describe("POST /api/home/discovery/ingest", () => {
     });
     // 联系邮箱必须是候选自己的真实邮箱，不能拿负责人邮箱顶。
     expect(addBody.contactEmail).not.toBe(addBody.ownerMailbox);
-    const csv = Buffer.from(
-      String(starryTools(["importKolProfilesFromCrawler"])[0]?.args.fileBase64 || ""),
-      "base64",
-    ).toString("utf8");
+    const csv = Buffer.from(String(starryTools(["importKolProfilesFromCrawler"])[0]?.args.fileBase64 || ""), "base64").toString("utf8");
     expect(csv).not.toMatch(/contactEmail|联系邮箱|@gmail|@yahoo/i);
     expect(csv.replace(/^\uFEFF/, "").trim().split(/\r?\n/)[0]).toBe("红人统一ID,频道链接,名称,平台,平台账号");
     expect(csv).toContain(item.kol_uid as string);
     expect(JSON.stringify(ingested.body)).not.toMatch(/EMAIL_AGENT_MCP|MEDIACRAWLER_MCP_TOKEN|password|api[_-]?key/i);
-    const profile = getConn().prepare("SELECT * FROM kol_profile_index WHERE kol_uid=?").get(item.kol_uid) as Row;
+    const profile = (await postgresDb().one("SELECT * FROM kol_profile_index WHERE kol_uid=$1", item.kol_uid)) as Row;
     expect(profile).toMatchObject({
       pool_status: "open",
       ingest_source: "crawler",
@@ -355,7 +360,8 @@ describe("POST /api/home/discovery/ingest", () => {
     setStarryKolClientFactory(() => ({
       async callTool(name: string, args: Json = {}) {
         starryCalls.push({ name, args });
-        if (name === "pageKolProfiles") return { list: [] };
+        if (name === "pageKolProfiles")
+          return { list: [] };
         if (name === "listAllKolProfiles") {
           return {
             total: 1,
@@ -368,7 +374,8 @@ describe("POST /api/home/discovery/ingest", () => {
             }],
           };
         }
-        if (name === "pageMailboxes") return { list: [{ id: 6, mailboxEmail: BOUND_MAILBOX, ownerOpenId: BOUND_OWNER_OPEN_ID }] };
+        if (name === "pageMailboxes")
+          return { list: [{ id: 6, mailboxEmail: BOUND_MAILBOX, ownerOpenId: BOUND_OWNER_OPEN_ID }] };
         if (name === "importKolProfilesFromCrawler") {
           const csv = Buffer.from(String(args.fileBase64 || ""), "base64").toString("utf8");
           expect(csv).toContain("KOLFOUNDBYURL");
@@ -376,7 +383,7 @@ describe("POST /api/home/discovery/ingest", () => {
         }
         throw new Error(`unexpected tool ${name}`);
       },
-      async close() {},
+      async close() { },
     }));
     const ready = await readyRun();
     const item = await ingestFirst(ready.candidates, ready.runId, ready.briefVersion);
@@ -388,7 +395,7 @@ describe("POST /api/home/discovery/ingest", () => {
       "listAllKolProfiles",
       "importKolProfilesFromCrawler",
     ]);
-    const audits = listAudit("host.add_kol_profile");
+    const audits = (await listAudit("host.add_kol_profile"));
     expect(audits).toHaveLength(1);
     expect(audits[0].payload as Json).toMatchObject({
       reused_existing: true,
@@ -396,14 +403,13 @@ describe("POST /api/home/discovery/ingest", () => {
       kol_uid: "KOLFOUNDBYURL",
     });
     // 回执 + 公海照旧。
-    expect(Number((getConn().prepare(
-      "SELECT COUNT(*) AS n FROM discovery_ingest_receipts WHERE kol_uid='KOLFOUNDBYURL'",
-    ).get() as { n: unknown }).n)).toBe(1);
-    expect(getConn().prepare("SELECT pool_status FROM kol_profile_index WHERE kol_uid='KOLFOUNDBYURL'").get())
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM discovery_ingest_receipts WHERE kol_uid='KOLFOUNDBYURL'")) as {
+      n: unknown;
+    }).n)).toBe(1);
+    expect((await postgresDb().one("SELECT pool_status FROM kol_profile_index WHERE kol_uid='KOLFOUNDBYURL'")))
       .toEqual({ pool_status: "open" });
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0, follows: 0, collabs: 0 });
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0, follows: 0, collabs: 0 });
   });
-
   it("4c. reuses the profile found by the keyword query and skips the listAll fallback", async () => {
     setStarryKolClientFactory(() => ({
       async callTool(name: string, args: Json = {}) {
@@ -411,7 +417,8 @@ describe("POST /api/home/discovery/ingest", () => {
         if (name === "pageKolProfiles") {
           return { total: 1, list: [{ kolUid: "KOLFOUNDBYKEY02", kolName: "OutdoorPower", handle: "OutdoorPower" }] };
         }
-        if (name === "pageMailboxes") return { list: [{ id: 6, mailboxEmail: BOUND_MAILBOX, ownerOpenId: BOUND_OWNER_OPEN_ID }] };
+        if (name === "pageMailboxes")
+          return { list: [{ id: 6, mailboxEmail: BOUND_MAILBOX, ownerOpenId: BOUND_OWNER_OPEN_ID }] };
         if (name === "importKolProfilesFromCrawler") {
           const csv = Buffer.from(String(args.fileBase64 || ""), "base64").toString("utf8");
           expect(csv).toContain("KOLFOUNDBYKEY02");
@@ -419,7 +426,7 @@ describe("POST /api/home/discovery/ingest", () => {
         }
         throw new Error(`unexpected tool ${name}`);
       },
-      async close() {},
+      async close() { },
     }));
     const ready = await readyRun();
     const item = await ingestFirst(ready.candidates, ready.runId, ready.briefVersion);
@@ -427,10 +434,9 @@ describe("POST /api/home/discovery/ingest", () => {
     expect(starryTools(["addKolProfile"])).toEqual([]);
     // keyword 已经命中，不该再去拉全量。
     expect(starryTools(["listAllKolProfiles"])).toEqual([]);
-    expect(getConn().prepare("SELECT pool_status FROM kol_profile_index WHERE kol_uid='KOLFOUNDBYKEY02'").get())
+    expect((await postgresDb().one("SELECT pool_status FROM kol_profile_index WHERE kol_uid='KOLFOUNDBYKEY02'")))
       .toEqual({ pool_status: "open" });
   });
-
   it("4d. a reused profile whose import still fails must not be counted as imported", async () => {
     setStarryKolClientFactory(() => ({
       async callTool(name: string, args: Json = {}) {
@@ -438,10 +444,11 @@ describe("POST /api/home/discovery/ingest", () => {
         if (name === "pageKolProfiles") {
           return { list: [{ kolUid: "KOLORPHAN01", kolName: "OutdoorPower", handle: "OutdoorPower" }] };
         }
-        if (name === "importKolProfilesFromCrawler") throw new Error("remote import rejected");
+        if (name === "importKolProfilesFromCrawler")
+          throw new Error("remote import rejected");
         throw new Error(`unexpected tool ${name}`);
       },
-      async close() {},
+      async close() { },
     }));
     const ready = await readyRun();
     const item = await ingestFirst(ready.candidates, ready.runId, ready.briefVersion);
@@ -450,10 +457,13 @@ describe("POST /api/home/discovery/ingest", () => {
     expect(item.already_imported).toBe(false);
     expect(starryTools(["addKolProfile"])).toEqual([]);
     // 孤儿不能被当成成功：没有回执、没进公海。
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM discovery_ingest_receipts").get() as { n: unknown }).n)).toBe(0);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_profile_index").get() as { n: unknown }).n)).toBe(0);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM discovery_ingest_receipts")) as {
+      n: unknown;
+    }).n)).toBe(0);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM kol_profile_index")) as {
+      n: unknown;
+    }).n)).toBe(0);
   });
-
   it("5. a candidate without a contact email fails honestly and never calls Starry", async () => {
     creators = [{
       platform: "youtube",
@@ -478,13 +488,16 @@ describe("POST /api/home/discovery/ingest", () => {
     });
     expect(item.kol_uid).toBe(null);
     expect(starryTools(["addKolProfile", "importKolProfilesFromCrawler"])).toEqual([]);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_profile_index").get() as { n: unknown }).n)).toBe(0);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM discovery_ingest_receipts").get() as { n: unknown }).n)).toBe(0);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM kol_profile_index")) as {
+      n: unknown;
+    }).n)).toBe(0);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM discovery_ingest_receipts")) as {
+      n: unknown;
+    }).n)).toBe(0);
     expect(ingested.body.counts).toMatchObject({ imported: 0, failed: 1 });
   });
-
   it("5b. an unknown owner openId fails honestly and never calls addKolProfile", async () => {
-    getConn().prepare("DELETE FROM user_starry_bindings").run();
+    (await postgresDb().execute("DELETE FROM user_starry_bindings"));
     const ready = await readyRun();
     const ingested = await request("POST", "/api/home/discovery/ingest", {
       run_id: ready.runId,
@@ -497,9 +510,10 @@ describe("POST /api/home/discovery/ingest", () => {
     expect(item.status).toBe("failed");
     expect(item.error).toMatchObject({ code: "import_creator_no_owner_open_id" });
     expect(starryTools(["addKolProfile", "importKolProfilesFromCrawler"])).toEqual([]);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM discovery_ingest_receipts").get() as { n: unknown }).n)).toBe(0);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM discovery_ingest_receipts")) as {
+      n: unknown;
+    }).n)).toBe(0);
   });
-
   it("5. partial failure keeps successful kolUids", async () => {
     let imports = 0;
     setStarryKolClientFactory(() => ({
@@ -511,17 +525,20 @@ describe("POST /api/home/discovery/ingest", () => {
         }
         if (name === "importKolProfilesFromCrawler") {
           imports += 1;
-          if (imports === 2) throw new Error("remote import rejected");
+          if (imports === 2)
+            throw new Error("remote import rejected");
           return { code: 200, data: { totalCount: 1, createdCount: 0, updatedCount: 1, failedCount: 0, skippedCount: 0 } };
         }
         if (name === "pageMailboxes") {
           return { list: [{ id: 6, mailboxEmail: BOUND_MAILBOX, ownerOpenId: BOUND_OWNER_OPEN_ID }] };
         }
-        if (name === "pageKolProfiles") return { list: [] };
-        if (name === "listAllKolProfiles") return { list: [] };
+        if (name === "pageKolProfiles")
+          return { list: [] };
+        if (name === "listAllKolProfiles")
+          return { list: [] };
         throw new Error(`unexpected tool ${name}`);
       },
-      async close() {},
+      async close() { },
     }));
     creators = [
       {
@@ -557,13 +574,14 @@ describe("POST /api/home/discovery/ingest", () => {
     expect(failed).toBeTruthy();
     // 失败的条目不得标成已在库：没有 receipt，也没进公海。
     expect(failed?.already_imported).toBe(false);
-    expect(Number((getConn().prepare(
-      "SELECT COUNT(*) AS n FROM discovery_ingest_receipts WHERE candidate_id=?",
-    ).get(failed?.candidate_id) as { n: unknown }).n)).toBe(0);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_profile_index WHERE kol_uid='KOLPARTIALOK'").get() as { n: unknown }).n)).toBe(1);
-    expect(sideEffects().follows).toBe(0);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM discovery_ingest_receipts WHERE candidate_id=$1", failed?.candidate_id)) as {
+      n: unknown;
+    }).n)).toBe(0);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM kol_profile_index WHERE kol_uid='KOLPARTIALOK'")) as {
+      n: unknown;
+    }).n)).toBe(1);
+    expect((await sideEffects()).follows).toBe(0);
   });
-
   it("6. brief_version mismatch voids confirm", async () => {
     const ready = await readyRun();
     const pending = await request("POST", "/api/home/discovery/ingest", {
@@ -572,7 +590,7 @@ describe("POST /api/home/discovery/ingest", () => {
       expected_brief_version: ready.briefVersion,
     });
     expect(pending.status).toBe(422);
-    getConn().prepare("UPDATE discovery_runs SET brief_version=? WHERE id=?").run(ready.briefVersion + 1, ready.runId);
+    (await postgresDb().execute("UPDATE discovery_runs SET brief_version=$1 WHERE id=$2", ready.briefVersion + 1, ready.runId));
     const stale = await request("POST", "/api/home/discovery/ingest", {
       run_id: ready.runId,
       candidate_ids: [ready.candidates[0].id],
@@ -585,12 +603,11 @@ describe("POST /api/home/discovery/ingest", () => {
       confirmation_void: true,
     });
     expect(starryTools(["addKolProfile", "importKolProfilesFromCrawler"])).toEqual([]);
-    const voided = getConn().prepare(
-      "SELECT status FROM discovery_ingest_confirms WHERE run_id=? ORDER BY created_at DESC LIMIT 1",
-    ).get(ready.runId) as { status?: string };
+    const voided = (await postgresDb().one("SELECT status FROM discovery_ingest_confirms WHERE run_id=$1 ORDER BY created_at DESC LIMIT 1", ready.runId)) as {
+      status?: string;
+    };
     expect(voided.status).toBe("voided");
   });
-
   it("7. timeout path looks up Starry before retry and does not blind-retry import", async () => {
     let imported = 0;
     const lookups: Json[] = [];
@@ -613,13 +630,14 @@ describe("POST /api/home/discovery/ingest", () => {
             ? { list: [] }
             : { list: [{ kolUid: "KOLTIMEOUT01", kolName: "OutdoorPower", accountHandle: "OutdoorPower", primaryPlatform: "youtube" }] };
         }
-        if (name === "listAllKolProfiles") return { list: [] };
+        if (name === "listAllKolProfiles")
+          return { list: [] };
         if (name === "pageMailboxes") {
           return { list: [{ id: 6, mailboxEmail: BOUND_MAILBOX, ownerOpenId: BOUND_OWNER_OPEN_ID }] };
         }
         throw new Error(`unexpected tool ${name}`);
       },
-      async close() {},
+      async close() { },
     }));
     const ready = await readyRun();
     const ingested = await request("POST", "/api/home/discovery/ingest", {
@@ -645,9 +663,8 @@ describe("POST /api/home/discovery/ingest", () => {
       "importKolProfilesFromCrawler",
       "pageKolProfiles",
     ]);
-    expect(listAudit("host.import_creator.timeout_lookup").length).toBe(1);
+    expect((await listAudit("host.import_creator.timeout_lookup")).length).toBe(1);
   });
-
   it("writes A.open only and records ingest facts, never claim/mail/stage", async () => {
     const ready = await readyRun();
     const ingested = await request("POST", "/api/home/discovery/ingest", {
@@ -671,16 +688,16 @@ describe("POST /api/home/discovery/ingest", () => {
     expect((pool.body.items as Json[]).some((row) => row.kol_uid === uid && row.pool_status === "open")).toBe(true);
     const following = await request("GET", "/api/home/following");
     expect(((following.body.kols as Json[]) || []).some((row) => row.kol_uid === uid)).toBe(false);
-    const facts = getConn().prepare(
-      "SELECT kind, fact_kind FROM discovery_memory_facts WHERE object_id=? ORDER BY created_at",
-    ).all(ready.runId) as Array<{ kind: string; fact_kind: string }>;
+    const facts = (await postgresDb().many("SELECT kind, fact_kind FROM discovery_memory_facts WHERE object_id=$1 ORDER BY created_at", ready.runId)) as Array<{
+      kind: string;
+      fact_kind: string;
+    }>;
     expect(facts.some((row) => row.kind === "run_create" && row.fact_kind === "fact")).toBe(true);
     expect(facts.some((row) => row.kind === "ingest_receipt" && row.fact_kind === "fact")).toBe(true);
     expect(JSON.stringify(facts)).not.toMatch(/score_details/);
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0, follows: 0, collabs: 0 });
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0, follows: 0, collabs: 0 });
   });
 });
-
 describe("Starry timeout lookup helper", () => {
   it("classifies timeout and looks up without retrying import", async () => {
     expect(isStarryTimeout(new Error("ETIMEDOUT"))).toBe(true);
@@ -688,10 +705,11 @@ describe("Starry timeout lookup helper", () => {
     setStarryKolClientFactory(() => ({
       async callTool(name: string) {
         starryCalls.push({ name, args: {} });
-        if (name === "pageKolProfiles") return { list: [{ kolUid: "KOLLOOKUP99", handle: "OutdoorPower" }] };
+        if (name === "pageKolProfiles")
+          return { list: [{ kolUid: "KOLLOOKUP99", handle: "OutdoorPower" }] };
         throw new Error(`unexpected ${name}`);
       },
-      async close() {},
+      async close() { },
     }));
     const uid = await lookupImportedKolUid({ keyword: "OutdoorPower" });
     expect(uid).toBe("KOLLOOKUP99");

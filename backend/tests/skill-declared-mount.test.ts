@@ -4,10 +4,11 @@ import path from "node:path";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { authMiddleware } from "../src/auth.js";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { HttpFail } from "../src/host/errors.js";
 import { createConnectorOperationsRouter } from "../src/routers/connector-operations.js";
 import type { Json } from "../src/types.js";
+import { seedBuiltinConnectorReferences } from "./helpers/finalfix-connector-admin.js";
 import { publishFixtureSkills } from "./helpers/skill-fixtures.js";
 import { freshTestDatabase } from "./support/pg.js";
 import { createCredential } from "../src/runtime/credentials.js";
@@ -32,9 +33,10 @@ let app: Hono;
 let adminCookie = "";
 let previousMasterKey: string | undefined;
 const numericEnabled = (row: any) => ({ ...row, enabled: Number(row?.enabled) });
-
-type ApiResult = { status: number; body: Record<string, any> };
-
+type ApiResult = {
+  status: number;
+  body: Record<string, any>;
+};
 function isJson(response: Response): boolean {
   return String(response.headers.get("content-type") || "").includes("json");
 }
@@ -71,11 +73,9 @@ async function probeConnector(): Promise<void> {
 function coverageUrl(connectorId?: string): string {
   return `/api/admin/runtime/skills/coverage${connectorId ? `?connector_id=${connectorId}` : ""}`;
 }
-
-function mount(body?: unknown): Promise<ApiResult> {
-  return call("POST", `/api/admin/runtime/connectors/${CONNECTOR}/mount-declared`, body);
+async function mount(body?: unknown): Promise<ApiResult> {
+  return (await call("POST", `/api/admin/runtime/connectors/${CONNECTOR}/mount-declared`, body));
 }
-
 async function coverageSkill(skillId: string, connectorId?: string): Promise<Record<string, any>> {
   const listed = await call("GET", coverageUrl(connectorId));
   expect(listed.status).toBe(200);
@@ -83,12 +83,9 @@ async function coverageSkill(skillId: string, connectorId?: string): Promise<Rec
   expect(skill, `${skillId} missing from coverage`).toBeTruthy();
   return skill!;
 }
-
 beforeEach(async () => {
   await freshTestDatabase();
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-skill-mount-"));
-  process.env.LINGONG_DB = path.join(tmp, "test.db");
-  process.env.LINGONG_DATA = tmp;
+  tmp = String(process.env.LINGONG_DATA);
   process.env.CODEX_MODE = "real";
   process.env.AUTH_MODE = "enabled";
   process.env.NODE_ENV = "test";
@@ -96,9 +93,10 @@ beforeEach(async () => {
   process.env.RUNTIME_CREDENTIAL_MASTER_KEY = "34".repeat(32);
   // 夹具技能只能经数据目录下的 published-skills 进入 taskDefinitions。
   publishFixtureSkills(tmp, [SKILL, DEFINED_SKILL]);
-  resetConn();
+  (await resetDatabase());
+  await seedBuiltinConnectorReferences();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const setup = await app.request("/api/auth/setup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -107,8 +105,7 @@ beforeEach(async () => {
   expect(setup.status).toBe(201);
   adminCookie = setup.headers.get("set-cookie")?.split(";")[0] || "";
   expect(adminCookie).toBeTruthy();
-
-  const credential = createCredential({ type: "organization_secret", secret: "mount-test-key" }, "admin");
+  const credential = (await createCredential({ type: "organization_secret", secret: "mount-test-key" }, "admin"));
   const config = await call("PUT", `/api/admin/runtime/connectors/${CONNECTOR}/config`, {
     url: "https://mcp.example.test/streamable",
     headers_secret_refs: { "X-MCP-API-KEY": credential.id },
@@ -117,31 +114,27 @@ beforeEach(async () => {
   expect(config.status, JSON.stringify(config.body)).toBe(200);
   await probeConnector();
   for (const name of ["decryptKolContact", "sendEmailNow"]) {
-    const policy = getToolPolicy(CONNECTOR, name)!;
+    const policy = (await getToolPolicy(CONNECTOR, name))!;
     expect(policy).toMatchObject({ risk: "L3", access: "write" });
-    setToolPolicy(CONNECTOR, name, { enabled: false, risk: "L3", access: "write", schema_hash: String(policy.schema_hash) }, Number(policy.version));
+    (await setToolPolicy(CONNECTOR, name, { enabled: false, risk: "L3", access: "write", schema_hash: String(policy.schema_hash) }, Number(policy.version)));
   }
-
   // 夹具技能上线：Agent 绑定走真实路由，发布阶段直接写生命周期表（阶段流转自带前后置条件）。
   const bound = await call("PUT", `/api/admin/runtime/agents/agent:kol/skills/${SKILL}`, {
     enabled: true, expected_version: 0,
   });
   expect(bound.status, JSON.stringify(bound.body)).toBe(200);
-  getConn().prepare("INSERT INTO skill_lifecycle (skill_id,stage,origin,updated_at) VALUES (?,?,?,?)")
-    .run(SKILL, "published", "official", new Date().toISOString());
+  (await postgresDb().execute("INSERT INTO skill_lifecycle (skill_id,stage,origin,updated_at) VALUES ($1,$2,$3,$4)", SKILL, "published", "official", new Date().toISOString()));
 });
-
-afterEach(() => {
-  if (previousMasterKey === undefined) delete process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
-  else process.env.RUNTIME_CREDENTIAL_MASTER_KEY = previousMasterKey;
-  resetConn();
+afterEach(async () => {
+  if (previousMasterKey === undefined)
+    delete process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
+  else
+    process.env.RUNTIME_CREDENTIAL_MASTER_KEY = previousMasterKey;
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
-  delete process.env.LINGONG_DB;
-  delete process.env.LINGONG_DATA;
   process.env.CODEX_MODE = "stub";
 });
-
 describe("skill coverage over declared MCP tools", () => {
   it("reports probed tools as available, blocked by policy, unregistered, or unknown", async () => {
     const coverage = await call("GET", coverageUrl(CONNECTOR));
@@ -178,14 +171,10 @@ describe("skill coverage over declared MCP tools", () => {
     expect(legacy).toMatchObject({ connector_id: "starry", state: "unknown_connector" });
     expect(legacy).not.toHaveProperty("connector_label");
     expect(all.body.connectors.map((connector: Record<string, unknown>) => connector.id)).not.toContain("starry");
-
     // 管理员显式禁用的 L3 目录行，覆盖率不得把它算作可挂载。
-    const disabled = getConn().prepare(
-      "SELECT risk,enabled FROM runtime_tool_policies WHERE connector_id=? AND tool_name='sendEmailNow'",
-    ).get(CONNECTOR);
+    const disabled = (await postgresDb().one("SELECT risk,enabled FROM runtime_tool_policies WHERE connector_id=$1 AND tool_name='sendEmailNow'", CONNECTOR));
     expect(numericEnabled(disabled)).toMatchObject({ risk: "L3", enabled: 0 });
   });
-
   it("mounts declared tools, skips the rest, stays idempotent, then opens the enable gate", async () => {
     // 挂载前闸门仍关：没有启用的工具绑定就没有「在用」连接器。
     const gated = await call("PATCH", `/api/admin/connectors/${CONNECTOR}`, { enabled: true });
@@ -211,25 +200,17 @@ describe("skill coverage over declared MCP tools", () => {
         skipped: [BLOCKED_POLICY, UNKNOWN_POLICY],
       }],
     });
-
-    expect(numericEnabled(getConn().prepare(
-      "SELECT enabled FROM runtime_skill_connectors WHERE skill_id=? AND connector_id=?",
-    ).get(SKILL, CONNECTOR))).toMatchObject({ enabled: 1 });
-    expect(getConn().prepare(
-      "SELECT tool_name,enabled FROM runtime_skill_tools WHERE skill_id=? AND connector_id=? ORDER BY tool_name",
-    ).all(SKILL, CONNECTOR).map(numericEnabled)).toEqual([
+    expect(numericEnabled((await postgresDb().one("SELECT enabled FROM runtime_skill_connectors WHERE skill_id=$1 AND connector_id=$2", SKILL, CONNECTOR)))).toMatchObject({ enabled: 1 });
+    expect((await postgresDb().many("SELECT tool_name,enabled FROM runtime_skill_tools WHERE skill_id=$1 AND connector_id=$2 ORDER BY tool_name", SKILL, CONNECTOR)).map(numericEnabled)).toEqual([
       { tool_name: "pageKolProfiles", enabled: 1 },
       { tool_name: "previewEmailDraft", enabled: 1 },
     ]);
     // 挂载不放行策略行，也不启用连接器本体。
-    expect(numericEnabled(getConn().prepare(
-      "SELECT enabled FROM runtime_tool_policies WHERE connector_id=? AND tool_name='decryptKolContact'",
-    ).get(CONNECTOR))).toMatchObject({ enabled: 0 });
-    expect(numericEnabled(getConn().prepare("SELECT enabled FROM connectors WHERE id=?").get(CONNECTOR))).toMatchObject({ enabled: 0 });
-
-    const events = getConn().prepare(
-      "SELECT event_type,payload FROM audit_events WHERE event_type='runtime.skill_mount.declared' ORDER BY id",
-    ).all() as { payload: string }[];
+    expect(numericEnabled((await postgresDb().one("SELECT enabled FROM runtime_tool_policies WHERE connector_id=$1 AND tool_name='decryptKolContact'", CONNECTOR)))).toMatchObject({ enabled: 0 });
+    expect(numericEnabled((await postgresDb().one("SELECT enabled FROM connectors WHERE id=$1", CONNECTOR)))).toMatchObject({ enabled: 0 });
+    const events = (await postgresDb().many("SELECT event_type,payload FROM audit_events WHERE event_type='runtime.skill_mount.declared' ORDER BY id")) as {
+      payload: string;
+    }[];
     expect(events).toHaveLength(1);
     expect(JSON.parse(events[0].payload)).toEqual({
       connector_id: CONNECTOR,
@@ -267,14 +248,11 @@ describe("skill coverage over declared MCP tools", () => {
     expect(scannedIds).toContain(SKILL);
     expect(scannedIds).not.toContain(DEFINED_SKILL);
     expect(scanned.body.summary.mounted_tools).toBeGreaterThan(0);
-
     const listed = await call("GET", coverageUrl());
-    const implementation = new Map(
-      (listed.body.skills as Record<string, any>[]).map((entry) => [entry.skill_id, entry.implementation]),
-    );
-    for (const skillId of scannedIds) expect(implementation.get(skillId)).toBe("live");
+    const implementation = new Map((listed.body.skills as Record<string, any>[]).map((entry) => [entry.skill_id, entry.implementation]));
+    for (const skillId of scannedIds)
+      expect(implementation.get(skillId)).toBe("live");
   });
-
   it("rejects unknown skills and unsupported fields before writing anything", async () => {
     const unknownBody = await mount({ skill_ids: [SKILL, "no_such_skill"] });
     expect(unknownBody.status).toBe(400);
@@ -283,15 +261,12 @@ describe("skill coverage over declared MCP tools", () => {
     const extraField = await mount({ skill_ids: [SKILL], force: true });
     expect(extraField.status).toBe(400);
     expect(extraField.body).toMatchObject({ detail: "unsupported request field" });
-
     const malformed = await mount({ skill_ids: "declared_fixture" });
     expect(malformed.status).toBe(400);
-
-    expect(Number((getConn().prepare(
-      "SELECT COUNT(*) AS n FROM runtime_skill_connectors WHERE skill_id=?",
-    ).get(SKILL) as { n: unknown }).n)).toBe(0);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM runtime_skill_connectors WHERE skill_id=$1", SKILL)) as {
+      n: unknown;
+    }).n)).toBe(0);
   });
-
   it("skips every declared tool when the connector is absent from the catalog", async () => {
     const legacy = await call("POST", "/api/admin/runtime/connectors/starry/mount-declared", { skill_ids: [SKILL] });
     expect(legacy.status, JSON.stringify(legacy.body)).toBe(200);
@@ -307,8 +282,8 @@ describe("skill coverage over declared MCP tools", () => {
         skipped: [UNKNOWN_CONNECTOR],
       }],
     });
-    expect(Number((getConn().prepare(
-      "SELECT COUNT(*) AS n FROM runtime_skill_connectors WHERE connector_id='starry'",
-    ).get() as { n: unknown }).n)).toBe(0);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM runtime_skill_connectors WHERE connector_id='starry'")) as {
+      n: unknown;
+    }).n)).toBe(0);
   });
 });

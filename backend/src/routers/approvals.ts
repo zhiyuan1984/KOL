@@ -1,30 +1,10 @@
 import { Hono } from "hono";
 import { employeeForUser } from "../approval/inbox.js";
 import { calculateApprovalPlan, planContentVersion, type PlanInput } from "../approval/plan.js";
-import {
-  inApprovalBox,
-  isSubmitter,
-  isVisibleToViewer,
-  parseApprovalBox,
-  projectApproval,
-  type ApprovalBox,
-} from "../approval/queue.js";
+import { inApprovalBox, isSubmitter, isVisibleToViewer, parseApprovalBox, projectApproval, type ApprovalBox, } from "../approval/queue.js";
 import { authDisabled, scopedUser } from "../auth.js";
-import { audit } from "../db.js";
-import {
-  createReceipt,
-  createWorkApproval,
-  countersignApproval,
-  decide,
-  decideReceipt,
-  getApproval,
-  KeyError,
-  listApprovals,
-  listWecomCards,
-  saveCreateReceipt,
-  transferApproval,
-  withdrawApproval,
-} from "../gateway/wecom.js";
+import { audit } from "../postgres/access.js";
+import { createReceipt, createWorkApproval, countersignApproval, decide, decideReceipt, getApproval, KeyError, listApprovals, listWecomCards, saveCreateReceipt, transferApproval, withdrawApproval, } from "../gateway/wecom.js";
 import { HttpFail } from "../host/errors.js";
 import { currentUser } from "../host/persona.js";
 import { parseExpectedVersion } from "../host/version.js";
@@ -49,19 +29,17 @@ type ExpenseCreateBody = {
 function viewer() {
   return scopedUser() || undefined;
 }
-
-function enrich(approval: Row) {
-  return projectApproval(approval, viewer());
+async function enrich(approval: Row) {
+  return (await projectApproval(approval, viewer()));
 }
-
-function requireVisible(approval: Row) {
-  if (authDisabled()) return;
-  if (!isVisibleToViewer(approval, viewer())) {
+async function requireVisible(approval: Row) {
+  if (authDisabled())
+    return;
+  if (!(await isVisibleToViewer(approval, viewer()))) {
     throw new HttpFail(404, "Not Found");
   }
 }
-
-function defaultRequester(): Pick<PlanInput, "requester_id" | "requester_name"> {
+async function defaultRequester(): Promise<Pick<PlanInput, "requester_id" | "requester_name">> {
   try {
     const user = scopedUser();
     if (user) {
@@ -71,25 +49,25 @@ function defaultRequester(): Pick<PlanInput, "requester_id" | "requester_name"> 
         requester_name: person?.name || user.name,
       };
     }
-    const me = currentUser();
+    const me = (await currentUser());
     const person = employeeForUser({ name: me.name, username: me.handle });
     return {
       requester_id: person?.id,
       requester_name: person?.name || me.name,
     };
-  } catch {
+  }
+  catch {
     return {};
   }
 }
-
-function expensePlanInput(body: ExpenseCreateBody): PlanInput {
+async function expensePlanInput(body: ExpenseCreateBody): Promise<PlanInput> {
   const kind = String(body.kind || "").trim();
   if (kind !== "expense") {
     throw new HttpFail(400, { code: "unsupported_kind", message: "本页只能发起费用审批。" });
   }
   const requester_id = String(body.requester_id || "").trim();
   const requester_name = String(body.requester_name || "").trim();
-  const fallback = !requester_id && !requester_name ? defaultRequester() : {};
+  const fallback = !requester_id && !requester_name ? (await defaultRequester()) : {};
   return {
     amount: Number(body.amount),
     currency: String(body.currency || "CNY").trim() || "CNY",
@@ -101,9 +79,8 @@ function expensePlanInput(body: ExpenseCreateBody): PlanInput {
     region: String(body.region || "").trim() || undefined,
   };
 }
-
-function planOrThrow(body: ExpenseCreateBody) {
-  const plan = calculateApprovalPlan(expensePlanInput(body));
+async function planOrThrow(body: ExpenseCreateBody) {
+  const plan = await calculateApprovalPlan((await expensePlanInput(body)));
   if (plan.blocked) {
     throw new HttpFail(400, {
       code: plan.blocked.code,
@@ -128,9 +105,8 @@ function requireExpectedVersion(value: unknown): number {
   }
   return version;
 }
-
-function createExpenseApproval(body: ExpenseCreateBody) {
-  const plan = planOrThrow(body);
+async function createExpenseApproval(body: ExpenseCreateBody) {
+  const plan = await planOrThrow(body);
   const planVersion = planContentVersion(plan);
   const expected = body.expected_version == null || body.expected_version === ""
     ? (authDisabled() ? planVersion : null)
@@ -146,10 +122,11 @@ function createExpenseApproval(body: ExpenseCreateBody) {
     throw new HttpFail(400, { code: "idempotency_key_required", message: "提交需要幂等键。" });
   }
   if (idempotencyKey) {
-    const replayed = createReceipt(idempotencyKey);
-    if (replayed) return enrich(replayed);
+    const replayed = (await createReceipt(idempotencyKey));
+    if (replayed)
+      return (await enrich(replayed));
   }
-  const approval = createWorkApproval({
+  const approval = (await createWorkApproval({
     kind: "expense",
     brand: "LT",
     amountUsd: plan.amount_base,
@@ -160,59 +137,58 @@ function createExpenseApproval(body: ExpenseCreateBody) {
       steps: plan.steps,
       purpose: String(body.purpose || "").trim() || undefined,
     },
-  });
+  }));
   if (!approval?.id) {
     throw new HttpFail(400, {
       code: "empty_approval_chain",
       message: plan.explanation || "规则没有算出可执行的审批链。",
     });
   }
-  if (idempotencyKey) saveCreateReceipt(idempotencyKey, approval);
-  audit("host", "expense.approval.created", {
+  if (idempotencyKey)
+    (await saveCreateReceipt(idempotencyKey, approval));
+  (await audit("host", "expense.approval.created", {
     approval_id: approval.id,
     policy_id: plan.policy_id,
     rule_id: plan.rule_id,
     requester_id: plan.requester_id,
     idempotency_key: idempotencyKey || undefined,
-  });
-  return enrich(approval);
+  }));
+  return (await enrich(approval));
 }
-
-function visibleRows(box?: ApprovalBox) {
+async function visibleRows(box?: ApprovalBox) {
   const user = viewer();
-  return listApprovals()
-    .filter((approval) => {
-      if (!isVisibleToViewer(approval, user)) return false;
-      if (box) return inApprovalBox(approval, box, user);
-      return true;
-    })
-    .map((approval) => enrich(approval));
+  const approvals = await listApprovals();
+  const visible = await Promise.all(approvals.map(async (approval) => {
+    if (!(await isVisibleToViewer(approval, user)))
+      return false;
+    return !box || await inApprovalBox(approval, box, user);
+  }));
+  return Promise.all(approvals.filter((_, index) => visible[index]).map(async (approval) => (await enrich(approval))));
 }
-
-approvals.get("/approvals/badge", (c) => {
+approvals.get("/approvals/badge", async (c) => {
   const user = viewer();
-  const count = listApprovals().filter((approval) => inApprovalBox(approval, "inbox", user)).length;
+  const approvals = await listApprovals();
+  const inbox = await Promise.all(approvals.map(async (approval) => (await inApprovalBox(approval, "inbox", user))));
+  const count = inbox.filter(Boolean).length;
   return c.json({ count });
 });
-
-approvals.get("/approvals", (c) => {
+approvals.get("/approvals", async (c) => {
   let box: ApprovalBox | undefined;
   try {
     box = parseApprovalBox(c.req.query("box"));
-  } catch {
+  }
+  catch {
     throw new HttpFail(400, { code: "unknown_box", message: "box 只能是 inbox、submitted 或 done。" });
   }
-  return c.json(visibleRows(box));
+  return c.json((await visibleRows(box)));
 });
-
 approvals.post("/approvals", async (c) => {
   const body = (await c.req.json()) as ExpenseCreateBody;
-  return c.json(createExpenseApproval(body));
+  return c.json((await createExpenseApproval(body)));
 });
-
 approvals.post("/approvals/preview", async (c) => {
   const body = (await c.req.json()) as ExpenseCreateBody;
-  const plan = planOrThrow(body);
+  const plan = await planOrThrow(body);
   return c.json({
     kind: "expense",
     plan,
@@ -220,14 +196,13 @@ approvals.post("/approvals/preview", async (c) => {
     expected_version: planContentVersion(plan),
   });
 });
-
-approvals.get("/approvals/:aid", (c) => {
-  const row = getApproval(c.req.param("aid"));
-  if (!row) throw new HttpFail(404, "Not Found");
-  requireVisible(row);
-  return c.json(enrich(row));
+approvals.get("/approvals/:aid", async (c) => {
+  const row = (await getApproval(c.req.param("aid")));
+  if (!row)
+    throw new HttpFail(404, "Not Found");
+  await requireVisible(row);
+  return c.json((await enrich(row)));
 });
-
 approvals.post("/approvals/:aid/decide", async (c) => {
   const body = (await c.req.json()) as {
     decision: string;
@@ -236,14 +211,16 @@ approvals.post("/approvals/:aid/decide", async (c) => {
     expected_version?: unknown;
     idempotency_key?: unknown;
   };
-  const approval = getApproval(c.req.param("aid"));
-  if (!approval) throw new HttpFail(404, "Not Found");
+  const approval = (await getApproval(c.req.param("aid")));
+  if (!approval)
+    throw new HttpFail(404, "Not Found");
   const expectedVersion = requireExpectedVersion(body.expected_version);
   const idempotencyKey = requireIdempotencyKey(body.idempotency_key);
-  const replayed = decideReceipt(c.req.param("aid"), idempotencyKey);
+  const replayed = (await decideReceipt(c.req.param("aid"), idempotencyKey));
   if (replayed) {
-    if (!authDisabled()) requireVisible(approval);
-    return c.json(enrich({ ...getApproval(c.req.param("aid")), ...replayed, replayed: true } as Row));
+    if (!authDisabled())
+      await requireVisible(approval);
+    return c.json((await enrich({ ...(await getApproval(c.req.param("aid"))), ...replayed, replayed: true } as Row)));
   }
   let actor = body.actor;
   if (!authDisabled()) {
@@ -251,10 +228,10 @@ approvals.post("/approvals/:aid/decide", async (c) => {
     const chain = approval.chain as string[];
     const index = Number(approval.current_index);
     const expected = chain[index];
-    if (!user || !isVisibleToViewer(approval, user)) {
+    if (!user || !(await isVisibleToViewer(approval, user))) {
       throw new HttpFail(404, "Not Found");
     }
-    if (!canDecideProjected(approval, user)) {
+    if (!(await canDecideProjected(approval, user))) {
       throw new HttpFail(403, { code: "approval_role_required", role: expected });
     }
     actor = expected;
@@ -267,30 +244,34 @@ approvals.post("/approvals/:aid/decide", async (c) => {
       expected_version: expectedVersion,
       idempotency_key: idempotencyKey,
     });
-    audit("gateway", "approval.decide", {
+    (await audit("gateway", "approval.decide", {
       approval_id: c.req.param("aid"),
       decision: body.decision,
       expected_version: expectedVersion,
       idempotency_key: idempotencyKey,
-      replayed: Boolean((result as { replayed?: boolean }).replayed),
-    });
-    return c.json(enrich({ ...getApproval(c.req.param("aid")), ...result } as Row));
-  } catch (e) {
-    if (e instanceof KeyError) throw new HttpFail(404, "Not Found");
-    if (e instanceof HttpFail) throw e;
+      replayed: Boolean((result as {
+        replayed?: boolean;
+      }).replayed),
+    }));
+    return c.json((await enrich({ ...(await getApproval(c.req.param("aid"))), ...result } as Row)));
+  }
+  catch (e) {
+    if (e instanceof KeyError)
+      throw new HttpFail(404, "Not Found");
+    if (e instanceof HttpFail)
+      throw e;
     if (e instanceof Error && e.message === "reject_reason_required") {
       throw new HttpFail(400, { code: "reject_reason_required", message: "驳回必须填写原因。" });
     }
     throw new HttpFail(400, String(e));
   }
 });
-
-approvals.get("/wecom/cards", (c) => {
-  if (authDisabled()) return c.json(listWecomCards());
-  const visible = new Set(visibleRows().map(row => String(row.id)));
-  return c.json(listWecomCards().filter(card => visible.has(String(card.approval_id || ""))));
+approvals.get("/wecom/cards", async (c) => {
+  if (authDisabled())
+    return c.json((await listWecomCards()));
+  const visible = new Set((await visibleRows()).map(row => String(row.id)));
+  return c.json((await listWecomCards()).filter(card => visible.has(String(card.approval_id || ""))));
 });
-
 approvals.post("/approvals/:aid/transfer", async (c) => {
   const body = (await c.req.json()) as {
     target_employee_id?: unknown;
@@ -298,40 +279,48 @@ approvals.post("/approvals/:aid/transfer", async (c) => {
     expected_version?: unknown;
     idempotency_key?: unknown;
   };
-  const approval = getApproval(c.req.param("aid"));
-  if (!approval) throw new HttpFail(404, "Not Found");
+  const approval = (await getApproval(c.req.param("aid")));
+  if (!approval)
+    throw new HttpFail(404, "Not Found");
   const expectedVersion = requireExpectedVersion(body.expected_version);
   const target = String(body.target_employee_id || "").trim();
-  if (!target) throw new HttpFail(400, { code: "transfer_target_required", message: "转交需要指定目标审批人。" });
+  if (!target)
+    throw new HttpFail(400, { code: "transfer_target_required", message: "转交需要指定目标审批人。" });
   let actor: string | undefined;
   if (!authDisabled()) {
     const user = scopedUser();
-    if (!user || !isVisibleToViewer(approval, user)) throw new HttpFail(404, "Not Found");
-    if (!canDecideProjected(approval, user)) {
+    if (!user || !(await isVisibleToViewer(approval, user)))
+      throw new HttpFail(404, "Not Found");
+    if (!(await canDecideProjected(approval, user))) {
       throw new HttpFail(403, { code: "approval_role_required", message: "只有当前审批人可转交。" });
     }
     actor = (approval.chain as string[])[Number(approval.current_index)];
   }
   try {
-    const result = transferApproval(c.req.param("aid"), target, actor, String(body.reason || ""), {
+    const result = (await transferApproval(c.req.param("aid"), target, actor, String(body.reason || ""), {
       expected_version: expectedVersion,
-    });
-    audit("gateway", "approval.transfer", {
+    }));
+    (await audit("gateway", "approval.transfer", {
       approval_id: c.req.param("aid"),
       target,
       expected_version: expectedVersion,
-    });
-    return c.json(enrich(result));
-  } catch (e) {
-    if (e instanceof KeyError) throw new HttpFail(404, "Not Found");
+    }));
+    return c.json((await enrich(result)));
+  }
+  catch (e) {
+    if (e instanceof KeyError)
+      throw new HttpFail(404, "Not Found");
     throw new HttpFail(400, String(e instanceof Error ? e.message : e));
   }
 });
-
 approvals.post("/approvals/:aid/withdraw", async (c) => {
-  const body = (await c.req.json()) as { expected_version?: unknown; idempotency_key?: unknown };
-  const approval = getApproval(c.req.param("aid"));
-  if (!approval) throw new HttpFail(404, "Not Found");
+  const body = (await c.req.json()) as {
+    expected_version?: unknown;
+    idempotency_key?: unknown;
+  };
+  const approval = (await getApproval(c.req.param("aid")));
+  if (!approval)
+    throw new HttpFail(404, "Not Found");
   const expectedVersion = requireExpectedVersion(body.expected_version);
   if (!authDisabled()) {
     const user = scopedUser();
@@ -340,16 +329,18 @@ approvals.post("/approvals/:aid/withdraw", async (c) => {
     }
   }
   try {
-    const result = withdrawApproval(c.req.param("aid"), viewer()?.handle, {
+    const result = (await withdrawApproval(c.req.param("aid"), viewer()?.handle, {
       expected_version: expectedVersion,
-    });
-    audit("gateway", "approval.withdraw", {
+    }));
+    (await audit("gateway", "approval.withdraw", {
       approval_id: c.req.param("aid"),
       expected_version: expectedVersion,
-    });
-    return c.json(enrich(result));
-  } catch (e) {
-    if (e instanceof KeyError) throw new HttpFail(404, "Not Found");
+    }));
+    return c.json((await enrich(result)));
+  }
+  catch (e) {
+    if (e instanceof KeyError)
+      throw new HttpFail(404, "Not Found");
     throw new HttpFail(400, String(e instanceof Error ? e.message : e));
   }
 });
@@ -361,31 +352,35 @@ approvals.post("/approvals/:aid/countersign", async (c) => {
     expected_version?: unknown;
     idempotency_key?: unknown;
   };
-  const approval = getApproval(c.req.param("aid"));
-  if (!approval) throw new HttpFail(404, "Not Found");
+  const approval = (await getApproval(c.req.param("aid")));
+  if (!approval)
+    throw new HttpFail(404, "Not Found");
   const expectedVersion = requireExpectedVersion(body.expected_version);
   const target = String(body.target_employee_id || "").trim();
-  if (!target) throw new HttpFail(400, { code: "countersign_target_required", message: "加签需要指定目标审批人。" });
+  if (!target)
+    throw new HttpFail(400, { code: "countersign_target_required", message: "加签需要指定目标审批人。" });
   let actor: string | undefined;
   if (!authDisabled()) {
     const user = scopedUser();
-    if (!user || !isVisibleToViewer(approval, user)) throw new HttpFail(404, "Not Found");
-    if (!canDecideProjected(approval, user)) {
+    if (!user || !(await isVisibleToViewer(approval, user)))
+      throw new HttpFail(404, "Not Found");
+    if (!(await canDecideProjected(approval, user))) {
       throw new HttpFail(403, { code: "approval_role_required", message: "只有当前审批人可加签。" });
     }
     actor = (approval.chain as string[])[Number(approval.current_index)];
   }
   try {
-    const result = countersignApproval(c.req.param("aid"), target, actor, String(body.reason || ""), {
+    const result = (await countersignApproval(c.req.param("aid"), target, actor, String(body.reason || ""), {
       expected_version: expectedVersion,
-    });
-    return c.json(enrich(result));
-  } catch (e) {
-    if (e instanceof KeyError) throw new HttpFail(404, "Not Found");
+    }));
+    return c.json((await enrich(result)));
+  }
+  catch (e) {
+    if (e instanceof KeyError)
+      throw new HttpFail(404, "Not Found");
     throw new HttpFail(400, String(e instanceof Error ? e.message : e));
   }
 });
-
-function canDecideProjected(approval: Row, user: ReturnType<typeof scopedUser>) {
-  return Boolean(projectApproval(approval, user || undefined).can_decide);
+async function canDecideProjected(approval: Row, user: ReturnType<typeof scopedUser>) {
+  return Boolean((await projectApproval(approval, user || undefined)).can_decide);
 }

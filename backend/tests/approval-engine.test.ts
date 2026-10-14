@@ -9,7 +9,7 @@ import { writeSkillIntoBox } from "../src/host/skill-sop.js";
 import { FX_TO_CNY, matchExpenseRule, normalizeCurrency, toBaseCny } from "../src/approval/policy.js";
 import { employeeByMailbox, getManagerChain, OrgError, roleHolder } from "../src/approval/org.js";
 import { defaultOrgSnapshot } from "../src/approval/snapshot.js";
-import { listAudit, resetConn } from "../src/db.js";
+import { listAudit, resetDatabase } from "../src/postgres/access.js";
 import { seedAll } from "../src/seed.js";
 import { stubResolveTaskIntent } from "../src/tasks/resolver.js";
 import type { OrgSnapshot } from "../src/approval/types.js";
@@ -18,14 +18,10 @@ import { freshTestDatabase } from "./support/pg.js";
 function cloneOrg(): OrgSnapshot {
   return JSON.parse(JSON.stringify(defaultOrgSnapshot())) as OrgSnapshot;
 }
-
-function planOf(
-  requester: string,
-  amount: number,
-  currency = "CNY",
-  org?: OrgSnapshot,
-  extra: { mailbox?: string; requester_id?: string } = {},
-) {
+function planOf(requester: string, amount: number, currency = "CNY", org?: OrgSnapshot, extra: {
+  mailbox?: string;
+  requester_id?: string;
+} = {}) {
   const plan = calculateApprovalPlan({
     requester_name: requester,
     amount,
@@ -88,7 +84,8 @@ describe("org resolver", () => {
     expect(() => getManagerChain(org, "emp_liyuanyan")).toThrow(OrgError);
     try {
       getManagerChain(org, "emp_liyuanyan");
-    } catch (error) {
+    }
+    catch (error) {
       expect((error as OrgError).code).toBe("circular_hierarchy");
     }
   });
@@ -112,7 +109,7 @@ describe("FIN-EXP amount bands (CNY-equivalent)", () => {
     [20000.01, "FIN-EXP-003"],
     [100000, "FIN-EXP-003"],
     [100000.01, "FIN-EXP-004"],
-    [1_000_000, "FIN-EXP-004"],
+    [1000000, "FIN-EXP-004"],
   ])("%s CNY → %s", (amount, rule) => {
     expect(matchExpenseRule(amount)?.id).toBe(rule);
     expect(planOf("黎玉燕", amount).rule).toBe(rule);
@@ -131,9 +128,9 @@ describe("published Host FX", () => {
   it.each(Object.entries(FX_TO_CNY))("lists %s", (code, rate) => {
     const fx = toBaseCny(100, code);
     expect("error" in fx).toBe(false);
-    if (!("error" in fx)) expect(fx.rate).toBe(rate);
+    if (!("error" in fx))
+      expect(fx.rate).toBe(rate);
   });
-
   it.each([
     ["cny", "CNY"],
     ["RMB", "CNY"],
@@ -156,7 +153,8 @@ describe("published Host FX", () => {
   ] as const)("%s %s → %s CNY / %s", (currency, amount, base, rule) => {
     const fx = toBaseCny(amount, currency);
     expect("error" in fx).toBe(false);
-    if (!("error" in fx)) expect(fx.amount_base).toBe(base);
+    if (!("error" in fx))
+      expect(fx.amount_base).toBe(base);
     const got = planOf("黎玉燕", amount, currency);
     expect(got.blocked).toBeUndefined();
     expect(got.rule).toBe(rule);
@@ -325,11 +323,13 @@ describe("cited search plan (not TypeScript constants)", () => {
       chain: [{ name: "林桐" }],
     }, { requester_name: "黎玉燕", amount: 50000, currency: "USD" })).toBeNull();
   });
-
-  it("copies approval-policy.md into the box and asks Codex to web_search", () => {
+  it("copies approval-policy.md into the box and asks Codex to web_search", async () => {
+    await freshTestDatabase();
+    await resetDatabase();
+    await seedAll();
     const box = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-skillbox-"));
     try {
-      writeSkillIntoBox(box, "business_approval");
+      (await writeSkillIntoBox(box, "business_approval"));
       const policy = fs.readFileSync(path.join(box, "approval-policy.md"), "utf8");
       const skill = fs.readFileSync(path.join(box, "SKILL.md"), "utf8");
       expect(policy).toContain("web_search");
@@ -339,7 +339,8 @@ describe("cited search plan (not TypeScript constants)", () => {
       expect(approvalBoxGuardrails().some((line) => line.includes("web_search"))).toBe(true);
       expect(sandboxPolicyForSkill("business_approval", box).networkAccess).toBe(true);
       expect(sandboxPolicyForSkill("kol", box).networkAccess).toBe(false);
-    } finally {
+    }
+    finally {
       fs.rmSync(box, { recursive: true, force: true });
     }
   });
@@ -392,18 +393,16 @@ describe("Skill aliases route; quote language does not", () => {
     ["写报价信 金额 680", "email_compose"],
     ["写一份报价邮件 金额 680", "email_compose"],
     ["给@数码老张 写报价确认邮件 金额 500", "email_compose"],
-  ])("%s → %s", (text, type) => {
-    expect(stubResolveTaskIntent({ text }).task_type).toBe(type);
+  ])("%s → %s", async (text, type) => {
+    expect((await stubResolveTaskIntent({ text })).task_type).toBe(type);
   });
-
-  it("task resolver uses the same Skill aliases and does not extract amount in Host", () => {
-    expect(stubResolveTaskIntent({ text: "expense approval 50000 USD" }).task_type).toBe("business_approval");
-    expect(stubResolveTaskIntent({ text: "経費申請" }).task_type).toBe("business_approval");
-    expect(stubResolveTaskIntent({ text: "写报价信 金额 680" }).task_type).toBe("email_compose");
-    expect(stubResolveTaskIntent({ text: "黎玉燕要申请5万美国KOL推广预算" }).entities.amount).toBeUndefined();
+  it("task resolver uses the same Skill aliases and does not extract amount in Host", async () => {
+    expect((await stubResolveTaskIntent({ text: "expense approval 50000 USD" })).task_type).toBe("business_approval");
+    expect((await stubResolveTaskIntent({ text: "経費申請" })).task_type).toBe("business_approval");
+    expect((await stubResolveTaskIntent({ text: "写报价信 金额 680" })).task_type).toBe("email_compose");
+    expect((await stubResolveTaskIntent({ text: "黎玉燕要申请5万美国KOL推广预算" })).entities.amount).toBeUndefined();
   });
 });
-
 describe("expense approval host path", () => {
   let tmp = "";
   let app: Hono;
@@ -417,66 +416,87 @@ describe("expense approval host path", () => {
     const text = await response.text();
     return { status: response.status, body: text ? JSON.parse(text) as Record<string, unknown> : {} };
   }
-
-  async function decideOf(id: string, body: { decision: string; actor?: string; reason?: string; expected_version?: number; idempotency_key?: string }) {
+  async function decideOf(id: string, body: {
+    decision: string;
+    actor?: string;
+    reason?: string;
+    expected_version?: number;
+    idempotency_key?: string;
+  }) {
     const detail = await request("GET", `/api/approvals/${id}`);
-    const version = body.expected_version ?? Number((detail.body as { version?: number }).version || 0);
-    return request("POST", `/api/approvals/${id}/decide`, {
+    const version = body.expected_version ?? Number((detail.body as {
+      version?: number;
+    }).version || 0);
+    return (await request("POST", `/api/approvals/${id}/decide`, {
       ...body,
       expected_version: version,
       idempotency_key: body.idempotency_key || `test-${id}-${version}-${body.decision}`,
-    });
+    }));
   }
-
   async function ask(text: string, intent?: string) {
     const session = await request("POST", "/api/sessions", { title: text.slice(0, 20) });
-    return request("POST", `/api/sessions/${String(session.body.id)}/messages`, {
+    return (await request("POST", `/api/sessions/${String(session.body.id)}/messages`, {
       text,
       ...(intent ? { intent } : {}),
-    });
+    }));
   }
-
   beforeEach(async () => {
     await freshTestDatabase();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-approval-"));
-    process.env.LINGONG_DB = path.join(tmp, "t.db");
-    process.env.LINGONG_DATA = tmp;
     process.env.CODEX_MODE = "stub";
-    resetConn();
-    seedAll();
+    (await resetDatabase());
+    (await seedAll());
     const { createApp } = await import("../src/app.js");
-    app = createApp();
+    app = (await createApp());
   });
-
-  afterEach(() => {
-    resetConn();
+  afterEach(async () => {
+    (await resetDatabase());
     fs.rmSync(tmp, { recursive: true, force: true });
   });
-
   it("computes 黎玉燕 5万 on the Host and cites FIN-EXP-003", async () => {
     const posted = await ask("黎玉燕要申请5万美国KOL推广预算", "business_approval");
     expect(posted.status).toBe(200);
-    expect((posted.body.worker as { skill?: string } | null)?.skill).toBe("business_approval");
-    const plan = posted.body.approval_plan as { rule_id: string; steps: { name: string }[]; explanation: string };
+    expect((posted.body.worker as {
+      skill?: string;
+    } | null)?.skill).toBe("business_approval");
+    const plan = posted.body.approval_plan as {
+      rule_id: string;
+      steps: {
+        name: string;
+      }[];
+      explanation: string;
+    };
     expect(plan.rule_id).toBe("FIN-EXP-003");
     expect(plan.steps.map((step) => step.name)).toEqual(["林桐", "王主管", "财务负责人", "张总"]);
     expect(plan.explanation).toContain("FIN-EXP-003");
     const listed = await request("GET", "/api/approvals");
-    const rows = listed.body as unknown as { kind: string; payload?: { rule_id?: string } }[];
+    const rows = listed.body as unknown as {
+      kind: string;
+      payload?: {
+        rule_id?: string;
+      };
+    }[];
     expect(rows.some((row) => row.kind === "expense")).toBe(true);
   });
-
   it("routes a spoken expense request without an explicit intent", async () => {
     const posted = await ask("黎玉燕要申请5万美国KOL推广预算");
     expect(posted.status).toBe(200);
-    expect((posted.body.intent as { type?: string }).type).toBe("business_approval");
-    expect((posted.body.approval_plan as { rule_id: string }).rule_id).toBe("FIN-EXP-003");
+    expect((posted.body.intent as {
+      type?: string;
+    }).type).toBe("business_approval");
+    expect((posted.body.approval_plan as {
+      rule_id: string;
+    }).rule_id).toBe("FIN-EXP-003");
   });
-
   it("lets the worker normalize English + USD; Host FX picks FIN-EXP-004", async () => {
     const posted = await ask("Please file an expense approval for 黎玉燕 50000 USD KOL spend");
     expect(posted.status).toBe(200);
-    const plan = posted.body.approval_plan as { rule_id: string; currency: string; amount_base: number; fx_rate: number };
+    const plan = posted.body.approval_plan as {
+      rule_id: string;
+      currency: string;
+      amount_base: number;
+      fx_rate: number;
+    };
     expect(plan.rule_id).toBe("FIN-EXP-004");
     expect(plan.currency).toBe("USD");
     expect(plan.amount_base).toBe(360000);
@@ -490,14 +510,31 @@ describe("expense approval host path", () => {
   it("replays the stored people path when asked to view Approvals", async () => {
     const first = await ask("Please file an expense approval for 黎玉燕 50000 USD KOL spend");
     expect(first.status).toBe(200);
-    const created = first.body.approval as { id: string; payload: { rule_id: string; steps: { name: string }[] } };
+    const created = first.body.approval as {
+      id: string;
+      payload: {
+        rule_id: string;
+        steps: {
+          name: string;
+        }[];
+      };
+    };
     expect(created.payload.rule_id).toBe("FIN-EXP-004");
     expect(created.payload.steps.map((step) => step.name)).toEqual(["林桐", "王主管", "财务负责人", "张总"]);
-
     const follow = await ask("前往工作审批查看审批路径");
     expect(follow.status).toBe(200);
-    expect((follow.body.approval_plan as { rule_id: string }).rule_id).toBe("FIN-EXP-004");
-    const replayed = follow.body.approval as { id: string; payload: { rule_id: string; steps: { name: string }[] } };
+    expect((follow.body.approval_plan as {
+      rule_id: string;
+    }).rule_id).toBe("FIN-EXP-004");
+    const replayed = follow.body.approval as {
+      id: string;
+      payload: {
+        rule_id: string;
+        steps: {
+          name: string;
+        }[];
+      };
+    };
     expect(replayed.id).toBe(created.id);
     expect(replayed.payload.rule_id).toBe("FIN-EXP-004");
     expect(replayed.payload.steps.map((step) => step.name)).toEqual(["林桐", "王主管", "财务负责人", "张总"]);
@@ -510,9 +547,10 @@ describe("expense approval host path", () => {
     expect(blob).toContain(`/approvals?id=${created.id}`);
     expect(blob).not.toContain("未提供已落库");
     expect(blob).not.toContain("无法读取具体人员路径");
-    expect((follow.body.messages as { kind: string }[]).some((row) => row.kind === "supplement_card")).toBe(false);
+    expect((follow.body.messages as {
+      kind: string;
+    }[]).some((row) => row.kind === "supplement_card")).toBe(false);
   });
-
   it.each([
     ["Genehmigung 黎玉燕 5000 CNY", "FIN-EXP-001", "CNY"],
     ["経費申請 黎玉燕 10000 CNY", "FIN-EXP-002", "CNY"],
@@ -521,7 +559,10 @@ describe("expense approval host path", () => {
   ])("host %s → %s", async (text, rule, currency) => {
     const posted = await ask(text);
     expect(posted.status).toBe(200);
-    const plan = posted.body.approval_plan as { rule_id: string; currency: string };
+    const plan = posted.body.approval_plan as {
+      rule_id: string;
+      currency: string;
+    };
     expect(plan.rule_id).toBe(rule);
     expect(plan.currency).toBe(currency);
   });
@@ -530,7 +571,17 @@ describe("expense approval host path", () => {
     const posted = await ask("费用审批");
     expect(posted.status).toBe(200);
     expect(posted.body.approval_plan).toBeUndefined();
-    const messages = posted.body.messages as { kind: string; payload?: { title?: string; message?: string; fields?: { key: string; label?: string }[] } }[];
+    const messages = posted.body.messages as {
+      kind: string;
+      payload?: {
+        title?: string;
+        message?: string;
+        fields?: {
+          key: string;
+          label?: string;
+        }[];
+      };
+    }[];
     const card = messages.find((row) => row.kind === "supplement_card");
     expect(card).toBeTruthy();
     expect(card?.payload?.title).toBe("还需要金额和币种");
@@ -541,7 +592,12 @@ describe("expense approval host path", () => {
   it("submits 黎玉燕 USD 50,000 广告费 without a supplement card", async () => {
     const posted = await ask("黎玉燕申请 USD 50,000 广告费");
     expect(posted.status).toBe(200);
-    const plan = posted.body.approval_plan as { rule_id: string; currency: string; amount: number; amount_base: number };
+    const plan = posted.body.approval_plan as {
+      rule_id: string;
+      currency: string;
+      amount: number;
+      amount_base: number;
+    };
     expect(plan.rule_id).toBe("FIN-EXP-004");
     expect(plan.currency).toBe("USD");
     expect(plan.amount).toBe(50000);
@@ -555,31 +611,53 @@ describe("expense approval host path", () => {
   it("blocks an unknown requester after the worker emits facts", async () => {
     const posted = await ask("expense approval for 张三 5000 CNY");
     expect(posted.status).toBe(200);
-    expect((posted.body.approval_plan as { blocked?: { code: string } }).blocked?.code).toBe("unknown_requester");
+    expect((posted.body.approval_plan as {
+      blocked?: {
+        code: string;
+      };
+    }).blocked?.code).toBe("unknown_requester");
   });
-
   it("does not treat a quote compose turn as expense", async () => {
     const posted = await ask("给@数码老张 写报价确认邮件 金额 680", "email_compose");
-    expect((posted.body.intent as { type?: string }).type).toBe("email_compose");
-    expect((posted.body.approval as { kind?: string } | null)?.kind || "quote").not.toBe("expense");
+    expect((posted.body.intent as {
+      type?: string;
+    }).type).toBe("email_compose");
+    expect((posted.body.approval as {
+      kind?: string;
+    } | null)?.kind || "quote").not.toBe("expense");
   });
-
   it("persists the Host chain so later decide cannot restaff", async () => {
     const posted = await ask("黎玉燕要申请5万美国KOL推广预算");
-    const approval = posted.body.approval as { id: string; chain: string[]; payload: { steps: { name: string }[] } };
+    const approval = posted.body.approval as {
+      id: string;
+      chain: string[];
+      payload: {
+        steps: {
+          name: string;
+        }[];
+      };
+    };
     expect(approval.chain.length).toBe(4);
     expect(approval.payload.steps.map((step) => step.name)).toEqual(["林桐", "王主管", "财务负责人", "张总"]);
     const detail = await request("GET", `/api/approvals/${approval.id}`);
-    expect((detail.body as { kind: string }).kind).toBe("expense");
+    expect((detail.body as {
+      kind: string;
+    }).kind).toBe("expense");
   });
-
   it("walks FIN-EXP-004 through every node to 已办结 without exposing record ids", async () => {
     const posted = await ask("Please file an expense approval for 黎玉燕 50000 USD KOL spend");
     const approval = posted.body.approval as {
       id: string;
       chain: string[];
-      wecom_card?: { body?: string };
-      payload: { rule_id: string; steps: { name: string }[] };
+      wecom_card?: {
+        body?: string;
+      };
+      payload: {
+        rule_id: string;
+        steps: {
+          name: string;
+        }[];
+      };
     };
     expect(approval.payload.rule_id).toBe("FIN-EXP-004");
     expect(approval.payload.steps.map((step) => step.name)).toEqual(["林桐", "王主管", "财务负责人", "张总"]);
@@ -596,8 +674,12 @@ describe("expense approval host path", () => {
         status: string;
         current_index: number;
         expense?: boolean;
-        wecom_card?: { body?: string };
-        chain_detail?: { name: string }[];
+        wecom_card?: {
+          body?: string;
+        };
+        chain_detail?: {
+          name: string;
+        }[];
       };
       expect(String(row.wecom_card?.body || "")).not.toMatch(/approval_id|chain_id|appr_/);
       if (index < approval.chain.length - 1) {
@@ -606,30 +688,35 @@ describe("expense approval host path", () => {
         expect(row.chain_detail?.[row.current_index]?.name).toBe(approval.payload.steps[index + 1].name);
         expect(String(row.wecom_card?.body || "")).toContain(`${approval.payload.steps[index].name} 已同意`);
         expect(String(row.wecom_card?.body || "")).toContain(`请 ${approval.payload.steps[index + 1].name} 确认`);
-      } else {
+      }
+      else {
         expect(row.status).toBe("consumed");
         expect(row.expense).toBe(true);
         expect(String(row.wecom_card?.body || "")).toContain("张总 已同意");
         expect(String(row.wecom_card?.body || "")).toContain("已办结");
       }
     }
-
     const listed = await request("GET", "/api/wecom/cards");
-    const cards = listed.body as unknown as { body?: string }[];
+    const cards = listed.body as unknown as {
+      body?: string;
+    }[];
     expect(cards.every((card) => !/approval_id|chain_id|appr_/.test(String(card.body || "")))).toBe(true);
     expect(cards.some((card) => String(card.body || "").includes("已办结"))).toBe(true);
   });
-
   it("rejects expense approval only with a persisted reason", async () => {
     const posted = await ask("Please file an expense approval for 黎玉燕 50000 USD KOL spend");
-    const approval = posted.body.approval as { id: string; chain: string[] };
+    const approval = posted.body.approval as {
+      id: string;
+      chain: string[];
+    };
     const missing = await decideOf(approval.id, {
       decision: "reject",
       actor: approval.chain[0],
     });
     expect(missing.status).toBe(400);
-    expect((missing.body.detail as { code?: string }).code).toBe("reject_reason_required");
-
+    expect((missing.body.detail as {
+      code?: string;
+    }).code).toBe("reject_reason_required");
     const rejected = await decideOf(approval.id, {
       decision: "reject",
       actor: approval.chain[0],
@@ -638,8 +725,12 @@ describe("expense approval host path", () => {
     expect(rejected.status).toBe(200);
     const row = rejected.body as {
       status: string;
-      payload?: { reject_reason?: string };
-      wecom_card?: { body?: string };
+      payload?: {
+        reject_reason?: string;
+      };
+      wecom_card?: {
+        body?: string;
+      };
       discarded?: boolean;
     };
     expect(row.status).toBe("rejected");
@@ -662,13 +753,18 @@ describe("expense approval host path", () => {
       purpose: "KOL",
     });
     expect(preview.status).toBe(200);
-    const previewBody = preview.body as { plan: { rule_id: string }; steps: { name: string }[] };
+    const previewBody = preview.body as {
+      plan: {
+        rule_id: string;
+      };
+      steps: {
+        name: string;
+      }[];
+    };
     expect(previewBody.plan.rule_id).toBe("FIN-EXP-004");
     expect(previewBody.steps.map((step) => step.name)).toEqual(["林桐", "王主管", "财务负责人", "张总"]);
-
     const listedAfterPreview = await request("GET", "/api/approvals");
     expect((listedAfterPreview.body as unknown as unknown[]).length).toBe(beforeCount);
-
     const created = await request("POST", "/api/approvals", {
       kind: "expense",
       amount: 50000,
@@ -682,8 +778,13 @@ describe("expense approval host path", () => {
       kind: string;
       can_decide?: boolean;
       expected_role?: string;
-      chain_detail: { name: string }[];
-      payload: { rule_id: string; purpose?: string };
+      chain_detail: {
+        name: string;
+      }[];
+      payload: {
+        rule_id: string;
+        purpose?: string;
+      };
     };
     expect(row.kind).toBe("expense");
     expect(row.id).toMatch(/^appr_/);
@@ -692,13 +793,18 @@ describe("expense approval host path", () => {
     expect(row.chain_detail.map((step) => step.name)).toEqual(["林桐", "王主管", "财务负责人", "张总"]);
     expect(row.expected_role).toBeTruthy();
     expect(typeof row.can_decide).toBe("boolean");
-
     const listed = await request("GET", "/api/approvals");
-    expect((listed.body as unknown as { id: string }[]).some((item) => item.id === row.id)).toBe(true);
-    const audits = listAudit("expense.approval.created") as { payload: { approval_id?: string; rule_id?: string } }[];
+    expect((listed.body as unknown as {
+      id: string;
+    }[]).some((item) => item.id === row.id)).toBe(true);
+    const audits = (await listAudit("expense.approval.created")) as {
+      payload: {
+        approval_id?: string;
+        rule_id?: string;
+      };
+    }[];
     expect(audits.some((event) => event.payload.approval_id === row.id && event.payload.rule_id === "FIN-EXP-004")).toBe(true);
   });
-
   it.each([
     [{ kind: "expense", amount: 5000, currency: "CNY", requester_name: "张三" }, "unknown_requester"],
     [{ kind: "expense", amount: 0, currency: "CNY", requester_name: "黎玉燕" }, "missing_amount"],
@@ -708,11 +814,16 @@ describe("expense approval host path", () => {
   ])("POST /api/approvals blocks %j as %s", async (body, code) => {
     const preview = await request("POST", "/api/approvals/preview", body);
     expect(preview.status).toBe(400);
-    expect((preview.body.detail as { code?: string }).code).toBe(code);
-    expect(String((preview.body.detail as { message?: string }).message || "")).not.toMatch(/MCP|Codex|Host|engine/i);
-
+    expect((preview.body.detail as {
+      code?: string;
+    }).code).toBe(code);
+    expect(String((preview.body.detail as {
+      message?: string;
+    }).message || "")).not.toMatch(/MCP|Codex|Host|engine/i);
     const created = await request("POST", "/api/approvals", body);
     expect(created.status).toBe(400);
-    expect((created.body.detail as { code?: string }).code).toBe(code);
+    expect((created.body.detail as {
+      code?: string;
+    }).code).toBe(code);
   });
 });

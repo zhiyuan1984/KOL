@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { isOpenWorkItem } from "../src/host/home-board.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
@@ -29,26 +29,23 @@ async function request(method: string, url: string, body?: unknown) {
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-todo-perf-"));
-  process.env.LINGONG_DB = path.join(tmp, "todo.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
+  (await resetDatabase());
   resetStarryHomeLibrarySync();
   resetFollowedMailSync();
-  seedAll();
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
+  app = (await createApp());
+  (await seedWorkbenchFixtures());
 });
-
-afterEach(() => {
+afterEach(async () => {
   setStarryKolClientFactory();
   resetStarryHomeLibrarySync();
   resetFollowedMailSync();
-  resetConn();
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
-
 describe("GET /api/tasks?view=open", () => {
   it("returns all open work items including unpromoted source=ai", async () => {
     const listed = await request("GET", "/api/tasks?view=open");
@@ -107,12 +104,16 @@ describe("GET /api/tasks?view=open", () => {
         calls.push(name);
         return { data: { list: [] } };
       },
-      async close() { /* noop */ },
+      async close() { },
     }));
-    const before = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const before = (await postgresDb().one("SELECT COUNT(*) AS c FROM sessions")) as {
+      c: number;
+    };
     const listed = await request("GET", "/api/tasks?view=todo");
     expect(listed.status).toBe(200);
-    const after = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const after = (await postgresDb().one("SELECT COUNT(*) AS c FROM sessions")) as {
+      c: number;
+    };
     expect(after.c).toBe(before.c);
     expect(calls).toEqual([]);
   });
@@ -129,7 +130,7 @@ describe("GET /api/home/board local-first", () => {
         await hang;
         return { data: { list: [] } };
       },
-      async close() { /* noop */ },
+      async close() { },
     }));
     const started = Date.now();
     const board = await request("GET", "/api/home/board");
@@ -157,13 +158,16 @@ describe("GET /api/home/board local-first", () => {
     expect((workbench.summary as Json).open).toBe(open.length);
     resolveHang?.();
   });
-
   it("refresh=1 still returns local-first and does not insert sessions", async () => {
-    const before = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const before = (await postgresDb().one("SELECT COUNT(*) AS c FROM sessions")) as {
+      c: number;
+    };
     const board = await request("GET", "/api/home/board?refresh=1");
     expect(board.status).toBe(200);
     expect(board.body.sync).toMatchObject({ deferred: true, refresh: true });
-    const after = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const after = (await postgresDb().one("SELECT COUNT(*) AS c FROM sessions")) as {
+      c: number;
+    };
     expect(after.c).toBe(before.c);
   });
 });

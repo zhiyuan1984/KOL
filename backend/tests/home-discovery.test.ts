@@ -4,17 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import {
-  resetCollectorConnectionCache,
-  setCollectorProbeClientFactory,
-  setCollectorProbeFetch,
-} from "../src/crawl/connection.js";
+import { resetCollectorConnectionCache, setCollectorProbeClientFactory, setCollectorProbeFetch, } from "../src/crawl/connection.js";
 import { monitorCrawlJob, setCrawlMcpClientFactory } from "../src/crawl/service.js";
-import { getConn, listAudit, resetConn } from "../src/db.js";
-import {
-  awaitHomeDiscoveryWork,
-  setDiscoveryBriefRunner,
-} from "../src/home-discovery.js";
+import { postgresDb, listAudit, resetDatabase } from "../src/postgres/access.js";
+import { awaitHomeDiscoveryWork, setDiscoveryBriefRunner, } from "../src/home-discovery.js";
 import { HOME_ENTRY_REGISTRY } from "../src/host/entry-registry.js";
 import { seedAll } from "../src/seed.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
@@ -32,21 +25,25 @@ function mockMcp() {
   return {
     async callTool(name: string, args: Json = {}) {
       calls.push(name);
-      if (name === "start_crawl") return { task_id: "remote-home-1", status: "running" };
-      if (name === "get_crawl_status") return { task_id: "remote-home-1", status: "idle" };
-      if (name === "get_crawl_logs") return { logs: ["ok"] };
+      if (name === "start_crawl")
+        return { task_id: "remote-home-1", status: "running" };
+      if (name === "get_crawl_status")
+        return { task_id: "remote-home-1", status: "idle" };
+      if (name === "get_crawl_logs")
+        return { logs: ["ok"] };
       if (name === "get_creators") {
         creatorCallArgs.push(args);
         return { creators, has_more: false };
       }
-      if (name === "stop_crawl") return { stopped: true };
-      if (name === "upload_creators") return { uploaded: true };
+      if (name === "stop_crawl")
+        return { stopped: true };
+      if (name === "upload_creators")
+        return { uploaded: true };
       return {};
     },
-    async close() {},
+    async close() { },
   };
 }
-
 async function request(method: string, url: string, body?: unknown) {
   const response = await app.request(url, {
     method,
@@ -56,58 +53,59 @@ async function request(method: string, url: string, body?: unknown) {
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) as Json : {}, text };
 }
-
-function starryWrites() {
+async function starryWrites() {
   return {
-    sends: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: number }).n),
-    stageWrites: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_stage_writes").get() as { n: number }).n),
-    transitions: Number((getConn().prepare("SELECT COUNT(*) AS n FROM stage_transitions").get() as { n: number }).n),
-    imports: Number((getConn().prepare(
-      "SELECT COUNT(*) AS n FROM audit_events WHERE event_type LIKE '%import%' OR event_type LIKE '%follow%'",
-    ).get() as { n: number }).n),
+    sends: Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM starry_sends")) as {
+      n: number;
+    }).n),
+    stageWrites: Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM starry_stage_writes")) as {
+      n: number;
+    }).n),
+    transitions: Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM stage_transitions")) as {
+      n: number;
+    }).n),
+    imports: Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM audit_events WHERE event_type LIKE '%import%' OR event_type LIKE '%follow%'")) as {
+      n: number;
+    }).n),
   };
 }
-
-function crawlJobIdFor(runId: string): string {
-  const row = getConn().prepare("SELECT crawl_job_id FROM discovery_runs WHERE id=?").get(runId) as
-    | { crawl_job_id?: string }
-    | undefined;
+async function crawlJobIdFor(runId: string): Promise<string> {
+  const row = (await postgresDb().one("SELECT crawl_job_id FROM discovery_runs WHERE id=$1", runId)) as {
+    crawl_job_id?: string;
+  } | undefined;
   return String(row?.crawl_job_id || "");
 }
-
 /** `lookupFlags` reads already_in_pool off an open profile in kol_profile_index. */
-function seedPoolCreator(platformCreatorId: string): void {
+async function seedPoolCreator(platformCreatorId: string): Promise<void> {
   const now = new Date().toISOString();
-  getConn().prepare(
-    `INSERT INTO kol_profile_index
+  (await postgresDb().execute(`INSERT INTO kol_profile_index
      (id, company_id, kol_uid, platform, platform_creator_id, pool_status, created_at, updated_at)
-     VALUES (?,?,?,?,?, 'open', ?, ?)`,
-  ).run(`kpi_${platformCreatorId}`, "cmp_test", `disc_${platformCreatorId}`, "youtube", platformCreatorId, now, now);
+     VALUES ($1,$2,$3,$4,$5, 'open', $6, $7)`, `kpi_${platformCreatorId}`, "cmp_test", `disc_${platformCreatorId}`, "youtube", platformCreatorId, now, now));
 }
-
 /** `lookupFlags` reads already_followed off a collaboration this tenant owns (owner_* 非空才算跟进). */
-function seedFollowedCreator(platformCreatorId: string): void {
-  getConn().prepare(
-    `INSERT INTO collaborations
+async function seedFollowedCreator(platformCreatorId: string): Promise<void> {
+  (await postgresDb().execute(`INSERT INTO collaborations
      (id, handle, display_name, brand, platform, email, mailbox_from, lifecycle_id,
       conversation_id, stage_code, owner_name, owner_mailbox)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    `col_${platformCreatorId}`,
-    platformCreatorId,
-    platformCreatorId,
-    "LT",
-    "youtube",
-    "creator@example.com",
-    "ops@example.com",
-    "lc_sourcing",
-    "cv_sourcing",
-    "sourcing",
-    "钟槿年",
-    "ops@example.com",
-  );
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, `col_${platformCreatorId}`, platformCreatorId, platformCreatorId, "LT", "youtube", "creator@example.com", "ops@example.com", "lc_sourcing", "cv_sourcing", "sourcing", "钟槿年", "ops@example.com"));
 }
-
+async function terminalRun(runId: string): Promise<Json> {
+  const deadline = Date.now() + 5000;
+  let latest: Json | undefined;
+  while (Date.now() < deadline) {
+    // The crawl service notifies discovery subscribers without awaiting them.
+    // Observe the durable run terminal state instead of assuming the callback
+    // has reached `track(rankHomeDiscoveryRun(...))` when monitoring returns.
+    await awaitHomeDiscoveryWork();
+    const response = await request("GET", `/api/home/discovery/runs/${runId}`);
+    expect(response.status).toBe(200);
+    latest = response.body.run as Json;
+    if (["completed", "rank_failed", "crawl_failed", "cancelled"].includes(String(latest.status)))
+      return latest;
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`discovery run did not reach a terminal state: ${JSON.stringify(latest)}`);
+}
 async function completeRun(body: Json = {
   keywords: ["clean beauty"],
   platforms: ["youtube"],
@@ -115,19 +113,14 @@ async function completeRun(body: Json = {
 }): Promise<Json> {
   const started = await request("POST", "/api/home/discovery/run", body);
   expect(started.status, JSON.stringify(started.body)).toBe(202);
-  const jobId = crawlJobIdFor(String(started.body.id));
+  const jobId = (await crawlJobIdFor(String(started.body.id)));
   expect(jobId).toMatch(/^crawl_/);
   await monitorCrawlJob(jobId);
-  await awaitHomeDiscoveryWork();
-  const run = await request("GET", `/api/home/discovery/runs/${started.body.id}`);
-  expect(run.status).toBe(200);
-  return run.body.run as Json;
+  return await terminalRun(String(started.body.id));
 }
-
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-home-discovery-"));
-  process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.CLAW_MODE = "mock";
@@ -143,9 +136,9 @@ beforeEach(async () => {
     recent_views: [8000, 9000, 7000, 8500, 9200, 8100, 8800, 7600, 8300, 8700],
     email: "clean.glow@mailcreators.example",
   }];
-  resetConn();
-  seedAll();
-  configureCrawlerFixture();
+  (await resetDatabase());
+  (await seedAll());
+  (await configureCrawlerFixture());
   clearTaskRegistryCache();
   resetCollectorConnectionCache();
   setCollectorProbeClientFactory();
@@ -153,26 +146,28 @@ beforeEach(async () => {
   setCrawlMcpClientFactory(mockMcp);
   setDiscoveryBriefRunner(null);
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
-
-afterEach(() => {
+afterEach(async () => {
   setDiscoveryBriefRunner(null);
   setCrawlMcpClientFactory();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();
   setStarryKolClientFactory();
   resetCollectorConnectionCache();
-  resetConn();
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.MEDIACRAWLER_MCP_URL;
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
 });
-
 describe("GET /api/home/discovery/template", () => {
   it("returns dictionary + packs + employee defaults with zero model", async () => {
-    const sessionsBefore = Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n);
-    const workersBefore = Number((getConn().prepare("SELECT COUNT(*) AS n FROM workers").get() as { n: number }).n);
+    const sessionsBefore = Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM sessions")) as {
+      n: number;
+    }).n);
+    const workersBefore = Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM workers")) as {
+      n: number;
+    }).n);
     const result = await request("GET", "/api/home/discovery/template");
     expect(result.status).toBe(200);
     expect(result.body.calls_model).toBe(false);
@@ -204,8 +199,12 @@ describe("GET /api/home/discovery/template", () => {
       default_brand: "LT",
       default_region: "global_en",
     });
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n)).toBe(sessionsBefore);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM workers").get() as { n: number }).n)).toBe(workersBefore);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM sessions")) as {
+      n: number;
+    }).n)).toBe(sessionsBefore);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM workers")) as {
+      n: number;
+    }).n)).toBe(workersBefore);
     expect(calls).toEqual([]);
   });
 });
@@ -302,10 +301,11 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     expect(second.body.duplicate || second.body.reused).toBeTruthy();
     expect(calls.filter((name) => name === "start_crawl")).toHaveLength(1);
   });
-
   it("does not write Starry when crawl ends", async () => {
-    const before = starryWrites();
-    const collabsBefore = Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations").get() as { n: number }).n);
+    const before = (await starryWrites());
+    const collabsBefore = Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM collaborations")) as {
+      n: number;
+    }).n);
     const run = await completeRun();
     expect(["completed", "rank_failed"]).toContain(run.status);
     expect(run.candidate_count).toBeGreaterThan(0);
@@ -318,13 +318,17 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     expect(creatorCallArgs[0]).not.toHaveProperty("page_size");
     expect(creatorCallArgs[0]).not.toHaveProperty("task_id");
     expect(calls).not.toContain("upload_creators");
-    const after = starryWrites();
+    const after = (await starryWrites());
     expect(after.sends).toBe(before.sends);
     expect(after.stageWrites).toBe(before.stageWrites);
     expect(after.transitions).toBe(before.transitions);
-    const collabsAfter = Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations").get() as { n: number }).n);
+    const collabsAfter = Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM collaborations")) as {
+      n: number;
+    }).n);
     expect(collabsAfter).toBe(collabsBefore);
-    const poolAfter = Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_profile_index").get() as { n: number }).n);
+    const poolAfter = Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM kol_profile_index")) as {
+      n: number;
+    }).n);
     expect(poolAfter).toBe(0);
     const events = (run.events as Json[]).map((row) => row.type);
     expect(events).toEqual(expect.arrayContaining([
@@ -338,22 +342,22 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     expect(ingest.body.starry_written).toBe(false);
     expect(ingest.body.code).toBe("ingest_handoff");
     expect(String(ingest.body.message)).toMatch(/网关/);
-    expect(starryWrites().sends).toBe(before.sends);
-
+    expect((await starryWrites()).sends).toBe(before.sends);
     const candidates = await request("GET", `/api/home/discovery/runs/${run.id}/candidates`);
     const candidateId = String((candidates.body.candidates as Json[])[0].id);
     const homeFollow = await request("POST", `/api/home/discovery/candidates/${candidateId}/follow`);
-    expect(homeFollow.status).toBe(403);
-    expect(homeFollow.body.code).toBe("home_discovery_follow_forbidden");
-    expect(homeFollow.body.collaboration_created).toBe(false);
+    // Home 的原生线索动作必须显式 L3 确认；采集完成本身绝不能自动跟进。
+    expect(homeFollow.status).toBe(422);
+    expect(homeFollow.body.detail).toMatchObject({ code: "follow_confirm_required" });
     const legacyFollow = await request("POST", `/api/discovery/candidates/${candidateId}/follow`);
     expect(legacyFollow.status).toBe(403);
     expect(legacyFollow.body.detail).toMatchObject({ code: "home_discovery_follow_forbidden" });
-    const collabsAfterFollow = Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations").get() as { n: number }).n);
+    const collabsAfterFollow = Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM collaborations")) as {
+      n: number;
+    }).n);
     expect(collabsAfterFollow).toBe(collabsBefore);
-    expect(starryWrites().sends).toBe(before.sends);
+    expect((await starryWrites()).sends).toBe(before.sends);
   });
-
   it("keeps raw candidates and marks rank_failed when brief is missing ranking", async () => {
     setDiscoveryBriefRunner(async () => ({
       items: [{
@@ -380,18 +384,21 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     expect((candidates.body.candidates as Json[])[0]).toHaveProperty("score");
     expect((candidates.body.candidates as Json[])[0]).toHaveProperty("confidence");
     expect((candidates.body.candidates as Json[])[0]).toHaveProperty("collected_at");
+    const candidate = (candidates.body.candidates as Json[])[0];
     // 没被排名就没有分数：列上的 0 是默认值，不是「推荐分 0 分」。
-    expect((candidates.body.candidates as Json[])[0]).toMatchObject({
+    // 可复核的粉丝/均播回退说明不是 AI ranking，不能掩盖 rank_failed。
+    expect(candidate).toMatchObject({
       score: null,
       band: null,
-      match_reason: null,
     });
-    // brief 的 ranking 必须 join 到候选上，否则行上永远是「匹配：无」
+    expect(String(candidate.match_reason)).toContain("粉丝");
+    expect(String(candidate.match_reason)).toContain("近10条均播");
+    expect(candidate.why).toBe(candidate.match_reason);
+    // brief 的 ranking 必须 join 到候选上；无 ranking 时仅保留可复核的事实回退。
     expect(run.raw_count).toBeGreaterThan(0);
   });
-
   it("derives library_status from pool / followed / library flags, followed first", async () => {
-    seedPoolCreator("yt-beauty-1");
+    (await seedPoolCreator("yt-beauty-1"));
     const pooled = await completeRun();
     expect(pooled.status).toBe("completed");
     const pooledRows = await request("GET", `/api/home/discovery/runs/${pooled.id}/candidates`);
@@ -401,8 +408,7 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     expect(pooledRow.in_library).toBe(true);
     expect(pooledRow.ingest_readiness).toBe("already_in_library");
     expect(pooledRow.ingest_block_reason).toContain("不重复导入");
-
-    seedFollowedCreator("yt-beauty-1");
+    (await seedFollowedCreator("yt-beauty-1"));
     const followed = await completeRun({
       keywords: ["van life"],
       platforms: ["youtube"],
@@ -498,9 +504,9 @@ describe("POST /api/home/discovery/run lifecycle", () => {
       recent_views: [7000, 7100, 7200, 7300, 7400, 7500, 7600, 7700, 7800, 7900],
     }];
     const run = await completeRun();
-    const stored = getConn().prepare(
-      "SELECT COUNT(*) AS n FROM creator_candidates WHERE run_id=?",
-    ).get(run.id) as { n: unknown };
+    const stored = (await postgresDb().one("SELECT COUNT(*) AS n FROM creator_candidates WHERE run_id=$1", run.id)) as {
+      n: unknown;
+    };
     expect(Number(stored.n)).toBe(1);
     const candidates = await request("GET", `/api/home/discovery/runs/${run.id}/candidates`);
     expect(candidates.body.candidates).toHaveLength(1);
@@ -581,22 +587,20 @@ describe("home discovery extras", () => {
     expect(cancelled.status).toBe(200);
     expect(cancelled.body.status).toBe("cancelled");
     expect(calls).toContain("stop_crawl");
-    const jobId = crawlJobIdFor(String(started.body.id));
-    if (jobId) await monitorCrawlJob(jobId).catch(() => undefined);
+    const jobId = (await crawlJobIdFor(String(started.body.id)));
+    if (jobId)
+      await monitorCrawlJob(jobId).catch(() => undefined);
     await awaitHomeDiscoveryWork();
   });
 });
-
 describe("discovery harness gateway reject", () => {
   it("audits and rejects start_crawl during a discovery_brief turn", async () => {
-    const { runInDiscoveryHarness, rejectDiscoveryHarnessTool } = await import(
-      "../src/gateway/discovery-harness.js"
-    );
+    const { runInDiscoveryHarness, rejectDiscoveryHarnessTool } = await import("../src/gateway/discovery-harness.js");
     const { HttpFail } = await import("../src/host/errors.js");
-    expect(() => runInDiscoveryHarness({ skill: "discovery_brief", session_id: "ses_x" }, () => {
-      rejectDiscoveryHarnessTool("start_crawl");
-    })).toThrow(HttpFail);
-    const rows = listAudit().filter((row) => String(row.event_type) === "discovery.harness.tool_rejected");
+    await expect((async () => (await runInDiscoveryHarness({ skill: "discovery_brief", session_id: "ses_x" }, async () => {
+      (await rejectDiscoveryHarnessTool("start_crawl"));
+    })))()).rejects.toThrow(HttpFail);
+    const rows = (await listAudit()).filter((row) => String(row.event_type) === "discovery.harness.tool_rejected");
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.at(-1)?.payload).toMatchObject({ tool: "start_crawl", skill: "discovery_brief" });
   });

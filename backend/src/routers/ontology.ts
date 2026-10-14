@@ -7,7 +7,7 @@ import { Hono } from "hono";
 import { roleHolder } from "../approval/org.js";
 import { defaultOrgSnapshot } from "../approval/snapshot.js";
 import { requireAdmin } from "../auth.js";
-import { audit } from "../db.js";
+import { audit } from "../postgres/access.js";
 import { createWorkApproval } from "../gateway/wecom.js";
 import { HttpFail } from "../host/errors.js";
 import { postgresPool } from "../postgres/pool.js";
@@ -45,16 +45,17 @@ const SCOPE_LABEL: Record<OntologyChangeScope, string> = {
 function digestContent(content: Buffer | string): string {
   return `sha256:${createHash("sha256").update(content).digest("hex")}`;
 }
-
 function gitCommit(ref: string): string | null {
   try {
-    if (!ref || ref.startsWith("-")) return null;
+    if (!ref || ref.startsWith("-"))
+      return null;
     return execFileSync("git", ["rev-parse", "--verify", `${ref}^{commit}`], {
       cwd: repoRoot,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim() || null;
-  } catch {
+  }
+  catch {
     return null;
   }
 }
@@ -65,17 +66,21 @@ function configAtCommit(commit: string, relativePath: string): Buffer | null {
       cwd: repoRoot,
       stdio: ["ignore", "pipe", "ignore"],
     });
-  } catch {
+  }
+  catch {
     return null;
   }
 }
-
 function registryVersion(content: Buffer, scope: OntologyChangeScope): number {
   try {
-    const value = JSON.parse(content.toString("utf8").replace(/^\uFEFF/, "")) as { version?: unknown };
+    const value = JSON.parse(content.toString("utf8").replace(/^\uFEFF/, "")) as {
+      version?: unknown;
+    };
     const version = Number(value.version);
-    if (Number.isInteger(version) && version >= 0) return version;
-  } catch {
+    if (Number.isInteger(version) && version >= 0)
+      return version;
+  }
+  catch {
     // The registry validators report schema details separately. A release or an
     // approval request must nevertheless fail closed instead of inventing v0.
   }
@@ -119,7 +124,8 @@ export function ontologyRegistryBaseline(scope: OntologyChangeScope): OntologyRe
   let content: Buffer;
   try {
     content = fs.readFileSync(path.join(repoRoot, relativePath));
-  } catch {
+  }
+  catch {
     throw new HttpFail(503, {
       code: "ontology_registry_unreadable",
       message: `无法读取「${SCOPE_LABEL[scope]}」注册表；未创建审批、未放行变更。`,
@@ -150,24 +156,24 @@ type OntologyApprovalPayload = {
   target_digest?: unknown;
   change_ref?: unknown;
 };
-
-type OntologyApprovalRow = { id: string; status: string; payload: unknown };
-
+type OntologyApprovalRow = {
+  id: string;
+  status: string;
+  payload: unknown;
+};
 function approvalPayload(value: unknown): OntologyApprovalPayload {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value as OntologyApprovalPayload;
+  if (value && typeof value === "object" && !Array.isArray(value))
+    return value as OntologyApprovalPayload;
   try {
     return JSON.parse(String(value || "{}")) as OntologyApprovalPayload;
-  } catch {
+  }
+  catch {
     return {};
   }
 }
-
 /** PostgreSQL is the approval authority. Invalid payloads never become permits. */
 export async function ontologyChangeApprovals(scope: OntologyChangeScope): Promise<Exclude<OntologyChangeApprovalSummary, null>[]> {
-  const rows = await postgresPool().query<OntologyApprovalRow>(
-    "SELECT id, status, payload FROM approvals WHERE kind = $1 ORDER BY created_at DESC",
-    ["ontology_change"],
-  );
+  const rows = await postgresPool().query<OntologyApprovalRow>("SELECT id, status, payload FROM approvals WHERE kind = $1 ORDER BY created_at DESC", ["ontology_change"]);
   const approvals: Exclude<OntologyChangeApprovalSummary, null>[] = [];
   for (const row of rows.rows) {
     const payload = approvalPayload(row.payload);
@@ -196,28 +202,27 @@ export async function latestOntologyChangeApproval(scope: OntologyChangeScope): 
  * 必须等于提交审批时的基线（一次审批只放行一次变更，应用后即失效）。
  */
 export async function assertOntologyChangeAllowed(scope: OntologyChangeScope, baseVersion: string, targetDigest: string): Promise<void> {
-  const approval = (await ontologyChangeApprovals(scope)).find((candidate) =>
-    candidate.status === "consumed" && candidate.base_version === baseVersion && candidate.target_digest === targetDigest,
-  );
-  if (approval) return;
+  const approval = (await ontologyChangeApprovals(scope)).find((candidate) => candidate.status === "consumed" && candidate.base_version === baseVersion && candidate.target_digest === targetDigest);
+  if (approval)
+    return;
   throw new HttpFail(403, {
     code: "ontology_change_approval_required",
     message: `「${SCOPE_LABEL[scope]}」变更必须有同范围、同真实基线、同目标内容摘要且已通过的本体变更审批（CEO 终审）。`,
   });
 }
-
 function parseScope(value: unknown): OntologyChangeScope {
   const scope = String(value || "").trim();
-  if ((ONTOLOGY_CHANGE_SCOPES as readonly string[]).includes(scope)) return scope as OntologyChangeScope;
+  if ((ONTOLOGY_CHANGE_SCOPES as readonly string[]).includes(scope))
+    return scope as OntologyChangeScope;
   throw new HttpFail(400, {
     code: "ontology_scope_invalid",
     message: `scope 必须为 ${ONTOLOGY_CHANGE_SCOPES.join(" / ")} 之一。`,
   });
 }
-
 function parseDigest(value: unknown): string {
   const digest = String(value || "").trim().toLowerCase();
-  if (/^sha256:[a-f0-9]{64}$/.test(digest)) return digest;
+  if (/^sha256:[a-f0-9]{64}$/.test(digest))
+    return digest;
   throw new HttpFail(400, {
     code: "ontology_target_digest_invalid",
     message: "target_digest 必须是 sha256:<64位十六进制摘要>。",
@@ -236,7 +241,8 @@ function targetBinding(scope: OntologyChangeScope, requestedRef: unknown, reques
       message: "必须提供可解析的 change_ref，或显式提供 target_digest；范围审批不能作为空白变更的通行证。",
     });
   }
-  if (!changeRef) return { changeRef: "", targetDigest: suppliedDigest };
+  if (!changeRef)
+    return { changeRef: "", targetDigest: suppliedDigest };
   const commit = gitCommit(changeRef);
   const content = commit ? configAtCommit(commit, SCOPE_CONFIG_FILE[scope]) : null;
   if (!commit || !content) {
@@ -261,7 +267,7 @@ function targetBinding(scope: OntologyChangeScope, requestedRef: unknown, reques
  * 文件级变更本身走 Git；审批是治理凭证，不直接写文件。
  */
 ontology.post("/admin/ontology/change-approvals", async (c) => {
-  const admin = requireAdmin();
+  const admin = (await requireAdmin());
   const body = (await c.req.json().catch(() => ({}))) as {
     scope?: string;
     title?: string;
@@ -300,9 +306,10 @@ ontology.post("/admin/ontology/change-approvals", async (c) => {
     delegate_to: null,
   } as Employee;
   const ceo = roleHolder(org, "gm", placeholder);
-  if (!ceo) throw new HttpFail(400, { code: "ceo_not_found", message: "组织架构中未找到 CEO，无法发起本体变更审批。" });
+  if (!ceo)
+    throw new HttpFail(400, { code: "ceo_not_found", message: "组织架构中未找到 CEO，无法发起本体变更审批。" });
   const title = String(body.title || "").trim() || `本体变更审批：${SCOPE_LABEL[scope]}`;
-  const approval = createWorkApproval({
+  const approval = (await createWorkApproval({
     kind: "ontology_change",
     title,
     chain: [ceo.id],
@@ -316,38 +323,37 @@ ontology.post("/admin/ontology/change-approvals", async (c) => {
       requester_name: admin.name || admin.handle,
       steps: [{ employee_id: ceo.id, name: ceo.name, role: "CEO" }],
     },
-  });
+  }));
   if (!approval?.id) {
     throw new HttpFail(400, { code: "empty_approval_chain", message: "审批链为空，无法发起本体变更审批。" });
   }
-  audit("host", "ontology.change.approval.created", {
+  (await audit("host", "ontology.change.approval.created", {
     scope, approval_id: approval.id, base_version: base.base_version, target_digest: target.targetDigest, change_ref: target.changeRef,
-  });
+  }));
   return c.json({
     scope, approval_id: approval.id, status: "pending", base_version: base.base_version,
     target_digest: target.targetDigest, change_ref: target.changeRef, chain: [ceo.id],
   }, 201);
 });
-
 /** 查询某范围最新一条本体变更审批（给本体管理页门禁展示用）。 */
-ontology.get("/admin/ontology/change-approvals/latest", (c) => {
-  requireAdmin();
+ontology.get("/admin/ontology/change-approvals/latest", async (c) => {
+  (await requireAdmin());
   const scope = parseScope(c.req.query("scope"));
   return (async () => {
     const latest = await latestOntologyChangeApproval(scope);
     return c.json({ scope, scope_label: SCOPE_LABEL[scope], base_version: ontologyBaseVersion(scope), latest });
   })();
 });
-
 /** 管理端只读浏览：数据来自运行中的四份 registry，不提供任何绕过审批的写入口。 */
-ontology.get("/admin/ontology/registries", (c) => {
-  requireAdmin();
+ontology.get("/admin/ontology/registries", async (c) => {
+  (await requireAdmin());
   const registries = ONTOLOGY_CHANGE_SCOPES.map((scope) => {
     const baseline = ontologyRegistryBaseline(scope);
     const raw = fs.readFileSync(path.join(repoRoot, SCOPE_CONFIG_FILE[scope]), "utf8").replace(/^\uFEFF/, "");
     try {
       return { scope, scope_label: SCOPE_LABEL[scope], base_version: baseline.base_version, data: JSON.parse(raw) as unknown };
-    } catch {
+    }
+    catch {
       throw new HttpFail(503, {
         code: "ontology_registry_unreadable",
         message: `无法解析「${SCOPE_LABEL[scope]}」注册表；只读浏览未返回伪造数据。`,

@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { freshTestDatabase } from "./support/pg.js";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { postgresPool } from "../src/postgres/pool.js";
 import { mapUser, withScopedUser, type AppUser } from "../src/auth.js";
 import { setAgentSkill, setSkillConnector, setConnectorConfig, setSkillTool, setToolPolicy } from "../src/runtime/store.js";
@@ -31,42 +31,48 @@ let temp: string;
 let users: AppUser[];
 const ctx = (id: string): RuntimeContext => ({ agentId: "agent:discovery-test", skillId: "crawler_collect", userId: id, runId: "test", sessionId: `session-${id}` });
 const acting = <T>(id: number, action: () => T) => withScopedUser(users[id], action);
-async function version(id = 0) { return acting(id, async () => (await runtimeCandidateViews(ctx(users[id].id), `action-${id}`, [candidate]))[0]?.snapshot_version); }
+async function version(id = 0) { return (await acting(id, async () => (await runtimeCandidateViews(ctx(users[id].id), `action-${id}`, [candidate]))[0]?.snapshot_version)); }
 async function command(id: number, verb: string, snapshot: unknown, confirmed = true) {
-  return acting(id, () => runtimeCandidateCommand(`action-${id}`, candidate.id, verb, { snapshot_version: snapshot, confirmed }));
+  return (await acting(id, async () => (await runtimeCandidateCommand(`action-${id}`, candidate.id, verb, { snapshot_version: snapshot, confirmed }))));
 }
 beforeEach(async () => {
   await freshTestDatabase();
   // 旧模板可能早于线索/公海品牌迁移；只在独立测试库补齐真实 schema。
   const schema = fs.readFileSync(new URL("../scripts/apply-postgres-schema.ts", import.meta.url), "utf8");
   const leadCreate = schema.match(/`(CREATE TABLE IF NOT EXISTS kol_leads \([\s\S]*?\n    \))`/);
-  if (!leadCreate) throw new Error("kol_leads schema not found");
+  if (!leadCreate)
+    throw new Error("kol_leads schema not found");
   await postgresPool().query(leadCreate[1]);
   await postgresPool().query(fs.readFileSync(new URL("../migrations/029_discovery_dedup_score.sql", import.meta.url), "utf8"));
   await postgresPool().query(fs.readFileSync(new URL("../migrations/030_pool_brand_visibility.sql", import.meta.url), "utf8"));
   temp = fs.mkdtempSync(path.join(os.tmpdir(), "discovery-candidate-actions-"));
-  process.env.LINGONG_DATA = temp; process.env.AUTH_MODE = "enabled"; process.env.NODE_ENV = "test";
-  resetConn();
-  const db = getConn();
-  for (const skill of ["crawler_collect", "creator_discovery"]) setAgentSkill("agent:discovery-test", skill, true, 0);
-  seedPublishedAgent("agent:discovery-test");
-  createAgentBinding({ agent_id: "agent:discovery-test", target_type: "organization_unit", target_id: "org:lt_team", company_id: COMPANY, source: "test" });
-  const people = db.prepare("SELECT person_ref FROM organization_memberships WHERE org_unit_id='org:lt_team' AND status='active' ORDER BY person_ref LIMIT 2").all() as { person_ref: string }[];
+  process.env.LINGONG_DATA = temp;
+  process.env.AUTH_MODE = "enabled";
+  process.env.NODE_ENV = "test";
+  (await resetDatabase());
+  const db = postgresDb();
+  for (const skill of ["crawler_collect", "creator_discovery"])
+    (await setAgentSkill("agent:discovery-test", skill, true, 0));
+  (await seedPublishedAgent("agent:discovery-test"));
+  (await createAgentBinding({ agent_id: "agent:discovery-test", target_type: "organization_unit", target_id: "org:lt_team", company_id: COMPANY, source: "test" }));
+  const people = (await db.many("SELECT person_ref FROM organization_memberships WHERE org_unit_id='org:lt_team' AND status='active' ORDER BY person_ref LIMIT 2")) as {
+    person_ref: string;
+  }[];
   expect(people.length).toBe(2);
   for (let i = 0; i < 2; i++) {
-    db.prepare(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-      VALUES(?,?,?,'test-password','["employee"]','["LT"]','',1,'now','now')`).run(`employee-${i}`, `employee-${i}`, `employee-${i}`);
-    db.prepare("UPDATE organization_people SET user_id=? WHERE person_ref=?").run(`employee-${i}`, people[i].person_ref);
+    (await db.execute(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
+      VALUES($1,$2,$3,'test-password','["employee"]','["LT"]','',1,'now','now')`, `employee-${i}`, `employee-${i}`, `employee-${i}`));
+    (await db.execute("UPDATE organization_people SET user_id=$1 WHERE person_ref=$2", `employee-${i}`, people[i].person_ref));
   }
-  users = [0, 1].map(i => mapUser(db.prepare("SELECT * FROM users WHERE id=?").get(`employee-${i}`) as never));
-  const credential = configureCrawlerFixture("http://crawler.example.test/mcp");
-  setSkillConnector("crawler_collect", "claw", true, 0);
-  db.prepare(`INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('starrykol','Starry',1,'configured','now')
-    ON CONFLICT(id) DO UPDATE SET label=EXCLUDED.label,enabled=EXCLUDED.enabled,status=EXCLUDED.status,updated_at=EXCLUDED.updated_at`).run();
-  setSkillConnector("creator_discovery", "starrykol", true, 0);
-  setConnectorConfig("starrykol", { url: "http://starry.example.test/mcp", bearer_secret_ref: credential.id }, 0);
-  setToolPolicy("starrykol", "importKolProfilesFromCrawler", { enabled: true, risk: "L3", access: "write", schema_hash: "a".repeat(64) }, 0);
-  setSkillTool("creator_discovery", "starrykol", "importKolProfilesFromCrawler", true, 0);
+  users = (await Promise.all((await Promise.all((await Promise.all([0, 1].map(async (i) => (await mapUser((await db.one("SELECT * FROM users WHERE id=$1", `employee-${i}`)) as never)))))))));
+  const credential = (await configureCrawlerFixture("http://crawler.example.test/mcp"));
+  (await setSkillConnector("crawler_collect", "claw", true, 0));
+  (await db.execute(`INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('starrykol','Starry',1,'configured','now')
+    ON CONFLICT(id) DO UPDATE SET label=EXCLUDED.label,enabled=EXCLUDED.enabled,status=EXCLUDED.status,updated_at=EXCLUDED.updated_at`));
+  (await setSkillConnector("creator_discovery", "starrykol", true, 0));
+  (await setConnectorConfig("starrykol", { url: "http://starry.example.test/mcp", bearer_secret_ref: credential.id }, 0));
+  (await setToolPolicy("starrykol", "importKolProfilesFromCrawler", { enabled: true, risk: "L3", access: "write", schema_hash: "a".repeat(64) }, 0));
+  (await setSkillTool("creator_discovery", "starrykol", "importKolProfilesFromCrawler", true, 0));
   for (let i = 0; i < 2; i++) {
     await postgresPool().query(`INSERT INTO runtime_actions(id,actor_id,session_id,context_json,connector_id,tool_name,args_json,snapshot,proposal_key,state)
       VALUES($1,$2,$3,$4,'claw','start_crawl','{}','test-version',$1,'succeeded')`, [`action-${i}`, users[i].id, ctx(users[i].id).sessionId, JSON.stringify(ctx(users[i].id))]);
@@ -76,20 +82,21 @@ beforeEach(async () => {
   vi.mocked(importKolProfilesFromCrawlerConfirmed).mockReset();
   vi.mocked(lookupImportedKolUid).mockReset();
 });
-afterEach(() => { setKolJevFetch(); delete process.env.OPENROUTER_API_KEY; resetConn(); fs.rmSync(temp, { recursive: true, force: true }); });
-
+afterEach(async () => { setKolJevFetch(); delete process.env.OPENROUTER_API_KEY; (await resetDatabase()); fs.rmSync(temp, { recursive: true, force: true }); });
 it("atomically assigns one employee, hides other employees, and does not repeat a successful import", async () => {
   vi.mocked(importKolProfilesFromCrawlerConfirmed).mockResolvedValue({ kol_uid: "KOLCLAIM001" });
-  const versions = await Promise.all([version(0), version(1)]);
-  const results = await Promise.allSettled([command(0, "follow", versions[0]), command(1, "follow", versions[1])]);
+  const versions = await Promise.all([(version(0)), (version(1))]);
+  const results = await Promise.allSettled([(command(0, "follow", versions[0])), (command(1, "follow", versions[1]))]);
   expect(results.filter(r => r.status === "fulfilled")).toHaveLength(1);
   const winner = results[0].status === "fulfilled" ? 0 : 1, loser = 1 - winner;
   expect(await command(winner, "follow", versions[winner])).toMatchObject({ ok: true, reused: true });
-  expect(await acting(loser, () => runtimeCandidateViews(ctx(users[loser].id), `action-${loser}`, [candidate]))).toEqual([]);
-  expect((await acting(loser, () => discoveryResultContext(ctx(users[loser].id))))[0].candidates).toEqual([]);
+  expect(await acting(loser, async () => (await runtimeCandidateViews(ctx(users[loser].id), `action-${loser}`, [candidate])))).toEqual([]);
+  expect((await acting(loser, async () => (await discoveryResultContext(ctx(users[loser].id)))))[0].candidates).toEqual([]);
   expect(vi.mocked(importKolProfilesFromCrawlerConfirmed)).toHaveBeenCalledTimes(1);
   const follows = (await postgresPool().query("SELECT * FROM kol_follow_index WHERE status='active'")).rows;
-  expect(follows).toHaveLength(1); expect(follows[0].last_effective_mail_at).toBeNull(); expect(follows[0].collaboration_id).toBeNull();
+  expect(follows).toHaveLength(1);
+  expect(follows[0].last_effective_mail_at).toBeNull();
+  expect(follows[0].collaboration_id).toBeNull();
   await postgresPool().query(`INSERT INTO kol_profile_index(id,company_id,kol_uid,platform,platform_creator_id,ingest_source,pool_status,created_at,updated_at)
     VALUES('duplicate',$1,'formal-duplicate','youtube',$2,'starry','open','now','now')`, [COMPANY, candidate.id]);
   const pool = await readPublicPoolPage(parsePoolPageOptions({}), COMPANY);
@@ -100,8 +107,8 @@ it("atomically assigns one employee, hides other employees, and does not repeat 
 it("persists task-local ignore/restore and rejects stale/unconfirmed actions", async () => {
   const v = await version();
   await command(0, "ignore", v);
-  expect(await acting(0, () => runtimeCandidateViews(ctx(users[0].id), 'action-0', [candidate]))).toEqual([expect.objectContaining({ ignored: true })]);
-  expect(await acting(1, () => runtimeCandidateViews(ctx(users[1].id), 'action-1', [candidate]))).toEqual([expect.objectContaining({ ignored: false })]);
+  expect(await acting(0, async () => (await runtimeCandidateViews(ctx(users[0].id), 'action-0', [candidate])))).toEqual([expect.objectContaining({ ignored: true })]);
+  expect(await acting(1, async () => (await runtimeCandidateViews(ctx(users[1].id), 'action-1', [candidate])))).toEqual([expect.objectContaining({ ignored: false })]);
   await expect(command(0, "follow", v)).rejects.toMatchObject({ detail: { code: "candidate_ignored" } });
   await command(0, "restore", v);
   await expect(command(0, "follow", "stale")).rejects.toMatchObject({ detail: { code: "candidate_changed" } });
@@ -194,9 +201,8 @@ it("follow still waits while an import is genuinely dispatching", async () => {
   expect(vi.mocked(importKolProfilesFromCrawlerConfirmed)).not.toHaveBeenCalled();
   expect(await importState()).toBe("dispatching");
 });
-
 it("follow reconciles an orphaned dispatching import", async () => {
-  await seedImportRow("dispatching", 11 * 60_000);
+  await seedImportRow("dispatching", 11 * 60000);
   vi.mocked(lookupImportedKolUid).mockResolvedValue("kol_uid_123");
   const v = await version();
   const result = await command(0, "follow", v);
@@ -209,16 +215,16 @@ it("follow reports pool (not follow) when the post-follow Starry write fails", a
   const { HttpFail } = await import("../src/host/errors.js");
   await seedImportRow("uncertain");
   vi.mocked(lookupImportedKolUid).mockResolvedValue("");
-  vi.mocked(importKolProfilesFromCrawlerConfirmed).mockRejectedValue(
-    new HttpFail(502, { code: "import_creator_failed", message: "写入红人档案失败，未加入跟进。请稍后重试。" }));
+  vi.mocked(importKolProfilesFromCrawlerConfirmed).mockRejectedValue(new HttpFail(502, { code: "import_creator_failed", message: "写入红人档案失败，未加入跟进。请稍后重试。" }));
   const v = await version();
   const result = await command(0, "follow", v);
   // 跟进本身成功，失败的只是写公海：文案不得出现自相矛盾的"未加入跟进"。
   expect(result).toMatchObject({ ok: true, followed: true, starry_imported: false,
     starry_error: expect.stringContaining("未加入公海") });
-  expect(String((result as { starry_error?: string }).starry_error || "")).not.toContain("未加入跟进");
+  expect(String((result as {
+    starry_error?: string;
+  }).starry_error || "")).not.toContain("未加入跟进");
 });
-
 it("re-follow reconciles uncertain Starry import without creating a second owner", async () => {
   vi.mocked(importKolProfilesFromCrawlerConfirmed).mockRejectedValue(new Error("first import failed"));
   const v = await version();
@@ -279,50 +285,49 @@ it("never migrates a placeholder follow over another employee's target UID owner
   expect((await postgresPool().query("SELECT employee_id FROM kol_follow_index WHERE id='other-owner'")).rows[0].employee_id).toBe(users[1].id);
   expect((await postgresPool().query("SELECT kol_uid FROM kol_follow_index WHERE employee_id=$1 AND status='active'", [users[0].id])).rows[0].kol_uid).toBe(`candidate:youtube:${candidate.id}`);
 });
-
 async function enqueueScore() {
-  await acting(0, () => postgresTransaction(client => enqueueCandidateAssessments("action-0", ctx(users[0].id), [candidate], client)));
+  await acting(0, async () => (await postgresTransaction(async (client) => (await enqueueCandidateAssessments("action-0", ctx(users[0].id), [candidate], client)))));
   return (await postgresPool().query("SELECT * FROM execution_jobs WHERE job_type='discovery.score' ORDER BY created_at DESC")).rows[0];
 }
 const assessment = { potential_score: 83, risk_score: 25, potential_confidence: 0.8, risk_confidence: 0.9,
   potential_probabilities: '{"high_potential":0.66,"watch":0.34}', risk_probabilities: '{"normal":0.9,"watch":0.1}',
   model: "jev-1.13", version: "jev-kol-v1", assessed_at: "2026-10-09T01:01:00Z", criteria_summary: "关键词 camping" };
-
 it("deduplicates scoring, persists before import, and reuses the same score after import and reconnect", async () => {
-  const job = await enqueueScore(); await enqueueScore();
+  const job = await enqueueScore();
+  await enqueueScore();
   expect((await postgresPool().query("SELECT * FROM execution_jobs WHERE job_type='discovery.score'")).rows).toHaveLength(1);
   expect((await postgresPool().query("SELECT * FROM kol_candidate_assessments")).rows).toHaveLength(1);
-  expect((await acting(0, () => runtimeCandidateViews(ctx(users[0].id), "action-0", [candidate])))[0].assessment).toMatchObject({ state: "scoring", execution_state: "queued", potential_score: null });
+  expect((await acting(0, async () => (await runtimeCandidateViews(ctx(users[0].id), "action-0", [candidate]))))[0].assessment).toMatchObject({ state: "scoring", execution_state: "queued", potential_score: null });
   const snapshot = await version();
-  await Promise.all([command(0, "score", snapshot), command(0, "score", snapshot)]);
+  await Promise.all([(command(0, "score", snapshot)), (command(0, "score", snapshot))]);
   expect((await postgresPool().query("SELECT * FROM execution_jobs WHERE job_type='discovery.score'")).rows).toHaveLength(1);
   const scorer = vi.fn().mockResolvedValue(assessment);
-  await scoreDiscoveryCandidate({ ...job, attempts: 1 }, async () => {}, scorer);
-  await scoreDiscoveryCandidate({ ...job, attempts: 1 }, async () => {}, scorer);
+  await scoreDiscoveryCandidate({ ...job, attempts: 1 }, async () => { }, scorer);
+  await scoreDiscoveryCandidate({ ...job, attempts: 1 }, async () => { }, scorer);
   expect(scorer).toHaveBeenCalledTimes(1);
   await command(0, "score", snapshot);
   expect((await postgresPool().query("SELECT * FROM execution_jobs WHERE job_type='discovery.score'")).rows).toHaveLength(1);
   expect(scorer.mock.calls[0][0].avg_plays).toBeNull();
   vi.mocked(importKolProfilesFromCrawlerConfirmed).mockResolvedValue({ kol_uid: "starry-scored" });
   await command(0, "ingest", await version());
-  resetConn();
-  const view = (await acting(0, () => runtimeCandidateViews(ctx(users[0].id), "action-0", [candidate])))[0];
+  (await resetDatabase());
+  const view = (await acting(0, async () => (await runtimeCandidateViews(ctx(users[0].id), "action-0", [candidate]))))[0];
   expect(view.assessment).toMatchObject({ state: "scored", execution_state: "scored", potential_score: 83, version: "jev-kol-v1" });
   const pool = await readPublicPoolPage(parsePoolPageOptions({}), COMPANY);
   expect(pool.items.find(row => row.kol_uid === "starry-scored")).toMatchObject({ potential_score: 83, risk_score: 25,
     assessment_state: "scored", assessed_at: assessment.assessed_at, assessment_criteria: assessment.criteria_summary });
   expect((await postgresPool().query("SELECT kol_uid FROM kol_candidate_assessments")).rows[0].kol_uid).toBe("starry-scored");
 });
-
 it("records scoring failure without a zero, supports explicit retry, and never overwrites a success on replay", async () => {
   const job = await enqueueScore();
-  await expect(scoreDiscoveryCandidate({ ...job, attempts: 3, max_attempts: 3 }, async () => {}, vi.fn().mockRejectedValue(new Error("secret transport body")))).rejects.toThrow("Candidate assessment failed");
-  const failed = (await acting(0, () => runtimeCandidateViews(ctx(users[0].id), "action-0", [candidate])))[0].assessment as Record<string, unknown>;
-  expect(failed).toMatchObject({ state: "failed", potential_score: null }); expect(JSON.stringify(failed)).not.toContain("secret");
+  await expect(scoreDiscoveryCandidate({ ...job, attempts: 3, max_attempts: 3 }, async () => { }, vi.fn().mockRejectedValue(new Error("secret transport body")))).rejects.toThrow("Candidate assessment failed");
+  const failed = (await acting(0, async () => (await runtimeCandidateViews(ctx(users[0].id), "action-0", [candidate]))))[0].assessment as Record<string, unknown>;
+  expect(failed).toMatchObject({ state: "failed", potential_score: null });
+  expect(JSON.stringify(failed)).not.toContain("secret");
   await command(0, "score", await version());
   expect((await postgresPool().query("SELECT state FROM kol_candidate_assessments")).rows[0].state).toBe("queued");
   const retry = (await postgresPool().query("SELECT * FROM execution_jobs WHERE job_type='discovery.score' ORDER BY created_at DESC")).rows[0];
-  await scoreDiscoveryCandidate({ ...retry, attempts: 1 }, async () => {}, vi.fn().mockResolvedValue(assessment));
+  await scoreDiscoveryCandidate({ ...retry, attempts: 1 }, async () => { }, vi.fn().mockResolvedValue(assessment));
   await enqueueScore();
   expect((await postgresPool().query("SELECT state FROM kol_candidate_assessments")).rows[0].state).toBe("scored");
 });
@@ -331,22 +336,25 @@ it("rechecks ownership before scoring and refuses another employee's candidate",
   const job = await enqueueScore();
   await command(1, "follow", await version(1));
   const scorer = vi.fn().mockResolvedValue(assessment);
-  await expect(scoreDiscoveryCandidate({ ...job, attempts: 3, max_attempts: 3 }, async () => {}, scorer)).rejects.toThrow("Candidate assessment failed");
+  await expect(scoreDiscoveryCandidate({ ...job, attempts: 3, max_attempts: 3 }, async () => { }, scorer)).rejects.toThrow("Candidate assessment failed");
   expect(scorer).not.toHaveBeenCalled();
 });
-
 it("dispatches the durable job through the existing JEV SDK with this task's conditions and preserves zero confidence", async () => {
   const db = postgresPool();
   for (const [session, keyword] of [[ctx(users[0].id).sessionId, "camping"], ["unrelated-session", "unrelated-keyword"]]) {
     await db.query("INSERT INTO sessions(id,title,created_at,updated_at) VALUES($1,'discovery','now','now')", [session]);
     await db.query(`INSERT INTO tickets(id,owner_user_id,task_type,title,skill,profile,session_id,input,created_at,updated_at)
-      VALUES($1,$2,'discovery','Discovery','crawler_collect','lead',$1,$3,'now','now')`,
-    [session, users[0].id, JSON.stringify({ discovery_workspace: { brief: { platforms: ["youtube"],
+      VALUES($1,$2,'discovery','Discovery','crawler_collect','lead',$1,$3,'now','now')`, [session, users[0].id, JSON.stringify({ discovery_workspace: { brief: { platforms: ["youtube"],
       region: "global_en", keywords: [keyword], min_followers: 10000, min_avg_plays_10: 5000 } } })]);
   }
   process.env.OPENROUTER_API_KEY = "test-only-key";
   const fetcher = vi.fn(async (_input: Parameters<typeof fetch>[0], init?: RequestInit) => {
-    const body = JSON.parse(String(init?.body)) as { state: { public_profile: string; target_criteria: string } };
+    const body = JSON.parse(String(init?.body)) as {
+      state: {
+        public_profile: string;
+        target_criteria: string;
+      };
+    };
     const profile = JSON.parse(body.state.public_profile).public_profile;
     expect(profile).toMatchObject({ handle: candidate.id, average_plays: "未提供" });
     expect(body.state.target_criteria).toContain("camping");
@@ -362,7 +370,7 @@ it("dispatches the durable job through the existing JEV SDK with this task's con
   expect(await processExecutionJobById(job.id, "score-test-worker")).toMatchObject({ handled: true, outcome: "processed" });
   expect(await processExecutionJobById(job.id, "score-test-worker")).toBeNull();
   expect(fetcher).toHaveBeenCalledTimes(1);
-  const view = (await acting(0, () => runtimeCandidateViews(ctx(users[0].id), "action-0", [candidate])))[0];
+  const view = (await acting(0, async () => (await runtimeCandidateViews(ctx(users[0].id), "action-0", [candidate]))))[0];
   expect(view.assessment).toMatchObject({ state: "scored", potential_score: 83, potential_confidence: 0,
     risk_score: 20, criteria_summary: expect.stringContaining("camping") });
   expect((await db.query("SELECT status FROM execution_jobs WHERE id=$1", [job.id])).rows[0].status).toBe("succeeded");
@@ -375,11 +383,10 @@ it("rejects an invalid JEV probability response and keeps the score empty", asyn
     risk: { type: "choice", choice: "normal", confidence: 0.9 },
   } }), { status: 200, headers: { "content-type": "application/json" } }));
   const job = await enqueueScore();
-  await expect(scoreDiscoveryCandidate({ ...job, attempts: 3, max_attempts: 3 }, async () => {})).rejects.toThrow("Candidate assessment failed");
-  const view = (await acting(0, () => runtimeCandidateViews(ctx(users[0].id), "action-0", [candidate])))[0];
+  await expect(scoreDiscoveryCandidate({ ...job, attempts: 3, max_attempts: 3 }, async () => { })).rejects.toThrow("Candidate assessment failed");
+  const view = (await acting(0, async () => (await runtimeCandidateViews(ctx(users[0].id), "action-0", [candidate]))))[0];
   expect(view.assessment).toMatchObject({ state: "failed", potential_score: null, risk_score: null });
 });
-
 it("ingest retries the Starry write for your own followed candidate without duplicating ownership", async () => {
   vi.mocked(importKolProfilesFromCrawlerConfirmed).mockRejectedValue(new Error("test transport timeout"));
   const first = await command(0, "follow", await version());

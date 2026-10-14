@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { databaseEngine } from "../db.js";
+import { databaseEngine } from "../postgres/access.js";
 import { startNativeTodayPlan } from "../postgres/today-plan-repository.js";
 import { TASK_MEMORY } from "../host/memory-kinds.js";
 import { ownerId, PLAN_SCOPES, SCOPE_TABLE, packTodayPlanContext, planningRunInput, planningHarnessMount, planningRuntimeIdentity } from "../host/today-plan-context.js";
@@ -8,13 +8,11 @@ import { loadTodayTaskResults } from "../host/today-tasks.js";
 import { startTodayAnalyze, startTodayPlan, todayBriefSnapshot } from "../host/today-plan-run.js";
 import { HttpFail } from "../host/errors.js";
 import type { Json } from "../types.js";
-
 export const homeToday = new Hono();
-
 /** One plan pointer serves both Today and Todo projections. */
-homeToday.get("/workbench/plan", (c) => {
+homeToday.get("/workbench/plan", async (c) => {
   c.header("Cache-Control", "no-store");
-  const snapshot = todayBriefSnapshot(ownerId(), "today");
+  const snapshot = (await todayBriefSnapshot(ownerId(), "today"));
   return c.json({
     ...snapshot,
     plan_id: snapshot.work_item_id || null,
@@ -33,8 +31,8 @@ homeToday.post("/workbench/plan-runs", async (c) => {
   }
   const owner = ownerId();
   const started = databaseEngine() === "postgres"
-    ? await startNativeTodayPlan({ owner, taskType: "today_plan", title: "统一工作计划", scope: "today", producer: mode, payload: planningRunInput(packTodayPlanContext(owner, "today"), {}, "today"), extraPayload: { producer: mode }, queuedLabel: "工作计划已入队", progress: [] })
-    : startTodayPlan(owner, "today", mode);
+    ? await startNativeTodayPlan({ owner, taskType: "today_plan", title: "统一工作计划", scope: "today", producer: mode, payload: planningRunInput((await packTodayPlanContext(owner, "today")), {}, "today"), extraPayload: { producer: mode }, queuedLabel: "工作计划已入队", progress: [] })
+    : (await startTodayPlan(owner, "today", mode));
   return c.json({
     ...started,
     mode,
@@ -50,22 +48,20 @@ homeToday.post("/workbench/plan-runs", async (c) => {
 /** Compatibility routes per pane scope; both panes read and start one canonical work plan. */
 for (const scope of PLAN_SCOPES) {
   const cfg = SCOPE_TABLE[scope];
-
   /** Cover memory GET. Zero model. Not the display task list. */
-  homeToday.get(`/home/${scope}-brief`, (c) => {
+  homeToday.get(`/home/${scope}-brief`, async (c) => {
     c.header("Cache-Control", "no-store");
     return c.json({
-      ...todayBriefSnapshot(ownerId(), scope),
+      ...(await todayBriefSnapshot(ownerId(), scope)),
       memory_kind: cfg.memoryKindCover,
       domain: "summary",
       layer: "display",
     });
   });
-
   /** Result memory GET: Codex-processed tasks for display. Zero model. */
-  homeToday.get(`/home/${scope}-tasks`, (c) => {
+  homeToday.get(`/home/${scope}-tasks`, async (c) => {
     c.header("Cache-Control", "no-store");
-    const results = loadTodayTaskResults(ownerId(), scope);
+    const results = (await loadTodayTaskResults(ownerId(), scope));
     return c.json({
       memory_kind: cfg.memoryKindResult,
       domain: "task",
@@ -84,8 +80,8 @@ for (const scope of PLAN_SCOPES) {
   homeToday.post(`/home/${scope}-brief/plan`, async (c) => {
     const owner = ownerId();
     const started = databaseEngine() === "postgres"
-      ? await startNativeTodayPlan({ owner, taskType: "today_plan", title: "统一工作计划", scope: "today", producer: "agent_plan", payload: planningRunInput(packTodayPlanContext(owner, "today"), {}, "today"), extraPayload: { producer: "agent_plan" }, queuedLabel: "工作计划已入队", progress: [] })
-      : startTodayPlan(owner, scope, "agent_plan");
+      ? await startNativeTodayPlan({ owner, taskType: "today_plan", title: "统一工作计划", scope: "today", producer: "agent_plan", payload: planningRunInput((await packTodayPlanContext(owner, "today")), {}, "today"), extraPayload: { producer: "agent_plan" }, queuedLabel: "工作计划已入队", progress: [] })
+      : (await startTodayPlan(owner, scope, "agent_plan"));
     return c.json({
       ...started,
       // Both scopes answer the same shape; the pane renders one component.
@@ -124,7 +120,7 @@ homeToday.post("/home/today-brief/enqueue", async (c) => {
   const payload: Json = { mode: "today_analyze", agent_id: identity.agent_id, expert_id: identity.session_identity, skip_user_memory: true, objects, planning_harness: planningHarnessMount("today_analyze") };
   const started = databaseEngine() === "postgres"
     ? await startNativeTodayPlan({ owner, taskType: "today_analyze", title: "今日对象分析", scope: "today", producer: "agent_plan", payload, extraPayload: { prompt: String(body.text || "分析所选对象并建议下一步，不要改状态。") }, queuedLabel: "对象分析已入队", progress: [] })
-    : startTodayAnalyze(body, owner);
+    : (await startTodayAnalyze(body, owner));
   return c.json({
     ...started,
     task_type: "today_analyze",

@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { setAgentSubmissionOverride } from "../src/contract-scope.js";
-import { resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { seedAll } from "../src/seed.js";
 import { authenticatedTestApp, seedRuntimeTestActor } from "./fixtures/runtime-auth.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
@@ -18,7 +18,6 @@ let app: Hono;
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-codex-"));
-  process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "real";
   process.env.AUTH_MODE = "enabled";
@@ -26,29 +25,27 @@ beforeEach(async () => {
   fs.mkdirSync(path.join(tmp, "emptybin"));
   delete process.env.CODEX_BIN;
   setAgentSubmissionOverride();
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = authenticatedTestApp(createApp(), seedRuntimeTestActor(["creator_discovery"]));
-  seedWorkbenchFixtures();
+  app = authenticatedTestApp((await createApp()), (await seedRuntimeTestActor(["creator_discovery"])));
+  (await seedWorkbenchFixtures());
 });
-
-afterEach(() => {
+afterEach(async () => {
   setAgentSubmissionOverride();
-  resetConn();
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
 });
-
 describe("codex", () => {
   it("accepts employee submission once the KOL Agent is published", async () => {
-    const ses = (await (
-      await app.request("/api/sessions", {
+    const ses = (await (await app.request("/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: "codex" }),
-      })
-    ).json()) as { id: string };
+    })).json()) as {
+      id: string;
+    };
     const res = await app.request(`/api/sessions/${ses.id}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -63,23 +60,13 @@ describe("codex", () => {
     expect(data.agent_status).toBe("running");
     expect(data.detail).toBeUndefined();
   });
-
-  it("blocks employee submission when the publish gate is stubbed unpublished", async () => {
+  it("blocks employee KOL analysis submission when the explicit publish gate is unpublished", async () => {
+    // 这是 publish gate 的实际入口；通用消息入口由运行时 Agent PEP 保护。
     setAgentSubmissionOverride(false);
-    const ses = (await (
-      await app.request("/api/sessions", {
+    const res = await app.request("/api/home/kol-analyze/enqueue", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "codex unpublished" }),
-      })
-    ).json()) as { id: string };
-    const res = await app.request(`/api/sessions/${ses.id}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text: "搜索 YouTube 露营达人",
-        intent: "creator_discovery",
-      }),
+      body: JSON.stringify({ kol_uids: ["KOLTEST001"] }),
     });
     expect(res.status).toBe(409);
     const data = (await res.json()) as Json;
@@ -91,8 +78,10 @@ describe("codex", () => {
     const { CodexUnavailable } = await import("../src/worker/errors.js");
     try {
       findCodex();
-    } catch (e) {
-      if (e instanceof CodexUnavailable) return;
+    }
+    catch (e) {
+      if (e instanceof CodexUnavailable)
+        return;
       throw e;
     }
   });

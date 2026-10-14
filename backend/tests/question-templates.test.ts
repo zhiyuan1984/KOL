@@ -7,22 +7,24 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { resetConn } from "../src/db.js";
+import { resetDatabase } from "../src/postgres/access.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { freshTestDatabase } from "./support/pg.js";
-
+import { loginKnowledgeAdministrator, publishKnowledgeThroughApproval } from "./helpers/finalfix-knowledge-management.js";
 type Json = Record<string, unknown>;
-
 let tmp: string;
 let app: Hono;
-
-async function request(
-  method: string,
-  url: string,
-  body?: unknown,
-): Promise<{ status: number; json: () => Promise<Json>; text: () => Promise<string> }> {
+let adminCookie = "";
+let previousAuthMode: string | undefined;
+async function request(method: string, url: string, body?: unknown, cookie = adminCookie): Promise<{
+  status: number;
+  json: () => Promise<Json>;
+  text: () => Promise<string>;
+}> {
   const init: RequestInit = { method, headers: {} };
+  if (cookie)
+    (init.headers as Record<string, string>).Cookie = cookie;
   if (body !== undefined) {
     (init.headers as Record<string, string>)["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
@@ -39,21 +41,24 @@ async function request(
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-q-"));
-  process.env.LINGONG_DB = path.join(tmp, "q.db");
-  process.env.LINGONG_DATA = tmp;
+  previousAuthMode = process.env.AUTH_MODE;
+  process.env.AUTH_MODE = "enabled";
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
+  app = (await createApp());
+  adminCookie = await loginKnowledgeAdministrator(app);
+  (await seedWorkbenchFixtures());
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
+  if (previousAuthMode === undefined)
+    delete process.env.AUTH_MODE;
+  else
+    process.env.AUTH_MODE = previousAuthMode;
 });
-
 describe("public pool question templates", () => {
   it("seeds four published templates with a body for every slot", async () => {
     const rows = await (await request("GET", "/api/knowledge/question-templates")).json() as unknown as Json[];
@@ -78,15 +83,10 @@ describe("public pool question templates", () => {
       status: "draft",
     })).json();
     expect(created.kind).toBe("question_template");
-
     const before = await (await request("GET", "/api/knowledge/question-templates")).json() as unknown as Json[];
     expect(before.map((row) => row.knowledge_id)).not.toContain(created.id);
-
-    const approved = await (await request("POST", `/api/admin/knowledge/${created.id}/approve`, {
-      expected_version: created.current_version,
-    })).json();
-    expect(approved.status).toBe("published");
-
+    const receipt = await publishKnowledgeThroughApproval(String(created.id));
+    expect(receipt.publishedVersion).toBe(1);
     const after = await (await request("GET", "/api/knowledge/question-templates")).json() as unknown as Json[];
     const scoreRows = after.filter((row) => row.slot === "score");
     expect(scoreRows.map((row) => row.knowledge_id)).toContain(created.id);
@@ -103,8 +103,9 @@ describe("public pool question templates", () => {
       kind: "question_template",
       base_id: "kbase_legacy",
       tags: "pool-question:not-a-slot",
-      status: "published",
+      status: "draft",
     })).json();
+    await publishKnowledgeThroughApproval(String(bogus.id));
     const again = await (await request("GET", "/api/knowledge/question-templates")).json() as unknown as Json[];
     expect(again.map((row) => row.knowledge_id)).not.toContain(bogus.id);
   });

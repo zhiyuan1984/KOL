@@ -1,4 +1,4 @@
-import { audit, getConn, nowIso, tx } from "../db.js";
+import { audit, postgresDb, nowIso, pgTransaction } from "../postgres/access.js";
 import { appendBusinessEvent, stageEventType } from "../business-events.js";
 import { nid } from "../ids.js";
 import { BY_CODE, label as stageLabel, normalizeStage, STAGES } from "../stages.js";
@@ -26,21 +26,24 @@ export function dictionaryOptions(parentKey: string): Json[] {
       { key: "PQ", label: "Power Queen", mailbox: "kol.pq@powerqueen.example" },
     ];
   }
-  if (parentKey === "cooperation_stage" || parentKey === "stages") return stageOptions();
+  if (parentKey === "cooperation_stage" || parentKey === "stages")
+    return stageOptions();
   if (parentKey === "kol_primary_platform" || parentKey === "kol_niche" || parentKey === "kol_follow_style" || parentKey === "kol_risk_tag") {
     return dictionaryOptionsFor(parentKey).map((row) => ({ key: row.code, label: row.name, code: row.code, name: row.name }));
   }
   return [];
 }
-
-export function confirmStage(lifecycleId: string, body: Json): Json {
+export async function confirmStage(lifecycleId: string, body: Json): Promise<Json> {
   const code = normalizeStage(String(body.stage_code || body.stageCode || ""));
   const actor = String(body.actor || "host");
-  if (!code) throw new Error("stage_code required");
-  const row = getConn().prepare("SELECT * FROM collaborations WHERE lifecycle_id = ?").get(lifecycleId) as Row | undefined;
-  if (!row) throw new KeyError(lifecycleId);
+  if (!code)
+    throw new Error("stage_code required");
+  const row = (await postgresDb().one("SELECT * FROM collaborations WHERE lifecycle_id = $1", lifecycleId)) as Row | undefined;
+  if (!row)
+    throw new KeyError(lifecycleId);
   const from = normalizeStage(String(row.stage_code));
-  if (!BY_CODE[code]) throw new Error(`unknown stage: ${code}`);
+  if (!BY_CODE[code])
+    throw new Error(`unknown stage: ${code}`);
   const supplied = (body.transition && typeof body.transition === "object" ? body.transition : {}) as Partial<StageTransitionInput>;
   const graphActor = String(supplied.recommender || body.recommender || "") === "fact_advance" ? "auto" : "human";
   assertStageTransition(from, code, graphActor, String(body.reason || supplied.reason_code || body.reason_code || ""));
@@ -66,45 +69,19 @@ export function confirmStage(lifecycleId: string, body: Json): Json {
     advancement_mode: String(supplied.advancement_mode || stage?.advancementMode || "旁路"),
   };
   const transitionId = nid("trn");
-  tx((c) => {
-    const updated = c
-      .prepare(
-        `UPDATE collaborations
-         SET stage_code = ?, days_in_stage = 0, stage_version = ?
-         WHERE lifecycle_id = ? AND stage_version = ?`,
-      )
-      .run(code, transition.data_version_after, lifecycleId, transition.data_version_before);
-    if (updated.changes !== 1) throw new Error("stage version conflict");
-    c.prepare("INSERT INTO starry_stage_writes (lifecycle_id, stage_code, actor, ts) VALUES (?,?,?,?)").run(
-      lifecycleId,
-      code,
-      actor,
-      occurredAt,
-    );
-    c.prepare(
-      `INSERT INTO stage_transitions
+  (await pgTransaction(async (c) => {
+    const updated = (await c.execute(`UPDATE collaborations
+         SET stage_code = $1, days_in_stage = 0, stage_version = $2
+         WHERE lifecycle_id = $3 AND stage_version = $4`, code, transition.data_version_after, lifecycleId, transition.data_version_before));
+    if (updated.changes !== 1)
+      throw new Error("stage version conflict");
+    (await c.execute("INSERT INTO starry_stage_writes (lifecycle_id, stage_code, actor, ts) VALUES ($1,$2,$3,$4)", lifecycleId, code, actor, occurredAt));
+    (await c.execute(`INSERT INTO stage_transitions
        (id, collaboration_id, lifecycle_id, from_stage, to_stage, reason_code, evidence,
         recommender, approver, occurred_at, data_version_before, data_version_after,
         capability_profile, advancement_mode)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      transitionId,
-      transition.collaboration_id,
-      lifecycleId,
-      transition.from_stage,
-      transition.to_stage,
-      transition.reason_code,
-      JSON.stringify(transition.evidence),
-      transition.recommender,
-      transition.approver,
-      transition.occurred_at,
-      transition.data_version_before,
-      transition.data_version_after,
-      transition.capability_profile,
-      transition.advancement_mode,
-    );
-    appendBusinessEvent(
-      {
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, transitionId, transition.collaboration_id, lifecycleId, transition.from_stage, transition.to_stage, transition.reason_code, JSON.stringify(transition.evidence), transition.recommender, transition.approver, transition.occurred_at, transition.data_version_before, transition.data_version_after, transition.capability_profile, transition.advancement_mode));
+    (await appendBusinessEvent({
         eventType: stageEventType(from, code),
         objectType: "collaboration",
         objectId: transition.collaboration_id,
@@ -122,17 +99,15 @@ export function confirmStage(lifecycleId: string, body: Json): Json {
         evidence: transition.evidence,
         idempotencyKey: `stage_transition:${transitionId}`,
         correlationId: lifecycleId,
-      },
-      { conn: c },
-    );
-  });
-  audit("starry", "starry.stage", {
+    }, { conn: c }));
+  }));
+  (await audit("starry", "starry.stage", {
     lifecycle_id: lifecycleId,
     transition_id: transitionId,
     from_stage: from,
     to_stage: code,
     actor,
-  });
+  }));
   return {
     ok: true,
     lifecycleId,
@@ -142,42 +117,30 @@ export function confirmStage(lifecycleId: string, body: Json): Json {
     transition,
   };
 }
-
-export function sendConversation(conversationId: string, body: Json): Json {
-  const row = getConn().prepare("SELECT * FROM collaborations WHERE conversation_id = ?").get(conversationId) as Row | undefined;
-  tx((c) => {
-    c.prepare(
-      `INSERT INTO starry_sends (conversation_id, from_addr, to_addr, cc, subject, body, ts)
-       VALUES (?,?,?,?,?,?,?)`,
-    ).run(
-      conversationId,
-      body.from || body.from_addr || null,
-      body.to || body.to_addr || null,
-      body.cc || "",
-      body.subject || "",
-      body.body || body.html || "",
-      nowIso(),
-    );
-  });
-  audit("starry", "starry.send", {
+export async function sendConversation(conversationId: string, body: Json): Promise<Json> {
+  const row = (await postgresDb().one("SELECT * FROM collaborations WHERE conversation_id = $1", conversationId)) as Row | undefined;
+  (await pgTransaction(async (c) => {
+    (await c.execute(`INSERT INTO starry_sends (conversation_id, from_addr, to_addr, cc, subject, body, ts)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`, conversationId, body.from || body.from_addr || null, body.to || body.to_addr || null, body.cc || "", body.subject || "", body.body || body.html || "", nowIso()));
+  }));
+  (await audit("starry", "starry.send", {
     conversation_id: conversationId,
     subject: body.subject,
     stage_before: row ? row.stage_code : null,
-  });
+  }));
   return { ok: true, conversationId, status: "sent" };
 }
-
-export function translateZh(body: Json): Json {
+export async function translateZh(body: Json): Promise<Json> {
   const text = String(body.text || body.body || "");
   const cached = String(body.zh || "");
   const zh = isUsableInternalZh(cached, text) ? cached : stubInternalZh(text);
-  audit("starry", "starry.translate_zh", { chars: text.length });
+  (await audit("starry", "starry.translate_zh", { chars: text.length }));
   return { ok: true, zh, internal_only: true };
 }
-
-export function getConversation(conversationId: string): Json | null {
-  const row = getConn().prepare("SELECT * FROM collaborations WHERE conversation_id = ?").get(conversationId) as Row | undefined;
-  if (!row) return null;
+export async function getConversation(conversationId: string): Promise<Json | null> {
+  const row = (await postgresDb().one("SELECT * FROM collaborations WHERE conversation_id = $1", conversationId)) as Row | undefined;
+  if (!row)
+    return null;
   return {
     id: row.conversation_id,
     lifecycleId: row.lifecycle_id,

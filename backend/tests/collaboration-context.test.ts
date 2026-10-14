@@ -11,7 +11,8 @@ let taskId: string;
 const policy = { schema: "work-order-collaboration.v1", action_id: "work_order.advance_stage",
   prerequisites: [{ template_code: "fixture_prior", template_version: 1 }],
   review: { company_id: "fixture-company", template_id: "fixture-review", template_version: 1, fields: {
-    collaboration_id: "col", work_order_id: "wo", action_id: "action", artifact_id: "artifact", artifact_version: "version", content_hash: "hash" } } };
+      collaboration_id: "col", work_order_id: "wo", action_id: "action", artifact_id: "artifact", artifact_version: "version", content_hash: "hash"
+    } } };
 const material = { text: "Isolated approval material" };
 const hash = collaborationContentHash(material);
 const values = { col: "fixture-col", wo: "fixture-next", action: "work_order.advance_stage", artifact: "fixture-artifact", version: 1, hash };
@@ -36,13 +37,12 @@ beforeEach(async () => {
       ('fixture-next-template','fixture_next',1,'Next','published','A3',$1,'fixture-actor')`, [JSON.stringify({ collaboration_dependencies: policy })]);
   await db.query(`INSERT INTO work_orders(id,task_id,template_id,template_code,template_version,status,title,automation_level,created_by,payload_json,stage_code)
     VALUES ('fixture-prior',$1,'fixture-prior-template','fixture_prior',1,'completed','Prior','A1','fixture-actor','{}',NULL),
-      ('fixture-next',$1,'fixture-next-template','fixture_next',1,'in_progress','Next','A3','fixture-actor',$2,'OUTREACHING')`,
-    [taskId, JSON.stringify({ collaboration_context: { company_id: "fixture-company", collaboration_id: "fixture-col", artifact_id: "fixture-artifact",
+      ('fixture-next',$1,'fixture-next-template','fixture_next',1,'in_progress','Next','A3','fixture-actor',$2,'OUTREACHING')`, [taskId, JSON.stringify({ collaboration_context: { company_id: "fixture-company", collaboration_id: "fixture-col", artifact_id: "fixture-artifact",
       artifact_version: 1, content_hash: hash, review_instance_id: "fixture-instance", prerequisite_work_order_ids: ["fixture-prior"] } })]);
   const definition = JSON.stringify({ fields: Object.values(policy.review.fields).map(id => ({ id, type: "text" })) });
   await db.query(`INSERT INTO review_templates(tenant,id,version,published_version,definition,updated_at) VALUES ('fixture-company','fixture-review',1,1,$1,$2)`, [definition, now]);
   await db.query(`INSERT INTO review_versions(tenant,template_id,version,definition,published_by,published_at) VALUES ('fixture-company','fixture-review',1,$1,'fixture-actor',$2)`, [definition, now]);
-  await postgresTransaction(async client => {
+  await postgresTransaction(async (client) => {
     await client.query(`INSERT INTO review_instances(tenant,id,template_id,template_version,version,requester,status,payload,updated_at)
       VALUES ('fixture-company','fixture-instance','fixture-review',1,1,'fixture-actor','approved',$1,$2)`, [payload(), now]);
     await client.query(`INSERT INTO review_events(id,tenant,resource_id,actor,action,version,detail,created_at)
@@ -50,15 +50,12 @@ beforeEach(async () => {
   });
   await db.query(`INSERT INTO review_participants(tenant,instance_id,user_id) VALUES ('fixture-company','fixture-instance','fixture-actor')`);
 });
-
-async function gate() { return workOrderCollaborationGate(postgresPool(), "fixture-actor", "fixture-next"); }
+async function gate() { return (await workOrderCollaborationGate(postgresPool(), "fixture-actor", "fixture-next")); }
 async function decision() {
   const current = await gate();
   return (await postgresPool().query(`INSERT INTO work_order_decisions(task_id,work_order_id,source_event_id,template_code,template_version,decision_mode,outcome,status,input_hash,input_json,judgment_json,actor_ref,idempotency_key)
-    VALUES ($1,'fixture-next','fixture-source','fixture_next',1,'shadow','advance_stage','recorded','fixture-hash',$2,'{}','fixture-actor','fixture-decision') RETURNING id`,
-    [taskId, JSON.stringify({ work_order: { id: "fixture-next", data_version: 1, stage_code: "OUTREACHING" }, collaboration_gate: current })])).rows[0].id;
+    VALUES ($1,'fixture-next','fixture-source','fixture_next',1,'shadow','advance_stage','recorded','fixture-hash',$2,'{}','fixture-actor','fixture-decision') RETURNING id`, [taskId, JSON.stringify({ work_order: { id: "fixture-next", data_version: 1, stage_code: "OUTREACHING" }, collaboration_gate: current })])).rows[0].id;
 }
-
 describe("native collaboration dependency and source-event boundaries", () => {
   it("matches only exact approval action, cooperation and immutable content basis", async () => {
     expect(await gate()).toMatchObject({ allowed: true, configured: true, review: { status: "approved", version: 1, round: 1 } });
@@ -86,7 +83,9 @@ describe("native collaboration dependency and source-event boundaries", () => {
     for (const status of ["withdrawn", "rejected", "reviewing"]) {
       await postgresPool().query("UPDATE review_instances SET status=$1,version=version+1,payload=$2 WHERE id='fixture-instance'", [status, payload(status, 2)]);
       const current = await gate();
-      expect(current.allowed).toBe(false); expect(current.blockers).toContain("review_not_approved"); expect(current.version).not.toBe(original);
+      expect(current.allowed).toBe(false);
+      expect(current.blockers).toContain("review_not_approved");
+      expect(current.version).not.toBe(original);
     }
   });
   it("hides another cooperation's approval and events, and rechecks brand revocation", async () => {
@@ -105,12 +104,12 @@ describe("native collaboration dependency and source-event boundaries", () => {
   });
   it("persists actual before/after and actor in the same review transaction, with rollback", async () => {
     const db = postgresPool();
-    await expect(postgresTransaction(async client => {
+    await expect(postgresTransaction(async (client) => {
       await client.query("UPDATE review_instances SET status='withdrawn',version=2,payload=$1 WHERE id='fixture-instance'", [payload("withdrawn")]);
       throw new Error("fixture rollback");
     })).rejects.toThrow("fixture rollback");
     expect((await db.query("SELECT count(*)::int n FROM collaboration_source_events WHERE source_type='review'")).rows[0].n).toBe(1);
-    await postgresTransaction(async client => {
+    await postgresTransaction(async (client) => {
       await client.query("UPDATE review_instances SET status='withdrawn',version=2,payload=$1 WHERE id='fixture-instance'", [payload("withdrawn")]);
       await client.query(`INSERT INTO review_events(id,tenant,resource_id,actor,action,version,detail,created_at) VALUES ('withdraw-event','fixture-company','fixture-instance','fixture-actor','withdraw',2,'{}',$1)`, [new Date().toISOString()]);
     });
@@ -148,7 +147,7 @@ describe("native collaboration dependency and source-event boundaries", () => {
     const holder = await postgresPool().connect(), competitor = await postgresPool().connect();
     try {
       await holder.query("BEGIN");
-      expect((await workOrderCollaborationGate(holder,"fixture-actor","fixture-next")).allowed).toBe(true);
+      expect((await workOrderCollaborationGate(holder, "fixture-actor", "fixture-next")).allowed).toBe(true);
       for (const sql of [
         "UPDATE organization_memberships SET status='ended' WHERE id='fixture-member'",
         "DELETE FROM review_participants WHERE instance_id='fixture-instance'",
@@ -162,8 +161,12 @@ describe("native collaboration dependency and source-event boundaries", () => {
       await holder.query("COMMIT");
       await competitor.query("UPDATE organization_memberships SET status='ended' WHERE id='fixture-member'");
       expect((await gate()).blockers).toContain("review_not_available");
-    } finally {
-      await holder.query("ROLLBACK"); await competitor.query("ROLLBACK"); holder.release(); competitor.release();
+    }
+    finally {
+      await holder.query("ROLLBACK");
+      await competitor.query("ROLLBACK");
+      holder.release();
+      competitor.release();
     }
   });
   it("rejects duplicate approval-field mappings and malformed published dependency rules", () => {

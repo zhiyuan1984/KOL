@@ -1,73 +1,68 @@
 import { Hono } from "hono";
 import { authDisabled, requireAdmin } from "../auth.js";
-import { audit, getConn, nowIso } from "../db.js";
+import { audit, postgresDb, nowIso } from "../postgres/access.js";
 import { HttpFail } from "../host/errors.js";
-import {
-  getAgentSkills,
-  getConnectorConfig,
-  getConnectorPolicies,
-  getSkillConnectors,
-  getSkillTools,
-  getToolPolicy,
-  setAgentSkill,
-  setConnectorConfig,
-  setSkillConnector,
-  setSkillTool,
-  setToolPolicy,
-  validateConnectorConfig,
-} from "../runtime/store.js";
+import { getAgentSkills, getConnectorConfig, getConnectorPolicies, getSkillConnectors, getSkillTools, getToolPolicy, setAgentSkill, setConnectorConfig, setSkillConnector, setSkillTool, setToolPolicy, validateConnectorConfig, } from "../runtime/store.js";
 import { previewOpenApi } from "../runtime/openapi.js";
 import { skillCoverage, type ToolMountState } from "../runtime/skill-coverage.js";
 import { taskDefinition } from "../tasks/registry.js";
 import { requireManagedConnector } from "../connectors/catalog.js";
-
 export const skillRuntimeRouter = new Hono();
-
-function runtimeAdmin() {
+async function runtimeAdmin() {
   // AUTH_MODE=disabled is useful only in the isolated test harness. Production
   // runtime governance must never silently become anonymously writable.
   if (authDisabled() && process.env.NODE_ENV !== "test") {
     throw new HttpFail(403, "runtime governance requires enabled authentication outside tests");
   }
-  return requireAdmin();
+  return (await requireAdmin());
 }
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return false;
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
 }
-
 function onlyFields(body: Record<string, unknown>, fields: readonly string[]): void {
   const allowed = new Set(fields);
-  if (Object.keys(body).some((key) => !allowed.has(key))) throw new HttpFail(400, "unsupported request field");
+  if (Object.keys(body).some((key) => !allowed.has(key)))
+    throw new HttpFail(400, "unsupported request field");
 }
-
-async function bodyObject(c: { req: { json: () => Promise<unknown> } }): Promise<Record<string, unknown>> {
+async function bodyObject(c: {
+  req: {
+    json: () => Promise<unknown>;
+  };
+}): Promise<Record<string, unknown>> {
   let body: unknown;
   try {
     body = await c.req.json();
-  } catch {
+  }
+  catch {
     throw new HttpFail(400, "request body must be JSON");
   }
-  if (!isPlainObject(body)) throw new HttpFail(400, "request body must be an object");
+  if (!isPlainObject(body))
+    throw new HttpFail(400, "request body must be an object");
   return body;
 }
-
 /** 挂载请求体可以整体缺省（＝覆盖扫描已上线技能），所以空 body 按 {} 处理。 */
-async function optionalBody(c: { req: { text: () => Promise<string> } }): Promise<Record<string, unknown>> {
+async function optionalBody(c: {
+  req: {
+    text: () => Promise<string>;
+  };
+}): Promise<Record<string, unknown>> {
   const text = await c.req.text();
-  if (!text.trim()) return {};
+  if (!text.trim())
+    return {};
   let body: unknown;
   try {
     body = JSON.parse(text);
-  } catch {
+  }
+  catch {
     throw new HttpFail(400, "request body must be JSON");
   }
-  if (!isPlainObject(body)) throw new HttpFail(400, "request body must be an object");
+  if (!isPlainObject(body))
+    throw new HttpFail(400, "request body must be an object");
   return body;
 }
-
 function expectedVersion(body: Record<string, unknown>): number {
   if (!("expected_version" in body)
     || typeof body.expected_version !== "number"
@@ -77,20 +72,22 @@ function expectedVersion(body: Record<string, unknown>): number {
   }
   return body.expected_version;
 }
-
 function enabled(body: Record<string, unknown>): boolean {
-  if (typeof body.enabled !== "boolean") throw new HttpFail(400, "enabled must be boolean");
+  if (typeof body.enabled !== "boolean")
+    throw new HttpFail(400, "enabled must be boolean");
   return body.enabled;
 }
-
 function requireManagedRuntimeConnector(connectorId: string): void {
   // Isolated runtime tests deliberately construct a generic connector fixture;
   // product routes outside that harness are limited to the fixed catalog.
-  if (process.env.NODE_ENV !== "test") requireManagedConnector(connectorId);
+  if (process.env.NODE_ENV !== "test")
+    requireManagedConnector(connectorId);
 }
-
 type DeclaredMountSkipReason = "policy_disabled" | "policy_unregistered" | "unknown_connector";
-type DeclaredMountSkipped = { tool_name: string; reason: DeclaredMountSkipReason };
+type DeclaredMountSkipped = {
+  tool_name: string;
+  reason: DeclaredMountSkipReason;
+};
 type DeclaredMountSkillResult = {
   skill_id: string;
   connector_bound: boolean;
@@ -105,9 +102,9 @@ const DECLARED_MOUNT_SKIP: Partial<Record<ToolMountState, DeclaredMountSkipReaso
   unregistered: "policy_unregistered",
   unknown_connector: "unknown_connector",
 };
-
 function declaredSkillIds(body: Record<string, unknown>): string[] | undefined {
-  if (body.skill_ids === undefined) return undefined;
+  if (body.skill_ids === undefined)
+    return undefined;
   const value = body.skill_ids;
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || !entry.trim())) {
     throw new HttpFail(400, "skill_ids must be a string array");
@@ -120,9 +117,9 @@ function declaredSkillIds(body: Record<string, unknown>): string[] | undefined {
  * 连接器本体与工具策略的启用是管理员在连接器控制台的显式动作，这里绝不代做；
  * 声明之外的工具也不挂。已启用行原样保留，所以重复调用只产生 unchanged。
  */
-function mountDeclaredTools(connectorId: string, requestedSkillIds: string[] | undefined, actor: string) {
-  const coverage = skillCoverage({ connectorId });
-  const connectorExists = Boolean(getConn().prepare("SELECT 1 FROM connectors WHERE id=?").get(connectorId));
+async function mountDeclaredTools(connectorId: string, requestedSkillIds: string[] | undefined, actor: string) {
+  const coverage = (await skillCoverage({ connectorId }));
+  const connectorExists = Boolean((await postgresDb().one("SELECT 1 FROM connectors WHERE id=$1", connectorId)));
   const skillIds = requestedSkillIds
     ?? coverage.skills.filter((skill) => skill.implementation === "live").map((skill) => skill.skill_id);
   const results: DeclaredMountSkillResult[] = [];
@@ -135,16 +132,17 @@ function mountDeclaredTools(connectorId: string, requestedSkillIds: string[] | u
     let connectorCreated = false;
     if (connectorExists) {
       // 工具绑定的前置是启用的父连接器绑定（store 会拦），所以父绑定先于逐条工具处理。
-      const binding = getSkillConnectors(skillId).find((row) => row.connector_id === connectorId);
+      const binding = (await getSkillConnectors(skillId)).find((row) => row.connector_id === connectorId);
       if (!binding) {
-        setSkillConnector(skillId, connectorId, true, 0);
+        (await setSkillConnector(skillId, connectorId, true, 0));
         connectorCreated = true;
-      } else if (Number(binding.enabled) !== 1) {
-        setSkillConnector(skillId, connectorId, true, Number(binding.version) || 0);
+      }
+      else if (Number(binding.enabled) !== 1) {
+        (await setSkillConnector(skillId, connectorId, true, Number(binding.version) || 0));
       }
       connectorBound = true;
     }
-    const existingTools = getSkillTools(skillId, connectorId);
+    const existingTools = (await getSkillTools(skillId, connectorId));
     for (const tool of declaredTools) {
       const reason = DECLARED_MOUNT_SKIP[tool.state];
       if (reason) {
@@ -157,16 +155,16 @@ function mountDeclaredTools(connectorId: string, requestedSkillIds: string[] | u
         unchanged.push(tool.tool_name);
         continue;
       }
-      setSkillTool(skillId, connectorId, tool.tool_name, true, Number(existing?.version) || 0);
+      (await setSkillTool(skillId, connectorId, tool.tool_name, true, Number(existing?.version) || 0));
       mounted.push(tool.tool_name);
     }
-    audit(actor, "runtime.skill_mount.declared", {
+    (await audit(actor, "runtime.skill_mount.declared", {
       connector_id: connectorId,
       skill_id: skillId,
       mounted,
       unchanged,
       skipped,
-    });
+    }));
     results.push({
       skill_id: skillId,
       connector_bound: connectorBound,
@@ -176,8 +174,7 @@ function mountDeclaredTools(connectorId: string, requestedSkillIds: string[] | u
       skipped,
     });
   }
-  const count = (pick: (result: DeclaredMountSkillResult) => unknown[]) =>
-    results.reduce((total, result) => total + pick(result).length, 0);
+  const count = (pick: (result: DeclaredMountSkillResult) => unknown[]) => results.reduce((total, result) => total + pick(result).length, 0);
   return {
     connector_id: connectorId,
     summary: {
@@ -189,72 +186,62 @@ function mountDeclaredTools(connectorId: string, requestedSkillIds: string[] | u
     skills: results,
   };
 }
-
-skillRuntimeRouter.get("/admin/runtime/agents/:agentId/skills", (c) => {
-  runtimeAdmin();
-  return c.json(getAgentSkills(c.req.param("agentId")));
+skillRuntimeRouter.get("/admin/runtime/agents/:agentId/skills", async (c) => {
+  (await runtimeAdmin());
+  return c.json((await getAgentSkills(c.req.param("agentId"))));
 });
-
 skillRuntimeRouter.put("/admin/runtime/agents/:agentId/skills/:skillId", async (c) => {
-  const admin = runtimeAdmin();
+  const admin = (await runtimeAdmin());
   const body = await bodyObject(c);
   onlyFields(body, ["enabled", "expected_version"]);
-  const row = setAgentSkill(c.req.param("agentId"), c.req.param("skillId"), enabled(body), expectedVersion(body));
-  audit(admin.id, "runtime.binding.updated", {
+  const row = (await setAgentSkill(c.req.param("agentId"), c.req.param("skillId"), enabled(body), expectedVersion(body)));
+  (await audit(admin.id, "runtime.binding.updated", {
     action: enabled(body) ? "enabled" : "disabled",
     agent_id: row.agent_id,
     skill_id: row.skill_id,
     version: row.version,
-  });
+  }));
   return c.json(row);
 });
-
-skillRuntimeRouter.get("/admin/runtime/skills/:skillId/connectors", (c) => {
-  runtimeAdmin();
-  return c.json(getSkillConnectors(c.req.param("skillId")));
+skillRuntimeRouter.get("/admin/runtime/skills/:skillId/connectors", async (c) => {
+  (await runtimeAdmin());
+  return c.json((await getSkillConnectors(c.req.param("skillId"))));
 });
-
 skillRuntimeRouter.put("/admin/runtime/skills/:skillId/connectors/:connectorId", async (c) => {
-  const admin = runtimeAdmin();
+  const admin = (await runtimeAdmin());
   const body = await bodyObject(c);
   onlyFields(body, ["enabled", "expected_version"]);
-  const row = setSkillConnector(c.req.param("skillId"), c.req.param("connectorId"), enabled(body), expectedVersion(body));
-  audit(admin.id, "runtime.binding.updated", {
+  const row = (await setSkillConnector(c.req.param("skillId"), c.req.param("connectorId"), enabled(body), expectedVersion(body)));
+  (await audit(admin.id, "runtime.binding.updated", {
     action: enabled(body) ? "enabled" : "disabled",
     skill_id: row.skill_id,
     connector_id: row.connector_id,
     version: row.version,
-  });
+  }));
   return c.json(row);
 });
-
-skillRuntimeRouter.get("/admin/runtime/skills/:skillId/tools", (c) => {
-  runtimeAdmin();
-  return c.json(getSkillTools(c.req.param("skillId")));
+skillRuntimeRouter.get("/admin/runtime/skills/:skillId/tools", async (c) => {
+  (await runtimeAdmin());
+  return c.json((await getSkillTools(c.req.param("skillId"))));
 });
-
 skillRuntimeRouter.put("/admin/runtime/skills/:skillId/tools/:connectorId/:toolName", async (c) => {
-  const admin = runtimeAdmin();
+  const admin = (await runtimeAdmin());
   const body = await bodyObject(c);
   onlyFields(body, ["enabled", "expected_version"]);
-  const row = setSkillTool(
-    c.req.param("skillId"), c.req.param("connectorId"), c.req.param("toolName"), enabled(body), expectedVersion(body),
-  );
-  audit(admin.id, "runtime.tool_binding.updated", {
+  const row = (await setSkillTool(c.req.param("skillId"), c.req.param("connectorId"), c.req.param("toolName"), enabled(body), expectedVersion(body)));
+  (await audit(admin.id, "runtime.tool_binding.updated", {
     action: row.enabled ? "enabled" : "disabled", skill_id: row.skill_id,
     connector_id: row.connector_id, tool_name: row.tool_name, version: row.version,
-  });
+  }));
   return c.json(row);
 });
-
-skillRuntimeRouter.get("/admin/runtime/skills/coverage", (c) => {
-  runtimeAdmin();
+skillRuntimeRouter.get("/admin/runtime/skills/coverage", async (c) => {
+  (await runtimeAdmin());
   const connectorId = c.req.query("connector_id")?.trim();
-  return c.json(skillCoverage(connectorId ? { connectorId } : {}));
+  return c.json((await skillCoverage(connectorId ? { connectorId } : {})));
 });
-
 skillRuntimeRouter.post("/admin/runtime/connectors/:connectorId/mount-declared", async (c) => {
-  const admin = runtimeAdmin();
+  const admin = (await runtimeAdmin());
   const connectorId = c.req.param("connectorId");
   requireManagedRuntimeConnector(connectorId);
   const body = await optionalBody(c);
@@ -263,21 +250,21 @@ skillRuntimeRouter.post("/admin/runtime/connectors/:connectorId/mount-declared",
   if (skillIds) {
     // 未定义的 id 一律先拒，避免半批写入之后才失败。
     const unknown = skillIds.find((skillId) => !taskDefinition(skillId));
-    if (unknown) throw new HttpFail(400, { code: "unknown_skill", skill_id: unknown });
+    if (unknown)
+      throw new HttpFail(400, { code: "unknown_skill", skill_id: unknown });
   }
-  return c.json(mountDeclaredTools(connectorId, skillIds, admin.id));
+  return c.json((await mountDeclaredTools(connectorId, skillIds, admin.id)));
 });
-
-skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/config", (c) => {
-  runtimeAdmin();
+skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/config", async (c) => {
+  (await runtimeAdmin());
   requireManagedRuntimeConnector(c.req.param("connectorId"));
-  const result = getConnectorConfig(c.req.param("connectorId"));
-  if (!result) throw new HttpFail(404, "runtime connector config not found");
+  const result = (await getConnectorConfig(c.req.param("connectorId")));
+  if (!result)
+    throw new HttpFail(404, "runtime connector config not found");
   return c.json(result);
 });
-
 skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/config", async (c) => {
-  const admin = runtimeAdmin();
+  const admin = (await runtimeAdmin());
   requireManagedRuntimeConnector(c.req.param("connectorId"));
   const body = await bodyObject(c);
   onlyFields(body, [
@@ -299,66 +286,65 @@ skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/config", async (c
   const version = expectedVersion(body);
   const { expected_version: _expectedVersion, ...configBody } = body;
   const config = validateConnectorConfig(configBody);
-  const row = setConnectorConfig(c.req.param("connectorId"), config, version);
+  const row = (await setConnectorConfig(c.req.param("connectorId"), config, version));
   if (process.env.NODE_ENV !== "test") {
-    getConn().prepare(
-      "UPDATE connectors SET enabled=0,status='pending_verification',last_error=NULL,updated_at=? WHERE id=?",
-    ).run(nowIso(), row.connector_id);
+    (await postgresDb().execute("UPDATE connectors SET enabled=0,status='pending_verification',last_error=NULL,updated_at=$1 WHERE id=$2", nowIso(), row.connector_id));
   }
-  audit(admin.id, "runtime.config.updated", {
+  (await audit(admin.id, "runtime.config.updated", {
     action: "upserted",
     connector_id: row.connector_id,
     version: row.version,
-  });
+  }));
   // Return only the validated, reference-only DTO; never expose config_json.
   return c.json({ config, version: row.version });
 });
-
 skillRuntimeRouter.post("/admin/runtime/connectors/:connectorId/import-openapi", async (c) => {
-  runtimeAdmin();
+  (await runtimeAdmin());
   requireManagedRuntimeConnector(c.req.param("connectorId"));
   const body = await bodyObject(c);
   onlyFields(body, ["document"]);
-  if (!("document" in body)) throw new HttpFail(400, "document is required");
+  if (!("document" in body))
+    throw new HttpFail(400, "document is required");
   // Preview only: it never saves connector config, grants a tool or invokes an endpoint.
   return c.json(previewOpenApi(body.document));
 });
-
-skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/policies", (c) => {
-  runtimeAdmin();
+skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/policies", async (c) => {
+  (await runtimeAdmin());
   requireManagedRuntimeConnector(c.req.param("connectorId"));
-  return c.json(getConnectorPolicies(c.req.param("connectorId")));
+  return c.json((await getConnectorPolicies(c.req.param("connectorId"))));
 });
-
-skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/tools/:toolName", (c) => {
-  runtimeAdmin();
+skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/tools/:toolName", async (c) => {
+  (await runtimeAdmin());
   requireManagedRuntimeConnector(c.req.param("connectorId"));
-  const policy = getToolPolicy(c.req.param("connectorId"), c.req.param("toolName"));
-  if (!policy) throw new HttpFail(404, "tool policy not found");
+  const policy = (await getToolPolicy(c.req.param("connectorId"), c.req.param("toolName")));
+  if (!policy)
+    throw new HttpFail(404, "tool policy not found");
   return c.json(policy);
 });
-
 skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/tools/:toolName", async (c) => {
-  const admin = runtimeAdmin();
+  const admin = (await runtimeAdmin());
   requireManagedRuntimeConnector(c.req.param("connectorId"));
   const body = await bodyObject(c);
   onlyFields(body, ["enabled", "risk", "access", "schema_hash", "expected_version"]);
   const version = expectedVersion(body);
-  if (body.risk !== "L1" && body.risk !== "L2" && body.risk !== "L3") throw new HttpFail(400, "risk must be L1, L2, or L3");
-  if (body.access !== "read" && body.access !== "write") throw new HttpFail(400, "access must be read or write");
-  if (typeof body.schema_hash !== "string") throw new HttpFail(400, "schema_hash must be a string");
-  const row = setToolPolicy(c.req.param("connectorId"), c.req.param("toolName"), {
+  if (body.risk !== "L1" && body.risk !== "L2" && body.risk !== "L3")
+    throw new HttpFail(400, "risk must be L1, L2, or L3");
+  if (body.access !== "read" && body.access !== "write")
+    throw new HttpFail(400, "access must be read or write");
+  if (typeof body.schema_hash !== "string")
+    throw new HttpFail(400, "schema_hash must be a string");
+  const row = (await setToolPolicy(c.req.param("connectorId"), c.req.param("toolName"), {
     enabled: enabled(body),
     risk: body.risk,
     access: body.access,
     schema_hash: body.schema_hash,
-  }, version);
+  }, version));
   // L3 is mountable. Registration cannot confer confirmation or business approval.
-  audit(admin.id, "runtime.tool_policy.updated", {
+  (await audit(admin.id, "runtime.tool_policy.updated", {
     action: row.enabled ? "enabled" : "disabled",
     connector_id: row.connector_id,
     tool_name: row.tool_name,
     version: row.version,
-  });
+  }));
   return c.json(row);
 });

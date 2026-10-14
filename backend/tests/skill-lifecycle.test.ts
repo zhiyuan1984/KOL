@@ -3,18 +3,16 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { resetConn } from "../src/db.js";
+import { resetDatabase } from "../src/postgres/access.js";
 import { seedAll } from "../src/seed.js";
 import { clearTaskRegistryCache, taskDefinition } from "../src/tasks/registry.js";
 import { ensureRuntimeSchema, setSkillConnector, setSkillTool, setToolPolicy } from "../src/runtime/store.js";
 import { dataDir, DEMO_ADMIN } from "../src/config.js";
 import { freshTestDatabase } from "./support/pg.js";
-
+import { ensureNativeRuntimeConnector } from "./helpers/native-runtime.js";
 type Json = Record<string, unknown>;
-
 let tmp: string;
 let app: Hono;
-
 async function request(method: string, url: string, body?: unknown) {
   const response = await app.request(url, {
     method,
@@ -44,21 +42,17 @@ const NEW_SKILL = {
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-skill-life-"));
-  process.env.LINGONG_DB = path.join(tmp, "t.db");
-  process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   clearTaskRegistryCache();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
-
 describe("skill lifecycle", () => {
   it("walks stages, snapshots versions, rolls back, and records tests", async () => {
     await loginPm();
@@ -147,10 +141,9 @@ describe("skill lifecycle", () => {
     const runtimeBody = fs.readFileSync(path.join(dataDir(), "published-skills", id, "SKILL.md"), "utf8");
     expect(runtimeBody).toContain("测试用");
   });
-
   it("reports a live bundled skill without snapshots as the bundled baseline, not unpublished", async () => {
     await loginPm();
-    ensureRuntimeSchema();
+    (await ensureRuntimeSchema());
     const list = await request("GET", "/api/admin/skills");
     expect(list.status).toBe(200);
     const lifecycle = (list.body.skills as Json[]).find((s) => s.id === "creator_library_all")?.lifecycle as Json;
@@ -161,10 +154,9 @@ describe("skill lifecycle", () => {
     const created = await request("POST", "/api/admin/skills", NEW_SKILL);
     expect((created.body.lifecycle as Json).release).toEqual({ kind: "none" });
   });
-
   it("bundled skills take presentation overrides through draft → publish, never runtime contract fields", async () => {
     await loginPm();
-    ensureRuntimeSchema();
+    (await ensureRuntimeSchema());
     const id = "creator_library_all";
     const before = taskDefinition(id)!;
     expect(before.icon).toBe("database");
@@ -185,10 +177,9 @@ describe("skill lifecycle", () => {
     const list = await request("GET", "/api/admin/skills");
     expect((list.body.skills as Json[]).find((s) => s.id === id)).toMatchObject({ icon: "search", badge: "红人库" });
   });
-
   it("declared tools are checked against the registered catalog at testing/publish time, not a code allowlist", async () => {
     await loginPm();
-    ensureRuntimeSchema();
+    (await ensureRuntimeSchema());
     const id = "catalog_probe";
     const created = await request("POST", "/api/admin/skills", { ...NEW_SKILL, id, mcp: ["starrykol.brandNewRemoteTool"] });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
@@ -203,17 +194,17 @@ describe("skill lifecycle", () => {
       const unregistered = await request("POST", `/api/admin/skills/${id}/stage`, { stage: "testing" });
       expect(unregistered.status).toBe(409);
       expect(JSON.stringify(unregistered.body)).toContain("skill_tools_unregistered");
-
-      setToolPolicy("starrykol", "brandNewRemoteTool", { enabled: true, risk: "L1", access: "read", schema_hash: "a".repeat(64) }, 0);
+      await ensureNativeRuntimeConnector("starrykol", "Starry KOL MCP");
+      (await setToolPolicy("starrykol", "brandNewRemoteTool", { enabled: true, risk: "L1", access: "read", schema_hash: "a".repeat(64) }, 0));
       const unmounted = await request("POST", `/api/admin/skills/${id}/stage`, { stage: "testing" });
       expect(unmounted.status).toBe(409);
       expect(JSON.stringify(unmounted.body)).toContain("skill_tools_unmounted");
-
-      setSkillConnector(id, "starrykol", true, 0);
-      setSkillTool(id, "starrykol", "brandNewRemoteTool", true, 0);
+      (await setSkillConnector(id, "starrykol", true, 0));
+      (await setSkillTool(id, "starrykol", "brandNewRemoteTool", true, 0));
       const ready = await request("POST", `/api/admin/skills/${id}/stage`, { stage: "testing" });
       expect(ready.status, JSON.stringify(ready.body)).toBe(200);
-    } finally {
+    }
+    finally {
       process.env.CODEX_MODE = previousMode;
     }
   });

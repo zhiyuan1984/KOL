@@ -15,12 +15,13 @@ import { CodexUnavailable } from "../worker/errors.js";
 import { taskDefinitions } from "./registry.js";
 import { stubResolveTaskIntent } from "./resolver.js";
 import { currentAgentRoutes, currentSelectedAgentId, routeChoice } from "./agent-routing.js";
-
 export const INTENT_CLARIFICATION_KINDS = ["none", "missing_fields", "direction"] as const;
 export type ClarificationKind = (typeof INTENT_CLARIFICATION_KINDS)[number];
-
-export type IntentAlternative = { task_type: string; title: string; confidence: number };
-
+export type IntentAlternative = {
+  task_type: string;
+  title: string;
+  confidence: number;
+};
 export type IntentVerdict = {
   agent_id?: string;
   task_type: string | null;
@@ -74,8 +75,10 @@ export function jevIntentApiKey(): string {
 /** Enabled whenever a key exists outside tests; test transports must opt in explicitly. */
 export function jevIntentEnabled(): boolean {
   const setting = String(process.env.JEV_INTENT_ENABLED || "").trim().toLowerCase();
-  if (["0", "false", "off", "no"].includes(setting)) return false;
-  if (!jevIntentApiKey()) return false;
+  if (["0", "false", "off", "no"].includes(setting))
+    return false;
+  if (!jevIntentApiKey())
+    return false;
   return process.env.NODE_ENV !== "test"
     || Boolean(jevFetchOverride)
     || String(process.env.JEV_INTENT_TEST_LIVE || "").trim() === "1";
@@ -93,22 +96,19 @@ function confidenceSetting(name: string, fallback: number): number {
 export function jevIntentMinConfidence(): number {
   return confidenceSetting("JEV_INTENT_MIN_CONFIDENCE", DEFAULT_JEV_INTENT_MIN_CONFIDENCE);
 }
-
 export function jevIntentLowConfidence(): number {
-  return Math.min(
-    confidenceSetting("JEV_INTENT_LOW_CONFIDENCE", DEFAULT_JEV_INTENT_LOW_CONFIDENCE),
-    jevIntentMinConfidence(),
-  );
+  return Math.min(confidenceSetting("JEV_INTENT_LOW_CONFIDENCE", DEFAULT_JEV_INTENT_LOW_CONFIDENCE), jevIntentMinConfidence());
 }
-
 export function intentLlmMode(): "stub" | "real" {
   const raw = String(process.env.INTENT_LLM_MODE || "").toLowerCase();
-  if (raw === "stub" || raw === "real") return raw;
-  if (codexMode() === "stub") return "stub";
-  if (process.env.NODE_ENV === "test" && !intentLlmApiKey()) return "stub";
+  if (raw === "stub" || raw === "real")
+    return raw;
+  if (codexMode() === "stub")
+    return "stub";
+  if (process.env.NODE_ENV === "test" && !intentLlmApiKey())
+    return "stub";
   return "real";
 }
-
 export function intentLlmModel(): string {
   return process.env.INTENT_LLM_MODEL || "gpt-5.6-luna";
 }
@@ -116,10 +116,10 @@ export function intentLlmModel(): string {
 export function intentLlmApiKey(): string {
   return envApiKey() || inspectLocalCodexAuth().apiKey;
 }
-
 function catalogLines(): string {
   const routes = currentAgentRoutes();
-  if (routes) return routes.map(route => `- agent_id=${route.agent_id}: ${route.agent_name} — ${route.description}; task_type=${route.task_type}: ${route.title} — ${route.summary}`).join("\n");
+  if (routes)
+    return routes.map(route => `- agent_id=${route.agent_id}: ${route.agent_name} — ${route.description}; task_type=${route.task_type}: ${route.title} — ${route.summary}`).join("\n");
   return taskDefinitions()
     .map((definition) => {
       const aliases = definition.aliases.length ? ` aliases=${definition.aliases.join("/")}` : "";
@@ -151,10 +151,10 @@ export function intentSystemPrompt(): string {
     catalogLines(),
   ].join("\n");
 }
-
 function jevIntentCriteria(): Record<string, string> {
   const routes = currentAgentRoutes();
-  if (routes) return { ...Object.fromEntries(routes.map(route => [routeChoice(route), `${route.agent_name}：${route.description}；${route.title}：${route.summary}`])),
+  if (routes)
+    return { ...Object.fromEntries(routes.map(route => [routeChoice(route), `${route.agent_name}：${route.description}；${route.title}：${route.summary}`])),
     [JEV_CLARIFICATION_CHOICE]: "没有可靠匹配的智能体与技能，或无法确定问题归属。" };
   const criteria = Object.fromEntries(taskDefinitions().map((definition) => {
     const aliases = definition.aliases.length ? `；常见说法：${definition.aliases.join("、")}` : "";
@@ -224,16 +224,13 @@ export async function classifyIntentWithJev(text: string, timeoutSec = taskRecog
       alternatives: [],
       reason_zh: taskType ? "Jev 分类" : "Jev 建议澄清",
     };
-  } catch (error) {
-    throw new IntentLlmUnavailable(
-      "Jev 分类服务未就绪。",
-      error instanceof Error && /401|403/i.test(error.message)
+  }
+  catch (error) {
+    throw new IntentLlmUnavailable("Jev 分类服务未就绪。", error instanceof Error && /401|403/i.test(error.message)
         ? "检查 OPENROUTER_API_KEY 后重试。"
-        : "稍后重试；系统会自动回退到现有识别服务。",
-    );
+      : "稍后重试；系统会自动回退到现有识别服务。");
   }
 }
-
 function clarificationFromJev(verdict: IntentVerdict): IntentVerdict {
   return {
     ...verdict,
@@ -246,9 +243,9 @@ function clarificationFromJev(verdict: IntentVerdict): IntentVerdict {
     reason_zh: "Jev 置信度不足，请澄清方向",
   };
 }
-
 function asStringArray(value: unknown): string[] {
-  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
+  if (Array.isArray(value))
+    return value.map((item) => String(item || "").trim()).filter(Boolean);
   const text = String(value || "").trim();
   return text ? [text] : [];
 }
@@ -277,7 +274,8 @@ export function parseIntentVerdict(raw: string, catalogIds = taskDefinitions().m
   let parsed: Record<string, unknown> = {};
   try {
     parsed = JSON.parse(blob.slice(start, end + 1)) as Record<string, unknown>;
-  } catch {
+  }
+  catch {
     return {
       task_type: null,
       confidence: 0,
@@ -296,10 +294,12 @@ export function parseIntentVerdict(raw: string, catalogIds = taskDefinitions().m
   const missing = asStringArray(parsed.missing_fields);
   const alternatives = (Array.isArray(parsed.alternatives) ? parsed.alternatives : [])
     .flatMap((row) => {
-      if (!row || typeof row !== "object") return [];
+    if (!row || typeof row !== "object")
+      return [];
       const item = row as Record<string, unknown>;
       const id = String(item.task_type || item.id || "");
-      if (!catalogIds.includes(id)) return [];
+    if (!catalogIds.includes(id))
+      return [];
       return [{
         task_type: id,
         title: String(item.title || taskDefinitions().find((definition) => definition.id === id)?.title || id),
@@ -320,9 +320,8 @@ export function parseIntentVerdict(raw: string, catalogIds = taskDefinitions().m
     reason_zh: parsed.reason_zh ? String(parsed.reason_zh) : undefined,
   };
 }
-
-export function stubClassifyIntent(text: string): IntentVerdict {
-  const rules = stubResolveTaskIntent({ text });
+export async function stubClassifyIntent(text: string): Promise<IntentVerdict> {
+  const rules = (await stubResolveTaskIntent({ text }));
   if (rules.task_type && rules.confidence >= 0.75) {
     return {
       task_type: rules.task_type,
@@ -344,8 +343,10 @@ export function stubClassifyIntent(text: string): IntentVerdict {
     reason_zh: "stub",
   };
 }
-
-export function normalizeIntentVerdict(value: Partial<IntentVerdict> & { task_type?: string | null; confidence?: number }): IntentVerdict {
+export function normalizeIntentVerdict(value: Partial<IntentVerdict> & {
+  task_type?: string | null;
+  confidence?: number;
+}): IntentVerdict {
   const catalogIds = taskDefinitions().map((row) => row.id);
   const rawType = value.task_type == null || value.task_type === "" ? null : String(value.task_type);
   const taskType = rawType && catalogIds.includes(rawType) ? rawType : null;
@@ -423,40 +424,61 @@ export function intentOutputSchema(ids: string[]): Record<string, unknown> {
     additionalProperties: false,
   };
 }
-
 /** Luna Responses uses gpt-5.6-luna. Codex app-server (recognize + mail digest) must use CODEX_MODEL or the CLI default — never pin gpt-5.6-luna. */
-export function codexRecognizeThreadConfig(): { mcp_servers: Record<string, never>; model?: string } {
+export function codexRecognizeThreadConfig(): {
+  mcp_servers: Record<string, never>;
+  model?: string;
+} {
   const model = String(process.env.CODEX_MODEL || "").trim();
   return model
     ? { mcp_servers: {}, model }
     : { mcp_servers: {} };
 }
-
 export function extractRemoteIntentText(data: unknown): string {
-  if (!data || typeof data !== "object") return "";
+  if (!data || typeof data !== "object")
+    return "";
   const obj = data as Record<string, unknown>;
-  if (typeof obj.output_text === "string" && obj.output_text.trim()) return obj.output_text;
-  const choices = obj.choices as Array<{ message?: { content?: unknown } }> | undefined;
+  if (typeof obj.output_text === "string" && obj.output_text.trim())
+    return obj.output_text;
+  const choices = obj.choices as Array<{
+    message?: {
+      content?: unknown;
+    };
+  }> | undefined;
   const choice = choices?.[0]?.message?.content;
-  if (typeof choice === "string" && choice.trim()) return choice;
+  if (typeof choice === "string" && choice.trim())
+    return choice;
   const output = obj.output;
-  if (!Array.isArray(output)) return "";
+  if (!Array.isArray(output))
+    return "";
   const parts: string[] = [];
   for (const item of output) {
-    if (!item || typeof item !== "object") continue;
-    const content = (item as { content?: unknown }).content;
-    if (typeof content === "string" && content.trim()) parts.push(content);
-    if (!Array.isArray(content)) continue;
+    if (!item || typeof item !== "object")
+      continue;
+    const content = (item as {
+      content?: unknown;
+    }).content;
+    if (typeof content === "string" && content.trim())
+      parts.push(content);
+    if (!Array.isArray(content))
+      continue;
     for (const block of content) {
-      if (!block || typeof block !== "object") continue;
-      const text = (block as { text?: unknown }).text;
-      if (typeof text === "string" && text.trim()) parts.push(text);
+      if (!block || typeof block !== "object")
+        continue;
+      const text = (block as {
+        text?: unknown;
+      }).text;
+      if (typeof text === "string" && text.trim())
+        parts.push(text);
     }
   }
   return parts.join("\n");
 }
-
-function parseCodexTexts(rpc: CodexAppServer, completed: { turn?: { output?: unknown } }): string[] {
+function parseCodexTexts(rpc: CodexAppServer, completed: {
+  turn?: {
+    output?: unknown;
+  };
+}): string[] {
   const output = completed.turn?.output;
   const extras = output && typeof output === "object" ? [JSON.stringify(output)] : [];
   return [...rpc.agentTexts, ...extras];
@@ -475,9 +497,14 @@ export async function classifyWithCodexAppServer(text: string, timeoutSec = task
       sandbox: "read-only",
       config: codexRecognizeThreadConfig(),
     });
-    const thread = (started.thread as { id?: string } | undefined) || started;
-    const threadId = String((thread as { id?: string }).id || "");
-    if (!threadId) throw new CodexUnavailable("thread/start 未返回 thread.id。", "升级 Codex CLI 后重试。");
+    const thread = (started.thread as {
+      id?: string;
+    } | undefined) || started;
+    const threadId = String((thread as {
+      id?: string;
+    }).id || "");
+    if (!threadId)
+      throw new CodexUnavailable("thread/start 未返回 thread.id。", "升级 Codex CLI 后重试。");
     await rpc.request("turn/start", {
       threadId,
       input: [{ type: "text", text: `${intentSystemPrompt()}\nUser: ${text}` }],
@@ -489,21 +516,25 @@ export async function classifyWithCodexAppServer(text: string, timeoutSec = task
       outputSchema: intentOutputSchema(ids),
     });
     const completed = await rpc.waitTurn();
-    const verdict = parseIntentVerdict(parseCodexTexts(rpc, completed as { turn?: { output?: unknown } }).join("\n"), ids);
+    const verdict = parseIntentVerdict(parseCodexTexts(rpc, completed as {
+      turn?: {
+        output?: unknown;
+      };
+    }).join("\n"), ids);
     if (!verdict.task_type && !verdict.clarification_kind) {
       return { ...verdict, clarification_kind: "direction" };
     }
     return verdict;
-  } catch (error) {
-    if (error instanceof IntentLlmUnavailable) throw error;
+  }
+  catch (error) {
+    if (error instanceof IntentLlmUnavailable)
+      throw error;
     const message = error instanceof CodexUnavailable ? error.message : "识别服务未就绪，请再试一次。";
-    throw new IntentLlmUnavailable(
-      message,
-      error instanceof CodexUnavailable
+    throw new IntentLlmUnavailable(message, error instanceof CodexUnavailable
         ? error.next_action
-        : "设置 OPENAI_API_KEY 后重启 Host，或确认已 `codex login` 后重试。",
-    );
-  } finally {
+      : "设置 OPENAI_API_KEY 后重启 Host，或确认已 `codex login` 后重试。");
+  }
+  finally {
     rpc.close();
     fs.rmSync(cwd, { recursive: true, force: true });
   }
@@ -547,49 +578,61 @@ export async function classifyIntentWithLuna(text: string, timeoutSec = taskReco
       throw new IntentLlmUnavailable(`识别服务未就绪（${response.status}）。`, "稍后点「再试一次」。");
     }
     return parseIntentVerdict(extractRemoteIntentText(await response.json()), ids);
-  } catch (error) {
-    if (error instanceof IntentLlmUnavailable) throw error;
+  }
+  catch (error) {
+    if (error instanceof IntentLlmUnavailable)
+      throw error;
     throw new IntentLlmUnavailable("识别服务未就绪，请再试一次。", "检查网络或 OPENAI_API_KEY 后重试。");
-  } finally {
+  }
+  finally {
     clearTimeout(timer);
   }
 }
-
 export async function classifyTaskIntent(text: string): Promise<IntentVerdict> {
-  if (intentLlmMode() === "stub") return stubClassifyIntent(text);
+  if (intentLlmMode() === "stub")
+    return (await stubClassifyIntent(text));
   const deadline = Date.now() + taskRecognizeTimeout() * 1000;
   const remaining = () => Math.max(0, (deadline - Date.now()) / 1000);
   let mediumConfidenceJev: IntentVerdict | null = null;
   if (jevIntentEnabled()) {
     try {
       const jev = await classifyIntentWithJev(text, remaining());
-      if (jev.confidence >= jevIntentMinConfidence()) return jev;
-      if (jev.confidence < jevIntentLowConfidence() && !currentAgentRoutes()?.length) return clarificationFromJev(jev);
+      if (jev.confidence >= jevIntentMinConfidence())
+        return jev;
+      if (jev.confidence < jevIntentLowConfidence() && !currentAgentRoutes()?.length)
+        return clarificationFromJev(jev);
       mediumConfidenceJev = jev;
-    } catch {
+    }
+    catch {
       // A bounded classifier must never block the established Luna/Codex path.
     }
   }
   if (intentLlmApiKey()) {
     try {
       return await classifyIntentWithLuna(text, remaining());
-    } catch (lunaError) {
+    }
+    catch (lunaError) {
       if (remaining() < 2) {
-        if (mediumConfidenceJev) return clarificationFromJev(mediumConfidenceJev);
+        if (mediumConfidenceJev)
+          return clarificationFromJev(mediumConfidenceJev);
         throw lunaError;
       }
       try {
         return await classifyWithCodexAppServer(text, remaining());
-      } catch {
-        if (mediumConfidenceJev) return clarificationFromJev(mediumConfidenceJev);
+      }
+      catch {
+        if (mediumConfidenceJev)
+          return clarificationFromJev(mediumConfidenceJev);
         throw lunaError;
       }
     }
   }
   try {
     return await classifyWithCodexAppServer(text, remaining());
-  } catch (error) {
-    if (mediumConfidenceJev) return clarificationFromJev(mediumConfidenceJev);
+  }
+  catch (error) {
+    if (mediumConfidenceJev)
+      return clarificationFromJev(mediumConfidenceJev);
     throw error;
   }
 }
@@ -648,25 +691,33 @@ export function parseTaskFieldUpdates(raw: string): TaskFieldUpdates {
   const blob = fence?.[1] || raw;
   const start = blob.indexOf("{");
   const end = blob.lastIndexOf("}");
-  if (start < 0 || end <= start) return {};
+  if (start < 0 || end <= start)
+    return {};
   let parsed: Record<string, unknown> = {};
   try {
     parsed = JSON.parse(blob.slice(start, end + 1)) as Record<string, unknown>;
-  } catch {
+  }
+  catch {
     return {};
   }
   const updates: TaskFieldUpdates = {};
-  if (typeof parsed.title === "string" && parsed.title.trim()) updates.title = parsed.title.trim().slice(0, 200);
-  if (typeof parsed.content === "string" && parsed.content.trim()) updates.content = parsed.content.trim().slice(0, 2000);
+  if (typeof parsed.title === "string" && parsed.title.trim())
+    updates.title = parsed.title.trim().slice(0, 200);
+  if (typeof parsed.content === "string" && parsed.content.trim())
+    updates.content = parsed.content.trim().slice(0, 2000);
   const status = String(parsed.status || "");
-  if ((TASK_FIELD_UPDATE_STATUSES as readonly string[]).includes(status)) updates.status = status;
+  if ((TASK_FIELD_UPDATE_STATUSES as readonly string[]).includes(status))
+    updates.status = status;
   const priority = String(parsed.priority || "");
-  if ((TASK_FIELD_UPDATE_PRIORITIES as readonly string[]).includes(priority)) updates.priority = priority;
+  if ((TASK_FIELD_UPDATE_PRIORITIES as readonly string[]).includes(priority))
+    updates.priority = priority;
   const risk = String(parsed.risk_level || "");
-  if ((TASK_FIELD_UPDATE_RISKS as readonly string[]).includes(risk)) updates.risk_level = risk;
+  if ((TASK_FIELD_UPDATE_RISKS as readonly string[]).includes(risk))
+    updates.risk_level = risk;
   for (const field of ["start_date", "due_at"] as const) {
     const value = String(parsed[field] || "").trim();
-    if (/^\d{4}-\d{2}-\d{2}/.test(value)) updates[field] = value.slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}/.test(value))
+      updates[field] = value.slice(0, 10);
   }
   return updates;
 }
@@ -708,10 +759,13 @@ async function extractTaskFieldUpdatesWithLuna(text: string, timeoutSec = taskRe
       throw new IntentLlmUnavailable(`识别服务未就绪（${response.status}）。`, "稍后点「再试一次」。");
     }
     return parseTaskFieldUpdates(extractRemoteIntentText(await response.json()));
-  } catch (error) {
-    if (error instanceof IntentLlmUnavailable) throw error;
+  }
+  catch (error) {
+    if (error instanceof IntentLlmUnavailable)
+      throw error;
     throw new IntentLlmUnavailable("识别服务未就绪，请再试一次。", "检查网络或 OPENAI_API_KEY 后重试。");
-  } finally {
+  }
+  finally {
     clearTimeout(timer);
   }
 }
@@ -728,9 +782,14 @@ async function extractTaskFieldUpdatesWithCodex(text: string, timeoutSec = taskR
       sandbox: "read-only",
       config: codexRecognizeThreadConfig(),
     });
-    const thread = (started.thread as { id?: string } | undefined) || started;
-    const threadId = String((thread as { id?: string }).id || "");
-    if (!threadId) throw new CodexUnavailable("thread/start 未返回 thread.id。", "升级 Codex CLI 后重试。");
+    const thread = (started.thread as {
+      id?: string;
+    } | undefined) || started;
+    const threadId = String((thread as {
+      id?: string;
+    }).id || "");
+    if (!threadId)
+      throw new CodexUnavailable("thread/start 未返回 thread.id。", "升级 Codex CLI 后重试。");
     await rpc.request("turn/start", {
       threadId,
       input: [{ type: "text", text: `${taskFieldUpdateSystemPrompt()}\nUser: ${text}` }],
@@ -742,17 +801,21 @@ async function extractTaskFieldUpdatesWithCodex(text: string, timeoutSec = taskR
       outputSchema: taskFieldUpdateOutputSchema(),
     });
     const completed = await rpc.waitTurn();
-    return parseTaskFieldUpdates(parseCodexTexts(rpc, completed as { turn?: { output?: unknown } }).join("\n"));
-  } catch (error) {
-    if (error instanceof IntentLlmUnavailable) throw error;
+    return parseTaskFieldUpdates(parseCodexTexts(rpc, completed as {
+      turn?: {
+        output?: unknown;
+      };
+    }).join("\n"));
+  }
+  catch (error) {
+    if (error instanceof IntentLlmUnavailable)
+      throw error;
     const message = error instanceof CodexUnavailable ? error.message : "识别服务未就绪，请再试一次。";
-    throw new IntentLlmUnavailable(
-      message,
-      error instanceof CodexUnavailable
+    throw new IntentLlmUnavailable(message, error instanceof CodexUnavailable
         ? error.next_action
-        : "设置 OPENAI_API_KEY 后重启 Host，或确认已 `codex login` 后重试。",
-    );
-  } finally {
+      : "设置 OPENAI_API_KEY 后重启 Host，或确认已 `codex login` 后重试。");
+  }
+  finally {
     rpc.close();
     fs.rmSync(cwd, { recursive: true, force: true });
   }
@@ -771,14 +834,17 @@ export async function extractTaskFieldUpdates(text: string): Promise<TaskFieldUp
   if (intentLlmApiKey()) {
     try {
       return await extractTaskFieldUpdatesWithLuna(text, remaining());
-    } catch (lunaError) {
-      if (remaining() < 2) throw lunaError;
+    }
+    catch (lunaError) {
+      if (remaining() < 2)
+        throw lunaError;
       try {
         return await extractTaskFieldUpdatesWithCodex(text, remaining());
-      } catch {
+      }
+      catch {
         throw lunaError;
       }
     }
   }
-  return extractTaskFieldUpdatesWithCodex(text, remaining());
+  return (await extractTaskFieldUpdatesWithCodex(text, remaining()));
 }

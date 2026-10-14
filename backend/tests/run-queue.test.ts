@@ -3,19 +3,18 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { resetConn } from "../src/db.js";
+import { resetDatabase } from "../src/postgres/access.js";
 import { abortSessionRun, beginSessionAsk, markSessionRunning, publicQueue, resetRunControl, wasSessionStopped } from "../src/host/run-control.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import type { Json } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
-
 let tmp: string;
 let app: Hono;
-
 async function request(method: string, url: string, body?: unknown) {
   const init: RequestInit = { method, headers: { "Content-Type": "application/json" } };
-  if (body !== undefined) init.body = JSON.stringify(body);
+  if (body !== undefined)
+    init.body = JSON.stringify(body);
   const res = await app.request(url, init);
   const text = await res.text();
   return {
@@ -35,23 +34,20 @@ describe("session run queue and stop", () => {
   beforeEach(async () => {
     await freshTestDatabase();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-run-queue-"));
-    process.env.LINGONG_DB = path.join(tmp, "t.db");
     process.env.LINGONG_DATA = tmp;
     process.env.CODEX_MODE = "stub";
-    resetConn();
+    (await resetDatabase());
     resetRunControl();
-    seedAll();
+    (await seedAll());
     const { createApp } = await import("../src/app.js");
-    app = createApp();
-    seedWorkbenchFixtures();
+    app = (await createApp());
+    (await seedWorkbenchFixtures());
   });
-
-  afterEach(() => {
+  afterEach(async () => {
     resetRunControl();
-    resetConn();
+    (await resetDatabase());
     fs.rmSync(tmp, { recursive: true, force: true });
   });
-
   it("queues a generate ask while the session is already running", async () => {
     const sid = await openSession();
     markSessionRunning(sid);

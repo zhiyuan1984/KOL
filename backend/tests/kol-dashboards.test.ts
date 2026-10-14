@@ -9,18 +9,15 @@ import { withTicketPrincipal } from "../src/ticket-domain/auth.js";
  * - 无 PG 部分：路由注册、非管理员 403。
  * - PG 部分（TEST_POSTGRES_URL）：聚合口径（漏斗计数、异常队列、阶段分布）。
  */
-
 const admin = { id: "usr-admin-1", username: "admin", name: "Admin", roles: ["admin"], active: true } as never;
 const employee = { id: "usr-emp-1", username: "emp", name: "Emp", roles: ["employee"], active: true } as never;
-
 async function get(path: string, principal: never) {
-  return withTicketPrincipal(principal, async () => {
+  return (await withTicketPrincipal(principal, async () => {
     const res = await kolDashboards.request(path);
     const body = await res.json().catch(() => ({}));
     return { status: res.status, body };
-  });
+  }));
 }
-
 describe("kol dashboards router", () => {
   it("registers the two dashboard routes", () => {
     const routes = kolDashboards.routes.map((r) => `${r.method} ${r.path}`);
@@ -35,11 +32,10 @@ describe("kol dashboards router", () => {
     expect(r2.status).toBe(403);
   });
 });
-
 const configured = Boolean(process.env.TEST_POSTGRES_URL?.trim());
-if (configured) process.env.DATABASE_URL = process.env.TEST_POSTGRES_URL!.trim();
+if (configured)
+  process.env.DATABASE_URL = process.env.TEST_POSTGRES_URL!.trim();
 const describePostgres = configured ? describe : describe.skip;
-
 describePostgres("kol dashboards aggregations", () => {
   beforeEach(async () => {
     await closePostgresPool();
@@ -65,11 +61,12 @@ describePostgres("kol dashboards aggregations", () => {
     await p.query(`INSERT INTO kol_cooperations (id,lead_id,title,brand,coop_type,coop_stage,exception_kind,archived_at)
       VALUES ('t-dash-cancelled','t-dash-l2','Cancelled fixture','LT','live','exception','CANCELLED',now())`);
   });
-
   afterAll(async () => { await closePostgresPool(); });
-
   it("lead-funnel aggregates counts, stuck and funnel", async () => {
-    const { status, body } = await get("/kol/admin/lead-funnel", admin) as { status: number; body: any };
+    const { status, body } = await get("/kol/admin/lead-funnel", admin) as {
+      status: number;
+      body: any;
+    };
     expect(status).toBe(200);
     expect(body.kpis.active).toBeGreaterThanOrEqual(1);
     expect(body.kpis.stuck_count).toBeGreaterThanOrEqual(1);
@@ -81,9 +78,11 @@ describePostgres("kol dashboards aggregations", () => {
     const stuckNames = body.stuck.map((s: any) => s.display_name);
     expect(stuckNames).toContain("Dash Lead 1");
   });
-
   it("project-delivery lists real exceptions with kind labels", async () => {
-    const { status, body } = await get("/kol/admin/project-delivery", admin) as { status: number; body: any };
+    const { status, body } = await get("/kol/admin/project-delivery", admin) as {
+      status: number;
+      body: any;
+    };
     expect(status).toBe(200);
     const kinds = body.exceptions.map((e: any) => e.exception_kind);
     expect(kinds).toContain("PAUSED");

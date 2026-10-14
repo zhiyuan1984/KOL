@@ -6,10 +6,9 @@
  * 登记处，也是调度系统的输入。
  *
  * 设计：docs/superpowers/specs/2026-10-07-media-transcribe-capability-registry-design.md §2
- * 表结构：backend/src/db.ts initSchema（SQLite）＋
- * backend/scripts/apply-postgres-schema.ts 增量 20261007_capability_registry（PG）。
+ * 表结构：版本化 PostgreSQL migration 的 capability_registry。
  */
-import { getConn, nowIso, tx, audit } from "../db.js";
+import { postgresDb, nowIso, pgTransaction, audit } from "../postgres/access.js";
 import { nid } from "../ids.js";
 import { requireAdmin } from "../auth.js";
 import type { Json, Row } from "../types.js";
@@ -41,13 +40,14 @@ const EMPTY_STATS: CapabilityStats = {
   last_called_at: null,
   last_ok: null,
 };
-
 function parseJson(text: unknown, fallback: Json): Json {
-  if (!text) return fallback;
+  if (!text)
+    return fallback;
   try {
     const parsed = JSON.parse(String(text)) as unknown;
     return parsed && typeof parsed === "object" ? (parsed as Json) : fallback;
-  } catch {
+  }
+  catch {
     return fallback;
   }
 }
@@ -83,10 +83,12 @@ function rowToView(row: Row): Json {
     updated_at: String(row.updated_at),
   };
 }
-
 /** 内置三档模型画像（P1 手工登记值；stats 由运行自动补）。
  * 同一模型承担多档时合并为一条画像（roles 数组），UNIQUE(kind, ref_id) 去重。 */
-function builtinProfiles(): Array<{ ref_id: string; capability: Json }> {
+function builtinProfiles(): Array<{
+  ref_id: string;
+  capability: Json;
+}> {
   const defs = [
     {
       ref_id: indexModel(), role: "建树索引",
@@ -105,13 +107,21 @@ function builtinProfiles(): Array<{ ref_id: string; capability: Json }> {
     },
   ];
   const tierRank: Record<string, number> = { low: 0, medium: 1, high: 2 };
-  const merged = new Map<string, { roles: string[]; descriptions: string[]; strengths: string[]; cost_tier: string }>();
+  const merged = new Map<string, {
+    roles: string[];
+    descriptions: string[];
+    strengths: string[];
+    cost_tier: string;
+  }>();
   for (const def of defs) {
     const entry = merged.get(def.ref_id) || { roles: [], descriptions: [], strengths: [], cost_tier: "low" };
     entry.roles.push(def.role);
     entry.descriptions.push(`${def.role}：${def.description}`);
-    for (const s of def.strengths) if (!entry.strengths.includes(s)) entry.strengths.push(s);
-    if ((tierRank[def.cost_tier] || 0) > (tierRank[entry.cost_tier] || 0)) entry.cost_tier = def.cost_tier;
+    for (const s of def.strengths)
+      if (!entry.strengths.includes(s))
+        entry.strengths.push(s);
+    if ((tierRank[def.cost_tier] || 0) > (tierRank[entry.cost_tier] || 0))
+      entry.cost_tier = def.cost_tier;
     merged.set(def.ref_id, entry);
   }
   return [...merged.entries()].map(([ref_id, entry]) => ({
@@ -125,63 +135,53 @@ function builtinProfiles(): Array<{ ref_id: string; capability: Json }> {
     },
   }));
 }
-
 let builtinsSeeded = false;
-
 /** 首次使用时幂等写入内置画像（INSERT … ON CONFLICT DO NOTHING，双引擎通用）。 */
-function ensureBuiltinProfiles(): void {
-  if (builtinsSeeded) return;
+async function ensureBuiltinProfiles(): Promise<void> {
+  if (builtinsSeeded)
+    return;
   builtinsSeeded = true;
   const now = nowIso();
-  tx((db) => {
+  (await pgTransaction(async (db) => {
     for (const profile of builtinProfiles()) {
-      db.prepare(
-        `INSERT INTO capability_registry
+      (await db.execute(`INSERT INTO capability_registry
            (id, kind, ref_id, origin, capability, constraints, stats, status, created_by, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)
-         ON CONFLICT(kind, ref_id) DO NOTHING`,
-      ).run(
-        nid("cap"), "model", profile.ref_id, "builtin",
-        JSON.stringify(profile.capability), JSON.stringify({}),
-        JSON.stringify(EMPTY_STATS), "active", "system", now, now,
-      );
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         ON CONFLICT(kind, ref_id) DO NOTHING`, nid("cap"), "model", profile.ref_id, "builtin", JSON.stringify(profile.capability), JSON.stringify({}), JSON.stringify(EMPTY_STATS), "active", "system", now, now));
     }
-  });
+  }));
 }
-
-export function listCapabilities(filter: { kind?: string; status?: string; q?: string } = {}): Json[] {
-  ensureBuiltinProfiles();
+export async function listCapabilities(filter: {
+  kind?: string;
+  status?: string;
+  q?: string;
+} = {}): Promise<Json[]> {
+  (await ensureBuiltinProfiles());
   const clauses: string[] = [];
   const args: unknown[] = [];
   if (filter.kind && (CAPABILITY_KINDS as readonly string[]).includes(filter.kind)) {
-    clauses.push("kind=?");
     args.push(filter.kind);
+    clauses.push(`kind=$${args.length}`);
   }
   if (filter.status && (CAPABILITY_STATUSES as readonly string[]).includes(filter.status)) {
-    clauses.push("status=?");
     args.push(filter.status);
+    clauses.push(`status=$${args.length}`);
   }
   if (filter.q) {
-    clauses.push("(ref_id LIKE ? OR notes LIKE ?)");
     args.push(`%${filter.q}%`, `%${filter.q}%`);
+    clauses.push(`(ref_id LIKE $${args.length - 1} OR notes LIKE $${args.length})`);
   }
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-  const rows = getConn().prepare(
-    `SELECT * FROM capability_registry ${where} ORDER BY kind, ref_id`,
-  ).all(...args) as Row[];
+  const rows = (await postgresDb().many(`SELECT * FROM capability_registry ${where} ORDER BY kind, ref_id`, ...args)) as Row[];
   return rows.map(rowToView);
 }
-
 /** 调度层只读查询：按 (kind, ref_id) 取能力画像；不存在返回 null（不抛错）。 */
-export function resolveCapability(kind: string, refId: string): Json | null {
-  ensureBuiltinProfiles();
-  const row = getConn().prepare(
-    "SELECT * FROM capability_registry WHERE kind=? AND ref_id=?",
-  ).get(kind, refId) as Row | undefined;
+export async function resolveCapability(kind: string, refId: string): Promise<Json | null> {
+  (await ensureBuiltinProfiles());
+  const row = (await postgresDb().one("SELECT * FROM capability_registry WHERE kind=$1 AND ref_id=$2", kind, refId)) as Row | undefined;
   return row ? rowToView(row) : null;
 }
-
-export function registerCapability(input: {
+export async function registerCapability(input: {
   kind?: string;
   ref_id?: string;
   origin?: string;
@@ -190,15 +190,17 @@ export function registerCapability(input: {
   version?: string | null;
   version_pinned?: string | null;
   notes?: string | null;
-}, actor = knowledgeActorId()): Json {
-  requireAdmin();
-  ensureBuiltinProfiles();
+}, actor?: string): Promise<Json> {
+  actor ??= await knowledgeActorId();
+  (await requireAdmin());
+  (await ensureBuiltinProfiles());
   const kind = String(input.kind || "");
   if (!(CAPABILITY_KINDS as readonly string[]).includes(kind)) {
     throw new HttpFail(400, { code: "capability_kind_invalid", message: "kind 必须是 skill / model / connector" });
   }
   const refId = String(input.ref_id || "").trim();
-  if (!refId) throw new HttpFail(400, { code: "capability_ref_required", message: "ref_id 必填" });
+  if (!refId)
+    throw new HttpFail(400, { code: "capability_ref_required", message: "ref_id 必填" });
   const origin = String(input.origin || "manual");
   if (!(CAPABILITY_ORIGINS as readonly string[]).includes(origin)) {
     throw new HttpFail(400, { code: "capability_origin_invalid", message: "origin 非法" });
@@ -207,109 +209,108 @@ export function registerCapability(input: {
   const capability = JSON.stringify(input.capability && typeof input.capability === "object" ? input.capability : {});
   const constraints = JSON.stringify(input.constraints && typeof input.constraints === "object" ? input.constraints : {});
   const id = nid("cap");
-  getConn().prepare(
-    `INSERT INTO capability_registry
+  (await postgresDb().execute(`INSERT INTO capability_registry
        (id, kind, ref_id, origin, capability, constraints, version, version_pinned, stats, notes, status, created_by, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
      ON CONFLICT(kind, ref_id) DO UPDATE SET
        origin=excluded.origin, capability=excluded.capability, constraints=excluded.constraints,
        version=excluded.version, version_pinned=excluded.version_pinned, notes=excluded.notes,
-       status='active', updated_at=excluded.updated_at`,
-  ).run(
-    id, kind, refId, origin, capability, constraints,
-    input.version ?? null, input.version_pinned ?? null,
-    JSON.stringify(EMPTY_STATS), input.notes ?? null, "active", actor, now, now,
-  );
-  audit(actor, "capability.register", { kind, ref_id: refId, origin });
-  const row = getConn().prepare("SELECT * FROM capability_registry WHERE kind=? AND ref_id=?").get(kind, refId) as Row;
+       status='active', updated_at=excluded.updated_at`, id, kind, refId, origin, capability, constraints, input.version ?? null, input.version_pinned ?? null, JSON.stringify(EMPTY_STATS), input.notes ?? null, "active", actor, now, now));
+  (await audit(actor, "capability.register", { kind, ref_id: refId, origin }));
+  const row = (await postgresDb().one("SELECT * FROM capability_registry WHERE kind=$1 AND ref_id=$2", kind, refId)) as Row;
   return rowToView(row);
 }
-
-export function updateCapability(id: string, patch: {
+export async function updateCapability(id: string, patch: {
   capability?: unknown;
   constraints?: unknown;
   version_pinned?: string | null;
   notes?: string | null;
   status?: string;
-}, actor = knowledgeActorId()): Json {
-  requireAdmin();
-  ensureBuiltinProfiles();
-  const row = getConn().prepare("SELECT * FROM capability_registry WHERE id=?").get(String(id)) as Row | undefined;
-  if (!row) throw new HttpFail(404, { code: "capability_missing", message: "能力登记不存在" });
+}, actor?: string): Promise<Json> {
+  actor ??= await knowledgeActorId();
+  (await requireAdmin());
+  (await ensureBuiltinProfiles());
+  const row = (await postgresDb().one("SELECT * FROM capability_registry WHERE id=$1", String(id))) as Row | undefined;
+  if (!row)
+    throw new HttpFail(404, { code: "capability_missing", message: "能力登记不存在" });
   const sets: string[] = [];
   const args: unknown[] = [];
   if (patch.capability !== undefined && typeof patch.capability === "object") {
-    sets.push("capability=?");
     args.push(JSON.stringify(patch.capability));
+    sets.push(`capability=$${args.length}`);
   }
   if (patch.constraints !== undefined && typeof patch.constraints === "object") {
-    sets.push("constraints=?");
     args.push(JSON.stringify(patch.constraints));
+    sets.push(`constraints=$${args.length}`);
   }
   if (patch.version_pinned !== undefined) {
-    sets.push("version_pinned=?");
     args.push(patch.version_pinned);
+    sets.push(`version_pinned=$${args.length}`);
   }
   if (patch.notes !== undefined) {
-    sets.push("notes=?");
     args.push(patch.notes);
+    sets.push(`notes=$${args.length}`);
   }
   if (patch.status !== undefined) {
     if (!(CAPABILITY_STATUSES as readonly string[]).includes(patch.status)) {
       throw new HttpFail(400, { code: "capability_status_invalid", message: "status 非法" });
     }
-    sets.push("status=?");
     args.push(patch.status);
+    sets.push(`status=$${args.length}`);
   }
-  if (!sets.length) throw new HttpFail(400, { code: "capability_nothing_to_update", message: "没有可更新的字段" });
-  sets.push("updated_at=?");
-  args.push(nowIso(), String(id));
-  getConn().prepare(`UPDATE capability_registry SET ${sets.join(", ")} WHERE id=?`).run(...args);
-  audit(actor, "capability.update", { id: String(id), kind: String(row.kind), ref_id: String(row.ref_id) });
-  const updated = getConn().prepare("SELECT * FROM capability_registry WHERE id=?").get(String(id)) as Row;
+  if (!sets.length)
+    throw new HttpFail(400, { code: "capability_nothing_to_update", message: "没有可更新的字段" });
+  args.push(nowIso());
+  sets.push(`updated_at=$${args.length}`);
+  args.push(String(id));
+  (await postgresDb().execute(`UPDATE capability_registry SET ${sets.join(", ")} WHERE id=$${args.length}`, ...args));
+  (await audit(actor, "capability.update", { id: String(id), kind: String(row.kind), ref_id: String(row.ref_id) }));
+  const updated = (await postgresDb().one("SELECT * FROM capability_registry WHERE id=$1", String(id))) as Row;
   return rowToView(updated);
 }
-
 /**
  * 运行自动写回（P1 只做计数器）：只记聚合数字（次数/成功率/耗时/token），
  * 不记 prompt 与业务内容。未知 (kind, ref_id) 自动建 origin='auto' 行。
  */
-export function recordCapabilityCall(call: {
+export async function recordCapabilityCall(call: {
   kind: string;
   ref_id: string;
   ok: boolean;
   latencyMs?: number | null;
   inputTokens?: number | null;
   outputTokens?: number | null;
-}): void {
+}): Promise<void> {
   const kind = String(call.kind || "");
   const refId = String(call.ref_id || "").trim();
-  if (!(CAPABILITY_KINDS as readonly string[]).includes(kind) || !refId) return;
+  if (!(CAPABILITY_KINDS as readonly string[]).includes(kind) || !refId)
+    return;
   try {
-    ensureBuiltinProfiles();
+    (await ensureBuiltinProfiles());
     const now = nowIso();
-    tx((db) => {
-      const existing = db.prepare("SELECT * FROM capability_registry WHERE kind=? AND ref_id=?").get(kind, refId) as Row | undefined;
+    (await pgTransaction(async (db) => {
+      const existing = (await db.one("SELECT * FROM capability_registry WHERE kind=$1 AND ref_id=$2", kind, refId)) as Row | undefined;
       if (!existing) {
-        db.prepare(
-          `INSERT INTO capability_registry
+        (await db.execute(`INSERT INTO capability_registry
              (id, kind, ref_id, origin, capability, stats, status, created_by, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?)`,
-        ).run(nid("cap"), kind, refId, "auto", JSON.stringify({}), JSON.stringify(EMPTY_STATS), "active", "system", now, now);
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, nid("cap"), kind, refId, "auto", JSON.stringify({}), JSON.stringify(EMPTY_STATS), "active", "system", now, now));
       }
-      const row = db.prepare("SELECT stats FROM capability_registry WHERE kind=? AND ref_id=?").get(kind, refId) as Row;
+      const row = (await db.one("SELECT stats FROM capability_registry WHERE kind=$1 AND ref_id=$2", kind, refId)) as Row;
       const stats = parseStats(row.stats);
       stats.calls += 1;
-      if (call.ok) stats.ok += 1;
-      if (Number.isFinite(Number(call.latencyMs))) stats.total_latency_ms += Number(call.latencyMs);
-      if (Number.isFinite(Number(call.inputTokens))) stats.total_input_tokens += Number(call.inputTokens);
-      if (Number.isFinite(Number(call.outputTokens))) stats.total_output_tokens += Number(call.outputTokens);
+      if (call.ok)
+        stats.ok += 1;
+      if (Number.isFinite(Number(call.latencyMs)))
+        stats.total_latency_ms += Number(call.latencyMs);
+      if (Number.isFinite(Number(call.inputTokens)))
+        stats.total_input_tokens += Number(call.inputTokens);
+      if (Number.isFinite(Number(call.outputTokens)))
+        stats.total_output_tokens += Number(call.outputTokens);
       stats.last_called_at = now;
       stats.last_ok = Boolean(call.ok);
-      db.prepare("UPDATE capability_registry SET stats=?, updated_at=? WHERE kind=? AND ref_id=?")
-        .run(JSON.stringify(stats), now, kind, refId);
-    });
-  } catch {
+      (await db.execute("UPDATE capability_registry SET stats=$1, updated_at=$2 WHERE kind=$3 AND ref_id=$4", JSON.stringify(stats), now, kind, refId));
+    }));
+  }
+  catch {
     // 统计写回永不阻塞主流程。
   }
 }

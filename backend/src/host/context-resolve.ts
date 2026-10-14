@@ -38,11 +38,17 @@ export const CONTEXT_SOURCE_TIER: Record<ContextSource, number> = {
   object_fact: 6,
   memory: 7,
 };
-
 export type ContextStatus = "ready" | "needs_context" | "needs_input" | "blocked";
-export type ContextMissing = { key: string; tier: "requires" | "prefers"; reason: string };
-export type ContextCandidate = { key: string; id: string; label: string };
-
+export type ContextMissing = {
+  key: string;
+  tier: "requires" | "prefers";
+  reason: string;
+};
+export type ContextCandidate = {
+  key: string;
+  id: string;
+  label: string;
+};
 /** 缺口卡上逐键的人话名称；键目录的单一事实源仍是 tasks/registry.ts 的 TASK_CONTEXT_KEYS。 */
 export const CONTEXT_KEY_LABEL: Record<TaskContextKey, string> = {
   collaboration: "合作对象",
@@ -82,12 +88,25 @@ export type StageFact = {
   exception: boolean;
   exception_kind: string | null;
 };
-
 export type StageTracksFact = ReturnType<typeof groupedStageTracks>;
-export type MailThreadFact = { digest: ThreadDigest | null; memory: string[]; text: string; mail_count: number };
-export type MailTemplateFact = { templates: UsableTemplate[]; choices: UsableTemplate[]; template: UsableTemplate | null };
-export type CreatorFact = { handle: string; display_name: string; kol_uid: string; brand: string; collaboration_id: string };
-
+export type MailThreadFact = {
+  digest: ThreadDigest | null;
+  memory: string[];
+  text: string;
+  mail_count: number;
+};
+export type MailTemplateFact = {
+  templates: UsableTemplate[];
+  choices: UsableTemplate[];
+  template: UsableTemplate | null;
+};
+export type CreatorFact = {
+  handle: string;
+  display_name: string;
+  kol_uid: string;
+  brand: string;
+  collaboration_id: string;
+};
 /** Host 侧原始对象：只给消费者读，`resolution()` 才按信封投影成响应体。 */
 export type ContextFacts = {
   collaboration: Row | null;
@@ -126,22 +145,20 @@ export type ContextResolveInput = {
   requires?: readonly TaskContextKey[];
   prefers?: readonly TaskContextKey[];
 };
-
 export type ContextSession = {
   skillId: string;
-  collaboration(): CollaborationPick;
-  stage(): StageFact | null;
-  stageTracks(): StageTracksFact | null;
-  mailbox(): ComposeSender | null;
-  mailThread(): MailThreadFact | null;
-  mailTemplate(): MailTemplateFact | null;
-  creator(): CreatorFact | null;
-  conversation(): Json | null;
-  message(): Json | null;
-  recipient(): ComposeRecipient | null;
-  resolution(requires?: readonly TaskContextKey[], prefers?: readonly TaskContextKey[]): ContextResolution;
+  collaboration(): Promise<CollaborationPick>;
+  stage(): Promise<StageFact | null>;
+  stageTracks(): Promise<StageTracksFact | null>;
+  mailbox(): Promise<ComposeSender | null>;
+  mailThread(): Promise<MailThreadFact | null>;
+  mailTemplate(): Promise<MailTemplateFact | null>;
+  creator(): Promise<CreatorFact | null>;
+  conversation(): Promise<Json | null>;
+  message(): Promise<Json | null>;
+  recipient(): Promise<ComposeRecipient | null>;
+  resolution(requires?: readonly TaskContextKey[], prefers?: readonly TaskContextKey[]): Promise<ContextResolution>;
 };
-
 /** 版本哈希：内容变化即版本变化，旧确认快照随之失效。 */
 export function contextVersion(input: unknown): string {
   return createHash("sha256").update(JSON.stringify(input)).digest("hex").slice(0, 24);
@@ -153,8 +170,10 @@ type KeyFailure = {
   reason: string;
   candidates?: ContextCandidate[];
 };
-type KeyResult = { ok: true; source: ContextSource } | KeyFailure;
-
+type KeyResult = {
+  ok: true;
+  source: ContextSource;
+} | KeyFailure;
 const failed = (gap: KeyFailure["gap"], reason: string, candidates?: ContextCandidate[]): KeyFailure => ({
   ok: false,
   gap,
@@ -209,29 +228,31 @@ const RECIPIENT_SOURCE: Record<ComposeRecipientSource, ContextSource> = {
   memory: "memory",
   none: "memory",
 };
-
 function objectRefIds(raw: unknown, kinds: readonly string[]): string[] {
-  if (!Array.isArray(raw)) return [];
+  if (!Array.isArray(raw))
+    return [];
   return raw.flatMap((value) => {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      return [];
     const ref = value as Json;
     const kind = String(ref.kind || ref.type || "").toLowerCase();
-    if (!kinds.includes(kind)) return [];
+    if (!kinds.includes(kind))
+      return [];
     const id = String(ref.id || ref.collaboration_id || "").trim();
     return id ? [id] : [];
   });
 }
-
 function rowLabel(row: Row): string {
   const handle = String(row.handle || "").trim();
-  if (handle) return `@${handle}`;
+  if (handle)
+    return `@${handle}`;
   return String(row.display_name || row.id || "").trim();
 }
-
 function firstString(...values: unknown[]): string {
   for (const value of values) {
     const text = String(value ?? "").trim();
-    if (text) return text;
+    if (text)
+      return text;
   }
   return "";
 }
@@ -294,50 +315,60 @@ export function openContext(input: ContextResolveInput): ContextSession {
     risk_scope: null,
   };
   let pick: CollaborationPick | null = null;
-  const memo = new Map<TaskContextKey, KeyResult>();
+  const memo = new Map<TaskContextKey, Promise<KeyResult>>();
   const resolving = new Set<TaskContextKey>();
-
-  const entities = (): Record<string, unknown> => {
-    if (!extracted) extracted = text ? extractTaskEntities(text) : {};
+  const entities = async (): Promise<Record<string, unknown>> => {
+    if (!extracted)
+      extracted = text ? (await extractTaskEntities(text)) : {};
     return extracted;
   };
-
-  function pickCollaboration(): CollaborationPick {
+  async function pickCollaboration(): Promise<CollaborationPick> {
     const explicit = String(body.collaboration_id || "").trim();
     const sessionId = String(input.session?.collaboration_id || "").trim();
     if (sessionId && explicit && sessionId !== explicit) {
       return { row: null, source: null, conflict: true, ambiguous: false, candidates: [], reason: "会话已绑定其他合作对象，不能由请求覆盖" };
     }
-    const named = new Map<string, { row: Row; source: ContextSource }>();
-    const remember = (id: string, source: ContextSource): void => {
-      if (!id) return;
-      const direct = collabById(id);
+    const named = new Map<string, {
+      row: Row;
+      source: ContextSource;
+    }>();
+    const remember = async (id: string, source: ContextSource): Promise<void> => {
+      if (!id)
+        return;
+      const direct = (await collabById(id));
       if (direct) {
-        if (!named.has(String(direct.id))) named.set(String(direct.id), { row: direct, source });
+        if (!named.has(String(direct.id)))
+          named.set(String(direct.id), { row: direct, source });
         return;
       }
-      for (const candidate of scopedCollaborationSearch(id)) {
-        if (String(candidate.handle || "") !== id && String(candidate.id || "") !== id) continue;
-        const full = collabById(String(candidate.id));
-        if (full && !named.has(String(full.id))) named.set(String(full.id), { row: full, source });
+      for (const candidate of (await scopedCollaborationSearch(id))) {
+        if (String(candidate.handle || "") !== id && String(candidate.id || "") !== id)
+          continue;
+        const full = (await collabById(String(candidate.id)));
+        if (full && !named.has(String(full.id)))
+          named.set(String(full.id), { row: full, source });
       }
     };
     // 第 1/2/3 级合并成候选集合，来源档记最高优先的那一档。
-    remember(explicit, "explicit");
-    for (const id of objectRefIds(body.object_refs, ["collaboration", "collab", "kol", "creator", "object"])) remember(id, "object_refs");
-    remember(sessionId, "session");
+    (await remember(explicit, "explicit"));
+    for (const id of objectRefIds(body.object_refs, ["collaboration", "collab", "kol", "creator", "object"]))
+      (await remember(id, "object_refs"));
+    (await remember(sessionId, "session"));
     if (!named.size) {
       // 第 4 级：请求体 handle 与文本 @handle 走同一条检索径；id 命中时永不回退到这里。
-      const handle = firstString(body.handle, entities().handle);
+      const handle = firstString(body.handle, (await entities()).handle);
       if (handle) {
-        for (const candidate of scopedCollaborationSearch(handle)) {
-          if (String(candidate.handle || "") !== handle && String(candidate.id || "") !== handle) continue;
-          const full = collabById(String(candidate.id));
-          if (full && !named.has(String(full.id))) named.set(String(full.id), { row: full, source: "text" });
+        for (const candidate of (await scopedCollaborationSearch(handle))) {
+          if (String(candidate.handle || "") !== handle && String(candidate.id || "") !== handle)
+            continue;
+          const full = (await collabById(String(candidate.id)));
+          if (full && !named.has(String(full.id)))
+            named.set(String(full.id), { row: full, source: "text" });
         }
       }
     }
-    if (!named.size) return { row: null, source: null, conflict: false, ambiguous: false, candidates: [], reason: "没有可识别的合作对象" };
+    if (!named.size)
+      return { row: null, source: null, conflict: false, ambiguous: false, candidates: [], reason: "没有可识别的合作对象" };
     if (named.size > 1) {
       return {
         row: null,
@@ -349,47 +380,58 @@ export function openContext(input: ContextResolveInput): ContextSession {
       };
     }
     const only = [...named.values()][0];
-    assertCollaborationInScope(String(only.row.id));
+    (await assertCollaborationInScope(String(only.row.id)));
     return { row: only.row, source: only.source, conflict: false, ambiguous: false, candidates: [], reason: "" };
   }
-
-  const resolvers: Record<TaskContextKey, () => KeyResult> = {
-    collaboration() {
-      pick = pickCollaboration();
+  const resolvers: Record<TaskContextKey, () => Promise<KeyResult>> = {
+    async collaboration() {
+      pick = (await pickCollaboration());
       facts.collaboration = pick.row;
-      if (pick.conflict) return failed("blocked", pick.reason);
-      if (pick.row) return { ok: true, source: pick.source || "explicit" };
+      if (pick.conflict)
+        return failed("blocked", pick.reason);
+      if (pick.row)
+        return { ok: true, source: pick.source || "explicit" };
       return failed("context", pick.reason, pick.candidates);
     },
-    creator() {
+    async creator() {
       const asked = new Map<string, ContextSource>();
       const ask = (value: unknown, source: ContextSource): void => {
         const id = String(value ?? "").trim();
-        if (id && !asked.has(id)) asked.set(id, source);
+        if (id && !asked.has(id))
+          asked.set(id, source);
       };
-      for (const key of ["creator_uid", "kol_uid", "creator_id", "kol_id", "creator_handle", "handle"]) ask(body[key], "explicit");
-      for (const id of objectRefIds(body.object_refs, ["kol", "creator", "creator_profile", "kol_profile", "object"])) ask(id, "object_refs");
-      const found = entities();
-      for (const key of ["kolUid", "creator_id", "handle", "name"]) ask(found[key], "text");
-      if (!asked.size) return failed("input", "没有给定达人，请先从红人库或会话里选一个");
-      const named = new Map<string, { row: Row; source: ContextSource }>();
+      for (const key of ["creator_uid", "kol_uid", "creator_id", "kol_id", "creator_handle", "handle"])
+        ask(body[key], "explicit");
+      for (const id of objectRefIds(body.object_refs, ["kol", "creator", "creator_profile", "kol_profile", "object"]))
+        ask(id, "object_refs");
+      const found = (await entities());
+      for (const key of ["kolUid", "creator_id", "handle", "name"])
+        ask(found[key], "text");
+      if (!asked.size)
+        return failed("input", "没有给定达人，请先从红人库或会话里选一个");
+      const named = new Map<string, {
+        row: Row;
+        source: ContextSource;
+      }>();
       for (const [query, source] of asked) {
-        const direct = collabById(query);
+        const direct = (await collabById(query));
         const rows: Row[] = direct ? [direct] : [];
-        for (const candidate of scopedCollaborationSearch(query)) {
-          const full = collabById(String(candidate.id));
-          if (full) rows.push(full);
+        for (const candidate of (await scopedCollaborationSearch(query))) {
+          const full = (await collabById(String(candidate.id)));
+          if (full)
+            rows.push(full);
         }
         for (const row of rows) {
           const matches = [row.id, row.handle, row.display_name, row.kol_uid, row.kol_id]
             .some((value) => String(value || "").trim() === query);
-          if (matches && !named.has(String(row.id))) named.set(String(row.id), { row, source });
+          if (matches && !named.has(String(row.id)))
+            named.set(String(row.id), { row, source });
         }
       }
-      if (!named.size) return failed("input", "当前范围里没有匹配的达人");
+      if (!named.size)
+        return failed("input", "当前范围里没有匹配的达人");
       if (named.size > 1) {
-        return failed("input", "匹配到多个达人，需要先选定其中一个",
-          [...named.values()].map(({ row }) => ({ key: "creator", id: String(row.id), label: rowLabel(row) })));
+        return failed("input", "匹配到多个达人，需要先选定其中一个", [...named.values()].map(({ row }) => ({ key: "creator", id: String(row.id), label: rowLabel(row) })));
       }
       const only = [...named.values()][0];
       facts.creator = {
@@ -401,12 +443,14 @@ export function openContext(input: ContextResolveInput): ContextSession {
       };
       return { ok: true, source: only.source };
     },
-    stage() {
-      const collaboration = read("collaboration");
+    async stage() {
+      const collaboration = await read("collaboration");
       const row = facts.collaboration;
-      if (!collaboration.ok || !row) return dependencyFailed(collaboration, "缺少合作对象，无法确定正式阶段");
+      if (!collaboration.ok || !row)
+        return dependencyFailed(collaboration, "缺少合作对象，无法确定正式阶段");
       const code = normalizeStage(String(row.stage_code || "").trim());
-      if (!code || !BY_CODE[code]) return failed("context", code ? `未知的正式阶段 ${code}` : "当前合作没有正式阶段");
+      if (!code || !BY_CODE[code])
+        return failed("context", code ? `未知的正式阶段 ${code}` : "当前合作没有正式阶段");
       const exception = sopExceptionByStage(code);
       facts.stage = {
         stage_code: code,
@@ -418,21 +462,22 @@ export function openContext(input: ContextResolveInput): ContextSession {
       };
       return { ok: true, source: "object_fact" };
     },
-    stage_tracks() {
-      const stage = read("stage");
-      if (!stage.ok || !facts.stage) return dependencyFailed(stage, "缺少正式阶段，无法列出阶段轨道");
+    async stage_tracks() {
+      const stage = await read("stage");
+      if (!stage.ok || !facts.stage)
+        return dependencyFailed(stage, "缺少正式阶段，无法列出阶段轨道");
       facts.stage_tracks = groupedStageTracks(facts.stage.stage_code);
       return { ok: true, source: "object_fact" };
     },
-    mailbox() {
-      read("collaboration");
+    async mailbox() {
+      await read("collaboration");
       // 发件箱不依赖合作对象：body.mailbox 是通讯页选中的邮箱（第 2 档），
       // body.from 是口令里明确指定的（第 1 档）。
-      const sender = composeSenderFor({
+      const sender = (await composeSenderFor({
         collaboration: facts.collaboration,
         requested: firstString(body.from),
         selectedMailbox: firstString(body.mailbox, body.mailbox_from),
-      });
+      }));
       if (!sender.send_from) {
         facts.mailbox = null;
         if (sender.candidates.length) {
@@ -447,39 +492,44 @@ export function openContext(input: ContextResolveInput): ContextSession {
       facts.mailbox = sender;
       return { ok: true, source: MAILBOX_SOURCE[sender.source] };
     },
-    mail_thread() {
-      const collaboration = read("collaboration");
+    async mail_thread() {
+      const collaboration = await read("collaboration");
       if (collaboration.ok && facts.collaboration) {
-        const thread = composeContextForCollaboration(String(facts.collaboration.id));
+        const thread = (await composeContextForCollaboration(String(facts.collaboration.id)));
         facts.mail_thread = thread;
-        if (!thread.text && !thread.mail_count) return failed("context", "该合作暂无往来邮件");
+        if (!thread.text && !thread.mail_count)
+          return failed("context", "该合作暂无往来邮件");
         return { ok: true, source: "memory" };
       }
       // 无合作对象时：走收件人的人摘要（发件箱 + 最近往来对方）。
-      const recipient = read("recipient");
+      const recipient = await read("recipient");
       if (!recipient.ok || !facts.recipient?.to) {
         return dependencyFailed(recipient, "缺少收件人，无法读取往来摘要");
       }
-      const mailbox = read("mailbox");
+      const mailbox = await read("mailbox");
       const from = facts.mailbox?.from || "";
-      if (!mailbox.ok || !from) return dependencyFailed(mailbox, "缺少发件箱，无法读取往来摘要");
-      const digest = readPersonDigest(from, facts.recipient.to);
+      if (!mailbox.ok || !from)
+        return dependencyFailed(mailbox, "缺少发件箱，无法读取往来摘要");
+      const digest = (await readPersonDigest(from, facts.recipient.to));
       if (!digest || (!digest.text && !digest.mail_count)) {
         return failed("context", "该收件人暂无往来摘要");
       }
       facts.mail_thread = { digest, memory: [], text: digest.text, mail_count: digest.mail_count };
       return { ok: true, source: "memory" };
     },
-    mail_template() {
-      const stage = read("stage");
-      if (skillId !== "email_compose") return failed("context", "邮件模板解析目前只登记了 email_compose（P2 按技能补齐）");
-      if (!stage.ok || !facts.stage) return dependencyFailed(stage, "缺少正式阶段，无法匹配适用模板");
+    async mail_template() {
+      const stage = await read("stage");
+      if (skillId !== "email_compose")
+        return failed("context", "邮件模板解析目前只登记了 email_compose（P2 按技能补齐）");
+      if (!stage.ok || !facts.stage)
+        return dependencyFailed(stage, "缺少正式阶段，无法匹配适用模板");
       const brand = String(facts.collaboration?.brand || "").trim();
       const knowledgeId = String(body.knowledge_id || "").trim() || null;
-      const templates = resolveApplicableMailTemplates({ knowledgeId, skillId, stageCode: facts.stage.stage_code, brand });
+      const templates = (await resolveApplicableMailTemplates({ knowledgeId, skillId, stageCode: facts.stage.stage_code, brand }));
       const choices = preparedTemplateChoice(templates, facts.stage.stage_code, brand);
       facts.mail_template = { templates, choices, template: choices.length === 1 ? choices[0] : null };
-      if (!templates.length) return failed("context", "暂无已启用的适用模板");
+      if (!templates.length)
+        return failed("context", "暂无已启用的适用模板");
       if (choices.length !== 1) {
         return failed("context", "有多个同等适用的模板，需要先选定其中一个", choices.map((template) => ({
           key: "mail_template",
@@ -489,96 +539,109 @@ export function openContext(input: ContextResolveInput): ContextSession {
       }
       return { ok: true, source: knowledgeId ? "explicit" : "object_fact" };
     },
-    conversation() {
+    async conversation() {
       // 通讯页选中的邮箱下查会话（须属本人挂载）；没选时沿用默认邮箱。
       const selected = firstString(body.mailbox, body.mailbox_from);
       if (selected) {
-        const owned = mailboxBindings().some(
-          (binding) => normalizeEmail(String(binding.mailbox || "")) === normalizeEmail(selected),
-        );
-        if (!owned) return failed("blocked", "选中的邮箱不是本人挂载的邮箱");
+        const owned = (await mailboxBindings()).some((binding) => normalizeEmail(String(binding.mailbox || "")) === normalizeEmail(selected));
+        if (!owned)
+          return failed("blocked", "选中的邮箱不是本人挂载的邮箱");
       }
-      const mailbox = selected ? normalizeEmail(selected) : currentMailbox();
-      if (!mailbox) return failed("context", "当前账号没有已挂载的邮箱，无法解析邮件会话");
-      const asked: Array<[string, ContextSource]> = [];
+      const mailbox = selected ? normalizeEmail(selected) : (await currentMailbox());
+      if (!mailbox)
+        return failed("context", "当前账号没有已挂载的邮箱，无法解析邮件会话");
+      const asked: Array<[
+        string,
+        ContextSource
+      ]> = [];
       const explicit = firstString(body.conversation_id, body.thread_id);
-      if (explicit) asked.push([explicit, "explicit"]);
-      for (const id of objectRefIds(body.object_refs, ["conversation", "thread", "mail_thread"])) asked.push([id, "object_refs"]);
-      const fromText = firstString(entities().conversationId);
-      if (fromText) asked.push([fromText, "text"]);
-      if (!asked.length) return failed("input", "没有给定邮件会话，请从收件箱或会话卡片里选一个");
+      if (explicit)
+        asked.push([explicit, "explicit"]);
+      for (const id of objectRefIds(body.object_refs, ["conversation", "thread", "mail_thread"]))
+        asked.push([id, "object_refs"]);
+      const fromText = firstString((await entities()).conversationId);
+      if (fromText)
+        asked.push([fromText, "text"]);
+      if (!asked.length)
+        return failed("input", "没有给定邮件会话，请从收件箱或会话卡片里选一个");
       const found = new Map<string, ContextSource>();
       for (const [id, source] of asked) {
-        const thread = findMailThread(id, mailbox);
-        if (thread && !found.has(String(thread.id))) found.set(String(thread.id), source);
+        const thread = (await findMailThread(id, mailbox));
+        if (thread && !found.has(String(thread.id)))
+          found.set(String(thread.id), source);
       }
-      if (!found.size) return failed("context", "当前邮箱下没有这条会话");
+      if (!found.size)
+        return failed("context", "当前邮箱下没有这条会话");
       if (found.size > 1) {
-        return failed("context", "匹配到多条邮件会话，需要先选定其中一个",
-          [...found.keys()].map((id) => ({ key: "conversation", id, label: id })));
+        return failed("context", "匹配到多条邮件会话，需要先选定其中一个", [...found.keys()].map((id) => ({ key: "conversation", id, label: id })));
       }
       const [id, source] = [...found.entries()][0];
-      const thread = findMailThread(id, mailbox);
+      const thread = (await findMailThread(id, mailbox));
       facts.conversation = thread ? conversationRowOf(thread) as unknown as Json : null;
       return { ok: true, source };
     },
-    recipient() {
+    async recipient() {
       // 收件人来源链（compose-recipient.ts）：口令写明 → 通讯页选中会话 →
       // 已选红人最近往来 → 合作记录邮箱 → 当前发件箱最近真实往来。
-      const mailboxResult = read("mailbox");
-      read("conversation");
-      const found = entities();
+      const mailboxResult = await read("mailbox");
+      await read("conversation");
+      const found = (await entities());
       const toList = Array.isArray(found.to) ? found.to : [];
-      const explicitTo = firstString(
-        body.to,
-        body.recipient,
-        toList[0],
-        typeof found.email === "string" ? found.email : "",
-      );
-      const recipient = composeRecipientFor({
+      const explicitTo = firstString(body.to, body.recipient, toList[0], typeof found.email === "string" ? found.email : "");
+      const recipient = (await composeRecipientFor({
         mailbox: mailboxResult.ok && facts.mailbox ? facts.mailbox.from : "",
         collaboration: facts.collaboration,
         conversationId: firstString(body.conversation_id, body.thread_id) || null,
         explicitTo: explicitTo || null,
-      });
-      if (recipient.error) return failed("blocked", recipient.error.message);
+      }));
+      if (recipient.error)
+        return failed("blocked", recipient.error.message);
       facts.recipient = recipient;
       return { ok: true, source: RECIPIENT_SOURCE[recipient.source] };
     },
-    message() {
+    async message() {
       // 当前选中的邮件（kol_mail_items）：显式 message_id → object_refs → 文本抽取。
       // 必须归属本人挂载邮箱下的会话，否则拒绝，不降级读别的邮件。
-      const asked: Array<[string, ContextSource]> = [];
+      const asked: Array<[
+        string,
+        ContextSource
+      ]> = [];
       const explicit = firstString(body.message_id, body.messageId, body.id);
-      if (explicit) asked.push([explicit, "explicit"]);
-      for (const id of objectRefIds(body.object_refs, ["message", "mail_message", "mail_item"])) asked.push([id, "object_refs"]);
-      const fromText = firstString(entities().messageId, entities().message_id);
-      if (fromText) asked.push([fromText, "text"]);
-      if (!asked.length) return failed("input", "没有给定邮件，请从通讯页选中一封邮件");
+      if (explicit)
+        asked.push([explicit, "explicit"]);
+      for (const id of objectRefIds(body.object_refs, ["message", "mail_message", "mail_item"]))
+        asked.push([id, "object_refs"]);
+      const fromText = firstString((await entities()).messageId, (await entities()).message_id);
+      if (fromText)
+        asked.push([fromText, "text"]);
+      if (!asked.length)
+        return failed("input", "没有给定邮件，请从通讯页选中一封邮件");
       const found = new Map<string, ContextSource>();
       for (const [id, source] of asked) {
-        const item = findMailItem(id);
-        if (item && !found.has(String(item.id))) found.set(String(item.id), source);
+        const item = (await findMailItem(id));
+        if (item && !found.has(String(item.id)))
+          found.set(String(item.id), source);
       }
-      if (!found.size) return failed("context", "找不到这封邮件，或它不在你的邮箱范围内");
+      if (!found.size)
+        return failed("context", "找不到这封邮件，或它不在你的邮箱范围内");
       if (found.size > 1) {
-        return failed("context", "匹配到多封邮件，需要先选定其中一封",
-          [...found.keys()].map((id) => ({ key: "message", id, label: id })));
+        return failed("context", "匹配到多封邮件，需要先选定其中一封", [...found.keys()].map((id) => ({ key: "message", id, label: id })));
       }
       const [id, source] = [...found.entries()][0];
-      const item = findMailItem(id);
+      const item = (await findMailItem(id));
       facts.message = item ? messageRowOf(item) as unknown as Json : null;
       return { ok: true, source };
     },
-    creator_filter() {
+    async creator_filter() {
       // TODO(P2.4)：达人库筛选态与字典来源还没登记，先如实报未解析，不猜。
       return failed("context", "达人库筛选口径的解析器尚未登记（P2.4 接通字典与当前筛选）");
     },
-    risk_scope() {
-      read("collaboration");
+    async risk_scope() {
+      await read("collaboration");
       const scope = brandScope();
       const requested = Array.isArray(body.brands) ? body.brands.map((value) => String(value || "").trim()).filter(Boolean) : [];
-      if (scope && requested.some((brand) => !scope.includes(brand))) return failed("blocked", "所选品牌超出当前账号范围");
+      if (scope && requested.some((brand) => !scope.includes(brand)))
+        return failed("blocked", "所选品牌超出当前账号范围");
       facts.risk_scope = {
         brand_scope: scope === null ? "all" : "scoped",
         brands: requested.length ? requested : scope,
@@ -587,31 +650,26 @@ export function openContext(input: ContextResolveInput): ContextSession {
       return { ok: true, source: requested.length ? "explicit" : "account_binding" };
     },
   };
-
-  function read(key: TaskContextKey): KeyResult {
+  async function read(key: TaskContextKey): Promise<KeyResult> {
     const hit = memo.get(key);
-    if (hit) return hit;
-    if (resolving.has(key)) return failed("context", `上下文键 ${key} 互相依赖，无法解析`);
+    if (hit)
+      return await hit;
+    if (resolving.has(key))
+      return failed("context", `上下文键 ${key} 互相依赖，无法解析`);
     resolving.add(key);
-    let result: KeyResult;
-    try {
-      result = resolvers[key]();
-    } finally {
-      resolving.delete(key);
-    }
+    const result = resolvers[key]().finally(() => resolving.delete(key));
     memo.set(key, result);
-    return result;
+    return await result;
   }
-
-  function resolution(
-    requires = input.requires ?? taskDefinition(skillId)?.context?.requires ?? [],
-    prefers = input.prefers ?? taskDefinition(skillId)?.context?.prefers ?? [],
-  ): ContextResolution {
+  async function resolution(requires = input.requires ?? taskDefinition(skillId)?.context?.requires ?? [], prefers = input.prefers ?? taskDefinition(skillId)?.context?.prefers ?? []): Promise<ContextResolution> {
     const declared = [...new Set([...requires, ...prefers])];
     const wanted = new Set<TaskContextKey>(declared);
-    for (const key of declared) for (const dependency of KEY_DEPENDS[key] || []) wanted.add(dependency);
-    for (const key of KEY_ORDER) if (wanted.has(key)) read(key);
-
+    for (const key of declared)
+      for (const dependency of KEY_DEPENDS[key] || [])
+        wanted.add(dependency);
+    for (const key of KEY_ORDER)
+      if (wanted.has(key))
+        await read(key);
     const resolved: Record<string, unknown> = {};
     const sources: Record<string, string> = {};
     const missing: ContextMissing[] = [];
@@ -622,12 +680,13 @@ export function openContext(input: ContextResolveInput): ContextSession {
     let needsInput = false;
     for (const key of declared) {
       const tier = requires.includes(key) ? "requires" : "prefers";
-      const result = read(key);
+      const result = await read(key);
       if (result.ok) {
         const value = PUBLIC_VALUE[key](facts);
         if (value === null || value === undefined) {
           missing.push({ key, tier, reason: "解析结果为空" });
-          if (tier === "requires") needsContext = true;
+          if (tier === "requires")
+            needsContext = true;
           continue;
         }
         resolved[key] = value;
@@ -637,14 +696,19 @@ export function openContext(input: ContextResolveInput): ContextSession {
       missing.push({ key, tier, reason: result.reason });
       for (const candidate of result.candidates || []) {
         const id = `${candidate.key}\u0000${candidate.id}`;
-        if (seen.has(id)) continue;
+        if (seen.has(id))
+          continue;
         seen.add(id);
         candidates.push(candidate);
       }
-      if (tier !== "requires") continue;
-      if (result.gap === "blocked") blocked = true;
-      else if (result.gap === "input") needsInput = true;
-      else needsContext = true;
+      if (tier !== "requires")
+        continue;
+      if (result.gap === "blocked")
+        blocked = true;
+      else if (result.gap === "input")
+        needsInput = true;
+      else
+        needsContext = true;
     }
     const status: ContextStatus = blocked ? "blocked" : needsContext ? "needs_context" : needsInput ? "needs_input" : "ready";
     // 版本只认内容：声明顺序变化不算上下文变化，否则旧确认会无谓失效。
@@ -659,54 +723,52 @@ export function openContext(input: ContextResolveInput): ContextSession {
       context_version: contextVersion({ skill_id: skillId, resolved: versioned, candidates }),
     };
   }
-
   return {
     skillId,
-    collaboration: () => {
-      read("collaboration");
+    collaboration: async () => {
+      await read("collaboration");
       return pick || { row: null, source: null, conflict: false, ambiguous: false, candidates: [], reason: "" };
     },
-    stage: () => {
-      read("stage");
+    stage: async () => {
+      await read("stage");
       return facts.stage;
     },
-    stageTracks: () => {
-      read("stage_tracks");
+    stageTracks: async () => {
+      await read("stage_tracks");
       return facts.stage_tracks;
     },
-    mailbox: () => {
-      read("mailbox");
+    mailbox: async () => {
+      await read("mailbox");
       return facts.mailbox;
     },
-    mailThread: () => {
-      read("mail_thread");
+    mailThread: async () => {
+      await read("mail_thread");
       return facts.mail_thread;
     },
-    mailTemplate: () => {
-      read("mail_template");
+    mailTemplate: async () => {
+      await read("mail_template");
       return facts.mail_template;
     },
-    creator: () => {
-      read("creator");
+    creator: async () => {
+      await read("creator");
       return facts.creator;
     },
-    conversation: () => {
-      read("conversation");
+    conversation: async () => {
+      await read("conversation");
       return facts.conversation;
     },
-    message: () => {
-      read("message");
+    message: async () => {
+      await read("message");
       return facts.message;
     },
-    recipient: () => {
-      read("recipient");
+    recipient: async () => {
+      await read("recipient");
       return facts.recipient;
     },
     resolution,
   };
 }
-
 /** 统一入口：按声明解析并返回信封（`context.resolve` 的回答体）。 */
-export function resolveContext(input: ContextResolveInput): ContextResolution {
-  return openContext(input).resolution(input.requires, input.prefers);
+export async function resolveContext(input: ContextResolveInput): Promise<ContextResolution> {
+  return await openContext(input).resolution(input.requires, input.prefers);
 }

@@ -4,20 +4,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { setConnectorConfig, setToolPolicy } from "../src/runtime/store.js";
+import { seedBuiltinConnectorReferences } from "./helpers/finalfix-connector-admin.js";
 import { freshTestDatabase } from "./support/pg.js";
-
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-
 let tmp = "";
 let app: Hono;
 let adminCookie = "";
-
-const dtoFixture = JSON.parse(
-  fs.readFileSync(path.join(repoRoot, "backend/tests/fixtures/employee-connector-dto.json"), "utf8"),
-) as { forbidden_keys: string[]; access: string[] };
-
+const dtoFixture = JSON.parse(fs.readFileSync(path.join(repoRoot, "backend/tests/fixtures/employee-connector-dto.json"), "utf8")) as {
+  forbidden_keys: string[];
+  access: string[];
+};
 function assertEmployeeConnectorDto(row: Record<string, unknown>) {
   for (const key of dtoFixture.forbidden_keys) {
     expect(row, `employee DTO must not emit ${key}`).not.toHaveProperty(key);
@@ -28,10 +26,10 @@ function assertEmployeeConnectorDto(row: Record<string, unknown>) {
   expect(row.id).toEqual(expect.any(String));
   expect(row.label).toEqual(expect.any(String));
 }
-
 async function call(method: string, url: string, body?: unknown, cookie = adminCookie) {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (cookie) headers.Cookie = cookie;
+  if (cookie)
+    headers.Cookie = cookie;
   const response = await app.request(url, {
     method,
     headers,
@@ -62,12 +60,9 @@ async function createEmployee(username = "employee") {
  * (DECISIONS.md ADR-2026-09-27); the retained table is seeded directly so the
  * still-published employee use surface keeps its regression coverage.
  */
-function seedConnectorGrant(userId: string, connectorId: string, access: "read" | "write"): void {
-  getConn().prepare(
-    "INSERT OR REPLACE INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES (?,?,?,?)",
-  ).run(userId, connectorId, access, new Date().toISOString());
+async function seedConnectorGrant(userId: string, connectorId: string, access: "read" | "write"): Promise<void> {
+  (await postgresDb().execute("INSERT INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id,connector_id) DO UPDATE SET access=EXCLUDED.access,created_at=EXCLUDED.created_at", userId, connectorId, access, new Date().toISOString()));
 }
-
 async function employeeLogin(username = "employee") {
   const login = await call("POST", "/api/auth/login", {
     username,
@@ -80,13 +75,12 @@ async function employeeLogin(username = "employee") {
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-connector-dto-"));
-  process.env.LINGONG_DB = path.join(tmp, "test.db");
-  process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "real";
   process.env.AUTH_MODE = "enabled";
-  resetConn();
+  (await resetDatabase());
+  await seedBuiltinConnectorReferences();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const setup = await call("POST", "/api/auth/setup", {
     username: "admin",
     name: "Admin",
@@ -96,9 +90,8 @@ beforeEach(async () => {
   expect(setup.response.status).toBe(201);
   adminCookie = setup.cookie;
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
   process.env.CODEX_MODE = "stub";
@@ -107,33 +100,25 @@ afterEach(() => {
 describe("employee connector use-surface DTO", () => {
   it("omits credential_* and governance status; hides unauthorized and disabled rows", async () => {
     const employee = await createEmployee("dto-user");
-    getConn().prepare(
-      "UPDATE connectors SET credential_ref=?, status=?, enabled=1 WHERE id='starrykol'",
-    ).run("vault://starrykol/prod", "configured");
-    getConn().prepare(
-      "INSERT OR IGNORE INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES (?,?,?,?,?,?)",
-    ).run("hidden_tool", "Hidden tool", 0, "configured", "vault://hidden", new Date().toISOString());
-
-    seedConnectorGrant(String(employee.id), "starrykol", "read");
-    seedConnectorGrant(String(employee.id), "hidden_tool", "write");
-
+    (await postgresDb().execute("UPDATE connectors SET credential_ref=$1, status=$2, enabled=1 WHERE id='starrykol'", "vault://starrykol/prod", "configured"));
+    (await postgresDb().execute("INSERT INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING", "hidden_tool", "Hidden tool", 0, "configured", "vault://hidden", new Date().toISOString()));
+    (await seedConnectorGrant(String(employee.id), "starrykol", "read"));
+    (await seedConnectorGrant(String(employee.id), "hidden_tool", "write"));
     const cookie = await employeeLogin("dto-user");
     const listed = await call("GET", "/api/connectors", undefined, cookie);
     expect(listed.response.status).toBe(200);
     const rows = listed.json as Record<string, unknown>[];
     expect(rows.map((row) => row.id)).toEqual(["starrykol"]);
     expect(rows).toHaveLength(1);
-    for (const row of rows) assertEmployeeConnectorDto(row);
+    for (const row of rows)
+      assertEmployeeConnectorDto(row);
     expect(rows[0]).toMatchObject({ id: "starrykol", access: "read" });
     expect(rows.some((row) => row.id === "hidden_tool" || row.id === "claw")).toBe(false);
   });
-
   it("projects explicit write grants and never returns the word admin", async () => {
     const employee = await createEmployee("admin-grant");
-    getConn().prepare(
-      "UPDATE connectors SET enabled=1, status='configured' WHERE id='starrykol'",
-    ).run();
-    seedConnectorGrant(String(employee.id), "starrykol", "write");
+    (await postgresDb().execute("UPDATE connectors SET enabled=1, status='configured' WHERE id='starrykol'"));
+    (await seedConnectorGrant(String(employee.id), "starrykol", "write"));
     const cookie = await employeeLogin("admin-grant");
     const listed = await call("GET", "/api/connectors", undefined, cookie);
     const rows = listed.json as Record<string, unknown>[];
@@ -162,9 +147,8 @@ describe("employee connector use-surface DTO", () => {
     const skillsSection = simplePages.slice(0, simplePages.indexOf("export function Admin"));
     expect(skillsSection).not.toContain("/admin/connectors");
   });
-
   it("keeps credential fields on admin serializer endpoints only", async () => {
-    getConn().prepare("UPDATE connectors SET credential_ref=?, enabled=1 WHERE id='starrykol'").run("vault://starrykol");
+    (await postgresDb().execute("UPDATE connectors SET credential_ref=$1, enabled=1 WHERE id='starrykol'", "vault://starrykol"));
     const adminList = await call("GET", "/api/admin/connectors");
     expect(adminList.response.status).toBe(200);
     const adminRows = adminList.json as Record<string, unknown>[];
@@ -175,17 +159,19 @@ describe("employee connector use-surface DTO", () => {
       credential_status: "已配置",
     });
     expect(starrykol).toHaveProperty("status");
-
     const employee = await createEmployee("serializer-user");
-    seedConnectorGrant(String(employee.id), "starrykol", "read");
+    (await seedConnectorGrant(String(employee.id), "starrykol", "read"));
     const employeeSurface = await call("GET", "/api/connectors", undefined, await employeeLogin("serializer-user"));
     const useRows = employeeSurface.json as Record<string, unknown>[];
     expect(useRows.length).toBeGreaterThan(0);
-    for (const row of useRows) assertEmployeeConnectorDto(row);
+    for (const row of useRows)
+      assertEmployeeConnectorDto(row);
   });
-
   it("no longer exposes per-user connector grants or organization/connector scope endpoints", async () => {
-    const retired: Array<[string, string]> = [
+    const retired: Array<[
+      string,
+      string
+    ]> = [
       ["PUT", "/api/admin/users/usr_missing/connectors/starrykol"],
       ["DELETE", "/api/admin/users/usr_missing/connectors/starrykol"],
       ["PUT", "/api/admin/users/usr_missing/connectors"],
@@ -205,18 +191,15 @@ describe("employee connector use-surface DTO", () => {
       expect(response.status, `${method} ${url}`).toBe(404);
     }
   });
-
   it("reports catalog kind, protocol, icon, and approved tool count", async () => {
-    const db = getConn();
+    const db = postgresDb();
     const now = new Date().toISOString();
     for (const id of ["dto_mcp", "dto_http"]) {
-      db.prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES(?,?,?,?,?)")
-        .run(id, id, 1, "configured", now);
+      (await db.execute("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES($1,$2,$3,$4,$5)", id, id, 1, "configured", now));
     }
-    setConnectorConfig("dto_http", { protocol: "http", url: "https://api.example.com", allow_unauthenticated: true }, 0);
-    setToolPolicy("dto_mcp", "list_records", { enabled: true, risk: "L1", access: "read", schema_hash: "b".repeat(64) }, 0);
-    db.prepare("UPDATE connectors SET icon_ref='stored-icon.png' WHERE id='dto_mcp'").run();
-
+    (await setConnectorConfig("dto_http", { protocol: "http", url: "https://api.example.com", allow_unauthenticated: true }, 0));
+    (await setToolPolicy("dto_mcp", "list_records", { enabled: true, risk: "L1", access: "read", schema_hash: "b".repeat(64) }, 0));
+    (await db.execute("UPDATE connectors SET icon_ref='stored-icon.png' WHERE id='dto_mcp'"));
     const rows = (await call("GET", "/api/admin/connectors")).json as Record<string, unknown>[];
     const byId = Object.fromEntries(rows.map((row) => [row.id, row]));
     expect(byId.starrykol).toMatchObject({ kind: "app", protocol: "mcp", icon_url: "/api/admin/connectors/starrykol/icon" });

@@ -4,7 +4,7 @@ import path from "node:path";
 import type { Hono } from "hono";
 import { DEMO_USER } from "../src/config.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { displayStatusOf, normalizePriority, todayDateStr } from "../src/host/home-board.js";
 import { loadTodayTaskResults, writeTodayTaskResults } from "../src/host/today-tasks.js";
 import { parseTaskFieldUpdatesFallback } from "../src/tasks/task-field-updates.js";
@@ -36,20 +36,17 @@ function localDatePlus(days: number): string {
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-task-fields-"));
-  process.env.LINGONG_DB = path.join(tmp, "tasks.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
-
 describe("task base fields", () => {
   it("normalizes legacy priority codes to canonical ones", () => {
     expect(normalizePriority("high")).toBe("important");
@@ -160,7 +157,7 @@ describe("PATCH /api/tasks/:id", () => {
     const updated = (events.body as unknown as Json[]).find((event) => event.event_type === "task.updated");
     expect(String(updated?.safe_summary || "")).toContain("标题");
     expect(String(updated?.safe_summary || "")).toContain("风险等级");
-    const auditRows = getConn().prepare("SELECT * FROM audit_events WHERE event_type='task.updated'").all() as Json[];
+    const auditRows = (await postgresDb().many("SELECT * FROM audit_events WHERE event_type='task.updated'")) as Json[];
     expect(auditRows.length).toBe(1);
     expect(JSON.parse(String(auditRows[0].payload))).toMatchObject({
       work_item_id: id,
@@ -186,12 +183,9 @@ describe("PATCH /api/tasks/:id", () => {
   it("returns 404 for unknown or foreign tasks", async () => {
     expect((await request("PATCH", "/api/tasks/tsk_missing", { title: "x" })).status).toBe(404);
     const now = new Date().toISOString();
-    getConn().prepare(
-      `INSERT INTO tickets
+    (await postgresDb().execute(`INSERT INTO tickets
        (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,data_version,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run("tsk_foreign", "usr_other", "risk_scan", "别人的任务", "manual", "pending", "normal",
-      "risk_scan", "lead", "{}", "{}", 1, now, now);
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, "tsk_foreign", "usr_other", "risk_scan", "别人的任务", "manual", "pending", "normal", "risk_scan", "lead", "{}", "{}", 1, now, now));
     expect((await request("PATCH", "/api/tasks/tsk_foreign", { title: "x" })).status).toBe(404);
     expect((await request("POST", "/api/tasks/tsk_foreign/edit", { text: "已完成" })).status).toBe(404);
   });
@@ -234,15 +228,20 @@ describe("POST /api/tasks/:id/edit", () => {
   it("returns 422 without writing when nothing is recognized", async () => {
     const created = await request("POST", "/api/tasks", { task_type: "risk_scan", title: "无法识别" });
     const id = String(created.body.id);
-    const before = getConn().prepare("SELECT data_version FROM tickets WHERE id=?").get(id) as { data_version: number };
+    const before = (await postgresDb().one("SELECT data_version FROM tickets WHERE id=$1", id)) as {
+      data_version: number;
+    };
     const edited = await request("POST", `/api/tasks/${id}/edit`, { text: "今天天气真不错" });
     expect(edited.status).toBe(422);
     expect(edited.body.code).toBe("edit_not_recognized");
     expect(edited.body.message).toBe("没有识别出要修改的字段");
-    const after = getConn().prepare("SELECT data_version FROM tickets WHERE id=?").get(id) as { data_version: number };
+    const after = (await postgresDb().one("SELECT data_version FROM tickets WHERE id=$1", id)) as {
+      data_version: number;
+    };
     expect(after.data_version).toBe(before.data_version);
-    const events = getConn().prepare("SELECT COUNT(*) AS c FROM task_events WHERE work_item_id=? AND event_type='task.updated'")
-      .get(id) as { c: number };
+    const events = (await postgresDb().one("SELECT COUNT(*) AS c FROM task_events WHERE work_item_id=$1 AND event_type='task.updated'", id)) as {
+      c: number;
+    };
     expect(events.c).toBe(0);
   });
 });
@@ -268,7 +267,7 @@ describe("today task display rows", () => {
     const done = await request("POST", "/api/tasks", { task_type: "risk_scan", title: "已了结" });
     const openId = String(open.body.id);
     const doneId = String(done.body.id);
-    const written = writeTodayTaskResults({
+    const written = (await writeTodayTaskResults({
       owner: DEMO_USER.id,
       workItemId: openId,
       runId: null,
@@ -279,35 +278,32 @@ describe("today task display rows", () => {
           { work_item_id: "tsk_deleted", rank: 3, title: "已被删" },
         ],
       },
-    });
+    }));
     expect(written.ok).toBe(true);
-    if (!written.ok) return;
-    getConn().prepare(
-      "INSERT INTO employee_today_briefs (owner_user_id, artifact_id, work_item_id, result_artifact_id, updated_at) VALUES (?,?,?,?,?)",
-    ).run(DEMO_USER.id, written.artifact_id, openId, written.artifact_id, new Date().toISOString());
+    if (!written.ok)
+      return;
+    (await postgresDb().execute("INSERT INTO employee_today_briefs (owner_user_id, artifact_id, work_item_id, result_artifact_id, updated_at) VALUES ($1,$2,$3,$4,$5)", DEMO_USER.id, written.artifact_id, openId, written.artifact_id, new Date().toISOString()));
     const completed = await request("PATCH", `/api/tasks/${doneId}`, { status: "completed" });
     expect(completed.status).toBe(200);
-    const loaded = loadTodayTaskResults(DEMO_USER.id);
+    const loaded = (await loadTodayTaskResults(DEMO_USER.id));
     expect((loaded?.items || []).map((item) => item.work_item_id)).toEqual([openId]);
   });
-
   it("passes icon and group through write and load", async () => {
     const created = await request("POST", "/api/tasks", { task_type: "risk_scan", title: "展示行" });
     const id = String(created.body.id);
-    const written = writeTodayTaskResults({
+    const written = (await writeTodayTaskResults({
       owner: DEMO_USER.id,
       workItemId: id,
       runId: null,
       results: {
         items: [{ work_item_id: id, rank: 1, title: "展示行", verb: "edit", label: "处理", icon: "📋", group: "重要" }],
       },
-    });
+    }));
     expect(written.ok).toBe(true);
-    if (!written.ok) return;
-    getConn().prepare(
-      "INSERT INTO employee_today_briefs (owner_user_id, artifact_id, work_item_id, result_artifact_id, updated_at) VALUES (?,?,?,?,?)",
-    ).run(DEMO_USER.id, written.artifact_id, id, written.artifact_id, new Date().toISOString());
-    const loaded = loadTodayTaskResults(DEMO_USER.id);
+    if (!written.ok)
+      return;
+    (await postgresDb().execute("INSERT INTO employee_today_briefs (owner_user_id, artifact_id, work_item_id, result_artifact_id, updated_at) VALUES ($1,$2,$3,$4,$5)", DEMO_USER.id, written.artifact_id, id, written.artifact_id, new Date().toISOString()));
+    const loaded = (await loadTodayTaskResults(DEMO_USER.id));
     expect(loaded?.items[0]).toMatchObject({ work_item_id: id, icon: "📋", group: "重要" });
     const listed = await request("GET", "/api/home/today-tasks");
     expect(listed.status).toBe(200);

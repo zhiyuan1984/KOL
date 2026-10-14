@@ -4,19 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import {
-  resetCollectorConnectionCache,
-  setCollectorProbeClientFactory,
-  setCollectorProbeFetch,
-} from "../src/crawl/connection.js";
+import { resetCollectorConnectionCache, setCollectorProbeClientFactory, setCollectorProbeFetch, } from "../src/crawl/connection.js";
 import { setCrawlMcpClientFactory } from "../src/crawl/service.js";
 import { monitorCrawlJob } from "../src/crawl/service.js";
-import {
-  candidateHasContactEmail,
-  evaluateFollowFilters,
-  sourceBatchForFollowSet,
-} from "../src/discovery-import.js";
-import { getConn, listAudit, resetConn } from "../src/db.js";
+import { candidateHasContactEmail, evaluateFollowFilters, sourceBatchForFollowSet, } from "../src/discovery-import.js";
+import { postgresDb, listAudit, resetDatabase } from "../src/postgres/access.js";
 import { seedAll } from "../src/seed.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import type { Json, Row } from "../src/types.js";
@@ -33,16 +25,19 @@ function mockCrawl() {
   return {
     async callTool(name: string, args: Json = {}) {
       crawlCalls.push(name);
-      if (name === "start_crawl") return { task_id: "remote-disc-batch-1", status: "running" };
-      if (name === "get_crawl_status") return { task_id: "remote-disc-batch-1", status: "idle" };
-      if (name === "get_crawl_logs") return { logs: [] };
-      if (name === "get_creators") return { creators, has_more: false };
+      if (name === "start_crawl")
+        return { task_id: "remote-disc-batch-1", status: "running" };
+      if (name === "get_crawl_status")
+        return { task_id: "remote-disc-batch-1", status: "idle" };
+      if (name === "get_crawl_logs")
+        return { logs: [] };
+      if (name === "get_creators")
+        return { creators, has_more: false };
       return args;
     },
-    async close() {},
+    async close() { },
   };
 }
-
 async function request(method: string, url: string, body?: unknown) {
   const response = await app.request(url, {
     method,
@@ -52,22 +47,25 @@ async function request(method: string, url: string, body?: unknown) {
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) as Json : {}, text };
 }
-
-function sideEffects() {
+async function sideEffects() {
   return {
-    sends: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: number }).n),
-    stageWrites: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_stage_writes").get() as { n: number }).n),
-    transitions: Number((getConn().prepare("SELECT COUNT(*) AS n FROM stage_transitions").get() as { n: number }).n),
+    sends: Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM starry_sends")) as {
+      n: number;
+    }).n),
+    stageWrites: Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM starry_stage_writes")) as {
+      n: number;
+    }).n),
+    transitions: Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM stage_transitions")) as {
+      n: number;
+    }).n),
   };
 }
-
-function crawlJobIdFor(requestId: string): string {
-  const row = getConn().prepare(
-    "SELECT crawl_job_id FROM discovery_runs WHERE request_id=? ORDER BY created_at DESC LIMIT 1",
-  ).get(requestId) as { crawl_job_id?: string } | undefined;
+async function crawlJobIdFor(requestId: string): Promise<string> {
+  const row = (await postgresDb().one("SELECT crawl_job_id FROM discovery_runs WHERE request_id=$1 ORDER BY created_at DESC LIMIT 1", requestId)) as {
+    crawl_job_id?: string;
+  } | undefined;
   return String(row?.crawl_job_id || "");
 }
-
 function uidFromCsv(args: Json): string {
   const csv = Buffer.from(String(args.fileBase64 || ""), "base64").toString("utf8");
   const line = csv.split(/\r?\n/).map((row) => row.replace(/^\uFEFF/, "")).find((row, index) => index > 0 && row.trim());
@@ -88,11 +86,13 @@ function defaultImportFactory(onCall?: (name: string, args: Json) => void) {
       }
       throw new Error(`unexpected tool ${name}`);
     },
-    async close() {},
+    async close() { },
   });
 }
-
-async function readyCandidates(list: Json[] = creators): Promise<{ requestId: string; items: Json[] }> {
+async function readyCandidates(list: Json[] = creators): Promise<{
+  requestId: string;
+  items: Json[];
+}> {
   creators = list;
   const created = await request("POST", "/api/discovery/requests", {
     keywords: ["portable power"],
@@ -103,7 +103,7 @@ async function readyCandidates(list: Json[] = creators): Promise<{ requestId: st
   expect(created.status).toBe(201);
   const started = await request("POST", `/api/discovery/requests/${created.body.id}/runs`, {});
   expect(started.status).toBe(202);
-  await monitorCrawlJob(crawlJobIdFor(String(created.body.id)));
+  await monitorCrawlJob((await crawlJobIdFor(String(created.body.id))));
   const results = await request("GET", `/api/discovery/requests/${created.body.id}/results`);
   const items = results.body.candidates as Json[];
   expect(items.length).toBe(list.length);
@@ -139,25 +139,17 @@ function threeCreators(): Json[] {
 function byHandle(items: Json[]): Record<string, Json> {
   return Object.fromEntries(items.map((row) => [String(row.handle), row]));
 }
-
-function setCandidateScore(id: string, score: number): void {
-  const row = getConn().prepare("SELECT payload, signals FROM creator_candidates WHERE id=?").get(id) as Row;
+async function setCandidateScore(id: string, score: number): Promise<void> {
+  const row = (await postgresDb().one("SELECT payload, signals FROM creator_candidates WHERE id=$1", id)) as Row;
   const payload = JSON.parse(String(row.payload || "{}"));
   const signals = JSON.parse(String(row.signals || "{}"));
   payload.score = score;
   signals.score = score;
-  getConn().prepare("UPDATE creator_candidates SET score=?, payload=?, signals=? WHERE id=?").run(
-    score,
-    JSON.stringify(payload),
-    JSON.stringify(signals),
-    id,
-  );
+  (await postgresDb().execute("UPDATE creator_candidates SET score=$1, payload=$2, signals=$3 WHERE id=$4", score, JSON.stringify(payload), JSON.stringify(signals), id));
 }
-
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-follow-batch-"));
-  process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.CLAW_MODE = "mock";
@@ -166,25 +158,24 @@ beforeEach(async () => {
   delete process.env.LIVE_REMOTE_SIDE_EFFECTS;
   crawlCalls.length = 0;
   creators = threeCreators();
-  resetConn();
-  seedAll();
-  configureCrawlerFixture();
+  (await resetDatabase());
+  (await seedAll());
+  (await configureCrawlerFixture());
   resetCollectorConnectionCache();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();
   setCrawlMcpClientFactory(mockCrawl);
   setStarryKolClientFactory();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
-
-afterEach(() => {
+afterEach(async () => {
   setCrawlMcpClientFactory();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();
   setStarryKolClientFactory();
   resetCollectorConnectionCache();
-  resetConn();
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.MEDIACRAWLER_MCP_URL;
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
@@ -246,9 +237,11 @@ describe("ADR-022 P1 selected + conditional batch follow", () => {
     ]);
     expect(imported.some((name) => FORBIDDEN.has(name))).toBe(false);
     expect(JSON.stringify(followed.body)).not.toMatch(/MediaCrawler|MCP|Codex|disc_/);
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM creator_candidates WHERE status='followed'").get() as { n: unknown }).n)).toBe(3);
-    const audits = listAudit("discovery.candidates.follow_batch");
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM creator_candidates WHERE status='followed'")) as {
+      n: unknown;
+    }).n)).toBe(3);
+    const audits = (await listAudit("discovery.candidates.follow_batch"));
     expect(audits.length).toBe(1);
     expect((audits[0].payload as Json).sent).toBe(false);
     expect((audits[0].payload as Json).stage_changed).toBe(false);
@@ -259,12 +252,13 @@ describe("ADR-022 P1 selected + conditional batch follow", () => {
       async callTool(name: string, args: Json = {}) {
         if (name === "importKolProfilesFromCrawler") {
           const csv = Buffer.from(String(args.fileBase64), "base64").toString("utf8");
-          if (csv.includes("BetaCamp")) throw new Error("remote import rejected");
+          if (csv.includes("BetaCamp"))
+            throw new Error("remote import rejected");
           return { data: { kolUid: uidFromCsv(args), imported: 1 } };
         }
         throw new Error(`unexpected tool ${name}`);
       },
-      async close() {},
+      async close() { },
     }));
     const { requestId, items } = await readyCandidates();
     const by = byHandle(items);
@@ -279,14 +273,17 @@ describe("ADR-022 P1 selected + conditional batch follow", () => {
     expect(String(((result.body.failed as Json[])[0] as Json).candidate_id)).toBe(String(by.BetaCamp.id));
     expect(String(((result.body.failed as Json[])[0] as Json).message)).toContain("未加入跟进");
     expect(JSON.stringify(result.body)).not.toMatch(/MediaCrawler|MCP|Codex|remote import rejected/i);
-    expect(getConn().prepare("SELECT status FROM creator_candidates WHERE id=?").get(by.BetaCamp.id)).toEqual({
+    expect((await postgresDb().one("SELECT status FROM creator_candidates WHERE id=$1", by.BetaCamp.id))).toEqual({
       status: "suggested",
     });
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM creator_candidates WHERE status='followed'").get() as { n: unknown }).n)).toBe(2);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'").get() as { n: unknown }).n)).toBe(2);
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM creator_candidates WHERE status='followed'")) as {
+      n: unknown;
+    }).n)).toBe(2);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'")) as {
+      n: unknown;
+    }).n)).toBe(2);
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
-
   it("re-submitting the same selected set skips already followed as skipped_duplicate", async () => {
     setStarryKolClientFactory(defaultImportFactory());
     const { requestId, items } = await readyCandidates();
@@ -309,19 +306,18 @@ describe("ADR-022 P1 selected + conditional batch follow", () => {
     expect((second.body.followed as Json[])).toHaveLength(0);
     expect((second.body.skipped_duplicate as Json[])).toHaveLength(3);
     expect((second.body.failed as Json[])).toHaveLength(0);
-    expect(Number((getConn().prepare(
-      "SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'",
-    ).get() as { n: number }).n)).toBe(3);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'")) as {
+      n: number;
+    }).n)).toBe(3);
   });
-
   it("conditional batch write-time rechecks fans / avg views / score / plan chips", async () => {
     const imported: string[] = [];
     setStarryKolClientFactory(defaultImportFactory((name) => imported.push(name)));
     const { requestId, items } = await readyCandidates();
     const by = byHandle(items);
-    setCandidateScore(String(by.AlphaPower.id), 7);
-    setCandidateScore(String(by.BetaCamp.id), 4);
-    setCandidateScore(String(by.GammaTrail.id), 9);
+    (await setCandidateScore(String(by.AlphaPower.id), 7));
+    (await setCandidateScore(String(by.BetaCamp.id), 4));
+    (await setCandidateScore(String(by.GammaTrail.id), 9));
     const preview = await request("POST", "/api/discovery/candidates/follow-batch", {
       preview: true,
       request_id: requestId,
@@ -341,12 +337,11 @@ describe("ADR-022 P1 selected + conditional batch follow", () => {
     expect((written.body.followed as Json[]).map((row) => row.handle).sort()).toEqual(["AlphaPower", "GammaTrail"]);
     expect((written.body.failed as Json[]).map((row) => row.handle)).toEqual(["BetaCamp"]);
     expect(imported).toHaveLength(2);
-    expect(getConn().prepare("SELECT status FROM creator_candidates WHERE id=?").get(by.BetaCamp.id)).toEqual({
+    expect((await postgresDb().one("SELECT status FROM creator_candidates WHERE id=$1", by.BetaCamp.id))).toEqual({
       status: "suggested",
     });
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
-
   it("write-time recheck rejects a selected candidate that no longer matches", async () => {
     const imported: string[] = [];
     setStarryKolClientFactory(defaultImportFactory((name) => imported.push(name)));
@@ -365,7 +360,7 @@ describe("ADR-022 P1 selected + conditional batch follow", () => {
       code: "follow_filter_rejected",
     });
     expect(imported).toEqual([]);
-    expect(getConn().prepare("SELECT status FROM creator_candidates WHERE id=?").get(by.BetaCamp.id)).toEqual({
+    expect((await postgresDb().one("SELECT status FROM creator_candidates WHERE id=$1", by.BetaCamp.id))).toEqual({
       status: "suggested",
     });
   });
@@ -382,7 +377,7 @@ describe("ADR-022 P1 selected + conditional batch follow", () => {
     expect(result.status).toBe(200);
     expect((result.body.followed as Json[])).toHaveLength(1);
     expect(String(((result.body.followed as Json[])[0].collaboration as Json).kol_uid)).not.toMatch(/^disc_/);
-    const warns = listAudit("discovery.candidate.region_unverified");
+    const warns = (await listAudit("discovery.candidate.region_unverified"));
     expect(warns.length).toBe(1);
     expect((warns[0].payload as Json).plan_region).toBe("us");
     expect((warns[0].payload as Json).candidate_region).toBe("");
@@ -398,31 +393,12 @@ describe("ADR-022 P1 selected + conditional batch follow", () => {
         }
         throw new Error(`unexpected tool ${name}`);
       },
-      async close() {},
+      async close() { },
     }));
-    getConn().prepare(
-      `INSERT INTO collaborations
+    (await postgresDb().execute(`INSERT INTO collaborations
        (id, handle, display_name, brand, platform, followers, email, mailbox_from,
         lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue, kol_uid, source)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      "col_starry_shared",
-      "SharedHandle",
-      "SharedHandle",
-      "LT",
-      "youtube",
-      "50000",
-      "",
-      "kol.lt@litime.example",
-      "lc_starry_shared",
-      "conv_starry_shared",
-      "INITIAL_CONTACT",
-      0,
-      "seeded starry same handle",
-      0,
-      "KOLSTARRYSHARED",
-      "starry",
-    );
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, "col_starry_shared", "SharedHandle", "SharedHandle", "LT", "youtube", "50000", "", "kol.lt@litime.example", "lc_starry_shared", "conv_starry_shared", "INITIAL_CONTACT", 0, "seeded starry same handle", 0, "KOLSTARRYSHARED", "starry"));
     const { requestId, items } = await readyCandidates([
       {
         platform: "youtube",
@@ -449,12 +425,13 @@ describe("ADR-022 P1 selected + conditional batch follow", () => {
     const uids = (result.body.followed as Json[]).map((row) => String((row.collaboration as Json).kol_uid)).sort();
     expect(uids).toEqual(["KOLSHAREDA", "KOLSHAREDB"]);
     expect((result.body.followed as Json[]).map((row) => (row.collaboration as Json).id)).not.toContain("col_starry_shared");
-    expect(getConn().prepare("SELECT kol_uid FROM collaborations WHERE id='col_starry_shared'").get()).toEqual({
+    expect((await postgresDb().one("SELECT kol_uid FROM collaborations WHERE id='col_starry_shared'"))).toEqual({
       kol_uid: "KOLSTARRYSHARED",
     });
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'").get() as { n: unknown }).n)).toBe(2);
+    expect(Number(((await postgresDb().one("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'")) as {
+      n: unknown;
+    }).n)).toBe(2);
   });
-
   it("requires confirm and refuses LIVE-off writes without following anyone", async () => {
     const { requestId, items } = await readyCandidates([threeCreators()[0]]);
     const unconfirmed = await request("POST", "/api/discovery/candidates/follow-batch", {
@@ -480,9 +457,9 @@ describe("ADR-022 P1 selected + conditional batch follow", () => {
       message: "当前未开启主档写入，无法加入跟进。",
     });
     expect(JSON.stringify(failed.body)).not.toMatch(/MCP|LIVE_REMOTE|Starry|MediaCrawler/i);
-    expect(getConn().prepare("SELECT status FROM creator_candidates WHERE id=?").get(items[0].id)).toEqual({
+    expect((await postgresDb().one("SELECT status FROM creator_candidates WHERE id=$1", items[0].id))).toEqual({
       status: "suggested",
     });
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
 });

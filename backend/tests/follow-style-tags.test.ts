@@ -3,15 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { getConn, resetConn } from "../src/db.js";
-import {
-  FOLLOW_STYLE_PRESETS,
-  isFollowStyleTagCommand,
-  mergeFollowStyleTags,
-  normalizeFollowStyleTags,
-  parseFollowStyleTagCommand,
-  suggestFollowStyleTags,
-} from "../src/follow-style-tags.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
+import { FOLLOW_STYLE_PRESETS, isFollowStyleTagCommand, mergeFollowStyleTags, normalizeFollowStyleTags, parseFollowStyleTagCommand, suggestFollowStyleTags, } from "../src/follow-style-tags.js";
 import { composeFactsFromContext, composePreviewPrompt } from "../src/host/compose-loop.js";
 import { buildHomeBoard } from "../src/host/home-board.js";
 import { resetDemoRuntimeState, seedAll } from "../src/seed.js";
@@ -35,33 +28,25 @@ async function request(method: string, url: string, body?: unknown) {
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-follow-style-"));
-  process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
+  app = (await createApp());
+  (await seedWorkbenchFixtures());
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
-
 describe("follow-style tags", () => {
   it("normalizes presets, mutex, and custom words", () => {
     expect(FOLLOW_STYLE_PRESETS.map((tag) => tag.label)).toContain("犹豫谨慎");
     const tags = normalizeFollowStyleTags(["犹豫谨慎", "决策快", "很挑剔"]);
     expect(tags.map((tag) => tag.label)).toEqual(["决策快", "很挑剔"]);
-    expect(mergeFollowStyleTags(
-      [{ id: "cautious", label: "犹豫谨慎" }],
-      ["回复慢"],
-      "add",
-    ).map((tag) => tag.id)).toEqual(["cautious", "slow_reply"]);
+    expect(mergeFollowStyleTags([{ id: "cautious", label: "犹豫谨慎" }], ["回复慢"], "add").map((tag) => tag.id)).toEqual(["cautious", "slow_reply"]);
   });
-
   it("suggests cautious from hesitant copy and skips already applied tags", () => {
     const suggested = suggestFollowStyleTags("我再考虑一下，还不太确定能不能接。");
     expect(suggested.map((tag) => tag.id)).toEqual(["cautious"]);
@@ -84,12 +69,10 @@ describe("follow-style tags", () => {
     });
     expect(saved.status).toBe(200);
     expect((saved.body.follow_style_tags as Json[])[0]).toMatchObject({ id: "cautious", label: "犹豫谨慎" });
-
     const opened = await request("POST", "/api/collaborations/col_xiaomei/session", {});
     expect(((opened.body.journey as Json).follow_style_tags as Json[])[0]).toMatchObject({ label: "犹豫谨慎" });
-
-    getConn().prepare("UPDATE collaborations SET kol_uid='KOLXIAOMEI' WHERE id='col_xiaomei'").run();
-    const board = buildHomeBoard();
+    (await postgresDb().execute("UPDATE collaborations SET kol_uid='KOLXIAOMEI' WHERE id='col_xiaomei'"));
+    const board = (await buildHomeBoard());
     const card = ((board.kols as Json[]) || []).find((row) => row.handle === "小美妆日记");
     expect(card).toBeTruthy();
     expect((card?.follow_style_tags as Json[]).some((tag) => tag.label === "犹豫谨慎")).toBe(true);
@@ -97,18 +80,22 @@ describe("follow-style tags", () => {
     const facts = composeFactsFromContext({
       stage: "INITIAL_CONTACT",
       raw: "写跟进邮件",
-      style_tags: saved.body.follow_style_tags as { id: string; label: string }[],
+      style_tags: saved.body.follow_style_tags as {
+        id: string;
+        label: string;
+      }[],
     });
     expect(facts.items.join(" ")).toContain("犹豫谨慎");
     const prompt = composePreviewPrompt("写跟进邮件", "", facts);
     expect(prompt).toContain("跟进不要催");
-    resetDemoRuntimeState();
-    const cleared = getConn().prepare("SELECT follow_style_tags FROM collaborations WHERE id='col_xiaomei'").get() as {
+    (await resetDemoRuntimeState());
+    const cleared = (await postgresDb().one("SELECT follow_style_tags FROM collaborations WHERE id='col_xiaomei'")) as {
       follow_style_tags: string | null;
-    };
-    expect(cleared.follow_style_tags).toBeNull();
+    } | undefined;
+    // resetDemoRuntimeState 是测试夹具树的删除操作；原生 PG 不会保留一个
+    // 已删除 collaboration 的空标签行，重置后必须无法再读到该私有关系。
+    expect(cleared).toBeUndefined();
   });
-
   it("applies a chat 打标签 command without starting a worker", async () => {
     const opened = await request("POST", "/api/collaborations/col_xiaomei/session", {});
     const sid = String(opened.body.id);
@@ -119,7 +106,9 @@ describe("follow-style tags", () => {
     expect(asked.body.worker).toBeNull();
     const msgs = asked.body.messages as Json[];
     expect(msgs.some((row) => row.kind === "task_result_card" && String((row.payload as Json).summary || "").includes("犹豫谨慎"))).toBe(true);
-    const row = getConn().prepare("SELECT follow_style_tags FROM collaborations WHERE id='col_xiaomei'").get() as { follow_style_tags: string };
+    const row = (await postgresDb().one("SELECT follow_style_tags FROM collaborations WHERE id='col_xiaomei'")) as {
+      follow_style_tags: string;
+    };
     expect(row.follow_style_tags).toContain("cautious");
   });
 });

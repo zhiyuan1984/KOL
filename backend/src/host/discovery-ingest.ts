@@ -6,37 +6,16 @@
 import { importCreatorOrgApprovalRequired } from "../approval/import-creator.js";
 import { authDisabled, isAdmin, scopedUser } from "../auth.js";
 import { DEMO_USER } from "../config.js";
-import { audit, getConn, nowIso } from "../db.js";
-import {
-  buildCrawlerImportFile,
-  candidateContactEmail,
-  candidateHasContactEmail,
-  crawlerFileContainsContactEmail,
-  IMPORT_CREATOR_POLICY,
-  mapCandidateToCrawlerRow,
-  profileUrlOf,
-  requireStableExternalId,
-  withKolUid,
-} from "../discovery-import.js";
-import {
-  addKolProfileConfirmed,
-  findExistingKolUid,
-  importKolProfilesFromCrawlerConfirmed,
-} from "../gateway/import-creator.js";
+import { audit, postgresDb, nowIso } from "../postgres/access.js";
+import { buildCrawlerImportFile, candidateContactEmail, candidateHasContactEmail, crawlerFileContainsContactEmail, IMPORT_CREATOR_POLICY, mapCandidateToCrawlerRow, profileUrlOf, requireStableExternalId, withKolUid, } from "../discovery-import.js";
+import { addKolProfileConfirmed, findExistingKolUid, importKolProfilesFromCrawlerConfirmed, } from "../gateway/import-creator.js";
 import { nid } from "../ids.js";
 import { resolveStarryOwnerForMailbox } from "../starrykol/service.js";
 import type { Json, Row } from "../types.js";
 import { recordDiscoveryFact } from "./discovery-facts.js";
 import { HttpFail } from "./errors.js";
-import {
-  ingestFormalProfile,
-  memoryCompanyId,
-  publicProfileFields,
-  trimPrivate,
-  upsertPublicProfile,
-} from "./kol-memory.js";
+import { ingestFormalProfile, memoryCompanyId, publicProfileFields, trimPrivate, upsertPublicProfile, } from "./kol-memory.js";
 import { starryBindingRow } from "./starry-bind.js";
-
 export const DISCOVERY_INGEST_ENTRY = {
   entry: "command",
   kind: "command",
@@ -44,46 +23,46 @@ export const DISCOVERY_INGEST_ENTRY = {
   calls_model: false,
   risk: "L3",
 } as const;
-
 function actorId(): string {
   const user = scopedUser();
-  if (user) return user.id;
-  if (authDisabled() || isAdmin()) return DEMO_USER.id;
+  if (user)
+    return user.id;
+  if (authDisabled() || isAdmin())
+    return DEMO_USER.id;
   throw new HttpFail(401, "authentication required");
 }
-
 function parseJson(value: unknown): Json {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value as Json;
+  if (value && typeof value === "object" && !Array.isArray(value))
+    return value as Json;
   try {
     const parsed = JSON.parse(String(value || "{}"));
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Json : {};
-  } catch {
+  }
+  catch {
     return {};
   }
 }
-
 function asIdList(value: unknown): string[] {
-  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
+  if (Array.isArray(value))
+    return value.map((item) => String(item || "").trim()).filter(Boolean);
   return [];
 }
-
-function runRow(id: string): Row {
-  const row = getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(id) as Row | undefined;
+async function runRow(id: string): Promise<Row> {
+  const row = (await postgresDb().one("SELECT * FROM discovery_runs WHERE id=$1", id)) as Row | undefined;
   if (!row || (!isAdmin() && !authDisabled() && String(row.owner_user_id) !== actorId())) {
     throw new HttpFail(404, { code: "discovery_run_not_found", message: "未找到该发现运行" });
   }
   return row;
 }
-
-export function briefVersionOf(run: Row): number {
+export async function briefVersionOf(run: Row): Promise<number> {
   const fromColumn = Number(run.brief_version);
-  if (Number.isFinite(fromColumn) && fromColumn > 0) return fromColumn;
+  if (Number.isFinite(fromColumn) && fromColumn > 0)
+    return fromColumn;
   const params = parseJson(run.parameters);
   const fromParams = Number(params.brief_version);
-  if (Number.isFinite(fromParams) && fromParams > 0) return fromParams;
-  const request = getConn().prepare("SELECT brief_version, data_version FROM discovery_requests WHERE id=?").get(run.request_id) as
-    | Row
-    | undefined;
+  if (Number.isFinite(fromParams) && fromParams > 0)
+    return fromParams;
+  const request = (await postgresDb().one("SELECT brief_version, data_version FROM discovery_requests WHERE id=$1", run.request_id)) as Row | undefined;
   const fromRequest = Number(request?.brief_version || request?.data_version || 1);
   return Number.isFinite(fromRequest) && fromRequest > 0 ? fromRequest : 1;
 }
@@ -98,14 +77,13 @@ function expectedBriefVersion(raw: unknown): number {
   }
   return n;
 }
-
-function loadCandidates(runId: string, ids: string[]): Row[] {
+async function loadCandidates(runId: string, ids: string[]): Promise<Row[]> {
   if (!ids.length) {
     throw new HttpFail(400, { code: "candidate_ids_required", message: "请选择要入库的线索。" });
   }
   const rows: Row[] = [];
   for (const id of ids) {
-    const row = getConn().prepare("SELECT * FROM creator_candidates WHERE id=?").get(id) as Row | undefined;
+    const row = (await postgresDb().one("SELECT * FROM creator_candidates WHERE id=$1", id)) as Row | undefined;
     if (!row || String(row.run_id) !== runId) {
       throw new HttpFail(404, { code: "creator_candidate_not_found", message: "未找到该发现候选人", candidate_id: id });
     }
@@ -116,20 +94,16 @@ function loadCandidates(runId: string, ids: string[]): Row[] {
   }
   return rows;
 }
-
-function findReceipt(input: {
+async function findReceipt(input: {
   company_id: string;
   source_batch: string;
   platform: string;
   platform_creator_id: string;
-}): Row | undefined {
-  return getConn().prepare(
-    `SELECT * FROM discovery_ingest_receipts
-      WHERE company_id=? AND source_batch=? AND platform=? AND platform_creator_id=?`,
-  ).get(input.company_id, input.source_batch, input.platform, input.platform_creator_id) as Row | undefined;
+}): Promise<Row | undefined> {
+  return (await postgresDb().one(`SELECT * FROM discovery_ingest_receipts
+      WHERE company_id=$1 AND source_batch=$2 AND platform=$3 AND platform_creator_id=$4`, input.company_id, input.source_batch, input.platform, input.platform_creator_id)) as Row | undefined;
 }
-
-function writeReceipt(input: {
+async function writeReceipt(input: {
   company_id: string;
   source_batch: string;
   platform: string;
@@ -138,78 +112,44 @@ function writeReceipt(input: {
   candidate_id: string;
   run_id: string;
   status?: string;
-}): void {
-  getConn().prepare(
-    `INSERT INTO discovery_ingest_receipts
+}): Promise<void> {
+  (await postgresDb().execute(`INSERT INTO discovery_ingest_receipts
      (id,company_id,source_batch,platform,platform_creator_id,kol_uid,candidate_id,run_id,status,created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)
-     ON CONFLICT(company_id, source_batch, platform, platform_creator_id) DO NOTHING`,
-  ).run(
-    nid("dir"),
-    input.company_id,
-    input.source_batch,
-    input.platform,
-    input.platform_creator_id,
-    input.kol_uid,
-    input.candidate_id,
-    input.run_id,
-    input.status || "imported",
-    nowIso(),
-  );
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+     ON CONFLICT(company_id, source_batch, platform, platform_creator_id) DO NOTHING`, nid("dir"), input.company_id, input.source_batch, input.platform, input.platform_creator_id, input.kol_uid, input.candidate_id, input.run_id, input.status || "imported", nowIso()));
 }
-
-function latestConfirm(runId: string, sourceBatch: string): Row | undefined {
-  return getConn().prepare(
-    `SELECT * FROM discovery_ingest_confirms
-      WHERE run_id=? AND source_batch=?
-      ORDER BY created_at DESC LIMIT 1`,
-  ).get(runId, sourceBatch) as Row | undefined;
+async function latestConfirm(runId: string, sourceBatch: string): Promise<Row | undefined> {
+  return (await postgresDb().one(`SELECT * FROM discovery_ingest_confirms
+      WHERE run_id=$1 AND source_batch=$2
+      ORDER BY created_at DESC LIMIT 1`, runId, sourceBatch)) as Row | undefined;
 }
-
-function writeConfirm(input: {
+async function writeConfirm(input: {
   run_id: string;
   source_batch: string;
   expected_brief_version: number;
   candidate_ids: string[];
   status: string;
-}): Row {
+}): Promise<Row> {
   const now = nowIso();
   const id = nid("dic");
-  getConn().prepare(
-    `INSERT INTO discovery_ingest_confirms
+  (await postgresDb().execute(`INSERT INTO discovery_ingest_confirms
      (id,company_id,run_id,source_batch,expected_brief_version,candidate_ids,status,actor_id,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    id,
-    memoryCompanyId(),
-    input.run_id,
-    input.source_batch,
-    input.expected_brief_version,
-    JSON.stringify(input.candidate_ids),
-    input.status,
-    actorId(),
-    now,
-    now,
-  );
-  return getConn().prepare("SELECT * FROM discovery_ingest_confirms WHERE id=?").get(id) as Row;
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, id, memoryCompanyId(), input.run_id, input.source_batch, input.expected_brief_version, JSON.stringify(input.candidate_ids), input.status, actorId(), now, now));
+  return (await postgresDb().one("SELECT * FROM discovery_ingest_confirms WHERE id=$1", id)) as Row;
 }
-
-function voidConfirms(runId: string, sourceBatch: string, reason: string): void {
-  getConn().prepare(
-    `UPDATE discovery_ingest_confirms
-        SET status='voided', updated_at=?
-      WHERE run_id=? AND source_batch=? AND status IN ('pending','confirmed')`,
-  ).run(nowIso(), runId, sourceBatch);
-  recordDiscoveryFact({
+async function voidConfirms(runId: string, sourceBatch: string, reason: string): Promise<void> {
+  (await postgresDb().execute(`UPDATE discovery_ingest_confirms
+        SET status='voided', updated_at=$1
+      WHERE run_id=$2 AND source_batch=$3 AND status IN ('pending','confirmed')`, nowIso(), runId, sourceBatch));
+  (await recordDiscoveryFact({
     kind: "approval_result",
     object_type: "discovery_run",
     object_id: runId,
     payload: { result: "voided", reason, source_batch: sourceBatch },
     actor: actorId(),
     source_version: sourceBatch,
-  });
+  }));
 }
-
 function sanitizeReceipt(item: Json): Json {
   return trimPrivate({
     candidate_id: item.candidate_id,
@@ -225,16 +165,15 @@ function sanitizeReceipt(item: Json): Json {
     error: item.error || null,
   });
 }
-
-function writeOpenPool(input: {
+async function writeOpenPool(input: {
   kol_uid: string;
   candidate: Row;
   source_batch: string;
   platform: string;
   platform_creator_id: string;
-}): Row {
+}): Promise<Row> {
   const payload = parseJson(input.candidate.payload);
-  const profile = ingestFormalProfile({
+  const profile = (await ingestFormalProfile({
     kol_uid: input.kol_uid,
     handle: String(input.candidate.handle || input.candidate.nickname || input.platform_creator_id),
     display_name: String(input.candidate.nickname || input.candidate.handle || input.platform_creator_id),
@@ -250,15 +189,15 @@ function writeOpenPool(input: {
     platform_creator_id: input.platform_creator_id,
     pool_status: "open",
     company_id: memoryCompanyId(),
-  });
+  }));
   if (!profile) {
-    return upsertPublicProfile({
+    return (await upsertPublicProfile({
       kol_uid: input.kol_uid,
       ingest_source: "crawler",
       source_batch: input.source_batch,
       platform_creator_id: input.platform_creator_id,
       pool_status: "open",
-    });
+    }));
   }
   return profile;
 }
@@ -269,14 +208,13 @@ function writeOpenPool(input: {
  * 「负责人无可用邮箱」，编一个 id 只会写出错误负责人。
  */
 async function ownerFieldsForIngest(): Promise<Json> {
-  const binding = starryBindingRow(actorId());
-  return resolveStarryOwnerForMailbox({
+  const binding = (await starryBindingRow(actorId()));
+  return (await resolveStarryOwnerForMailbox({
     mailboxId: binding?.mailbox_id,
     mailboxEmail: binding?.mailbox_email,
     ownerName: binding?.owner_name,
-  });
+  }));
 }
-
 /** 单候选 Starry 入库（二期卡片「加入公海」复用批量同一写入路径）。 */
 export async function ingestOne(input: {
   candidate: Row;
@@ -285,16 +223,14 @@ export async function ingestOne(input: {
 }): Promise<Json> {
   const companyId = memoryCompanyId();
   const external = requireStableExternalId(input.candidate);
-  const existing = findReceipt({
+  const existing = (await findReceipt({
     company_id: companyId,
     source_batch: input.source_batch,
     platform: external.platform,
     platform_creator_id: external.platform_creator_id,
-  });
+  }));
   if (existing && String(existing.kol_uid || "")) {
-    const profile = getConn().prepare(
-      "SELECT * FROM kol_profile_index WHERE company_id=? AND kol_uid=?",
-    ).get(companyId, existing.kol_uid) as Row | undefined;
+    const profile = (await postgresDb().one("SELECT * FROM kol_profile_index WHERE company_id=$1 AND kol_uid=$2", companyId, existing.kol_uid)) as Row | undefined;
     return {
       candidate_id: input.candidate.id,
       platform: external.platform,
@@ -329,7 +265,7 @@ export async function ingestOne(input: {
   let kolUid = "";
   if (found) {
     kolUid = found.kol_uid;
-    audit(actorId(), "host.add_kol_profile", {
+    (await audit(actorId(), "host.add_kol_profile", {
       policy: IMPORT_CREATOR_POLICY,
       tool: "addKolProfile",
       skipped: true,
@@ -341,8 +277,9 @@ export async function ingestOne(input: {
       candidate_id: String(input.candidate.id),
       sent: false,
       stage_changed: false,
-    });
-  } else {
+    }));
+  }
+  else {
     const owner = await ownerFieldsForIngest();
     if (!/^\d+$/.test(String(owner.ownerOpenId || "").trim())) {
       throw new HttpFail(409, {
@@ -352,9 +289,7 @@ export async function ingestOne(input: {
       });
     }
     const created = await addKolProfileConfirmed({
-      kolName: String(
-        input.candidate.nickname || input.candidate.handle || external.platform_creator_id,
-      ).trim(),
+      kolName: String(input.candidate.nickname || input.candidate.handle || external.platform_creator_id).trim(),
       contactEmail,
       dataSource: "CRAWLER",
       owner,
@@ -365,11 +300,7 @@ export async function ingestOne(input: {
     });
     kolUid = String(created.kol_uid || "");
   }
-
-  const file = buildCrawlerImportFile(
-    [withKolUid(crawlerRow, kolUid)],
-    `discovery-ingest-${String(input.candidate.id).slice(0, 24)}.csv`,
-  );
+  const file = buildCrawlerImportFile([withKolUid(crawlerRow, kolUid)], `discovery-ingest-${String(input.candidate.id).slice(0, 24)}.csv`);
   if (crawlerFileContainsContactEmail(file) || /@/.test(file.csv) && /contactEmail|联系邮箱/i.test(file.csv)) {
     throw new HttpFail(500, { code: "fabricated_contact_email", message: "禁止编造联系邮箱。" });
   }
@@ -384,14 +315,14 @@ export async function ingestOne(input: {
   });
   const importedUid = String(imported.kol_uid || "");
   const finalUid = importedUid || kolUid;
-  const profile = writeOpenPool({
+  const profile = (await writeOpenPool({
     kol_uid: finalUid,
     candidate: input.candidate,
     source_batch: input.source_batch,
     platform: external.platform,
     platform_creator_id: external.platform_creator_id,
-  });
-  writeReceipt({
+  }));
+  (await writeReceipt({
     company_id: companyId,
     source_batch: input.source_batch,
     platform: external.platform,
@@ -399,8 +330,8 @@ export async function ingestOne(input: {
     kol_uid: finalUid,
     candidate_id: String(input.candidate.id),
     run_id: input.run_id,
-  });
-  recordDiscoveryFact({
+  }));
+  (await recordDiscoveryFact({
     kind: "ingest_receipt",
     object_type: "discovery_run",
     object_id: input.run_id,
@@ -415,7 +346,7 @@ export async function ingestOne(input: {
     },
     actor: actorId(),
     source_version: input.source_batch,
-  });
+  }));
   return {
     candidate_id: input.candidate.id,
     platform: external.platform,
@@ -429,19 +360,18 @@ export async function ingestOne(input: {
     profile,
   };
 }
-
 export async function ingestDiscoveryBatch(body: Json = {}): Promise<Json> {
   const runId = String(body.run_id || body.runId || "").trim();
-  if (!runId) throw new HttpFail(400, { code: "run_id_required", message: "需要 run_id。" });
-  const run = runRow(runId);
+  if (!runId)
+    throw new HttpFail(400, { code: "run_id_required", message: "需要 run_id。" });
+  const run = (await runRow(runId));
   const candidateIds = asIdList(body.candidate_ids ?? body.candidateIds);
   const expected = expectedBriefVersion(body.expected_brief_version ?? body.expectedBriefVersion);
-  const currentBrief = briefVersionOf(run);
+  const currentBrief = (await briefVersionOf(run));
   const sourceBatch = String(run.id);
   const orgGate = importCreatorOrgApprovalRequired();
-
   if (currentBrief !== expected) {
-    voidConfirms(runId, sourceBatch, "brief_version_mismatch");
+    (await voidConfirms(runId, sourceBatch, "brief_version_mismatch"));
     throw new HttpFail(409, {
       code: "brief_version_mismatch",
       message: "发现 Brief 已变化，原确认作废。",
@@ -450,31 +380,30 @@ export async function ingestDiscoveryBatch(body: Json = {}): Promise<Json> {
       confirmation_void: true,
     });
   }
-
   const cancel = body.cancel === true || body.cancelled === true || body.confirmed === false || body.confirmed === "false";
   if (cancel && body.confirmed !== true && body.confirmed !== "true") {
-    writeConfirm({
+    (await writeConfirm({
       run_id: runId,
       source_batch: sourceBatch,
       expected_brief_version: expected,
       candidate_ids: candidateIds,
       status: "cancelled",
-    });
-    recordDiscoveryFact({
+    }));
+    (await recordDiscoveryFact({
       kind: "approval_result",
       object_type: "discovery_run",
       object_id: runId,
       payload: { result: "cancelled", risk: "L3", source_batch: sourceBatch },
       actor: actorId(),
       source_version: sourceBatch,
-    });
-    audit(actorId(), "discovery.ingest.cancelled", {
+    }));
+    (await audit(actorId(), "discovery.ingest.cancelled", {
       run_id: runId,
       source_batch: sourceBatch,
       sent: false,
       stage_changed: false,
       claimed: false,
-    });
+    }));
     return {
       ...DISCOVERY_INGEST_ENTRY,
       status: "cancelled",
@@ -489,15 +418,14 @@ export async function ingestDiscoveryBatch(body: Json = {}): Promise<Json> {
       org_approval: orgGate,
     };
   }
-
   if (body.confirmed !== true && body.confirmed !== "true") {
-    const pending = writeConfirm({
+    const pending = (await writeConfirm({
       run_id: runId,
       source_batch: sourceBatch,
       expected_brief_version: expected,
       candidate_ids: candidateIds,
       status: "pending",
-    });
+    }));
     return {
       ...DISCOVERY_INGEST_ENTRY,
       status: "needs_confirmation",
@@ -512,8 +440,7 @@ export async function ingestDiscoveryBatch(body: Json = {}): Promise<Json> {
       org_approval: orgGate,
     };
   }
-
-  const prior = latestConfirm(runId, sourceBatch);
+  const prior = (await latestConfirm(runId, sourceBatch));
   if (prior && String(prior.status) === "cancelled") {
     throw new HttpFail(409, {
       code: "l3_cancelled",
@@ -528,15 +455,14 @@ export async function ingestDiscoveryBatch(body: Json = {}): Promise<Json> {
       confirmation_id: prior.id,
     });
   }
-
-  writeConfirm({
+  (await writeConfirm({
     run_id: runId,
     source_batch: sourceBatch,
     expected_brief_version: expected,
     candidate_ids: candidateIds,
     status: "confirmed",
-  });
-  recordDiscoveryFact({
+  }));
+  (await recordDiscoveryFact({
     kind: "approval_result",
     object_type: "discovery_run",
     object_id: runId,
@@ -548,15 +474,15 @@ export async function ingestDiscoveryBatch(body: Json = {}): Promise<Json> {
     },
     actor: actorId(),
     source_version: sourceBatch,
-  });
-
-  const candidates = loadCandidates(runId, candidateIds);
+  }));
+  const candidates = (await loadCandidates(runId, candidateIds));
   const items: Json[] = [];
   for (const candidate of candidates) {
     try {
       const item = await ingestOne({ candidate, source_batch: sourceBatch, run_id: runId });
       items.push(sanitizeReceipt(item));
-    } catch (error) {
+    }
+    catch (error) {
       const detail = error instanceof HttpFail ? error.detail : { message: "入库失败" };
       items.push(sanitizeReceipt({
         candidate_id: candidate.id,
@@ -568,9 +494,8 @@ export async function ingestDiscoveryBatch(body: Json = {}): Promise<Json> {
       }));
     }
   }
-
   const imported = items.filter((row) => row.status === "imported" || row.status === "already_imported");
-  audit(actorId(), "discovery.ingest", {
+  (await audit(actorId(), "discovery.ingest", {
     run_id: runId,
     source_batch: sourceBatch,
     imported: imported.length,
@@ -579,8 +504,7 @@ export async function ingestDiscoveryBatch(body: Json = {}): Promise<Json> {
     sent: false,
     stage_changed: false,
     tool: "importKolProfilesFromCrawler",
-  });
-
+  }));
   return {
     ...DISCOVERY_INGEST_ENTRY,
     status: "completed",

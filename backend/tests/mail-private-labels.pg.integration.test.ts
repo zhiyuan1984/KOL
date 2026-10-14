@@ -14,13 +14,8 @@ const BOX_A = "operator-a@example.test";
 const BOX_B = "operator-b@example.test";
 const CONVERSATION_A = "conversation-a";
 const CONVERSATION_B = "conversation-b";
-const migrationSql = fs.readFileSync(
-  new URL("../migrations/035_20261012_mail_private_labels.sql", import.meta.url),
-  "utf8",
-);
-
+const migrationSql = fs.readFileSync(new URL("../migrations/035_20261012_mail_private_labels.sql", import.meta.url), "utf8");
 let app: Hono;
-
 function actor(id: string): AppUser {
   return {
     id,
@@ -47,49 +42,36 @@ const ACTOR_B = actor("label-user-b");
 async function within<T>(user: AppUser, fn: () => T | Promise<T>): Promise<T> {
   return await withScopedUser(user, fn);
 }
-
-async function responseBody(response: Response): Promise<{ status: number; body: Record<string, unknown> }> {
+async function responseBody(response: Response): Promise<{
+  status: number;
+  body: Record<string, unknown>;
+}> {
   return { status: response.status, body: (await response.json()) as Record<string, unknown> };
 }
-
 async function getLabels(user: AppUser | undefined, box = BOX_A, conversationId?: string) {
   const query = new URLSearchParams({ box, ...(conversationId ? { conversation_id: conversationId } : {}) });
   const request = () => app.request(`/queries/mail.labels?${query.toString()}`);
-  return responseBody(user ? await within(user, request) : await request());
+  return (await responseBody(user ? await within(user, request) : await request()));
 }
-
 async function changeLabel(user: AppUser | undefined, body: Record<string, unknown>) {
   const request = () => app.request("/actions/mail.label", { method: "POST", body: JSON.stringify(body) });
-  return responseBody(user ? await within(user, request) : await request());
+  return (await responseBody(user ? await within(user, request) : await request()));
 }
-
 async function ensureUser(user: AppUser): Promise<void> {
   const now = new Date().toISOString();
-  await postgresPool().query(
-    `INSERT INTO users(id,username,name,password_hash,created_at,updated_at)
+  await postgresPool().query(`INSERT INTO users(id,username,name,password_hash,created_at,updated_at)
      VALUES ($1,$2,$3,'isolated-test-only',$4,$4)
-     ON CONFLICT (id) DO NOTHING`,
-    [user.id, user.username, user.name, now],
-  );
+     ON CONFLICT (id) DO NOTHING`, [user.id, user.username, user.name, now]);
 }
-
 async function bind(userId: string, mailbox: string): Promise<void> {
-  await postgresPool().query(
-    `INSERT INTO user_starry_bindings(user_id,mailbox_email,is_default,status,updated_at)
+  await postgresPool().query(`INSERT INTO user_starry_bindings(user_id,mailbox_email,is_default,status,updated_at)
      VALUES ($1,$2,1,'connected',now())
-     ON CONFLICT (user_id,mailbox_email) DO UPDATE SET status='connected',updated_at=now()`,
-    [userId, mailbox],
-  );
+     ON CONFLICT (user_id,mailbox_email) DO UPDATE SET status='connected',updated_at=now()`, [userId, mailbox]);
 }
-
 async function thread(conversationId: string, mailbox: string, collaborationId = ""): Promise<void> {
-  await postgresPool().query(
-    `INSERT INTO kol_mail_threads(id,conversation_id,mailbox,subject,collaboration_id,created_at,last_at,updated_at)
-     VALUES ($1,$2,$3,'Private label test',$4,now(),now(),now())`,
-    [`thread-${conversationId}-${mailbox}`, conversationId, mailbox, collaborationId || null],
-  );
+  await postgresPool().query(`INSERT INTO kol_mail_threads(id,conversation_id,mailbox,subject,collaboration_id,created_at,last_at,updated_at)
+     VALUES ($1,$2,$3,'Private label test',$4,now(),now(),now())`, [`thread-${conversationId}-${mailbox}`, conversationId, mailbox, collaborationId || null]);
 }
-
 function action(input: Record<string, unknown>): Record<string, unknown> {
   return { box: BOX_A, conversation_id: CONVERSATION_A, confirm: true, ...input };
 }
@@ -102,10 +84,10 @@ beforeEach(async () => {
   await bind(ACTOR_A.id, BOX_A);
   await thread(CONVERSATION_A, BOX_A);
   await thread(CONVERSATION_B, BOX_A);
-
   const router = operationRouter(mailOperations);
   router.onError((error, context) => {
-    if (error instanceof HttpFail) return context.json({ detail: error.detail }, error.status as 400);
+    if (error instanceof HttpFail)
+      return context.json({ detail: error.detail }, error.status as 400);
     return context.json({ detail: error instanceof Error ? error.message : "internal error" }, 500);
   });
   app = router;
@@ -133,9 +115,11 @@ describe("mail private labels PostgreSQL integration", () => {
     expect(refreshed.status).toBe(200);
     expect(refreshed.body).toMatchObject({ entry: "memory", version: 1, selected_label_ids: [label.id] });
     expect(refreshed.body.assignments).toEqual([{ conversation_id: CONVERSATION_A, label_ids: [label.id] }]);
-    const audit = await postgresPool().query<{ actor: string; event_type: string; payload_json: Record<string, unknown> }>(
-      "SELECT actor,event_type,payload_json FROM mail_sync_audit WHERE event_type='mail.label.add' ORDER BY ts DESC LIMIT 1",
-    );
+    const audit = await postgresPool().query<{
+      actor: string;
+      event_type: string;
+      payload_json: Record<string, unknown>;
+    }>("SELECT actor,event_type,payload_json FROM mail_sync_audit WHERE event_type='mail.label.add' ORDER BY ts DESC LIMIT 1");
     expect(audit.rows[0]).toMatchObject({
       actor: ACTOR_A.id,
       event_type: "mail.label.add",
@@ -173,13 +157,11 @@ describe("mail private labels PostgreSQL integration", () => {
     expect(repeated.status).toBe(200);
     expect(repeated.body).toMatchObject({ version: 2, label_ids: [] });
     expect(repeated.body.labels).toEqual([expect.objectContaining({ id: label.id, name: "Later", count: 0 })]);
-    const retained = await postgresPool().query<{ n: string }>(
-      "SELECT count(*)::int AS n FROM kol_mail_threads WHERE conversation_id=$1 AND mailbox=$2",
-      [CONVERSATION_A, BOX_A],
-    );
+    const retained = await postgresPool().query<{
+      n: string;
+    }>("SELECT count(*)::int AS n FROM kol_mail_threads WHERE conversation_id=$1 AND mailbox=$2", [CONVERSATION_A, BOX_A]);
     expect(Number(retained.rows[0].n)).toBe(1);
   });
-
   it("rejects missing confirmation, bad names, and a stale expected version", async () => {
     const missingConfirm = await changeLabel(ACTOR_A, { box: BOX_A, conversation_id: CONVERSATION_A, mode: "add", name: "Inbox", expected_version: 0 });
     expect(missingConfirm.status).toBe(400);
@@ -226,13 +208,11 @@ describe("mail private labels PostgreSQL integration", () => {
     const b = await changeLabel(ACTOR_B, action({ mode: "add", name: "Personal", expected_version: 0 }));
     const labelB = (b.body.labels as Array<Record<string, unknown>>)[0];
     expect(labelB.id).not.toBe(labelA.id);
-    const privateRows = await postgresPool().query<{ n: string }>(
-      "SELECT count(*)::int AS n FROM mail_private_labels WHERE mailbox=$1 AND normalized_name='personal'",
-      [BOX_A],
-    );
+    const privateRows = await postgresPool().query<{
+      n: string;
+    }>("SELECT count(*)::int AS n FROM mail_private_labels WHERE mailbox=$1 AND normalized_name='personal'", [BOX_A]);
     expect(Number(privateRows.rows[0].n)).toBe(2);
   });
-
   it("rejects an unbound mailbox, a cross-mailbox id, and access after unbinding", async () => {
     await thread("conversation-box-b", BOX_B);
     const denied = await changeLabel(ACTOR_A, {
@@ -253,11 +233,10 @@ describe("mail private labels PostgreSQL integration", () => {
     expect((await getLabels(ACTOR_A)).status).toBe(403);
     expect((await changeLabel(ACTOR_A, action({ mode: "remove", label_id: labelA.id, expected_version: 1 }))).status).toBe(403);
   });
-
   it("has one dictionary row under concurrent same-name adds", async () => {
     const [left, right] = await Promise.all([
-      changeLabel(ACTOR_A, action({ mode: "add", name: "Concurrent", expected_version: 0 })),
-      changeLabel(ACTOR_A, action({ mode: "add", name: "concurrent", expected_version: 0 })),
+      (changeLabel(ACTOR_A, action({ mode: "add", name: "Concurrent", expected_version: 0 }))),
+      (changeLabel(ACTOR_A, action({ mode: "add", name: "concurrent", expected_version: 0 }))),
     ]);
     expect([left.status, right.status].sort()).toEqual([200, 409]);
     const succeeded = left.status === 200 ? left : right;
@@ -268,38 +247,38 @@ describe("mail private labels PostgreSQL integration", () => {
       label_ids: expect.arrayContaining([expect.any(String)]),
     });
     expect(conflicted.body).toMatchObject({ detail: { code: "version_conflict", expected_version: 0, current_version: 1 } });
-    const rows = await postgresPool().query<{ n: string }>(
-      "SELECT count(*)::int AS n FROM mail_private_labels WHERE user_id=$1 AND mailbox=$2 AND normalized_name=$3",
-      [ACTOR_A.id, BOX_A, "concurrent"],
-    );
+    const rows = await postgresPool().query<{
+      n: string;
+    }>("SELECT count(*)::int AS n FROM mail_private_labels WHERE user_id=$1 AND mailbox=$2 AND normalized_name=$3", [ACTOR_A.id, BOX_A, "concurrent"]);
     expect(Number(rows.rows[0].n)).toBe(1);
-    const state = await postgresPool().query<{ version: number }>(
-      "SELECT version FROM mail_private_label_states WHERE user_id=$1 AND mailbox=$2",
-      [ACTOR_A.id, BOX_A],
-    );
+    const state = await postgresPool().query<{
+      version: number;
+    }>("SELECT version FROM mail_private_label_states WHERE user_id=$1 AND mailbox=$2", [ACTOR_A.id, BOX_A]);
     expect(Number(state.rows[0].version)).toBe(1);
     const receipt = await getLabels(ACTOR_A, BOX_A, CONVERSATION_A);
     expect(receipt.body).toMatchObject({ version: 1, selected_label_ids: succeeded.body.label_ids });
   });
-
   it("only counts current authorized mailbox conversations and leaves stage and session counts unchanged", async () => {
-    await postgresPool().query(
-      `INSERT INTO collaborations(id,handle,display_name,brand,lifecycle_id,conversation_id,email,mailbox_from,stage_code)
-       VALUES ('label-stage-collab','creator','Creator','LT','label-stage-lifecycle',$1,'creator@example.test',$2,'NEGOTIATING')`,
-      [CONVERSATION_A, BOX_A],
-    );
+    await postgresPool().query(`INSERT INTO collaborations(id,handle,display_name,brand,lifecycle_id,conversation_id,email,mailbox_from,stage_code)
+       VALUES ('label-stage-collab','creator','Creator','LT','label-stage-lifecycle',$1,'creator@example.test',$2,'NEGOTIATING')`, [CONVERSATION_A, BOX_A]);
     await postgresPool().query("UPDATE kol_mail_threads SET collaboration_id='label-stage-collab' WHERE conversation_id=$1 AND mailbox=$2", [CONVERSATION_A, BOX_A]);
-    const beforeStage = await postgresPool().query<{ stage_code: string }>("SELECT stage_code FROM collaborations WHERE id='label-stage-collab'");
-    const beforeRuns = await postgresPool().query<{ n: string }>("SELECT count(*)::int AS n FROM task_runs");
-
+    const beforeStage = await postgresPool().query<{
+      stage_code: string;
+    }>("SELECT stage_code FROM collaborations WHERE id='label-stage-collab'");
+    const beforeRuns = await postgresPool().query<{
+      n: string;
+    }>("SELECT count(*)::int AS n FROM task_runs");
     const changed = await changeLabel(ACTOR_A, action({ mode: "add", name: "Keep stage", expected_version: 0 }));
     expect(changed.body).toMatchObject({ creates_session: false, creates_turn: false, calls_model: false });
     expect((changed.body.labels as Array<Record<string, unknown>>)[0]).toMatchObject({ count: 1 });
-    const afterStage = await postgresPool().query<{ stage_code: string }>("SELECT stage_code FROM collaborations WHERE id='label-stage-collab'");
-    const afterRuns = await postgresPool().query<{ n: string }>("SELECT count(*)::int AS n FROM task_runs");
+    const afterStage = await postgresPool().query<{
+      stage_code: string;
+    }>("SELECT stage_code FROM collaborations WHERE id='label-stage-collab'");
+    const afterRuns = await postgresPool().query<{
+      n: string;
+    }>("SELECT count(*)::int AS n FROM task_runs");
     expect(afterStage.rows[0].stage_code).toBe(beforeStage.rows[0].stage_code);
     expect(afterRuns.rows[0].n).toBe(beforeRuns.rows[0].n);
-
     await postgresPool().query("DELETE FROM kol_mail_threads WHERE conversation_id=$1 AND mailbox=$2", [CONVERSATION_A, BOX_A]);
     const current = await getLabels(ACTOR_A, BOX_A);
     expect(current.status).toBe(200);

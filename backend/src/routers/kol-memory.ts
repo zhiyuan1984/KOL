@@ -11,32 +11,13 @@ import { parsePoolPageOptions, readPublicPoolPage } from "../postgres/public-poo
 import { requireSkill, scopedUser } from "../auth.js";
 import { poolViewerBrands } from "../host/inbound-scope.js";
 import { agentSubmissionAllowed } from "../contract-scope.js";
-import { audit, getConn, nowIso, tx } from "../db.js";
+import { audit, postgresDb, nowIso, pgTransaction } from "../postgres/access.js";
 import { ingestDiscoveryBatch } from "../host/discovery-ingest.js";
-import {
-  applyKolAnalyzeAction,
-  claimFollow,
-  countKolAnalyzeInFlight,
-  currentMemoryEmployee,
-  deleteProfilesWithoutHomepage,
-  KOL_ANALYZE_MAX_IN_FLIGHT,
-  KOL_ANALYZE_TASK_TYPE,
-  listEmployeeFollowing,
-  listOpenPool,
-  memoryCompanyId,
-  parseAnalyzePeople,
-  previewProfilesWithoutHomepage,
-  releaseFollow,
-} from "../host/kol-memory.js";
+import { applyKolAnalyzeAction, claimFollow, countKolAnalyzeInFlight, currentMemoryEmployee, deleteProfilesWithoutHomepage, KOL_ANALYZE_MAX_IN_FLIGHT, KOL_ANALYZE_TASK_TYPE, listEmployeeFollowing, listOpenPool, memoryCompanyId, parseAnalyzePeople, previewProfilesWithoutHomepage, releaseFollow, } from "../host/kol-memory.js";
 import { enrichMissingPublicAvatars } from "../host/kol-avatar-enrichment.js";
 import { assessPublicKolsWithJev, normalizeJevTargets } from "../host/kol-jev-assessment.js";
 import { syncKolProfileIndex } from "../host/kol-memory-sync.js";
-import {
-  criteriaSummary,
-  latestDiscoveryCriteria,
-  normalizeScoringCriteria,
-  type KolScoringCriteria,
-} from "../host/kol-scoring-criteria.js";
+import { criteriaSummary, latestDiscoveryCriteria, normalizeScoringCriteria, type KolScoringCriteria, } from "../host/kol-scoring-criteria.js";
 import { starryLibraryStatus } from "../starrykol/library-sync.js";
 import { HttpFail } from "../host/errors.js";
 import { currentFollowScope } from "../host/starry-bind.js";
@@ -80,9 +61,8 @@ let avatarEnrichmentReceipt: PoolMaintenanceReceipt = { status: "idle", started_
 let avatarEnrichmentFlight: Promise<void> | null = null;
 let jevAssessmentReceipt: PoolMaintenanceReceipt = { status: "idle", started_at: null, completed_at: null };
 let jevAssessmentFlight: Promise<void> | null = null;
-
-function poolSyncResponse() {
-  const items = poolSyncReceipt.status === "succeeded" ? listOpenPool() : [];
+async function poolSyncResponse() {
+  const items = poolSyncReceipt.status === "succeeded" ? (await listOpenPool()) : [];
   return {
     entry: "command" as const,
     kind: "command" as const,
@@ -94,9 +74,9 @@ function poolSyncResponse() {
     kols: items,
   };
 }
-
 function startPoolSync(): boolean {
-  if (poolSyncFlight) return false;
+  if (poolSyncFlight)
+    return false;
   const startedAt = nowIso();
   poolSyncReceipt = { status: "running", started_at: startedAt, completed_at: null };
   poolSyncFlight = syncKolProfileIndex()
@@ -128,9 +108,8 @@ function startPoolSync(): boolean {
     });
   return true;
 }
-
-function maintenanceResponse(receipt: PoolMaintenanceReceipt, callsModel: boolean) {
-  const items = receipt.status === "succeeded" ? listOpenPool() : [];
+async function maintenanceResponse(receipt: PoolMaintenanceReceipt, callsModel: boolean) {
+  const items = receipt.status === "succeeded" ? (await listOpenPool()) : [];
   return {
     entry: "command" as const,
     kind: "command" as const,
@@ -142,9 +121,9 @@ function maintenanceResponse(receipt: PoolMaintenanceReceipt, callsModel: boolea
     kols: items,
   };
 }
-
 function startAvatarEnrichment(): boolean {
-  if (avatarEnrichmentFlight) return false;
+  if (avatarEnrichmentFlight)
+    return false;
   const startedAt = nowIso();
   avatarEnrichmentReceipt = { status: "running", started_at: startedAt, completed_at: null };
   avatarEnrichmentFlight = enrichMissingPublicAvatars()
@@ -170,9 +149,9 @@ function startAvatarEnrichment(): boolean {
     .finally(() => { avatarEnrichmentFlight = null; });
   return true;
 }
-
 function startJevAssessment(kolUids: string[] = [], criteria: KolScoringCriteria | null = null): boolean {
-  if (jevAssessmentFlight) return false;
+  if (jevAssessmentFlight)
+    return false;
   const startedAt = nowIso();
   jevAssessmentReceipt = { status: "running", started_at: startedAt, completed_at: null };
   jevAssessmentFlight = assessPublicKolsWithJev({ kol_uids: kolUids, criteria })
@@ -214,9 +193,7 @@ kolMemory.get("/home/pool", async (c) => {
   c.header("Cache-Control", "no-store");
   const started = performance.now();
   // 品牌可见性：同品牌跟进锁定的 KOL 对同品牌查看者不可见；组长/管理员看全量。
-  const result = await readPublicPoolPage(
-    parsePoolPageOptions(c.req.query()), memoryCompanyId(), poolViewerBrands(scopedUser()),
-  );
+  const result = await readPublicPoolPage(parsePoolPageOptions(c.req.query()), memoryCompanyId(), (await poolViewerBrands(scopedUser())));
   c.header("Server-Timing", `pool_read;dur=${(performance.now() - started).toFixed(1)}`);
   return c.json(result);
 });
@@ -226,30 +203,26 @@ kolMemory.get("/home/pool", async (c) => {
  * zero-write memory read; the command starts the allow-listed Starry reader in
  * the background so an upstream MCP timeout cannot break the employee request.
  */
-kolMemory.post("/home/pool/sync", (c) => {
+kolMemory.post("/home/pool/sync", async (c) => {
   const started = startPoolSync();
   c.header("Cache-Control", "no-store");
-  return c.json({ ...poolSyncResponse(), accepted: true, started }, 202);
+  return c.json({ ...(await poolSyncResponse()), accepted: true, started }, 202);
 });
-
 /** Read-only receipt for the explicit pool-index synchronization command. */
-kolMemory.get("/home/pool/sync", (c) => {
+kolMemory.get("/home/pool/sync", async (c) => {
   c.header("Cache-Control", "no-store");
-  return c.json(poolSyncResponse());
+  return c.json((await poolSyncResponse()));
 });
-
 /** Manually fetches only public homepage metadata for rows missing an avatar. */
-kolMemory.post("/home/pool/avatar-enrich", (c) => {
+kolMemory.post("/home/pool/avatar-enrich", async (c) => {
   const started = startAvatarEnrichment();
   c.header("Cache-Control", "no-store");
-  return c.json({ ...maintenanceResponse(avatarEnrichmentReceipt, false), accepted: true, started }, 202);
+  return c.json({ ...(await maintenanceResponse(avatarEnrichmentReceipt, false)), accepted: true, started }, 202);
 });
-
-kolMemory.get("/home/pool/avatar-enrich", (c) => {
+kolMemory.get("/home/pool/avatar-enrich", async (c) => {
   c.header("Cache-Control", "no-store");
-  return c.json(maintenanceResponse(avatarEnrichmentReceipt, false));
+  return c.json((await maintenanceResponse(avatarEnrichmentReceipt, false)));
 });
-
 /** Manually invokes Jev on bounded public index fields; it cannot claim or delete a KOL. */
 kolMemory.post("/home/pool/jev-assess", async (c) => {
   const body = await c.req.json().catch(() => ({})) as Json;
@@ -260,45 +233,42 @@ kolMemory.post("/home/pool/jev-assess", async (c) => {
   }
   const targets = normalizeJevTargets(raw);
   // 口径来源：显式传入（校验并收紧）优先，其次员工最近一次 AI 发现请求；都没有就不带条件。
-  const employee = currentMemoryEmployee();
-  const criteria = body.criteria === null ? null : normalizeScoringCriteria(body.criteria) ?? latestDiscoveryCriteria(employee.id);
+  const employee = (await currentMemoryEmployee());
+  const criteria = body.criteria === null ? null : normalizeScoringCriteria(body.criteria) ?? (await latestDiscoveryCriteria(employee.id));
   const started = startJevAssessment(targets, criteria);
   c.header("Cache-Control", "no-store");
   return c.json({
-    ...maintenanceResponse(jevAssessmentReceipt, true),
+    ...(await maintenanceResponse(jevAssessmentReceipt, true)),
     accepted: true,
     started,
     targets,
     criteria_summary: criteriaSummary(criteria),
   }, 202);
 });
-
-kolMemory.get("/home/pool/jev-assess", (c) => {
+kolMemory.get("/home/pool/jev-assess", async (c) => {
   c.header("Cache-Control", "no-store");
-  return c.json(maintenanceResponse(jevAssessmentReceipt, true));
+  return c.json((await maintenanceResponse(jevAssessmentReceipt, true)));
 });
-
 /** Preview is read-only; the returned count is required for the deletion confirmation. */
-kolMemory.get("/home/pool/cleanup-preview", (c) => {
+kolMemory.get("/home/pool/cleanup-preview", async (c) => {
   c.header("Cache-Control", "no-store");
   return c.json({
     entry: "memory",
     kind: "memory",
     creates_session: false,
     calls_model: false,
-    ...previewProfilesWithoutHomepage(),
+    ...(await previewProfilesWithoutHomepage()),
   });
 });
-
 /** L3-style destructive command: confirmation and a fresh preview count are both mandatory. */
 kolMemory.post("/home/pool/cleanup-missing-homepage", async (c) => {
   const body = await c.req.json().catch(() => ({})) as Json;
-  const employee = currentMemoryEmployee();
-  const result = deleteProfilesWithoutHomepage({
+  const employee = (await currentMemoryEmployee());
+  const result = (await deleteProfilesWithoutHomepage({
     expectedCount: Number(body.expected_count),
     confirm: body.confirm === true || body.confirmed === true,
     actor: employee.id,
-  });
+  }));
   return c.json({
     entry: "command",
     kind: "command",
@@ -306,21 +276,22 @@ kolMemory.post("/home/pool/cleanup-missing-homepage", async (c) => {
     creates_turn: false,
     calls_model: false,
     ...result,
-    items: listOpenPool(),
+    items: (await listOpenPool()),
   });
 });
-
 kolMemory.get("/home/following", async (c) => {
   c.header("Cache-Control", "no-store");
-  const employee = currentMemoryEmployee();
-  const followScope = currentFollowScope();
+  const employee = (await currentMemoryEmployee());
+  const followScope = (await currentFollowScope());
   let snapshot: AuthorizedOwnershipSnapshot | undefined;
   let sourceError = "";
   if (followScope.required && followScope.bound && followScope.status === 'connected') {
-    try { snapshot = await readAuthorizedOwnershipSnapshot(employee.id); }
+    try {
+      snapshot = await readAuthorizedOwnershipSnapshot(employee.id);
+    }
     catch (error) {
       sourceError = error instanceof Error ? error.message : String(error);
-      audit(employee.id, 'starrykol.following_authorization_failed', { error: sourceError });
+      (await audit(employee.id, 'starrykol.following_authorization_failed', { error: sourceError }));
     }
   }
   const kols = await readFollowingAuthority(employee.id, memoryCompanyId(), snapshot?.rows || []);
@@ -336,7 +307,7 @@ kolMemory.get("/home/following", async (c) => {
     kols,
     authority: "kol_follow_index+verified_starry_binding",
     source_scope: "current-user-authorized",
-    ...(snapshot ? {source_version: snapshot.source_version, authorized_profile_count: snapshot.total} : {}),
+    ...(snapshot ? { source_version: snapshot.source_version, authorized_profile_count: snapshot.total } : {}),
     completeness: complete ? "complete" : "incomplete-source",
     ...(complete ? {} : {
       source_error_code: /timeout|timed out/i.test(sourceError) ? "starry_authorization_timeout" : "starry_authorization_unavailable",
@@ -346,14 +317,13 @@ kolMemory.get("/home/following", async (c) => {
     }),
   });
 });
-
 kolMemory.post("/kols/:kolUid/claim", async (c) => {
   const body = await c.req.json().catch(() => ({})) as Json;
-  const result = claimFollow({
+  const result = (await claimFollow({
     kolUid: c.req.param("kolUid"),
     scopeBrand: body.scope_brand ? String(body.scope_brand) : undefined,
     confirm: body.confirm === true || body.confirmed === true,
-  });
+  }));
   return c.json({
     entry: "command",
     kind: "command",
@@ -362,14 +332,13 @@ kolMemory.post("/kols/:kolUid/claim", async (c) => {
     ...result,
   }, result.created ? 201 : 200);
 });
-
 kolMemory.post("/follows/:followId/release", async (c) => {
   const body = await c.req.json().catch(() => ({})) as Json;
-  const result = releaseFollow({
+  const result = (await releaseFollow({
     followId: c.req.param("followId"),
     confirm: body.confirm === true || body.confirmed === true,
     reason: body.reason ? String(body.reason) : "manual_release",
-  });
+  }));
   return c.json({
     entry: "command",
     kind: "command",
@@ -378,9 +347,8 @@ kolMemory.post("/follows/:followId/release", async (c) => {
     ...result,
   });
 });
-
 kolMemory.post("/home/kol-analyze/enqueue", async (c) => {
-  requireSkill(KOL_ANALYZE_TASK_TYPE);
+  (await requireSkill(KOL_ANALYZE_TASK_TYPE));
   if (!agentSubmissionAllowed()) {
     throw new HttpFail(409, {
       code: "agent_not_published",
@@ -388,14 +356,15 @@ kolMemory.post("/home/kol-analyze/enqueue", async (c) => {
     });
   }
   const definition = taskDefinition(KOL_ANALYZE_TASK_TYPE);
-  if (!definition) throw new HttpFail(400, { code: "unknown_task_type", task_type: KOL_ANALYZE_TASK_TYPE });
+  if (!definition)
+    throw new HttpFail(400, { code: "unknown_task_type", task_type: KOL_ANALYZE_TASK_TYPE });
   const body = await c.req.json().catch(() => ({})) as Json;
   const people = parseAnalyzePeople(body);
   if (!people.length) {
     throw new HttpFail(400, { code: "people_required", message: "请指定要分析的红人" });
   }
-  const employee = currentMemoryEmployee();
-  const inFlight = countKolAnalyzeInFlight(employee.id);
+  const employee = (await currentMemoryEmployee());
+  const inFlight = (await countKolAnalyzeInFlight(employee.id));
   if (inFlight >= KOL_ANALYZE_MAX_IN_FLIGHT) {
     throw new HttpFail(409, {
       code: "analyze_cap",
@@ -407,28 +376,19 @@ kolMemory.post("/home/kol-analyze/enqueue", async (c) => {
   const now = nowIso();
   const id = nid("tsk");
   const title = String(body.title || definition.title).slice(0, 200);
-  tx((db) => {
-    db.prepare(
-      `INSERT INTO tickets
+  (await pgTransaction(async (db) => {
+    (await db.execute(`INSERT INTO tickets
        (id,owner_user_id,task_type,title,source,status,priority,skill,profile,project_id,
         collaboration_id,session_id,due_at,input,entities,data_version,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      id, employee.id, KOL_ANALYZE_TASK_TYPE, title, "kol-analyze-enqueue",
-      "queued", "normal", definition.id, definition.profile, null,
-      null, null, null,
-      JSON.stringify({ kol_uids: people, artifact_type: "kol_analyze_brief" }),
-      JSON.stringify({ kol_uids: people, task_type: KOL_ANALYZE_TASK_TYPE }),
-      1, now, now,
-    );
-    ensureTicketForWorkItem(id, { conn: db });
-  });
-  audit(employee.id, "kol.analyze.enqueue", {
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`, id, employee.id, KOL_ANALYZE_TASK_TYPE, title, "kol-analyze-enqueue", "queued", "normal", definition.id, definition.profile, null, null, null, null, JSON.stringify({ kol_uids: people, artifact_type: "kol_analyze_brief" }), JSON.stringify({ kol_uids: people, task_type: KOL_ANALYZE_TASK_TYPE }), 1, now, now));
+    (await ensureTicketForWorkItem(id, { conn: db }));
+  }));
+  (await audit(employee.id, "kol.analyze.enqueue", {
     work_item_id: id,
     task_type: KOL_ANALYZE_TASK_TYPE,
     people: people.length,
     recognizeTaskIntent: false,
-  });
+  }));
   return c.json({
     entry: "command",
     kind: "command",
@@ -448,12 +408,12 @@ kolMemory.post("/home/kol-analyze/actions", async (c) => {
   if (!workItemId) {
     throw new HttpFail(400, { code: "work_item_required", message: "work_item_id required" });
   }
-  const result = applyKolAnalyzeAction({
+  const result = (await applyKolAnalyzeAction({
     workItemId,
     verb: body.verb ? String(body.verb) : undefined,
     action: body.action ? String(body.action) : body.verb ? String(body.verb) : undefined,
     artifact: (body.artifact && typeof body.artifact === "object" ? body.artifact : body) as Json,
-  });
+  }));
   return c.json({
     entry: "command",
     kind: "command",

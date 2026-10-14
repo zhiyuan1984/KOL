@@ -12,22 +12,27 @@ import { createConfiguredClient, type RuntimeContext } from "./execution.js";
  * to stop; surface failure instead of claiming that cleanup succeeded.
  */
 export async function probeMediaCrawlerStart(context: RuntimeContext, config: ConnectorConfig): Promise<void> {
-  if ((config.protocol || "mcp") !== "mcp" || config.transport === "sse") throw new HttpFail(409, { code: "runtime_probe_mode_invalid" });
-  const client = createConfiguredClient(context, config);
+  if ((config.protocol || "mcp") !== "mcp" || config.transport === "sse")
+    throw new HttpFail(409, { code: "runtime_probe_mode_invalid" });
+  const client = (await createConfiguredClient(context, config));
   let taskId = "";
   try {
     const started = await client.callToolRaw("start_crawl", {
       platforms: ["youtube"], crawler_type: "search", keywords: `kol-mcp-connection-probe-${randomUUID()}`,
     });
-    if (started.isError) throw new HttpFail(502, { code: "runtime_probe_start_rejected" });
+    if (started.isError)
+      throw new HttpFail(502, { code: "runtime_probe_start_rejected" });
     const result = normalizeMcpContent(started);
     const data = result.data && typeof result.data === "object" && !Array.isArray(result.data)
       ? result.data as Record<string, unknown> : {};
     taskId = String(result.task_id || result.id || data.task_id || "").trim();
-    if (!taskId) throw new HttpFail(502, { code: "runtime_probe_task_id_missing" });
+    if (!taskId)
+      throw new HttpFail(502, { code: "runtime_probe_task_id_missing" });
     const stopped = await client.callToolRaw("stop_crawl", { task_id: taskId });
-    if (stopped.isError) throw new HttpFail(502, { code: "runtime_probe_stop_failed" });
-  } finally {
+    if (stopped.isError)
+      throw new HttpFail(502, { code: "runtime_probe_stop_failed" });
+  }
+  finally {
     await client.close().catch(() => undefined);
   }
 }

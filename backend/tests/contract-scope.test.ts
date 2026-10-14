@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { agentPublishState, agentSubmissionAllowed, departmentHeadAccessForUser, kolAgentScopeContext, setAgentSubmissionOverride } from "../src/contract-scope.js";
-
 describe("KOL contract scope", () => {
-  it("loads canonical organization, brand and region scope into the harness context", () => {
-    const scope = kolAgentScopeContext();
+  it("loads canonical organization, brand and region scope into the harness context", async () => {
+    const scope = (await kolAgentScopeContext());
     expect(scope.agent_id).toBe("agent:kol");
     expect(scope.organization_scope).toEqual(["org:lt_team", "org:pq_ro_tb_team"]);
     expect(scope.brand_scope).toEqual(["brand:lt", "brand:pq", "brand:ro", "brand:tb"]);
@@ -36,7 +35,8 @@ describe("KOL contract scope", () => {
     try {
       expect(agentSubmissionAllowed("real")).toBe(false);
       expect(agentSubmissionAllowed("stub")).toBe(true);
-    } finally {
+    }
+    finally {
       setAgentSubmissionOverride();
     }
   });

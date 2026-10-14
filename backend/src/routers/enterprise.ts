@@ -3,16 +3,9 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
-import {
-  authDisabled,
-  hashPassword,
-  isAdmin,
-  requireAdmin,
-  scopedUser,
-  tokenDigest,
-} from "../auth.js";
+import { authDisabled, hashPassword, isAdmin, requireAdmin, scopedUser, tokenDigest, } from "../auth.js";
 import type { AppUser } from "../auth.js";
-import { audit, databaseEngine, getConn, nowIso, tx } from "../db.js";
+import { audit, postgresDb, nowIso, pgTransaction } from "../postgres/access.js";
 import { HttpFail } from "../host/errors.js";
 import { uploadsDir } from "../host/attachments.js";
 import { SKILL_CATALOG } from "../host/skills-catalog.js";
@@ -24,39 +17,30 @@ import { boxDir } from "../config.js";
 import { isBuiltinConnectorId, requireManagedConnector } from "../connectors/catalog.js";
 import { hasBundledIcon } from "./connector-icons.js";
 import { connectorInUseBySkill, ensureRuntimeSchema } from "../runtime/store.js";
-import {
-  avatarUrlForUser,
-  listOrganizationMemberships,
-  listOrganizationPeople,
-  listOrganizationUnits,
-  organizationCompanyName,
-} from "../runtime/organization-tree.js";
+import { avatarUrlForUser, listOrganizationMemberships, listOrganizationPeople, listOrganizationUnits, organizationCompanyName, } from "../runtime/organization-tree.js";
 import { getConnectorConfig } from "../runtime/store.js";
-import { syncUserOrganization } from "../runtime/organization-tree.js";
 import { pgCreateOrganizationUser, pgDeactivateOrganizationUser, pgSyncOrganizationMembership, pgUpdateOrganizationUser, pgUserById } from "../postgres/organization-repository.js";
 import { pgBindApprovalRole, pgSetApprovalRoles, pgUnbindApprovalRole, pgUpdatePreferences } from "../postgres/account-access-repository.js";
-import { pgCreateConnector, pgDeleteConnector, pgUpdateConnector } from "../postgres/connector-authorization-repository.js";
-
+import { pgConnectorById, pgCreateConnector, pgDeleteConnector, pgUpdateConnector } from "../postgres/connector-authorization-repository.js";
 export const enterprise = new Hono();
-
-enterprise.use("/sessions/:sid/*",async (c,next) => {
+enterprise.use("/sessions/:sid/*", async (c, next) => {
   const { authorizedTaskSession } = await import("../ticket-domain/task-collaboration-session.js");
-  await authorizedTaskSession(scopedUser()?.id || "",c.req.param("sid"),c.req.path.endsWith("/unarchive"));
+  await authorizedTaskSession(scopedUser()?.id || "", c.req.param("sid"), c.req.path.endsWith("/unarchive"));
   await next();
 });
-enterprise.use("/sessions/:sid",async (c,next) => {
+enterprise.use("/sessions/:sid", async (c, next) => {
   const { authorizedTaskSession } = await import("../ticket-domain/task-collaboration-session.js");
-  await authorizedTaskSession(scopedUser()?.id || "",c.req.param("sid"));
+  await authorizedTaskSession(scopedUser()?.id || "", c.req.param("sid"));
   await next();
 });
-
-function connectorProbeVerified(id: string, version: number): boolean {
+async function connectorProbeVerified(id: string, version: number): Promise<boolean> {
   try {
-    const probe = getConn().prepare(`SELECT status, probe_kind, config_version FROM runtime_connector_probes
-      WHERE connector_id=? ORDER BY id DESC LIMIT 1`).get(id) as Row | undefined;
+    const probe = (await postgresDb().one(`SELECT status, probe_kind, config_version FROM runtime_connector_probes
+      WHERE connector_id=$1 ORDER BY id DESC LIMIT 1`, id)) as Row | undefined;
     return probe?.status === "succeeded" && ["mcp_tools_list", "http_definition"].includes(String(probe.probe_kind))
       && Number(probe.config_version) === version;
-  } catch {
+  }
+  catch {
     // Legacy databases without a probe table cannot infer a successful test.
     return false;
   }
@@ -65,7 +49,8 @@ function connectorProbeVerified(id: string, version: number): boolean {
 function parseJson(value: unknown, fallback: unknown): unknown {
   try {
     return JSON.parse(String(value ?? JSON.stringify(fallback)));
-  } catch {
+  }
+  catch {
     return fallback;
   }
 }
@@ -73,27 +58,32 @@ function parseJson(value: unknown, fallback: unknown): unknown {
 function pathBytes(target: string): number {
   try {
     const stat = fs.statSync(target);
-    if (stat.isFile()) return stat.size;
-    if (!stat.isDirectory()) return 0;
+    if (stat.isFile())
+      return stat.size;
+    if (!stat.isDirectory())
+      return 0;
     return fs.readdirSync(target).reduce((total, name) => total + pathBytes(path.join(target, name)), 0);
-  } catch {
+  }
+  catch {
     return 0;
   }
 }
-
-function safeUser(row: Row): Json {
+async function safeUser(row: Row): Promise<Json> {
   const { password_hash: _password, ...rest } = row;
-  const db = getConn();
-  const avatarUrl = avatarUrlForUser(String(row.id));
-  const person = db.prepare("SELECT person_ref,email,employee_no FROM organization_people WHERE user_id=?")
-    .get(row.id) as { person_ref?: string; email?: string | null; employee_no?: string | null } | undefined;
-  const mailboxCount = db.prepare("SELECT COUNT(*) AS n FROM user_starry_bindings WHERE user_id=?")
-    .get(row.id) as Row;
-  const kolCount = db.prepare("SELECT COUNT(*) AS n FROM kol_follow_index WHERE employee_id=? AND status='active'")
-    .get(row.id) as Row;
+  const db = postgresDb();
+  const avatarUrl = (await avatarUrlForUser(String(row.id)));
+  const person = (await db.one("SELECT person_ref,email,employee_no FROM organization_people WHERE user_id=$1", row.id)) as {
+    person_ref?: string;
+    email?: string | null;
+    employee_no?: string | null;
+  } | undefined;
+  const mailboxCount = (await db.one("SELECT COUNT(*) AS n FROM user_starry_bindings WHERE user_id=$1", row.id)) as Row;
+  const kolCount = (await db.one("SELECT COUNT(*) AS n FROM kol_follow_index WHERE employee_id=$1 AND status='active'", row.id)) as Row;
   const memberships = person?.person_ref
-    ? db.prepare("SELECT org_unit_id,relation FROM organization_memberships WHERE person_ref=? AND status='active' ORDER BY relation DESC, org_unit_id")
-      .all(person.person_ref) as { org_unit_id: string; relation: string }[]
+    ? (await db.many("SELECT org_unit_id,relation FROM organization_memberships WHERE person_ref=$1 AND status='active' ORDER BY relation DESC, org_unit_id", person.person_ref)) as {
+      org_unit_id: string;
+      relation: string;
+    }[]
     : [];
   return {
     ...rest,
@@ -107,9 +97,9 @@ function safeUser(row: Row): Json {
     roles: parseJson(row.roles, []),
     brands: parseJson(row.brands, []),
     active: Boolean(row.active),
-    skill_grants: (db.prepare("SELECT skill_id FROM user_skill_grants WHERE user_id=?").all(row.id) as Row[])
+    skill_grants: ((await db.many("SELECT skill_id FROM user_skill_grants WHERE user_id=$1", row.id)) as Row[])
       .map((grant) => String(grant.skill_id)),
-    approval_roles: (db.prepare("SELECT approval_role,role_kind,valid_from,valid_to FROM approval_role_bindings WHERE user_id=?").all(row.id) as Row[])
+    approval_roles: ((await db.many("SELECT approval_role,role_kind,valid_from,valid_to FROM approval_role_bindings WHERE user_id=$1", row.id)) as Row[])
       .map((grant) => ({
         role: String(grant.approval_role),
         kind: String(grant.role_kind || APPROVAL_ROLE_KINDS[String(grant.approval_role)] || "position"),
@@ -120,22 +110,19 @@ function safeUser(row: Row): Json {
     kol_count: Number(kolCount?.n || 0),
   };
 }
-
-function userById(id: string): Row {
-  const row = getConn().prepare("SELECT * FROM users WHERE id=?").get(id) as Row | undefined;
-  if (!row) throw new HttpFail(404, "user not found");
+async function userById(id: string): Promise<Row> {
+  const row = (await postgresDb().one("SELECT * FROM users WHERE id=$1", id)) as Row | undefined;
+  if (!row)
+    throw new HttpFail(404, "user not found");
   return row;
 }
-
 /** Management-only business binding projection; the Starry bearer is never selected. */
-function employeeContext(row: Row): Json {
-  const db = getConn();
-  const mailboxes = (db.prepare(
-    `SELECT mailbox_email,mailbox_id,owner_name,status,is_default,updated_at,synced_at,last_error
+async function employeeContext(row: Row): Promise<Json> {
+  const db = postgresDb();
+  const mailboxes = ((await db.many(`SELECT mailbox_email,mailbox_id,owner_name,status,is_default,updated_at,synced_at,last_error
        FROM user_starry_bindings
-      WHERE user_id=?
-      ORDER BY is_default DESC, updated_at DESC, mailbox_email COLLATE NOCASE`,
-  ).all(row.id) as Row[]).map((binding) => ({
+      WHERE user_id=$1
+      ORDER BY is_default DESC, updated_at DESC, mailbox_email`, row.id)) as Row[]).map((binding) => ({
     mailbox_email: String(binding.mailbox_email || ""),
     mailbox_id: binding.mailbox_id ? String(binding.mailbox_id) : null,
     owner_name: String(binding.owner_name || ""),
@@ -145,17 +132,15 @@ function employeeContext(row: Row): Json {
     synced_at: binding.synced_at ? String(binding.synced_at) : null,
     last_error: binding.last_error ? String(binding.last_error) : null,
   }));
-  const kols = (db.prepare(
-    `SELECT f.id,f.kol_uid,f.scope_brand,f.claimed_at,
+  const kols = ((await db.many(`SELECT f.id,f.kol_uid,f.scope_brand,f.claimed_at,
             COALESCE(p.display_name,c.display_name,f.kol_uid) AS display_name,
             COALESCE(c.stage_code,p.public_stage,'') AS stage_code,
             c.owner_mailbox AS mailbox_email
        FROM kol_follow_index f
        LEFT JOIN kol_profile_index p ON p.company_id=f.company_id AND p.kol_uid=f.kol_uid
        LEFT JOIN collaborations c ON c.id=f.collaboration_id
-      WHERE f.employee_id=? AND f.status='active'
-      ORDER BY f.claimed_at DESC, f.kol_uid`,
-  ).all(row.id) as Row[]).map((kol) => ({
+      WHERE f.employee_id=$1 AND f.status='active'
+      ORDER BY f.claimed_at DESC, f.kol_uid`, row.id)) as Row[]).map((kol) => ({
     id: String(kol.id || ""),
     kol_uid: String(kol.kol_uid || ""),
     display_name: String(kol.display_name || kol.kol_uid || ""),
@@ -164,15 +149,12 @@ function employeeContext(row: Row): Json {
     mailbox_email: kol.mailbox_email ? String(kol.mailbox_email) : null,
     claimed_at: kol.claimed_at ? String(kol.claimed_at) : null,
   }));
-  return { user: safeUser(row), avatar_url: avatarUrlForUser(String(row.id)), mailboxes, kols };
+  return { user: (await safeUser(row)), avatar_url: (await avatarUrlForUser(String(row.id))), mailboxes, kols };
 }
-
 /** Direct employee capability grants are backed by the same PEP table used at runtime. */
-function employeeTools(row: Row): Json {
-  const granted = new Set(
-    (getConn().prepare("SELECT skill_id FROM user_skill_grants WHERE user_id=?").all(row.id) as Row[])
-      .map((grant) => String(grant.skill_id)),
-  );
+async function employeeTools(row: Row): Promise<Json> {
+  const granted = new Set(((await postgresDb().many("SELECT skill_id FROM user_skill_grants WHERE user_id=$1", row.id)) as Row[])
+    .map((grant) => String(grant.skill_id)));
   return {
     tools: SKILL_CATALOG
       .filter((skill) => skill.employee_visible || granted.has(skill.id))
@@ -187,38 +169,37 @@ function employeeTools(row: Row): Json {
       })),
   };
 }
-
 /** Catalog card metadata; an unreadable runtime table degrades to the MCP defaults. */
-function connectorRuntimeFacts(connectorId: string): { protocol: "mcp" | "http"; approved_tool_count: number } {
+async function connectorRuntimeFacts(connectorId: string): Promise<{
+  protocol: "mcp" | "http";
+  approved_tool_count: number;
+}> {
   try {
-    ensureRuntimeSchema();
-    const stored = getConn().prepare(
-      "SELECT config_json FROM runtime_connector_config WHERE connector_id=?",
-    ).get(connectorId) as Row | undefined;
-    const declared = (getConn().prepare(
-      "SELECT declared_protocol FROM connectors WHERE id=?",
-    ).get(connectorId) as Row | undefined)?.declared_protocol;
+    (await ensureRuntimeSchema());
+    const stored = (await postgresDb().one("SELECT config_json FROM runtime_connector_config WHERE connector_id=$1", connectorId)) as Row | undefined;
+    const declared = ((await postgresDb().one("SELECT declared_protocol FROM connectors WHERE id=$1", connectorId)) as Row | undefined)?.declared_protocol;
     let protocol: "mcp" | "http" = "mcp";
     try {
       const config = stored ? JSON.parse(String(stored.config_json)) as Row | null : null;
-      if (config && typeof config === "object") protocol = config.protocol === "http" ? "http" : "mcp";
-      else if (declared === "http") protocol = "http";
-    } catch {
+      if (config && typeof config === "object")
+        protocol = config.protocol === "http" ? "http" : "mcp";
+      else if (declared === "http")
+        protocol = "http";
+    }
+    catch {
       protocol = "mcp";
     }
-    const approved = getConn().prepare(
-      "SELECT COUNT(*) AS n FROM runtime_tool_policies WHERE connector_id=? AND enabled=1",
-    ).get(connectorId) as Row | undefined;
+    const approved = (await postgresDb().one("SELECT COUNT(*) AS n FROM runtime_tool_policies WHERE connector_id=$1 AND enabled=1", connectorId)) as Row | undefined;
     return { protocol, approved_tool_count: Number(approved?.n || 0) };
-  } catch {
+  }
+  catch {
     return { protocol: "mcp", approved_tool_count: 0 };
   }
 }
-
-function connectorPublic(row: unknown): Json {
+async function connectorPublic(row: unknown): Promise<Json> {
   const value = row as Row;
   const id = String(value.id || "");
-  const facts = connectorRuntimeFacts(id);
+  const facts = (await connectorRuntimeFacts(id));
   return {
     ...value,
     enabled: Boolean(value.enabled),
@@ -248,19 +229,38 @@ function connectorEmployee(row: unknown): Json {
 function roles(value: unknown): string[] {
   const allowed = new Set(["employee", "admin"]);
   const values = Array.isArray(value) ? value.map(String) : [];
-  if (!values.length || values.some((role) => !allowed.has(role))) throw new HttpFail(400, "roles must contain employee/admin");
+  if (!values.length || values.some((role) => !allowed.has(role)))
+    throw new HttpFail(400, "roles must contain employee/admin");
   return [...new Set(values)];
 }
-
-type SettingsBrandDefinition = { id: string; code: string; label: string; status: string };
-type SettingsMailbox = { id: string; email: string; brand: string; status: string; is_default: boolean };
+type SettingsBrandDefinition = {
+  id: string;
+  code: string;
+  label: string;
+  status: string;
+};
+type SettingsMailbox = {
+  id: string;
+  email: string;
+  brand: string;
+  status: string;
+  is_default: boolean;
+};
 type SettingsOrganization = {
   managed: boolean;
-  person?: { person_ref: string; display_name: string; email: string | null; employee_no: string | null };
-  membership?: { company_id: string; org_unit_id: string; position: string | null };
+  person?: {
+    person_ref: string;
+    display_name: string;
+    email: string | null;
+    employee_no: string | null;
+  };
+  membership?: {
+    company_id: string;
+    org_unit_id: string;
+    position: string | null;
+  };
   membership_unit_ids: string[];
 };
-
 const SETTINGS_PREFERENCE_KEYS = new Set([
   "analytics_cookies",
   "theme",
@@ -289,7 +289,12 @@ const BRAND_REGISTRY_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.
 function settingsBrandDefinitions(): SettingsBrandDefinition[] {
   try {
     const parsed = JSON.parse(fs.readFileSync(BRAND_REGISTRY_PATH, "utf8")) as {
-      brands?: Array<{ id?: unknown; code?: unknown; display_name?: unknown; status?: unknown }>;
+      brands?: Array<{
+        id?: unknown;
+        code?: unknown;
+        display_name?: unknown;
+        status?: unknown;
+      }>;
     };
     return (parsed.brands || [])
       .map((brand) => ({
@@ -299,36 +304,43 @@ function settingsBrandDefinitions(): SettingsBrandDefinition[] {
         status: String(brand.status || "active"),
       }))
       .filter((brand) => brand.id && brand.code && brand.label && brand.status === "active");
-  } catch {
+  }
+  catch {
     // A registry read failure must fail closed: this endpoint must not invent selectable brands.
     return [];
   }
 }
-
 function settingsBrandCode(value: unknown, definitions = settingsBrandDefinitions()): string | null {
   const raw = String(value || "").trim();
-  if (!raw) return null;
+  if (!raw)
+    return null;
   const found = definitions.find((brand) => brand.id === raw || brand.code === raw.toUpperCase());
   return found?.code || null;
 }
-
 /** Current, active authority facts only; historical/ended memberships never authorize settings choices. */
-function settingsOrganization(user: AppUser): SettingsOrganization {
+async function settingsOrganization(user: AppUser): Promise<SettingsOrganization> {
   // Ensures the organization tables exist before direct, bounded lookup queries.
-  listOrganizationUnits();
-  const db = getConn();
-  const person = db.prepare(
-    "SELECT person_ref,display_name,email,employee_no,status FROM organization_people WHERE user_id=? AND status='active'",
-  ).get(user.id) as { person_ref: string; display_name: string; email: string | null; employee_no: string | null } | undefined;
-  if (!person) return { managed: false, membership_unit_ids: [] };
+  (await listOrganizationUnits());
+  const db = postgresDb();
+  const person = (await db.one("SELECT person_ref,display_name,email,employee_no,status FROM organization_people WHERE user_id=$1 AND status='active'", user.id)) as {
+    person_ref: string;
+    display_name: string;
+    email: string | null;
+    employee_no: string | null;
+  } | undefined;
+  if (!person)
+    return { managed: false, membership_unit_ids: [] };
   const now = nowIso();
-  const memberships = db.prepare(
-    `SELECT company_id,org_unit_id,position,relation FROM organization_memberships
-      WHERE person_ref=? AND status='active'
-        AND (effective_from IS NULL OR effective_from<=?)
-        AND (effective_to IS NULL OR effective_to>?)
-      ORDER BY CASE relation WHEN 'primary' THEN 0 ELSE 1 END, org_unit_id`,
-  ).all(person.person_ref, now, now) as Array<{ company_id: string; org_unit_id: string; position: string | null; relation: string }>;
+  const memberships = (await db.many(`SELECT company_id,org_unit_id,position,relation FROM organization_memberships
+      WHERE person_ref=$1 AND status='active'
+        AND (effective_from IS NULL OR effective_from<=$2)
+        AND (effective_to IS NULL OR effective_to>$3)
+      ORDER BY CASE relation WHEN 'primary' THEN 0 ELSE 1 END, org_unit_id`, person.person_ref, now, now)) as Array<{
+    company_id: string;
+    org_unit_id: string;
+    position: string | null;
+    relation: string;
+  }>;
   const primary = memberships.find((membership) => membership.relation === "primary") || memberships[0];
   return {
     managed: true,
@@ -341,47 +353,43 @@ function settingsOrganization(user: AppUser): SettingsOrganization {
     membership_unit_ids: memberships.map((membership) => String(membership.org_unit_id)),
   };
 }
-
-function settingsAuthorizedBrands(user: AppUser, organization: SettingsOrganization, definitions = settingsBrandDefinitions()): string[] {
+async function settingsAuthorizedBrands(user: AppUser, organization: SettingsOrganization, definitions = settingsBrandDefinitions()): Promise<string[]> {
   // Reuse the existing sender PEP first; organization scope can only narrow it, never broaden it.
-  const senderAllowed = new Set(allowedFromMailboxes(user, null).map((row) => row.brand));
-  if (!organization.managed || !organization.person) return definitions
+  const senderAllowed = new Set((await allowedFromMailboxes(user, null)).map((row) => row.brand));
+  if (!organization.managed || !organization.person)
+    return definitions
     .map((brand) => brand.code)
     .filter((code) => senderAllowed.has(code));
-
   const departmentHead = departmentHeadAccessForUser(user);
-  if (departmentHead?.company_wide && departmentHead.brand_scope === "all") return definitions
+  if (departmentHead?.company_wide && departmentHead.brand_scope === "all")
+    return definitions
     .map((brand) => brand.code)
     .filter((code) => senderAllowed.has(code));
-
-  const db = getConn();
+  const db = postgresDb();
   const now = nowIso();
   const unitIds = organization.membership_unit_ids;
-  const predicates = ["(subject_type='person' AND subject_id=?)"];
+  const predicates = ["(subject_type='person' AND subject_id=$3)"];
   const values: unknown[] = [organization.person.person_ref];
   if (unitIds.length) {
-    predicates.push(`(subject_type='organization_unit' AND subject_id IN (${unitIds.map(() => "?").join(",")}))`);
-    values.push(...unitIds);
+    predicates.push("(subject_type='organization_unit' AND subject_id=ANY($4::text[]))");
+    values.push(unitIds);
   }
-  const rows = db.prepare(
-    `SELECT brand_id FROM scope_memberships
+  const rows = (await db.many(`SELECT brand_id FROM scope_memberships
       WHERE status='active' AND brand_id IS NOT NULL
-        AND (effective_from IS NULL OR effective_from<=?)
-        AND (effective_to IS NULL OR effective_to>?)
-        AND (${predicates.join(" OR ")})`,
-  ).all(now, now, ...values) as Array<{ brand_id: string | null }>;
+        AND (effective_from IS NULL OR effective_from<=$1)
+        AND (effective_to IS NULL OR effective_to>$2)
+        AND (${predicates.join(" OR ")})`, now, now, ...values)) as Array<{
+    brand_id: string | null;
+  }>;
   const scoped = new Set(rows.map((row) => settingsBrandCode(row.brand_id, definitions)).filter((code): code is string => Boolean(code)));
   return definitions.map((brand) => brand.code).filter((code) => senderAllowed.has(code) && scoped.has(code));
 }
-
-function settingsMailboxes(user: AppUser, definitions = settingsBrandDefinitions()): SettingsMailbox[] {
-  const rows = getConn().prepare(
-    `SELECT b.mailbox_email,b.mailbox_id,b.status,b.is_default,o.brand AS owner_brand,o.status AS owner_status
+async function settingsMailboxes(user: AppUser, definitions = settingsBrandDefinitions()): Promise<SettingsMailbox[]> {
+  const rows = (await postgresDb().many(`SELECT b.mailbox_email,b.mailbox_id,b.status,b.is_default,o.brand AS owner_brand,o.status AS owner_status
        FROM user_starry_bindings b
        LEFT JOIN mailbox_owners o ON lower(o.email)=lower(b.mailbox_email)
-      WHERE b.user_id=?
-      ORDER BY b.is_default DESC,b.updated_at ASC,b.mailbox_email COLLATE NOCASE`,
-  ).all(user.id) as Array<Row>;
+      WHERE b.user_id=$1
+      ORDER BY b.is_default DESC,b.updated_at ASC,b.mailbox_email`, user.id)) as Array<Row>;
   return rows.map((row) => {
     const email = String(row.mailbox_email || "").trim().toLowerCase();
     const brand = settingsBrandCode(row.owner_brand, definitions) || "";
@@ -399,39 +407,34 @@ function settingsMailboxes(user: AppUser, definitions = settingsBrandDefinitions
     };
   }).filter((mailbox) => Boolean(mailbox.email));
 }
-
-function selectableSettingsMailbox(user: AppUser, mailbox: SettingsMailbox | undefined, brand: string): boolean {
-  if (!mailbox || mailbox.status !== "connected" || !mailbox.brand || mailbox.brand !== brand) return false;
-  return authorizedSenderBrand(mailbox.email, user, brand)?.brand === brand;
+async function selectableSettingsMailbox(user: AppUser, mailbox: SettingsMailbox | undefined, brand: string): Promise<boolean> {
+  if (!mailbox || mailbox.status !== "connected" || !mailbox.brand || mailbox.brand !== brand)
+    return false;
+  return (await authorizedSenderBrand(mailbox.email, user, brand))?.brand === brand;
 }
-
 /** Never return unknown historical preference JSON; selected brand/mailbox remains valid only under current authority. */
-function settingsPreferences(
-  user: AppUser,
-  row: Row | undefined,
-  brands: string[],
-  mailboxes: SettingsMailbox[],
-): Json {
+async function settingsPreferences(user: AppUser, row: Row | undefined, brands: string[], mailboxes: SettingsMailbox[]): Promise<Json> {
   const parsed = parseJson(row?.preferences, {});
   const stored = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Json : {};
   const preferences: Json = { analytics_cookies: Boolean(row?.analytics_cookies) };
   for (const [key, allowed] of Object.entries(SETTINGS_ENUM_PREFERENCES)) {
-    if (allowed.includes(String((stored as Json)[key] || ""))) preferences[key] = String((stored as Json)[key]);
+    if (allowed.includes(String((stored as Json)[key] || "")))
+      preferences[key] = String((stored as Json)[key]);
   }
   for (const key of SETTINGS_BOOLEAN_PREFERENCES) {
-    if (key !== "analytics_cookies" && typeof (stored as Json)[key] === "boolean") preferences[key] = (stored as Json)[key];
+    if (key !== "analytics_cookies" && typeof (stored as Json)[key] === "boolean")
+      preferences[key] = (stored as Json)[key];
   }
   const defaultBrand = String((stored as Json).default_brand || "");
   preferences.default_brand = brands.includes(defaultBrand) ? defaultBrand : "";
   const defaultMailbox = String((stored as Json).default_mailbox || "").trim().toLowerCase();
   const mailbox = mailboxes.find((candidate) => candidate.email === defaultMailbox && candidate.is_default);
-  preferences.default_mailbox = brands.includes(defaultBrand) && selectableSettingsMailbox(user, mailbox, defaultBrand) ? defaultMailbox : "";
+  preferences.default_mailbox = brands.includes(defaultBrand) && (await selectableSettingsMailbox(user, mailbox, defaultBrand)) ? defaultMailbox : "";
   return preferences;
 }
-
-function settingsProfile(user: AppUser, organization: SettingsOrganization): Json {
+async function settingsProfile(user: AppUser, organization: SettingsOrganization): Promise<Json> {
   const membership = organization.membership;
-  const units = membership ? listOrganizationUnits(membership.company_id) : [];
+  const units = membership ? (await listOrganizationUnits(membership.company_id)) : [];
   const byId = new Map(units.map((unit) => [unit.id, unit]));
   const path: string[] = [];
   const seen = new Set<string>();
@@ -442,8 +445,9 @@ function settingsProfile(user: AppUser, organization: SettingsOrganization): Jso
     unit = unit.parent_id ? byId.get(unit.parent_id) : undefined;
   }
   // Department heads establish organization authority but are not necessarily a direct manager.
-  const manager = getConn().prepare("SELECT name FROM users WHERE id=(SELECT manager_user_id FROM users WHERE id=?)")
-    .get(user.id) as { name?: string } | undefined;
+  const manager = (await postgresDb().one("SELECT name FROM users WHERE id=(SELECT manager_user_id FROM users WHERE id=$1)", user.id)) as {
+    name?: string;
+  } | undefined;
   return {
     name: organization.managed ? organization.person?.display_name || "" : user.name,
     email: organization.managed ? organization.person?.email || "" : user.email || "",
@@ -456,31 +460,25 @@ function settingsProfile(user: AppUser, organization: SettingsOrganization): Jso
     managed: organization.managed,
   };
 }
-
-function settingsContext(user: AppUser): Json {
+async function settingsContext(user: AppUser): Promise<Json> {
   const definitions = settingsBrandDefinitions();
-  const organization = settingsOrganization(user);
-  const authorizedBrands = settingsAuthorizedBrands(user, organization, definitions);
-  const mailboxes = settingsMailboxes(user, definitions);
-  const preferenceRow = getConn().prepare("SELECT * FROM user_preferences WHERE user_id=?").get(user.id) as Row | undefined;
+  const organization = (await settingsOrganization(user));
+  const authorizedBrands = (await settingsAuthorizedBrands(user, organization, definitions));
+  const mailboxes = (await settingsMailboxes(user, definitions));
+  const preferenceRow = (await postgresDb().one("SELECT * FROM user_preferences WHERE user_id=$1", user.id)) as Row | undefined;
   return {
-    profile: settingsProfile(user, organization),
+    profile: (await settingsProfile(user, organization)),
     brands: definitions.filter((brand) => authorizedBrands.includes(brand.code)).map((brand) => ({ id: brand.code, label: brand.label })),
     mailboxes,
-    preferences: settingsPreferences(user, preferenceRow, authorizedBrands, mailboxes),
+    preferences: (await settingsPreferences(user, preferenceRow, authorizedBrands, mailboxes)),
     editable_fields: organization.managed ? [] : ["name", "email", "phone"],
   };
 }
-
-enterprise.get("/admin/organization-people", (c) => {
-  requireAdmin();
-  const memberships = new Map(
-    listOrganizationMemberships()
-      .filter((row) => row.relation === "primary" && row.status === "active")
-      .map((row) => [row.person_ref, row]),
-  );
-  const people = listOrganizationPeople()
-    .map((person) => {
+enterprise.get("/admin/organization-people", async (c) => {
+  (await requireAdmin());
+  const memberships = new Map((await listOrganizationMemberships()).filter((row) => row.relation === "primary" && row.status === "active")
+    .map((row) => [row.person_ref, row]));
+  const people = (await listOrganizationPeople()).map((person) => {
       const membership = memberships.get(person.person_ref);
       return {
         person_ref: person.person_ref,
@@ -494,142 +492,145 @@ enterprise.get("/admin/organization-people", (c) => {
     .sort((a, b) => (a.display_name < b.display_name ? -1 : a.display_name > b.display_name ? 1 : 0));
   return c.json({ people });
 });
-
-enterprise.get("/admin/users", () => {
-  requireAdmin();
-  return Response.json((getConn().prepare("SELECT * FROM users ORDER BY created_at").all() as Row[]).map(safeUser));
+enterprise.get("/admin/users", async () => {
+  (await requireAdmin());
+  return Response.json(await Promise.all(((await postgresDb().many("SELECT * FROM users ORDER BY created_at")) as Row[]).map(safeUser)));
 });
-
 enterprise.post("/admin/users", async (c) => {
-  const admin = requireAdmin();
+  const admin = (await requireAdmin());
   const body = (await c.req.json()) as Json;
   const username = String(body.username || "").trim().toLowerCase();
-  if (!/^[a-z0-9._@-]{3,100}$/.test(username)) throw new HttpFail(400, "invalid username");
+  if (!/^[a-z0-9._@-]{3,100}$/.test(username))
+    throw new HttpFail(400, "invalid username");
   const unitId = String(body.site || "").trim();
-  if (unitId && !listOrganizationUnits().some((unit) => unit.id === unitId && unit.status === "active")) {
+  if (unitId && !(await listOrganizationUnits()).some((unit) => unit.id === unitId && unit.status === "active")) {
     throw new HttpFail(400, "请选择有效组织单元");
   }
   const id = nid("usr");
   const now = nowIso();
   const passwordHash = await hashPassword(String(body.password || ""));
-  const created = process.env.DATABASE_URL
-    ? await pgCreateOrganizationUser({ id, username, name: String(body.name || username), passwordHash, roles: roles(body.roles || ["employee"]), brands: Array.isArray(body.brands) ? body.brands.map(String) : [], site: unitId, position: String(body.position || ""), managerUserId: body.manager_user_id ? String(body.manager_user_id) : null, active: body.active !== false, email: String(body.email || ""), phone: String(body.phone || ""), now })
-    : null;
-  if (process.env.DATABASE_URL) { if (unitId) await pgSyncOrganizationMembership(id, unitId, now); audit(admin.id, "admin.user.create", { user_id: id }); return c.json({ ...created, password_hash: undefined }, 201); }
-  getConn().prepare(`INSERT INTO users (id,username,name,password_hash,roles,brands,site,position,manager_user_id,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, username, String(body.name || username), passwordHash, JSON.stringify(roles(body.roles || ["employee"])), JSON.stringify(body.brands || []), unitId, String(body.position || ""), body.manager_user_id || null, body.active === false ? 0 : 1, now, now);
-  syncUserOrganization(id, unitId); audit(admin.id, "admin.user.create", { user_id: id }); return c.json(safeUser(userById(id)), 201);
+  const created = await pgCreateOrganizationUser({ id, username, name: String(body.name || username), passwordHash, roles: roles(body.roles || ["employee"]), brands: Array.isArray(body.brands) ? body.brands.map(String) : [], site: unitId, position: String(body.position || ""), managerUserId: body.manager_user_id ? String(body.manager_user_id) : null, active: body.active !== false, email: String(body.email || ""), phone: String(body.phone || ""), now });
+  if (unitId)
+    await pgSyncOrganizationMembership(id, unitId, now);
+  (await audit(admin.id, "admin.user.create", { user_id: id }));
+  return c.json({ ...created, password_hash: undefined }, 201);
 });
-
-enterprise.get("/admin/users/:uid", (c) => {
-  requireAdmin();
-  return c.json(safeUser(userById(c.req.param("uid"))));
+enterprise.get("/admin/users/:uid", async (c) => {
+  (await requireAdmin());
+  return c.json((await safeUser((await userById(c.req.param("uid"))))));
 });
-
-enterprise.get("/admin/users/:uid/context", (c) => {
-  requireAdmin();
-  return c.json(employeeContext(userById(c.req.param("uid"))));
+enterprise.get("/admin/users/:uid/context", async (c) => {
+  (await requireAdmin());
+  return c.json((await employeeContext((await userById(c.req.param("uid"))))));
 });
-
-enterprise.get("/admin/users/:uid/tools", (c) => {
-  requireAdmin();
-  return c.json(employeeTools(userById(c.req.param("uid"))));
+enterprise.get("/admin/users/:uid/tools", async (c) => {
+  (await requireAdmin());
+  return c.json((await employeeTools((await userById(c.req.param("uid"))))));
 });
-
 enterprise.patch("/admin/users/:uid", async (c) => {
-  const admin = requireAdmin();
+  const admin = (await requireAdmin());
   const uid = c.req.param("uid");
-  const before = userById(uid);
+  const before = (await userById(uid));
   const body = (await c.req.json()) as Json;
   // 只有组织真的变了才校验并同步权威成员关系；原样回传的旧 site（如「深圳站」）不得清空现有组织归属。
   const siteChanged = body.site !== undefined && String(body.site || "") !== String(before.site || "");
   if (siteChanged && String(body.site || "") &&
-      !listOrganizationUnits().some((unit) => unit.id === String(body.site) && unit.status === "active")) {
+    !(await listOrganizationUnits()).some((unit) => unit.id === String(body.site) && unit.status === "active")) {
     throw new HttpFail(400, "请选择有效组织单元");
   }
-  const sets: string[] = [];
-  const values: unknown[] = [];
+  const fields: string[] = [];
   if (body.email !== undefined) {
     const email = String(body.email || "").trim().toLowerCase();
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpFail(400, "invalid email");
-    const owner = email ? getConn().prepare("SELECT id FROM users WHERE lower(email)=? OR lower(username)=?").get(email, email) as { id: string } | undefined : undefined;
-    if (owner && owner.id !== uid) throw new HttpFail(409, "email already used");
-    sets.push("email=?"); values.push(email);
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+      throw new HttpFail(400, "invalid email");
+    const owner = email ? (await postgresDb().one("SELECT id FROM users WHERE lower(email)=$1 OR lower(username)=$2", email, email)) as {
+      id: string;
+    } | undefined : undefined;
+    if (owner && owner.id !== uid)
+      throw new HttpFail(409, "email already used");
+    fields.push("email");
   }
   for (const field of ["name", "site", "position", "manager_user_id"] as const) {
-    if (body[field] !== undefined) { sets.push(`${field}=?`); values.push(body[field] || null); }
+    if (body[field] !== undefined) {
+      fields.push(field);
+    }
   }
-  if (body.roles !== undefined) { sets.push("roles=?"); values.push(JSON.stringify(roles(body.roles))); }
-  if (body.brands !== undefined) { sets.push("brands=?"); values.push(JSON.stringify(body.brands)); }
-  if (body.active !== undefined) { sets.push("active=?"); values.push(body.active ? 1 : 0); }
-  if (body.password !== undefined) { sets.push("password_hash=?"); values.push(await hashPassword(String(body.password))); }
-  if (!sets.length) return c.json(safeUser(userById(uid)));
-  sets.push("updated_at=?"); values.push(nowIso(), uid);
-  if (process.env.DATABASE_URL) {
-    const changes: Record<string, unknown> = {}; for (const [field, value] of Object.entries(body)) { if (["email","name","site","position","manager_user_id","roles","brands","active","password"].includes(field)) changes[field === "password" ? "password_hash" : field] = field === "roles" || field === "brands" ? JSON.stringify(Array.isArray(value) ? value.map(String) : []) : field === "password" ? await hashPassword(String(value)) : value === "active" ? (value ? 1 : 0) : value || null; }
-    await pgUpdateOrganizationUser(uid, changes); if (body.password !== undefined) { const { pgRevokeUserSessions } = await import("../postgres/organization-repository.js"); await pgRevokeUserSessions(uid); }
-  } else { getConn().prepare(`UPDATE users SET ${sets.join(",")} WHERE id=?`).run(...values); if (body.password !== undefined) getConn().prepare("DELETE FROM auth_sessions WHERE user_id=?").run(uid); }
+  if (body.roles !== undefined) {
+    fields.push("roles");
+  }
+  if (body.brands !== undefined) {
+    fields.push("brands");
+  }
+  if (body.active !== undefined) {
+    fields.push("active");
+  }
+  if (body.password !== undefined) {
+    fields.push("password_hash");
+  }
+  if (!fields.length)
+    return c.json((await safeUser((await userById(uid)))));
+  const changes: Record<string, unknown> = {};
+  for (const [field, value] of Object.entries(body)) {
+    if (["email", "name", "site", "position", "manager_user_id", "roles", "brands", "active", "password"].includes(field))
+      changes[field === "password" ? "password_hash" : field] = field === "roles" || field === "brands" ? JSON.stringify(Array.isArray(value) ? value.map(String) : []) : field === "password" ? await hashPassword(String(value)) : value === "active" ? (value ? 1 : 0) : value || null;
+  }
+  await pgUpdateOrganizationUser(uid, changes);
+  if (body.password !== undefined) {
+    const { pgRevokeUserSessions } = await import("../postgres/organization-repository.js");
+    await pgRevokeUserSessions(uid);
+  }
   if (siteChanged || body.name !== undefined || body.email !== undefined) {
-    const site = String(userById(uid).site || "");
-    const validUnit = Boolean(site) && listOrganizationUnits().some((unit) => unit.id === site);
-    if (process.env.DATABASE_URL) { if (validUnit || (siteChanged && !site)) await pgSyncOrganizationMembership(uid, site || null, nowIso()); } else if (validUnit || (siteChanged && !site)) syncUserOrganization(uid, site);
+    const site = String((await userById(uid)).site || "");
+    const validUnit = Boolean(site) && (await listOrganizationUnits()).some((unit) => unit.id === site);
+    if (validUnit || (siteChanged && !site))
+      await pgSyncOrganizationMembership(uid, site || null, nowIso());
   }
-  audit(admin.id, "admin.user.update", { user_id: uid, fields: sets.map((s) => s.split("=")[0]) });
-  return c.json(process.env.DATABASE_URL ? { ...(await pgUserById(uid)), password_hash: undefined } : safeUser(userById(uid)));
+  (await audit(admin.id, "admin.user.update", { user_id: uid, fields }));
+  return c.json({ ...(await pgUserById(uid)), password_hash: undefined });
 });
-
 enterprise.delete("/admin/users/:uid", async (c) => {
-  const admin = requireAdmin();
+  const admin = (await requireAdmin());
   const uid = c.req.param("uid");
-  if (uid === admin.id) throw new HttpFail(409, "cannot deactivate current account");
-  userById(uid);
-  if (process.env.DATABASE_URL) await pgDeactivateOrganizationUser(uid, nowIso());
-  else tx((db) => { db.prepare("UPDATE users SET active=0,updated_at=? WHERE id=?").run(nowIso(), uid); db.prepare("DELETE FROM auth_sessions WHERE user_id=?").run(uid); });
-  audit(admin.id, "admin.user.deactivate", { user_id: uid });
+  if (uid === admin.id)
+    throw new HttpFail(409, "cannot deactivate current account");
+  (await userById(uid));
+  await pgDeactivateOrganizationUser(uid, nowIso());
+  (await audit(admin.id, "admin.user.deactivate", { user_id: uid }));
   return c.json({ ok: true, deactivated: true });
 });
-
-enterprise.put("/admin/users/:uid/skills/:skill", (c) => {
-  requireAdmin();
+enterprise.put("/admin/users/:uid/skills/:skill", async (c) => {
+  (await requireAdmin());
   throw new HttpFail(410, "逐人技能授权已退役；请在 Agent 页绑定人员并装配技能");
 });
-
-
-enterprise.delete("/admin/users/:uid/skills/:skill", (c) => {
-  requireAdmin();
+enterprise.delete("/admin/users/:uid/skills/:skill", async (c) => {
+  (await requireAdmin());
   throw new HttpFail(410, "逐人技能授权已退役；请在 Agent 页管理绑定");
 });
-enterprise.put("/admin/users/:uid/skills", (c) => {
-  requireAdmin();
+enterprise.put("/admin/users/:uid/skills", async (c) => {
+  (await requireAdmin());
   throw new HttpFail(410, "逐人技能授权已退役；请在 Agent 页管理绑定");
 });
-
-enterprise.get("/admin/connectors", (c) => {
-  requireAdmin();
-  return c.json(getConn().prepare(
-    "SELECT * FROM connectors ORDER BY label COLLATE NOCASE, id",
-  ).all().map(connectorPublic));
+enterprise.get("/admin/connectors", async (c) => {
+  (await requireAdmin());
+  return c.json(await Promise.all((await postgresDb().many("SELECT * FROM connectors ORDER BY label, id")).map(connectorPublic)));
 });
-
-enterprise.get("/connectors", (c) => {
+enterprise.get("/connectors", async (c) => {
   const user = scopedUser();
   if (authDisabled()) {
-    return c.json((getConn().prepare(
-      "SELECT id,label FROM connectors WHERE enabled=1 ORDER BY label COLLATE NOCASE, id",
-    ).all()).map((row) => connectorEmployee({ ...(row as Row), access: "write" })));
+    return c.json(((await postgresDb().many("SELECT id,label FROM connectors WHERE enabled=1 ORDER BY label, id"))).map((row) => connectorEmployee({ ...(row as Row), access: "write" })));
   }
-  if (!user) throw new HttpFail(401, "authentication required");
-  return c.json((getConn().prepare(
-    `SELECT c.id,c.label,g.access FROM connectors c
+  if (!user)
+    throw new HttpFail(401, "authentication required");
+  return c.json(((await postgresDb().many(`SELECT c.id,c.label,g.access FROM connectors c
       JOIN user_connector_grants g ON g.connector_id=c.id
-     WHERE g.user_id=? AND c.enabled=1 ORDER BY c.label COLLATE NOCASE, c.id`,
-  ).all(user.id)).map(connectorEmployee));
+     WHERE g.user_id=$1 AND c.enabled=1 ORDER BY c.label, c.id`, user.id))).map(connectorEmployee));
 });
-
 enterprise.post("/admin/connectors", async (c) => {
-  const admin = requireAdmin();
+  const admin = (await requireAdmin());
   const body = (await c.req.json()) as Json;
   const id = requireManagedConnector(String(body.id || "").trim());
-  if (isBuiltinConnectorId(id)) throw new HttpFail(409, { code: "managed_connector_already_in_catalog", connector_id: id });
+  if (isBuiltinConnectorId(id))
+    throw new HttpFail(409, { code: "managed_connector_already_in_catalog", connector_id: id });
   const label = String(body.label || "").trim();
   const purpose = String(body.purpose || "").trim();
   if (!label || label.length > 120 || !purpose || purpose.length > 280) {
@@ -642,96 +643,107 @@ enterprise.post("/admin/connectors", async (c) => {
   }
   const now = nowIso();
   try {
-    if (process.env.DATABASE_URL) await pgCreateConnector({ id, label, purpose, protocol: declaredProtocol, now });
-    else getConn().prepare(`INSERT INTO connectors(id,label,purpose,enabled,status,credential_ref,declared_protocol,updated_at) VALUES (?,?,?,0,'draft',NULL,?,?)`).run(id, label, purpose, declaredProtocol, now);
-  } catch {
+    await pgCreateConnector({ id, label, purpose, protocol: declaredProtocol, now });
+  }
+  catch {
     throw new HttpFail(409, { code: "managed_connector_already_exists", connector_id: id });
   }
-  audit(admin.id, "admin.connector.create", { connector_id: id, label, purpose, ...(declaredProtocol ? { protocol: declaredProtocol } : {}) });
-  return c.json(connectorPublic(process.env.DATABASE_URL ? await (async()=>{ const { pgConnectorById } = await import("../postgres/connector-authorization-repository.js"); return pgConnectorById(id); })() : getConn().prepare("SELECT * FROM connectors WHERE id=?").get(id)), 201);
+  (await audit(admin.id, "admin.connector.create", { connector_id: id, label, purpose, ...(declaredProtocol ? { protocol: declaredProtocol } : {}) }));
+  return c.json(await connectorPublic(await pgConnectorById(id)), 201);
 });
-
 enterprise.patch("/admin/connectors/:id", async (c) => {
-  const admin = requireAdmin();
+  const admin = (await requireAdmin());
   const id = c.req.param("id");
   requireManagedConnector(id);
   const body = (await c.req.json()) as Json;
-  if ("credential" in body || "secret" in body || "password" in body) throw new HttpFail(400, "only credential_ref may be stored");
-  const sets: string[] = [];
-  const values: unknown[] = [];
+  if ("credential" in body || "secret" in body || "password" in body)
+    throw new HttpFail(400, "only credential_ref may be stored");
+  const fields: string[] = [];
   for (const field of ["label", "purpose", "status", "credential_ref"] as const) {
-    if (body[field] !== undefined) { sets.push(`${field}=?`); values.push(body[field]); }
+    if (body[field] !== undefined) {
+      fields.push(field);
+    }
   }
   if (body.enabled !== undefined) {
     if (body.enabled) {
-      const current = getConn().prepare("SELECT status FROM connectors WHERE id=?").get(id) as Row | undefined;
-      if (!current) throw new HttpFail(404, "connector not found");
+      const current = (await postgresDb().one("SELECT status FROM connectors WHERE id=$1", id)) as Row | undefined;
+      if (!current)
+        throw new HttpFail(404, "connector not found");
       if (String(current.status) !== "verified") {
         throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
       }
-      const config = getConnectorConfig(id);
-      if (!config || !connectorProbeVerified(id, config.version)) {
+      const config = (await getConnectorConfig(id));
+      if (!config || !(await connectorProbeVerified(id, config.version))) {
         throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
       }
-      if (!connectorInUseBySkill(id)) {
+      if (!(await connectorInUseBySkill(id))) {
         throw new HttpFail(409, { code: "connector_skill_binding_required", connector_id: id });
       }
     }
-    sets.push("enabled=?"); values.push(body.enabled ? 1 : 0);
+    fields.push("enabled");
   }
-  if (!sets.length) throw new HttpFail(400, "no changes");
-  sets.push("updated_at=?"); values.push(nowIso(), id);
-  if (process.env.DATABASE_URL) { const changes: Record<string, unknown> = {}; for (const [field,value] of Object.entries(body)) if (["label","purpose","status","credential_ref","enabled"].includes(field)) changes[field]=field === "enabled" ? (value ? 1 : 0) : value; const updated = await pgUpdateConnector(id, changes); if (!updated) throw new HttpFail(404, "connector not found"); }
-  else { const result = getConn().prepare(`UPDATE connectors SET ${sets.join(",")} WHERE id=?`).run(...values); if (!result.changes) throw new HttpFail(404, "connector not found"); }
-  audit(admin.id, "admin.connector.update", { connector_id: id });
-  return c.json(connectorPublic(process.env.DATABASE_URL ? await (async()=>{ const { pgConnectorById } = await import("../postgres/connector-authorization-repository.js"); return pgConnectorById(id); })() : getConn().prepare("SELECT * FROM connectors WHERE id=?").get(id)));
+  if (!fields.length)
+    throw new HttpFail(400, "no changes");
+  const changes: Record<string, unknown> = {};
+  for (const [field, value] of Object.entries(body))
+    if (["label", "purpose", "status", "credential_ref", "enabled"].includes(field))
+      changes[field] = field === "enabled" ? (value ? 1 : 0) : value;
+  const updated = await pgUpdateConnector(id, changes);
+  if (!updated)
+    throw new HttpFail(404, "connector not found");
+  (await audit(admin.id, "admin.connector.update", { connector_id: id }));
+  return c.json(await connectorPublic(await pgConnectorById(id)));
 });
-
 enterprise.delete("/admin/connectors/:id", async (c) => {
-  const admin = requireAdmin();
+  const admin = (await requireAdmin());
   const connectorId = requireManagedConnector(c.req.param("id"));
-  if (isBuiltinConnectorId(connectorId)) throw new HttpFail(405, { code: "builtin_managed_connector_cannot_delete" });
-  if (process.env.DATABASE_URL) { if (!(await pgDeleteConnector(connectorId))) throw new HttpFail(404, "connector not found"); } else { const result = getConn().prepare("DELETE FROM connectors WHERE id=?").run(connectorId); if (!result.changes) throw new HttpFail(404, "connector not found"); }
-  audit(admin.id, "admin.connector.delete", { connector_id: connectorId });
+  if (isBuiltinConnectorId(connectorId))
+    throw new HttpFail(405, { code: "builtin_managed_connector_cannot_delete" });
+  if (!(await pgDeleteConnector(connectorId)))
+    throw new HttpFail(404, "connector not found");
+  (await audit(admin.id, "admin.connector.delete", { connector_id: connectorId }));
   return c.json({ ok: true });
 });
-
 /** 已确认决策①：审批角色分职位角色/指定自然人，数据模型区分、界面统一展示。 */
 export const APPROVAL_ROLE_KINDS: Record<string, "position" | "named"> = {
   lead: "position",
   manager: "position",
   zhang: "named",
 };
-
 enterprise.put("/admin/users/:uid/approval-roles/:role", async (c) => {
-  const admin = requireAdmin();
-  userById(c.req.param("uid"));
+  const admin = (await requireAdmin());
+  (await userById(c.req.param("uid")));
   const role = c.req.param("role");
   const kind = APPROVAL_ROLE_KINDS[role] || "position";
-  if (process.env.DATABASE_URL) await pgBindApprovalRole(c.req.param("uid"), role, kind, nowIso());
-  else getConn().prepare("INSERT OR IGNORE INTO approval_role_bindings (user_id,approval_role,role_kind,created_at) VALUES (?,?,?,?)").run(c.req.param("uid"), role, kind, nowIso());
-  audit(admin.id, "admin.approval_role.bind", { user_id: c.req.param("uid"), role, role_kind: kind });
+  await pgBindApprovalRole(c.req.param("uid"), role, kind, nowIso());
+  (await audit(admin.id, "admin.approval_role.bind", { user_id: c.req.param("uid"), role, role_kind: kind }));
   return c.json({ ok: true });
 });
-
 enterprise.delete("/admin/users/:uid/approval-roles/:role", async (c) => {
-  const admin = requireAdmin();
-  if (process.env.DATABASE_URL) await pgUnbindApprovalRole(c.req.param("uid"), c.req.param("role"));
-  else getConn().prepare("DELETE FROM approval_role_bindings WHERE user_id=? AND approval_role=?").run(c.req.param("uid"), c.req.param("role"));
-  audit(admin.id, "admin.approval_role.unbind", { user_id: c.req.param("uid"), role: c.req.param("role") });
+  const admin = (await requireAdmin());
+  await pgUnbindApprovalRole(c.req.param("uid"), c.req.param("role"));
+  (await audit(admin.id, "admin.approval_role.unbind", { user_id: c.req.param("uid"), role: c.req.param("role") }));
   return c.json({ ok: true });
 });
-
 enterprise.put("/admin/users/:uid/approval-roles", async (c) => {
-  const admin = requireAdmin();
+  const admin = (await requireAdmin());
   const uid = c.req.param("uid");
-  userById(uid);
+  (await userById(uid));
   const body = (await c.req.json()) as Json;
   const values = Array.isArray(body.roles) ? body.roles.map(String) : [];
   const allowed = new Set(["lead", "manager", "zhang"]);
-  if (values.some((role) => !allowed.has(role))) throw new HttpFail(400, "invalid approval role");
-  const grants: Array<{ role: string; valid_from?: string; valid_to?: string }> = Array.isArray(body.grants)
-    ? (body.grants as Array<{ role?: unknown; valid_from?: unknown; valid_to?: unknown }>)
+  if (values.some((role) => !allowed.has(role)))
+    throw new HttpFail(400, "invalid approval role");
+  const grants: Array<{
+    role: string;
+    valid_from?: string;
+    valid_to?: string;
+  }> = Array.isArray(body.grants)
+    ? (body.grants as Array<{
+      role?: unknown;
+      valid_from?: unknown;
+      valid_to?: unknown;
+    }>)
         .map((g) => ({
           role: String(g.role || ""),
           ...(g.valid_from ? { valid_from: String(g.valid_from) } : {}),
@@ -739,65 +751,66 @@ enterprise.put("/admin/users/:uid/approval-roles", async (c) => {
         }))
     : values.map((role) => ({ role }));
   for (const g of grants) {
-    if (!allowed.has(g.role)) throw new HttpFail(400, "invalid approval role");
+    if (!allowed.has(g.role))
+      throw new HttpFail(400, "invalid approval role");
   }
-  if (process.env.DATABASE_URL) { await pgSetApprovalRoles(uid, grants.map(g=>({role:g.role,kind:APPROVAL_ROLE_KINDS[g.role]||"position",validFrom:g.valid_from||null,validTo:g.valid_to||null})), nowIso()); } else tx((db) => {
-    db.prepare("DELETE FROM approval_role_bindings WHERE user_id=?").run(uid);
-    for (const g of grants) {
-      db.prepare("INSERT INTO approval_role_bindings (user_id,approval_role,role_kind,valid_from,valid_to,created_at) VALUES (?,?,?,?,?,?)")
-        .run(uid, g.role, APPROVAL_ROLE_KINDS[g.role] || "position",
-          g.valid_from || null,
-          g.valid_to || null,
-          nowIso());
-    }
-  });
-  audit(admin.id, "admin.approval_roles.replace", { user_id: uid, roles: values });
+  await pgSetApprovalRoles(uid, grants.map(g => ({ role: g.role, kind: APPROVAL_ROLE_KINDS[g.role] || "position", validFrom: g.valid_from || null, validTo: g.valid_to || null })), nowIso());
+  (await audit(admin.id, "admin.approval_roles.replace", { user_id: uid, roles: values }));
   return c.json({ ok: true, user_id: uid, roles: values });
 });
-
-enterprise.get("/me/settings-context", (c) => {
+enterprise.get("/me/settings-context", async (c) => {
   const user = scopedUser();
-  if (!user) throw new HttpFail(401, "authentication required");
-  return c.json(settingsContext(user));
+  if (!user)
+    throw new HttpFail(401, "authentication required");
+  return c.json((await settingsContext(user)));
 });
-
-enterprise.get("/preferences", (c) => {
+enterprise.get("/preferences", async (c) => {
   const user = scopedUser();
-  if (!user) throw new HttpFail(401, "authentication required");
-  return c.json((settingsContext(user) as Record<string, Json>).preferences);
+  if (!user)
+    throw new HttpFail(401, "authentication required");
+  return c.json(((await settingsContext(user)) as Record<string, Json>).preferences);
 });
-
 enterprise.patch("/preferences", async (c) => {
   const user = scopedUser();
-  if (!user) throw new HttpFail(401, "authentication required");
+  if (!user)
+    throw new HttpFail(401, "authentication required");
   const body = (await c.req.json()) as Record<string, unknown>;
-  if (!body || typeof body !== "object" || Array.isArray(body)) throw new HttpFail(400, "preferences must be an object");
+  if (!body || typeof body !== "object" || Array.isArray(body))
+    throw new HttpFail(400, "preferences must be an object");
   const fields = Object.keys(body);
-  if (fields.some((key) => !SETTINGS_PREFERENCE_KEYS.has(key))) throw new HttpFail(400, "unknown preference field");
-  const current = getConn().prepare("SELECT * FROM user_preferences WHERE user_id=?").get(user.id) as Row | undefined;
+  if (fields.some((key) => !SETTINGS_PREFERENCE_KEYS.has(key)))
+    throw new HttpFail(400, "unknown preference field");
+  const current = (await postgresDb().one("SELECT * FROM user_preferences WHERE user_id=$1", user.id)) as Row | undefined;
   const definitions = settingsBrandDefinitions();
-  const brands = settingsAuthorizedBrands(user, settingsOrganization(user), definitions);
-  const mailboxes = settingsMailboxes(user, definitions);
-  const stored = settingsPreferences(user, current, brands, mailboxes) as Record<string, unknown>;
+  const brands = (await settingsAuthorizedBrands(user, (await settingsOrganization(user)), definitions));
+  const mailboxes = (await settingsMailboxes(user, definitions));
+  const stored = (await settingsPreferences(user, current, brands, mailboxes)) as Record<string, unknown>;
   const has = (key: string) => Object.prototype.hasOwnProperty.call(body, key);
   const next: Record<string, unknown> = {};
   for (const [key, allowed] of Object.entries(SETTINGS_ENUM_PREFERENCES)) {
     const value = has(key) ? body[key] : stored[key];
-    if (value === undefined) continue;
-    if (typeof value !== "string" || !allowed.includes(value)) throw new HttpFail(400, `invalid ${key}`);
+    if (value === undefined)
+      continue;
+    if (typeof value !== "string" || !allowed.includes(value))
+      throw new HttpFail(400, `invalid ${key}`);
     next[key] = value;
   }
   for (const key of SETTINGS_BOOLEAN_PREFERENCES) {
-    if (key === "analytics_cookies") continue;
+    if (key === "analytics_cookies")
+      continue;
     const value = has(key) ? body[key] : stored[key];
-    if (value === undefined) continue;
-    if (typeof value !== "boolean") throw new HttpFail(400, `invalid ${key}`);
+    if (value === undefined)
+      continue;
+    if (typeof value !== "boolean")
+      throw new HttpFail(400, `invalid ${key}`);
     next[key] = value;
   }
   const analytics = has("analytics_cookies") ? body.analytics_cookies : Boolean(current?.analytics_cookies);
-  if (typeof analytics !== "boolean") throw new HttpFail(400, "invalid analytics_cookies");
+  if (typeof analytics !== "boolean")
+    throw new HttpFail(400, "invalid analytics_cookies");
   const requestedBrand = has("default_brand") ? body.default_brand : stored.default_brand;
-  if (requestedBrand != null && typeof requestedBrand !== "string") throw new HttpFail(400, "invalid default_brand");
+  if (requestedBrand != null && typeof requestedBrand !== "string")
+    throw new HttpFail(400, "invalid default_brand");
   const defaultBrand = requestedBrand == null || requestedBrand === "" ? "" : settingsBrandCode(requestedBrand, definitions);
   if (requestedBrand != null && requestedBrand !== "" && (!defaultBrand || !brands.includes(defaultBrand))) {
     throw new HttpFail(400, "invalid default_brand");
@@ -807,12 +820,14 @@ enterprise.patch("/preferences", async (c) => {
   let selected: SettingsMailbox | undefined;
   if (has("default_mailbox")) {
     const requested = body.default_mailbox;
-    if (requested == null || requested === "") defaultMailbox = "";
-    else if (typeof requested !== "string") throw new HttpFail(400, "invalid default_mailbox");
+    if (requested == null || requested === "")
+      defaultMailbox = "";
+    else if (typeof requested !== "string")
+      throw new HttpFail(400, "invalid default_mailbox");
     else {
       selected = mailboxes.find((mailbox) => mailbox.email === requested.trim().toLowerCase() || mailbox.id === requested.trim());
       if (!selected || !defaultBrand || selected.brand !== defaultBrand || !brands.includes(defaultBrand) ||
-        !selectableSettingsMailbox(user, selected, defaultBrand)) {
+        !(await selectableSettingsMailbox(user, selected, defaultBrand))) {
         throw new HttpFail(400, "default_mailbox must be a current authorized connected mailbox for default_brand");
       }
       defaultMailbox = selected.email;
@@ -822,133 +837,112 @@ enterprise.patch("/preferences", async (c) => {
   if (defaultMailbox) {
     const mailbox = selected || mailboxes.find((candidate) => candidate.email === defaultMailbox);
     if (!defaultBrand || !mailbox || mailbox.brand !== defaultBrand || !brands.includes(defaultBrand) ||
-      !selectableSettingsMailbox(user, mailbox, defaultBrand)) {
+      !(await selectableSettingsMailbox(user, mailbox, defaultBrand))) {
       throw new HttpFail(400, "select a current authorized mailbox matching default_brand");
     }
     next.default_mailbox = defaultMailbox;
   }
   next.default_mailbox = defaultMailbox;
-  if (process.env.DATABASE_URL) {
     const updated = await pgUpdatePreferences(user.id, Boolean(analytics), next, nowIso(), has("default_mailbox") ? defaultMailbox : undefined);
-    audit(user.id, "preference.update", { fields });
-    return c.json(settingsPreferences(user, updated, brands, settingsMailboxes(user, definitions)));
-  }
-  tx((db) => {
-    if (has("default_mailbox")) {
-      db.prepare("UPDATE user_starry_bindings SET is_default=0 WHERE user_id=?").run(user.id);
-      if (defaultMailbox) db.prepare("UPDATE user_starry_bindings SET is_default=1 WHERE user_id=? AND lower(mailbox_email)=lower(?)")
-        .run(user.id, defaultMailbox);
-    }
-    db.prepare(`INSERT INTO user_preferences (user_id,analytics_cookies,preferences,updated_at) VALUES (?,?,?,?)
-      ON CONFLICT(user_id) DO UPDATE SET analytics_cookies=excluded.analytics_cookies,preferences=excluded.preferences,updated_at=excluded.updated_at`)
-      .run(user.id, analytics ? 1 : 0, JSON.stringify(next), nowIso());
-  });
-  audit(user.id, "preference.update", { fields });
-  const updated = getConn().prepare("SELECT * FROM user_preferences WHERE user_id=?").get(user.id) as Row | undefined;
-  return c.json(settingsPreferences(user, updated, brands, settingsMailboxes(user, definitions)));
+  (await audit(user.id, "preference.update", { fields }));
+  return c.json((await settingsPreferences(user, updated, brands, (await settingsMailboxes(user, definitions)))));
 });
-
-enterprise.get("/me/settings-sessions", (c) => {
+enterprise.get("/me/settings-sessions", async (c) => {
   const user = scopedUser();
-  if (!user) throw new HttpFail(401, "authentication required");
-  const rows = getConn().prepare("SELECT id,title,archived_at FROM sessions WHERE owner_user_id=? AND deleted_at IS NULL ORDER BY updated_at DESC,id")
-    .all(user.id) as Row[];
+  if (!user)
+    throw new HttpFail(401, "authentication required");
+  const rows = (await postgresDb().many("SELECT id,title,archived_at FROM sessions WHERE owner_user_id=$1 AND deleted_at IS NULL ORDER BY updated_at DESC,id", user.id)) as Row[];
   return c.json(rows.map((row) => ({ id: String(row.id), title: String(row.title || ""), archived_at: row.archived_at ? String(row.archived_at) : null })));
 });
-
-function memoryRow(id: string): Row {
-  const row = getConn().prepare("SELECT * FROM memory_entries WHERE id=?").get(id) as Row | undefined;
-  if (!row) throw new HttpFail(404, "memory not found");
+async function memoryRow(id: string): Promise<Row> {
+  const row = (await postgresDb().one("SELECT * FROM memory_entries WHERE id=$1", id)) as Row | undefined;
+  if (!row)
+    throw new HttpFail(404, "memory not found");
   return row;
 }
 function settingsMemory(row: Row): Json {
   return { id: String(row.id), title: String(row.title || ""), body_md: String(row.body_md || ""),
     scope: String(row.scope || "private"), enabled: Boolean(Number(row.enabled)), version: Number(row.version || 1), editable: true };
 }
-
 function assertMemoryOwner(row: Row): void {
   const user = scopedUser();
-  if (!user || (String(row.owner_user_id) !== user.id && !isAdmin(user))) throw new HttpFail(403, "memory owner required");
+  if (!user || (String(row.owner_user_id) !== user.id && !isAdmin(user)))
+    throw new HttpFail(403, "memory owner required");
 }
-
-enterprise.get("/memory", (c) => {
+enterprise.get("/memory", async (c) => {
   const user = scopedUser();
-  if (!user) throw new HttpFail(401, "authentication required");
-  const rows = getConn().prepare(
-    "SELECT * FROM memory_entries WHERE owner_user_id=? ORDER BY updated_at DESC",
-  ).all(user.id) as Row[];
+  if (!user)
+    throw new HttpFail(401, "authentication required");
+  const rows = (await postgresDb().many("SELECT * FROM memory_entries WHERE owner_user_id=$1 ORDER BY updated_at DESC", user.id)) as Row[];
   return c.json(rows.map(settingsMemory));
 });
-
 enterprise.post("/memory", async (c) => {
   const user = scopedUser();
-  if (!user) throw new HttpFail(401, "authentication required");
+  if (!user)
+    throw new HttpFail(401, "authentication required");
   const body = (await c.req.json()) as Json;
   const scope = String(body.scope === "workspace" ? "team" : body.scope || "private");
-  if (scope === "team") throw new HttpFail(409, "team memory publishing is temporarily unavailable");
-  if (scope !== "private") throw new HttpFail(400, "scope must be private");
-  const id = nid("mem"); const now = nowIso();
-  getConn().prepare(
-    "INSERT INTO memory_entries (id,owner_user_id,title,body_md,scope,enabled,version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
-  ).run(id, user.id, String(body.title || "记忆"), String(body.body_md ?? body.content ?? ""), scope,
-    body.enabled === false ? 0 : 1, 1, now, now);
-  audit(user.id, "memory.create", { memory_id: id, scope });
-  return c.json(settingsMemory(memoryRow(id)), 201);
+  if (scope === "team")
+    throw new HttpFail(409, "team memory publishing is temporarily unavailable");
+  if (scope !== "private")
+    throw new HttpFail(400, "scope must be private");
+  const id = nid("mem");
+  const now = nowIso();
+  (await postgresDb().execute("INSERT INTO memory_entries (id,owner_user_id,title,body_md,scope,enabled,version,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)", id, user.id, String(body.title || "记忆"), String(body.body_md ?? body.content ?? ""), scope, body.enabled === false ? 0 : 1, 1, now, now));
+  (await audit(user.id, "memory.create", { memory_id: id, scope }));
+  return c.json(settingsMemory((await memoryRow(id))), 201);
 });
-
 enterprise.patch("/memory/:id", async (c) => {
   const user = scopedUser()!;
-  const row = memoryRow(c.req.param("id")); assertMemoryOwner(row);
+  const row = (await memoryRow(c.req.param("id")));
+  assertMemoryOwner(row);
   const body = (await c.req.json()) as Json;
   const scope = body.scope === undefined ? row.scope : String(body.scope === "workspace" ? "team" : body.scope);
-  if (!["private", "team"].includes(String(scope))) throw new HttpFail(400, "scope must be private/team");
-  if (scope === "team" && String(row.scope) !== "team") throw new HttpFail(409, "team memory publishing is temporarily unavailable");
-  getConn().prepare(
-    "UPDATE memory_entries SET title=?,body_md=?,scope=?,enabled=?,version=version+1,updated_at=? WHERE id=?",
-  ).run(body.title === undefined ? row.title : String(body.title),
-    body.body_md === undefined && body.content === undefined ? row.body_md : String(body.body_md ?? body.content), scope,
-    body.enabled === undefined ? row.enabled : body.enabled ? 1 : 0, nowIso(), row.id);
-  audit(user.id, "memory.update", { memory_id: row.id });
-  return c.json(settingsMemory(memoryRow(String(row.id))));
+  if (!["private", "team"].includes(String(scope)))
+    throw new HttpFail(400, "scope must be private/team");
+  if (scope === "team" && String(row.scope) !== "team")
+    throw new HttpFail(409, "team memory publishing is temporarily unavailable");
+  (await postgresDb().execute("UPDATE memory_entries SET title=$1,body_md=$2,scope=$3,enabled=$4,version=version+1,updated_at=$5 WHERE id=$6", body.title === undefined ? row.title : String(body.title), body.body_md === undefined && body.content === undefined ? row.body_md : String(body.body_md ?? body.content), scope, body.enabled === undefined ? row.enabled : body.enabled ? 1 : 0, nowIso(), row.id));
+  (await audit(user.id, "memory.update", { memory_id: row.id }));
+  return c.json(settingsMemory((await memoryRow(String(row.id)))));
 });
-
-enterprise.delete("/memory/:id", (c) => {
+enterprise.delete("/memory/:id", async (c) => {
   const user = scopedUser()!;
-  const row = memoryRow(c.req.param("id")); assertMemoryOwner(row);
-  getConn().prepare("DELETE FROM memory_entries WHERE id=?").run(row.id);
-  audit(user.id, "memory.delete", { memory_id: row.id });
+  const row = (await memoryRow(c.req.param("id")));
+  assertMemoryOwner(row);
+  (await postgresDb().execute("DELETE FROM memory_entries WHERE id=$1", row.id));
+  (await audit(user.id, "memory.delete", { memory_id: row.id }));
   return c.json({ ok: true });
 });
-
-export function assertSessionAccess(sessionId: string, includeDeleted = false): Row {
-  const row = getConn().prepare("SELECT * FROM sessions WHERE id=?").get(sessionId) as Row | undefined;
-  if (!row || (!includeDeleted && row.deleted_at)) throw new HttpFail(404, "session not found");
-  if (authDisabled()) return row;
+export async function assertSessionAccess(sessionId: string, includeDeleted = false): Promise<Row> {
+  const row = (await postgresDb().one("SELECT * FROM sessions WHERE id=$1", sessionId)) as Row | undefined;
+  if (!row || (!includeDeleted && row.deleted_at))
+    throw new HttpFail(404, "session not found");
+  if (authDisabled())
+    return row;
   const user = scopedUser();
-  if (!user || (!isAdmin(user) && row.owner_user_id !== user.id)) throw new HttpFail(404, "session not found");
+  if (!user || (!isAdmin(user) && row.owner_user_id !== user.id))
+    throw new HttpFail(404, "session not found");
   return row;
 }
-
-enterprise.post("/sessions/:sid/archive", (c) => {
+enterprise.post("/sessions/:sid/archive", async (c) => {
   const user = scopedUser();
-  const row = assertSessionAccess(c.req.param("sid"));
+  const row = (await assertSessionAccess(c.req.param("sid")));
   const archivedAt = nowIso();
-  getConn().prepare("UPDATE sessions SET archived_at=?,updated_at=? WHERE id=?").run(archivedAt, archivedAt, row.id);
-  audit(user?.id || "demo", "session.archive", { session_id: row.id });
+  (await postgresDb().execute("UPDATE sessions SET archived_at=$1,updated_at=$2 WHERE id=$3", archivedAt, archivedAt, row.id));
+  (await audit(user?.id || "demo", "session.archive", { session_id: row.id }));
   return c.json({ ok: true, archived_at: archivedAt });
 });
-
-enterprise.post("/sessions/:sid/unarchive", (c) => {
+enterprise.post("/sessions/:sid/unarchive", async (c) => {
   const user = scopedUser();
-  const row = assertSessionAccess(c.req.param("sid"));
+  const row = (await assertSessionAccess(c.req.param("sid")));
   const updatedAt = nowIso();
-  getConn().prepare("UPDATE sessions SET archived_at=NULL,updated_at=? WHERE id=?").run(updatedAt, row.id);
-  audit(user?.id || "demo", "session.unarchive", { session_id: row.id });
+  (await postgresDb().execute("UPDATE sessions SET archived_at=NULL,updated_at=$1 WHERE id=$2", updatedAt, row.id));
+  (await audit(user?.id || "demo", "session.unarchive", { session_id: row.id }));
   return c.json({ ok: true, archived_at: null });
 });
-
-function sessionSnapshot(sid: string, includeInternal = true): Json {
-  const storedSession = getConn().prepare("SELECT * FROM sessions WHERE id=?").get(sid) as Row;
+async function sessionSnapshot(sid: string, includeInternal = true): Promise<Json> {
+  const storedSession = (await postgresDb().one("SELECT * FROM sessions WHERE id=$1", sid)) as Row;
   const session = includeInternal
     ? storedSession
     : {
@@ -957,7 +951,7 @@ function sessionSnapshot(sid: string, includeInternal = true): Json {
         created_at: storedSession.created_at,
         updated_at: storedSession.updated_at,
       };
-  const rows = getConn().prepare("SELECT * FROM messages WHERE session_id=? ORDER BY created_at,id").all(sid) as Row[];
+  const rows = (await postgresDb().many("SELECT * FROM messages WHERE session_id=$1 ORDER BY created_at,id", sid)) as Row[];
   const messages = rows.flatMap((row) => {
     if (!includeInternal && [
       "steps",
@@ -966,7 +960,8 @@ function sessionSnapshot(sid: string, includeInternal = true): Json {
       "confirm_stage_card",
       "inbound_card",
       "supplement_card",
-    ].includes(String(row.kind))) return [];
+    ].includes(String(row.kind)))
+      return [];
     const payload = parseJson(row.payload, {}) as Json;
     if (!includeInternal) {
       delete payload.body_zh_internal;
@@ -984,17 +979,17 @@ function sessionSnapshot(sid: string, includeInternal = true): Json {
   });
   return { session, messages };
 }
-
-enterprise.get("/sessions/:sid/export", (c) => {
-  const row = assertSessionAccess(c.req.param("sid"));
+enterprise.get("/sessions/:sid/export", async (c) => {
+  const row = (await assertSessionAccess(c.req.param("sid")));
   const format = c.req.query("format") || "json";
-  const snapshot = sessionSnapshot(String(row.id));
+  const snapshot = (await sessionSnapshot(String(row.id)));
   const safeName = String(row.title || row.id).replace(/[^\w\u4e00-\u9fff-]+/g, "_").slice(0, 80);
   if (format === "json") {
     c.header("Content-Disposition", `attachment; filename="${safeName}.json"`);
     return c.json(snapshot);
   }
-  if (format !== "markdown" && format !== "md") throw new HttpFail(400, "format must be json/markdown");
+  if (format !== "markdown" && format !== "md")
+    throw new HttpFail(400, "format must be json/markdown");
   const md = [`# ${row.title}`, "", ...(snapshot.messages as Json[]).map((message) => {
     const payload = message.payload as Json;
     return `## ${message.role} · ${message.kind}\n\n${String(payload.text || payload.body || payload.subject || "")}`;
@@ -1003,40 +998,41 @@ enterprise.get("/sessions/:sid/export", (c) => {
   c.header("Content-Disposition", `attachment; filename="${safeName}.md"`);
   return c.body(md);
 });
-
-enterprise.delete("/sessions/:sid", (c) => {
+enterprise.delete("/sessions/:sid", async (c) => {
   const user = scopedUser();
-  const row = assertSessionAccess(c.req.param("sid"));
-  const messages = getConn().prepare("SELECT payload FROM messages WHERE session_id=?").all(row.id) as Row[];
+  const row = (await assertSessionAccess(c.req.param("sid")));
+  const messages = (await postgresDb().many("SELECT payload FROM messages WHERE session_id=$1", row.id)) as Row[];
   const attributable = new Set<string>();
   for (const message of messages) {
     const payload = parseJson(message.payload, {}) as Json;
     for (const attachment of (Array.isArray(payload.attachments) ? payload.attachments : []) as Json[]) {
       const file = path.resolve(String(attachment.path || ""));
       const root = path.resolve(uploadsDir()) + path.sep;
-      if (file.startsWith(root)) attributable.add(file);
+      if (file.startsWith(root))
+        attributable.add(file);
     }
   }
-  const boxes = (getConn().prepare("SELECT box_path FROM workers WHERE session_id=?").all(row.id) as Row[])
+  const boxes = ((await postgresDb().many("SELECT box_path FROM workers WHERE session_id=$1", row.id)) as Row[])
     .map((worker) => String(worker.box_path || "")).filter(Boolean);
-  tx((db) => {
-    db.prepare("DELETE FROM session_shares WHERE session_id=?").run(row.id);
-    db.prepare("DELETE FROM messages WHERE session_id=?").run(row.id);
-    db.prepare("DELETE FROM drafts WHERE session_id=?").run(row.id);
-    db.prepare("DELETE FROM workers WHERE session_id=?").run(row.id);
-    db.prepare("UPDATE sessions SET deleted_at=?,archived_at=COALESCE(archived_at,?),thread_ref=NULL,updated_at=? WHERE id=?")
-      .run(nowIso(), nowIso(), nowIso(), row.id);
-  });
+  (await pgTransaction(async (db) => {
+    (await db.execute("DELETE FROM session_shares WHERE session_id=$1", row.id));
+    (await db.execute("DELETE FROM messages WHERE session_id=$1", row.id));
+    (await db.execute("DELETE FROM drafts WHERE session_id=$1", row.id));
+    (await db.execute("DELETE FROM workers WHERE session_id=$1", row.id));
+    (await db.execute("UPDATE sessions SET deleted_at=$1,archived_at=COALESCE(archived_at,$2),thread_ref=NULL,updated_at=$3 WHERE id=$4", nowIso(), nowIso(), nowIso(), row.id));
+  }));
   const boxesRoot = path.resolve(boxDir()) + path.sep;
   for (const box of boxes) {
     const resolved = path.resolve(box);
-    if (resolved.startsWith(boxesRoot)) fs.rmSync(resolved, { recursive: true, force: true });
+    if (resolved.startsWith(boxesRoot))
+      fs.rmSync(resolved, { recursive: true, force: true });
   }
   for (const file of attributable) {
-    const other = getConn().prepare("SELECT 1 FROM messages WHERE payload LIKE ? LIMIT 1").get(`%${file}%`);
-    if (!other) fs.rmSync(file, { force: true });
+    const other = (await postgresDb().one("SELECT 1 FROM messages WHERE payload LIKE $1 LIMIT 1", `%${file}%`));
+    if (!other)
+      fs.rmSync(file, { force: true });
   }
-  audit(user?.id || "demo", "session.delete", { session_id: row.id, stage_transitions: "retained_immutable" });
+  (await audit(user?.id || "demo", "session.delete", { session_id: row.id, stage_transitions: "retained_immutable" }));
   return c.json({
     ok: true,
     soft_deleted: true,
@@ -1044,96 +1040,86 @@ enterprise.delete("/sessions/:sid", (c) => {
     immutable_data: { stage_transitions: "retained; immutable compliance records are not deleted with a conversation" },
   });
 });
-
 enterprise.post("/sessions/:sid/share", async (c) => {
   const user = scopedUser();
-  const row = assertSessionAccess(c.req.param("sid"));
+  const row = (await assertSessionAccess(c.req.param("sid")));
   const body = (await c.req.json().catch(() => ({}))) as Json;
   const expiresIn = Math.min(Math.max(Number(body.expires_in_seconds || 86400), 60), 30 * 86400);
   const token = randomBytes(32).toString("base64url");
   const id = nid("shr");
   const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
-  getConn().prepare(
-    "INSERT INTO session_shares (id,session_id,token_hash,expires_at,include_internal,created_by,created_at) VALUES (?,?,?,?,?,?,?)",
-  ).run(id, row.id, tokenDigest(token), expiresAt, body.include_internal === true ? 1 : 0, user?.id || "demo", nowIso());
-  audit(user?.id || "demo", "session.share.create", { share_id: id, session_id: row.id, expires_at: expiresAt });
+  (await postgresDb().execute("INSERT INTO session_shares (id,session_id,token_hash,expires_at,include_internal,created_by,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)", id, row.id, tokenDigest(token), expiresAt, body.include_internal === true ? 1 : 0, user?.id || "demo", nowIso()));
+  (await audit(user?.id || "demo", "session.share.create", { share_id: id, session_id: row.id, expires_at: expiresAt }));
   return c.json({ id, token, expires_at: expiresAt, read_only: true, include_internal: body.include_internal === true }, 201);
 });
-
-enterprise.delete("/sessions/:sid/share/:shareId", (c) => {
+enterprise.delete("/sessions/:sid/share/:shareId", async (c) => {
   const user = scopedUser();
-  const row = assertSessionAccess(c.req.param("sid"));
-  const result = getConn().prepare("UPDATE session_shares SET revoked_at=? WHERE id=? AND session_id=?")
-    .run(nowIso(), c.req.param("shareId"), row.id);
-  if (!result.changes) throw new HttpFail(404, "share not found");
-  audit(user?.id || "demo", "session.share.revoke", { share_id: c.req.param("shareId"), session_id: row.id });
+  const row = (await assertSessionAccess(c.req.param("sid")));
+  const result = (await postgresDb().execute("UPDATE session_shares SET revoked_at=$1 WHERE id=$2 AND session_id=$3", nowIso(), c.req.param("shareId"), row.id));
+  if (!result.changes)
+    throw new HttpFail(404, "share not found");
+  (await audit(user?.id || "demo", "session.share.revoke", { share_id: c.req.param("shareId"), session_id: row.id }));
   return c.json({ ok: true, revoked: true });
 });
-
-enterprise.delete("/sessions/:sid/share", (c) => {
+enterprise.delete("/sessions/:sid/share", async (c) => {
   const user = scopedUser();
-  const row = assertSessionAccess(c.req.param("sid"));
+  const row = (await assertSessionAccess(c.req.param("sid")));
   const revokedAt = nowIso();
-  const result = getConn().prepare(
-    "UPDATE session_shares SET revoked_at=? WHERE session_id=? AND revoked_at IS NULL",
-  ).run(revokedAt, row.id);
-  audit(user?.id || "demo", "session.share.revoke_all", { session_id: row.id, count: result.changes });
+  const result = (await postgresDb().execute("UPDATE session_shares SET revoked_at=$1 WHERE session_id=$2 AND revoked_at IS NULL", revokedAt, row.id));
+  (await audit(user?.id || "demo", "session.share.revoke_all", { session_id: row.id, count: result.changes }));
   return c.json({ ok: true, revoked: result.changes });
 });
-
 enterprise.get("/shared/:token", async (c) => {
-  const row = getConn().prepare(
-    `SELECT * FROM session_shares WHERE token_hash=? AND revoked_at IS NULL AND expires_at>?`,
-  ).get(tokenDigest(c.req.param("token")), nowIso()) as Row | undefined;
-  if (!row) throw new HttpFail(404, "share unavailable");
+  const row = (await postgresDb().one(`SELECT * FROM session_shares WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at>$2`, tokenDigest(c.req.param("token")), nowIso())) as Row | undefined;
+  if (!row)
+    throw new HttpFail(404, "share unavailable");
   const { authorizedTaskSession } = await import("../ticket-domain/task-collaboration-session.js");
-  await authorizedTaskSession(scopedUser()?.id || "",String(row.session_id));
-  return c.json({ ...sessionSnapshot(String(row.session_id), Boolean(row.include_internal)), read_only: true, expires_at: row.expires_at });
+  await authorizedTaskSession(scopedUser()?.id || "", String(row.session_id));
+  return c.json({ ...(await sessionSnapshot(String(row.session_id), Boolean(row.include_internal))), read_only: true, expires_at: row.expires_at });
 });
-
-enterprise.get("/me/data-summary", (c) => {
+enterprise.get("/me/data-summary", async (c) => {
   const user = scopedUser();
-  if (!user) throw new HttpFail(401, "authentication required");
-  const db = getConn();
-  const count = (sql: string): number => Number((db.prepare(sql).get(user.id) as { n: number }).n);
+  if (!user)
+    throw new HttpFail(401, "authentication required");
+  const db = postgresDb();
+  const count = async (sql: string): Promise<number> => Number(((await db.one(sql, user.id)) as {
+    n: number;
+  }).n);
   return c.json({
-    sessions: count("SELECT COUNT(*) AS n FROM sessions WHERE owner_user_id=? AND deleted_at IS NULL"),
-    archived_sessions: count("SELECT COUNT(*) AS n FROM sessions WHERE owner_user_id=? AND archived_at IS NOT NULL AND deleted_at IS NULL"),
-    memories: count("SELECT COUNT(*) AS n FROM memory_entries WHERE owner_user_id=?"),
-    exam_attempts: count("SELECT COUNT(*) AS n FROM exam_attempts WHERE user_id=?"),
-    database_bytes: databaseEngine() === "postgres"
-      ? Number((db.prepare("SELECT pg_database_size(current_database()) AS bytes").get() as { bytes: number }).bytes)
-      : pathBytes(String(process.env.LINGONG_DB || path.join(process.env.LINGONG_DATA || path.dirname(uploadsDir()), "lingong.db"))),
+    sessions: (await count("SELECT COUNT(*) AS n FROM sessions WHERE owner_user_id=$1 AND deleted_at IS NULL")),
+    archived_sessions: (await count("SELECT COUNT(*) AS n FROM sessions WHERE owner_user_id=$1 AND archived_at IS NOT NULL AND deleted_at IS NULL")),
+    memories: (await count("SELECT COUNT(*) AS n FROM memory_entries WHERE owner_user_id=$1")),
+    exam_attempts: (await count("SELECT COUNT(*) AS n FROM exam_attempts WHERE user_id=$1")),
+    database_bytes: Number(((await db.one("SELECT pg_database_size(current_database()) AS bytes")) as {
+      bytes: number;
+    }).bytes),
     uploads_bytes: pathBytes(uploadsDir()),
     worker_boxes_bytes: pathBytes(boxDir()),
-    retention_policy: db.prepare("SELECT session_days,audit_days FROM retention_policy WHERE id=1").get(),
+    retention_policy: (await db.one("SELECT session_days,audit_days FROM retention_policy WHERE id=1")),
     stage_transitions: "retained as immutable compliance records when conversation data is deleted",
   });
 });
-
-enterprise.get("/admin/retention-policy", (c) => {
-  requireAdmin();
-  return c.json(getConn().prepare("SELECT * FROM retention_policy WHERE id=1").get());
+enterprise.get("/admin/retention-policy", async (c) => {
+  (await requireAdmin());
+  return c.json((await postgresDb().one("SELECT * FROM retention_policy WHERE id=1")));
 });
-
 enterprise.patch("/admin/retention-policy", async (c) => {
-  const admin = requireAdmin();
-  const current = getConn().prepare("SELECT * FROM retention_policy WHERE id=1").get() as Row;
+  const admin = (await requireAdmin());
+  const current = (await postgresDb().one("SELECT * FROM retention_policy WHERE id=1")) as Row;
   const body = (await c.req.json()) as Json;
   const sessionDays = Number(body.session_days ?? current.session_days);
   const auditDays = Number(body.audit_days ?? current.audit_days);
-  if (sessionDays < 1 || auditDays < 1) throw new HttpFail(400, "retention days must be positive");
-  getConn().prepare("UPDATE retention_policy SET session_days=?,audit_days=?,updated_at=? WHERE id=1")
-    .run(sessionDays, auditDays, nowIso());
-  audit(admin.id, "admin.retention.update", { session_days: sessionDays, audit_days: auditDays });
-  return c.json(getConn().prepare("SELECT * FROM retention_policy WHERE id=1").get());
+  if (sessionDays < 1 || auditDays < 1)
+    throw new HttpFail(400, "retention days must be positive");
+  (await postgresDb().execute("UPDATE retention_policy SET session_days=$1,audit_days=$2,updated_at=$3 WHERE id=1", sessionDays, auditDays, nowIso()));
+  (await audit(admin.id, "admin.retention.update", { session_days: sessionDays, audit_days: auditDays }));
+  return c.json((await postgresDb().one("SELECT * FROM retention_policy WHERE id=1")));
 });
-
-enterprise.get("/privacy/cookies", (c) => {
+enterprise.get("/privacy/cookies", async (c) => {
   const user = scopedUser();
   let analytics = false;
   if (user) {
-    const row = getConn().prepare("SELECT analytics_cookies FROM user_preferences WHERE user_id=?").get(user.id) as Row | undefined;
+    const row = (await postgresDb().one("SELECT analytics_cookies FROM user_preferences WHERE user_id=$1", user.id)) as Row | undefined;
     analytics = Boolean(row?.analytics_cookies);
   }
   return c.json({

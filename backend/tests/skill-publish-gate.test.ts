@@ -3,18 +3,16 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { getConn, resetConn } from "../src/db.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
 import { seedAll } from "../src/seed.js";
 import { clearTaskRegistryCache } from "../src/tasks/registry.js";
 import { ensureRuntimeSchema, setSkillConnector, setSkillTool, setToolPolicy } from "../src/runtime/store.js";
 import { DEMO_ADMIN } from "../src/config.js";
 import { freshTestDatabase } from "./support/pg.js";
-
+import { ensureNativeRuntimeConnector } from "./helpers/native-runtime.js";
 type Json = Record<string, unknown>;
-
 let tmp: string;
 let app: Hono;
-
 async function request(method: string, url: string, body?: unknown) {
   const response = await app.request(url, {
     method,
@@ -56,32 +54,28 @@ const R1_SKILL = {
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-skill-gate-"));
-  process.env.LINGONG_DB = path.join(tmp, "t.db");
-  process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetDatabase());
+  (await seedAll());
   clearTaskRegistryCache();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
-
 type ProbeSkill = typeof R3_SKILL | typeof R1_SKILL;
-
 async function prepareSkill(skill: ProbeSkill, risk?: "L3") {
   const created = await request("POST", "/api/admin/skills", skill);
   expect(created.status, JSON.stringify(created.body)).toBe(201);
   const id = skill.id;
   if (risk) {
-    ensureRuntimeSchema();
-    setToolPolicy("starrykol", "dangerTool", { enabled: true, risk, access: "write", schema_hash: "a".repeat(64) }, 0);
-    setSkillConnector(id, "starrykol", true, 0);
-    setSkillTool(id, "starrykol", "dangerTool", true, 0);
+    (await ensureRuntimeSchema());
+    await ensureNativeRuntimeConnector("starrykol", "Starry KOL MCP");
+    (await setToolPolicy("starrykol", "dangerTool", { enabled: true, risk, access: "write", schema_hash: "a".repeat(64) }, 0));
+    (await setSkillConnector(id, "starrykol", true, 0));
+    (await setSkillTool(id, "starrykol", "dangerTool", true, 0));
   }
   const owner = await request("PATCH", `/api/admin/skills/${id}/lifecycle`, { owner: "测试负责人" });
   expect(owner.status, JSON.stringify(owner.body)).toBe(200);
@@ -164,14 +158,10 @@ describe("skill publish gate (P0)", () => {
     const published = await request("POST", `/api/admin/skills/${id}/stage`, { stage: "published" });
     expect(published.status, JSON.stringify(published.body)).toBe(200);
   });
-
   it("user_skill_grants 废止迁移清单接口", async () => {
     await loginPm();
-    getConn().prepare("INSERT INTO users (id, username, name, password_hash, created_at, updated_at) VALUES (?,?,?,?,?,?)")
-      .run("ghost-user", "ghost", "幽灵用户", "x", "2026-10-10T00:00:00.000Z", "2026-10-10T00:00:00.000Z");
-    getConn()
-      .prepare("INSERT INTO user_skill_grants (user_id, skill_id, created_at) VALUES (?,?,?)")
-      .run("ghost-user", "kb-qa", "2026-10-10T00:00:00.000Z");
+    (await postgresDb().execute("INSERT INTO users (id, username, name, password_hash, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)", "ghost-user", "ghost", "幽灵用户", "x", "2026-10-10T00:00:00.000Z", "2026-10-10T00:00:00.000Z"));
+    (await postgresDb().execute("INSERT INTO user_skill_grants (user_id, skill_id, created_at) VALUES ($1,$2,$3)", "ghost-user", "kb-qa", "2026-10-10T00:00:00.000Z"));
     const res = await request("GET", "/api/admin/skills/legacy-grants");
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect((res.body as Json).deprecated).toBe(true);

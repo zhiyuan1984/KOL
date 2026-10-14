@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Linux 服务器入口：装依赖、编原生绑定、构建前端，再起 Host（默认 0.0.0.0:8765）。
+# Linux 服务器入口：装依赖、构建前端，再起 PostgreSQL Host（默认 0.0.0.0:8765）。
 # 密钥只从仓库根目录 .env 读入；不要把 API key / token 写进本脚本。
 # git fetch / remote 由外层 wrapper 负责。
 set -euo pipefail
@@ -81,6 +81,8 @@ export AUTH_MODE="${AUTH_MODE:-enabled}"
 export LINGONG_PORT="${LINGONG_PORT:-8765}"
 export LINGONG_DATA="${LINGONG_DATA:-$ROOT/data}"
 
+[ -n "${DATABASE_URL:-}" ] || die "缺少 DATABASE_URL。运行时只支持 PostgreSQL，不会回退到 SQLite。"
+
 if [ "${CODEX_MODE,,}" = "real" ]; then
   if ! command -v "${CODEX_BIN:-codex}" >/dev/null 2>&1; then
     die "CODEX_MODE=real 需要本机有 codex。请执行：npm i -g @openai/codex && codex login"
@@ -96,7 +98,7 @@ fi
 
 # shellcheck source=native.sh
 . "$ROOT/scripts/native.sh"
-(cd "$ROOT/backend" && build_better_sqlite3 && build_esbuild)
+(cd "$ROOT/backend" && build_esbuild)
 (cd "$ROOT/frontend" && build_esbuild)
 
 if frontend_stale; then

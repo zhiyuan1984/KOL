@@ -6,33 +6,24 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { getConn, nowIso, tx } from "../db.js";
+import { postgresDb, nowIso, pgTransaction } from "../postgres/access.js";
 import { codexMode, mailAnalysisTimeout, mailDigestFailRetryMs } from "../config.js";
-import {
-  codexRecognizeThreadConfig,
-  extractRemoteIntentText,
-  intentLlmApiKey,
-  intentLlmFetch,
-  intentLlmFetchOverridden,
-  intentLlmMode,
-  intentLlmModel,
-} from "../tasks/openai-intent.js";
+import { codexRecognizeThreadConfig, extractRemoteIntentText, intentLlmApiKey, intentLlmFetch, intentLlmFetchOverridden, intentLlmMode, intentLlmModel, } from "../tasks/openai-intent.js";
 import { itemsForCollaboration, persistThreadDigest } from "./mail-memory.js";
 import { CodexAppServer } from "../worker/codex.js";
 import type { Json } from "../types.js";
-
 const REMOTE_SOURCES = new Set(["codex_memory", "luna"]);
 const RULE_GREETING = /^(去信|来信)寒暄跟进，尚未落到报价、档期或明确兴趣。$/;
-
 export function digestMailBody(row: Json): string {
   const body = String(row.body || row.snippet || "").replace(/\s+/g, " ").trim();
-  if (!body) return "";
+  if (!body)
+    return "";
   return body.length > 80 ? `${body.slice(0, 80)}…` : body;
 }
-
 function bodyEvidence(body: string): string {
   const cleaned = body.replace(/\s+/g, " ").trim();
-  if (!cleaned) return "";
+  if (!cleaned)
+    return "";
   const hit = cleaned.match(/would love to collaborate|interested|有兴趣|想合作|报价|rate card|thank you.{0,24}/i);
   if (hit && hit.index != null) {
     const start = Math.max(0, hit.index - 8);
@@ -44,7 +35,8 @@ function bodyEvidence(body: string): string {
 /** Deterministic body analysis. Used in stub and as the real-mode fallback. */
 export function analyzeMailBody(row: Json): string {
   const body = String(row.body || row.snippet || "").replace(/\s+/g, " ").trim();
-  if (!body) return "";
+  if (!body)
+    return "";
   const outbound = String(row.direction) === "outbound";
   const dir = outbound ? "去信" : "来信";
   const evidence = bodyEvidence(body);
@@ -81,17 +73,21 @@ function isRuleGreetingFallback(text: string): boolean {
 function trustedRemoteSummary(row: Json): string {
   const source = String(row.summary_source || "");
   const stored = String(row.summary || row.summary_zh || "").trim();
-  if (!stored || !REMOTE_SOURCES.has(source)) return "";
-  if (isGreetingDump(stored) || isRuleGreetingFallback(stored)) return "";
+  if (!stored || !REMOTE_SOURCES.has(source))
+    return "";
+  if (isGreetingDump(stored) || isRuleGreetingFallback(stored))
+    return "";
   return stored;
 }
-
 export function mailSummaryOf(row: Json): string {
   return trustedRemoteSummary(row) || analyzeMailBody(row) || String(row.summary || row.summary_zh || "").trim() || digestMailBody(row);
 }
-
 /** Persistable letter summary. Rule text is never labeled as model success. */
-export function letterSummaryRecord(row: Json): { summary: string; summary_zh: string; summary_source: string } {
+export function letterSummaryRecord(row: Json): {
+  summary: string;
+  summary_zh: string;
+  summary_source: string;
+} {
   const trusted = trustedRemoteSummary(row);
   if (trusted) {
     const source = REMOTE_SOURCES.has(String(row.summary_source || "")) ? String(row.summary_source) : "codex_memory";
@@ -117,10 +113,10 @@ export function letterSummaryRecord(row: Json): { summary: string; summary_zh: s
     summary_source: analyzed ? "body_analysis" : "body_analysis",
   };
 }
-
 export function analyzeThreadDigest(rows: Json[]): string {
   const listed = rows.filter((row) => String(row.body || row.snippet || "").trim());
-  if (!listed.length) return "";
+  if (!listed.length)
+    return "";
   const bits = listed.map((row) => {
     const point = analyzeMailBody(row).replace(/摘录：.*$/, "").trim();
     const evidence = bodyEvidence(String(row.body || row.snippet || ""));
@@ -160,10 +156,12 @@ function digestFromThreadRow(row: {
   digest_error?: unknown;
   digest_failed_at?: unknown;
 } | undefined): ThreadDigest | null {
-  if (!row) return null;
+  if (!row)
+    return null;
   const text = String(row.digest_text || "").trim();
   const source = String(row.digest_source || "");
-  if (!text && !source) return null;
+  if (!text && !source)
+    return null;
   return {
     text,
     source,
@@ -173,14 +171,12 @@ function digestFromThreadRow(row: {
     ...(row.digest_failed_at ? { failed_at: String(row.digest_failed_at) } : {}),
   };
 }
-
-export function readThreadDigest(collaborationId: string): ThreadDigest | null {
-  if (!collaborationId) return null;
-  const thread = getConn().prepare(
-    `SELECT digest_text, digest_source, digest_mail_count, digest_fingerprint, digest_error, digest_failed_at
-     FROM kol_mail_threads WHERE collaboration_id=? AND IFNULL(digest_text,'') != ''
-     ORDER BY updated_at DESC LIMIT 1`,
-  ).get(collaborationId) as {
+export async function readThreadDigest(collaborationId: string): Promise<ThreadDigest | null> {
+  if (!collaborationId)
+    return null;
+  const thread = (await postgresDb().one(`SELECT digest_text, digest_source, digest_mail_count, digest_fingerprint, digest_error, digest_failed_at
+     FROM kol_mail_threads WHERE collaboration_id=$1 AND COALESCE(digest_text,'') != ''
+     ORDER BY updated_at DESC LIMIT 1`, collaborationId)) as {
     digest_text?: string;
     digest_source?: string;
     digest_mail_count?: number;
@@ -189,12 +185,17 @@ export function readThreadDigest(collaborationId: string): ThreadDigest | null {
     digest_failed_at?: string;
   } | undefined;
   const fromThread = digestFromThreadRow(thread);
-  if (fromThread) return fromThread;
-  const row = getConn().prepare("SELECT value FROM app_state WHERE key=?").get(digestStateKey(collaborationId)) as { value: string } | undefined;
-  if (!row?.value) return null;
+  if (fromThread)
+    return fromThread;
+  const row = (await postgresDb().one("SELECT value FROM app_state WHERE key=$1", digestStateKey(collaborationId))) as {
+    value: string;
+  } | undefined;
+  if (!row?.value)
+    return null;
   try {
     const parsed = JSON.parse(row.value) as ThreadDigest;
-    if (!parsed || typeof parsed !== "object") return null;
+    if (!parsed || typeof parsed !== "object")
+      return null;
     const attempted = Array.isArray(parsed.attempted)
       ? parsed.attempted.map((item) => String(item || "").trim()).filter(Boolean)
       : (parsed.attempted ? [String(parsed.attempted).trim()].filter(Boolean) : []);
@@ -207,55 +208,56 @@ export function readThreadDigest(collaborationId: string): ThreadDigest | null {
       ...(attempted.length ? { attempted } : {}),
       ...(parsed.failed_at ? { failed_at: String(parsed.failed_at) } : {}),
     };
-  } catch {
+  }
+  catch {
     return null;
   }
 }
-
-function writeThreadDigest(collaborationId: string, digest: ThreadDigest): void {
-  tx((db) => {
-    db.prepare("INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)").run(
-      digestStateKey(collaborationId),
-      JSON.stringify(digest),
-    );
-  });
-  const threads = getConn().prepare("SELECT id FROM kol_mail_threads WHERE collaboration_id=?").all(collaborationId) as { id: string }[];
+async function writeThreadDigest(collaborationId: string, digest: ThreadDigest): Promise<void> {
+  (await pgTransaction(async (db) => {
+    (await db.execute("INSERT INTO app_state (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value", digestStateKey(collaborationId), JSON.stringify(digest)));
+  }));
+  const threads = (await postgresDb().many("SELECT id FROM kol_mail_threads WHERE collaboration_id=$1", collaborationId)) as {
+    id: string;
+  }[];
   for (const thread of threads) {
-    persistThreadDigest(thread.id, {
+    (await persistThreadDigest(thread.id, {
       text: digest.text,
       source: digest.source,
       fingerprint: digest.fingerprint,
       error: digest.error,
       failed_at: digest.failed_at,
       mail_count: digest.mail_count,
-    });
+    }));
   }
 }
-
 function trustedThreadDigest(digest: ThreadDigest | null): string {
-  if (!digest?.text) return "";
-  if (!REMOTE_SOURCES.has(digest.source)) return "";
-  if (isGreetingDump(digest.text) || isRuleGreetingFallback(digest.text)) return "";
+  if (!digest?.text)
+    return "";
+  if (!REMOTE_SOURCES.has(digest.source))
+    return "";
+  if (isGreetingDump(digest.text) || isRuleGreetingFallback(digest.text))
+    return "";
   return digest.text;
 }
-
 function stickyFailFields(stored?: ThreadDigest | null): Pick<ThreadDigest, "error" | "attempted" | "failed_at"> {
-  if (!stored) return {};
+  if (!stored)
+    return {};
   return {
     ...(stored.error ? { error: stored.error } : {}),
     ...(stored.attempted?.length ? { attempted: stored.attempted } : {}),
     ...(stored.failed_at ? { failed_at: stored.failed_at } : {}),
   };
 }
-
 /** Legacy records without failed_at are treated as expired so already-stuck employees recover. */
 export function stickyFailReady(stored: ThreadDigest | null | undefined, nowMs = Date.now()): boolean {
-  if (!stored || stored.source !== "analysis_failed") return true;
+  if (!stored || stored.source !== "analysis_failed")
+    return true;
   const failedAt = Date.parse(String(stored.failed_at || ""));
-  if (!Number.isFinite(failedAt)) return true;
+  if (!Number.isFinite(failedAt))
+    return true;
   return nowMs - failedAt >= mailDigestFailRetryMs();
 }
-
 export function threadDigestOf(rows: Json[], stored?: ThreadDigest | null): ThreadDigest {
   const fingerprint = threadFingerprint(rows);
   const trusted = stored && stored.fingerprint === fingerprint ? trustedThreadDigest(stored) : "";
@@ -271,36 +273,45 @@ export function threadDigestOf(rows: Json[], stored?: ThreadDigest | null): Thre
     ...(failed ? stickyFailFields(stored) : {}),
   };
 }
-
-export function needsRemoteThreadDigest(rows: Json[], stored: ThreadDigest | null | undefined, opts?: { retryFailed?: boolean }): boolean {
-  if (!rows.some((row) => String(row.body || row.snippet || "").trim())) return false;
-  if (!remoteMailAnalysisEnabled()) return false;
+export function needsRemoteThreadDigest(rows: Json[], stored: ThreadDigest | null | undefined, opts?: {
+  retryFailed?: boolean;
+}): boolean {
+  if (!rows.some((row) => String(row.body || row.snippet || "").trim()))
+    return false;
+  if (!remoteMailAnalysisEnabled())
+    return false;
   const fingerprint = threadFingerprint(rows);
-  if (stored && stored.fingerprint === fingerprint && trustedThreadDigest(stored)) return false;
+  if (stored && stored.fingerprint === fingerprint && trustedThreadDigest(stored))
+    return false;
   if (stored && stored.fingerprint === fingerprint && stored.source === "analysis_failed" && !opts?.retryFailed && !stickyFailReady(stored)) {
     return false;
   }
   return true;
 }
-
 export function remoteMailAnalysisEnabled(): boolean {
-  if (intentLlmMode() === "real") return true;
+  if (intentLlmMode() === "real")
+    return true;
   return codexMode() !== "stub";
 }
-
-export function needsRemoteMailSummary(row: Json, opts?: { retryFailed?: boolean }): boolean {
-  if (!String(row.body || row.snippet || "").trim()) return false;
-  if (!remoteMailAnalysisEnabled()) return false;
-  if (trustedRemoteSummary(row)) return false;
-  if (String(row.summary_source || "") === "analysis_failed" && !opts?.retryFailed) return false;
+export function needsRemoteMailSummary(row: Json, opts?: {
+  retryFailed?: boolean;
+}): boolean {
+  if (!String(row.body || row.snippet || "").trim())
+    return false;
+  if (!remoteMailAnalysisEnabled())
+    return false;
+  if (trustedRemoteSummary(row))
+    return false;
+  if (String(row.summary_source || "") === "analysis_failed" && !opts?.retryFailed)
+    return false;
   return true;
 }
-
 function parsePayload(raw: string): Json {
   try {
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === "object" ? parsed as Json : {};
-  } catch {
+  }
+  catch {
     return {};
   }
 }
@@ -319,17 +330,19 @@ function mailHistoryKey(row: Json): string {
     String(row.direction || ""),
   ].join("|");
 }
-
-export function mailHistoryRows(collaborationId: string): Json[] {
-  if (!collaborationId) return [];
-  const session = getConn().prepare(
-    "SELECT id FROM sessions WHERE collaboration_id=? AND deleted_at IS NULL AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 1",
-  ).get(collaborationId) as { id: string } | undefined;
+export async function mailHistoryRows(collaborationId: string): Promise<Json[]> {
+  if (!collaborationId)
+    return [];
+  const session = (await postgresDb().one("SELECT id FROM sessions WHERE collaboration_id=$1 AND deleted_at IS NULL AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 1", collaborationId)) as {
+    id: string;
+  } | undefined;
   const fromCards: Json[] = [];
   if (session?.id) {
-    const cards = getConn().prepare(
-      "SELECT id, payload, created_at FROM messages WHERE session_id=? AND kind='kol_mail_card'",
-    ).all(session.id) as { id: string; payload: string; created_at: string }[];
+    const cards = (await postgresDb().many("SELECT id, payload, created_at FROM messages WHERE session_id=$1 AND kind='kol_mail_card'", session.id)) as {
+      id: string;
+      payload: string;
+      created_at: string;
+    }[];
     for (const card of cards) {
       const payload = parsePayload(card.payload);
       const inbound = String(payload.direction || "inbound") !== "outbound";
@@ -353,7 +366,7 @@ export function mailHistoryRows(collaborationId: string): Json[] {
   }
   const source = fromCards.length
     ? fromCards
-    : itemsForCollaboration(collaborationId).map((item) => {
+    : (await itemsForCollaboration(collaborationId)).map((item) => {
       const body = String(item.body_text || item.body || item.snippet || "").trim();
       const row = {
         id: String(item.id || ""),
@@ -375,40 +388,40 @@ export function mailHistoryRows(collaborationId: string): Json[] {
   return source
     .filter((row) => {
       const key = mailHistoryKey(row);
-      if (seen.has(key)) return false;
+    if (seen.has(key))
+      return false;
       seen.add(key);
       return true;
     })
     .sort((left, right) => mailOccurredMs(right.occurred_at) - mailOccurredMs(left.occurred_at));
 }
-
-function writeCardSummary(cardId: string, summary: string, source: string): void {
-  const row = getConn().prepare("SELECT payload FROM messages WHERE id=?").get(cardId) as { payload: string } | undefined;
-  if (!row) return;
+async function writeCardSummary(cardId: string, summary: string, source: string): Promise<void> {
+  const row = (await postgresDb().one("SELECT payload FROM messages WHERE id=$1", cardId)) as {
+    payload: string;
+  } | undefined;
+  if (!row)
+    return;
   const payload = parsePayload(row.payload);
   if (String(payload.summary_zh || payload.summary || "").trim() === summary
-    && String(payload.summary_source || "") === source) return;
+    && String(payload.summary_source || "") === source)
+    return;
   payload.summary_zh = summary;
   payload.summary = summary;
   payload.summary_source = source;
-  tx((db) => {
-    db.prepare("UPDATE messages SET payload=? WHERE id=?").run(JSON.stringify(payload), cardId);
-  });
+  (await pgTransaction(async (db) => {
+    (await db.execute("UPDATE messages SET payload=$1 WHERE id=$2", JSON.stringify(payload), cardId));
+  }));
 }
-
-function persistCard(row: Json, summary: string, source: string): void {
+async function persistCard(row: Json, summary: string, source: string): Promise<void> {
   row.summary = summary;
   row.summary_zh = summary;
   row.summary_source = source;
-  if (row.id && String(row.id).startsWith("msg")) writeCardSummary(String(row.id), summary, source);
+  if (row.id && String(row.id).startsWith("msg"))
+    (await writeCardSummary(String(row.id), summary, source));
 }
-
 function listedMailBodies(rows: Json[]): string {
-  return rows.map((row, index) => (
-    `${index + 1}. id=${row.id || index} ${String(row.direction) === "outbound" ? "去信" : "来信"} 主题:${row.subject || "无主题"}\n${String(row.body || row.snippet || "")}`
-  )).join("\n\n");
+  return rows.map((row, index) => (`${index + 1}. id=${row.id || index} ${String(row.direction) === "outbound" ? "去信" : "来信"} 主题:${row.subject || "无主题"}\n${String(row.body || row.snippet || "")}`)).join("\n\n");
 }
-
 function mailAnalysisPrompt(rows: Json[]): string {
   return [
     "你是灵工 Codex 记忆。根据每封往来正文写一句中文分析：意图、事实、是否有兴趣/报价/寒暄。",
@@ -430,18 +443,23 @@ function threadDigestPrompt(rows: Json[]): string {
     listedMailBodies(rows),
   ].join("\n");
 }
-
-function turnOutputText(completed: { turn?: { output?: unknown } }): string {
+function turnOutputText(completed: {
+  turn?: {
+    output?: unknown;
+  };
+}): string {
   const output = completed.turn && typeof completed.turn === "object" ? completed.turn.output : undefined;
-  if (output == null || output === "") return "";
+  if (output == null || output === "")
+    return "";
   return typeof output === "string" ? output : JSON.stringify(output);
 }
-
 function firstParsed<T>(parse: (text: string) => T | null, ...chunks: string[]): T | null {
   for (const chunk of chunks) {
-    if (!chunk.trim()) continue;
+    if (!chunk.trim())
+      continue;
     const parsed = parse(chunk);
-    if (parsed) return parsed;
+    if (parsed)
+      return parsed;
   }
   return null;
 }
@@ -449,14 +467,20 @@ function firstParsed<T>(parse: (text: string) => T | null, ...chunks: string[]):
 function parseDigest(text: string): string | null {
   for (const candidate of jsonCandidates(text)) {
     try {
-      const parsed = JSON.parse(candidate) as { digest?: unknown; summaries?: unknown };
+      const parsed = JSON.parse(candidate) as {
+        digest?: unknown;
+        summaries?: unknown;
+      };
       const digest = String(parsed.digest || "").trim();
-      if (digest) return digest;
+      if (digest)
+        return digest;
       if (Array.isArray(parsed.summaries)) {
         const joined = parsed.summaries.map((item) => String(item || "").trim()).filter(Boolean).join("");
-        if (joined) return joined;
+        if (joined)
+          return joined;
       }
-    } catch {
+      }
+    catch {
       /* try the next structured message */
     }
   }
@@ -476,9 +500,12 @@ function jsonCandidates(text: string): string[] {
   for (let i = 0; i < text.length; i += 1) {
     const char = text[i];
     if (quoted) {
-      if (escaped) escaped = false;
-      else if (char === "\\") escaped = true;
-      else if (char === '"') quoted = false;
+      if (escaped)
+        escaped = false;
+      else if (char === "\\")
+        escaped = true;
+      else if (char === '"')
+        quoted = false;
       continue;
     }
     if (char === '"') {
@@ -486,9 +513,11 @@ function jsonCandidates(text: string): string[] {
       continue;
     }
     if (char === "{") {
-      if (depth === 0) start = i;
+      if (depth === 0)
+        start = i;
       depth += 1;
-    } else if (char === "}" && depth > 0) {
+    }
+    else if (char === "}" && depth > 0) {
       depth -= 1;
       if (depth === 0 && start >= 0) {
         candidates.push(text.slice(start, i + 1));
@@ -504,9 +533,11 @@ function appServerTurnTexts(completed: Json): string[] {
   const texts: string[] = [];
   const items = Array.isArray(turn.items) ? turn.items : [];
   for (const item of items) {
-    if (!item || typeof item !== "object") continue;
+    if (!item || typeof item !== "object")
+      continue;
     const row = item as Json;
-    if (typeof row.text === "string" && row.text.trim()) texts.push(row.text);
+    if (typeof row.text === "string" && row.text.trim())
+      texts.push(row.text);
     if (Array.isArray(row.content)) {
       for (const block of row.content) {
         if (block && typeof block === "object" && typeof (block as Json).text === "string") {
@@ -515,29 +546,35 @@ function appServerTurnTexts(completed: Json): string[] {
       }
     }
   }
-  if (typeof turn.output === "string" && turn.output.trim()) texts.push(turn.output);
-  else if (turn.output && typeof turn.output === "object") texts.push(JSON.stringify(turn.output));
+  if (typeof turn.output === "string" && turn.output.trim())
+    texts.push(turn.output);
+  else if (turn.output && typeof turn.output === "object")
+    texts.push(JSON.stringify(turn.output));
   return texts;
 }
-
 function parseSummaries(text: string, expected: number): string[] | null {
   for (const candidate of jsonCandidates(text)) {
     try {
-      const parsed = JSON.parse(candidate) as { summaries?: unknown };
+      const parsed = JSON.parse(candidate) as {
+        summaries?: unknown;
+      };
       const summaries = Array.isArray(parsed.summaries)
         ? parsed.summaries.map((item) => String(item || "").trim())
         : [];
       if (summaries.some(Boolean)) {
-        while (summaries.length < expected) summaries.push("");
+        while (summaries.length < expected)
+          summaries.push("");
         return summaries.slice(0, expected);
       }
-    } catch {
+    }
+    catch {
       /* try the next structured message */
     }
   }
   const numbered = [...text.matchAll(/^\s*\d+[\.\)、]\s*(.+)$/gm)].map((m) => m[1].trim());
   if (numbered.filter(Boolean).length) {
-    while (numbered.length < expected) numbered.push("");
+    while (numbered.length < expected)
+      numbered.push("");
     return numbered.slice(0, expected);
   }
   return null;
@@ -567,15 +604,18 @@ function redactMailLog(text: string): string {
     .replace(/\bBearer\s+[A-Za-z0-9._-]+\b/gi, "Bearer ***")
     .replace(/\bOPENAI_API_KEY\s*=\s*\S+/gi, "OPENAI_API_KEY=***");
 }
-
 function classifyMailDigestError(err: unknown, fallback = "unavailable"): string {
-  if (typeof err === "string" && /^(timeout|no-key|greeting_reject|parse|HTTP \d+)$/.test(err)) return err;
+  if (typeof err === "string" && /^(timeout|no-key|greeting_reject|parse|HTTP \d+)$/.test(err))
+    return err;
   const name = err instanceof Error ? err.name : "";
   const text = err instanceof Error ? err.message : String(err || fallback);
-  if (name === "AbortError" || /aborted|timeout/i.test(text)) return "timeout";
+  if (name === "AbortError" || /aborted|timeout/i.test(text))
+    return "timeout";
   const http = text.match(/\bHTTP\s+(\d{3})\b/i);
-  if (http) return `HTTP ${http[1]}`;
-  if (/\bno[-_ ]?key\b|\bapi key\b/i.test(text)) return "no-key";
+  if (http)
+    return `HTTP ${http[1]}`;
+  if (/\bno[-_ ]?key\b|\bapi key\b/i.test(text))
+    return "no-key";
   const cleaned = redactMailLog(text).replace(/\s+/g, " ").trim();
   return cleaned.slice(0, 160) || fallback;
 }
@@ -612,8 +652,12 @@ export async function summarizeWithCodexAppServer(rows: Json[]): Promise<string[
       sandbox: "read-only",
       config: codexRecognizeThreadConfig(),
     });
-    const thread = (started.thread as { id?: string } | undefined) || started;
-    const threadId = String((thread as { id?: string }).id || "");
+    const thread = (started.thread as {
+      id?: string;
+    } | undefined) || started;
+    const threadId = String((thread as {
+      id?: string;
+    }).id || "");
     if (!threadId) {
       noteFailure("codex thread/start", "missing thread id");
       return null;
@@ -630,26 +674,25 @@ export async function summarizeWithCodexAppServer(rows: Json[]): Promise<string[
     });
     const completed = await rpc.waitTurn(mailAnalysisTimeout());
     const extras = appServerTurnTexts(completed);
-    const parsed = firstParsed(
-      (text) => parseSummaries(text, rows.length),
-      rpc.agentTexts.join("\n"),
-      extras.join("\n"),
-      turnOutputText(completed),
-    );
-    if (!parsed) noteFailure("codex parse", "no summaries in app-server output");
+    const parsed = firstParsed((text) => parseSummaries(text, rows.length), rpc.agentTexts.join("\n"), extras.join("\n"), turnOutputText(completed));
+    if (!parsed)
+      noteFailure("codex parse", "no summaries in app-server output");
     return parsed;
-  } catch (err) {
+  }
+  catch (err) {
     noteFailure("codex app-server", err);
     return null;
-  } finally {
+  }
+  finally {
     rpc?.close();
-    if (cwd) fs.rmSync(cwd, { recursive: true, force: true });
+    if (cwd)
+      fs.rmSync(cwd, { recursive: true, force: true });
   }
 }
-
 async function summarizeWithLuna(rows: Json[]): Promise<string[] | null> {
   const key = intentLlmApiKey();
-  if (!key) return null;
+  if (!key)
+    return null;
   const base = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), mailAnalysisTimeout() * 1000);
@@ -682,37 +725,43 @@ async function summarizeWithLuna(rows: Json[]): Promise<string[] | null> {
       return null;
     }
     const parsed = parseSummaries(extractRemoteIntentText(await response.json()), rows.length);
-    if (!parsed) noteFailure("luna parse", "no summaries in response");
+    if (!parsed)
+      noteFailure("luna parse", "no summaries in response");
     return parsed;
-  } catch (err) {
+  }
+  catch (err) {
     noteFailure("luna", err);
     return null;
-  } finally {
+  }
+  finally {
     clearTimeout(timer);
   }
 }
-
-type RemoteBatch = { texts: string[]; source: "codex_memory" | "luna" };
-
+type RemoteBatch = {
+  texts: string[];
+  source: "codex_memory" | "luna";
+};
 function usableRemoteText(text: string): string {
   const trimmed = text.trim();
-  if (!trimmed || isGreetingDump(trimmed) || isRuleGreetingFallback(trimmed)) return "";
+  if (!trimmed || isGreetingDump(trimmed) || isRuleGreetingFallback(trimmed))
+    return "";
   return trimmed;
 }
-
 async function summarizeWithCodex(rows: Json[]): Promise<RemoteBatch | null> {
-  if (!remoteMailAnalysisEnabled()) return null;
+  if (!remoteMailAnalysisEnabled())
+    return null;
   if (intentLlmFetchOverridden()) {
     const luna = await summarizeWithLuna(rows);
     return luna ? { texts: luna, source: "luna" } : null;
   }
   const fromCodex = await summarizeWithCodexAppServer(rows);
-  if (fromCodex) return { texts: fromCodex, source: "codex_memory" };
+  if (fromCodex)
+    return { texts: fromCodex, source: "codex_memory" };
   const fromLuna = await summarizeWithLuna(rows);
-  if (fromLuna) return { texts: fromLuna, source: "luna" };
+  if (fromLuna)
+    return { texts: fromLuna, source: "luna" };
   return null;
 }
-
 async function digestWithLuna(rows: Json[], collaborationId = ""): Promise<RemoteDigestAttempt> {
   const key = intentLlmApiKey();
   if (!key) {
@@ -759,11 +808,13 @@ async function digestWithLuna(rows: Json[], collaborationId = ""): Promise<Remot
       return { error: "parse" };
     }
     return { text: parsed };
-  } catch (err) {
+  }
+  catch (err) {
     const error = classifyMailDigestError(err);
     noteFailure("luna digest", error, collaborationId);
     return { error };
-  } finally {
+  }
+  finally {
     clearTimeout(timer);
   }
 }
@@ -782,8 +833,12 @@ async function digestWithCodexAppServer(rows: Json[], collaborationId = ""): Pro
       sandbox: "read-only",
       config: codexRecognizeThreadConfig(),
     });
-    const thread = (started.thread as { id?: string } | undefined) || started;
-    const threadId = String((thread as { id?: string }).id || "");
+    const thread = (started.thread as {
+      id?: string;
+    } | undefined) || started;
+    const threadId = String((thread as {
+      id?: string;
+    }).id || "");
     if (!threadId) {
       noteFailure("codex digest thread/start", "missing thread id", collaborationId);
       return { error: "missing_thread" };
@@ -806,18 +861,21 @@ async function digestWithCodexAppServer(rows: Json[], collaborationId = ""): Pro
       return { error: "parse" };
     }
     return { text: parsed };
-  } catch (err) {
+  }
+  catch (err) {
     const error = classifyMailDigestError(err);
     noteFailure("codex digest", error, collaborationId);
     return { error };
-  } finally {
+  }
+  finally {
     rpc?.close();
-    if (cwd) fs.rmSync(cwd, { recursive: true, force: true });
+    if (cwd)
+      fs.rmSync(cwd, { recursive: true, force: true });
   }
 }
-
 async function digestWithRemote(rows: Json[], collaborationId = ""): Promise<RemoteDigestResult> {
-  if (!remoteMailAnalysisEnabled()) return { error: "disabled", attempted: [] };
+  if (!remoteMailAnalysisEnabled())
+    return { error: "disabled", attempted: [] };
   if (intentLlmFetchOverridden()) {
     const luna = await digestWithLuna(rows, collaborationId);
     return luna.text
@@ -827,25 +885,23 @@ async function digestWithRemote(rows: Json[], collaborationId = ""): Promise<Rem
   const attempted: string[] = [];
   const fromCodex = await digestWithCodexAppServer(rows, collaborationId);
   attempted.push("codex_memory");
-  if (fromCodex.text) return { text: fromCodex.text, source: "codex_memory", attempted };
+  if (fromCodex.text)
+    return { text: fromCodex.text, source: "codex_memory", attempted };
   const fromLuna = await digestWithLuna(rows, collaborationId);
   attempted.push("luna");
-  if (fromLuna.text) return { text: fromLuna.text, source: "luna", attempted };
+  if (fromLuna.text)
+    return { text: fromLuna.text, source: "luna", attempted };
   return { error: fromLuna.error || fromCodex.error || "unavailable", attempted };
 }
-
 /** Employee-facing on-demand summary: use the established Codex → Luna chain. */
 export async function generateMailConversationDigest(rows: Json[]): Promise<RemoteDigestResult> {
-  return digestWithRemote(rows);
+  return (await digestWithRemote(rows));
 }
-
-export async function ensureCodexThreadDigest(
-  collaborationId: string,
-  rows?: Json[],
-  opts?: { retryFailed?: boolean },
-): Promise<ThreadDigest> {
-  const listed = rows?.length ? rows : mailHistoryRows(collaborationId);
-  const stored = readThreadDigest(collaborationId);
+export async function ensureCodexThreadDigest(collaborationId: string, rows?: Json[], opts?: {
+  retryFailed?: boolean;
+}): Promise<ThreadDigest> {
+  const listed = rows?.length ? rows : (await mailHistoryRows(collaborationId));
+  const stored = (await readThreadDigest(collaborationId));
   if (!needsRemoteThreadDigest(listed, stored, opts)) {
     return threadDigestOf(listed, stored);
   }
@@ -871,16 +927,13 @@ export async function ensureCodexThreadDigest(
   if (digest.source === "analysis_failed") {
     noteFailure("analysis_failed", digest.error || "unavailable", collaborationId);
   }
-  writeThreadDigest(collaborationId, digest);
+  (await writeThreadDigest(collaborationId, digest));
   return digest;
 }
-
-export async function ensureCodexMailSummaries(
-  collaborationId: string,
-  rows?: Json[],
-  opts?: { retryFailed?: boolean },
-): Promise<Json[]> {
-  const listed = rows?.length ? rows : mailHistoryRows(collaborationId);
+export async function ensureCodexMailSummaries(collaborationId: string, rows?: Json[], opts?: {
+  retryFailed?: boolean;
+}): Promise<Json[]> {
+  const listed = rows?.length ? rows : (await mailHistoryRows(collaborationId));
   const digest = await ensureCodexThreadDigest(collaborationId, listed, opts);
   return listed.map((row) => ({
     ...row,

@@ -36,7 +36,7 @@ describe("ontology_change approval kind", () => {
     expect(router).toContain('import { requireAdmin } from "../auth.js"');
     expect(router).toContain('import { postgresPool } from "../postgres/pool.js"');
     expect(router).not.toContain("requirePm");
-    expect(router).not.toContain("getConn");
+    expect(router).not.toContain("postgresDb");
     expect(router).toContain("ontology_change_target_required");
     expect(router).toContain("target_digest");
     expect(router).toContain('ontology.get("/admin/ontology/registries"');
@@ -55,10 +55,9 @@ describe("ontology_change approval kind", () => {
     const deploy = source("scripts/deploy.sh");
     expect(deploy).toContain('"$ONTOLOGY_GATE" "$ROOT/backend/scripts/check-ontology-release.ts"');
     expect(deploy).toContain('"$ONTOLOGY_GATE" "$ROOT/backend/scripts/check-ontology-release.ts" --record');
-    expect(deploy.indexOf("检查本体 registry 发布门禁")).toBeLessThan(deploy.indexOf("构建前端 → frontend/dist.new"));
+    expect(deploy.indexOf("检查本体 registry 发布门禁")).toBeLessThan(deploy.indexOf("构建前端 → frontend/$BUILD_DIR"));
     expect(deploy.lastIndexOf("record_ontology_release")).toBeGreaterThan(deploy.indexOf("服务已恢复："));
   });
-
   it("fulfill is a no-op permit like skill_publish (the approval itself is the permit)", async () => {
     const result = await fulfillExpenseApproval({ kind: "ontology_change" } as never);
     expect(result).toMatchObject({ ontology_change: true, sent: false, stage_changed: false });
@@ -106,25 +105,23 @@ describe.skipIf(!isolatedPostgres)("ontology release gate (isolated PostgreSQL)"
     worktree = fs.mkdtempSync(path.join(os.tmpdir(), "ontology-release-gate-"));
     fs.rmSync(worktree, { recursive: true, force: true });
     execFileSync("git", ["worktree", "add", "--detach", worktree, "HEAD"], { cwd: root, stdio: "pipe" });
-    fs.copyFileSync(
-      path.join(root, "backend/scripts/check-ontology-release.ts"),
-      path.join(worktree, "backend/scripts/check-ontology-release.ts"),
-    );
+    fs.copyFileSync(path.join(root, "backend/scripts/check-ontology-release.ts"), path.join(worktree, "backend/scripts/check-ontology-release.ts"));
     fs.symlinkSync(path.join(root, "backend/node_modules"), path.join(worktree, "backend/node_modules"));
   });
-
   afterAll(async () => {
     await closePostgresPool();
-    if (worktree) execFileSync("git", ["worktree", "remove", "--force", worktree], { cwd: root, stdio: "pipe" });
+    if (worktree)
+      execFileSync("git", ["worktree", "remove", "--force", worktree], { cwd: root, stdio: "pipe" });
     if (database) {
       await maintenance.query("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()", [database]);
       await maintenance.query(`DROP DATABASE IF EXISTS "${database}"`);
     }
     await maintenance.end();
-    if (oldDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = oldDatabaseUrl;
+    if (oldDatabaseUrl === undefined)
+      delete process.env.DATABASE_URL;
+    else
+      process.env.DATABASE_URL = oldDatabaseUrl;
   });
-
   it("records the authorized first baseline without claiming CEO approval, then rejects reuse until one matching consumed approval exists", async () => {
     const bootstrap = runGate("--base", "HEAD", "--record");
     expect(bootstrap.status, bootstrap.stderr).toBe(0);
@@ -140,17 +137,13 @@ describe.skipIf(!isolatedPostgres)("ontology release gate (isolated PostgreSQL)"
     expect(blocked.body.code).toBe("ontology_change_approval_required");
     const firstBlocked = (blocked.body.blocked_scopes as Array<Record<string, string>>)[0];
     expect(firstBlocked.scope).toBe("events");
-
     const now = "2032-01-01T00:00:00.000Z";
-    await postgresPool().query(
-      `INSERT INTO approvals
+    await postgresPool().query(`INSERT INTO approvals
        (id,draft_id,brand,amount_usd,status,chain,current_index,uses_left,fingerprint,need_manual_band,wecom_card_id,created_at,chain_id,kind,payload,title,submitted_by,version,updated_at)
-       VALUES ($1,'','LT',0,'consumed','[]',0,0,'ontology-gate-test',0,$2,$3,$2,'ontology_change',$4,'gate test','test',1,$3)`,
-      [
+       VALUES ($1,'','LT',0,'consumed','[]',0,0,'ontology-gate-test',0,$2,$3,$2,'ontology_change',$4,'gate test','test',1,$3)`, [
         `appr_${randomUUID()}`, `card_${randomUUID()}`, now,
         JSON.stringify({ scope: "events", base_version: firstBlocked.required_base_version, target_digest: firstBlocked.target_digest }),
-      ],
-    );
+    ]);
     const approved = runGate("--base", "HEAD");
     expect(approved.status, approved.stderr).toBe(0);
     expect(approved.body).toMatchObject({ status: "pass", receipt: { bootstrap: false, approval_not_claimed: false } });

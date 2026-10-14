@@ -52,10 +52,20 @@ export type WorkOrderSummary = {
   routing_policy_code: string | null;
   created_at: string;
   updated_at: string;
-  primary_assignee: { principal_id: string; person_ref: string | null; org_unit_id: string | null } | null;
-  latest_decision: { id: string; decision_mode: string; outcome: string; status: string; confidence: number | null; created_at: string } | null;
+  primary_assignee: {
+    principal_id: string;
+    person_ref: string | null;
+    org_unit_id: string | null;
+  } | null;
+  latest_decision: {
+    id: string;
+    decision_mode: string;
+    outcome: string;
+    status: string;
+    confidence: number | null;
+    created_at: string;
+  } | null;
 };
-
 export type WorkOrderVerifiedEventSummary = {
   id: string;
   event_type: string;
@@ -91,32 +101,27 @@ export type TaskWorkOrderCounts = {
   automatic_created: number;
   automatic_assigned: number;
 };
-
-export type TaskWorkOrderCompact = Pick<WorkOrderSummary,
-  "work_order_id" | "template_code" | "template_version" | "template_title" |
-  "status" | "stage_code" | "title" | "automation_level" |
-  "automatic_created" | "automatic_assigned" | "creation_mode" |
-  "assignment_origin" | "routing_policy_code" | "primary_assignee"
->;
-
+export type TaskWorkOrderCompact = Pick<WorkOrderSummary, "work_order_id" | "template_code" | "template_version" | "template_title" | "status" | "stage_code" | "title" | "automation_level" | "automatic_created" | "automatic_assigned" | "creation_mode" | "assignment_origin" | "routing_policy_code" | "primary_assignee">;
 function text(value: unknown, field: string, max: number, required = false): string | null {
   const result = String(value ?? "").trim();
   if (!result) {
-    if (required) throw new HttpFail(422, { code: "missing_fields", missing_fields: [field] });
+    if (required)
+      throw new HttpFail(422, { code: "missing_fields", missing_fields: [field] });
     return null;
   }
-  if (result.length > max) throw new HttpFail(422, { code: "field_too_long", field, max });
+  if (result.length > max)
+    throw new HttpFail(422, { code: "field_too_long", field, max });
   return result;
 }
-
 function dateTime(value: unknown): string | null {
   const raw = text(value, "due_at", 80);
-  if (!raw) return null;
+  if (!raw)
+    return null;
   const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) throw new HttpFail(422, { code: "invalid_due_at" });
+  if (Number.isNaN(parsed.getTime()))
+    throw new HttpFail(422, { code: "invalid_due_at" });
   return parsed.toISOString();
 }
-
 function taskRow(row: Record<string, unknown>): TaskRoot {
   const payload = row.input && typeof row.input === "object" && !Array.isArray(row.input) ? row.input as Record<string, unknown> : {};
   return {
@@ -137,46 +142,37 @@ function taskRow(row: Record<string, unknown>): TaskRoot {
  * completion. */
 export async function createTaskRootPostgres(actorId: string, raw: TaskRootInput): Promise<TaskRoot> {
   const title = text(raw.title, "title", 200, true)!;
-  const goal = text(raw.goal, "goal", 4_000) || title;
+  const goal = text(raw.goal, "goal", 4000) || title;
   const priority = text(raw.priority, "priority", 40) || "normal";
   if (!["important_urgent", "important", "urgent", "normal", "low"].includes(priority)) {
     throw new HttpFail(422, { code: "priority_invalid" });
   }
   const idempotencyKey = text(raw.idempotency_key, "idempotency_key", 200, true)!;
-  if (idempotencyKey.length < 8) throw new HttpFail(422, { code: "idempotency_key_invalid" });
+  if (idempotencyKey.length < 8)
+    throw new HttpFail(422, { code: "idempotency_key_invalid" });
   const dueAt = dateTime(raw.due_at);
-  return postgresTransaction(async (client) => {
-    const existing = await client.query<Record<string, unknown>>(
-      `SELECT t.* FROM task_root_command_receipts r
+  return (await postgresTransaction(async (client) => {
+    const existing = await client.query<Record<string, unknown>>(`SELECT t.* FROM task_root_command_receipts r
        JOIN tickets t ON t.id=r.task_id
-       WHERE r.idempotency_key=$1 AND r.requester_user_id=$2 FOR UPDATE`,
-      [idempotencyKey, actorId],
-    );
-    if (existing.rows[0]) return taskRow(existing.rows[0]);
+       WHERE r.idempotency_key=$1 AND r.requester_user_id=$2 FOR UPDATE`, [idempotencyKey, actorId]);
+    if (existing.rows[0])
+      return taskRow(existing.rows[0]);
     const now = new Date().toISOString();
     const taskId = nid("task");
     const input = { goal, idempotency_key: idempotencyKey, source: "postgresql_task_root.v1" };
-    const inserted = await client.query<Record<string, unknown>>(
-      `INSERT INTO tickets
+    const inserted = await client.query<Record<string, unknown>>(`INSERT INTO tickets
        (id,owner_user_id,task_type,title,source,status,priority,skill,profile,due_at,input,entities,data_version,created_at,updated_at,
         content,kind,channel,requester_type,requester_id)
        VALUES ($1,$2,$3,$4,'manual','open',$5,'task_root',$6,$7,$8,'{}'::jsonb,1,$9,$9,$10,'general','human','ai_task_root',$2)
-       RETURNING *`,
-      [taskId, actorId, TASK_TYPE, title, priority, TASK_PROFILE, dueAt, JSON.stringify(input), now, goal],
-    );
+       RETURNING *`, [taskId, actorId, TASK_TYPE, title, priority, TASK_PROFILE, dueAt, JSON.stringify(input), now, goal]);
     const response = taskRow(inserted.rows[0]!);
-    await client.query(
-      `INSERT INTO task_root_command_receipts (idempotency_key,requester_user_id,task_id,response_json,created_at)
-       VALUES ($1,$2,$3,$4,$5)`,
-      [idempotencyKey, actorId, taskId, JSON.stringify(response), now],
-    );
+    await client.query(`INSERT INTO task_root_command_receipts (idempotency_key,requester_user_id,task_id,response_json,created_at)
+       VALUES ($1,$2,$3,$4,$5)`, [idempotencyKey, actorId, taskId, JSON.stringify(response), now]);
     return response;
-  }, { isolation: "SERIALIZABLE" });
+  }, { isolation: "SERIALIZABLE" }));
 }
-
 async function authorizedTask(actorId: string, taskId: string, isAdmin: boolean): Promise<TaskRoot> {
-  const task = await postgresPool().query<Record<string, unknown>>(
-    `SELECT t.*
+  const task = await postgresPool().query<Record<string, unknown>>(`SELECT t.*
        FROM tickets t
       WHERE t.id=$1 AND t.task_type=$2 AND t.profile=$3
         AND (t.collaboration_id IS NULL OR EXISTS (SELECT 1 FROM collaborations c JOIN users u ON u.id=$5 AND u.active=1
@@ -185,13 +181,11 @@ async function authorizedTask(actorId: string, taskId: string, isAdmin: boolean)
           SELECT 1
             FROM work_orders wo JOIN work_order_assignments wa ON wa.work_order_id=wo.id
            WHERE wo.task_id=t.id AND wa.principal_id=$5 AND wa.status='active'
-        ))`,
-    [taskId, TASK_TYPE, TASK_PROFILE, isAdmin, actorId],
-  );
-  if (!task.rows[0]) throw new HttpFail(404, { code: "task_not_found_or_not_authorized" });
+        ))`, [taskId, TASK_TYPE, TASK_PROFILE, isAdmin, actorId]);
+  if (!task.rows[0])
+    throw new HttpFail(404, { code: "task_not_found_or_not_authorized" });
   return { ...taskRow(task.rows[0]), workspace_allowed: task.rows[0].owner_user_id === actorId };
 }
-
 function fingerprint(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
@@ -201,15 +195,32 @@ function fingerprint(value: unknown): string {
 export async function taskWorkOrderAggregate(actorId: string, taskId: string, isAdmin = false): Promise<TaskWorkOrderAggregate> {
   const task = await authorizedTask(actorId, taskId, isAdmin);
   const rows = await postgresPool().query<{
-    id: string; template_code: string; template_version: number | string; template_title: string; status: string; priority: string;
-    stage_code: string | null; title: string; objective: string; due_at: Date | string | null; automation_level: string;
-    created_at: Date | string; updated_at: Date | string;
-    principal_id: string | null; person_ref: string | null; org_unit_id: string | null; routing_policy_code: string | null;
-    automatic_created: boolean; automatic_assigned: boolean;
-    decision_id: string | null; decision_mode: string | null; decision_outcome: string | null; decision_status: string | null;
-    decision_confidence: string | number | null; decision_created_at: Date | string | null;
-  }>(
-    `SELECT wo.id,wo.template_code,wo.template_version,COALESCE(wt.title,wo.template_code) AS template_title,
+    id: string;
+    template_code: string;
+    template_version: number | string;
+    template_title: string;
+    status: string;
+    priority: string;
+    stage_code: string | null;
+    title: string;
+    objective: string;
+    due_at: Date | string | null;
+    automation_level: string;
+    created_at: Date | string;
+    updated_at: Date | string;
+    principal_id: string | null;
+    person_ref: string | null;
+    org_unit_id: string | null;
+    routing_policy_code: string | null;
+    automatic_created: boolean;
+    automatic_assigned: boolean;
+    decision_id: string | null;
+    decision_mode: string | null;
+    decision_outcome: string | null;
+    decision_status: string | null;
+    decision_confidence: string | number | null;
+    decision_created_at: Date | string | null;
+  }>(`SELECT wo.id,wo.template_code,wo.template_version,COALESCE(wt.title,wo.template_code) AS template_title,
             wo.status,wo.priority,wo.stage_code,wo.title,wo.objective,wo.due_at,wo.automation_level,wo.created_at,wo.updated_at,
             primary_assignment.principal_id,primary_assignment.person_ref,primary_assignment.org_unit_id,primary_assignment.routing_policy_code,
             EXISTS (
@@ -238,9 +249,7 @@ export async function taskWorkOrderAggregate(actorId: string, taskId: string, is
        ) latest_decision ON true
       WHERE wo.task_id=$1
       ORDER BY CASE wo.status WHEN 'needs_review' THEN 0 WHEN 'pending_assignment' THEN 1 WHEN 'waiting_external' THEN 2 ELSE 3 END,
-               wo.due_at NULLS LAST,wo.created_at DESC`,
-    [task.task_id],
-  );
+               wo.due_at NULLS LAST,wo.created_at DESC`, [task.task_id]);
   const workOrders = rows.rows.map<WorkOrderSummary>((row) => ({
     work_order_id: row.id,
     template_code: row.template_code,
@@ -267,15 +276,18 @@ export async function taskWorkOrderAggregate(actorId: string, taskId: string, is
     } : null,
   }));
   const verified = await postgresPool().query<{
-    id: string; event_type: string; occurred_at: Date | string; summary: string; evidence_ref: string; verified_by: string; verified_at: Date | string;
-  }>(
-    `SELECT id,event_type,occurred_at,summary,evidence_ref,verified_by,verified_at
+    id: string;
+    event_type: string;
+    occurred_at: Date | string;
+    summary: string;
+    evidence_ref: string;
+    verified_by: string;
+    verified_at: Date | string;
+  }>(`SELECT id,event_type,occurred_at,summary,evidence_ref,verified_by,verified_at
        FROM work_order_verified_events
       WHERE task_id=$1
       ORDER BY occurred_at DESC,id DESC
-      LIMIT 50`,
-    [task.task_id],
-  );
+      LIMIT 50`, [task.task_id]);
   const verifiedEvents = verified.rows.map<WorkOrderVerifiedEventSummary>((row) => ({
     id: row.id, event_type: row.event_type, occurred_at: new Date(row.occurred_at).toISOString(), summary: row.summary,
     evidence_ref: row.evidence_ref, verified_by: row.verified_by, verified_at: new Date(row.verified_at).toISOString(),
@@ -305,8 +317,9 @@ export async function taskWorkOrderAggregate(actorId: string, taskId: string, is
  * new AI task can be shown alongside—not masquerade as—a legacy agent run. */
 export async function listTaskWorkOrderAggregates(actorId: string, isAdmin = false, limit = 50): Promise<TaskWorkOrderList> {
   const bounded = Math.max(1, Math.min(100, Math.floor(limit)));
-  const rows = await postgresPool().query<{ id: string }>(
-    `SELECT t.id
+  const rows = await postgresPool().query<{
+    id: string;
+  }>(`SELECT t.id
        FROM tickets t
       WHERE t.task_type=$1 AND t.profile=$2
         AND (t.collaboration_id IS NULL OR EXISTS (SELECT 1 FROM collaborations c JOIN users u ON u.id=$4 AND u.active=1
@@ -315,10 +328,8 @@ export async function listTaskWorkOrderAggregates(actorId: string, isAdmin = fal
           SELECT 1 FROM work_orders wo JOIN work_order_assignments wa ON wa.work_order_id=wo.id
            WHERE wo.task_id=t.id AND wa.principal_id=$4 AND wa.status='active'
         ))
-      ORDER BY t.updated_at DESC,t.id DESC LIMIT $5`,
-    [TASK_TYPE, TASK_PROFILE, isAdmin, actorId, bounded],
-  );
-  const aggregates = await Promise.all(rows.rows.map((row) => taskWorkOrderAggregate(actorId, row.id, isAdmin)));
+      ORDER BY t.updated_at DESC,t.id DESC LIMIT $5`, [TASK_TYPE, TASK_PROFILE, isAdmin, actorId, bounded]);
+  const aggregates = await Promise.all((await Promise.all((await Promise.all((await Promise.all(rows.rows.map(async (row) => (await taskWorkOrderAggregate(actorId, row.id, isAdmin))))))))));
   return {
     items: aggregates.map(({ task, counts, current_blocking_work_order }) => ({ task, counts, current_blocking_work_order })),
     as_of: new Date().toISOString(),
@@ -342,11 +353,20 @@ export type TaskWorkOrderDashboard = {
   scope: "personal_authorized" | "organization_authorized";
   source: "postgresql_task_work_orders";
   summary: {
-    tasks: { total: number; open: number; blocked: number; waiting_review: number; completed: number };
+    tasks: {
+      total: number;
+      open: number;
+      blocked: number;
+      waiting_review: number;
+      completed: number;
+    };
     work_orders: TaskWorkOrderCounts;
   };
   metrics: DashboardMetrics;
-  comparison: { previous: DashboardMetrics; deltas: Record<DashboardMetricKey, number | null> } | null;
+  comparison: {
+    previous: DashboardMetrics;
+    deltas: Record<DashboardMetricKey, number | null>;
+  } | null;
   trends: Record<DashboardMetricKey, number[]>;
   by_template: Array<{
     template_code: string;
@@ -371,10 +391,13 @@ export type TaskWorkOrderDashboard = {
       current_blocking_work_order: TaskWorkOrderCompact | null;
       next_work_order: TaskWorkOrderCompact | null;
     }>;
-    page: { limit: number; next_cursor: string | null; total: number };
+    page: {
+      limit: number;
+      next_cursor: string | null;
+      total: number;
+    };
   };
 };
-
 export type TaskWorkOrderDashboardExportRow = {
   task_title: string;
   type: "业务任务";
@@ -394,30 +417,34 @@ type DashboardOptions = {
   template?: string | null;
   status?: string | null;
 };
-
 function dashboardLimit(value: number | undefined): number {
-  if (value == null) return 50;
-  if (!Number.isFinite(value) || value < 1) throw new HttpFail(400, "invalid dashboard limit");
+  if (value == null)
+    return 50;
+  if (!Number.isFinite(value) || value < 1)
+    throw new HttpFail(400, "invalid dashboard limit");
   return Math.max(1, Math.min(100, Math.floor(value)));
 }
-
 function dashboardOffset(cursor: string | null | undefined): number {
-  if (!cursor) return 0;
+  if (!cursor)
+    return 0;
   try {
-    const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as { offset?: unknown };
+    const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as {
+      offset?: unknown;
+    };
     const offset = Number(parsed.offset);
-    if (!Number.isInteger(offset) || offset < 0 || offset > 100_000) throw new Error("invalid offset");
+    if (!Number.isInteger(offset) || offset < 0 || offset > 100000)
+      throw new Error("invalid offset");
     return offset;
-  } catch {
+  }
+  catch {
     throw new HttpFail(400, "invalid dashboard cursor");
   }
 }
-
 function nextDashboardCursor(offset: number, limit: number, total: number): string | null {
-  if (offset + limit >= total) return null;
+  if (offset + limit >= total)
+    return null;
   return Buffer.from(JSON.stringify({ offset: offset + limit }), "utf8").toString("base64url");
 }
-
 function jsonObject<T>(value: unknown): T {
   return value && typeof value === "object" && !Array.isArray(value) ? value as T : {} as T;
 }
@@ -442,7 +469,8 @@ function dashboardMetric(value: unknown): DashboardMetrics {
   const input = jsonObject<Record<string, unknown>>(value);
   const numberOrNull = (key: DashboardMetricKey) => {
     const raw = input[key];
-    if (raw == null || raw === "") return null;
+    if (raw == null || raw === "")
+      return null;
     const parsed = Number(raw);
     return Number.isFinite(parsed) ? parsed : null;
   };
@@ -475,15 +503,17 @@ export function dashboardDeltas(current: DashboardMetrics, previous: DashboardMe
       return result;
     }, {} as Record<DashboardMetricKey, number | null>);
 }
-
 export function dashboardTrendPointCount(period: DashboardPeriod): number {
-  if (period === "today") return 24;
-  if (period === "week") return 7;
-  if (period === "month") return 30;
-  if (period === "year") return 12;
+  if (period === "today")
+    return 24;
+  if (period === "week")
+    return 7;
+  if (period === "month")
+    return 30;
+  if (period === "year")
+    return 12;
   return 7;
 }
-
 function normalizedTrends(value: unknown, period: DashboardPeriod): Record<DashboardMetricKey, number[]> {
   const expected = dashboardTrendPointCount(period);
   const data = jsonObject<Record<string, unknown>>(value);
@@ -624,14 +654,9 @@ const DASHBOARD_SCOPE_CTES = `
     GROUP BY task.task_id,task.title,task.goal,task.status,task.priority,task.due_at,task.data_version,task.created_at,task.updated_at,task.completed_at,
       task.created_at_ts,task.updated_at_ts,task.completed_at_ts,task.due_at_ts,task.task_is_open,task.task_is_in_progress
   )`;
-
 /** PostgreSQL-native operating dashboard for the business-task → work-order
  * hierarchy. Every aggregate and export starts from the same authorization CTE. */
-export async function taskWorkOrderDashboard(
-  actorId: string,
-  isAdmin = false,
-  options: DashboardOptions = {},
-): Promise<TaskWorkOrderDashboard> {
+export async function taskWorkOrderDashboard(actorId: string, isAdmin = false, options: DashboardOptions = {}): Promise<TaskWorkOrderDashboard> {
   const limit = dashboardLimit(options.limit);
   const offset = dashboardOffset(options.cursor);
   const timezone = String(options.timezone || "Asia/Shanghai").trim() || "Asia/Shanghai";
@@ -649,8 +674,7 @@ export async function taskWorkOrderDashboard(
     by_template: unknown;
     items: unknown;
     total: number | string;
-  }>(
-    `WITH ${DASHBOARD_SCOPE_CTES}, task_page AS MATERIALIZED (
+  }>(`WITH ${DASHBOARD_SCOPE_CTES}, task_page AS MATERIALIZED (
        SELECT * FROM task_facts
        ORDER BY CASE WHEN waiting_review>0 THEN 0 WHEN blocked>0 THEN 1 ELSE 2 END,due_at_ts NULLS LAST,updated_at_ts DESC,task_id DESC
        LIMIT $5 OFFSET $6
@@ -776,9 +800,7 @@ export async function taskWorkOrderDashboard(
          'template_codes',COALESCE((SELECT jsonb_agg(DISTINCT work_order.template_code) FROM work_order_facts work_order WHERE work_order.task_id=task_page_with_refs.task_id),'[]'::jsonb),
          'current_blocking_work_order',current_blocking_work_order,'next_work_order',next_work_order
        ) ORDER BY CASE WHEN waiting_review>0 THEN 0 WHEN blocked>0 THEN 1 ELSE 2 END,due_at_ts NULLS LAST,updated_at_ts DESC,task_id DESC) FROM task_page_with_refs),'[]'::jsonb) AS items,
-       (SELECT COUNT(*)::int FROM task_facts) AS total`,
-    values,
-  );
+       (SELECT COUNT(*)::int FROM task_facts) AS total`, values);
   const row = result.rows[0] || { as_of: new Date().toISOString(), summary: {}, metrics: {}, previous_metrics: {}, trends: {}, by_template: [], items: [], total: 0 };
   const total = Number(row.total || 0);
   const metrics = dashboardMetric(row.metrics);
@@ -798,26 +820,23 @@ export async function taskWorkOrderDashboard(
     tasks: { items: jsonArray<TaskWorkOrderDashboard["tasks"]["items"][number]>(row.items), page: { limit, next_cursor: nextDashboardCursor(offset, limit, total), total } },
   };
 }
-
-export async function taskWorkOrderDashboardExport(
-  actorId: string,
-  isAdmin = false,
-  options: DashboardOptions = {},
-): Promise<TaskWorkOrderDashboardExportRow[]> {
+export async function taskWorkOrderDashboardExport(actorId: string, isAdmin = false, options: DashboardOptions = {}): Promise<TaskWorkOrderDashboardExportRow[]> {
   const period = dashboardPeriod(options.period);
   const timezone = String(options.timezone || "Asia/Shanghai").trim() || "Asia/Shanghai";
   const values = [TASK_TYPE, TASK_PROFILE, isAdmin, actorId, 100, 0, period, timezone, dashboardText(options.q), dashboardText(options.template, 120), dashboardText(options.status, 80)];
   const result = await postgresPool().query<{
-    task_title: string; status: string; template: string | null; assignee: string | null; created_at: Date | string | null; completed_at: Date | string | null;
-  }>(
-    `WITH ${DASHBOARD_SCOPE_CTES}
+    task_title: string;
+    status: string;
+    template: string | null;
+    assignee: string | null;
+    created_at: Date | string | null;
+    completed_at: Date | string | null;
+  }>(`WITH ${DASHBOARD_SCOPE_CTES}
      SELECT task.title AS task_title,COALESCE(work_order.status,task.status) AS status,
        COALESCE(work_order.template_title,'') AS template,COALESCE(work_order.person_ref,work_order.principal_id,'') AS assignee,
        task.created_at_ts AS created_at,COALESCE(work_order.completed_at,task.completed_at_ts) AS completed_at
      FROM authorized_tasks task LEFT JOIN work_order_facts work_order ON work_order.task_id=task.task_id
-     ORDER BY task.updated_at_ts DESC,task.task_id DESC,work_order.template_title NULLS LAST`,
-    values,
-  );
+     ORDER BY task.updated_at_ts DESC,task.task_id DESC,work_order.template_title NULLS LAST`, values);
   return result.rows.map((row) => ({
     task_title: row.task_title,
     type: "业务任务" as const,

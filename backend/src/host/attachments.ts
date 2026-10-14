@@ -2,24 +2,34 @@ import fs from "node:fs";
 import path from "node:path";
 import { authDisabled, scopedUser } from "../auth.js";
 import { dataDir } from "../config.js";
-import { getConn, nowIso } from "../db.js";
+import { postgresDb, nowIso } from "../postgres/access.js";
 import { HttpFail } from "./errors.js";
-
-export type AttachmentRef = { id?: string; name: string; path: string; size?: number; type?: string };
-
+export type AttachmentRef = {
+  id?: string;
+  name: string;
+  path: string;
+  size?: number;
+  type?: string;
+};
 export function uploadsDir(): string {
   return path.join(dataDir(), "uploads");
 }
-
-export function sanitizeAttachments(raw: unknown): AttachmentRef[] {
-  if (!Array.isArray(raw) || !raw.length) return [];
+export async function sanitizeAttachments(raw: unknown): Promise<AttachmentRef[]> {
+  if (!Array.isArray(raw) || !raw.length)
+    return [];
   const root = path.resolve(uploadsDir());
   const out: AttachmentRef[] = [];
   for (const item of raw) {
-    if (!item || typeof item !== "object") throw new HttpFail(400, "attachment missing on disk");
-    const name = String((item as { name?: string }).name || "").trim();
-    const p = String((item as { path?: string }).path || "").trim();
-    if (!name || !p) throw new HttpFail(400, "attachment missing on disk");
+    if (!item || typeof item !== "object")
+      throw new HttpFail(400, "attachment missing on disk");
+    const name = String((item as {
+      name?: string;
+    }).name || "").trim();
+    const p = String((item as {
+      path?: string;
+    }).path || "").trim();
+    if (!name || !p)
+      throw new HttpFail(400, "attachment missing on disk");
     const resolved = path.resolve(p);
     if (resolved !== root && !resolved.startsWith(root + path.sep)) {
       throw new HttpFail(400, "attachment missing on disk");
@@ -27,9 +37,7 @@ export function sanitizeAttachments(raw: unknown): AttachmentRef[] {
     if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
       throw new HttpFail(400, "attachment missing on disk");
     }
-    const upload = getConn().prepare(
-      "SELECT id,owner_user_id,size_bytes,mime_type FROM user_uploads WHERE path=?",
-    ).get(resolved) as {
+    const upload = (await postgresDb().one("SELECT id,owner_user_id,size_bytes,mime_type FROM user_uploads WHERE path=$1", resolved)) as {
       id: string;
       owner_user_id?: string | null;
       size_bytes: number;
@@ -42,7 +50,7 @@ export function sanitizeAttachments(raw: unknown): AttachmentRef[] {
       }
     }
     if (upload) {
-      getConn().prepare("UPDATE user_uploads SET last_used_at=? WHERE id=?").run(nowIso(), upload.id);
+      (await postgresDb().execute("UPDATE user_uploads SET last_used_at=$1 WHERE id=$2", nowIso(), upload.id));
     }
     out.push({
       id: upload?.id,
@@ -54,17 +62,21 @@ export function sanitizeAttachments(raw: unknown): AttachmentRef[] {
   }
   return out;
 }
-
 export function excerptFile(filePath: string, max = 4000): string {
   const buf = fs.readFileSync(filePath);
-  if (buf.includes(0)) return `[binary ${buf.length} bytes]`;
+  if (buf.includes(0))
+    return `[binary ${buf.length} bytes]`;
   return buf.toString("utf8").slice(0, max);
 }
-
 /** Copy files into the worker box and append path + excerpt to CONTEXT.md. */
-export function writeAttachmentContext(box: string, extra: { attachments?: AttachmentRef[] } | Record<string, unknown>): void {
-  const atts = ((extra as { attachments?: AttachmentRef[] }).attachments || []) as AttachmentRef[];
-  if (!atts.length) return;
+export function writeAttachmentContext(box: string, extra: {
+  attachments?: AttachmentRef[];
+} | Record<string, unknown>): void {
+  const atts = ((extra as {
+    attachments?: AttachmentRef[];
+  }).attachments || []) as AttachmentRef[];
+  if (!atts.length)
+    return;
   const dir = path.join(box, "attachments");
   fs.mkdirSync(dir, { recursive: true });
   const lines = ["", "## Attachments", ""];

@@ -1,9 +1,8 @@
 import { Hono } from "hono";
 import { requireAdmin } from "../auth.js";
-import { getConn, nowIso } from "../db.js";
+import { postgresDb, nowIso } from "../postgres/access.js";
 import { HttpFail } from "../host/errors.js";
 import type { Row } from "../types.js";
-
 /**
  * Daily work report: an admin-only, ticket-centred read model.
  *
@@ -13,7 +12,6 @@ import type { Row } from "../types.js";
  * attribution existed remain visible, but are explicitly marked unattributed.
  */
 export const workReport = new Hono();
-
 const REPORT_VERSION = "daily-work-report.v1";
 const DEFAULT_TIMEZONE = "Asia/Shanghai";
 const MAX_REPORT_ROWS = 100;
@@ -21,7 +19,6 @@ const FORMAL_TICKET_SQL = "COALESCE(t.task_type,'') NOT IN ('today_plan','todo_p
 const PROCESSING_STATUSES = ["pending", "queued", "starting", "running", "in_progress", "needs_clarification"];
 const WAITING_STATUSES = ["waiting", "waiting_approval"];
 const EXCEPTION_STATUSES = ["failed", "cancelled"];
-
 type ReportFilters = {
   date: string;
   timezone: string;
@@ -32,21 +29,27 @@ type ReportFilters = {
   start: string;
   end: string;
 };
-
-type SqlScope = { clauses: string[]; values: unknown[] };
-
+type SqlScope = {
+  clauses: Array<(firstParameter: number) => string>;
+  values: unknown[];
+};
 function jsonObject(value: unknown): Record<string, unknown> {
   try {
     const parsed = JSON.parse(String(value || "{}"));
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
-  } catch {
+  }
+  catch {
     return {};
   }
 }
-
-export function parseDate(value: string): { year: number; month: number; day: number } {
+export function parseDate(value: string): {
+  year: number;
+  month: number;
+  day: number;
+} {
   const matched = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!matched) throw new HttpFail(400, "date must be YYYY-MM-DD");
+  if (!matched)
+    throw new HttpFail(400, "date must be YYYY-MM-DD");
   const year = Number(matched[1]);
   const month = Number(matched[2]);
   const day = Number(matched[3]);
@@ -56,7 +59,6 @@ export function parseDate(value: string): { year: number; month: number; day: nu
   }
   return { year, month, day };
 }
-
 function formatter(timezone: string): Intl.DateTimeFormat {
   try {
     return new Intl.DateTimeFormat("en-CA", {
@@ -69,12 +71,19 @@ function formatter(timezone: string): Intl.DateTimeFormat {
       second: "2-digit",
       hourCycle: "h23",
     });
-  } catch {
+  }
+  catch {
     throw new HttpFail(400, "invalid timezone");
   }
 }
-
-function timeZoneParts(value: Date, timezone: string): { year: number; month: number; day: number; hour: number; minute: number; second: number } {
+function timeZoneParts(value: Date, timezone: string): {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+} {
   const parts = formatter(timezone).formatToParts(value);
   const byType = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
   return {
@@ -86,12 +95,10 @@ function timeZoneParts(value: Date, timezone: string): { year: number; month: nu
     second: Number(byType.second),
   };
 }
-
 function dateAtTimezone(value: Date, timezone: string): string {
   const parts = timeZoneParts(value, timezone);
   return `${String(parts.year).padStart(4, "0")}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 }
-
 /** Convert a local midnight in an IANA zone into an ISO instant without a date library. */
 export function zonedMidnightIso(date: string, timezone: string): string {
   const { year, month, day } = parseDate(date);
@@ -105,36 +112,35 @@ export function zonedMidnightIso(date: string, timezone: string): string {
   }
   return new Date(instant).toISOString();
 }
-
 function nextDate(date: string): string {
   const { year, month, day } = parseDate(date);
   const next = new Date(Date.UTC(year, month - 1, day + 1));
   return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-${String(next.getUTCDate()).padStart(2, "0")}`;
 }
-
 function addDaysIso(instantIso: string, days: number): string {
   return new Date(new Date(instantIso).getTime() + days * 86400000).toISOString();
 }
-
 /** 0=Monday .. 6=Sunday, evaluated in the report timezone. */
 function weekdayIndexInTimezone(instantIso: string, timezone: string): number {
   const weekday = new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "short" }).format(new Date(instantIso));
   const index = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(weekday);
-  if (index < 0) throw new HttpFail(400, "invalid timezone");
+  if (index < 0)
+    throw new HttpFail(400, "invalid timezone");
   return index;
 }
-
 function monthStart(date: string, timezone: string): string {
   const { year, month } = parseDate(date);
   return zonedMidnightIso(`${year}-${String(month).padStart(2, "0")}-01`, timezone);
 }
-
 /**
  * Report window for day/week/month. Week is the natural Monday-Sunday week
  * containing `date`; month is the natural calendar month. Only the window
  * changes; all caliber definitions stay the same.
  */
-export function periodRange(date: string, timezone: string, period: "day" | "week" | "month"): { start: string; end: string } {
+export function periodRange(date: string, timezone: string, period: "day" | "week" | "month"): {
+  start: string;
+  end: string;
+} {
   if (period === "week") {
     const dayStart = zonedMidnightIso(date, timezone);
     const weekStart = addDaysIso(dayStart, -weekdayIndexInTimezone(dayStart, timezone));
@@ -148,11 +154,14 @@ export function periodRange(date: string, timezone: string, period: "day" | "wee
   }
   return { start: zonedMidnightIso(date, timezone), end: zonedMidnightIso(nextDate(date), timezone) };
 }
-
 /** The window immediately before the current one, used for period-over-period delta. */
-export function previousPeriodRange(date: string, timezone: string, period: "day" | "week" | "month"): { start: string; end: string } {
+export function previousPeriodRange(date: string, timezone: string, period: "day" | "week" | "month"): {
+  start: string;
+  end: string;
+} {
   const current = periodRange(date, timezone, period);
-  if (period === "week") return { start: addDaysIso(current.start, -7), end: current.start };
+  if (period === "week")
+    return { start: addDaysIso(current.start, -7), end: current.start };
   if (period === "month") {
     const { year, month } = parseDate(date);
     const prev = month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
@@ -161,14 +170,14 @@ export function previousPeriodRange(date: string, timezone: string, period: "day
   }
   return { start: addDaysIso(current.start, -1), end: current.start };
 }
-
 function boundedQuery(value: string | undefined, name: string): string | null {
   const result = String(value || "").trim();
-  if (!result) return null;
-  if (result.length > 160) throw new HttpFail(400, `invalid ${name}`);
+  if (!result)
+    return null;
+  if (result.length > 160)
+    throw new HttpFail(400, `invalid ${name}`);
   return result;
 }
-
 function reportFilters(query: (name: string) => string | undefined): ReportFilters {
   const timezone = String(query("timezone") || DEFAULT_TIMEZONE).trim();
   formatter(timezone);
@@ -191,126 +200,115 @@ function reportFilters(query: (name: string) => string | undefined): ReportFilte
     end,
   };
 }
-
 function listScope(alias: string, filters: ReportFilters, ownerColumn: string): SqlScope {
-  const clauses: string[] = [];
+  const clauses: Array<(firstParameter: number) => string> = [];
   const values: unknown[] = [];
   if (filters.owner) {
-    clauses.push(`${ownerColumn}=?`);
+    const position = values.length;
+    clauses.push(first => `${ownerColumn}=$${first + position}`);
     values.push(filters.owner);
   }
   if (filters.kind) {
-    clauses.push(`${alias}.kind=?`);
+    const position = values.length;
+    clauses.push(first => `${alias}.kind=$${first + position}`);
     values.push(filters.kind);
   }
   if (filters.team) {
-    // memberships are current-directory scope only. The response declares this
-    // explicitly because assignment/transfer history is not yet available.
-    clauses.push(`EXISTS (
-      SELECT 1
-      FROM users report_scope_user
-      JOIN memberships report_scope_membership ON report_scope_membership.user_handle=report_scope_user.username
-      WHERE report_scope_user.id=${ownerColumn}
-        AND report_scope_membership.scope='team'
-        AND report_scope_membership.scope_id=?
-    )`);
+    const position = values.length;
+    clauses.push(first => `EXISTS (
+          SELECT 1 FROM users report_scope_user
+          JOIN memberships report_scope_membership ON report_scope_membership.user_handle=report_scope_user.username
+          WHERE report_scope_user.id=${ownerColumn}
+            AND report_scope_membership.scope='team'
+            AND report_scope_membership.scope_id=$${first + position}
+        )`);
     values.push(filters.team);
   }
   return { clauses, values };
 }
-
-function where(scope: SqlScope, prefix: string[] = []): string {
-  const clauses = [...prefix, ...scope.clauses];
+function where(scope: SqlScope, prefix: string[] = [], firstParameter = 1): string {
+  const clauses = [...prefix, ...scope.clauses.map(render => render(firstParameter))];
   return clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
 }
-
-function placeholders(values: string[]): string {
-  return values.map(() => "?").join(",");
-}
-
 function number(value: unknown): number {
   return Number(value || 0);
 }
-
-function statusRows(filters: ReportFilters): Map<string, { responsible: number; processing: number; waiting: number; earliest_waiting_at: string | null }> {
+async function statusRows(filters: ReportFilters): Promise<Map<string, {
+  responsible: number;
+  processing: number;
+  waiting: number;
+  earliest_waiting_at: string | null;
+}>> {
   const scope = listScope("t", filters, "t.owner_user_id");
-  const rows = getConn().prepare(
-    `SELECT t.owner_user_id AS owner_id,
+  const rows = (await postgresDb().many(`SELECT t.owner_user_id AS owner_id,
       COUNT(*) AS responsible,
-      SUM(CASE WHEN t.status IN (${placeholders(PROCESSING_STATUSES)}) THEN 1 ELSE 0 END) AS processing,
-      SUM(CASE WHEN t.status IN (${placeholders(WAITING_STATUSES)}) THEN 1 ELSE 0 END) AS waiting,
-      MIN(CASE WHEN t.status IN (${placeholders(WAITING_STATUSES)}) THEN COALESCE(NULLIF(t.due_at,''), t.created_at) END) AS earliest_waiting_at
+      SUM(CASE WHEN t.status=ANY($1::text[]) THEN 1 ELSE 0 END) AS processing,
+      SUM(CASE WHEN t.status=ANY($2::text[]) THEN 1 ELSE 0 END) AS waiting,
+      MIN(CASE WHEN t.status=ANY($3::text[]) THEN COALESCE(NULLIF(t.due_at,''), t.created_at) END) AS earliest_waiting_at
      FROM tickets t
-     ${where(scope, [FORMAL_TICKET_SQL])}
-     GROUP BY t.owner_user_id`,
-  ).all(...PROCESSING_STATUSES, ...WAITING_STATUSES, ...WAITING_STATUSES, ...scope.values) as Row[];
+     ${where(scope, [FORMAL_TICKET_SQL], 4)}
+     GROUP BY t.owner_user_id`, PROCESSING_STATUSES, WAITING_STATUSES, WAITING_STATUSES, ...scope.values)) as Row[];
   return new Map(rows.map((row) => [String(row.owner_id), {
-    responsible: number(row.responsible),
-    processing: number(row.processing),
-    waiting: number(row.waiting),
-    earliest_waiting_at: row.earliest_waiting_at ? String(row.earliest_waiting_at) : null,
-  }]));
+      responsible: number(row.responsible),
+      processing: number(row.processing),
+      waiting: number(row.waiting),
+      earliest_waiting_at: row.earliest_waiting_at ? String(row.earliest_waiting_at) : null,
+    }]));
 }
-
-function acceptanceRows(filters: ReportFilters, start: string = filters.start, end: string = filters.end): Map<string, { accepted: number; last_accepted_at: string | null }> {
+async function acceptanceRows(filters: ReportFilters, start: string = filters.start, end: string = filters.end): Promise<Map<string, {
+  accepted: number;
+  last_accepted_at: string | null;
+}>> {
   const scope = listScope("t", filters, "a.owner_user_id_at_acceptance");
-  const rows = getConn().prepare(
-    `SELECT a.owner_user_id_at_acceptance AS owner_id, COUNT(DISTINCT a.ticket_id) AS accepted, MAX(a.accepted_at) AS last_accepted_at
+  const rows = (await postgresDb().many(`SELECT a.owner_user_id_at_acceptance AS owner_id, COUNT(DISTINCT a.ticket_id) AS accepted, MAX(a.accepted_at) AS last_accepted_at
        FROM ticket_acceptances a
        JOIN tickets t ON t.id=a.ticket_id
-     ${where(scope, [FORMAL_TICKET_SQL, "a.accepted_at>=?", "a.accepted_at<?"])}
-      GROUP BY a.owner_user_id_at_acceptance`,
-  ).all(start, end, ...scope.values) as Row[];
+     ${where(scope, [FORMAL_TICKET_SQL, "a.accepted_at>=$1", "a.accepted_at<$2"], 3)}
+      GROUP BY a.owner_user_id_at_acceptance`, start, end, ...scope.values)) as Row[];
   return new Map(rows.map((row) => [String(row.owner_id), {
-    accepted: number(row.accepted),
-    last_accepted_at: row.last_accepted_at ? String(row.last_accepted_at) : null,
-  }]));
+      accepted: number(row.accepted),
+      last_accepted_at: row.last_accepted_at ? String(row.last_accepted_at) : null,
+    }]));
 }
-
-function legacyAcceptedCount(filters: ReportFilters, start: string = filters.start, end: string = filters.end): number {
+async function legacyAcceptedCount(filters: ReportFilters, start: string = filters.start, end: string = filters.end): Promise<number> {
   const scope = listScope("t", filters, "t.owner_user_id");
-  const row = getConn().prepare(
-    `SELECT COUNT(DISTINCT e.work_item_id) AS count
+  const row = (await postgresDb().one(`SELECT COUNT(DISTINCT e.work_item_id) AS count
        FROM task_events e
        JOIN tickets t ON t.id=e.work_item_id
        LEFT JOIN ticket_acceptances a ON a.ticket_id=e.work_item_id
-      ${where(scope, [FORMAL_TICKET_SQL, "e.event_type='task.accepted'", "a.ticket_id IS NULL", "e.time>=?", "e.time<?"])}`,
-  ).get(start, end, ...scope.values) as Row | undefined;
+      ${where(scope, [FORMAL_TICKET_SQL, "e.event_type='task.accepted'", "a.ticket_id IS NULL", "e.time>=$1", "e.time<$2"], 3)}`, start, end, ...scope.values)) as Row | undefined;
   return number(row?.count);
 }
-
 /** Total accepted (attributed + legacy) inside an explicit window; same caliber as summary.accepted. */
-function acceptedTotal(filters: ReportFilters, start: string, end: string): number {
-  const attributed = acceptanceRows(filters, start, end);
-  const legacy = legacyAcceptedCount(filters, start, end);
+async function acceptedTotal(filters: ReportFilters, start: string, end: string): Promise<number> {
+  const attributed = (await acceptanceRows(filters, start, end));
+  const legacy = (await legacyAcceptedCount(filters, start, end));
   return [...attributed.values()].reduce((sum, row) => sum + row.accepted, 0) + legacy;
 }
-
 /**
  * Accepted tickets grouped by ticket kind (top 8). Attributed and legacy
  * acceptances are merged so the segments sum to summary.accepted. The active
  * kind filter is intentionally ignored here: this is the breakdown axis.
  */
-function acceptedByKind(filters: ReportFilters): Array<{ kind: string; count: number }> {
+async function acceptedByKind(filters: ReportFilters): Promise<Array<{
+  kind: string;
+  count: number;
+}>> {
   const unkinded: ReportFilters = { ...filters, kind: null };
-  const db = getConn();
+  const db = postgresDb();
   const attributedScope = listScope("t", unkinded, "a.owner_user_id_at_acceptance");
-  const attributed = db.prepare(
-    `SELECT t.kind AS kind, COUNT(DISTINCT a.ticket_id) AS count
+  const attributed = (await db.many(`SELECT t.kind AS kind, COUNT(DISTINCT a.ticket_id) AS count
        FROM ticket_acceptances a
        JOIN tickets t ON t.id=a.ticket_id
-      ${where(attributedScope, [FORMAL_TICKET_SQL, "a.accepted_at>=?", "a.accepted_at<?"])}
-      GROUP BY t.kind`,
-  ).all(filters.start, filters.end, ...attributedScope.values) as Row[];
+      ${where(attributedScope, [FORMAL_TICKET_SQL, "a.accepted_at>=$1", "a.accepted_at<$2"], 3)}
+      GROUP BY t.kind`, filters.start, filters.end, ...attributedScope.values)) as Row[];
   const legacyScope = listScope("t", unkinded, "t.owner_user_id");
-  const legacy = db.prepare(
-    `SELECT t.kind AS kind, COUNT(DISTINCT e.work_item_id) AS count
+  const legacy = (await db.many(`SELECT t.kind AS kind, COUNT(DISTINCT e.work_item_id) AS count
        FROM task_events e
        JOIN tickets t ON t.id=e.work_item_id
        LEFT JOIN ticket_acceptances a ON a.ticket_id=e.work_item_id
-      ${where(legacyScope, [FORMAL_TICKET_SQL, "e.event_type='task.accepted'", "a.ticket_id IS NULL", "e.time>=?", "e.time<?"])}
-      GROUP BY t.kind`,
-  ).all(filters.start, filters.end, ...legacyScope.values) as Row[];
+      ${where(legacyScope, [FORMAL_TICKET_SQL, "e.event_type='task.accepted'", "a.ticket_id IS NULL", "e.time>=$1", "e.time<$2"], 3)}
+      GROUP BY t.kind`, filters.start, filters.end, ...legacyScope.values)) as Row[];
   const merged = new Map<string, number>();
   for (const row of [...attributed, ...legacy]) {
     const kind = String(row.kind || "general");
@@ -321,33 +319,39 @@ function acceptedByKind(filters: ReportFilters): Array<{ kind: string; count: nu
     .sort((left, right) => right.count - left.count || (left.kind < right.kind ? -1 : 1))
     .slice(0, 8);
 }
-
-function currentStatusCounts(filters: ReportFilters): { processing: number; waiting: number; exception: number } {
+async function currentStatusCounts(filters: ReportFilters): Promise<{
+  processing: number;
+  waiting: number;
+  exception: number;
+}> {
   const scope = listScope("t", filters, "t.owner_user_id");
-  const row = getConn().prepare(
-    `SELECT
-      SUM(CASE WHEN t.status IN (${placeholders(PROCESSING_STATUSES)}) THEN 1 ELSE 0 END) AS processing,
-      SUM(CASE WHEN t.status IN (${placeholders(WAITING_STATUSES)}) THEN 1 ELSE 0 END) AS waiting,
-      SUM(CASE WHEN t.status IN (${placeholders(EXCEPTION_STATUSES)}) THEN 1 ELSE 0 END) AS exception
+  const row = (await postgresDb().one(`SELECT
+      SUM(CASE WHEN t.status=ANY($1::text[]) THEN 1 ELSE 0 END) AS processing,
+      SUM(CASE WHEN t.status=ANY($2::text[]) THEN 1 ELSE 0 END) AS waiting,
+      SUM(CASE WHEN t.status=ANY($3::text[]) THEN 1 ELSE 0 END) AS exception
        FROM tickets t
-       ${where(scope, [FORMAL_TICKET_SQL])}`,
-  ).get(...PROCESSING_STATUSES, ...WAITING_STATUSES, ...EXCEPTION_STATUSES, ...scope.values) as Row | undefined;
+       ${where(scope, [FORMAL_TICKET_SQL], 4)}`, PROCESSING_STATUSES, WAITING_STATUSES, EXCEPTION_STATUSES, ...scope.values)) as Row | undefined;
   return { processing: number(row?.processing), waiting: number(row?.waiting), exception: number(row?.exception) };
 }
-
-function usersForReport(filters: ReportFilters, status: Map<string, { responsible: number; processing: number; waiting: number; earliest_waiting_at: string | null }>, accepted: Map<string, { accepted: number; last_accepted_at: string | null }>) {
-  const active = getConn().prepare(
-    "SELECT id,name,username,site FROM users WHERE active=1 ORDER BY name COLLATE NOCASE,username COLLATE NOCASE LIMIT 200",
-  ).all() as Row[];
+async function usersForReport(filters: ReportFilters, status: Map<string, {
+  responsible: number;
+  processing: number;
+  waiting: number;
+  earliest_waiting_at: string | null;
+}>, accepted: Map<string, {
+  accepted: number;
+  last_accepted_at: string | null;
+}>) {
+  const active = (await postgresDb().many("SELECT id,name,username,site FROM users WHERE active=1 ORDER BY name,username LIMIT 200")) as Row[];
   const userById = new Map(active.map((row) => [String(row.id), row]));
   const ownerIds = new Set([...status.keys(), ...accepted.keys()]);
-  if (filters.owner) ownerIds.add(filters.owner);
+  if (filters.owner)
+    ownerIds.add(filters.owner);
   const missing = [...ownerIds].filter((id) => !userById.has(id));
   if (missing.length) {
-    const rows = getConn().prepare(
-      `SELECT id,name,username,site FROM users WHERE id IN (${placeholders(missing)})`,
-    ).all(...missing) as Row[];
-    for (const row of rows) userById.set(String(row.id), row);
+    const rows = (await postgresDb().many("SELECT id,name,username,site FROM users WHERE id=ANY($1::text[])", missing)) as Row[];
+    for (const row of rows)
+      userById.set(String(row.id), row);
   }
   const ids = filters.owner ? [filters.owner] : [...new Set([...active.map((row) => String(row.id)), ...ownerIds])];
   return ids.map((id) => {
@@ -365,27 +369,22 @@ function usersForReport(filters: ReportFilters, status: Map<string, { responsibl
     };
   });
 }
-
-function blockedAndActivity(filters: ReportFilters) {
+async function blockedAndActivity(filters: ReportFilters) {
   const scope = listScope("t", filters, "t.owner_user_id");
-  const blocked = getConn().prepare(
-    `SELECT t.id AS ticket_id,t.title,t.status,t.owner_user_id,t.due_at,t.updated_at,t.kind,u.name AS owner_name
+  const blocked = (await postgresDb().many(`SELECT t.id AS ticket_id,t.title,t.status,t.owner_user_id,t.due_at,t.updated_at,t.kind,u.name AS owner_name
        FROM tickets t LEFT JOIN users u ON u.id=t.owner_user_id
-       ${where(scope, [FORMAL_TICKET_SQL, `t.status IN (${placeholders([...WAITING_STATUSES, ...EXCEPTION_STATUSES])})`])}
+       ${where(scope, [FORMAL_TICKET_SQL, "t.status=ANY($1::text[])"], 2)}
       ORDER BY CASE t.status WHEN 'failed' THEN 0 WHEN 'waiting_approval' THEN 1 WHEN 'waiting' THEN 2 ELSE 3 END,
                COALESCE(NULLIF(t.due_at,''),t.updated_at) ASC,t.id ASC
-      LIMIT 20`,
-  ).all(...WAITING_STATUSES, ...EXCEPTION_STATUSES, ...scope.values) as Row[];
-  const activity = getConn().prepare(
-    `SELECT e.id AS event_id,e.work_item_id AS ticket_id,e.event_type,e.label,e.status,e.safe_summary,e.time,
+      LIMIT 20`, [...WAITING_STATUSES, ...EXCEPTION_STATUSES], ...scope.values)) as Row[];
+  const activity = (await postgresDb().many(`SELECT e.id AS event_id,e.work_item_id AS ticket_id,e.event_type,e.label,e.status,e.safe_summary,e.time,
             t.title,t.owner_user_id,t.kind,u.name AS owner_name
        FROM task_events e
        JOIN tickets t ON t.id=e.work_item_id
        LEFT JOIN users u ON u.id=t.owner_user_id
-       ${where(scope, [FORMAL_TICKET_SQL, "e.time>=?", "e.time<?"])}
+       ${where(scope, [FORMAL_TICKET_SQL, "e.time>=$1", "e.time<$2"], 3)}
       ORDER BY e.time DESC,e.id DESC
-      LIMIT 24`,
-  ).all(filters.start, filters.end, ...scope.values) as Row[];
+      LIMIT 24`, filters.start, filters.end, ...scope.values)) as Row[];
   return {
     blockers: blocked.map((row) => ({
       kind: "blocker",
@@ -414,25 +413,23 @@ function blockedAndActivity(filters: ReportFilters) {
     })),
   };
 }
-
-function filterOptions() {
-  const db = getConn();
-  const owners = db.prepare("SELECT id,name,username FROM users WHERE active=1 ORDER BY name COLLATE NOCASE,username COLLATE NOCASE LIMIT 200").all() as Row[];
-  const kinds = db.prepare("SELECT kind,COUNT(*) AS count FROM tickets GROUP BY kind ORDER BY count DESC,kind ASC LIMIT 100").all() as Row[];
-  const teams = db.prepare("SELECT id,name FROM teams ORDER BY name COLLATE NOCASE,id LIMIT 100").all() as Row[];
+async function filterOptions() {
+  const db = postgresDb();
+  const owners = (await db.many("SELECT id,name,username FROM users WHERE active=1 ORDER BY name,username LIMIT 200")) as Row[];
+  const kinds = (await db.many("SELECT kind,COUNT(*) AS count FROM tickets GROUP BY kind ORDER BY count DESC,kind ASC LIMIT 100")) as Row[];
+  const teams = (await db.many("SELECT id,name FROM teams ORDER BY name,id LIMIT 100")) as Row[];
   return {
     owners: owners.map((row) => ({ id: String(row.id), name: String(row.name), username: String(row.username) })),
     kinds: kinds.map((row) => ({ id: String(row.kind || "general"), count: number(row.count) })),
     teams: teams.map((row) => ({ id: String(row.id), name: String(row.name) })),
   };
 }
-
-function reportResponse(filters: ReportFilters) {
-  const status = statusRows(filters);
-  const accepted = acceptanceRows(filters);
-  const legacyAccepted = legacyAcceptedCount(filters);
-  const totals = currentStatusCounts(filters);
-  const process = blockedAndActivity(filters);
+async function reportResponse(filters: ReportFilters) {
+  const status = (await statusRows(filters));
+  const accepted = (await acceptanceRows(filters));
+  const legacyAccepted = (await legacyAcceptedCount(filters));
+  const totals = (await currentStatusCounts(filters));
+  const process = (await blockedAndActivity(filters));
   const previous = previousPeriodRange(filters.date, filters.timezone, filters.period);
   return {
     report_version: REPORT_VERSION,
@@ -440,18 +437,18 @@ function reportResponse(filters: ReportFilters) {
     data_cutoff_at: nowIso(),
     period: { date: filters.date, timezone: filters.timezone, period: filters.period, start: filters.start, end: filters.end },
     filters: { owner: filters.owner, kind: filters.kind, team: filters.team },
-    filter_options: filterOptions(),
+    filter_options: (await filterOptions()),
     summary: {
       accepted: [...accepted.values()].reduce((sum, row) => sum + row.accepted, 0) + legacyAccepted,
       accepted_attributed: [...accepted.values()].reduce((sum, row) => sum + row.accepted, 0),
       accepted_unattributed: legacyAccepted,
-      previous_accepted: acceptedTotal(filters, previous.start, previous.end),
+      previous_accepted: (await acceptedTotal(filters, previous.start, previous.end)),
       processing: totals.processing,
       waiting: totals.waiting,
       exception: totals.exception,
     },
-    accepted_by_kind: acceptedByKind(filters),
-    employees: usersForReport(filters, status, accepted),
+    accepted_by_kind: (await acceptedByKind(filters)),
+    employees: (await usersForReport(filters, status, accepted)),
     process,
     attribution: {
       accepted_owner: "验收时负责人快照",
@@ -469,7 +466,6 @@ function reportResponse(filters: ReportFilters) {
     ],
   };
 }
-
 function ticketListRow(row: Row, extra: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     ticket_id: String(row.ticket_id || row.id),
@@ -483,14 +479,12 @@ function ticketListRow(row: Row, extra: Record<string, unknown> = {}): Record<st
     ...extra,
   };
 }
-
-function ticketRows(view: string, filters: ReportFilters, limit: number, offset = 0) {
-  const db = getConn();
+async function ticketRows(view: string, filters: ReportFilters, limit: number, offset = 0) {
+  const db = postgresDb();
   if (view === "accepted") {
     // 双源合并排序：各自多取 offset 行，保证合并后 [offset, offset+limit) 窗口正确。
     const acceptedScope = listScope("t", filters, "a.owner_user_id_at_acceptance");
-    const attributed = db.prepare(
-      `SELECT t.id AS ticket_id,t.title,t.status,t.kind,t.due_at,t.updated_at,t.owner_user_id,
+    const attributed = (await db.many(`SELECT t.id AS ticket_id,t.title,t.status,t.kind,t.due_at,t.updated_at,t.owner_user_id,
               a.accepted_at,a.owner_user_id_at_acceptance,a.accepted_by_user_id,
               owner.name AS owner_name,accepted_owner.name AS accepted_owner_name,accepted_by.name AS accepted_by_name
          FROM ticket_acceptances a
@@ -498,23 +492,20 @@ function ticketRows(view: string, filters: ReportFilters, limit: number, offset 
          LEFT JOIN users owner ON owner.id=t.owner_user_id
          LEFT JOIN users accepted_owner ON accepted_owner.id=a.owner_user_id_at_acceptance
          LEFT JOIN users accepted_by ON accepted_by.id=a.accepted_by_user_id
-         ${where(acceptedScope, [FORMAL_TICKET_SQL, "a.accepted_at>=?", "a.accepted_at<?"])}
+         ${where(acceptedScope, [FORMAL_TICKET_SQL, "a.accepted_at>=$1", "a.accepted_at<$2"], 3)}
         ORDER BY a.accepted_at DESC,a.ticket_id DESC
-        LIMIT ?`,
-    ).all(filters.start, filters.end, ...acceptedScope.values, limit + offset) as Row[];
+        LIMIT $${acceptedScope.values.length + 3}`, filters.start, filters.end, ...acceptedScope.values, limit + offset)) as Row[];
     const currentScope = listScope("t", filters, "t.owner_user_id");
-    const legacy = db.prepare(
-      `SELECT t.id AS ticket_id,t.title,t.status,t.kind,t.due_at,t.updated_at,t.owner_user_id,u.name AS owner_name,
+    const legacy = (await db.many(`SELECT t.id AS ticket_id,t.title,t.status,t.kind,t.due_at,t.updated_at,t.owner_user_id,u.name AS owner_name,
               MAX(e.time) AS accepted_at
          FROM task_events e
          JOIN tickets t ON t.id=e.work_item_id
          LEFT JOIN users u ON u.id=t.owner_user_id
          LEFT JOIN ticket_acceptances a ON a.ticket_id=t.id
-         ${where(currentScope, [FORMAL_TICKET_SQL, "e.event_type='task.accepted'", "a.ticket_id IS NULL", "e.time>=?", "e.time<?"])}
+         ${where(currentScope, [FORMAL_TICKET_SQL, "e.event_type='task.accepted'", "a.ticket_id IS NULL", "e.time>=$1", "e.time<$2"], 3)}
         GROUP BY t.id,t.title,t.status,t.kind,t.due_at,t.updated_at,t.owner_user_id,u.name
         ORDER BY accepted_at DESC,t.id DESC
-        LIMIT ?`,
-    ).all(filters.start, filters.end, ...currentScope.values, limit + offset) as Row[];
+        LIMIT $${currentScope.values.length + 3}`, filters.start, filters.end, ...currentScope.values, limit + offset)) as Row[];
     const rows = [
       ...attributed.map((row) => ticketListRow(row, {
         accepted_at: String(row.accepted_at),
@@ -538,72 +529,53 @@ function ticketRows(view: string, filters: ReportFilters, limit: number, offset 
   }
   const statuses = view === "processing" ? PROCESSING_STATUSES : view === "waiting" ? WAITING_STATUSES : EXCEPTION_STATUSES;
   const scope = listScope("t", filters, "t.owner_user_id");
-  const rows = db.prepare(
-    `SELECT t.id AS ticket_id,t.title,t.status,t.kind,t.due_at,t.updated_at,t.owner_user_id,u.name AS owner_name
+  const rows = (await db.many(`SELECT t.id AS ticket_id,t.title,t.status,t.kind,t.due_at,t.updated_at,t.owner_user_id,u.name AS owner_name
        FROM tickets t LEFT JOIN users u ON u.id=t.owner_user_id
-       ${where(scope, [FORMAL_TICKET_SQL, `t.status IN (${placeholders(statuses)})`])}
+       ${where(scope, [FORMAL_TICKET_SQL, "t.status=ANY($1::text[])"], 2)}
       ORDER BY COALESCE(NULLIF(t.due_at,''),t.updated_at) ASC,t.id ASC
-      LIMIT ? OFFSET ?`,
-  ).all(...statuses, ...scope.values, limit, offset) as Row[];
+      LIMIT $${scope.values.length + 2} OFFSET $${scope.values.length + 3}`, statuses, ...scope.values, limit, offset)) as Row[];
   return rows.map((row) => ticketListRow(row));
 }
-
 /** 明细总数（与 ticketRows 同一过滤口径，用于分页器）。 */
-function ticketTotal(view: string, filters: ReportFilters): number {
-  const db = getConn();
+async function ticketTotal(view: string, filters: ReportFilters): Promise<number> {
+  const db = postgresDb();
   if (view === "accepted") {
     const acceptedScope = listScope("t", filters, "a.owner_user_id_at_acceptance");
-    const attributed = db.prepare(
-      `SELECT COUNT(DISTINCT a.ticket_id) AS count
+    const attributed = (await db.one(`SELECT COUNT(DISTINCT a.ticket_id) AS count
          FROM ticket_acceptances a
          JOIN tickets t ON t.id=a.ticket_id
-         ${where(acceptedScope, [FORMAL_TICKET_SQL, "a.accepted_at>=?", "a.accepted_at<?"])}`,
-    ).get(filters.start, filters.end, ...acceptedScope.values) as Row | undefined;
+         ${where(acceptedScope, [FORMAL_TICKET_SQL, "a.accepted_at>=$1", "a.accepted_at<$2"], 3)}`, filters.start, filters.end, ...acceptedScope.values)) as Row | undefined;
     const currentScope = listScope("t", filters, "t.owner_user_id");
-    const legacy = db.prepare(
-      `SELECT COUNT(DISTINCT e.work_item_id) AS count
+    const legacy = (await db.one(`SELECT COUNT(DISTINCT e.work_item_id) AS count
          FROM task_events e
          JOIN tickets t ON t.id=e.work_item_id
          LEFT JOIN ticket_acceptances a ON a.ticket_id=e.work_item_id
-         ${where(currentScope, [FORMAL_TICKET_SQL, "e.event_type='task.accepted'", "a.ticket_id IS NULL", "e.time>=?", "e.time<?"])}`,
-    ).get(filters.start, filters.end, ...currentScope.values) as Row | undefined;
+         ${where(currentScope, [FORMAL_TICKET_SQL, "e.event_type='task.accepted'", "a.ticket_id IS NULL", "e.time>=$1", "e.time<$2"], 3)}`, filters.start, filters.end, ...currentScope.values)) as Row | undefined;
     return number(attributed?.count) + number(legacy?.count);
   }
   const statuses = view === "processing" ? PROCESSING_STATUSES : view === "waiting" ? WAITING_STATUSES : EXCEPTION_STATUSES;
   const scope = listScope("t", filters, "t.owner_user_id");
-  const row = db.prepare(
-    `SELECT COUNT(*) AS count FROM tickets t
-       ${where(scope, [FORMAL_TICKET_SQL, `t.status IN (${placeholders(statuses)})`])}`,
-  ).get(...statuses, ...scope.values) as Row | undefined;
+  const row = (await db.one(`SELECT COUNT(*) AS count FROM tickets t
+       ${where(scope, [FORMAL_TICKET_SQL, "t.status=ANY($1::text[])"], 2)}`, statuses, ...scope.values)) as Row | undefined;
   return number(row?.count);
 }
-
-function ticketDetail(ticketId: string) {
-  const db = getConn();
-  const ticket = db.prepare(
-    `SELECT t.*,owner.name AS owner_name,owner.username AS owner_username
-       FROM tickets t LEFT JOIN users owner ON owner.id=t.owner_user_id WHERE t.id=?`,
-  ).get(ticketId) as Row | undefined;
-  if (!ticket) throw new HttpFail(404, "ticket not found");
-  const acceptance = db.prepare(
-    `SELECT a.*,accepted_owner.name AS accepted_owner_name,accepted_by.name AS accepted_by_name
+async function ticketDetail(ticketId: string) {
+  const db = postgresDb();
+  const ticket = (await db.one(`SELECT t.*,owner.name AS owner_name,owner.username AS owner_username
+       FROM tickets t LEFT JOIN users owner ON owner.id=t.owner_user_id WHERE t.id=$1`, ticketId)) as Row | undefined;
+  if (!ticket)
+    throw new HttpFail(404, "ticket not found");
+  const acceptance = (await db.one(`SELECT a.*,accepted_owner.name AS accepted_owner_name,accepted_by.name AS accepted_by_name
        FROM ticket_acceptances a
        LEFT JOIN users accepted_owner ON accepted_owner.id=a.owner_user_id_at_acceptance
        LEFT JOIN users accepted_by ON accepted_by.id=a.accepted_by_user_id
-      WHERE a.ticket_id=?`,
-  ).get(ticketId) as Row | undefined;
+      WHERE a.ticket_id=$1`, ticketId)) as Row | undefined;
   const legacyAccepted = !acceptance
-    ? db.prepare("SELECT id,time FROM task_events WHERE work_item_id=? AND event_type='task.accepted' ORDER BY sequence DESC LIMIT 1").get(ticketId) as Row | undefined
+    ? (await db.one("SELECT id,time FROM task_events WHERE work_item_id=$1 AND event_type='task.accepted' ORDER BY sequence DESC LIMIT 1", ticketId)) as Row | undefined
     : undefined;
-  const events = db.prepare(
-    "SELECT id,sequence,event_type,label,status,safe_summary,time,created_at,run_id FROM task_events WHERE work_item_id=? ORDER BY sequence DESC LIMIT 100",
-  ).all(ticketId) as Row[];
-  const runs = db.prepare(
-    "SELECT id,status,worker_id,created_at,started_at,completed_at,substr(error,1,1024) AS error_preview FROM task_runs WHERE work_item_id=? ORDER BY created_at DESC LIMIT 30",
-  ).all(ticketId) as Row[];
-  const artifacts = db.prepare(
-    "SELECT id,artifact_type,version,run_id,created_at,substr(payload,1,4096) AS payload_preview,length(payload) AS payload_size FROM task_artifacts WHERE work_item_id=? ORDER BY created_at DESC LIMIT 30",
-  ).all(ticketId) as Row[];
+  const events = (await db.many("SELECT id,sequence,event_type,label,status,safe_summary,time,created_at,run_id FROM task_events WHERE work_item_id=$1 ORDER BY sequence DESC LIMIT 100", ticketId)) as Row[];
+  const runs = (await db.many("SELECT id,status,worker_id,created_at,started_at,completed_at,substr(error,1,1024) AS error_preview FROM task_runs WHERE work_item_id=$1 ORDER BY created_at DESC LIMIT 30", ticketId)) as Row[];
+  const artifacts = (await db.many("SELECT id,artifact_type,version,run_id,created_at,substr(payload,1,4096) AS payload_preview,length(payload) AS payload_size FROM task_artifacts WHERE work_item_id=$1 ORDER BY created_at DESC LIMIT 30", ticketId)) as Row[];
   const input = jsonObject(ticket.input);
   return {
     ticket: {
@@ -666,14 +638,12 @@ function ticketDetail(ticketId: string) {
     ],
   };
 }
-
-workReport.get("/admin/work-report", (c) => {
-  requireAdmin();
-  return c.json(reportResponse(reportFilters((name) => c.req.query(name))));
+workReport.get("/admin/work-report", async (c) => {
+  (await requireAdmin());
+  return c.json((await reportResponse(reportFilters((name) => c.req.query(name)))));
 });
-
-workReport.get("/admin/work-report/tickets", (c) => {
-  requireAdmin();
+workReport.get("/admin/work-report/tickets", async (c) => {
+  (await requireAdmin());
   const view = String(c.req.query("view") || "").trim();
   if (!(["accepted", "processing", "waiting", "exception"] as string[]).includes(view)) {
     throw new HttpFail(400, "view must be accepted, processing, waiting, or exception");
@@ -683,10 +653,10 @@ workReport.get("/admin/work-report/tickets", (c) => {
   const rawOffset = Number(c.req.query("offset") || 0);
   const offset = Number.isInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
   const filters = reportFilters((name) => c.req.query(name));
-  const total = ticketTotal(view, filters);
+  const total = (await ticketTotal(view, filters));
   return c.json({
     view,
-    items: ticketRows(view, filters, limit, offset),
+    items: (await ticketRows(view, filters, limit, offset)),
     total,
     limit,
     offset,
@@ -696,8 +666,7 @@ workReport.get("/admin/work-report/tickets", (c) => {
     source_refs: [{ type: "tickets", scope: "admin_authorized" }, { type: "ticket_acceptances", scope: "accepted_owner_snapshot" }],
   });
 });
-
-workReport.get("/admin/work-report/tickets/:id", (c) => {
-  requireAdmin();
-  return c.json(ticketDetail(c.req.param("id")));
+workReport.get("/admin/work-report/tickets/:id", async (c) => {
+  (await requireAdmin());
+  return c.json((await ticketDetail(c.req.param("id"))));
 });

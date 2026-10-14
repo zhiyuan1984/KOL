@@ -2,33 +2,21 @@ import { HttpFail } from "../host/errors.js";
 import type { TicketPrincipal } from "../ticket-domain/auth.js";
 import type { Row } from "../types.js";
 import { cronHandler } from "./handlers.js";
-import {
-  pgCronJobById,
-  pgCronRunById,
-  pgEnqueueManualCronRun,
-  pgEnsureSystemCronJobs,
-  pgFinishCronRun,
-  pgStartCronRun,
-  pgTickCronDue,
-} from "./postgres-store.js";
-import {
-  runtimeClaimExecutionJobById,
-  runtimeClaimNextExecutionJob,
-  runtimeCompleteExecutionJob,
-  runtimeExecutionJobPayload,
-  runtimeFailExecutionJob,
-} from "../execution-jobs/runtime-store.js";
-
-type ClaimedExecutionJob = Row & { lease_until: string; worker_id: string };
-
+import { pgCronJobById, pgCronRunById, pgEnqueueManualCronRun, pgEnsureSystemCronJobs, pgFinishCronRun, pgStartCronRun, pgTickCronDue, } from "./postgres-store.js";
+import { runtimeClaimExecutionJobById, runtimeClaimNextExecutionJob, runtimeCompleteExecutionJob, runtimeExecutionJobPayload, runtimeFailExecutionJob, } from "../execution-jobs/runtime-store.js";
+type ClaimedExecutionJob = Row & {
+  lease_until: string;
+  worker_id: string;
+};
 const TERMINAL = new Set(["succeeded", "failed", "skipped", "needs_takeover"]);
-
 function receipt(value: unknown): Record<string, unknown> {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (value && typeof value === "object" && !Array.isArray(value))
+    return value as Record<string, unknown>;
   try {
     const parsed = JSON.parse(String(value || "{}"));
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
-  } catch {
+  }
+  catch {
     return {};
   }
 }
@@ -40,9 +28,11 @@ function receipt(value: unknown): Record<string, unknown> {
  */
 export async function executeCronRun(runId: string, viewer?: TicketPrincipal, nowMs = Date.now()): Promise<Row> {
   const run = await pgCronRunById(runId);
-  if (!run) throw new HttpFail(404, "cron run not found");
+  if (!run)
+    throw new HttpFail(404, "cron run not found");
   const job = await pgCronJobById(String(run.job_id));
-  if (!job) throw new HttpFail(404, "cron job not found");
+  if (!job)
+    throw new HttpFail(404, "cron job not found");
   const finished = new Date(nowMs);
   const handler = cronHandler(String(job.handler_key));
   if (!handler) {
@@ -54,7 +44,8 @@ export async function executeCronRun(runId: string, viewer?: TicketPrincipal, no
       receipt: { created_session: false, handler_key: String(job.handler_key) },
       now: finished,
     });
-    if (!terminal) throw new HttpFail(404, "cron run not found");
+    if (!terminal)
+      throw new HttpFail(404, "cron run not found");
     return terminal;
   }
   try {
@@ -70,9 +61,11 @@ export async function executeCronRun(runId: string, viewer?: TicketPrincipal, no
       session_id: result.session_id || null,
       now: finished,
     });
-    if (!terminal) throw new HttpFail(404, "cron run not found");
+    if (!terminal)
+      throw new HttpFail(404, "cron run not found");
     return terminal;
-  } catch (error) {
+  }
+  catch (error) {
     const message = error instanceof Error ? error.message : String(error || "handler failed");
     const terminal = await pgFinishCronRun({
       run_id: runId,
@@ -82,7 +75,8 @@ export async function executeCronRun(runId: string, viewer?: TicketPrincipal, no
       receipt: { created_session: false, handler_key: String(job.handler_key) },
       now: finished,
     });
-    if (!terminal) throw new HttpFail(404, "cron run not found");
+    if (!terminal)
+      throw new HttpFail(404, "cron run not found");
     return terminal;
   }
 }
@@ -116,7 +110,8 @@ export async function executeClaimedCronJob(claimed: ClaimedExecutionJob, viewer
       code: String(terminal.error_code || "cron_handler_failed"),
       summary: String(terminal.error_summary || "cron handler failed"),
     }, { now: new Date(nowMs) });
-  } else {
+  }
+  else {
     await runtimeCompleteExecutionJob(String(claimed.id), {
       cron_run_id: runId,
       cron_status: status,
@@ -129,33 +124,41 @@ export async function executeClaimedCronJob(claimed: ClaimedExecutionJob, viewer
 /** Processes one queued Cron job. This is the entry used by the standalone transition worker. */
 export async function processNextCronExecutionJob(workerId = "cron-worker", viewer?: TicketPrincipal, nowMs = Date.now()): Promise<string | null> {
   const claimed = await runtimeClaimNextExecutionJob(workerId, { job_types: ["cron.run"], now: new Date(nowMs) });
-  if (!claimed) return null;
-  return executeClaimedCronJob(claimed, viewer, nowMs);
+  if (!claimed)
+    return null;
+  return (await executeClaimedCronJob(claimed, viewer, nowMs));
 }
-
 /** Broker consumers receive a durable execution-job ID, never a local queue payload. */
 export async function processCronExecutionJobById(executionJobId: string, workerId = "cron-worker", viewer?: TicketPrincipal, nowMs = Date.now()): Promise<string | null> {
   const claimed = await runtimeClaimExecutionJobById(executionJobId, workerId, { now: new Date(nowMs) });
-  if (!claimed) return null;
-  return executeClaimedCronJob(claimed, viewer, nowMs);
+  if (!claimed)
+    return null;
+  return (await executeClaimedCronJob(claimed, viewer, nowMs));
 }
-
-export async function enqueueManualRun(jobId: string, scheduledFor?: string): Promise<{ run_id: string; duplicate: boolean }> {
+export async function enqueueManualRun(jobId: string, scheduledFor?: string): Promise<{
+  run_id: string;
+  duplicate: boolean;
+}> {
   await pgEnsureSystemCronJobs();
   try {
     return await pgEnqueueManualCronRun(jobId, scheduledFor);
-  } catch (error) {
-    if (error instanceof Error && error.message === "cron job not found") throw new HttpFail(404, "cron job not found");
+  }
+  catch (error) {
+    if (error instanceof Error && error.message === "cron job not found")
+      throw new HttpFail(404, "cron job not found");
     throw error;
   }
 }
-
 /** Enqueue due runs durably. Only a separate BullMQ worker may execute them. */
-export async function tickCronDue(now = new Date(), _viewer?: TicketPrincipal): Promise<{ claimed: string[]; stale: boolean }> {
-  return pgTickCronDue(now);
+export async function tickCronDue(now = new Date(), _viewer?: TicketPrincipal): Promise<{
+  claimed: string[];
+  stale: boolean;
+}> {
+  return (await pgTickCronDue(now));
 }
-
-export async function runCronJobNow(jobId: string, _viewer?: TicketPrincipal, scheduledFor?: string): Promise<{ run_id: string }> {
+export async function runCronJobNow(jobId: string, _viewer?: TicketPrincipal, scheduledFor?: string): Promise<{
+  run_id: string;
+}> {
   const enqueued = await enqueueManualRun(jobId, scheduledFor);
   return { run_id: enqueued.run_id };
 }

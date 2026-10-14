@@ -5,20 +5,10 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { DEMO_USER } from "../src/config.js";
-import {
-  resetCollectorConnectionCache,
-  setCollectorProbeClientFactory,
-  setCollectorProbeFetch,
-} from "../src/crawl/connection.js";
+import { resetCollectorConnectionCache, setCollectorProbeClientFactory, setCollectorProbeFetch, } from "../src/crawl/connection.js";
 import { monitorCrawlJob, setCrawlMcpClientFactory } from "../src/crawl/service.js";
-import { getConn, resetConn } from "../src/db.js";
-import {
-  COLLECTOR_CONNECT_MESSAGE,
-  COLLECTOR_NOT_CONFIGURED_MESSAGE,
-  CRAWL_ACTIVE_MESSAGE,
-  employeeError,
-  isConnectionClassError,
-} from "../src/discovery-errors.js";
+import { postgresDb, resetDatabase } from "../src/postgres/access.js";
+import { COLLECTOR_CONNECT_MESSAGE, COLLECTOR_NOT_CONFIGURED_MESSAGE, CRAWL_ACTIVE_MESSAGE, employeeError, isConnectionClassError, } from "../src/discovery-errors.js";
 import { seedAll } from "../src/seed.js";
 import type { Json } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
@@ -39,50 +29,43 @@ async function request(method: string, url: string, body?: unknown) {
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) as Json : {}, text };
 }
-
 function assertEmployeeCopy(value: unknown): void {
   const text = JSON.stringify(value);
-  expect(text).not.toMatch(
-    /MediaCrawler|mediacrawler|\bMCP\b|Codex|Job ID|crawl_job|remote_task|Streamable|ECONNREFUSED|Failed to fetch|HTTP 404|Bearer |https?:\/\//i,
-  );
+  expect(text).not.toMatch(/MediaCrawler|mediacrawler|\bMCP\b|Codex|Job ID|crawl_job|remote_task|Streamable|ECONNREFUSED|Failed to fetch|HTTP 404|Bearer |https?:\/\//i);
 }
-
 function mockCrawl(handler: (name: string) => Json | Promise<Json> | never) {
   setCrawlMcpClientFactory(() => ({
     async callTool(name: string) {
       return handler(name);
     },
-    async close() {},
+    async close() { },
   }));
 }
-
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-disc-conn-"));
-  process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.CLAW_MODE = "mock";
   process.env.MEDIACRAWLER_MCP_URL = "http://127.0.0.1:9/mcp";
   process.env.MEDIACRAWLER_MCP_TOKEN = "test-secret";
   process.env.MEDIACRAWLER_PROBE_TIMEOUT_MS = "400";
-  resetConn();
-  seedAll();
-  configureCrawlerFixture();
+  (await resetDatabase());
+  (await seedAll());
+  (await configureCrawlerFixture());
   resetCollectorConnectionCache();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();
   setCrawlMcpClientFactory();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
-
-afterEach(() => {
+afterEach(async () => {
   setCrawlMcpClientFactory();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();
   resetCollectorConnectionCache();
-  resetConn();
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.MEDIACRAWLER_MCP_URL;
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
@@ -118,10 +101,9 @@ describe("employeeError mapping", () => {
     expect(JSON.stringify(employeeError(STREAMABLE_404))).not.toMatch(/Streamable|HTTP 404|MCP/i);
   });
 });
-
 describe("GET/POST /api/discovery/connection", () => {
   it("returns not_configured when URL+token are missing", async () => {
-    getConn().prepare("DELETE FROM runtime_connector_config WHERE connector_id='claw'").run();
+    (await postgresDb().execute("DELETE FROM runtime_connector_config WHERE connector_id='claw'"));
     resetCollectorConnectionCache();
     const got = await request("GET", "/api/discovery/connection");
     expect(got.status).toBe(200);
@@ -161,7 +143,7 @@ describe("GET/POST /api/discovery/connection", () => {
       async listTools() {
         throw new Error(STREAMABLE_404);
       },
-      async close() {},
+      async close() { },
     }));
     const got = await request("GET", "/api/discovery/connection");
     expect(got.status).toBe(200);
@@ -181,7 +163,7 @@ describe("GET/POST /api/discovery/connection", () => {
       async listTools() {
         return [{ name: "start_crawl" }];
       },
-      async close() {},
+      async close() { },
     }));
     const got = await request("POST", "/api/discovery/connection", {});
     expect(got.status).toBe(200);
@@ -232,49 +214,19 @@ describe("discovery run / completeJob surfaces Chinese connection errors", () =>
     expect((results.body.run as Json).status_label).toBe("失败");
     expect(results.body.connection).toBeTruthy();
     assertEmployeeCopy(results.body);
-    const stored = getConn().prepare("SELECT error FROM discovery_runs ORDER BY created_at DESC LIMIT 1").get() as
-      | { error?: string }
-      | undefined;
+    const stored = (await postgresDb().one("SELECT error FROM discovery_runs ORDER BY created_at DESC LIMIT 1")) as {
+      error?: string;
+    } | undefined;
     expect(stored?.error).toBe(COLLECTOR_CONNECT_MESSAGE);
   });
-
   it("maps crawl_active to Chinese copy and never persists empty-code JSON", async () => {
     const now = new Date().toISOString();
-    getConn().prepare(
-      `INSERT INTO tickets
+    (await postgresDb().execute(`INSERT INTO tickets
        (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      "tsk_active_crawl",
-      DEMO_USER.id,
-      "creator_discovery",
-      "active crawl blocker",
-      "manual",
-      "running",
-      "normal",
-      "creator_discovery",
-      "lead",
-      "{}",
-      "{}",
-      now,
-      now,
-    );
-    getConn().prepare(
-      `INSERT INTO crawl_jobs
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, "tsk_active_crawl", DEMO_USER.id, "creator_discovery", "active crawl blocker", "manual", "running", "normal", "creator_discovery", "lead", "{}", "{}", now, now));
+    (await postgresDb().execute(`INSERT INTO crawl_jobs
        (id,idempotency_key,owner_user_id,work_item_id,platform,mode,parameters,status,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      "crawl_activeblocker",
-      "idem-active-blocker",
-      DEMO_USER.id,
-      "tsk_active_crawl",
-      "youtube",
-      "search",
-      JSON.stringify({ keywords: ["blocker"] }),
-      "crawling",
-      now,
-      now,
-    );
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, "crawl_activeblocker", "idem-active-blocker", DEMO_USER.id, "tsk_active_crawl", "youtube", "search", JSON.stringify({ keywords: ["blocker"] }), "crawling", now, now));
     const created = await request("POST", "/api/discovery/requests", {
       keywords: ["portable power station", "outdoor review"],
       platforms: ["youtube"],
@@ -287,19 +239,23 @@ describe("discovery run / completeJob surfaces Chinese connection errors", () =>
     });
     expect(JSON.stringify(started.body)).not.toMatch(/\{\"code\":\"\"/);
     assertEmployeeCopy(started.body);
-    const stored = getConn().prepare("SELECT error, started_at FROM discovery_runs ORDER BY created_at DESC LIMIT 1").get() as
-      | { error?: string; started_at?: string | null }
-      | undefined;
+    const stored = (await postgresDb().one("SELECT error, started_at FROM discovery_runs ORDER BY created_at DESC LIMIT 1")) as {
+      error?: string;
+      started_at?: string | null;
+    } | undefined;
     expect(stored?.error).toBe(CRAWL_ACTIVE_MESSAGE);
     expect(stored?.error).not.toMatch(/\{/);
   });
-
   it("maps completeJob / get_creators connection failure into the discovery run", async () => {
     mockCrawl((name) => {
-      if (name === "start_crawl") return { task_id: "remote-disc-1", status: "running" };
-      if (name === "get_crawl_status") return { task_id: "remote-disc-1", status: "idle" };
-      if (name === "get_crawl_logs") return { logs: [] };
-      if (name === "get_creators") throw new Error(STREAMABLE_404);
+      if (name === "start_crawl")
+        return { task_id: "remote-disc-1", status: "running" };
+      if (name === "get_crawl_status")
+        return { task_id: "remote-disc-1", status: "idle" };
+      if (name === "get_crawl_logs")
+        return { logs: [] };
+      if (name === "get_creators")
+        throw new Error(STREAMABLE_404);
       return {};
     });
     const created = await request("POST", "/api/discovery/requests", {
@@ -308,11 +264,9 @@ describe("discovery run / completeJob surfaces Chinese connection errors", () =>
     });
     const started = await request("POST", `/api/discovery/requests/${created.body.id}/runs`, {});
     expect(started.status).toBe(202);
-    const jobId = String(
-      (getConn().prepare(
-        "SELECT crawl_job_id FROM discovery_runs WHERE id=?",
-      ).get(started.body.id) as { crawl_job_id?: string }).crawl_job_id,
-    );
+    const jobId = String(((await postgresDb().one("SELECT crawl_job_id FROM discovery_runs WHERE id=$1", started.body.id)) as {
+      crawl_job_id?: string;
+    }).crawl_job_id);
     await monitorCrawlJob(jobId);
     const results = await request("GET", `/api/discovery/requests/${created.body.id}/results`);
     expect(results.status).toBe(200);
@@ -329,7 +283,7 @@ describe("discovery run / completeJob surfaces Chinese connection errors", () =>
       async listTools() {
         return [{ name: "start_crawl" }];
       },
-      async close() {},
+      async close() { },
     }));
     const probed = await request("GET", "/api/discovery/connection");
     expect(probed.body.status).toBe("ok");

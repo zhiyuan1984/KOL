@@ -3,16 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { resetConn } from "../src/db.js";
+import { resetDatabase } from "../src/postgres/access.js";
 import { freshTestDatabase } from "./support/pg.js";
-
 let tmp = "";
 let app: Hono;
 let adminCookie = "";
-
 async function call(method: string, url: string, body?: unknown, cookie = adminCookie) {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (cookie) headers.Cookie = cookie;
+  if (cookie)
+    headers.Cookie = cookie;
   const response = await app.request(url, {
     method,
     headers,
@@ -50,13 +49,11 @@ async function employeeLogin(username = "examinee") {
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-exam-gov-"));
-  process.env.LINGONG_DB = path.join(tmp, "test.db");
-  process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "real";
   process.env.AUTH_MODE = "enabled";
-  resetConn();
+  (await resetDatabase());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const setup = await call("POST", "/api/auth/setup", {
     username: "admin",
     name: "Admin",
@@ -66,9 +63,8 @@ beforeEach(async () => {
   expect(setup.response.status).toBe(201);
   adminCookie = setup.cookie;
 });
-
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetDatabase());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
   process.env.CODEX_MODE = "stub";
@@ -156,16 +152,13 @@ describe("exam demo endpoint ignores persona pass", () => {
   beforeEach(async () => {
     await freshTestDatabase();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-exam-demo-"));
-    process.env.LINGONG_DB = path.join(tmp, "test.db");
-    process.env.LINGONG_DATA = tmp;
     process.env.CODEX_MODE = "stub";
     process.env.AUTH_MODE = "disabled";
-    resetConn();
+    (await resetDatabase());
     const { createApp } = await import("../src/app.js");
-    app = createApp();
+    app = (await createApp());
     adminCookie = "";
   });
-
   it("stays honest when the exam_blocked persona is selected", async () => {
     const switched = await call("POST", "/api/me/persona", { persona: "exam_blocked" }, "");
     expect(switched.response.status).toBe(200);

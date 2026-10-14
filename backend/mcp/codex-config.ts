@@ -4,25 +4,15 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import {
-  BACKEND_ROOT,
-  codexMode,
-  dbPath,
-  kolClawConfigured,
-  kolClawMcpUrl,
-  mcpDir,
-} from "../src/config.js";
+import { BACKEND_ROOT, codexMode, kolClawConfigured, kolClawMcpUrl, mcpDir, } from "../src/config.js";
 import type { Json } from "../src/types.js";
 import { LOCAL_STUB_MCP_TOOLS } from "../src/tasks/registry.js";
-
 function toolsForServer(allowlist: readonly string[], server: string): string[] {
   const prefix = `${server}.`;
   return allowlist.filter((name) => name.startsWith(prefix)).map((name) => name.slice(prefix.length));
 }
-
 export function mcpServerSpecs(allowlist: readonly string[] = [...LOCAL_STUB_MCP_TOOLS]): Json {
   const tsxCli = path.join(BACKEND_ROOT, "node_modules", "tsx", "dist", "cli.mjs");
-  const db = dbPath();
   const starry = path.join(mcpDir(), "starry-server.ts");
   const grouped = {
     kolclaw: toolsForServer(allowlist, "kolclaw"),
@@ -30,9 +20,10 @@ export function mcpServerSpecs(allowlist: readonly string[] = [...LOCAL_STUB_MCP
     claw: toolsForServer(allowlist, "claw"),
   };
   const specs: Json = {};
-  if (grouped.starry.length) specs.starry = {
+  if (grouped.starry.length)
+    specs.starry = {
     command: process.execPath,
-    args: [tsxCli, starry, "--db", db, "--allow", grouped.starry.join(",")],
+      args: [tsxCli, starry, "--allow", grouped.starry.join(",")],
     cwd: BACKEND_ROOT,
     enabled: true,
   };
@@ -50,9 +41,10 @@ export function mcpServerSpecs(allowlist: readonly string[] = [...LOCAL_STUB_MCP
     const localFallback = codexMode() === "stub";
     // Production collection stays behind the asynchronous job gateway. Never
     // inject the collector endpoint or its organization secret into a Codex box.
-    if (localFallback) specs.claw = {
+    if (localFallback)
+      specs.claw = {
       command: process.execPath,
-      args: [tsxCli, path.join(mcpDir(), "claw-server.ts"), "--db", db, "--allow", grouped.claw.join(",")],
+        args: [tsxCli, path.join(mcpDir(), "claw-server.ts"), "--allow", grouped.claw.join(",")],
       cwd: BACKEND_ROOT, enabled: true, enabled_tools: grouped.claw,
     };
   }
@@ -63,9 +55,15 @@ export function writeBoxCodexConfig(box: string, allowlist?: readonly string[]):
   const dir = path.join(box, ".codex");
   fs.mkdirSync(dir, { recursive: true });
   const specs = mcpServerSpecs(allowlist) as Record<string, {
-    command?: string; args?: string[]; cwd?: string; url?: string;
-    bearer_token_env_var?: string; http_headers?: Record<string, string>;
-    enabled_tools?: string[]; startup_timeout_sec?: number; tool_timeout_sec?: number;
+    command?: string;
+    args?: string[];
+    cwd?: string;
+    url?: string;
+    bearer_token_env_var?: string;
+    http_headers?: Record<string, string>;
+    enabled_tools?: string[];
+    startup_timeout_sec?: number;
+    tool_timeout_sec?: number;
   }>;
   const lines = [
     "# Dify 工具节点 → MCP。Codex 只通过这里读 Starry/Claw。",
@@ -75,16 +73,23 @@ export function writeBoxCodexConfig(box: string, allowlist?: readonly string[]):
   for (const [name, spec] of Object.entries(specs)) {
     lines.push("");
     lines.push(`[mcp_servers.${name}]`);
-    if (spec.command) lines.push(`command = ${tomlStr(spec.command)}`);
-    if (spec.args) lines.push(`args = [${spec.args.map(tomlStr).join(", ")}]`);
-    if (spec.cwd) lines.push(`cwd = ${tomlStr(spec.cwd)}`);
-    if (spec.url) lines.push(`url = ${tomlStr(spec.url)}`);
+    if (spec.command)
+      lines.push(`command = ${tomlStr(spec.command)}`);
+    if (spec.args)
+      lines.push(`args = [${spec.args.map(tomlStr).join(", ")}]`);
+    if (spec.cwd)
+      lines.push(`cwd = ${tomlStr(spec.cwd)}`);
+    if (spec.url)
+      lines.push(`url = ${tomlStr(spec.url)}`);
     if (spec.bearer_token_env_var) {
       lines.push(`bearer_token_env_var = ${tomlStr(spec.bearer_token_env_var)}`);
     }
-    if (spec.enabled_tools) lines.push(`enabled_tools = [${spec.enabled_tools.map(tomlStr).join(", ")}]`);
-    if (spec.startup_timeout_sec) lines.push(`startup_timeout_sec = ${spec.startup_timeout_sec}`);
-    if (spec.tool_timeout_sec) lines.push(`tool_timeout_sec = ${spec.tool_timeout_sec}`);
+    if (spec.enabled_tools)
+      lines.push(`enabled_tools = [${spec.enabled_tools.map(tomlStr).join(", ")}]`);
+    if (spec.startup_timeout_sec)
+      lines.push(`startup_timeout_sec = ${spec.startup_timeout_sec}`);
+    if (spec.tool_timeout_sec)
+      lines.push(`tool_timeout_sec = ${spec.tool_timeout_sec}`);
     lines.push("enabled = true");
     if (spec.http_headers && Object.keys(spec.http_headers).length) {
       lines.push("");
