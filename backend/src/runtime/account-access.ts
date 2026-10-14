@@ -110,8 +110,8 @@ export function copyAccountAccess(input: AccountAccessInput): AccountAccessRepor
     }
     if (apply) {
       const reference = String(binding.bearer_token || "").trim();
-      const secret = reference ? resolveSecretReference(reference, fromId) : "";
-      saveStarryBinding(toId, {
+      const secret = reference ? await resolveSecretReference(reference, fromId) : "";
+      await saveStarryBinding(toId, {
         mailbox_email: mailbox,
         mailbox_id: String(binding.mailbox_id || ""),
         owner_name: String(binding.owner_name || ""),

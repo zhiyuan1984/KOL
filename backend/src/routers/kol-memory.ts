@@ -313,7 +313,7 @@ kolMemory.post("/home/pool/cleanup-missing-homepage", async (c) => {
 kolMemory.get("/home/following", async (c) => {
   c.header("Cache-Control", "no-store");
   const employee = currentMemoryEmployee();
-  const followScope = currentFollowScope();
+  const followScope = await currentFollowScope();
   let snapshot: AuthorizedOwnershipSnapshot | undefined;
   let sourceError = "";
   if (followScope.required && followScope.bound && followScope.status === 'connected') {

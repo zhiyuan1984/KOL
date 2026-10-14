@@ -753,7 +753,7 @@ misc.post("/attachments", async (c) => {
 
 // /cron/risks and /cron/risk-scan live in routers/cron.ts (overdue-scan view / manual run).
 
-misc.get("/me", (c) => {
+misc.get("/me", async (c) => {
   const user = currentUser();
   const appUser = scopedUser();
   return c.json({
@@ -766,11 +766,11 @@ misc.get("/me", (c) => {
       phone: appUser.phone || "",
       roles: appUser.roles,
       available_modes: ["employee", ...(isAdmin(appUser) ? ["admin"] : [])],
-      starry_binding: publicStarryBinding(starryBindingRow(appUser.id)),
+      starry_binding: publicStarryBinding(await starryBindingRow(appUser.id)),
     } : {
       email: appUser ? "" : (user.handle === "lingong" ? "" : DEMO_ADMIN.email),
       ...personaAccess(),
-      starry_binding: currentFollowScope(),
+      starry_binding: await currentFollowScope(),
     }),
   });
 });
@@ -787,7 +787,7 @@ misc.patch("/me", async (c) => {
     if (!unchanged("name") || !unchanged("email") || !unchanged("phone")) {
       throw new HttpFail(403, "enterprise profile fields are managed by your administrator");
     }
-    return c.json({ ...user, starry_binding: publicStarryBinding(starryBindingRow(user.id)) });
+    return c.json({ ...user, starry_binding: publicStarryBinding(await starryBindingRow(user.id)) });
   }
   const name = body.name === undefined ? user.name : String(body.name).trim();
   if (!name) throw new HttpFail(400, "name required");
@@ -796,17 +796,17 @@ misc.patch("/me", async (c) => {
   const phone = body.phone === undefined ? user.phone : (String(body.phone || "").trim() ? normalizePhone(String(body.phone)) : "");
   if (String(body.phone || "").trim() && !looksLikePhone(String(body.phone))) throw new HttpFail(400, "请填写有效手机号");
   getConn().prepare("UPDATE users SET name=?,email=?,phone=?,updated_at=? WHERE id=?").run(name, email, phone, nowIso(), user.id);
-  return c.json({ ...user, name, email, phone, starry_binding: publicStarryBinding(starryBindingRow(user.id)) });
+  return c.json({ ...user, name, email, phone, starry_binding: publicStarryBinding(await starryBindingRow(user.id)) });
 });
 
-misc.get("/me/starry-binding", (c) => {
-  if (authDisabled()) return c.json(currentFollowScope());
+misc.get("/me/starry-binding", async (c) => {
+  if (authDisabled()) return c.json(await currentFollowScope());
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
-  const rows = starryBindingRows(user.id);
+  const rows = await starryBindingRows(user.id);
   return c.json({
     required: true,
-    ...publicStarryBinding(starryBindingRow(user.id)),
+    ...publicStarryBinding(await starryBindingRow(user.id)),
     bindings: rows.map((row) => ({
       mailbox_email: String(row.mailbox_email || ""),
       owner_name: String(row.owner_name || ""),
@@ -853,7 +853,7 @@ misc.post("/me/starry-binding", async (c) => {
   const probed = (await listStarryMailboxes(bearer ? { bearer } : undefined)).map(mailboxFromStarryRow);
   const chosen = probed.find((row) => row.mailbox_email === normalizeEmail(mailboxEmail));
   if (!chosen) throw new HttpFail(422, "请从当前身份可用的邮箱里选择一个");
-  const saved = saveStarryBinding(user.id, {
+  const saved = await saveStarryBinding(user.id, {
     mailbox_email: chosen.mailbox_email,
     mailbox_id: chosen.id || String(body.mailbox_id || ""),
     owner_name: chosen.owner_name,
@@ -865,14 +865,14 @@ misc.post("/me/starry-binding", async (c) => {
 });
 
 misc.delete("/me/starry-binding", async (c) => {
-  if (authDisabled()) return c.json(currentFollowScope());
+  if (authDisabled()) return c.json(await currentFollowScope());
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
   const body = (await c.req.json().catch(() => ({}))) as Json;
   const mailbox = normalizeEmail(
     String(body.mailbox_email || body.mailboxEmail || c.req.query("mailbox_email") || c.req.query("box") || ""),
   );
-  return c.json(clearStarryBinding(user.id, mailbox || undefined));
+  return c.json(await clearStarryBinding(user.id, mailbox || undefined));
 });
 
 misc.post("/me/persona", async (c) => {

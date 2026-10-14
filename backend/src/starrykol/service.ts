@@ -681,7 +681,7 @@ async function call(name: string, args: Json = {}, timeoutMs?: number): Promise<
   const client = clientFactory
     ? clientFactory()
     : createManagedClient("starrykol", scopedUser()?.id || "",
-      scope?.credentialAccountId || (scope?.useBoundCredential === false ? undefined : boundStarryCredentialId(scopedUser()?.id)), timeoutMs);
+      scope?.credentialAccountId || (scope?.useBoundCredential === false ? undefined : await boundStarryCredentialId(scopedUser()?.id)), timeoutMs);
   try {
     return normalizeStarryKolResult(await client.callTool(name, args));
   } catch (error) {
@@ -1073,7 +1073,7 @@ function title(task: StarryKolTask): string {
 
 export async function listStarryMailboxes(opts?: { bearer?: string }): Promise<Json[]> {
   const userId = scopedUser()?.id || "";
-  const credential = opts?.bearer ? createCredential({ type: "user_account", owner_user_id: userId,
+  const credential = opts?.bearer ? await createCredential({ type: "user_account", owner_user_id: userId,
     label: "Starry connection probe", purpose: "Temporary mailbox probe",
     secret: opts.bearer.replace(/^Bearer\s+/i, "") }, userId) : undefined;
   try {
@@ -1082,7 +1082,7 @@ export async function listStarryMailboxes(opts?: { bearer?: string }): Promise<J
     // an otherwise organization-authenticated mail synchronization.
     return rows(await callScope.run({ ...callScope.getStore(), ...(credential ? { credentialAccountId: credential.id } : {}) },
       () => call("pageMailboxes", { pageNo: 1, pageSize: 50 })));
-  } finally { if (credential) deleteCredential(credential.id, credential.version); }
+  } finally { if (credential) await deleteCredential(credential.id, credential.version); }
 }
 
 function rows(data: Json): Json[] {

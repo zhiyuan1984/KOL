@@ -203,7 +203,7 @@ function envValue(name: string): string {
   if (!value) reject("runtime_credential_unavailable", 503);
   return value;
 }
-export function connectorOptions(context: RuntimeContext, config: ConnectorConfig): RemoteMcpOptions {
+export async function connectorOptions(context: RuntimeContext, config: ConnectorConfig): Promise<RemoteMcpOptions> {
   const url = config.url || (config.url_env ? envValue(config.url_env) : "");
   const isMcp = (config.protocol || "mcp") === "mcp";
   // MCP connectors intentionally follow the same direct-fetch path as the
@@ -220,13 +220,13 @@ export function connectorOptions(context: RuntimeContext, config: ConnectorConfi
   for (const [header, env] of Object.entries(config.headers_env || {})) headers[header] = envValue(env);
   if (config.bearer_env) headers.Authorization = `Bearer ${envValue(config.bearer_env)}`;
   for (const [header, credentialId] of Object.entries(config.headers_secret_refs || {})) {
-    headers[header] = resolveSecretReference(credentialId, context.userId);
+    headers[header] = await resolveSecretReference(credentialId, context.userId);
   }
-  if (config.bearer_secret_ref) headers.Authorization = `Bearer ${resolveSecretReference(config.bearer_secret_ref, context.userId)}`;
+  if (config.bearer_secret_ref) headers.Authorization = `Bearer ${await resolveSecretReference(config.bearer_secret_ref, context.userId)}`;
   if (config.credential_provider) {
     if (config.credential_provider === "user-account") {
       if (!config.credential_account_id) reject("runtime_credential_account_required", 409);
-      Object.assign(headers, resolveAccountHeaders(config.credential_account_id, context.userId));
+      Object.assign(headers, await resolveAccountHeaders(config.credential_account_id, context.userId));
     } else reject("runtime_credential_provider_unavailable", 503);
   }
   // Normalize a raw token entered in the administrator Authorization field.
@@ -263,7 +263,7 @@ export function createConfiguredClient(
   config: ConnectorConfig,
   mcpFactory: (options: RemoteMcpOptions) => RuntimeRemote = (options) => new RemoteMcpClient(options),
 ): RuntimeRemote {
-  const options = connectorOptions(context, config);
+  const options = await connectorOptions(context, config);
   if ((config.protocol || "mcp") === "http") return new HttpConnectorClient(httpOptions(options), config);
   return mcpFactory(options);
 }
@@ -337,7 +337,7 @@ export class SkillExecution {
       try {
         const before = authorizeConnector(this.context, connectorId);
         const beforeStamp = authorizationStamp(before);
-        const options = connectorOptions(this.context, before.configuration.config);
+        const options = await connectorOptions(this.context, before.configuration.config);
         client = this.client(this.context, before.configuration.config);
         const remoteTools = await client.listTools();
         assertNoCredentialEcho(remoteTools, options.headers);
@@ -429,11 +429,11 @@ export class SkillExecution {
         return { ...current, policy, toolBinding };
       };
       let authorized = check();
-      const options = connectorOptions(this.context, authorized.configuration.config);
+      const options = await connectorOptions(this.context, authorized.configuration.config);
       const credentialStamp = runtimeHash({ url: options.url, headers: options.headers });
       const guardedCheck = () => {
         const current = check();
-        const currentOptions = connectorOptions(this.context, current.configuration.config);
+        const currentOptions = await connectorOptions(this.context, current.configuration.config);
         if (credentialStamp !== runtimeHash({ url: currentOptions.url, headers: currentOptions.headers })) {
           reject("runtime_credentials_changed", 409);
         }
@@ -558,7 +558,7 @@ export async function inspectConnectorTools(context: RuntimeContext, connectorId
   const connector = getConn().prepare("SELECT id FROM connectors WHERE id=?").get(connectorId) as Row | undefined;
   if (!connector) reject("runtime_connector_not_found", 404);
   if (!configuration) reject("runtime_connector_not_configured", 409);
-  const options = connectorOptions(context, configuration.config);
+  const options = await connectorOptions(context, configuration.config);
   const client = createConfiguredClient(context, configuration.config);
   try {
     const tools = await client.listTools();
