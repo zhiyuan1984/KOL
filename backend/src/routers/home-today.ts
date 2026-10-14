@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { databaseEngine } from "../db.js";
-import { startNativeTodayPlan } from "../postgres/today-plan-repository.js";
+import { startNativeTodayPlan, nativeTodayPlanContext, nativeTodayBriefSnapshot, nativeTodayTaskResults } from "../postgres/today-plan-repository.js";
 import { TASK_MEMORY } from "../host/memory-kinds.js";
 import { ownerId, PLAN_SCOPES, SCOPE_TABLE, packTodayPlanContext, planningRunInput, planningHarnessMount, planningRuntimeIdentity } from "../host/today-plan-context.js";
 import { planTaskType } from "../host/planning-types.js";
@@ -12,9 +12,12 @@ import type { Json } from "../types.js";
 export const homeToday = new Hono();
 
 /** One plan pointer serves both Today and Todo projections. */
-homeToday.get("/workbench/plan", (c) => {
+homeToday.get("/workbench/plan", async (c) => {
   c.header("Cache-Control", "no-store");
-  const snapshot = todayBriefSnapshot(ownerId(), "today");
+  const owner = ownerId();
+  const snapshot = databaseEngine() === "postgres"
+    ? await nativeTodayBriefSnapshot(owner, "today")
+    : todayBriefSnapshot(owner, "today");
   return c.json({
     ...snapshot,
     plan_id: snapshot.work_item_id || null,
@@ -33,7 +36,7 @@ homeToday.post("/workbench/plan-runs", async (c) => {
   }
   const owner = ownerId();
   const started = databaseEngine() === "postgres"
-    ? await startNativeTodayPlan({ owner, taskType: "today_plan", title: "统一工作计划", scope: "today", producer: mode, payload: planningRunInput(packTodayPlanContext(owner, "today"), {}, "today"), extraPayload: { producer: mode }, queuedLabel: "工作计划已入队", progress: [] })
+    ? await startNativeTodayPlan({ owner, taskType: "today_plan", title: "统一工作计划", scope: "today", producer: mode, payload: planningRunInput(await nativeTodayPlanContext(owner, "today"), {}, "today"), extraPayload: { producer: mode }, queuedLabel: "工作计划已入队", progress: [] })
     : startTodayPlan(owner, "today", mode);
   return c.json({
     ...started,
@@ -52,10 +55,14 @@ for (const scope of PLAN_SCOPES) {
   const cfg = SCOPE_TABLE[scope];
 
   /** Cover memory GET. Zero model. Not the display task list. */
-  homeToday.get(`/home/${scope}-brief`, (c) => {
+  homeToday.get(`/home/${scope}-brief`, async (c) => {
     c.header("Cache-Control", "no-store");
+    const owner = ownerId();
+    const snapshot = databaseEngine() === "postgres"
+      ? await nativeTodayBriefSnapshot(owner, scope)
+      : todayBriefSnapshot(owner, scope);
     return c.json({
-      ...todayBriefSnapshot(ownerId(), scope),
+      ...snapshot,
       memory_kind: cfg.memoryKindCover,
       domain: "summary",
       layer: "display",
@@ -63,9 +70,12 @@ for (const scope of PLAN_SCOPES) {
   });
 
   /** Result memory GET: Codex-processed tasks for display. Zero model. */
-  homeToday.get(`/home/${scope}-tasks`, (c) => {
+  homeToday.get(`/home/${scope}-tasks`, async (c) => {
     c.header("Cache-Control", "no-store");
-    const results = loadTodayTaskResults(ownerId(), scope);
+    const owner = ownerId();
+    const results = databaseEngine() === "postgres"
+      ? await nativeTodayTaskResults(owner, scope)
+      : loadTodayTaskResults(owner, scope);
     return c.json({
       memory_kind: cfg.memoryKindResult,
       domain: "task",
@@ -84,7 +94,7 @@ for (const scope of PLAN_SCOPES) {
   homeToday.post(`/home/${scope}-brief/plan`, async (c) => {
     const owner = ownerId();
     const started = databaseEngine() === "postgres"
-      ? await startNativeTodayPlan({ owner, taskType: "today_plan", title: "统一工作计划", scope: "today", producer: "agent_plan", payload: planningRunInput(packTodayPlanContext(owner, "today"), {}, "today"), extraPayload: { producer: "agent_plan" }, queuedLabel: "工作计划已入队", progress: [] })
+      ? await startNativeTodayPlan({ owner, taskType: "today_plan", title: "统一工作计划", scope: "today", producer: "agent_plan", payload: planningRunInput(await nativeTodayPlanContext(owner, "today"), {}, "today"), extraPayload: { producer: "agent_plan" }, queuedLabel: "工作计划已入队", progress: [] })
       : startTodayPlan(owner, scope, "agent_plan");
     return c.json({
       ...started,

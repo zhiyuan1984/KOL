@@ -20,25 +20,37 @@ async function main(): Promise<void> {
   const [
     { createApp },
     { authDisabled },
-    { failStuckPlans },
-    { failInterruptedTaskRuns },
     { credentialVaultReady },
+    { databaseEngine },
     { startStarryHomeLibrarySync },
     { startFollowedMailSync },
   ] = await Promise.all([
     import("./app.js"),
     import("./auth.js"),
-    import("./host/today-brief.js"),
-    import("./host/task-run-recovery.js"),
     import("./runtime/credentials.js"),
+    import("./db.js"),
     import("./starrykol/library-sync.js"),
     import("./starrykol/mail-sync.js"),
   ]);
 
-  const stuck = failStuckPlans("Host 重启时该规划仍在运行");
+  // PostgreSQL is the authority for task-chain recovery. The legacy recovery
+  // modules are never selected merely because the process has restarted.
+  const [stuck, interrupted] = databaseEngine() === "postgres"
+    ? await (async () => {
+        const { failStaleNativePlans, recoverNativeTaskRuns } = await import("./postgres/today-plan-repository.js");
+        return Promise.all([
+          failStaleNativePlans("Host 重启时该规划仍在运行"),
+          recoverNativeTaskRuns("Host 重启时该运行仍在执行"),
+        ]);
+      })()
+    : await (async () => {
+        const [{ failStuckPlans }, { failInterruptedTaskRuns }] = await Promise.all([
+          import("./host/today-brief.js"),
+          import("./host/task-run-recovery.js"),
+        ]);
+        return [failStuckPlans("Host 重启时该规划仍在运行"), failInterruptedTaskRuns("Host 重启时该运行仍在执行")];
+      })();
   if (stuck.length) console.warn(`未完成的规划运行已标记失败：${stuck.join("、")}`);
-
-  const interrupted = failInterruptedTaskRuns("Host 重启时该运行仍在执行");
   if (interrupted.length) console.warn(`中断的任务运行已标记失败：${interrupted.join("、")}`);
 
   if (!authDisabled() && !credentialVaultReady()) {
