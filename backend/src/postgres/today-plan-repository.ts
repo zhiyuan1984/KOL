@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { nid } from "../ids.js";
 import { pgEnqueueExecutionJob } from "../execution-jobs/postgres-store.js";
 import { postgresPool, postgresQuery, postgresTransaction } from "./pool.js";
+import { appendTaskEventIn } from "../task-events.js";
 import type { Json, Row } from "../types.js";
 import type { ClaimedExecutionJob } from "../execution-jobs/contracts.js";
 import { planningRunInput, type PlanScope, type SourceItem, type TodayPlanPack } from "../host/today-plan-context.js";
@@ -69,37 +70,6 @@ function normSourceItem(row: Row, kind: SourceItem["kind"], reason: string, obje
     source: row.source ? String(row.source) : null,
     reason, p0: kind === "formal_task" || kind === "failed_run",
   };
-}
-
-/** Native append-only task fact. Caller owns transaction and target ticket lock. */
-export async function appendNativeTaskEventIn(
-  client: PoolClient, workItemId: string, runId: string | null, eventType: string, label: string, status: string,
-  safeSummary?: string, eventClass: "lifecycle" | "run_trace" | "legacy" = eventType.startsWith("task.") ? "lifecycle" : "run_trace",
-): Promise<Row | null> {
-  const target = await client.query<Row>(
-    `SELECT t.id FROM tickets t
-      WHERE t.id=$1 AND EXISTS (SELECT 1 FROM task_runs r WHERE $2::text IS NULL OR (r.id=$2 AND r.work_item_id=t.id))
-      FOR UPDATE`, [workItemId, runId],
-  );
-  if (!target.rows[0]) return null;
-  if (eventClass !== "lifecycle") {
-    const count = await client.query<{ n: string }>("SELECT COUNT(*)::text AS n FROM task_events WHERE work_item_id=$1", [workItemId]);
-    const max = Math.max(1, Math.floor(Number(process.env.TASK_EVENT_MAX_PER_WORK_ITEM || "5000")));
-    if (Number(count.rows[0]?.n || 0) >= max) return null;
-  }
-  const sequence = await client.query<{ n: string }>("SELECT COALESCE(MAX(sequence),0)::text AS n FROM task_events WHERE work_item_id=$1", [workItemId]);
-  const now = stamp();
-  const row: Row = {
-    id: nid("tev"), work_item_id: workItemId, run_id: runId,
-    sequence: Number(sequence.rows[0]?.n || 0) + 1, event_type: eventType, event_class: eventClass,
-    label: label.slice(0, 160), status, safe_summary: safeSummary?.slice(0, 1000) || null, time: now, created_at: now,
-  };
-  await client.query(
-    `INSERT INTO task_events (id,work_item_id,run_id,sequence,event_type,event_class,label,status,safe_summary,time,created_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)`,
-    [row.id, row.work_item_id, row.run_id, row.sequence, row.event_type, row.event_class, row.label, row.status, row.safe_summary, now],
-  );
-  return row;
 }
 
 /** Aggregate plan source facts directly from PostgreSQL, always tenant (owner) scoped. */
@@ -189,8 +159,8 @@ export async function startNativeTodayPlan(input: NativePlanInput): Promise<Nati
       payload: { owner: input.owner, work_item_id: workItemId, run_id: runId, session_id: sessionId, scope: input.scope, task_payload: input.payload, ...input.extraPayload },
       outbox: { event_type: `${input.taskType === "today_plan" ? "work_plan.run" : "today_analyze.run"}.queued`, aggregate_type: "task_run", aggregate_id: runId, payload: { work_item_id: workItemId, run_id: runId, scope: input.scope } },
     }, { client });
-    await appendNativeTaskEventIn(client, workItemId, runId, "run.queued", input.queuedLabel, "queued", "已通过 PostgreSQL 原子事务持久化等待执行");
-    for (const progress of input.progress || []) await appendNativeTaskEventIn(client, workItemId, runId, "run.progress", progress.label, "queued", progress.summary);
+    await appendTaskEventIn(client, workItemId, runId, "run.queued", input.queuedLabel, "queued", "已通过 PostgreSQL 原子事务持久化等待执行");
+    for (const progress of input.progress || []) await appendTaskEventIn(client, workItemId, runId, "run.progress", progress.label, "queued", progress.summary);
     return { work_item_id: workItemId, session_id: sessionId, run_id: runId, execution_job_id: String(queued.job.id), producer: input.producer, attached: false, planning: true };
   }, { isolation: "SERIALIZABLE" });
 }
@@ -235,7 +205,7 @@ async function nativePlanTerminalIn(client: PoolClient, workItemId: string, runI
   const now = stamp();
   await client.query(`UPDATE task_runs SET status=$1,error=$2,completed_at=$3 WHERE id=$4 AND work_item_id=$5`, [ok ? "completed" : "failed", ok ? null : JSON.stringify({ message: reason || "planning failed" }), now, runId, workItemId]);
   await client.query(`UPDATE tickets SET status=$1,completed_at=$2,updated_at=$2,data_version=data_version+1 WHERE id=$3`, [ok ? "waiting" : "failed", now, workItemId]);
-  await appendNativeTaskEventIn(client, workItemId, runId, ok ? "run.completed" : "run.failed", ok ? "今日规划已完成" : "今日规划失败", ok ? "completed" : "failed", ok ? "真实模型计划结果已写入 PostgreSQL" : String(reason || "planning failed"));
+  await appendTaskEventIn(client, workItemId, runId, ok ? "run.completed" : "run.failed", ok ? "今日规划已完成" : "今日规划失败", ok ? "completed" : "failed", ok ? "真实模型计划结果已写入 PostgreSQL" : String(reason || "planning failed"));
 }
 
 async function nativePlanTerminal(workItemId: string, runId: string, ok: boolean, reason?: string): Promise<void> {
@@ -260,7 +230,7 @@ export async function executeNativeClaimedPlanningJob(claimed: ClaimedExecutionJ
     const now = stamp();
     await client.query("UPDATE task_runs SET status='running',started_at=COALESCE(started_at,$1) WHERE id=$2", [now, runId]);
     await client.query("UPDATE tickets SET status='running',started_at=COALESCE(started_at,$1),updated_at=$1,data_version=data_version+1 WHERE id=$2", [now, workItemId]);
-    await appendNativeTaskEventIn(client, workItemId, runId, "run.started", "开始生成统一工作计划", "running", "PostgreSQL 执行器已领取真实模型作业");
+    await appendTaskEventIn(client, workItemId, runId, "run.started", "开始生成统一工作计划", "running", "PostgreSQL 执行器已领取真实模型作业");
     return { duplicate: false, sessionId };
   });
   if (claimedRun.duplicate) return { work_item_id: workItemId, run_id: runId, duplicate: true };
@@ -339,7 +309,7 @@ export async function recoverNativeTaskRuns(reason: string, olderThanMs = 0): Pr
       const changed = await client.query("UPDATE task_runs SET status='failed',error=$1,completed_at=$2 WHERE id=$3 AND status='running'", [JSON.stringify({ code: "interrupted", message: reason }), now, row.run_id]);
       if (!changed.rowCount) continue;
       await client.query("UPDATE tickets SET status='failed',updated_at=$1,data_version=data_version+1 WHERE id=$2 AND status IN ('running','in_progress','starting')", [now, row.work_item_id]);
-      await appendNativeTaskEventIn(client, String(row.work_item_id), String(row.run_id), "run.failed", "执行被中断", "failed", `${reason}；未产生结果，可重新执行。`);
+      await appendTaskEventIn(client, String(row.work_item_id), String(row.run_id), "run.failed", "执行被中断", "failed", `${reason}；未产生结果，可重新执行。`);
       touched.push(String(row.work_item_id));
     }
     return touched;

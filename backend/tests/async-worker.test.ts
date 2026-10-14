@@ -342,7 +342,7 @@ describe("real Codex HTTP flow", () => {
     process.env.LINGONG_DB = path.join(tmp, "torn-down.db");
     resetConn();
     seedAll();
-    expect(appendTaskEvent(workItemId, runId, "crawl.start_failed", "远程采集启动失败", "failed", "gone")).toBeNull();
-    expect(appendTaskEvent(workItemId, null, "crawl.clarification", "请补充关键词", "needs_clarification")).toBeNull();
+    expect(await appendTaskEvent(workItemId, runId, "crawl.start_failed", "远程采集启动失败", "failed", "gone")).toBeNull();
+    expect(await appendTaskEvent(workItemId, null, "crawl.clarification", "请补充关键词", "needs_clarification")).toBeNull();
   });
 });
