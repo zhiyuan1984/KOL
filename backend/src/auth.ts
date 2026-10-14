@@ -5,6 +5,7 @@ import type { Context, MiddlewareHandler } from "hono";
 import { Hono } from "hono";
 import { audit, getConn, nowIso, tx } from "./db.js";
 import { postgresQuery } from "./postgres/pool.js";
+import { pgConnectorPermissions, pgCreateSession, pgCreateUser, pgDefaultBinding, pgDeleteSession, pgFindUserForLogin, pgUserCount } from "./postgres/auth-pg.js";
 import { examPassed, examTodoCount } from "./exam.js";
 import { HttpFail } from "./host/errors.js";
 import { avatarUrlForUser, canUseSkill, visibleSkillIdsForUser } from "./runtime/organization-tree.js";
@@ -311,10 +312,12 @@ async function permissions(user: AppUser): Promise<Json> {
   const admin = isAdmin(user);
   const now = nowIso();
   const skills = admin ? ["*"] : visibleSkillIdsForUser(user.id);
-  const connectors = Object.fromEntries(
-    (db.prepare("SELECT connector_id, access FROM user_connector_grants WHERE user_id = ?").all(user.id) as Row[])
-      .map((r) => [String(r.connector_id), String(r.access)]),
-  );
+  const connectors = process.env.DATABASE_URL
+    ? await pgConnectorPermissions(user.id)
+    : Object.fromEntries(
+      (db.prepare("SELECT connector_id, access FROM user_connector_grants WHERE user_id = ?").all(user.id) as Row[])
+        .map((r) => [String(r.connector_id), String(r.access)]),
+    );
   const approvalRoles = admin
     ? ["*"]
     : process.env.DATABASE_URL
@@ -331,10 +334,11 @@ async function permissions(user: AppUser): Promise<Json> {
   return { admin, skills, connectors, approval_roles: approvalRoles };
 }
 
-function createSession(c: Context, userId: string): void {
+async function createSession(c: Context, userId: string): Promise<void> {
   const token = randomBytes(32).toString("base64url");
   const expires = new Date(Date.now() + SESSION_DAYS * 86400_000).toISOString();
-  getConn().prepare("INSERT INTO auth_sessions (id_hash,user_id,expires_at,created_at) VALUES (?,?,?,?)")
+  if (process.env.DATABASE_URL) await pgCreateSession(hashToken(token), userId, expires, nowIso());
+  else getConn().prepare("INSERT INTO auth_sessions (id_hash,user_id,expires_at,created_at) VALUES (?,?,?,?)")
     .run(hashToken(token), userId, expires, nowIso());
   setSessionCookie(c, token, SESSION_DAYS * 86400);
 }
@@ -362,10 +366,10 @@ authRouter.get("/auth/status", async (c) => {
       permissions: { demo: true },
     });
   }
-  const count = getConn().prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number };
+  const count = process.env.DATABASE_URL ? await pgUserCount() : Number((getConn().prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number }).n);
   const user = await sessionUser(c);
   return c.json({
-    setup_required: Number(count.n) === 0,
+    setup_required: Number(count) === 0,
     authenticated: Boolean(user),
     user: user ? userPublic(user) : null,
     account: user ? userPublic(user) : null,
@@ -392,15 +396,16 @@ authRouter.post("/auth/setup", async (c) => {
       ? normalizeEmail(rawIdent)
       : (username === DEMO_ADMIN.handle ? DEMO_ADMIN.email : "");
   const phone = looksLikePhone(String(body.phone || rawIdent)) ? normalizePhone(String(body.phone || rawIdent)) : "";
-  getConn().prepare(
-    `INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-  ).run(id, username, name, passwordHash, JSON.stringify(["employee", "admin"]), JSON.stringify(body.brands || ["LT", "RO", "PQ"]),
-    String(body.site || ""), 1, now, now);
-  getConn().prepare("UPDATE users SET email=?, phone=?, updated_at=? WHERE id=?").run(email, phone, now, id);
-  createSession(c, id);
+  const createdRow = process.env.DATABASE_URL
+    ? await pgCreateUser({ id, username, name, passwordHash, brands: (body.brands || ["LT", "RO", "PQ"]) as Json, site: String(body.site || ""), email, phone, now })
+    : (() => {
+      getConn().prepare(`INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`).run(id, username, name, passwordHash, JSON.stringify(["employee", "admin"]), JSON.stringify(body.brands || ["LT", "RO", "PQ"]), String(body.site || ""), 1, now, now);
+      getConn().prepare("UPDATE users SET email=?, phone=?, updated_at=? WHERE id=?").run(email, phone, now, id);
+      return getConn().prepare("SELECT * FROM users WHERE id=?").get(id) as Row;
+    })();
+  await createSession(c, id);
   audit(id, "admin.setup", { user_id: id });
-  const created = userPublic(mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get(id) as Row));
+  const created = userPublic(mapUser(createdRow));
   return c.json({ ok: true, user: created, account: created }, 201);
 });
 
@@ -414,7 +419,7 @@ authRouter.post("/auth/login", async (c) => {
   if (attempt && attempt.resetAt > Date.now() && attempt.count >= 5) {
     throw new HttpFail(429, "too many login attempts; try again later");
   }
-  const row = findUserForLogin(ident);
+  const row = process.env.DATABASE_URL ? await pgFindUserForLogin(ident) : findUserForLogin(ident);
   if (!row || !(await verifyPassword(String(body.password || ""), String(row.password_hash)))) {
     loginAttempts.set(attemptKey, {
       count: attempt && attempt.resetAt > Date.now() ? attempt.count + 1 : 1,
@@ -423,7 +428,7 @@ authRouter.post("/auth/login", async (c) => {
     throw new HttpFail(401, "账号或密码不对");
   }
   loginAttempts.delete(attemptKey);
-  createSession(c, String(row.id));
+  await createSession(c, String(row.id));
   audit(String(row.id), "auth.login", {});
   const { startFollowedMailSync } = await import("./starrykol/mail-sync.js");
   void startFollowedMailSync(true).catch(() => undefined);
@@ -431,9 +436,12 @@ authRouter.post("/auth/login", async (c) => {
   return c.json({ ok: true, user: loggedIn, account: loggedIn });
 });
 
-authRouter.post("/auth/logout", (c) => {
+authRouter.post("/auth/logout", async (c) => {
   const token = cookies(c)[COOKIE];
-  if (token) getConn().prepare("DELETE FROM auth_sessions WHERE id_hash = ?").run(hashToken(token));
+  if (token) {
+    if (process.env.DATABASE_URL) await pgDeleteSession(hashToken(token));
+    else getConn().prepare("DELETE FROM auth_sessions WHERE id_hash = ?").run(hashToken(token));
+  }
   setSessionCookie(c, "", 0);
   return c.json({ ok: true });
 });
