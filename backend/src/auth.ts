@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import type { Context, MiddlewareHandler } from "hono";
 import { Hono } from "hono";
 import { audit, getConn, nowIso, tx } from "./db.js";
-import { pgConnectorPermissions, pgCreateSession, pgCreateUser, pgDefaultBinding, pgDeleteSession, pgFindUserForLogin, pgUserCount } from "./postgres/auth-pg.js";
+import { pgApprovalRoles, pgAudit, pgAvatarUrlForUser, pgConnectorAccess, pgConnectorPermissions, pgCreateSession, pgCreateUser, pgDefaultBinding, pgDeleteSession, pgFindUserForLogin, pgUserCanUseSkill, pgUserCount, pgVisibleSkillIdsForUser } from "./postgres/auth-pg.js";
 import { pgUpdatePasswordAndRevokeSessions } from "./postgres/organization-repository.js";
 import { postgresQuery } from "./postgres/pool.js";
 import { examPassed, examTodoCount } from "./exam.js";
@@ -39,6 +39,10 @@ export type AppUser = {
   exam_passed: boolean;
   exam_todo_count: number;
   exam_module: string;
+  /** Request-scoped native authority snapshot. Never serialize these fields. */
+  authority_skills?: string[];
+  authority_connectors?: Record<string, string>;
+  authority_approval_roles?: string[];
 };
 
 const requestUser = new AsyncLocalStorage<AppUser>();
@@ -248,6 +252,16 @@ function setSessionCookie(c: Context, token: string, maxAge: number): void {
   );
 }
 
+async function hydrateNativeAuthority(user: AppUser): Promise<AppUser> {
+  const now = nowIso();
+  const [authority_skills, authority_connectors, authority_approval_roles] = await Promise.all([
+    pgVisibleSkillIdsForUser(user.id, now),
+    pgConnectorPermissions(user.id),
+    pgApprovalRoles(user.id, now),
+  ]);
+  return { ...user, authority_skills, authority_connectors, authority_approval_roles };
+}
+
 async function sessionUser(c: Context): Promise<AppUser | undefined> {
   const token = cookies(c)[COOKIE];
   if (!token) return undefined;
@@ -256,7 +270,7 @@ async function sessionUser(c: Context): Promise<AppUser | undefined> {
       WHERE s.id_hash = $1 AND s.expires_at > $2 AND u.active = 1`,
     [hashToken(token), nowIso()],
   );
-  return row ? mapUser(row) : undefined;
+  return row ? hydrateNativeAuthority(mapUser(row)) : undefined;
 }
 
 function publicPath(path: string): boolean {
@@ -287,11 +301,12 @@ export const authMiddleware: MiddlewareHandler = async (c, next) => {
   return user ? requestUser.run(user, next) : next();
 };
 
-function userPublic(user: AppUser): Json {
-  const bind = getConn().prepare("SELECT mailbox_email,mailbox_id,owner_name,status,bearer_token,updated_at FROM user_starry_bindings WHERE user_id=? AND is_default=1 ORDER BY updated_at ASC, mailbox_email ASC LIMIT 1").get(user.id) as Row | undefined;
+async function userPublic(user: AppUser): Promise<Json> {
+  const [bind, avatar_url] = await Promise.all([pgDefaultBinding(user.id), pgAvatarUrlForUser(user.id)]);
+  const { authority_skills: _skills, authority_connectors: _connectors, authority_approval_roles: _approvalRoles, ...publicUser } = user;
   return {
-    ...user,
-    avatar_url: avatarUrlForUser(user.id),
+    ...publicUser,
+    avatar_url,
     email: user.email || (user.username.includes("@") ? user.username : ""),
     phone: user.phone || "",
     available_modes: ["employee", ...(isAdmin(user) ? ["admin"] : [])],
@@ -310,30 +325,14 @@ function userPublic(user: AppUser): Json {
 }
 
 async function permissions(user: AppUser): Promise<Json> {
-  const db = getConn();
   const admin = isAdmin(user);
   const now = nowIso();
-  const skills = admin ? ["*"] : visibleSkillIdsForUser(user.id);
-  const connectors = process.env.DATABASE_URL
-    ? await pgConnectorPermissions(user.id)
-    : Object.fromEntries(
-      (db.prepare("SELECT connector_id, access FROM user_connector_grants WHERE user_id = ?").all(user.id) as Row[])
-        .map((r) => [String(r.connector_id), String(r.access)]),
-    );
-  const approvalRoles = admin
-    ? ["*"]
-    : process.env.DATABASE_URL
-      ? (await postgresQuery<{ approval_role: string }>(
-          "SELECT approval_role FROM approval_role_bindings WHERE user_id=$1 AND (valid_from IS NULL OR valid_from <= $2) AND (valid_to IS NULL OR valid_to > $2)",
-          [user.id, now],
-        )).map((r) => String(r.approval_role))
-      : (db.prepare(
-          "SELECT approval_role FROM approval_role_bindings WHERE user_id = ? " +
-          "AND (valid_from IS NULL OR valid_from <= ?) " +
-          "AND (valid_to IS NULL OR valid_to >= ?)"
-        ).all(user.id, now, now) as Row[])
-        .map((r) => String(r.approval_role));
-  return { admin, skills, connectors, approval_roles: approvalRoles };
+  const [skills, connectors, approvalRoles] = await Promise.all([
+    user.authority_skills ? Promise.resolve(user.authority_skills) : pgVisibleSkillIdsForUser(user.id, now),
+    user.authority_connectors ? Promise.resolve(user.authority_connectors) : pgConnectorPermissions(user.id),
+    user.authority_approval_roles ? Promise.resolve(user.authority_approval_roles) : pgApprovalRoles(user.id, now),
+  ]);
+  return { admin, skills: admin ? ["*"] : skills, connectors, approval_roles: admin ? ["*"] : approvalRoles };
 }
 
 async function createSession(c: Context, userId: string): Promise<void> {
@@ -373,8 +372,8 @@ authRouter.get("/auth/status", async (c) => {
   return c.json({
     setup_required: Number(count) === 0,
     authenticated: Boolean(user),
-    user: user ? userPublic(user) : null,
-    account: user ? userPublic(user) : null,
+    user: user ? await userPublic(user) : null,
+    account: user ? await userPublic(user) : null,
     available_modes: user ? ["employee", ...(isAdmin(user) ? ["admin"] : [])] : [],
     permissions: user ? await permissions(user) : {},
   });
@@ -406,8 +405,8 @@ authRouter.post("/auth/setup", async (c) => {
       return getConn().prepare("SELECT * FROM users WHERE id=?").get(id) as Row;
     })();
   await createSession(c, id);
-  audit(id, "admin.setup", { user_id: id });
-  const created = userPublic(mapUser(createdRow));
+  await pgAudit(id, "admin.setup", { user_id: id }, now);
+  const created = await userPublic(await hydrateNativeAuthority(mapUser(createdRow)));
   return c.json({ ok: true, user: created, account: created }, 201);
 });
 
@@ -431,10 +430,10 @@ authRouter.post("/auth/login", async (c) => {
   }
   loginAttempts.delete(attemptKey);
   await createSession(c, String(row.id));
-  audit(String(row.id), "auth.login", {});
+  await pgAudit(String(row.id), "auth.login", {}, nowIso());
   const { startFollowedMailSync } = await import("./starrykol/mail-sync.js");
   void startFollowedMailSync(true).catch(() => undefined);
-  const loggedIn = userPublic(mapUser(row));
+  const loggedIn = await userPublic(await hydrateNativeAuthority(mapUser(row)));
   return c.json({ ok: true, user: loggedIn, account: loggedIn });
 });
 
@@ -463,7 +462,7 @@ authRouter.post("/auth/password", async (c) => {
     db.prepare("DELETE FROM auth_sessions WHERE user_id=?").run(user.id);
   });
   setSessionCookie(c, "", 0);
-  audit(user.id, "auth.password_changed", {});
+  await pgAudit(user.id, "auth.password_changed", {}, nowIso());
   return c.json({ ok: true, reauthenticate: true });
 });
 
@@ -472,19 +471,20 @@ export function requireSkill(skillId: string): void {
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
   if (isAdmin(user)) return;
-  if (!canUseSkill(user.id, skillId)) throw new HttpFail(403, { code: "agent_not_usable", skill_id: skillId });
+  // Middleware loads this directly from PostgreSQL for each request. A missing
+  // snapshot (e.g. a background invocation) is deliberately denied, never
+  // recovered through retired user_skill_grants or the synchronous bridge.
+  if (!user.authority_skills?.includes(skillId)) throw new HttpFail(403, { code: "agent_not_usable", skill_id: skillId });
 }
 
 export function requireConnector(connectorId: string, access: "read" | "write" | "admin"): void {
   if (authDisabled()) return;
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
-  const connector = getConn().prepare("SELECT enabled FROM connectors WHERE id=?").get(connectorId) as Row | undefined;
-  if (!connector || !connector.enabled) throw new HttpFail(403, { code: "connector_disabled", connector_id: connectorId });
-  const grant = getConn().prepare("SELECT access FROM user_connector_grants WHERE user_id=? AND connector_id=?")
-    .get(user.id, connectorId) as { access: string } | undefined;
+  const grant = user.authority_connectors?.[connectorId];
   const levels = { read: 1, write: 2, admin: 3 };
-  if (!grant || levels[grant.access as keyof typeof levels] < levels[access]) {
+  if (!grant) throw new HttpFail(403, { code: "connector_not_granted", connector_id: connectorId, access });
+  if (levels[grant as keyof typeof levels] < levels[access]) {
     throw new HttpFail(403, { code: "connector_not_granted", connector_id: connectorId, access });
   }
 }
@@ -494,17 +494,9 @@ export function requireStageWrite(): void {
   if (authDisabled()) return;
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
-  const actual = getConn().prepare("SELECT enabled FROM connectors WHERE id='starrykol'").get() as Row | undefined;
-  if (!actual?.enabled) throw new HttpFail(403, { code: "connector_disabled", connector_id: "starrykol" });
   const levels = { read: 1, write: 2, admin: 3 };
-  const granted = (id: string) => {
-    const connector = getConn().prepare("SELECT enabled FROM connectors WHERE id=?").get(id) as Row | undefined;
-    if (!connector || !connector.enabled) return false;
-    const grant = getConn().prepare("SELECT access FROM user_connector_grants WHERE user_id=? AND connector_id=?")
-      .get(user.id, id) as { access: string } | undefined;
-    return Boolean(grant && levels[grant.access as keyof typeof levels] >= levels.write);
-  };
-  if (granted("starrykol") || granted("starry")) return;
+  const grants = user.authority_connectors || {};
+  if ((["starrykol", "starry"] as const).some((id) => levels[(grants[id] || "") as keyof typeof levels] >= levels.write)) return;
   throw new HttpFail(403, { code: "connector_not_granted", connector_id: "starrykol", access: "write" });
 }
 
@@ -513,13 +505,7 @@ export function approvalRoles(): string[] {
   const user = scopedUser();
   if (!user) return [];
   if (isAdmin(user)) return ["*"];
-  const now = nowIso();
-  return (getConn().prepare(
-    "SELECT approval_role FROM approval_role_bindings WHERE user_id=? " +
-    "AND (valid_from IS NULL OR valid_from <= ?) " +
-    "AND (valid_to IS NULL OR valid_to >= ?)"
-  ).all(user.id, now, now) as Row[])
-    .map((r) => String(r.approval_role));
+  return user.authority_approval_roles || [];
 }
 
 export function tokenDigest(token: string): string {

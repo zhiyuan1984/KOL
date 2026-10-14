@@ -62,3 +62,106 @@ export async function pgDefaultBinding(userId: string): Promise<Row | undefined>
   );
   return row;
 }
+
+export async function pgVisibleSkillIdsForUser(userId: string, now: string): Promise<string[]> {
+  const skills = await postgresQuery<{ skill_id: string }>(
+    "SELECT DISTINCT skill_id FROM runtime_agent_skills WHERE enabled=1 ORDER BY skill_id",
+  );
+  const checks = await Promise.all(skills.map(async ({ skill_id }) =>
+    (await pgUserCanUseSkill(userId, skill_id, now)) ? skill_id : null,
+  ));
+  return checks.filter((id): id is string => Boolean(id));
+}
+
+/**
+ * Agent is the sole skill-eligibility anchor. This query intentionally never
+ * consults retired user_skill_grants. It evaluates the active account, managed
+ * Agent publication, binding validity, company equality and organization tree
+ * coverage in the same PostgreSQL snapshot, failing closed on missing facts.
+ */
+export async function pgUserCanUseSkill(userId: string, skillId: string, now: string): Promise<boolean> {
+  const [row] = await postgresQuery<{ allowed: boolean }>(
+    `WITH RECURSIVE bindings AS (
+       SELECT b.agent_id,b.target_type,b.target_id,b.company_id
+       FROM agent_bindings b
+       JOIN managed_agents a ON a.id=b.agent_id AND a.status='published'
+       JOIN runtime_agent_skills s ON s.agent_id=b.agent_id AND s.skill_id=$2 AND s.enabled=1
+       WHERE b.status='active'
+         AND (b.effective_from IS NULL OR b.effective_from <= $3)
+         AND (b.effective_to IS NULL OR b.effective_to > $3)
+     ), covered_units AS (
+       SELECT b.agent_id,b.company_id,u.id,u.parent_id,u.head_person_ref
+       FROM bindings b JOIN organization_units u
+         ON b.target_type='organization_unit' AND u.id=b.target_id
+        AND u.company_id=b.company_id AND u.status='active'
+       UNION ALL
+       SELECT cu.agent_id,cu.company_id,child.id,child.parent_id,child.head_person_ref
+       FROM covered_units cu JOIN organization_units child
+         ON child.parent_id=cu.id AND child.company_id=cu.company_id AND child.status='active'
+     ), ancestor_units AS (
+       SELECT b.agent_id,b.company_id,u.id,u.parent_id,u.head_person_ref
+       FROM bindings b JOIN organization_units u
+         ON b.target_type='organization_unit' AND u.id=b.target_id
+        AND u.company_id=b.company_id AND u.status='active'
+       UNION ALL
+       SELECT au.agent_id,au.company_id,parent.id,parent.parent_id,parent.head_person_ref
+       FROM ancestor_units au JOIN organization_units parent
+         ON parent.id=au.parent_id AND parent.company_id=au.company_id AND parent.status='active'
+     )
+     SELECT EXISTS(
+       SELECT 1
+       FROM users account
+       JOIN organization_people person ON person.user_id=account.id AND person.status='active'
+       JOIN bindings b ON true
+       LEFT JOIN organization_memberships membership
+         ON membership.person_ref=person.person_ref AND membership.company_id=b.company_id
+        AND membership.status='active'
+        AND (membership.effective_from IS NULL OR membership.effective_from <= $3)
+        AND (membership.effective_to IS NULL OR membership.effective_to > $3)
+       LEFT JOIN covered_units covered ON covered.agent_id=b.agent_id AND covered.company_id=b.company_id
+       LEFT JOIN ancestor_units ancestor ON ancestor.agent_id=b.agent_id AND ancestor.company_id=b.company_id
+       WHERE account.id=$1 AND account.active=1 AND (
+         (b.target_type='person' AND b.target_id=person.person_ref)
+         OR (b.target_type='organization_unit' AND membership.org_unit_id=covered.id)
+         OR (b.target_type='organization_unit' AND person.person_ref=covered.head_person_ref)
+         OR (b.target_type='organization_unit' AND person.person_ref=ancestor.head_person_ref)
+       )
+     ) AS allowed`,
+    [userId, skillId, now],
+  );
+  return Boolean(row?.allowed);
+}
+
+export async function pgApprovalRoles(userId: string, now: string): Promise<string[]> {
+  const rows = await postgresQuery<{ approval_role: string }>(
+    `SELECT approval_role FROM approval_role_bindings
+     WHERE user_id=$1 AND (valid_from IS NULL OR valid_from <= $2)
+       AND (valid_to IS NULL OR valid_to > $2)`,
+    [userId, now],
+  );
+  return rows.map((row) => String(row.approval_role));
+}
+
+export async function pgAvatarUrlForUser(userId: string): Promise<string | null> {
+  const [row] = await postgresQuery<{ avatar_url: string | null }>(
+    "SELECT to_jsonb(person)->>'avatar_url' AS avatar_url FROM organization_people person WHERE user_id=$1 AND status='active' ORDER BY updated_at DESC NULLS LAST, person_ref LIMIT 1",
+    [userId],
+  );
+  return row?.avatar_url || null;
+}
+export async function pgConnectorAccess(userId: string, connectorId: string): Promise<{ enabled: boolean; access: string | null }> {
+  const [row] = await postgresQuery<{ enabled: boolean; access: string | null }>(
+    `SELECT c.enabled, g.access FROM connectors c
+     LEFT JOIN user_connector_grants g ON g.connector_id=c.id AND g.user_id=$1
+     WHERE c.id=$2`,
+    [userId, connectorId],
+  );
+  return { enabled: Boolean(row?.enabled), access: row?.access || null };
+}
+
+export async function pgAudit(actor: string, eventType: string, payload: Json, now: string): Promise<void> {
+  await postgresQuery(
+    "INSERT INTO audit_events (ts,actor,event_type,payload) VALUES ($1,$2,$3,$4)",
+    [now, actor, eventType, JSON.stringify(payload)],
+  );
+}

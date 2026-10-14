@@ -4064,8 +4064,17 @@ host.post("/sessions/:sid/messages", async (c) => {
       draft: null,
     });
   }
+  // Submit-time PEP: a named intent may not silently bypass an unavailable
+  // Agent. `authority_skills` is refreshed from native PostgreSQL in the auth
+  // middleware for every request, so binding revoke/expiry takes effect now.
+  const requestedSkill = String(intent.skill || intent.type || "");
+  const submittingUser = scopedUser();
+  if (!authDisabled() && submittingUser && !isAdmin(submittingUser)
+    && (!requestedSkill || !submittingUser.authority_skills?.includes(requestedSkill))) {
+    throw new HttpFail(400, "未授权该技能");
+  }
   // Historical unauthenticated stub fixtures do not execute a harness. Real or identified runs always validate the selected pair.
-  const unscopedFixture = isTestRuntime() && codexMode() === "stub" && !scopedUser() && !body.agent_id;
+  const unscopedFixture = isTestRuntime() && codexMode() === "stub" && !submittingUser && !body.agent_id;
   let selectedAgent: string | undefined;
   let agent: ReturnType<typeof managedAgent> | null = null;
   try {
