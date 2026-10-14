@@ -669,7 +669,7 @@ misc.get("/admin/skills/:id/metrics", (c) => {
 });
 misc.post("/login", async (c) => {
   const body = (await c.req.json()) as { username?: string; password?: string };
-  const result = login(String(body.username || ""), String(body.password || ""));
+  const result = await login(String(body.username || ""), String(body.password || ""));
   void startFollowedMailSync(true).catch(() => undefined);
   return c.json(result);
 });

@@ -6,16 +6,16 @@ import { isDemoAdminIdentifier } from "./identity.js";
 
 const AUTH_KEY = "auth_handle";
 
-export function login(username: string, password: string): {
+export async function login(username: string, password: string): Promise<{
   ok: true;
   name: string;
   handle: string;
   role: "product_manager";
-} {
+}> {
   const u = String(username || "").trim();
   const p = String(password || "");
   if (u.toLowerCase() === "test") throw new HttpFail(401, "账号不存在");
-  const nameOk = isDemoAdminIdentifier(u) || findUserForLogin(u)?.username === DEMO_ADMIN.handle;
+  const nameOk = isDemoAdminIdentifier(u) || (await findUserForLogin(u))?.username === DEMO_ADMIN.handle;
   if (!nameOk || p !== DEMO_ADMIN.password) throw new HttpFail(401, "账号或密码不对");
   getConn().prepare("INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)").run(AUTH_KEY, DEMO_ADMIN.handle);
   audit(DEMO_ADMIN.handle, "auth.login", { name: DEMO_ADMIN.name });

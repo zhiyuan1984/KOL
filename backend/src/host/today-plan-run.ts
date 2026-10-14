@@ -313,14 +313,14 @@ export async function executeTodayPlanRun(input: {
       appendTaskEvent(input.workItemId, input.runId, "run.phase", "整理优先级与今日范围", "running", `${input.pack.now_counts.unfinished} 项正式任务，来源增量 ${input.pack.delta.added.length} 项`);
       appendTaskEvent(input.workItemId, input.runId, "run.phase", "生成统一任务视图", "running", "今日任务与我的待办共享同一份计划结果");
       const brief = withHostDisplayTasks(hostFastBrief(input.pack), input.pack);
-      const written = writeTodayBriefArtifact({
+      const written = (await writeTodayBriefArtifact({
         owner: input.owner,
         workItemId: input.workItemId,
         runId: input.runId,
         brief,
         scope,
         producer: input.producer || "deterministic_organize",
-      });
+      }));
       appendTaskEvent(input.workItemId, input.runId, "run.phase", "校验输出", "running", written.ok ? `${input.pack.now_counts.unfinished} 项任务展示覆盖完整` : written.reason);
       if (!written.ok) {
         markTodayPlanFailed(input.workItemId, input.runId, written.reason);
@@ -369,14 +369,14 @@ export async function executeTodayPlanRun(input: {
       appendTaskEvent(input.workItemId, input.runId, "run.failed", copy.invalid, "failed", reason);
       return { ok: false, reason };
     }
-    const written = writeTodayBriefArtifact({
+    const written = (await writeTodayBriefArtifact({
       owner: input.owner,
       workItemId: input.workItemId,
       runId: input.runId,
       brief,
       scope,
       producer: input.producer || "agent_plan",
-    });
+    }));
     if (!written.ok) {
       markTodayPlanFailed(input.workItemId, input.runId, written.reason);
       trace.finish(true);
@@ -447,11 +447,11 @@ function enqueuePlanningExecution(input: {
   return String(queued.job.id);
 }
 
-export function startTodayPlan(
+export async function startTodayPlan(
   owner = ownerId(),
   scope: PlanScope = "today",
   producer: "deterministic_organize" | "agent_plan" = "deterministic_organize",
-): PlanningStart {
+): Promise<PlanningStart> {
   const canonicalScope: PlanScope = "today";
   const existing = runningTodayPlan(owner, canonicalScope);
   if (existing?.session_id && existing.run_id) {
@@ -471,7 +471,7 @@ export function startTodayPlan(
   const copy = PLAN_EMPLOYEE_EVENTS[canonicalScope];
   const taskType = planTaskType(canonicalScope);
   const title = "统一工作计划";
-  const pack = packTodayPlanContext(owner, canonicalScope);
+  const pack = (await packTodayPlanContext(owner, canonicalScope));
   const payload = planningRunInput(pack, {}, canonicalScope);
   const identity = planningRuntimeIdentity(taskType);
   const created = tx((db) => {
@@ -655,7 +655,7 @@ export async function executeClaimedPlanningJob(claimed: ClaimedExecutionJob): P
   return workItemId;
 }
 
-export function todayBriefSnapshot(owner = ownerId(), scope: PlanScope = "today"): Json {
+export async function todayBriefSnapshot(owner = ownerId(), scope: PlanScope = "today"): Promise<Json> {
   const running = runningTodayPlan(owner, scope);
   const latest = getConn().prepare(
     `SELECT artifact_id, work_item_id FROM ${briefPointerTable(scope)} WHERE owner_user_id=?`,
@@ -677,7 +677,7 @@ export function todayBriefSnapshot(owner = ownerId(), scope: PlanScope = "today"
   let sourceLookupFailed = false;
   if (brief) {
     try {
-      currentRevision = String(packTodayPlanContext(owner, scope).source_cursor?.cursor_to || "");
+      currentRevision = String((await packTodayPlanContext(owner, scope)).source_cursor?.cursor_to || "");
     } catch {
       // Keep the last successful snapshot, but never represent an unverified
       // source read as fresh.

@@ -5,7 +5,7 @@ import { postgresPool, postgresQuery, postgresTransaction } from "./pool.js";
 import { appendTaskEventIn } from "../task-events.js";
 import type { Json, Row } from "../types.js";
 import type { ClaimedExecutionJob } from "../execution-jobs/contracts.js";
-import { planningRunInput, type PlanScope, type SourceItem, type TodayPlanPack } from "../host/today-plan-context.js";
+import { packTodayPlanContext, planningRunInput, type PlanScope, type SourceItem, type TodayPlanPack } from "../host/today-plan-context.js";
 import { runWorker } from "../worker/runner.js";
 
 export type NativePlanStart = {
@@ -74,53 +74,7 @@ function normSourceItem(row: Row, kind: SourceItem["kind"], reason: string, obje
 
 /** Aggregate plan source facts directly from PostgreSQL, always tenant (owner) scoped. */
 export async function nativeTodayPlanContext(owner: string, scope: PlanScope = "today"): Promise<TodayPlanPack> {
-  const [tickets, failedRuns, correspondence, followPlans, stages, pointerRows] = await Promise.all([
-    postgresQuery<Row>(`SELECT id,task_type,title,source,status,priority,collaboration_id,updated_at,due_at,start_date,risk_level,promoted_at,dismissed_at
-      FROM tickets WHERE owner_user_id=$1 AND deleted_at IS NULL ORDER BY updated_at DESC`, [owner]),
-    postgresQuery<Row>(`SELECT r.id AS run_id,r.work_item_id,r.status,r.completed_at,r.created_at,w.title AS work_title,w.collaboration_id,w.task_type
-      FROM task_runs r JOIN tickets w ON w.id=r.work_item_id
-      WHERE w.owner_user_id=$1 AND r.status='failed' AND w.task_type NOT IN ('today_plan','todo_plan','today_analyze') ORDER BY r.created_at DESC`, [owner]),
-    postgresQuery<Row>(`SELECT id,title,status,collaboration_id,updated_at,priority,due_at,start_date,risk_level,source
-      FROM tickets WHERE owner_user_id=$1 AND deleted_at IS NULL AND task_type IN ('email_compose','reply_analysis','email_conversation_read') ORDER BY updated_at DESC`, [owner]),
-    postgresQuery<Row>(`SELECT id,title,status,collaboration_id,updated_at,priority,due_at,start_date,risk_level,source
-      FROM tickets WHERE owner_user_id=$1 AND deleted_at IS NULL AND (task_type IN ('creator_outreach','email_compose') OR title LIKE '%跟进%') ORDER BY updated_at DESC`, [owner]),
-    postgresQuery<Row>("SELECT stage_code FROM collaborations"),
-    postgresQuery<Row>(`SELECT a.payload FROM ${pointerTable(scope)} p JOIN task_artifacts a ON a.id=p.artifact_id WHERE p.owner_user_id=$1`, [owner]),
-  ]);
-  const isOpen = (r: Row) => !["completed", "done", "cancelled", "stopped"].includes(String(r.status || ""));
-  const formal = tickets.filter((r) => !["today_plan", "todo_plan", "today_analyze"].includes(String(r.task_type)) && isOpen(r)
-    && !((String(r.source) === "ai" || String(r.source) === "discovery") && !r.promoted_at))
-    .map((r) => normSourceItem(r, "formal_task", String(r.status) === "failed" ? "执行失败" : "未了结正式任务"));
-  const failed = failedRuns.map((r) => normSourceItem({ ...r, id: r.run_id, status: "failed" }, "failed_run", "运行失败", "run"));
-  const mail = correspondence.filter(isOpen).map((r) => normSourceItem(r, "correspondence", "往来待办"));
-  const follows = followPlans.filter((r) => isOpen(r) && r.collaboration_id).map((r) => normSourceItem(r, "follow_plan", "跟进计划", "person"));
-  const seen = new Set<string>();
-  let catalog = [...formal, ...failed, ...follows, ...mail].filter((item) => !seen.has(item.id) && (seen.add(item.id), true));
-  if (scope === "todo") {
-    const todayIds = new Set(tickets.filter((r) => String(r.task_type) === "today_task").map((r) => String(r.id)));
-    catalog = catalog.filter((item) => item.kind !== "formal_task" || !todayIds.has(String(item.work_item_id)));
-  }
-  const stageCounts = { greet: 0, follow: 0, quote: 0, negotiate: 0 };
-  for (const row of stages) {
-    const stage = String(row.stage_code || "").toUpperCase();
-    if (stage === "INITIAL_CONTACT") stageCounts.greet += 1;
-    else if (stage === "INTERESTED") stageCounts.follow += 1;
-    else if (stage === "QUOTE_PENDING") stageCounts.quote += 1;
-    else if (stage === "NEGOTIATING") stageCounts.negotiate += 1;
-  }
-  const previous = asJson(pointerRows[0]?.payload, {});
-  const oldCursor = asJson(previous.source_cursor, {});
-  const oldIds = new Set([...(asArray(oldCursor.added)), ...(asArray(oldCursor.unchanged))].map(String));
-  const added = oldCursor.cursor_to ? catalog.filter((item) => !oldIds.has(item.id)).slice(0, 40) : [...catalog].slice(0, 40);
-  const unchanged = oldCursor.cursor_to ? catalog.filter((item) => oldIds.has(item.id)) : [];
-  const ids = catalog.map((item) => item.id);
-  const cursor = { cursor_from: oldCursor.cursor_to ? String(oldCursor.cursor_to) : null, cursor_to: sourceCursor(ids, stageCounts), added: added.map((x) => x.id), removed: [...oldIds].filter((id) => !ids.includes(id)), unchanged: unchanged.map((x) => x.id) };
-  return {
-    history: { unfinished_tasks: formal, previous_brief: pointerRows[0] ? previous : null, source_cursor: oldCursor.cursor_to ? { cursor_from: oldCursor.cursor_from ? String(oldCursor.cursor_from) : null, cursor_to: String(oldCursor.cursor_to), added: asArray(oldCursor.added).map(String), removed: asArray(oldCursor.removed).map(String), unchanged: asArray(oldCursor.unchanged).map(String) } : null },
-    delta: { added, removed: cursor.removed.map((id) => ({ id, kind: "formal_task" as const, title: id, status: "removed", object_type: "task" as const, person_id: null, p0: true })), unchanged },
-    now_counts: { unfinished: formal.length, discovery_anomalies: 0, failed_runs: failed.length, follow_plans: follows.length, correspondence: mail.length, follow_timers: 0, anomalies: 0 },
-    stage_counts: stageCounts, source_cursor: cursor, catalog,
-  };
+  return packTodayPlanContext(owner, scope);
 }
 
 async function activePlanIn(client: PoolClient, owner: string): Promise<NativePlanStart | null> {

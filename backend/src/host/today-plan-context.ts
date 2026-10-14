@@ -1,5 +1,5 @@
 import { DEMO_USER } from "../config.js";
-import { getConn } from "../db.js";
+import { postgresQuery } from "../postgres/pool.js";
 import { taskDefinition } from "../tasks/registry.js";
 import type { Json, Row } from "../types.js";
 import { authDisabled, isAdmin, scopedUser } from "../auth.js";
@@ -12,7 +12,7 @@ import {
   type PlanScope,
   type ScopeConfig,
 } from "./planning-types.js";
-import { threadsByCollaborationIds } from "../starrykol/mail-sync.js";
+
 import { normalizeStage } from "../stages.js";
 
 export {
@@ -188,13 +188,11 @@ export function trimAdded(items: SourceItem[], cap = PLANNING_MAX_ADDED): Source
 }
 
 const PLAN_TICKET_COLUMNS = "id,task_type,title,source,status,priority,collaboration_id,updated_at,due_at,start_date,risk_level,promoted_at,dismissed_at";
-function collectFormalTasks(owner: string): SourceItem[] {
+async function collectFormalTasks(owner: string): Promise<SourceItem[]> {
   // Never hydrate task input/results into the plan pack. Production history can
   // hold multi-MB artifacts; this read needs only fields used for membership,
   // priority and display. A narrow projection keeps freshness checks reliable.
-  const rows = getConn().prepare(
-    `SELECT ${PLAN_TICKET_COLUMNS} FROM tickets WHERE owner_user_id=? ORDER BY updated_at DESC`,
-  ).all(owner) as Row[];
+  const rows = (await postgresQuery<Row>(`SELECT ${PLAN_TICKET_COLUMNS} FROM tickets WHERE owner_user_id=$1 ORDER BY updated_at DESC`, [owner])) as Row[];
   return rows.filter((row) => {
     if (isPlanningWorkItem(row)) return false;
     if (!isOpenWorkItem(row)) return false;
@@ -221,17 +219,15 @@ function collectFormalTasks(owner: string): SourceItem[] {
   }));
 }
 
-function collectFailedRuns(owner: string): SourceItem[] {
-  const planningPlaceholders = PLANNING_TASK_TYPES.map(() => "?").join(",");
-  const rows = getConn().prepare(
-    `SELECT r.id,r.work_item_id,r.status,r.completed_at,r.created_at,
+async function collectFailedRuns(owner: string): Promise<SourceItem[]> {
+
+  const rows = (await postgresQuery<Row>(`SELECT r.id,r.work_item_id,r.status,r.completed_at,r.created_at,
             w.title AS work_title,w.collaboration_id,w.task_type
        FROM task_runs r
        JOIN tickets w ON w.id = r.work_item_id
-      WHERE w.owner_user_id=? AND r.status='failed'
-        AND w.task_type NOT IN (${planningPlaceholders})
-      ORDER BY r.created_at DESC`,
-  ).all(owner, ...PLANNING_TASK_TYPES) as Row[];
+      WHERE w.owner_user_id=$1 AND r.status='failed'
+        AND NOT (w.task_type=ANY($2::text[]))
+      ORDER BY r.created_at DESC`, [owner, PLANNING_TASK_TYPES])) as Row[];
   return rows.map((row) => ({
     id: `run:${row.id}`,
     kind: "failed_run" as const,
@@ -247,17 +243,13 @@ function collectFailedRuns(owner: string): SourceItem[] {
   }));
 }
 
-function collectDiscoveryAnomalies(owner: string): SourceItem[] {
-  const requests = getConn().prepare(
-    "SELECT id,latest_run_id,status,keywords,platforms,updated_at FROM discovery_requests WHERE owner_user_id=? ORDER BY updated_at DESC",
-  ).all(owner) as Row[];
+async function collectDiscoveryAnomalies(owner: string): Promise<SourceItem[]> {
+  const requests = (await postgresQuery<Row>("SELECT id,latest_run_id,status,keywords,platforms,updated_at FROM discovery_requests WHERE owner_user_id=$1 ORDER BY updated_at DESC", [owner])) as Row[];
   const out: SourceItem[] = [];
   for (const request of requests) {
     const latest = request.latest_run_id
-      ? getConn().prepare("SELECT id,status,candidate_count,platform,updated_at FROM discovery_runs WHERE id=?").get(request.latest_run_id) as Row | undefined
-      : getConn().prepare(
-          "SELECT id,status,candidate_count,platform,updated_at FROM discovery_runs WHERE request_id=? ORDER BY created_at DESC LIMIT 1",
-        ).get(request.id) as Row | undefined;
+      ? (await postgresQuery<Row>("SELECT id,status,candidate_count,platform,updated_at FROM discovery_runs WHERE id=$1", [request.latest_run_id]))[0] as Row | undefined
+      : (await postgresQuery<Row>("SELECT id,status,candidate_count,platform,updated_at FROM discovery_runs WHERE request_id=$1 ORDER BY created_at DESC LIMIT 1", [request.id]))[0] as Row | undefined;
     if (!latest) continue;
     const status = String(latest.status || request.status || "");
     const candidateCount = Number(latest.candidate_count || 0);
@@ -284,12 +276,10 @@ function collectDiscoveryAnomalies(owner: string): SourceItem[] {
   return out;
 }
 
-function collectCorrespondence(owner: string): SourceItem[] {
-  const rows = getConn().prepare(
-    `SELECT ${PLAN_TICKET_COLUMNS} FROM tickets
-      WHERE owner_user_id=? AND task_type IN ('email_compose','reply_analysis','email_conversation_read')
-      ORDER BY updated_at DESC`,
-  ).all(owner) as Row[];
+async function collectCorrespondence(owner: string): Promise<SourceItem[]> {
+  const rows = (await postgresQuery<Row>(`SELECT ${PLAN_TICKET_COLUMNS} FROM tickets
+      WHERE owner_user_id=$1 AND task_type IN ('email_compose','reply_analysis','email_conversation_read')
+      ORDER BY updated_at DESC`, [owner])) as Row[];
   return rows.filter((row) => isOpenWorkItem(row) && !isPlanningWorkItem(row)).map((row) => ({
     id: `mail:${row.id}`,
     kind: "correspondence" as const,
@@ -304,15 +294,13 @@ function collectCorrespondence(owner: string): SourceItem[] {
   }));
 }
 
-function collectFollowPlans(owner: string): SourceItem[] {
-  const rows = getConn().prepare(
-    `SELECT ${PLAN_TICKET_COLUMNS} FROM tickets
-      WHERE owner_user_id=? AND (
+async function collectFollowPlans(owner: string): Promise<SourceItem[]> {
+  const rows = (await postgresQuery<Row>(`SELECT ${PLAN_TICKET_COLUMNS} FROM tickets
+      WHERE owner_user_id=$1 AND (
         task_type IN ('creator_outreach','email_compose')
         OR title LIKE '%跟进%'
       )
-      ORDER BY updated_at DESC`,
-  ).all(owner) as Row[];
+      ORDER BY updated_at DESC`, [owner])) as Row[];
   return rows.filter((row) => isOpenWorkItem(row) && !isPlanningWorkItem(row) && row.collaboration_id).map((row) => ({
     id: `follow:${row.id}`,
     kind: "follow_plan" as const,
@@ -327,12 +315,18 @@ function collectFollowPlans(owner: string): SourceItem[] {
   }));
 }
 
-function collectFollowTimersAndAnomalies(): { timers: SourceItem[]; anomalies: SourceItem[] } {
-  const collabs = getConn().prepare(
-    "SELECT * FROM collaborations WHERE kol_uid IS NOT NULL AND trim(kol_uid) != ''",
-  ).all() as Row[];
+async function collectFollowTimersAndAnomalies(): Promise<{ timers: SourceItem[]; anomalies: SourceItem[] }> {
+  const collabs = (await postgresQuery<Row>("SELECT * FROM collaborations WHERE kol_uid IS NOT NULL AND trim(kol_uid) != ''", [])) as Row[];
   const ids = collabs.map((row) => String(row.id));
-  const mailByCollab = threadsByCollaborationIds(ids);
+  const mailRows = ids.length ? await postgresQuery<Row>(
+    "SELECT collaboration_id,last_at FROM kol_mail_threads WHERE collaboration_id=ANY($1::text[]) ORDER BY last_at DESC,updated_at DESC", [ids],
+  ) : [];
+  const mailByCollab = new Map<string, Row[]>();
+  for (const thread of mailRows) {
+    const id = String(thread.collaboration_id);
+    const list = mailByCollab.get(id) || [];
+    list.push(thread); mailByCollab.set(id, list);
+  }
   const timers: SourceItem[] = [];
   const anomalies: SourceItem[] = [];
   for (const row of collabs) {
@@ -371,28 +365,26 @@ function collectFollowTimersAndAnomalies(): { timers: SourceItem[]; anomalies: S
   return { timers, anomalies };
 }
 
-function filterTodoCatalog(catalog: SourceItem[]): SourceItem[] {
+async function filterTodoCatalog(catalog: SourceItem[]): Promise<SourceItem[]> {
   const formalIds = catalog
     .filter((item) => item.kind === "formal_task" && item.work_item_id)
     .map((item) => String(item.work_item_id));
   if (!formalIds.length) return catalog.filter((item) => item.kind !== "formal_task");
-  const placeholders = formalIds.map(() => "?").join(",");
-  const rows = getConn().prepare(
-    `SELECT * FROM tickets WHERE id IN (${placeholders})`,
-  ).all(...formalIds) as Row[];
+
+  const rows = (await postgresQuery<Row>(`SELECT * FROM tickets WHERE id=ANY($1::text[])`, [formalIds])) as Row[];
   const todayIds = new Set(rows.filter((row) => isTodayWorkItem(row)).map((row) => String(row.id)));
   return catalog.filter((item) => item.kind !== "formal_task" || !todayIds.has(String(item.work_item_id)));
 }
 
-const CATALOG_FILTERS: Record<PlanScope, (catalog: SourceItem[]) => SourceItem[]> = {
+const CATALOG_FILTERS: Record<PlanScope, (catalog: SourceItem[]) => SourceItem[] | Promise<SourceItem[]>> = {
   today: (catalog) => catalog,
   todo: filterTodoCatalog,
 };
 
 /** Four actionable cooperation stages from the creator_daily_tasks Skill. */
-export function collectStageCounts(): TodayPlanPack["stage_counts"] {
+export async function collectStageCounts(): Promise<TodayPlanPack["stage_counts"]> {
   const counts = { greet: 0, follow: 0, quote: 0, negotiate: 0 };
-  const rows = getConn().prepare("SELECT stage_code FROM collaborations").all() as Row[];
+  const rows = (await postgresQuery<Row>("SELECT stage_code FROM collaborations", [])) as Row[];
   for (const row of rows) {
     const stage = normalizeStage(String(row.stage_code || ""));
     if (stage === "INITIAL_CONTACT") counts.greet += 1;
@@ -403,13 +395,13 @@ export function collectStageCounts(): TodayPlanPack["stage_counts"] {
   return counts;
 }
 
-export function collectSourceCatalog(owner = ownerId(), scope: PlanScope = "today"): SourceItem[] {
-  const formal = collectFormalTasks(owner);
-  const discovery = collectDiscoveryAnomalies(owner);
-  const failed = collectFailedRuns(owner);
-  const correspondence = collectCorrespondence(owner);
-  const followPlans = collectFollowPlans(owner);
-  const extra = collectFollowTimersAndAnomalies();
+export async function collectSourceCatalog(owner = ownerId(), scope: PlanScope = "today"): Promise<SourceItem[]> {
+  const formal = (await collectFormalTasks(owner));
+  const discovery = (await collectDiscoveryAnomalies(owner));
+  const failed = (await collectFailedRuns(owner));
+  const correspondence = (await collectCorrespondence(owner));
+  const followPlans = (await collectFollowPlans(owner));
+  const extra = (await collectFollowTimersAndAnomalies());
   const seen = new Set<string>();
   const out: SourceItem[] = [];
   for (const item of [...formal, ...discovery, ...failed, ...followPlans, ...correspondence, ...extra.timers, ...extra.anomalies]) {
@@ -457,12 +449,10 @@ export function diffCatalog(current: SourceItem[], previous: SourceCursor | null
   };
 }
 
-export function loadLatestTodayBrief(owner = ownerId(), scope: PlanScope = "today"): { brief: Json | null; artifact_id: string | null; work_item_id: string | null } {
-  const pointer = getConn().prepare(
-    `SELECT artifact_id, work_item_id FROM ${briefPointerTable(scope)} WHERE owner_user_id=?`,
-  ).get(owner) as { artifact_id: string; work_item_id: string } | undefined;
+export async function loadLatestTodayBrief(owner = ownerId(), scope: PlanScope = "today"): Promise<{ brief: Json | null; artifact_id: string | null; work_item_id: string | null }> {
+  const pointer = (await postgresQuery<Row>(`SELECT artifact_id, work_item_id FROM ${briefPointerTable(scope)} WHERE owner_user_id=$1`, [owner]))[0] as { artifact_id: string; work_item_id: string } | undefined;
   if (pointer) {
-    const row = getConn().prepare("SELECT payload FROM task_artifacts WHERE id=?").get(pointer.artifact_id) as
+    const row = (await postgresQuery<Row>("SELECT payload FROM task_artifacts WHERE id=$1", [pointer.artifact_id]))[0] as
       | { payload: string }
       | undefined;
     if (row) {
@@ -470,23 +460,21 @@ export function loadLatestTodayBrief(owner = ownerId(), scope: PlanScope = "toda
       return { brief: payload, artifact_id: pointer.artifact_id, work_item_id: pointer.work_item_id };
     }
   }
-  const latest = getConn().prepare(
-    `SELECT a.id, a.payload, a.work_item_id
+  const latest = (await postgresQuery<Row>(`SELECT a.id, a.payload, a.work_item_id
        FROM task_artifacts a
        JOIN tickets w ON w.id = a.work_item_id
-      WHERE w.owner_user_id=? AND a.artifact_type='today_brief' AND w.task_type=?
-      ORDER BY a.created_at DESC LIMIT 1`,
-  ).get(owner, planTaskType(scope)) as { id: string; payload: string; work_item_id: string } | undefined;
+      WHERE w.owner_user_id=$1 AND a.artifact_type='today_brief' AND w.task_type=$2
+      ORDER BY a.created_at DESC LIMIT 1`, [owner, planTaskType(scope)]))[0] as { id: string; payload: string; work_item_id: string } | undefined;
   if (!latest) return { brief: null, artifact_id: null, work_item_id: null };
   return { brief: parseJson(latest.payload), artifact_id: latest.id, work_item_id: latest.work_item_id };
 }
 
-export function packTodayPlanContext(owner = ownerId(), scope: PlanScope = "today"): TodayPlanPack {
-  const latest = loadLatestTodayBrief(owner, scope);
+export async function packTodayPlanContext(owner = ownerId(), scope: PlanScope = "today"): Promise<TodayPlanPack> {
+  const latest = (await loadLatestTodayBrief(owner, scope));
   const previousCursor = sourceCursorFromBrief(latest.brief);
-  const catalog = collectSourceCatalog(owner, scope);
+  const catalog = (await collectSourceCatalog(owner, scope));
   const diff = diffCatalog(catalog, previousCursor);
-  const stageCounts = collectStageCounts();
+  const stageCounts = (await collectStageCounts());
   // Collaboration stages do not appear as catalog items. Fold the compact
   // count fingerprint into the revision so a changed stage distribution makes
   // an existing brief stale instead of presenting it as source-verified.

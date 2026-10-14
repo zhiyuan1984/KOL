@@ -12,7 +12,9 @@ import {
   tokenDigest,
 } from "../auth.js";
 import type { AppUser } from "../auth.js";
-import { audit, databaseEngine, getConn, nowIso, tx } from "../db.js";
+import { nowIso } from "../db.js";
+import { postgresPool, postgresQuery, postgresTransaction } from "../postgres/pool.js";
+import { pgAudit } from "../postgres/auth-pg.js";
 import { HttpFail } from "../host/errors.js";
 import { uploadsDir } from "../host/attachments.js";
 import { SKILL_CATALOG } from "../host/skills-catalog.js";
@@ -52,10 +54,10 @@ enterprise.use("/sessions/:sid",async (c,next) => {
   await next();
 });
 
-function connectorProbeVerified(id: string, version: number): boolean {
+async function connectorProbeVerified(id: string, version: number): Promise<boolean> {
   try {
-    const probe = getConn().prepare(`SELECT status, probe_kind, config_version FROM runtime_connector_probes
-      WHERE connector_id=? ORDER BY id DESC LIMIT 1`).get(id) as Row | undefined;
+    const probe = (await postgresPool().query<Row>(`SELECT status, probe_kind, config_version FROM runtime_connector_probes
+      WHERE connector_id=$1 ORDER BY id DESC LIMIT 1`, [id])).rows[0] as Row | undefined;
     return probe?.status === "succeeded" && ["mcp_tools_list", "http_definition"].includes(String(probe.probe_kind))
       && Number(probe.config_version) === version;
   } catch {
@@ -83,101 +85,12 @@ function pathBytes(target: string): number {
   }
 }
 
-async function safeUser(row: Row): Promise<Json> {
-  const { password_hash: _password, ...rest } = row;
-  const db = getConn();
-  const avatarUrl = (await avatarUrlForUser(String(row.id)));
-  const person = db.prepare("SELECT person_ref,email,employee_no FROM organization_people WHERE user_id=?")
-    .get(row.id) as { person_ref?: string; email?: string | null; employee_no?: string | null } | undefined;
-  const mailboxCount = db.prepare("SELECT COUNT(*) AS n FROM user_starry_bindings WHERE user_id=?")
-    .get(row.id) as Row;
-  const kolCount = db.prepare("SELECT COUNT(*) AS n FROM kol_follow_index WHERE employee_id=? AND status='active'")
-    .get(row.id) as Row;
-  const memberships = person?.person_ref
-    ? db.prepare("SELECT org_unit_id,relation FROM organization_memberships WHERE person_ref=? AND status='active' ORDER BY relation DESC, org_unit_id")
-      .all(person.person_ref) as { org_unit_id: string; relation: string }[]
-    : [];
-  return {
-    ...rest,
-    avatar_url: avatarUrl,
-    email: String(row.email || person?.email || (String(row.username).includes("@") ? row.username : "")),
-    person_ref: person?.person_ref || null,
-    org_unit_ids: memberships.map((membership) => membership.org_unit_id),
-    primary_org_unit_id: memberships.find((membership) => membership.relation === "primary")?.org_unit_id || null,
-    employee_no: person?.employee_no || null,
-    status: row.active ? "active" : "disabled",
-    roles: parseJson(row.roles, []),
-    brands: parseJson(row.brands, []),
-    active: Boolean(row.active),
-    skill_grants: (db.prepare("SELECT skill_id FROM user_skill_grants WHERE user_id=?").all(row.id) as Row[])
-      .map((grant) => String(grant.skill_id)),
-    approval_roles: (db.prepare("SELECT approval_role,role_kind,valid_from,valid_to FROM approval_role_bindings WHERE user_id=?").all(row.id) as Row[])
-      .map((grant) => ({
-        role: String(grant.approval_role),
-        kind: String(grant.role_kind || APPROVAL_ROLE_KINDS[String(grant.approval_role)] || "position"),
-        valid_from: grant.valid_from ? String(grant.valid_from) : null,
-        valid_to: grant.valid_to ? String(grant.valid_to) : null,
-      })),
-    mailbox_count: Number(mailboxCount?.n || 0),
-    kol_count: Number(kolCount?.n || 0),
-  };
-}
-
-function userById(id: string): Row {
-  const row = getConn().prepare("SELECT * FROM users WHERE id=?").get(id) as Row | undefined;
+async function safeUser(row: Row): Promise<Json> { return pgEnterpriseAccount(String(row.id)); }
+async function userById(id: string): Promise<Row> {
+  const row = await pgUserById(id);
   if (!row) throw new HttpFail(404, "user not found");
   return row;
 }
-
-/** Management-only business binding projection; the Starry bearer is never selected. */
-async function employeeContext(row: Row): Promise<Json> {
-  const db = getConn();
-  const mailboxes = (db.prepare(
-    `SELECT mailbox_email,mailbox_id,owner_name,status,is_default,updated_at,synced_at,last_error
-       FROM user_starry_bindings
-      WHERE user_id=?
-      ORDER BY is_default DESC, updated_at DESC, mailbox_email COLLATE NOCASE`,
-  ).all(row.id) as Row[]).map((binding) => ({
-    mailbox_email: String(binding.mailbox_email || ""),
-    mailbox_id: binding.mailbox_id ? String(binding.mailbox_id) : null,
-    owner_name: String(binding.owner_name || ""),
-    status: String(binding.status || "unbound"),
-    is_default: Boolean(binding.is_default),
-    updated_at: binding.updated_at ? String(binding.updated_at) : null,
-    synced_at: binding.synced_at ? String(binding.synced_at) : null,
-    last_error: binding.last_error ? String(binding.last_error) : null,
-  }));
-  const kols = (db.prepare(
-    `SELECT f.id,f.kol_uid,f.scope_brand,f.claimed_at,
-            COALESCE(p.display_name,c.display_name,f.kol_uid) AS display_name,
-            COALESCE(c.stage_code,p.public_stage,'') AS stage_code,
-            c.owner_mailbox AS mailbox_email
-       FROM kol_follow_index f
-       LEFT JOIN kol_profile_index p ON p.company_id=f.company_id AND p.kol_uid=f.kol_uid
-       LEFT JOIN collaborations c ON c.id=f.collaboration_id
-      WHERE f.employee_id=? AND f.status='active'
-      ORDER BY f.claimed_at DESC, f.kol_uid`,
-  ).all(row.id) as Row[]).map((kol) => ({
-    id: String(kol.id || ""),
-    kol_uid: String(kol.kol_uid || ""),
-    display_name: String(kol.display_name || kol.kol_uid || ""),
-    scope_brand: String(kol.scope_brand || ""),
-    stage_code: String(kol.stage_code || ""),
-    mailbox_email: kol.mailbox_email ? String(kol.mailbox_email) : null,
-    claimed_at: kol.claimed_at ? String(kol.claimed_at) : null,
-  }));
-  return { user: (await safeUser(row)), avatar_url: (await avatarUrlForUser(String(row.id))), mailboxes, kols };
-}
-
-/** Direct employee capability grants are backed by the same PEP table used at runtime. */
-function employeeTools(row: Row): Json {
-  const granted = new Set(
-    (getConn().prepare("SELECT skill_id FROM user_skill_grants WHERE user_id=?").all(row.id) as Row[])
-      .map((grant) => String(grant.skill_id)),
-  );
-  return projectEmployeeTools(granted);
-}
-
 function projectEmployeeTools(granted: Set<string>): Json {
   return {
     tools: SKILL_CATALOG
@@ -198,12 +111,8 @@ function projectEmployeeTools(granted: Set<string>): Json {
 async function connectorRuntimeFacts(connectorId: string): Promise<{ protocol: "mcp" | "http"; approved_tool_count: number }> {
   try {
     (await ensureRuntimeSchema());
-    const stored = getConn().prepare(
-      "SELECT config_json FROM runtime_connector_config WHERE connector_id=?",
-    ).get(connectorId) as Row | undefined;
-    const declared = (getConn().prepare(
-      "SELECT declared_protocol FROM connectors WHERE id=?",
-    ).get(connectorId) as Row | undefined)?.declared_protocol;
+    const stored = (await postgresPool().query<Row>("SELECT config_json FROM runtime_connector_config WHERE connector_id=$1", [connectorId])).rows[0] as Row | undefined;
+    const declared = ((await postgresPool().query<Row>("SELECT declared_protocol FROM connectors WHERE id=$1", [connectorId])).rows[0] as Row | undefined)?.declared_protocol;
     let protocol: "mcp" | "http" = "mcp";
     try {
       const config = stored ? JSON.parse(String(stored.config_json)) as Row | null : null;
@@ -212,9 +121,7 @@ async function connectorRuntimeFacts(connectorId: string): Promise<{ protocol: "
     } catch {
       protocol = "mcp";
     }
-    const approved = getConn().prepare(
-      "SELECT COUNT(*) AS n FROM runtime_tool_policies WHERE connector_id=? AND enabled=1",
-    ).get(connectorId) as Row | undefined;
+    const approved = (await postgresPool().query<Row>("SELECT COUNT(*) AS n FROM runtime_tool_policies WHERE connector_id=$1 AND enabled=1", [connectorId])).rows[0] as Row | undefined;
     return { protocol, approved_tool_count: Number(approved?.n || 0) };
   } catch {
     return { protocol: "mcp", approved_tool_count: 0 };
@@ -322,19 +229,15 @@ function settingsBrandCode(value: unknown, definitions = settingsBrandDefinition
 async function settingsOrganization(user: AppUser): Promise<SettingsOrganization> {
   // Ensures the organization tables exist before direct, bounded lookup queries.
   (await listOrganizationUnits());
-  const db = getConn();
-  const person = db.prepare(
-    "SELECT person_ref,display_name,email,employee_no,status FROM organization_people WHERE user_id=? AND status='active'",
-  ).get(user.id) as { person_ref: string; display_name: string; email: string | null; employee_no: string | null } | undefined;
+  const db = postgresPool();
+  const person = (await db.query<Row>("SELECT person_ref,display_name,email,employee_no,status FROM organization_people WHERE user_id=$1 AND status='active'", [user.id])).rows[0] as { person_ref: string; display_name: string; email: string | null; employee_no: string | null } | undefined;
   if (!person) return { managed: false, membership_unit_ids: [] };
   const now = nowIso();
-  const memberships = db.prepare(
-    `SELECT company_id,org_unit_id,position,relation FROM organization_memberships
-      WHERE person_ref=? AND status='active'
-        AND (effective_from IS NULL OR effective_from<=?)
-        AND (effective_to IS NULL OR effective_to>?)
-      ORDER BY CASE relation WHEN 'primary' THEN 0 ELSE 1 END, org_unit_id`,
-  ).all(person.person_ref, now, now) as Array<{ company_id: string; org_unit_id: string; position: string | null; relation: string }>;
+  const memberships = (await db.query<Row>(`SELECT company_id,org_unit_id,position,relation FROM organization_memberships
+      WHERE person_ref=$1 AND status='active'
+        AND (effective_from IS NULL OR effective_from<=$2)
+        AND (effective_to IS NULL OR effective_to>$3)
+      ORDER BY CASE relation WHEN 'primary' THEN 0 ELSE 1 END, org_unit_id`, [person.person_ref, now, now])).rows as Array<{ company_id: string; org_unit_id: string; position: string | null; relation: string }>;
   const primary = memberships.find((membership) => membership.relation === "primary") || memberships[0];
   return {
     managed: true,
@@ -348,7 +251,7 @@ async function settingsOrganization(user: AppUser): Promise<SettingsOrganization
   };
 }
 
-function settingsAuthorizedBrands(user: AppUser, organization: SettingsOrganization, definitions = settingsBrandDefinitions()): string[] {
+async function settingsAuthorizedBrands(user: AppUser, organization: SettingsOrganization, definitions = settingsBrandDefinitions()): Promise<string[]> {
   // Reuse the existing sender PEP first; organization scope can only narrow it, never broaden it.
   const senderAllowed = new Set(allowedFromMailboxes(user, null).map((row) => row.brand));
   if (!organization.managed || !organization.person) return definitions
@@ -360,34 +263,25 @@ function settingsAuthorizedBrands(user: AppUser, organization: SettingsOrganizat
     .map((brand) => brand.code)
     .filter((code) => senderAllowed.has(code));
 
-  const db = getConn();
+  const db = postgresPool();
   const now = nowIso();
   const unitIds = organization.membership_unit_ids;
-  const predicates = ["(subject_type='person' AND subject_id=?)"];
-  const values: unknown[] = [organization.person.person_ref];
-  if (unitIds.length) {
-    predicates.push(`(subject_type='organization_unit' AND subject_id IN (${unitIds.map(() => "?").join(",")}))`);
-    values.push(...unitIds);
-  }
-  const rows = db.prepare(
-    `SELECT brand_id FROM scope_memberships
-      WHERE status='active' AND brand_id IS NOT NULL
-        AND (effective_from IS NULL OR effective_from<=?)
-        AND (effective_to IS NULL OR effective_to>?)
-        AND (${predicates.join(" OR ")})`,
-  ).all(now, now, ...values) as Array<{ brand_id: string | null }>;
+  const rows = await postgresQuery<{ brand_id: string | null }>(
+    `SELECT brand_id FROM scope_memberships WHERE status='active' AND brand_id IS NOT NULL
+      AND (effective_from IS NULL OR effective_from<=$1) AND (effective_to IS NULL OR effective_to>$1)
+      AND ((subject_type='person' AND subject_id=$2) OR (subject_type='organization_unit' AND subject_id=ANY($3::text[])))`,
+    [now, organization.person.person_ref, unitIds],
+  );
   const scoped = new Set(rows.map((row) => settingsBrandCode(row.brand_id, definitions)).filter((code): code is string => Boolean(code)));
   return definitions.map((brand) => brand.code).filter((code) => senderAllowed.has(code) && scoped.has(code));
 }
 
-function settingsMailboxes(user: AppUser, definitions = settingsBrandDefinitions()): SettingsMailbox[] {
-  const rows = getConn().prepare(
-    `SELECT b.mailbox_email,b.mailbox_id,b.status,b.is_default,o.brand AS owner_brand,o.status AS owner_status
+async function settingsMailboxes(user: AppUser, definitions = settingsBrandDefinitions()): Promise<SettingsMailbox[]> {
+  const rows = (await postgresPool().query<Row>(`SELECT b.mailbox_email,b.mailbox_id,b.status,b.is_default,o.brand AS owner_brand,o.status AS owner_status
        FROM user_starry_bindings b
        LEFT JOIN mailbox_owners o ON lower(o.email)=lower(b.mailbox_email)
-      WHERE b.user_id=?
-      ORDER BY b.is_default DESC,b.updated_at ASC,b.mailbox_email COLLATE NOCASE`,
-  ).all(user.id) as Array<Row>;
+      WHERE b.user_id=$1
+      ORDER BY b.is_default DESC,b.updated_at ASC,lower(b.mailbox_email)`, [user.id])).rows as Array<Row>;
   return rows.map((row) => {
     const email = String(row.mailbox_email || "").trim().toLowerCase();
     const brand = settingsBrandCode(row.owner_brand, definitions) || "";
@@ -448,8 +342,7 @@ async function settingsProfile(user: AppUser, organization: SettingsOrganization
     unit = unit.parent_id ? byId.get(unit.parent_id) : undefined;
   }
   // Department heads establish organization authority but are not necessarily a direct manager.
-  const manager = getConn().prepare("SELECT name FROM users WHERE id=(SELECT manager_user_id FROM users WHERE id=?)")
-    .get(user.id) as { name?: string } | undefined;
+  const manager = (await postgresPool().query<Row>("SELECT name FROM users WHERE id=(SELECT manager_user_id FROM users WHERE id=$1)", [user.id])).rows[0] as { name?: string } | undefined;
   return {
     name: organization.managed ? organization.person?.display_name || "" : user.name,
     email: organization.managed ? organization.person?.email || "" : user.email || "",
@@ -466,9 +359,9 @@ async function settingsProfile(user: AppUser, organization: SettingsOrganization
 async function settingsContext(user: AppUser): Promise<Json> {
   const definitions = settingsBrandDefinitions();
   const organization = (await settingsOrganization(user));
-  const authorizedBrands = settingsAuthorizedBrands(user, organization, definitions);
-  const mailboxes = settingsMailboxes(user, definitions);
-  const preferenceRow = getConn().prepare("SELECT * FROM user_preferences WHERE user_id=?").get(user.id) as Row | undefined;
+  const authorizedBrands = (await settingsAuthorizedBrands(user, organization, definitions));
+  const mailboxes = (await settingsMailboxes(user, definitions));
+  const preferenceRow = (await postgresPool().query<Row>("SELECT * FROM user_preferences WHERE user_id=$1", [user.id])).rows[0] as Row | undefined;
   return {
     profile: (await settingsProfile(user, organization)),
     brands: definitions.filter((brand) => authorizedBrands.includes(brand.code)).map((brand) => ({ id: brand.code, label: brand.label })),
@@ -503,8 +396,8 @@ enterprise.get("/admin/organization-people", async (c) => {
 
 enterprise.get("/admin/users", async () => {
   requireAdmin();
-  if (process.env.DATABASE_URL) return Response.json(await pgEnterpriseAccounts());
-  return Response.json((getConn().prepare("SELECT * FROM users ORDER BY created_at").all() as Row[]).map(safeUser));
+  return Response.json(await pgEnterpriseAccounts());
+
 });
 
 enterprise.post("/admin/users", async (c) => {
@@ -519,40 +412,37 @@ enterprise.post("/admin/users", async (c) => {
   const id = nid("usr");
   const now = nowIso();
   const passwordHash = await hashPassword(String(body.password || ""));
-  const created = process.env.DATABASE_URL
-    ? await pgCreateOrganizationUser({ id, username, name: String(body.name || username), passwordHash, roles: roles(body.roles || ["employee"]), brands: Array.isArray(body.brands) ? body.brands.map(String) : [], site: unitId, position: String(body.position || ""), managerUserId: body.manager_user_id ? String(body.manager_user_id) : null, active: body.active !== false, email: String(body.email || ""), phone: String(body.phone || ""), now })
-    : null;
-  if (process.env.DATABASE_URL) { if (unitId) await pgSyncOrganizationMembership(id, unitId, now); audit(admin.id, "admin.user.create", { user_id: id }); return c.json({ ...created, password_hash: undefined }, 201); }
-  getConn().prepare(`INSERT INTO users (id,username,name,password_hash,roles,brands,site,position,manager_user_id,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, username, String(body.name || username), passwordHash, JSON.stringify(roles(body.roles || ["employee"])), JSON.stringify(body.brands || []), unitId, String(body.position || ""), body.manager_user_id || null, body.active === false ? 0 : 1, now, now);
-  (await syncUserOrganization(id, unitId)); audit(admin.id, "admin.user.create", { user_id: id }); return c.json((await safeUser(userById(id))), 201);
+  const created = await pgCreateOrganizationUser({ id, username, name: String(body.name || username), passwordHash, roles: roles(body.roles || ["employee"]), brands: Array.isArray(body.brands) ? body.brands.map(String) : [], site: unitId, position: String(body.position || ""), managerUserId: body.manager_user_id ? String(body.manager_user_id) : null, active: body.active !== false, email: String(body.email || ""), phone: String(body.phone || ""), now });
+  if (unitId) await pgSyncOrganizationMembership(id, unitId, now);
+await pgAudit(admin.id, "admin.user.create", { user_id: id }, nowIso());
+return c.json({ ...created, password_hash: undefined }, 201);
+
 });
 
 enterprise.get("/admin/users/:uid", async (c) => {
   requireAdmin();
-  if (process.env.DATABASE_URL) return c.json(await pgEnterpriseAccount(c.req.param("uid")));
-  return c.json((await safeUser(userById(c.req.param("uid")))));
+  return c.json(await pgEnterpriseAccount(c.req.param("uid")));
+
 });
 
 enterprise.get("/admin/users/:uid/context", async (c) => {
   requireAdmin();
-  if (process.env.DATABASE_URL) return c.json(await pgEnterpriseEmployeeContext(c.req.param("uid")));
-  return c.json((await employeeContext(userById(c.req.param("uid")))));
+  return c.json(await pgEnterpriseEmployeeContext(c.req.param("uid")));
+
 });
 
 enterprise.get("/admin/users/:uid/tools", async (c) => {
   requireAdmin();
-  if (process.env.DATABASE_URL) {
-    const row = await pgEnterpriseAccount(c.req.param("uid"));
-    const granted = new Set(Array.isArray(row.skill_grants) ? row.skill_grants.map(String) : []);
-    return c.json(projectEmployeeTools(granted));
-  }
-  return c.json(employeeTools(userById(c.req.param("uid"))));
+  const row = await pgEnterpriseAccount(c.req.param("uid"));
+const granted = new Set(Array.isArray(row.skill_grants) ? row.skill_grants.map(String) : []);
+return c.json(projectEmployeeTools(granted));
+
 });
 
 enterprise.patch("/admin/users/:uid", async (c) => {
   const admin = requireAdmin();
   const uid = c.req.param("uid");
-  const before = userById(uid);
+  const before = (await userById(uid));
   const body = (await c.req.json()) as Json;
   // 只有组织真的变了才校验并同步权威成员关系；原样回传的旧 site（如「深圳站」）不得清空现有组织归属。
   const siteChanged = body.site !== undefined && String(body.site || "") !== String(before.site || "");
@@ -565,7 +455,7 @@ enterprise.patch("/admin/users/:uid", async (c) => {
   if (body.email !== undefined) {
     const email = String(body.email || "").trim().toLowerCase();
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpFail(400, "invalid email");
-    const owner = email ? getConn().prepare("SELECT id FROM users WHERE lower(email)=? OR lower(username)=?").get(email, email) as { id: string } | undefined : undefined;
+    const owner = email ? (await postgresPool().query<Row>("SELECT id FROM users WHERE lower(email)=$1 OR lower(username)=$2", [email, email])).rows[0] as { id: string } | undefined : undefined;
     if (owner && owner.id !== uid) throw new HttpFail(409, "email already used");
     sets.push("email=?"); values.push(email);
   }
@@ -576,29 +466,28 @@ enterprise.patch("/admin/users/:uid", async (c) => {
   if (body.brands !== undefined) { sets.push("brands=?"); values.push(JSON.stringify(body.brands)); }
   if (body.active !== undefined) { sets.push("active=?"); values.push(body.active ? 1 : 0); }
   if (body.password !== undefined) { sets.push("password_hash=?"); values.push(await hashPassword(String(body.password))); }
-  if (!sets.length) return c.json((await safeUser(userById(uid))));
+  if (!sets.length) return c.json((await safeUser((await userById(uid)))));
   sets.push("updated_at=?"); values.push(nowIso(), uid);
-  if (process.env.DATABASE_URL) {
-    const changes: Record<string, unknown> = {}; for (const [field, value] of Object.entries(body)) { if (["email","name","site","position","manager_user_id","roles","brands","active","password"].includes(field)) changes[field === "password" ? "password_hash" : field] = field === "roles" || field === "brands" ? JSON.stringify(Array.isArray(value) ? value.map(String) : []) : field === "password" ? await hashPassword(String(value)) : value === "active" ? (value ? 1 : 0) : value || null; }
-    await pgUpdateOrganizationUser(uid, changes); if (body.password !== undefined) { const { pgRevokeUserSessions } = await import("../postgres/organization-repository.js"); await pgRevokeUserSessions(uid); }
-  } else { getConn().prepare(`UPDATE users SET ${sets.join(",")} WHERE id=?`).run(...values); if (body.password !== undefined) getConn().prepare("DELETE FROM auth_sessions WHERE user_id=?").run(uid); }
+  const changes: Record<string, unknown> = {};
+for (const [field, value] of Object.entries(body)) { if (["email","name","site","position","manager_user_id","roles","brands","active","password"].includes(field)) changes[field === "password" ? "password_hash" : field] = field === "roles" || field === "brands" ? JSON.stringify(Array.isArray(value) ? value.map(String) : []) : field === "password" ? await hashPassword(String(value)) : value === "active" ? (value ? 1 : 0) : value || null; }
+await pgUpdateOrganizationUser(uid, changes);
+if (body.password !== undefined) { const { pgRevokeUserSessions } = await import("../postgres/organization-repository.js"); await pgRevokeUserSessions(uid); }
   if (siteChanged || body.name !== undefined || body.email !== undefined) {
-    const site = String(userById(uid).site || "");
+    const site = String((await userById(uid)).site || "");
     const validUnit = Boolean(site) && (await listOrganizationUnits()).some((unit) => unit.id === site);
-    if (process.env.DATABASE_URL) { if (validUnit || (siteChanged && !site)) await pgSyncOrganizationMembership(uid, site || null, nowIso()); } else if (validUnit || (siteChanged && !site)) (await syncUserOrganization(uid, site));
+    if (validUnit || (siteChanged && !site)) await pgSyncOrganizationMembership(uid, site || null, nowIso());
   }
-  audit(admin.id, "admin.user.update", { user_id: uid, fields: sets.map((s) => s.split("=")[0]) });
-  return c.json(process.env.DATABASE_URL ? { ...(await pgUserById(uid)), password_hash: undefined } : (await safeUser(userById(uid))));
+  await pgAudit(admin.id, "admin.user.update", { user_id: uid, fields: sets.map((s) => s.split("=")[0]) }, nowIso());
+  return c.json({ ...(await pgUserById(uid)), password_hash: undefined });
 });
 
 enterprise.delete("/admin/users/:uid", async (c) => {
   const admin = requireAdmin();
   const uid = c.req.param("uid");
   if (uid === admin.id) throw new HttpFail(409, "cannot deactivate current account");
-  userById(uid);
-  if (process.env.DATABASE_URL) await pgDeactivateOrganizationUser(uid, nowIso());
-  else tx((db) => { db.prepare("UPDATE users SET active=0,updated_at=? WHERE id=?").run(nowIso(), uid); db.prepare("DELETE FROM auth_sessions WHERE user_id=?").run(uid); });
-  audit(admin.id, "admin.user.deactivate", { user_id: uid });
+  (await userById(uid));
+  await pgDeactivateOrganizationUser(uid, nowIso());
+  await pgAudit(admin.id, "admin.user.deactivate", { user_id: uid }, nowIso());
   return c.json({ ok: true, deactivated: true });
 });
 
@@ -617,26 +506,20 @@ enterprise.put("/admin/users/:uid/skills", (c) => {
   throw new HttpFail(410, "逐人技能授权已退役；请在 Agent 页管理绑定");
 });
 
-enterprise.get("/admin/connectors", (c) => {
+enterprise.get("/admin/connectors", async (c) => {
   requireAdmin();
-  return c.json(getConn().prepare(
-    "SELECT * FROM connectors ORDER BY label COLLATE NOCASE, id",
-  ).all().map(connectorPublic));
+  return c.json((await postgresPool().query<Row>("SELECT * FROM connectors ORDER BY lower(label), id", [])).rows.map(connectorPublic));
 });
 
-enterprise.get("/connectors", (c) => {
+enterprise.get("/connectors", async (c) => {
   const user = scopedUser();
   if (authDisabled()) {
-    return c.json((getConn().prepare(
-      "SELECT id,label FROM connectors WHERE enabled=1 ORDER BY label COLLATE NOCASE, id",
-    ).all()).map((row) => connectorEmployee({ ...(row as Row), access: "write" })));
+    return c.json(((await postgresPool().query<Row>("SELECT id,label FROM connectors WHERE enabled=1 ORDER BY lower(label), id", [])).rows).map((row) => connectorEmployee({ ...(row as Row), access: "write" })));
   }
   if (!user) throw new HttpFail(401, "authentication required");
-  return c.json((getConn().prepare(
-    `SELECT c.id,c.label,g.access FROM connectors c
+  return c.json(((await postgresPool().query<Row>(`SELECT c.id,c.label,g.access FROM connectors c
       JOIN user_connector_grants g ON g.connector_id=c.id
-     WHERE g.user_id=? AND c.enabled=1 ORDER BY c.label COLLATE NOCASE, c.id`,
-  ).all(user.id)).map(connectorEmployee));
+     WHERE g.user_id=$1 AND c.enabled=1 ORDER BY lower(c.label), c.id`, [user.id])).rows).map(connectorEmployee));
 });
 
 enterprise.post("/admin/connectors", async (c) => {
@@ -656,13 +539,12 @@ enterprise.post("/admin/connectors", async (c) => {
   }
   const now = nowIso();
   try {
-    if (process.env.DATABASE_URL) await pgCreateConnector({ id, label, purpose, protocol: declaredProtocol, now });
-    else getConn().prepare(`INSERT INTO connectors(id,label,purpose,enabled,status,credential_ref,declared_protocol,updated_at) VALUES (?,?,?,0,'draft',NULL,?,?)`).run(id, label, purpose, declaredProtocol, now);
+    await pgCreateConnector({ id, label, purpose, protocol: declaredProtocol, now });
   } catch {
     throw new HttpFail(409, { code: "managed_connector_already_exists", connector_id: id });
   }
-  audit(admin.id, "admin.connector.create", { connector_id: id, label, purpose, ...(declaredProtocol ? { protocol: declaredProtocol } : {}) });
-  return c.json((await connectorPublic(process.env.DATABASE_URL ? await (async()=>{ const { pgConnectorById } = await import("../postgres/connector-authorization-repository.js"); return pgConnectorById(id); })() : getConn().prepare("SELECT * FROM connectors WHERE id=?").get(id))), 201);
+  await pgAudit(admin.id, "admin.connector.create", { connector_id: id, label, purpose, ...(declaredProtocol ? { protocol: declaredProtocol } : {}) }, nowIso());
+  return c.json((await connectorPublic(await (async()=>{ const { pgConnectorById } = await import("../postgres/connector-authorization-repository.js"); return pgConnectorById(id); })())), 201);
 });
 
 enterprise.patch("/admin/connectors/:id", async (c) => {
@@ -678,13 +560,13 @@ enterprise.patch("/admin/connectors/:id", async (c) => {
   }
   if (body.enabled !== undefined) {
     if (body.enabled) {
-      const current = getConn().prepare("SELECT status FROM connectors WHERE id=?").get(id) as Row | undefined;
+      const current = (await postgresPool().query<Row>("SELECT status FROM connectors WHERE id=$1", [id])).rows[0] as Row | undefined;
       if (!current) throw new HttpFail(404, "connector not found");
       if (String(current.status) !== "verified") {
         throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
       }
       const config = (await getConnectorConfig(id));
-      if (!config || !connectorProbeVerified(id, config.version)) {
+      if (!config || !(await connectorProbeVerified(id, config.version))) {
         throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
       }
       if (!(await connectorInUseBySkill(id))) {
@@ -695,18 +577,20 @@ enterprise.patch("/admin/connectors/:id", async (c) => {
   }
   if (!sets.length) throw new HttpFail(400, "no changes");
   sets.push("updated_at=?"); values.push(nowIso(), id);
-  if (process.env.DATABASE_URL) { const changes: Record<string, unknown> = {}; for (const [field,value] of Object.entries(body)) if (["label","purpose","status","credential_ref","enabled"].includes(field)) changes[field]=field === "enabled" ? (value ? 1 : 0) : value; const updated = await pgUpdateConnector(id, changes); if (!updated) throw new HttpFail(404, "connector not found"); }
-  else { const result = getConn().prepare(`UPDATE connectors SET ${sets.join(",")} WHERE id=?`).run(...values); if (!result.changes) throw new HttpFail(404, "connector not found"); }
-  audit(admin.id, "admin.connector.update", { connector_id: id });
-  return c.json((await connectorPublic(process.env.DATABASE_URL ? await (async()=>{ const { pgConnectorById } = await import("../postgres/connector-authorization-repository.js"); return pgConnectorById(id); })() : getConn().prepare("SELECT * FROM connectors WHERE id=?").get(id))));
+  const changes: Record<string, unknown> = {};
+for (const [field,value] of Object.entries(body)) if (["label","purpose","status","credential_ref","enabled"].includes(field)) changes[field]=field === "enabled" ? (value ? 1 : 0) : value;
+const updated = await pgUpdateConnector(id, changes);
+if (!updated) throw new HttpFail(404, "connector not found");
+  await pgAudit(admin.id, "admin.connector.update", { connector_id: id }, nowIso());
+  return c.json((await connectorPublic(await (async()=>{ const { pgConnectorById } = await import("../postgres/connector-authorization-repository.js"); return pgConnectorById(id); })())));
 });
 
 enterprise.delete("/admin/connectors/:id", async (c) => {
   const admin = requireAdmin();
   const connectorId = requireManagedConnector(c.req.param("id"));
   if (isBuiltinConnectorId(connectorId)) throw new HttpFail(405, { code: "builtin_managed_connector_cannot_delete" });
-  if (process.env.DATABASE_URL) { if (!(await pgDeleteConnector(connectorId))) throw new HttpFail(404, "connector not found"); } else { const result = getConn().prepare("DELETE FROM connectors WHERE id=?").run(connectorId); if (!result.changes) throw new HttpFail(404, "connector not found"); }
-  audit(admin.id, "admin.connector.delete", { connector_id: connectorId });
+  if (!(await pgDeleteConnector(connectorId))) throw new HttpFail(404, "connector not found");
+  await pgAudit(admin.id, "admin.connector.delete", { connector_id: connectorId }, nowIso());
   return c.json({ ok: true });
 });
 
@@ -719,27 +603,25 @@ export const APPROVAL_ROLE_KINDS: Record<string, "position" | "named"> = {
 
 enterprise.put("/admin/users/:uid/approval-roles/:role", async (c) => {
   const admin = requireAdmin();
-  userById(c.req.param("uid"));
+  (await userById(c.req.param("uid")));
   const role = c.req.param("role");
   const kind = APPROVAL_ROLE_KINDS[role] || "position";
-  if (process.env.DATABASE_URL) await pgBindApprovalRole(c.req.param("uid"), role, kind, nowIso());
-  else getConn().prepare("INSERT OR IGNORE INTO approval_role_bindings (user_id,approval_role,role_kind,created_at) VALUES (?,?,?,?)").run(c.req.param("uid"), role, kind, nowIso());
-  audit(admin.id, "admin.approval_role.bind", { user_id: c.req.param("uid"), role, role_kind: kind });
+  await pgBindApprovalRole(c.req.param("uid"), role, kind, nowIso());
+  await pgAudit(admin.id, "admin.approval_role.bind", { user_id: c.req.param("uid"), role, role_kind: kind }, nowIso());
   return c.json({ ok: true });
 });
 
 enterprise.delete("/admin/users/:uid/approval-roles/:role", async (c) => {
   const admin = requireAdmin();
-  if (process.env.DATABASE_URL) await pgUnbindApprovalRole(c.req.param("uid"), c.req.param("role"));
-  else getConn().prepare("DELETE FROM approval_role_bindings WHERE user_id=? AND approval_role=?").run(c.req.param("uid"), c.req.param("role"));
-  audit(admin.id, "admin.approval_role.unbind", { user_id: c.req.param("uid"), role: c.req.param("role") });
+  await pgUnbindApprovalRole(c.req.param("uid"), c.req.param("role"));
+  await pgAudit(admin.id, "admin.approval_role.unbind", { user_id: c.req.param("uid"), role: c.req.param("role") }, nowIso());
   return c.json({ ok: true });
 });
 
 enterprise.put("/admin/users/:uid/approval-roles", async (c) => {
   const admin = requireAdmin();
   const uid = c.req.param("uid");
-  userById(uid);
+  (await userById(uid));
   const body = (await c.req.json()) as Json;
   const values = Array.isArray(body.roles) ? body.roles.map(String) : [];
   const allowed = new Set(["lead", "manager", "zhang"]);
@@ -755,17 +637,8 @@ enterprise.put("/admin/users/:uid/approval-roles", async (c) => {
   for (const g of grants) {
     if (!allowed.has(g.role)) throw new HttpFail(400, "invalid approval role");
   }
-  if (process.env.DATABASE_URL) { await pgSetApprovalRoles(uid, grants.map(g=>({role:g.role,kind:APPROVAL_ROLE_KINDS[g.role]||"position",validFrom:g.valid_from||null,validTo:g.valid_to||null})), nowIso()); } else tx((db) => {
-    db.prepare("DELETE FROM approval_role_bindings WHERE user_id=?").run(uid);
-    for (const g of grants) {
-      db.prepare("INSERT INTO approval_role_bindings (user_id,approval_role,role_kind,valid_from,valid_to,created_at) VALUES (?,?,?,?,?,?)")
-        .run(uid, g.role, APPROVAL_ROLE_KINDS[g.role] || "position",
-          g.valid_from || null,
-          g.valid_to || null,
-          nowIso());
-    }
-  });
-  audit(admin.id, "admin.approval_roles.replace", { user_id: uid, roles: values });
+  await pgSetApprovalRoles(uid, grants.map(g=>({role:g.role,kind:APPROVAL_ROLE_KINDS[g.role]||"position",validFrom:g.valid_from||null,validTo:g.valid_to||null})), nowIso());
+  await pgAudit(admin.id, "admin.approval_roles.replace", { user_id: uid, roles: values }, nowIso());
   return c.json({ ok: true, user_id: uid, roles: values });
 });
 
@@ -788,10 +661,10 @@ enterprise.patch("/preferences", async (c) => {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new HttpFail(400, "preferences must be an object");
   const fields = Object.keys(body);
   if (fields.some((key) => !SETTINGS_PREFERENCE_KEYS.has(key))) throw new HttpFail(400, "unknown preference field");
-  const current = getConn().prepare("SELECT * FROM user_preferences WHERE user_id=?").get(user.id) as Row | undefined;
+  const current = (await postgresPool().query<Row>("SELECT * FROM user_preferences WHERE user_id=$1", [user.id])).rows[0] as Row | undefined;
   const definitions = settingsBrandDefinitions();
-  const brands = settingsAuthorizedBrands(user, (await settingsOrganization(user)), definitions);
-  const mailboxes = settingsMailboxes(user, definitions);
+  const brands = (await settingsAuthorizedBrands(user, (await settingsOrganization(user)), definitions));
+  const mailboxes = (await settingsMailboxes(user, definitions));
   const stored = settingsPreferences(user, current, brands, mailboxes) as Record<string, unknown>;
   const has = (key: string) => Object.prototype.hasOwnProperty.call(body, key);
   const next: Record<string, unknown> = {};
@@ -842,36 +715,21 @@ enterprise.patch("/preferences", async (c) => {
     next.default_mailbox = defaultMailbox;
   }
   next.default_mailbox = defaultMailbox;
-  if (process.env.DATABASE_URL) {
-    const updated = await pgUpdatePreferences(user.id, Boolean(analytics), next, nowIso(), has("default_mailbox") ? defaultMailbox : undefined);
-    audit(user.id, "preference.update", { fields });
-    return c.json(settingsPreferences(user, updated, brands, settingsMailboxes(user, definitions)));
-  }
-  tx((db) => {
-    if (has("default_mailbox")) {
-      db.prepare("UPDATE user_starry_bindings SET is_default=0 WHERE user_id=?").run(user.id);
-      if (defaultMailbox) db.prepare("UPDATE user_starry_bindings SET is_default=1 WHERE user_id=? AND lower(mailbox_email)=lower(?)")
-        .run(user.id, defaultMailbox);
-    }
-    db.prepare(`INSERT INTO user_preferences (user_id,analytics_cookies,preferences,updated_at) VALUES (?,?,?,?)
-      ON CONFLICT(user_id) DO UPDATE SET analytics_cookies=excluded.analytics_cookies,preferences=excluded.preferences,updated_at=excluded.updated_at`)
-      .run(user.id, analytics ? 1 : 0, JSON.stringify(next), nowIso());
-  });
-  audit(user.id, "preference.update", { fields });
-  const updated = getConn().prepare("SELECT * FROM user_preferences WHERE user_id=?").get(user.id) as Row | undefined;
-  return c.json(settingsPreferences(user, updated, brands, settingsMailboxes(user, definitions)));
+  const updated = await pgUpdatePreferences(user.id, Boolean(analytics), next, nowIso(), has("default_mailbox") ? defaultMailbox : undefined);
+await pgAudit(user.id, "preference.update", { fields }, nowIso());
+return c.json(settingsPreferences(user, updated, brands, (await settingsMailboxes(user, definitions))));
+
 });
 
-enterprise.get("/me/settings-sessions", (c) => {
+enterprise.get("/me/settings-sessions", async (c) => {
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
-  const rows = getConn().prepare("SELECT id,title,archived_at FROM sessions WHERE owner_user_id=? AND deleted_at IS NULL ORDER BY updated_at DESC,id")
-    .all(user.id) as Row[];
+  const rows = (await postgresPool().query<Row>("SELECT id,title,archived_at FROM sessions WHERE owner_user_id=$1 AND deleted_at IS NULL ORDER BY updated_at DESC,id", [user.id])).rows as Row[];
   return c.json(rows.map((row) => ({ id: String(row.id), title: String(row.title || ""), archived_at: row.archived_at ? String(row.archived_at) : null })));
 });
 
-function memoryRow(id: string): Row {
-  const row = getConn().prepare("SELECT * FROM memory_entries WHERE id=?").get(id) as Row | undefined;
+async function memoryRow(id: string): Promise<Row> {
+  const row = (await postgresPool().query<Row>("SELECT * FROM memory_entries WHERE id=$1", [id])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(404, "memory not found");
   return row;
 }
@@ -885,12 +743,10 @@ function assertMemoryOwner(row: Row): void {
   if (!user || (String(row.owner_user_id) !== user.id && !isAdmin(user))) throw new HttpFail(403, "memory owner required");
 }
 
-enterprise.get("/memory", (c) => {
+enterprise.get("/memory", async (c) => {
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
-  const rows = getConn().prepare(
-    "SELECT * FROM memory_entries WHERE owner_user_id=? ORDER BY updated_at DESC",
-  ).all(user.id) as Row[];
+  const rows = (await postgresPool().query<Row>("SELECT * FROM memory_entries WHERE owner_user_id=$1 ORDER BY updated_at DESC", [user.id])).rows as Row[];
   return c.json(rows.map(settingsMemory));
 });
 
@@ -902,40 +758,33 @@ enterprise.post("/memory", async (c) => {
   if (scope === "team") throw new HttpFail(409, "team memory publishing is temporarily unavailable");
   if (scope !== "private") throw new HttpFail(400, "scope must be private");
   const id = nid("mem"); const now = nowIso();
-  getConn().prepare(
-    "INSERT INTO memory_entries (id,owner_user_id,title,body_md,scope,enabled,version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
-  ).run(id, user.id, String(body.title || "记忆"), String(body.body_md ?? body.content ?? ""), scope,
-    body.enabled === false ? 0 : 1, 1, now, now);
-  audit(user.id, "memory.create", { memory_id: id, scope });
-  return c.json(settingsMemory(memoryRow(id)), 201);
+  (await postgresPool().query<Row>("INSERT INTO memory_entries (id,owner_user_id,title,body_md,scope,enabled,version,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)", [id, user.id, String(body.title || "记忆"), String(body.body_md ?? body.content ?? ""), scope, body.enabled === false ? 0 : 1, 1, now, now]));
+  await pgAudit(user.id, "memory.create", { memory_id: id, scope }, nowIso());
+  return c.json(settingsMemory((await memoryRow(id))), 201);
 });
 
 enterprise.patch("/memory/:id", async (c) => {
   const user = scopedUser()!;
-  const row = memoryRow(c.req.param("id")); assertMemoryOwner(row);
+  const row = (await memoryRow(c.req.param("id"))); assertMemoryOwner(row);
   const body = (await c.req.json()) as Json;
   const scope = body.scope === undefined ? row.scope : String(body.scope === "workspace" ? "team" : body.scope);
   if (!["private", "team"].includes(String(scope))) throw new HttpFail(400, "scope must be private/team");
   if (scope === "team" && String(row.scope) !== "team") throw new HttpFail(409, "team memory publishing is temporarily unavailable");
-  getConn().prepare(
-    "UPDATE memory_entries SET title=?,body_md=?,scope=?,enabled=?,version=version+1,updated_at=? WHERE id=?",
-  ).run(body.title === undefined ? row.title : String(body.title),
-    body.body_md === undefined && body.content === undefined ? row.body_md : String(body.body_md ?? body.content), scope,
-    body.enabled === undefined ? row.enabled : body.enabled ? 1 : 0, nowIso(), row.id);
-  audit(user.id, "memory.update", { memory_id: row.id });
-  return c.json(settingsMemory(memoryRow(String(row.id))));
+  (await postgresPool().query<Row>("UPDATE memory_entries SET title=$1,body_md=$2,scope=$3,enabled=$4,version=version+1,updated_at=$5 WHERE id=$6", [body.title === undefined ? row.title : String(body.title), body.body_md === undefined && body.content === undefined ? row.body_md : String(body.body_md ?? body.content), scope, body.enabled === undefined ? row.enabled : body.enabled ? 1 : 0, nowIso(), row.id]));
+  await pgAudit(user.id, "memory.update", { memory_id: row.id }, nowIso());
+  return c.json(settingsMemory((await memoryRow(String(row.id)))));
 });
 
-enterprise.delete("/memory/:id", (c) => {
+enterprise.delete("/memory/:id", async (c) => {
   const user = scopedUser()!;
-  const row = memoryRow(c.req.param("id")); assertMemoryOwner(row);
-  getConn().prepare("DELETE FROM memory_entries WHERE id=?").run(row.id);
-  audit(user.id, "memory.delete", { memory_id: row.id });
+  const row = (await memoryRow(c.req.param("id"))); assertMemoryOwner(row);
+  (await postgresPool().query<Row>("DELETE FROM memory_entries WHERE id=$1", [row.id]));
+  await pgAudit(user.id, "memory.delete", { memory_id: row.id }, nowIso());
   return c.json({ ok: true });
 });
 
-export function assertSessionAccess(sessionId: string, includeDeleted = false): Row {
-  const row = getConn().prepare("SELECT * FROM sessions WHERE id=?").get(sessionId) as Row | undefined;
+export async function assertSessionAccess(sessionId: string, includeDeleted = false): Promise<Row> {
+  const row = (await postgresPool().query<Row>("SELECT * FROM sessions WHERE id=$1", [sessionId])).rows[0] as Row | undefined;
   if (!row || (!includeDeleted && row.deleted_at)) throw new HttpFail(404, "session not found");
   if (authDisabled()) return row;
   const user = scopedUser();
@@ -943,26 +792,26 @@ export function assertSessionAccess(sessionId: string, includeDeleted = false): 
   return row;
 }
 
-enterprise.post("/sessions/:sid/archive", (c) => {
+enterprise.post("/sessions/:sid/archive", async (c) => {
   const user = scopedUser();
-  const row = assertSessionAccess(c.req.param("sid"));
+  const row = (await assertSessionAccess(c.req.param("sid")));
   const archivedAt = nowIso();
-  getConn().prepare("UPDATE sessions SET archived_at=?,updated_at=? WHERE id=?").run(archivedAt, archivedAt, row.id);
-  audit(user?.id || "demo", "session.archive", { session_id: row.id });
+  (await postgresPool().query<Row>("UPDATE sessions SET archived_at=$1,updated_at=$2 WHERE id=$3", [archivedAt, archivedAt, row.id]));
+  await pgAudit(user?.id || "demo", "session.archive", { session_id: row.id }, nowIso());
   return c.json({ ok: true, archived_at: archivedAt });
 });
 
-enterprise.post("/sessions/:sid/unarchive", (c) => {
+enterprise.post("/sessions/:sid/unarchive", async (c) => {
   const user = scopedUser();
-  const row = assertSessionAccess(c.req.param("sid"));
+  const row = (await assertSessionAccess(c.req.param("sid")));
   const updatedAt = nowIso();
-  getConn().prepare("UPDATE sessions SET archived_at=NULL,updated_at=? WHERE id=?").run(updatedAt, row.id);
-  audit(user?.id || "demo", "session.unarchive", { session_id: row.id });
+  (await postgresPool().query<Row>("UPDATE sessions SET archived_at=NULL,updated_at=$1 WHERE id=$2", [updatedAt, row.id]));
+  await pgAudit(user?.id || "demo", "session.unarchive", { session_id: row.id }, nowIso());
   return c.json({ ok: true, archived_at: null });
 });
 
-function sessionSnapshot(sid: string, includeInternal = true): Json {
-  const storedSession = getConn().prepare("SELECT * FROM sessions WHERE id=?").get(sid) as Row;
+async function sessionSnapshot(sid: string, includeInternal = true): Promise<Json> {
+  const storedSession = (await postgresPool().query<Row>("SELECT * FROM sessions WHERE id=$1", [sid])).rows[0] as Row;
   const session = includeInternal
     ? storedSession
     : {
@@ -971,7 +820,7 @@ function sessionSnapshot(sid: string, includeInternal = true): Json {
         created_at: storedSession.created_at,
         updated_at: storedSession.updated_at,
       };
-  const rows = getConn().prepare("SELECT * FROM messages WHERE session_id=? ORDER BY created_at,id").all(sid) as Row[];
+  const rows = (await postgresPool().query<Row>("SELECT * FROM messages WHERE session_id=$1 ORDER BY created_at,id", [sid])).rows as Row[];
   const messages = rows.flatMap((row) => {
     if (!includeInternal && [
       "steps",
@@ -999,10 +848,10 @@ function sessionSnapshot(sid: string, includeInternal = true): Json {
   return { session, messages };
 }
 
-enterprise.get("/sessions/:sid/export", (c) => {
-  const row = assertSessionAccess(c.req.param("sid"));
+enterprise.get("/sessions/:sid/export", async (c) => {
+  const row = (await assertSessionAccess(c.req.param("sid")));
   const format = c.req.query("format") || "json";
-  const snapshot = sessionSnapshot(String(row.id));
+  const snapshot = (await sessionSnapshot(String(row.id)));
   const safeName = String(row.title || row.id).replace(/[^\w\u4e00-\u9fff-]+/g, "_").slice(0, 80);
   if (format === "json") {
     c.header("Content-Disposition", `attachment; filename="${safeName}.json"`);
@@ -1018,10 +867,10 @@ enterprise.get("/sessions/:sid/export", (c) => {
   return c.body(md);
 });
 
-enterprise.delete("/sessions/:sid", (c) => {
+enterprise.delete("/sessions/:sid", async (c) => {
   const user = scopedUser();
-  const row = assertSessionAccess(c.req.param("sid"));
-  const messages = getConn().prepare("SELECT payload FROM messages WHERE session_id=?").all(row.id) as Row[];
+  const row = (await assertSessionAccess(c.req.param("sid")));
+  const messages = (await postgresPool().query<Row>("SELECT payload FROM messages WHERE session_id=$1", [row.id])).rows as Row[];
   const attributable = new Set<string>();
   for (const message of messages) {
     const payload = parseJson(message.payload, {}) as Json;
@@ -1031,15 +880,14 @@ enterprise.delete("/sessions/:sid", (c) => {
       if (file.startsWith(root)) attributable.add(file);
     }
   }
-  const boxes = (getConn().prepare("SELECT box_path FROM workers WHERE session_id=?").all(row.id) as Row[])
+  const boxes = ((await postgresPool().query<Row>("SELECT box_path FROM workers WHERE session_id=$1", [row.id])).rows as Row[])
     .map((worker) => String(worker.box_path || "")).filter(Boolean);
-  tx((db) => {
-    db.prepare("DELETE FROM session_shares WHERE session_id=?").run(row.id);
-    db.prepare("DELETE FROM messages WHERE session_id=?").run(row.id);
-    db.prepare("DELETE FROM drafts WHERE session_id=?").run(row.id);
-    db.prepare("DELETE FROM workers WHERE session_id=?").run(row.id);
-    db.prepare("UPDATE sessions SET deleted_at=?,archived_at=COALESCE(archived_at,?),thread_ref=NULL,updated_at=? WHERE id=?")
-      .run(nowIso(), nowIso(), nowIso(), row.id);
+  await postgresTransaction(async (db) => {
+    (await db.query<Row>("DELETE FROM session_shares WHERE session_id=$1", [row.id]));
+    (await db.query<Row>("DELETE FROM messages WHERE session_id=$1", [row.id]));
+    (await db.query<Row>("DELETE FROM drafts WHERE session_id=$1", [row.id]));
+    (await db.query<Row>("DELETE FROM workers WHERE session_id=$1", [row.id]));
+    (await db.query<Row>("UPDATE sessions SET deleted_at=$1,archived_at=COALESCE(archived_at,$2),thread_ref=NULL,updated_at=$3 WHERE id=$4", [nowIso(), nowIso(), nowIso(), row.id]));
   });
   const boxesRoot = path.resolve(boxDir()) + path.sep;
   for (const box of boxes) {
@@ -1047,10 +895,10 @@ enterprise.delete("/sessions/:sid", (c) => {
     if (resolved.startsWith(boxesRoot)) fs.rmSync(resolved, { recursive: true, force: true });
   }
   for (const file of attributable) {
-    const other = getConn().prepare("SELECT 1 FROM messages WHERE payload LIKE ? LIMIT 1").get(`%${file}%`);
+    const other = (await postgresPool().query<Row>("SELECT 1 FROM messages WHERE payload LIKE $1 LIMIT 1", [`%${file}%`])).rows[0];
     if (!other) fs.rmSync(file, { force: true });
   }
-  audit(user?.id || "demo", "session.delete", { session_id: row.id, stage_transitions: "retained_immutable" });
+  await pgAudit(user?.id || "demo", "session.delete", { session_id: row.id, stage_transitions: "retained_immutable" }, nowIso());
   return c.json({
     ok: true,
     soft_deleted: true,
@@ -1061,93 +909,85 @@ enterprise.delete("/sessions/:sid", (c) => {
 
 enterprise.post("/sessions/:sid/share", async (c) => {
   const user = scopedUser();
-  const row = assertSessionAccess(c.req.param("sid"));
+  const row = (await assertSessionAccess(c.req.param("sid")));
   const body = (await c.req.json().catch(() => ({}))) as Json;
   const expiresIn = Math.min(Math.max(Number(body.expires_in_seconds || 86400), 60), 30 * 86400);
   const token = randomBytes(32).toString("base64url");
   const id = nid("shr");
   const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
-  getConn().prepare(
-    "INSERT INTO session_shares (id,session_id,token_hash,expires_at,include_internal,created_by,created_at) VALUES (?,?,?,?,?,?,?)",
-  ).run(id, row.id, tokenDigest(token), expiresAt, body.include_internal === true ? 1 : 0, user?.id || "demo", nowIso());
-  audit(user?.id || "demo", "session.share.create", { share_id: id, session_id: row.id, expires_at: expiresAt });
+  (await postgresPool().query<Row>("INSERT INTO session_shares (id,session_id,token_hash,expires_at,include_internal,created_by,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id, row.id, tokenDigest(token), expiresAt, body.include_internal === true ? 1 : 0, user?.id || "demo", nowIso()]));
+  await pgAudit(user?.id || "demo", "session.share.create", { share_id: id, session_id: row.id, expires_at: expiresAt }, nowIso());
   return c.json({ id, token, expires_at: expiresAt, read_only: true, include_internal: body.include_internal === true }, 201);
 });
 
-enterprise.delete("/sessions/:sid/share/:shareId", (c) => {
+enterprise.delete("/sessions/:sid/share/:shareId", async (c) => {
   const user = scopedUser();
-  const row = assertSessionAccess(c.req.param("sid"));
-  const result = getConn().prepare("UPDATE session_shares SET revoked_at=? WHERE id=? AND session_id=?")
-    .run(nowIso(), c.req.param("shareId"), row.id);
-  if (!result.changes) throw new HttpFail(404, "share not found");
-  audit(user?.id || "demo", "session.share.revoke", { share_id: c.req.param("shareId"), session_id: row.id });
+  const row = (await assertSessionAccess(c.req.param("sid")));
+  const result = (await postgresPool().query<Row>("UPDATE session_shares SET revoked_at=$1 WHERE id=$2 AND session_id=$3", [nowIso(), c.req.param("shareId"), row.id]));
+  if (!result.rowCount) throw new HttpFail(404, "share not found");
+  await pgAudit(user?.id || "demo", "session.share.revoke", { share_id: c.req.param("shareId"), session_id: row.id }, nowIso());
   return c.json({ ok: true, revoked: true });
 });
 
-enterprise.delete("/sessions/:sid/share", (c) => {
+enterprise.delete("/sessions/:sid/share", async (c) => {
   const user = scopedUser();
-  const row = assertSessionAccess(c.req.param("sid"));
+  const row = (await assertSessionAccess(c.req.param("sid")));
   const revokedAt = nowIso();
-  const result = getConn().prepare(
-    "UPDATE session_shares SET revoked_at=? WHERE session_id=? AND revoked_at IS NULL",
-  ).run(revokedAt, row.id);
-  audit(user?.id || "demo", "session.share.revoke_all", { session_id: row.id, count: result.changes });
-  return c.json({ ok: true, revoked: result.changes });
+  const result = (await postgresPool().query<Row>("UPDATE session_shares SET revoked_at=$1 WHERE session_id=$2 AND revoked_at IS NULL", [revokedAt, row.id]));
+  await pgAudit(user?.id || "demo", "session.share.revoke_all", { session_id: row.id, count: result.rowCount }, nowIso());
+  return c.json({ ok: true, revoked: result.rowCount });
 });
 
 enterprise.get("/shared/:token", async (c) => {
-  const row = getConn().prepare(
-    `SELECT * FROM session_shares WHERE token_hash=? AND revoked_at IS NULL AND expires_at>?`,
-  ).get(tokenDigest(c.req.param("token")), nowIso()) as Row | undefined;
+  const row = (await postgresPool().query<Row>(`SELECT * FROM session_shares WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at>$2`, [tokenDigest(c.req.param("token")), nowIso()])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(404, "share unavailable");
   const { authorizedTaskSession } = await import("../ticket-domain/task-collaboration-session.js");
   await authorizedTaskSession(scopedUser()?.id || "",String(row.session_id));
-  return c.json({ ...sessionSnapshot(String(row.session_id), Boolean(row.include_internal)), read_only: true, expires_at: row.expires_at });
+  return c.json({ ...(await sessionSnapshot(String(row.session_id), Boolean(row.include_internal))), read_only: true, expires_at: row.expires_at });
 });
 
-enterprise.get("/me/data-summary", (c) => {
+enterprise.get("/me/data-summary", async (c) => {
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
-  const db = getConn();
-  const count = (sql: string): number => Number((db.prepare(sql).get(user.id) as { n: number }).n);
+  const db = postgresPool();
+  const count = async (sql: string): Promise<number> => Number(((await db.query<Row>(sql, [user.id])).rows[0] as { n: number }).n);
   return c.json({
-    sessions: count("SELECT COUNT(*) AS n FROM sessions WHERE owner_user_id=? AND deleted_at IS NULL"),
-    archived_sessions: count("SELECT COUNT(*) AS n FROM sessions WHERE owner_user_id=? AND archived_at IS NOT NULL AND deleted_at IS NULL"),
-    memories: count("SELECT COUNT(*) AS n FROM memory_entries WHERE owner_user_id=?"),
-    exam_attempts: count("SELECT COUNT(*) AS n FROM exam_attempts WHERE user_id=?"),
-    database_bytes: databaseEngine() === "postgres"
-      ? Number((db.prepare("SELECT pg_database_size(current_database()) AS bytes").get() as { bytes: number }).bytes)
+    sessions: (await count("SELECT COUNT(*) AS n FROM sessions WHERE owner_user_id=$1 AND deleted_at IS NULL")),
+    archived_sessions: (await count("SELECT COUNT(*) AS n FROM sessions WHERE owner_user_id=$1 AND archived_at IS NOT NULL AND deleted_at IS NULL")),
+    memories: (await count("SELECT COUNT(*) AS n FROM memory_entries WHERE owner_user_id=$1")),
+    exam_attempts: (await count("SELECT COUNT(*) AS n FROM exam_attempts WHERE user_id=$1")),
+    database_bytes: true
+      ? Number(((await db.query<Row>("SELECT pg_database_size(current_database()) AS bytes", [])).rows[0] as { bytes: number }).bytes)
       : pathBytes(String(process.env.LINGONG_DB || path.join(process.env.LINGONG_DATA || path.dirname(uploadsDir()), "lingong.db"))),
     uploads_bytes: pathBytes(uploadsDir()),
     worker_boxes_bytes: pathBytes(boxDir()),
-    retention_policy: db.prepare("SELECT session_days,audit_days FROM retention_policy WHERE id=1").get(),
+    retention_policy: (await db.query<Row>("SELECT session_days,audit_days FROM retention_policy WHERE id=1", [])).rows[0],
     stage_transitions: "retained as immutable compliance records when conversation data is deleted",
   });
 });
 
-enterprise.get("/admin/retention-policy", (c) => {
+enterprise.get("/admin/retention-policy", async (c) => {
   requireAdmin();
-  return c.json(getConn().prepare("SELECT * FROM retention_policy WHERE id=1").get());
+  return c.json((await postgresPool().query<Row>("SELECT * FROM retention_policy WHERE id=1", [])).rows[0]);
 });
 
 enterprise.patch("/admin/retention-policy", async (c) => {
   const admin = requireAdmin();
-  const current = getConn().prepare("SELECT * FROM retention_policy WHERE id=1").get() as Row;
+  const current = (await postgresPool().query<Row>("SELECT * FROM retention_policy WHERE id=1", [])).rows[0] as Row;
   const body = (await c.req.json()) as Json;
   const sessionDays = Number(body.session_days ?? current.session_days);
   const auditDays = Number(body.audit_days ?? current.audit_days);
   if (sessionDays < 1 || auditDays < 1) throw new HttpFail(400, "retention days must be positive");
-  getConn().prepare("UPDATE retention_policy SET session_days=?,audit_days=?,updated_at=? WHERE id=1")
-    .run(sessionDays, auditDays, nowIso());
-  audit(admin.id, "admin.retention.update", { session_days: sessionDays, audit_days: auditDays });
-  return c.json(getConn().prepare("SELECT * FROM retention_policy WHERE id=1").get());
+  (await postgresPool().query<Row>("UPDATE retention_policy SET session_days=$1,audit_days=$2,updated_at=$3 WHERE id=1", [sessionDays, auditDays, nowIso()]));
+  await pgAudit(admin.id, "admin.retention.update", { session_days: sessionDays, audit_days: auditDays }, nowIso());
+  return c.json((await postgresPool().query<Row>("SELECT * FROM retention_policy WHERE id=1", [])).rows[0]);
 });
 
-enterprise.get("/privacy/cookies", (c) => {
+enterprise.get("/privacy/cookies", async (c) => {
   const user = scopedUser();
   let analytics = false;
   if (user) {
-    const row = getConn().prepare("SELECT analytics_cookies FROM user_preferences WHERE user_id=?").get(user.id) as Row | undefined;
+    const row = (await postgresPool().query<Row>("SELECT analytics_cookies FROM user_preferences WHERE user_id=$1", [user.id])).rows[0] as Row | undefined;
     analytics = Boolean(row?.analytics_cookies);
   }
   return c.json({

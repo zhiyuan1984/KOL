@@ -284,25 +284,25 @@ describe("today_plan harness", () => {
     expect(todo.plan.task_type).toBe("today_plan");
   });
 
-  it("rejects missing sections or batch follow and keeps the old brief", () => {
+  it("rejects missing sections or batch follow and keeps the old brief", async () => {
     insertWorkItem({ id: "tsk_y", title: "昨日未完成报价" });
-    const first = writeTodayBriefArtifact({
+    const first = (await writeTodayBriefArtifact({
       owner: owner(),
       workItemId: "tsk_y",
       runId: null,
       brief: validBrief(),
-    });
+    }));
     expect(first.ok).toBe(true);
     const missing = validateTodayBrief({ primary: { verb: "open" } });
     expect(missing.ok).toBe(false);
     if (missing.ok) throw new Error("expected missing to be invalid");
     expect(String(missing.reason)).toMatch(/sections/);
-    const keptMissing = writeTodayBriefArtifact({
+    const keptMissing = (await writeTodayBriefArtifact({
       owner: owner(),
       workItemId: "tsk_y",
       runId: null,
       brief: { lead: "x", primary: { verb: "open" } },
-    });
+    }));
     expect(keptMissing.ok).toBe(false);
     const follow = validateTodayBrief(validBrief({
       primary: { verb: "follow", label: "加入跟进", object_id: "discovery:b1", object_type: "batch", person_id: null },
@@ -310,26 +310,26 @@ describe("today_plan harness", () => {
     expect(follow.ok).toBe(false);
     if (follow.ok) throw new Error("expected follow to be invalid");
     expect(String(follow.reason)).toMatch(/follow/);
-    const keptFollow = writeTodayBriefArtifact({
+    const keptFollow = (await writeTodayBriefArtifact({
       owner: owner(),
       workItemId: "tsk_y",
       runId: null,
       brief: validBrief({
         primary: { verb: "follow", label: "加入跟进", object_id: "discovery:b1", object_type: "batch", person_id: null },
       }),
-    });
+    }));
     expect(keptFollow.ok).toBe(false);
     if (keptFollow.ok === false) expect(keptFollow.kept_artifact_id).toBe(first.ok ? first.artifact_id : null);
     const pointer = getConn().prepare("SELECT artifact_id FROM employee_today_briefs WHERE owner_user_id=?").get(owner()) as { artifact_id: string };
     expect(first.ok && pointer.artifact_id).toBe(first.ok ? first.artifact_id : pointer.artifact_id);
   });
 
-  it("packs IG fail + YT empty batches and allows retry_crawl but not follow", () => {
+  it("packs IG fail + YT empty batches and allows retry_crawl but not follow", async () => {
     insertDiscoveryBatch({ id: "disc_ig_1", platform: "instagram", runStatus: "failed", candidates: 0 });
     insertDiscoveryBatch({ id: "disc_ig_2", platform: "instagram", runStatus: "failed", candidates: 0 });
     insertDiscoveryBatch({ id: "disc_yt_1", platform: "youtube", runStatus: "succeeded", candidates: 0 });
     insertDiscoveryBatch({ id: "disc_yt_2", platform: "youtube", runStatus: "succeeded", candidates: 0 });
-    const pack = packTodayPlanContext(owner());
+    const pack = (await packTodayPlanContext(owner()));
     const batchIds = pack.catalog.filter((item) => item.kind === "discovery_batch").map((item) => item.id);
     expect(batchIds).toEqual(expect.arrayContaining([
       "discovery:disc_ig_1",
@@ -347,11 +347,11 @@ describe("today_plan harness", () => {
     })).ok).toBe(true);
   });
 
-  it("keeps yesterday unfinished tasks in history when delta is empty", () => {
+  it("keeps yesterday unfinished tasks in history when delta is empty", async () => {
     insertWorkItem({ id: "tsk_yesterday", title: "昨日未完成报价" });
-    const first = packTodayPlanContext(owner());
+    const first = (await packTodayPlanContext(owner()));
     expect(first.history.unfinished_tasks.some((item) => item.work_item_id === "tsk_yesterday")).toBe(true);
-    writeTodayBriefArtifact({
+    (await writeTodayBriefArtifact({
       owner: owner(),
       workItemId: "tsk_yesterday",
       runId: null,
@@ -359,8 +359,8 @@ describe("today_plan harness", () => {
         source_cursor: first.source_cursor,
         todo_layout: [{ work_item_id: "tsk_yesterday", rank: 1, why: "昨日未完成" }],
       }),
-    });
-    const second = packTodayPlanContext(owner());
+    }));
+    const second = (await packTodayPlanContext(owner()));
     expect(second.delta.added).toEqual([]);
     expect(second.history.unfinished_tasks.some((item) => item.work_item_id === "tsk_yesterday")).toBe(true);
     expect(second.now_counts.unfinished).toBeGreaterThan(0);
@@ -396,7 +396,7 @@ describe("today_plan harness", () => {
     getConn().prepare(
       "INSERT INTO task_runs (id,work_item_id,session_id,status,input,entities,created_at,started_at) VALUES (?,?,?,?,?,?,?,?)",
     ).run(runId, workItemId, sessionId, "running", "{}", "{}", now, now);
-    const pack = packTodayPlanContext(owner());
+    const pack = (await packTodayPlanContext(owner()));
     vi.spyOn(todayPlanContext, "planningRunInput").mockImplementation(() => {
       throw new Error("skill registry preflight failed");
     });
@@ -546,7 +546,7 @@ describe("today_plan harness", () => {
         String(event.title || event.label) === events.memoryRead
       ));
       expect(String(memoryEvent?.summary || "")).toMatch(/未了结 \d+ 项/);
-      const unfinishedIds = collectSourceCatalog(owner(), scope)
+      const unfinishedIds = (await collectSourceCatalog(owner(), scope))
         .filter((item) => item.kind === "formal_task" && item.work_item_id)
         .map((item) => String(item.work_item_id));
       release({
@@ -662,66 +662,66 @@ describe("stale planning watchdog", () => {
 });
 
 describe("previous plan snapshot", () => {
-  it.each(["today", "todo"] as const)("reports the version before the current one for %s, never the current run twice", (scope) => {
+  it.each(["today", "todo"] as const)("reports the version before the current one for %s, never the current run twice", async (scope) => {
     const taskType = "today_plan";
     insertWorkItem({ id: "tsk_prev", title: "上一版规划", task_type: taskType, status: "completed" });
-    expect(writeTodayBriefArtifact({
+    expect((await writeTodayBriefArtifact({
       owner: owner(),
       workItemId: "tsk_prev",
       runId: null,
       brief: validBrief({ lead: "上一版先把报价邮件发出去" }),
       scope,
-    }).ok).toBe(true);
+    })).ok).toBe(true);
 
     insertWorkItem({ id: "tsk_now", title: "本轮规划", task_type: taskType, status: "completed" });
-    expect(writeTodayBriefArtifact({
+    expect((await writeTodayBriefArtifact({
       owner: owner(),
       workItemId: "tsk_now",
       runId: null,
       brief: validBrief({ lead: "本轮先恢复采集" }),
       scope,
-    }).ok).toBe(true);
+    })).ok).toBe(true);
 
-    const snapshot = todayBriefSnapshot(owner(), scope);
+    const snapshot = (await todayBriefSnapshot(owner(), scope));
     expect((snapshot.brief as Json)?.lead).toBe("本轮先恢复采集");
     expect((snapshot.previous_brief as Json)?.lead).toBe("上一版先把报价邮件发出去");
     expect(snapshot.previous_work_item_id).toBe("tsk_prev");
     expect(Array.isArray(snapshot.previous_events)).toBe(true);
 
     // A second artifact of the same run must not read as a previous version.
-    expect(writeTodayBriefArtifact({
+    expect((await writeTodayBriefArtifact({
       owner: owner(),
       workItemId: "tsk_now",
       runId: null,
       brief: validBrief({ lead: "本轮改稿" }),
       scope,
-    }).ok).toBe(true);
-    const again = todayBriefSnapshot(owner(), scope);
+    })).ok).toBe(true);
+    const again = (await todayBriefSnapshot(owner(), scope));
     expect((again.previous_brief as Json)?.lead).toBe("上一版先把报价邮件发出去");
     expect(again.previous_work_item_id).toBe("tsk_prev");
   });
 
-  it("binds folded history to the latest failed trace instead of mixing it with an older brief", () => {
+  it("binds folded history to the latest failed trace instead of mixing it with an older brief", async () => {
     insertWorkItem({ id: "tsk_prev_ok", title: "较早规划", task_type: "today_plan", status: "completed" });
-    expect(writeTodayBriefArtifact({
+    expect((await writeTodayBriefArtifact({
       owner: owner(),
       workItemId: "tsk_prev_ok",
       runId: null,
       brief: validBrief({ lead: "较早规划" }),
-    }).ok).toBe(true);
+    })).ok).toBe(true);
 
     insertWorkItem({ id: "tsk_last_ok", title: "最近成功规划", task_type: "today_plan", status: "completed" });
-    expect(writeTodayBriefArtifact({
+    expect((await writeTodayBriefArtifact({
       owner: owner(),
       workItemId: "tsk_last_ok",
       runId: null,
       brief: validBrief({ lead: "最近成功规划" }),
-    }).ok).toBe(true);
+    })).ok).toBe(true);
 
     insertWorkItem({ id: "tsk_failed_now", title: "本轮失败规划", task_type: "today_plan", status: "failed" });
     getConn().prepare("UPDATE tickets SET created_at='2099-01-01T00:00:00.000Z' WHERE id='tsk_failed_now'").run();
 
-    const snapshot = todayBriefSnapshot(owner(), "today");
+    const snapshot = (await todayBriefSnapshot(owner(), "today"));
     // The result pane keeps its last valid brief, while the folded row must be
     // calculated from the newest (failed) trace rather than from that brief.
     expect(snapshot.work_item_id).toBe("tsk_last_ok");
@@ -732,14 +732,14 @@ describe("previous plan snapshot", () => {
 });
 
 describe("scope catalog split", () => {
-  it("todo catalog excludes today-scheduled formal tasks but keeps plain todos", () => {
+  it("todo catalog excludes today-scheduled formal tasks but keeps plain todos", async () => {
     // task_type outside the correspondence/follow collectors so the rows
     // appear only as formal_task entries.
     insertWorkItem({ id: "tsk_today_imp", title: "今日重要报价", task_type: "manual_work", priority: "important" });
     insertWorkItem({ id: "tsk_todo_plain", title: "普通待办", task_type: "manual_work" });
-    const todayCatalog = collectSourceCatalog(owner(), "today");
-    const todoCatalog = collectSourceCatalog(owner(), "todo");
-    const formalIds = (catalog: ReturnType<typeof collectSourceCatalog>) =>
+    const todayCatalog = (await collectSourceCatalog(owner(), "today"));
+    const todoCatalog = (await collectSourceCatalog(owner(), "todo"));
+    const formalIds = (catalog: Awaited<ReturnType<typeof collectSourceCatalog>>) =>
       catalog.filter((item) => item.kind === "formal_task").map((item) => String(item.work_item_id));
     expect(formalIds(todayCatalog)).toContain("tsk_today_imp");
     expect(formalIds(todayCatalog)).toContain("tsk_todo_plain");

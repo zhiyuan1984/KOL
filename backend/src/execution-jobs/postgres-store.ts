@@ -247,9 +247,9 @@ export async function pgRenewExecutionJobLease(
   return Number(result.rowCount || 0) > 0;
 }
 
-export async function pgCompleteExecutionJob(id: string, receipt: Json = {}, now = new Date(), expectedWorker?: string): Promise<Row | undefined> {
+export async function pgCompleteExecutionJob(id: string, receipt: Json = {}, now = new Date(), expectedWorker?: string, client?: PoolClient): Promise<Row | undefined> {
   const stamp = now.toISOString();
-  const result = await postgresPool().query<Row>(
+  const result = await (client || postgresPool()).query<Row>(
     `UPDATE execution_jobs
      SET status='succeeded',lease_until=NULL,lease_owner=NULL,receipt_json=$1,error_code=NULL,error_summary=NULL,
          terminal_at=$2,updated_at=$2

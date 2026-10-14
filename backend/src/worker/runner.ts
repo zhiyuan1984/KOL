@@ -16,11 +16,12 @@ import { unusableDiscoveredConnector } from "../runtime/skill-connector-gate.js"
 import { canUseAgent } from "../runtime/organization-tree.js";
 import { HttpFail } from "../host/errors.js";
 import { managedAgent } from "../runtime/managed-agents.js";
-import { postgresPool } from "../postgres/pool.js";
+import { postgresPool, postgresQuery } from "../postgres/pool.js";
+import { pgAudit } from "../postgres/auth-pg.js";
 import { startRuntimeProxy, type RuntimeProxy } from "../runtime/proxy.js";
 import { getConnectorConfig } from "../runtime/store.js";
 import { BRAND_MAILBOXES, boxDir, codexMode, codexTurnTimeout } from "../config.js";
-import { audit, getConn, tx } from "../db.js";
+
 import { nid } from "../ids.js";
 import { profileFor } from "../profiles.js";
 import { BY_CODE, groupedStageTracks, label, normalizeStage } from "../stages.js";
@@ -472,37 +473,28 @@ export function runWorker(
   return runCodex(sessionId, definition, prompt, extra, signal, onProgress);
 }
 
-function collab(extra: Json): Row | null {
-  const db = getConn();
-  let row: unknown;
-  if (extra.collaboration_id) {
-    row = db.prepare("SELECT * FROM collaborations WHERE id = ?").get(extra.collaboration_id);
-  }
-  if (!row && extra.handle) {
-    row = db.prepare("SELECT * FROM collaborations WHERE handle = ? OR display_name = ?").get(extra.handle, extra.handle);
-  }
+async function collab(extra: Json): Promise<Row | null> {
+  let row = extra.collaboration_id
+    ? (await postgresQuery<Row>("SELECT * FROM collaborations WHERE id=$1", [extra.collaboration_id]))[0]
+    : undefined;
+  // Preserve the prior handle fallback when an explicit collaboration no longer exists.
+  if (!row && extra.handle) row = (await postgresQuery<Row>("SELECT * FROM collaborations WHERE handle=$1 OR display_name=$1", [extra.handle]))[0];
   if (!row) return null;
-  const col = { ...(row as Row) };
+  const col = { ...row };
   restoreOfficialCollaborationStage(col);
   return col;
 }
 
-function setThread(sessionId: string, threadId: string): void {
-  tx((c) => {
-    c.prepare("UPDATE sessions SET thread_ref = ? WHERE id = ?").run(threadId, sessionId);
-  });
+async function setThread(sessionId: string, threadId: string): Promise<void> {
+  await postgresQuery("UPDATE sessions SET thread_ref=$1 WHERE id=$2", [threadId, sessionId]);
 }
 
-function clearThread(sessionId: string): void {
-  tx((c) => {
-    c.prepare("UPDATE sessions SET thread_ref = NULL WHERE id = ?").run(sessionId);
-  });
+async function clearThread(sessionId: string): Promise<void> {
+  await postgresQuery("UPDATE sessions SET thread_ref=NULL WHERE id=$1", [sessionId]);
 }
 
-function overdueSnapshot(): Row[] {
-  return getConn()
-    .prepare("SELECT handle, stage_code, days_in_stage, brand FROM collaborations WHERE overdue = 1")
-    .all() as Row[];
+async function overdueSnapshot(): Promise<Row[]> {
+  return postgresQuery<Row>("SELECT handle,stage_code,days_in_stage,brand FROM collaborations WHERE overdue=1");
 }
 
 /**
@@ -605,7 +597,7 @@ export async function writeBox(
     // workspace-only context auditable instead of merely relying on Skill prose.
     mailboxes: platformPlanning ? [] : BRAND_MAILBOXES,
     scope: agentScope,
-    overdue: skill === "risk_scan" ? overdueSnapshot() : null,
+    overdue: skill === "risk_scan" ? await overdueSnapshot() : null,
   };
   let memory = "";
   const skipMemoryStitch = planning
@@ -615,11 +607,11 @@ export async function writeBox(
   if (!authDisabled() && !skipMemoryStitch) {
     const user = scopedUser();
     if (user) {
-      const entries = getConn().prepare(
+      const entries = await postgresQuery<Row>(
         `SELECT scope,body_md FROM memory_entries
-          WHERE enabled=1 AND owner_user_id=?
-          ORDER BY updated_at DESC LIMIT 20`,
-      ).all(user.id) as Row[];
+          WHERE enabled=1 AND owner_user_id=$1
+          ORDER BY updated_at DESC LIMIT 20`, [user.id],
+      );
       memory = entries.map((entry) =>
         `### ${entry.scope === "team" ? "Team" : "Personal"} memory\n${String(entry.body_md || "").replace(/\0/g, "")}`,
       ).join("\n\n").slice(0, 8000);
@@ -756,11 +748,11 @@ export async function runCodex(
   }
   const replyTask = skill === "reply_analysis" || skill === "email_compose";
   if (replyTask && !authDisabled() && !(await canUseAgent(runtimeContext.userId,runtimeContext.agentId))) throw new HttpFail(403, {code: "runtime_agent_not_usable"});
-  const col = taskContext ? null : collab(extra);
+  const col = taskContext ? null : await collab(extra);
   const profile = profileFor(skill, col?.stage_code as string | undefined);
   const budgetBlock = budgetBlockFor(runtimeContext.agentId, runtimeContext.userId || null);
   if (budgetBlock) {
-    audit("worker", "cost.budget.blocked", {
+    await pgAudit("worker", "cost.budget.blocked", {
       worker_id: wid,
       session_id: sessionId,
       skill,
@@ -770,7 +762,7 @@ export async function runCodex(
       used_tokens: budgetBlock.used_tokens,
       limit_tokens: budgetBlock.limit_tokens,
       percent: budgetBlock.percent,
-    });
+    }, new Date().toISOString());
     throw new BudgetBlocked(budgetBlock);
   }
   const execution = new SkillExecution(runtimeContext);
@@ -820,7 +812,7 @@ export async function runCodex(
       note: "Do not invent missing data. Only currently listed tools are executable.",
     })}\n`);
     if (!taskContext) proxy = await startRuntimeProxy(execution);
-    const privateEnv = (await Promise.all((getConn().prepare("SELECT connector_id FROM runtime_connector_config").all() as Row[]).map(async (binding) => {
+    const privateEnv = (await Promise.all((await postgresQuery<Row>("SELECT connector_id FROM runtime_connector_config")).map(async (binding) => {
       const config = (await getConnectorConfig(String(binding.connector_id)))?.config;
       return config ? [...Object.values(config.headers_env || {}), ...(config.bearer_env ? [config.bearer_env] : [])] : [];
     }))).flat();
@@ -881,7 +873,7 @@ export async function runCodex(
     if (!threadId) {
       throw new CodexUnavailable("thread/start 未返回 thread.id。", "升级 Codex CLI 后重试。");
     }
-    setThread(sessionId, threadId);
+    await setThread(sessionId, threadId);
     // A fresh thread has no completed rollout to fork. Execute its first turn directly.
     const turnThreadId = threadId;
     const userText = `$${skill} ${prompt}`;
@@ -926,7 +918,7 @@ export async function runCodex(
         web_search: skill === "business_approval" ? "live" : undefined,
       },
     });
-    audit("worker", "skill.invoked", {
+    await pgAudit("worker", "skill.invoked", {
       session_id: sessionId,
       worker_id: wid,
       skill,
@@ -934,7 +926,7 @@ export async function runCodex(
       path: skillPath,
       work_item_id: extra.work_item_id || null,
       task_run_id: extra.task_run_id || null,
-    });
+    }, new Date().toISOString());
     const completed = await rpc.waitTurn();
     if (signal?.aborted) {
       throw Object.assign(new Error("已停止生成"), { name: "WorkerStopped" });
@@ -1030,7 +1022,7 @@ export async function runCodex(
     if (missing) {
       throw new CodexUnavailable(missing.message, missing.next);
     }
-    audit("worker", "skill.result", {
+    await pgAudit("worker", "skill.result", {
       session_id: sessionId,
       worker_id: wid,
       skill,
@@ -1038,7 +1030,7 @@ export async function runCodex(
       item_types: items.map((i) => String(i.type)),
       work_item_id: extra.work_item_id || null,
       task_run_id: extra.task_run_id || null,
-    });
+    }, new Date().toISOString());
     const result: WorkerResult = {
       worker_id: wid,
       status: "done",
@@ -1054,7 +1046,7 @@ export async function runCodex(
     return result;
   } catch (e) {
     if (e instanceof CodexUnavailable) {
-      clearThread(sessionId);
+      await clearThread(sessionId);
       const result: WorkerResult = {
         worker_id: wid,
         status: "codex_unavailable",

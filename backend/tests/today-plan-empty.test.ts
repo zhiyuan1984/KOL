@@ -53,35 +53,35 @@ describe("empty planning PostgreSQL persistence", () => {
     resetConn();
     if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
   });
-  it.each(["today", "todo"] as const)("persists authoritative empty %s results without resurrecting memory", (scope) => {
+  it.each(["today", "todo"] as const)("persists authoritative empty %s results without resurrecting memory", async (scope) => {
     const owner = DEMO_USER.id;
-    const started = startTodayPlan(owner);
+    const started = (await startTodayPlan(owner));
     persistIncrement({ owner, family: scope === "todo" ? "todo" : "task", layer: "display", incoming: [{ item_key: started.work_item_id, payload: { work_item_id: started.work_item_id, title: "旧展示" } }] });
-    const written = writeTodayBriefArtifact({ owner, workItemId: started.work_item_id, runId: started.run_id, scope, brief: emptyBrief(), producer: "deterministic_organize" });
+    const written = (await writeTodayBriefArtifact({ owner, workItemId: started.work_item_id, runId: started.run_id, scope, brief: emptyBrief(), producer: "deterministic_organize" }));
     expect(written.ok).toBe(true);
     expect(loadTodayTaskResults(owner, scope)?.items).toEqual([]);
     expect(loadTodayTaskResults(owner, scope)?.planned_at).toBeTruthy();
-    expect(todayBriefSnapshot(owner, scope).brief).toMatchObject({ display_tasks: [], producer: "deterministic_organize" });
+    expect((await todayBriefSnapshot(owner, scope)).brief).toMatchObject({ display_tasks: [], producer: "deterministic_organize" });
   });
   it("completes a zero-task deterministic run with no model call", async () => {
     const owner = DEMO_USER.id;
-    const started = startTodayPlan(owner);
-    const pack = packTodayPlanContext(owner);
+    const started = (await startTodayPlan(owner));
+    const pack = (await packTodayPlanContext(owner));
     expect(pack.history.unfinished_tasks).toEqual([]);
     const run = vi.spyOn(runner, "runWorker");
     const result = await executeTodayPlanRun({ owner, workItemId: started.work_item_id, runId: started.run_id, sessionId: started.session_id, pack, producer: "deterministic_organize" });
     expect(result.ok).toBe(true);
     expect(run).not.toHaveBeenCalled();
     expect(getConn().prepare("SELECT status FROM task_runs WHERE id=?").get(started.run_id)).toMatchObject({ status: "completed" });
-    expect(todayBriefSnapshot(owner).status).toBe("ready");
+    expect((await todayBriefSnapshot(owner)).status).toBe("ready");
     expect(loadTodayTaskResults(owner)?.items).toEqual([]);
   });
   it("still completes deterministic runs that contain an actual formal task", async () => {
     const owner = DEMO_USER.id;
     const now = nowIso();
     getConn().prepare("INSERT INTO tickets (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,data_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run("tsk_real_empty_regression", owner, "email_compose", "真实任务", "manual", "pending", "normal", "email_compose", "lead", "{}", "{}", 1, now, now);
-    const started = startTodayPlan(owner);
-    const result = await executeTodayPlanRun({ owner, workItemId: started.work_item_id, runId: started.run_id, sessionId: started.session_id, pack: packTodayPlanContext(owner), producer: "deterministic_organize" });
+    const started = (await startTodayPlan(owner));
+    const result = await executeTodayPlanRun({ owner, workItemId: started.work_item_id, runId: started.run_id, sessionId: started.session_id, pack: (await packTodayPlanContext(owner)), producer: "deterministic_organize" });
     expect(result.ok).toBe(true);
     expect(loadTodayTaskResults(owner)?.items.map((row) => row.work_item_id)).toEqual(["tsk_real_empty_regression"]);
   });

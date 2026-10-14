@@ -181,18 +181,18 @@ export function upsertTodayBriefPointer(owner: string, artifactId: string, workI
   });
 }
 
-export function writeTodayBriefArtifact(input: {
+export async function writeTodayBriefArtifact(input: {
   owner: string;
   workItemId: string;
   runId: string | null;
   brief: unknown;
   scope?: PlanScope;
   producer?: "deterministic_organize" | "agent_plan";
-}): { ok: true; artifact_id: string; brief: Json } | { ok: false; reason: string; kept_artifact_id: string | null } {
+}): Promise<{ ok: true; artifact_id: string; brief: Json } | { ok: false; reason: string; kept_artifact_id: string | null }> {
   const scope = input.scope ?? "today";
   const checked = validateTodayBrief(input.brief);
   if (!checked.ok) {
-    const previous = loadLatestTodayBrief(input.owner, scope);
+    const previous = (await loadLatestTodayBrief(input.owner, scope));
     return { ok: false, reason: checked.reason, kept_artifact_id: previous.artifact_id };
   }
   const now = nowIso();
@@ -231,7 +231,7 @@ export function writeTodayBriefArtifact(input: {
     scope,
   });
   if (!display.ok) {
-    const previous = loadLatestTodayBrief(input.owner, scope);
+    const previous = (await loadLatestTodayBrief(input.owner, scope));
     return { ok: false, reason: display.reason, kept_artifact_id: previous.artifact_id };
   }
   return { ok: true, artifact_id: artifactId, brief: snapshot };

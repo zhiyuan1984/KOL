@@ -3,7 +3,7 @@ import { createHash, randomBytes, scrypt as scryptCallback, scryptSync, timingSa
 import { promisify } from "node:util";
 import type { Context, MiddlewareHandler } from "hono";
 import { Hono } from "hono";
-import { audit, getConn, nowIso, tx } from "./db.js";
+import { nowIso } from "./db.js";
 import { pgApprovalRoles, pgAudit, pgAvatarUrlForUser, pgConnectorAccess, pgConnectorPermissions, pgCreateSession, pgCreateUser, pgDefaultBinding, pgDeleteSession, pgFindUserForLogin, pgUserCanUseSkill, pgUserCount, pgVisibleSkillIdsForUser } from "./postgres/auth-pg.js";
 import { pgUpdatePasswordAndRevokeSessions } from "./postgres/organization-repository.js";
 import { postgresQuery } from "./postgres/pool.js";
@@ -136,90 +136,14 @@ export async function hashPassword(password: string): Promise<string> {
   return hashPasswordSync(password);
 }
 
-export function findUserForLogin(raw: string): Row | undefined {
-  const ident = String(raw || "").trim();
-  if (!ident) return undefined;
-  const account = normalizeAccount(ident);
-  const db = getConn();
-  const email = ident.includes("@") ? normalizeEmail(ident) : "";
-  if (isDemoAdminIdentifier(ident)) {
-    const admin = db.prepare(
-      `SELECT * FROM users WHERE active = 1 AND (
-         username = ? OR lower(coalesce(email,'')) = ? OR name = ?
-       ) ORDER BY CASE username WHEN ? THEN 0 ELSE 1 END LIMIT 1`,
-    ).get(DEMO_ADMIN.handle, normalizeEmail(DEMO_ADMIN.email), DEMO_ADMIN.name, DEMO_ADMIN.handle) as Row | undefined;
-    if (admin) return admin;
-  }
-  const lowered = email || account;
-  const byUsername = db.prepare("SELECT * FROM users WHERE username = ? AND active = 1").get(lowered) as Row | undefined;
-  if (byUsername) return byUsername;
-  if (email) {
-    const byEmail = db.prepare("SELECT * FROM users WHERE lower(coalesce(email,'')) = ? AND active = 1").get(email) as Row | undefined;
-    if (byEmail) return byEmail;
-  }
-  if (looksLikePhone(ident)) {
-    const phone = normalizePhone(ident);
-    const rows = db.prepare("SELECT * FROM users WHERE phone IS NOT NULL AND trim(phone) != '' AND active = 1").all() as Row[];
-    return rows.find((row) => normalizePhone(String(row.phone || "")) === phone);
-  }
-  // 姓名登录（2026-10-05，用户要求叶观旺等同事也能登录）：邮箱/手机/账号都匹配不到时，
-  // 按展示姓名精确匹配（大小写不敏感）；同名不唯一则不生效，避免误登入他人账号。
-  const byName = db.prepare("SELECT * FROM users WHERE lower(trim(name)) = lower(?) AND active = 1").all(ident) as Row[];
-  return byName.length === 1 ? byName[0] : undefined;
+/** Native login lookup; no SQLite or synchronous fallback. */
+export async function findUserForLogin(raw: string): Promise<Row | undefined> {
+  return pgFindUserForLogin(raw);
 }
 
-function seedDemoAdminContact(db: ReturnType<typeof getConn>, userId: string): void {
-  const now = nowIso();
-  db.prepare("UPDATE users SET email=?, updated_at=? WHERE id=?").run(DEMO_ADMIN.email, now, userId);
-  if (DEMO_ADMIN.phone) {
-    db.prepare("UPDATE users SET phone=?, updated_at=? WHERE id=?").run(DEMO_ADMIN.phone, now, userId);
-  }
-}
-
-/** Server deploy: turn leftover `test` into 黄启友 / 123456789. Skip in automated tests. */
-export function ensureDemoAdmin(): void {
-  if (process.env.DATABASE_URL) return;
-  if (process.env.NODE_ENV === "test") return;
-  if ((process.env.CODEX_MODE || "").toLowerCase() === "stub" && process.env.AUTH_MODE !== "enabled") return;
-  const db = getConn();
-  const hash = hashPasswordSync(DEMO_ADMIN.password);
-  const now = nowIso();
-  const test = db.prepare("SELECT id FROM users WHERE username = ?").get("test") as { id: string } | undefined;
-  if (test) {
-    db.prepare("UPDATE users SET username=?, name=?, password_hash=?, roles=?, updated_at=? WHERE username=?")
-      .run(DEMO_ADMIN.handle, DEMO_ADMIN.name, hash, JSON.stringify(["employee", "admin"]), now, "test");
-  }
-  const emailUser = db.prepare(
-    "SELECT * FROM users WHERE lower(coalesce(email,'')) = ? OR username = ?",
-  ).get(normalizeEmail(DEMO_ADMIN.email), DEMO_ADMIN.email) as Row | undefined;
-  if (emailUser && String(emailUser.username) !== DEMO_ADMIN.handle) {
-    db.prepare("UPDATE users SET username=?, name=?, updated_at=? WHERE id=?")
-      .run(DEMO_ADMIN.handle, DEMO_ADMIN.name, now, String(emailUser.id));
-  }
-  const existing = db.prepare("SELECT * FROM users WHERE username = ?").get(DEMO_ADMIN.handle) as Row | undefined;
-  if (existing) {
-    db.prepare("UPDATE users SET name=?, password_hash=?, roles=?, active=1, updated_at=? WHERE username=?")
-      .run(DEMO_ADMIN.name, hash, JSON.stringify(["employee", "admin"]), now, DEMO_ADMIN.handle);
-    seedDemoAdminContact(db, String(existing.id));
-    return;
-  }
-  db.prepare(
-    `INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    DEMO_ADMIN.user_id,
-    DEMO_ADMIN.handle,
-    DEMO_ADMIN.name,
-    hash,
-    JSON.stringify(["employee", "admin"]),
-    JSON.stringify(DEMO_USER.brands),
-    DEMO_USER.site,
-    1,
-    now,
-    now,
-  );
-  seedDemoAdminContact(db, DEMO_ADMIN.user_id);
-}
+/** Demo-account rewriting was already disabled on PostgreSQL. Kept as a no-op
+ * for historical callers; account bootstrap remains explicit /auth/setup. */
+export function ensureDemoAdmin(): void {}
 
 async function verifyPassword(password: string, stored: string): Promise<boolean> {
   const [scheme, salt64, key64] = stored.split("$");
@@ -338,9 +262,7 @@ async function permissions(user: AppUser): Promise<Json> {
 async function createSession(c: Context, userId: string): Promise<void> {
   const token = randomBytes(32).toString("base64url");
   const expires = new Date(Date.now() + SESSION_DAYS * 86400_000).toISOString();
-  if (process.env.DATABASE_URL) await pgCreateSession(hashToken(token), userId, expires, nowIso());
-  else getConn().prepare("INSERT INTO auth_sessions (id_hash,user_id,expires_at,created_at) VALUES (?,?,?,?)")
-    .run(hashToken(token), userId, expires, nowIso());
+  await pgCreateSession(hashToken(token), userId, expires, nowIso());
   setSessionCookie(c, token, SESSION_DAYS * 86400);
 }
 
@@ -367,7 +289,7 @@ authRouter.get("/auth/status", async (c) => {
       permissions: { demo: true },
     });
   }
-  const count = process.env.DATABASE_URL ? await pgUserCount() : Number((getConn().prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number }).n);
+  const count = await pgUserCount();
   const user = await sessionUser(c);
   return c.json({
     setup_required: Number(count) === 0,
@@ -381,7 +303,7 @@ authRouter.get("/auth/status", async (c) => {
 
 authRouter.post("/auth/setup", async (c) => {
   if (authDisabled()) throw new HttpFail(404, "setup unavailable");
-  const count = process.env.DATABASE_URL ? await pgUserCount() : Number((getConn().prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number }).n);
+  const count = await pgUserCount();
   if (Number(count) !== 0) throw new HttpFail(409, "setup already completed");
   const body = (await c.req.json()) as Json;
   const rawIdent = String(body.username || body.email || "");
@@ -397,13 +319,7 @@ authRouter.post("/auth/setup", async (c) => {
       ? normalizeEmail(rawIdent)
       : (username === DEMO_ADMIN.handle ? DEMO_ADMIN.email : "");
   const phone = looksLikePhone(String(body.phone || rawIdent)) ? normalizePhone(String(body.phone || rawIdent)) : "";
-  const createdRow = process.env.DATABASE_URL
-    ? await pgCreateUser({ id, username, name, passwordHash, brands: (body.brands || ["LT", "RO", "PQ"]) as Json, site: String(body.site || ""), email, phone, now })
-    : (() => {
-      getConn().prepare(`INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`).run(id, username, name, passwordHash, JSON.stringify(["employee", "admin"]), JSON.stringify(body.brands || ["LT", "RO", "PQ"]), String(body.site || ""), 1, now, now);
-      getConn().prepare("UPDATE users SET email=?, phone=?, updated_at=? WHERE id=?").run(email, phone, now, id);
-      return getConn().prepare("SELECT * FROM users WHERE id=?").get(id) as Row;
-    })();
+  const createdRow = await pgCreateUser({ id, username, name, passwordHash, brands: (body.brands || ["LT", "RO", "PQ"]) as Json, site: String(body.site || ""), email, phone, now });
   await createSession(c, id);
   await pgAudit(id, "admin.setup", { user_id: id }, now);
   const created = await userPublic(await hydrateNativeAuthority(mapUser(createdRow)));
@@ -420,7 +336,7 @@ authRouter.post("/auth/login", async (c) => {
   if (attempt && attempt.resetAt > Date.now() && attempt.count >= 5) {
     throw new HttpFail(429, "too many login attempts; try again later");
   }
-  const row = process.env.DATABASE_URL ? await pgFindUserForLogin(ident) : findUserForLogin(ident);
+  const row = await findUserForLogin(ident);
   if (!row || !(await verifyPassword(String(body.password || ""), String(row.password_hash)))) {
     loginAttempts.set(attemptKey, {
       count: attempt && attempt.resetAt > Date.now() ? attempt.count + 1 : 1,
@@ -440,8 +356,7 @@ authRouter.post("/auth/login", async (c) => {
 authRouter.post("/auth/logout", async (c) => {
   const token = cookies(c)[COOKIE];
   if (token) {
-    if (process.env.DATABASE_URL) await pgDeleteSession(hashToken(token));
-    else getConn().prepare("DELETE FROM auth_sessions WHERE id_hash = ?").run(hashToken(token));
+    await pgDeleteSession(hashToken(token));
   }
   setSessionCookie(c, "", 0);
   return c.json({ ok: true });
@@ -451,16 +366,12 @@ authRouter.post("/auth/password", async (c) => {
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
   const body = (await c.req.json()) as Json;
-  const [row] = process.env.DATABASE_URL ? await postgresQuery<Row>("SELECT password_hash FROM users WHERE id=$1", [user.id]) : [getConn().prepare("SELECT password_hash FROM users WHERE id=?").get(user.id) as Row];
+  const [row] = await postgresQuery<Row>("SELECT password_hash FROM users WHERE id=$1", [user.id]);
   if (!row || !(await verifyPassword(String(body.current_password || ""), String(row.password_hash)))) {
     throw new HttpFail(403, "current password is incorrect");
   }
   const passwordHash = await hashPassword(String(body.new_password || ""));
-  if (process.env.DATABASE_URL) await pgUpdatePasswordAndRevokeSessions(user.id, passwordHash, nowIso());
-  else tx((db) => {
-    db.prepare("UPDATE users SET password_hash=?, updated_at=? WHERE id=?").run(passwordHash, nowIso(), user.id);
-    db.prepare("DELETE FROM auth_sessions WHERE user_id=?").run(user.id);
-  });
+  await pgUpdatePasswordAndRevokeSessions(user.id, passwordHash, nowIso());
   setSessionCookie(c, "", 0);
   await pgAudit(user.id, "auth.password_changed", {}, nowIso());
   return c.json({ ok: true, reauthenticate: true });

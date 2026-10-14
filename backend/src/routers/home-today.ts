@@ -17,7 +17,7 @@ homeToday.get("/workbench/plan", async (c) => {
   const owner = ownerId();
   const snapshot = databaseEngine() === "postgres"
     ? await nativeTodayBriefSnapshot(owner, "today")
-    : todayBriefSnapshot(owner, "today");
+    : (await todayBriefSnapshot(owner, "today"));
   return c.json({
     ...snapshot,
     plan_id: snapshot.work_item_id || null,
@@ -37,7 +37,7 @@ homeToday.post("/workbench/plan-runs", async (c) => {
   const owner = ownerId();
   const started = databaseEngine() === "postgres"
     ? await startNativeTodayPlan({ owner, taskType: "today_plan", title: "统一工作计划", scope: "today", producer: mode, payload: planningRunInput(await nativeTodayPlanContext(owner, "today"), {}, "today"), extraPayload: { producer: mode }, queuedLabel: "工作计划已入队", progress: [] })
-    : startTodayPlan(owner, "today", mode);
+    : (await startTodayPlan(owner, "today", mode));
   return c.json({
     ...started,
     mode,
@@ -60,7 +60,7 @@ for (const scope of PLAN_SCOPES) {
     const owner = ownerId();
     const snapshot = databaseEngine() === "postgres"
       ? await nativeTodayBriefSnapshot(owner, scope)
-      : todayBriefSnapshot(owner, scope);
+      : (await todayBriefSnapshot(owner, scope));
     return c.json({
       ...snapshot,
       memory_kind: cfg.memoryKindCover,
@@ -95,7 +95,7 @@ for (const scope of PLAN_SCOPES) {
     const owner = ownerId();
     const started = databaseEngine() === "postgres"
       ? await startNativeTodayPlan({ owner, taskType: "today_plan", title: "统一工作计划", scope: "today", producer: "agent_plan", payload: planningRunInput(await nativeTodayPlanContext(owner, "today"), {}, "today"), extraPayload: { producer: "agent_plan" }, queuedLabel: "工作计划已入队", progress: [] })
-      : startTodayPlan(owner, scope, "agent_plan");
+      : (await startTodayPlan(owner, scope, "agent_plan"));
     return c.json({
       ...started,
       // Both scopes answer the same shape; the pane renders one component.
