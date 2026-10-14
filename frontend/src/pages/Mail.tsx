@@ -225,6 +225,8 @@ export default function Mail() {
   const requestControllers = useRef<Record<string, AbortController>>({});
   const workspaceController = useRef<AbortController | null>(null);
   const [slowThreads, setSlowThreads] = useState<Record<string, boolean>>({});
+  /** 定向补全失败的会话级原因（来自同步回执 requested_conversation），随下一次补全/成功清除。 */
+  const [hydrateErrors, setHydrateErrors] = useState<Record<string, string>>({});
   const [workspaceSlow, setWorkspaceSlow] = useState(false);
   const stageSectionRef = useRef<HTMLDivElement | null>(null);
   const topSearchRef = useRef<HTMLInputElement | null>(null);
@@ -241,9 +243,10 @@ export default function Mail() {
   const intakeCancelled = useRef(false);
   const [cacheEpoch, setCacheEpoch] = useState(0);
 
-  const labelsByConversation = useMemo(() => {
+  /** 标签跟人走：按对方邮箱取标签，同一对方的多会话共享同一组标签。 */
+  const labelsByPeer = useMemo(() => {
     const directory = new Map(labels.data?.labels.map(label => [label.id, label]) || []);
-    return new Map(labels.data?.assignments.map(assignment => [assignment.conversation_id, assignment.label_ids.map(id => directory.get(id)).filter((label): label is NonNullable<typeof label> => Boolean(label))]) || []);
+    return new Map(labels.data?.assignments.map(assignment => [String(assignment.peer_email || "").toLowerCase(), assignment.label_ids.map(id => directory.get(id)).filter((label): label is NonNullable<typeof label> => Boolean(label))]) || []);
   }, [labels.data]);
 
   const conversations = useMemo(() => {
@@ -261,7 +264,7 @@ export default function Mail() {
     if (starredOnly) rows = rows.filter((row) => starOverrides[row.id || row.conversation_id] ?? Boolean(row.starred));
     if (stageFilter) rows = rows.filter((row) => String(row.stage_code || "") === stageFilter);
     if (labelFilter) {
-      rows = rows.filter(row => labelsByConversation.get(row.conversation_id)?.some(label => label.id === labelFilter));
+      rows = rows.filter(row => labelsByPeer.get(String(row.peer_email || "").toLowerCase())?.some(label => label.id === labelFilter));
     }
     const q = query.trim().toLowerCase();
     if (q) {
@@ -270,7 +273,7 @@ export default function Mail() {
           .some((field) => String(field || "").toLowerCase().includes(q)));
     }
     return rows;
-  }, [conversations, tab, unboundOnly, query, starredOnly, starOverrides, stageFilter, labelFilter, labelsByConversation]);
+  }, [conversations, tab, unboundOnly, query, starredOnly, starOverrides, stageFilter, labelFilter, labelsByPeer]);
 
   const groups = useMemo(() => groupByPeer(visibleConversations), [visibleConversations]);
 
@@ -301,7 +304,9 @@ export default function Mail() {
   const recommendationController = useRef<AbortController | null>(null);
   const recommendationGeneration = useRef(0);
   const [recommendation, setRecommendation] = useState<{scope: string; result?: MailLabelSuggestionResponse; busy: boolean; error: string} | null>(null);
-  useEffect(() => { recommendationGeneration.current += 1; recommendationController.current?.abort(); setRecommendation(null); }, [recommendationScope]);
+  /** 提问框下方 AI 候选的待采纳项（点选候选后确认采纳，与标签浮层的确认模式一致）。 */
+  const [pendingCandidate, setPendingCandidate] = useState<MailLabelSuggestion | null>(null);
+  useEffect(() => { recommendationGeneration.current += 1; recommendationController.current?.abort(); setRecommendation(null); setPendingCandidate(null); }, [recommendationScope]);
   useEffect(() => () => recommendationController.current?.abort(), []);
   const recommendLabels = async () => {
     if (!selectedConversation || !labels.data || recommendation?.busy) return;
@@ -649,6 +654,15 @@ export default function Mail() {
         }
         sessionStorage.removeItem(`mail-sync-job:${boxParam}`);
         if (job.status === "succeeded") {
+          // 定向补全的回执带该会话的水合结果：失败要落到会话级状态，不只看整箱计数。
+          const requested = (job as { receipt?: { requested_conversation?: { conversation_id?: string; hydrated?: boolean; error?: string | null } } }).receipt?.requested_conversation;
+          if (requested?.conversation_id) {
+            if (!requested.hydrated && requested.error) {
+              setHydrateErrors((prev) => ({ ...prev, [requested.conversation_id as string]: String(requested.error) }));
+            } else if (requested.hydrated) {
+              setHydrateErrors((prev) => { const next = { ...prev }; delete next[requested.conversation_id as string]; return next; });
+            }
+          }
           setNotice(`索引 ${progress?.index?.listed || 0} 个会话已更新；正文 ${progress?.body?.completed || 0} 个完成。摘要和翻译未生成。`);
           setPersonDigest(null);
           dropThreadCache();
@@ -669,13 +683,15 @@ export default function Mail() {
     void poll();
   };
 
-  const sync = async () => {
+  const sync = async (conversationId?: string) => {
     syncQueuedStuckRef.current = 0;
     setSyncing(true);
     setError("");
     setNotice("正在提交同步任务…");
     try {
-      const receipt = await syncMailboxMail(boxParam || workspace?.box.mailbox || undefined, selectedConversation?.conversation_id);
+      const target = conversationId || selectedConversation?.conversation_id;
+      if (target) setHydrateErrors((prev) => { const next = { ...prev }; delete next[target]; return next; });
+      const receipt = await syncMailboxMail(boxParam || workspace?.box.mailbox || undefined, target);
       if (!receipt.job_id) throw new Error("同步接口未返回作业 ID");
       pollForSync(receipt.job_id);
     } catch (e) {
@@ -741,6 +757,20 @@ export default function Mail() {
     replyDraftOf(row).chips.map((chip) => ({ kind: "object" as const, id: chip.id, label: chip.label, objectKind: chip.id }));
 
   /**
+   * 提问框上下文芯片：明确“发件箱 / 对方 / 当前邮件”三个角色。
+   * 对方与发件箱同地址时只保留发件箱（旧数据 peer 被错写为自己时不重复展示，图4）。
+   */
+  const contextChipsOf = (row: MailConversation) => {
+    const mailbox = String(row.mailbox || workspace?.box.mailbox || "").trim();
+    const peer = peerOf(row).trim();
+    const subject = row.subject || "(无主题)";
+    const chips = [{ id: "mailbox", label: `发件箱：${mailbox || "邮箱未绑定"}`, objectKind: "mailbox" }];
+    if (peer && peer.toLowerCase() !== mailbox.toLowerCase()) chips.push({ id: "peer", label: `对方：${peer}`, objectKind: "peer" });
+    chips.push({ id: "subject", label: `邮件：${subject}`, objectKind: "subject" });
+    return chips;
+  };
+
+  /**
    * The on-page dock consumes a draft from the `composer:apply-draft` event
    * synchronously; dropping the shared sessionStorage stash right after keeps a
    * later navigation from prefilling another page's composer with it.
@@ -800,6 +830,14 @@ export default function Mail() {
   const submitComposer = async (payload: ComposerSubmit) => {
     const question = String(payload.text || "").trim();
     if (!question || busy) return;
+    // “推荐标签”是统一提问框的快捷任务：不走通用 intake，改走 Codex 推荐端点
+    // （recommendMailLabels 本身就是一次 Codex 编排），候选在提问框下方呈现、采纳后保存。
+    const resolvedIntent = payload.intent || payload.scope?.skills?.find(skill => mailSuggestions.some(item => item.intent === skill));
+    if (!mailCompose.active && resolvedIntent === "mail_label_recommend") {
+      setComposerText("");
+      await recommendLabels();
+      return;
+    }
     const submittingScope = draftScopeRef.current;
     const binding = stageChangeBinding;
     const submitScope = !binding && payload.scope ? { ...payload.scope, skills: payload.scope.skills?.filter(skill => skill !== "confirm_stage") } : payload.scope;
@@ -1068,9 +1106,7 @@ export default function Mail() {
     Number(row.message_count || 0) || (threads[row.conversation_id]?.messages.length ?? 0);
 
   const composerChips = useMemo(
-    () => (selectedConversation
-      ? replyDraftOf(selectedConversation).chips.filter(chip => chip.id !== "conversation_id").map((chip) => ({ id: chip.id, label: chip.label, objectKind: chip.id }))
-      : []),
+    () => (selectedConversation ? contextChipsOf(selectedConversation) : []),
     [selectedConversation?.conversation_id, selectedConversation?.subject, selectedConversation?.peer_email, workspace?.box.mailbox, boxParam],
   );
 
@@ -1144,6 +1180,7 @@ export default function Mail() {
     {label: "中文翻译", intent: "mail_translate", prompt: "请完整翻译当前选中的邮件原文为中文，仅作内部阅读，不发信。"},
     {label: "起草回复", intent: "email_compose", prompt: "请依据当前会话起草回复，保留人工决策点，仅生成草稿，不发送。"},
     {label: "快速分析", intent: "reply_analysis", prompt: "请分析当前会话的来信事实、合作阶段依据与下一步，不改阶段、不发送。"},
+    {label: "推荐标签", intent: "mail_label_recommend", prompt: "请依据当前会话推荐标签，仅推荐、不保存。"},
   ];
   const chooseMailTask = (item: ComposerSuggestion) => {
     mailCompose.clear();
@@ -1184,24 +1221,31 @@ export default function Mail() {
         </div>
       ) : null}
 
+      <header className="mi-topbar" data-mi-topbar>
+        <button type="button" className="mi-back" data-mi-back onClick={goBack} title="返回工作台（Esc）">
+          <span aria-hidden="true">‹</span> 返回工作台
+        </button>
+        <h1 className="mi-title">通讯</h1>
+        <label className="mi-searchwrap">
+          <MailIcon name="search" />
+          <input ref={topSearchRef} className="mi-search" data-mi-search type="search" aria-label="搜索通讯或回车问 AI"
+            placeholder="搜索联系人 / 主题 / 预览，回车问 AI" value={query} onChange={event => setQuery(event.target.value)}
+            disabled={loadState !== "ok" || !bound}
+            onKeyDown={event => { if (event.key === "Enter" && !event.nativeEvent.isComposing) askAi(query); }} />
+        </label>
+        <span className="mi-sync" data-mi-sync>
+          <span className={"mi-syncdot" + (syncing ? " is-syncing" : "")} aria-hidden="true" />
+          {syncing ? "正在收取…" : box?.synced_at ? `已同步 ${formatMailTime(box.synced_at)}` : "尚未收取"}
+        </span>
+        <button type="button" className={"mr-compose" + (mailCompose.active || composerText.trim() || busy ? " is-active" : "")}
+          data-mi-compose aria-pressed={mailCompose.active} disabled={loadState !== "ok" || !bound} onClick={startBlankCompose}>
+          <MailIcon name="compose" />写信
+        </button>
+      </header>
+
       <div className="mail-split mi-grid" data-mail-state={loadState === "ok" ? bound ? "ok" : bindings.some(binding => binding.bound) ? "choose-mailbox" : "unbound" : loadState}
         data-mail-pane-active={pane === "interact" ? "detail" : pane}>
           <nav className="mi-rail" aria-label="通讯导航" data-mi-rail>
-            <div className="mr-railtools" data-mail-rail-tools>
-              <button type="button" className="mi-back" data-mi-back onClick={goBack} title="返回工作台（Esc）">
-                <span aria-hidden="true">‹</span> 返回工作台
-              </button>
-              <button type="button" className={"mr-compose" + (mailCompose.active ? " is-active" : "")}
-                data-mi-compose aria-pressed={mailCompose.active} disabled={loadState !== "ok" || !bound} onClick={startBlankCompose}>
-                <MailIcon name="compose" />写信</button>
-              <label className="mi-searchwrap">
-                <MailIcon name="search" />
-                <input ref={topSearchRef} className="mi-search" data-mi-search type="search" aria-label="搜索邮件，回车填入提问框"
-                  placeholder="搜索邮件" value={query} onChange={event => setQuery(event.target.value)}
-                  disabled={loadState !== "ok" || !bound}
-                  onKeyDown={event => { if (event.key === "Enter" && !event.nativeEvent.isComposing) askAi(query); }} />
-              </label>
-            </div>
             {loadState === "ok" && bound ? <div className="mr-railbody">
               <MailboxSwitcher current={activeBox} bindings={bindings} syncing={syncing} onSelect={openBox} onSync={() => void sync()} showSync={false} />
             <div className="mi-folders" role="tablist" aria-label="邮件目录">
@@ -1360,7 +1404,7 @@ export default function Mail() {
                         const expanded = expandedId === row.conversation_id;
                         const current = selectedConversation?.conversation_id === row.conversation_id;
                         const mailCount = countOf(row);
-                        const rowLabels = labelsByConversation.get(row.conversation_id) || [];
+                        const rowLabels = labelsByPeer.get(String(row.peer_email || "").toLowerCase()) || [];
                         const rows = expanded ? timelineOf(threads[row.conversation_id]?.messages || []) : [];
                         const newestId = rows[0]?.id || "";
                         return (
@@ -1395,11 +1439,11 @@ export default function Mail() {
                               <div className="mail-timeline" data-mail-timeline>
                                 {rows.length === 0 ? (
                                   <p className="muted mail-timeline-empty">
-                                    {threadErrors[row.conversation_id] || (slowThreads[row.conversation_id] ? "本地读取超过5秒，8秒截止。可取消后重试。" : threads[row.conversation_id] ? "原文尚未同步。可收取邮件补全，不需要等待 AI。" : "正在读取本地邮件…")}
+                                    {threadErrors[row.conversation_id] || (slowThreads[row.conversation_id] ? "本地读取超过5秒，8秒截止。可取消后重试。" : threads[row.conversation_id] ? (hydrateErrors[row.conversation_id] ? `正文补全失败：${hydrateErrors[row.conversation_id]}` : "正文尚未同步。") : "正在读取本地邮件…")}
                                     {threadErrors[row.conversation_id] || slowThreads[row.conversation_id] ? <button type="button" className="mail-read-retry" data-mail-read-retry onClick={() => {
                                       requestControllers.current[row.conversation_id]?.abort(); startedRef.current.delete(row.conversation_id);
                                       ensureThread(row.conversation_id, row, workspace!.source);
-                                    }}>重试读取</button> : null}
+                                    }}>重试读取</button> : threads[row.conversation_id] ? <button type="button" className="mail-read-retry" data-mail-hydrate-thread disabled={syncing} onClick={() => void sync(row.conversation_id)}>补全正文</button> : null}
                                   </p>
                                 ) : rows.map((message) => (
                                   <MailTimelineItem
@@ -1431,16 +1475,20 @@ export default function Mail() {
               <button type="button" className={"mail-star" + (starred ? " is-starred" : "")} data-mail-star aria-pressed={starred}
                 disabled={!selectedConversation} title={starred ? "取消星标" : "加星标"} onClick={() => void toggleStar()}><MailIcon name="star" filled={starred} /></button>
               <span className="mr-reading-mailbox muted" title={selectedConversation?.mailbox || activeBox}>{selectedConversation?.mailbox || activeBox}</span>
-              <button type="button" className="btn ghost sm" data-mi-goto-stage disabled={!kolStage}
-                title={kolStage ? "跳转到阶段变更" : "未绑定合作红人"} onClick={scrollToStage}><MailIcon name="stage" />推进阶段</button>
-              <button type="button" className="btn ghost sm" data-mail-reply disabled={!selectedConversation} onClick={() => reply()}>回复（填写草稿）</button>
+              <button type="button" className="btn ghost sm" data-mail-reply disabled={!selectedConversation} title="回复：填写草稿，不直接发送" onClick={() => reply()}>回复</button>
               <button type="button" className="btn ghost sm" data-mi-mark-read disabled={!selectedConversation} onClick={() => { if (selectedConversation) markRead(selectedConversation); }}>标记已读</button>
-              <button type="button" className="btn ghost sm" data-mi-copy-peer disabled={!selectedConversation?.peer_email} title={selectedConversation?.peer_email || ""} onClick={() => {
-                if (selectedConversation?.peer_email) void navigator.clipboard?.writeText(selectedConversation.peer_email).catch(() => undefined);
-              }}>复制对方邮箱</button>
+              <MailLabelEditor actorId={account?.id || ""} mailbox={activeBox} conversation={selectedConversation}
+                stage={kolStage?.stage_label || (selectedConversation?.stage_code ? stageLabel(selectedConversation.stage_code) : "")}
+                labels={labels} />
+              <button type="button" className="mi-stage-link" data-mi-goto-stage disabled={!kolStage}
+                title={kolStage ? "跳转到阶段变更" : "未绑定合作红人"} onClick={scrollToStage}>推进阶段</button>
             </div>
             <div className="mail-detail-head">
               {detailPeer && detailPeer !== detailPeerEmail ? <p className="mr-peer-name muted">{detailPeer}</p> : null}
+              {detailPeerEmail ? <p className="mr-peer-email muted">{detailPeerEmail}
+                <button type="button" className="mi-copy-peer" data-mi-copy-peer title={detailPeerEmail} aria-label="复制对方邮箱"
+                  onClick={() => { void navigator.clipboard?.writeText(detailPeerEmail).catch(() => undefined); }}>复制</button>
+              </p> : null}
               <div className="mail-mobiletabs" role="tablist" data-mail-mobiletabs>
                 {FOLD_TABS.map((item) => (
                   <button
@@ -1507,13 +1555,10 @@ export default function Mail() {
                 />
               ) : (
                 <p className="muted" data-mail-thread-empty>
-                  {detailError || "选择左侧邮件查看原文。打开不会创建会话。"}
+                  {detailError || "选择左侧邮件查看原文。"}
                 </p>
               )}
             </MailFold>
-            <MailLabelEditor actorId={account?.id || ""} mailbox={activeBox} conversation={selectedConversation}
-              stage={kolStage?.stage_label || (selectedConversation?.stage_code ? stageLabel(selectedConversation.stage_code) : "")}
-              labels={labels} candidates={recommendation?.scope === recommendationScope ? recommendation.result?.suggestions : []} recommending={recommendation?.scope === recommendationScope && recommendation.busy} recommendationError={recommendation?.scope === recommendationScope ? recommendation.error : ""} onRecommend={() => void recommendLabels()} onAdopt={adoptLabel} />
             <div className="mi-stagewrap" ref={stageSectionRef} data-mi-stagewrap>
                             {kolStage ? (
                               <div className="mail-stage-change" data-mail-stage-change>
@@ -1570,6 +1615,24 @@ export default function Mail() {
                 hint={mailCompose.active ? "编辑邮件草稿，发送前仍需独立确认" : "询问当前邮件，或选择任务；Shift+Enter 换行"}
                 suggestions={mailCompose.active ? undefined : mailSuggestions} suggestionsMode="menu" onPickSuggestion={chooseMailTask}
                 contextChips={composerChips} mailCompose={mailCompose} onMailBodyEdit={mailCompose.markEdited} />
+              {recommendation?.scope === recommendationScope && recommendation.busy ? <p className="muted" role="status">AI 正在依据当前会话推荐标签…</p> : null}
+              {recommendation?.scope === recommendationScope && recommendation.error ? <p className="error" role="alert" data-mail-label-recommend-error>{recommendation.error}</p> : null}
+              {recommendation?.scope === recommendationScope && (recommendation.result?.suggestions.length || 0) > 0 ? (
+                <div className="mail-label-candidates" data-mail-label-candidates>
+                  <p className="muted">AI 候选标签 · 未保存 · 跟随对方</p>
+                  {recommendation.result!.suggestions.map(candidate => (
+                    <button type="button" className="mail-label-candidate" key={candidate.id || candidate.name} data-mail-label-candidate={candidate.name}
+                      data-label-tone={mailLabelTone(candidate.name)} onClick={() => setPendingCandidate(candidate)}>
+                      <span><MailIcon name="tag" filled />{candidate.name}</span><small>{candidate.reason}</small><small>点选后确认采纳</small>
+                    </button>
+                  ))}
+                  {pendingCandidate ? <div className="mr-label-confirm">
+                    <span>采纳 AI 推荐「{pendingCandidate.name}」？</span>
+                    <button type="button" className="btn ghost sm" data-mail-label-confirm onClick={() => void (async () => { if (await adoptLabel(pendingCandidate)) setPendingCandidate(null); })()}>确认采纳</button>
+                    <button type="button" className="btn ghost sm" onClick={() => setPendingCandidate(null)}>取消</button>
+                  </div> : null}
+                </div>
+              ) : null}
             </section>
           </div>
 
@@ -1577,7 +1640,7 @@ export default function Mail() {
             {loadState === "loading" ? <div className="mail-pane-skeleton" aria-busy="true"><p className="muted" data-mail-box-loading>{workspaceSlow ? "读取本地索引超过5秒，8秒截止。正在保留当前邮箱范围。" : "正在读取本地邮件索引…"}</p>{Array.from({ length: 6 }).map((_, index) => <div className="mps-row" key={index} />)}</div> : null}
             {loadState === "error" ? <><p className="error" role="alert" data-mail-error>{error}</p><button type="button" className="btn ghost" onClick={() => load()}>重试读取</button></> : null}
             {loadState === "ok" && !bound ? <>
-              {bindings.some(binding => binding.bound) ? <><p data-mail-choose-guide>已绑定 Starry 邮箱，请选择本次查看的邮箱。只显示所选邮箱的往来，打开会话不会创建 Agent 会话。</p>
+              {bindings.some(binding => binding.bound) ? <><p data-mail-choose-guide>已绑定 Starry 邮箱，请选择本次查看的邮箱。只显示所选邮箱的往来。</p>
                 <div className="mail-box-options" data-mail-choose-box>{bindings.filter(binding => binding.bound).map(binding => <button type="button" className="btn ghost" key={binding.mailbox} data-mail-select-box={binding.mailbox} onClick={() => openBox(binding)}>{binding.owner_name ? `${binding.owner_name} · ` : ""}{binding.mailbox}</button>)}</div>
               </> : <p data-mail-unbound-guide>{MAIL_UNBOUND_COPY}</p>}
               <Link className="btn ghost" to="/settings?tab=starry" data-mail-bind>打开连接 Starry</Link>
