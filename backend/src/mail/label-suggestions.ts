@@ -14,6 +14,7 @@ import { assertRuntimeSkill, runtimeAgentCandidates, runtimeAgentForSkill } from
 import type { Operation } from "../runtime/operations.js";
 import type { Json } from "../types.js";
 import { CodexAppServer } from "../worker/codex.js";
+import { resolveLabelPeerEmail } from "./label-peer.js";
 
 /**
  * An explicit, read-only suggestion uses the published `mail_summary` skill as
@@ -245,11 +246,13 @@ export async function loadLabelSuggestionEvidence(
       ORDER BY recent.occurred_at ASC NULLS LAST, recent.evidence_created_at ASC`,
     [thread.id, MAX_MESSAGES],
   );
+  // 已打标 = 已打给该会话的对方（标签跟人走），不是只打给该会话。
+  const peerEmail = await resolveLabelPeerEmail(client, mailbox, conversationId);
   const assignedResult = await client.query<{ label_id: string }>(
     `SELECT label_id FROM mail_private_label_assignments
-      WHERE user_id=$1 AND mailbox=$2 AND conversation_id=$3
+      WHERE user_id=$1 AND mailbox=$2 AND peer_email=$3
       ORDER BY label_id`,
-    [actor.id, mailbox, conversationId],
+    [actor.id, mailbox, peerEmail],
   );
   const assignedLabelIds = assignedResult.rows.map((row) => String(row.label_id));
   const labelResult = await client.query<ExistingLabel>(
@@ -258,10 +261,10 @@ export async function loadLabelSuggestionEvidence(
         AND NOT EXISTS (
           SELECT 1 FROM mail_private_label_assignments a
            WHERE a.user_id=mail_private_labels.user_id AND a.mailbox=mail_private_labels.mailbox
-             AND a.label_id=mail_private_labels.id AND a.conversation_id=$3
+             AND a.label_id=mail_private_labels.id AND a.peer_email=$3
         )
       ORDER BY normalized_name, id`,
-    [actor.id, mailbox, conversationId],
+    [actor.id, mailbox, peerEmail],
   );
   const stateResult = await client.query<{ version: number | string }>(
     `SELECT version FROM mail_private_label_states
