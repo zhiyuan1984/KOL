@@ -1,7 +1,7 @@
 import { nowIso, tx, type SqliteConn } from "./db.js";
 import { HttpFail } from "./host/errors.js";
 import { nid } from "./ids.js";
-import { appendTaskEventInConn } from "./task-events.js";
+import { appendTaskEventInConn } from "./task-events-legacy.js";
 import type { Json, Row } from "./types.js";
 import { parseTicketLifecycleReceipt, ticketAllowedLifecycleActions, validateTicketLifecycleCommand, type TicketTransitionInput, type TicketTransitionReceipt } from "./ticket-lifecycle-contract.js";
 

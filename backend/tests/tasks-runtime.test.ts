@@ -530,7 +530,7 @@ describe("task CRUD and run flow", () => {
     const task = created.body as Json;
     const queued = await request("POST", `/api/tasks/${task.id}/run`, {});
     const runId = String(queued.body.run_id || "");
-    expect(appendTaskEvent(String(task.id), runId, "run.progress", "准备任务", "running")).toMatchObject({
+    expect(await appendTaskEvent(String(task.id), runId, "run.progress", "准备任务", "running")).toMatchObject({
       work_item_id: task.id,
       run_id: runId,
       event_type: "run.progress",
@@ -540,8 +540,8 @@ describe("task CRUD and run flow", () => {
     // ticket without deleting retained lifecycle evidence.
     getConn().prepare("DELETE FROM task_events WHERE work_item_id=? AND event_class='run_trace'").run(task.id);
     getConn().prepare("DELETE FROM task_runs WHERE work_item_id=?").run(task.id);
-    expect(appendTaskEvent(String(task.id), runId, "crawl.start_failed", "远程采集启动失败", "failed")).toBeNull();
-    expect(appendTaskEvent("wi_missing", null, "task.created", "gone", "pending")).toBeNull();
+    expect(await appendTaskEvent(String(task.id), runId, "crawl.start_failed", "远程采集启动失败", "failed")).toBeNull();
+    expect(await appendTaskEvent("wi_missing", null, "task.created", "gone", "pending")).toBeNull();
   });
 
   it("routes an Instagram search phrase into the discovery workspace", async () => {

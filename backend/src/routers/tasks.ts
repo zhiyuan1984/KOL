@@ -25,7 +25,10 @@ import { extractTaskFieldUpdates, type TaskFieldUpdates } from "../tasks/openai-
 import { parseTaskFieldUpdatesFallback } from "../tasks/task-field-updates.js";
 import { parseTaskRecommendationCandidate } from "../host/task-recommendations.js";
 import { ensureTicketForWorkItem, ticketStatusFromWorkItem } from "../tickets.js";
-import { appendTaskEvent, appendTaskEventInConn } from "../task-events.js";
+import { appendTaskEvent } from "../task-events.js";
+// This retired compatibility route still owns a SQLite transaction; production
+// PostgreSQL event authority is imported above.
+import { appendTaskEventInConn } from "../task-events-legacy.js";
 import { ticketAllowedLifecycleActions, transitionTicketLifecyclePostgres } from "../ticket-lifecycle.js";
 import { transitionTicketLifecycle } from "../ticket-lifecycle-legacy.js";
 import { createFormalTicketPostgres, type FormalTicketCreateInput } from "../ticket-domain/create-ticket.js";
