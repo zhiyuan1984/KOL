@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 
@@ -16,14 +15,6 @@ const CONVERSATION_A = "conversation-a";
 const CONVERSATION_B = "conversation-b";
 const PEER_A = "peer-a@example.test";
 const PEER_B = "peer-b@example.test";
-const migrationSql = fs.readFileSync(
-  new URL("../migrations/035_20261012_mail_private_labels.sql", import.meta.url),
-  "utf8",
-);
-const peerMigrationSql = fs.readFileSync(
-  new URL("../migrations/042_20261015_mail_labels_peer_email.sql", import.meta.url),
-  "utf8",
-);
 
 let app: Hono;
 
@@ -102,8 +93,8 @@ function action(input: Record<string, unknown>): Record<string, unknown> {
 
 beforeEach(async () => {
   await freshTestDatabase();
-  await postgresPool().query(migrationSql);
-  await postgresPool().query(peerMigrationSql);
+  // The runner-built template already applies 035 then 042. Replaying old SQL
+  // would try to index conversation_id after 042 removed that column.
   await ensureUser(ACTOR_A);
   await ensureUser(ACTOR_B);
   await bind(ACTOR_A.id, BOX_A);

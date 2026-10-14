@@ -17,4 +17,13 @@ describe("PostgreSQL migration registration", () => {
       expect(migrations.indexOf(`id: "${id}"`)).toBeGreaterThan(create);
     }
   });
+  it("creates private labels and mail threads before migrating assignments to peers", () => {
+    const labels = migrations.indexOf('id: "20261012_mail_private_labels"');
+    const threads = migrations.indexOf('id: "20261007_kol_lead_coop"');
+    const peers = migrations.indexOf('id: "20261015_mail_labels_peer_email"');
+    expect(labels).toBeGreaterThan(0);
+    expect(threads).toBeGreaterThan(0);
+    expect(peers).toBeGreaterThan(labels);
+    expect(peers).toBeGreaterThan(threads);
+  });
 });
