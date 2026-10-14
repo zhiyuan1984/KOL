@@ -15,6 +15,7 @@ import AdminWorkReport from "./AdminWorkReport";
 import AdminBusinessMap from "./AdminBusinessMap";
 import AdminAudit from "./AdminAudit";
 import AdminOntology from "./AdminOntology";
+import AdminBusinessDomains from "./AdminBusinessDomains";
 import { ConnectorDetail } from "../admin/connector/ConnectorDetail";
 import { ConnectorHub } from "../admin/connector/ConnectorHub";
 import type { DirectoryEmployee } from "../admin/employees/EmployeeDirectory";
@@ -130,6 +131,7 @@ export default function AdminConsole() {
         {tab === "audit" && <AdminAudit />}
         {tab === "knowledge" && <AdminKnowledge />}
         {tab === "ontology" && <AdminOntology />}
+        {tab === "business-domains" && <AdminBusinessDomains />}
         {tab === "kol" && <LegacyAdmin />}
       </div>
     </div>

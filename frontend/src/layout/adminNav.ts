@@ -80,6 +80,12 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         icon: "M6 5h4v4H6z M14 5h4v4h-4z M10 15h4v4h-4z M10 9v3 M8 9l3 5 M16 9l-3 5",
       },
       {
+        id: "business-domains",
+        label: "业务域地图",
+        href: "/admin/business-domains",
+        icon: "M9 20l-5.5-2.5v-13L9 7l6-2.5L20.5 7v13L15 17.5 9 20z M9 7v13 M15 4.5v13",
+      },
+      {
         id: "approval-types",
         label: "评审流程",
         href: "/admin/approval-types",
