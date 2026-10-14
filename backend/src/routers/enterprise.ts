@@ -33,6 +33,9 @@ import {
 } from "../runtime/organization-tree.js";
 import { getConnectorConfig } from "../runtime/store.js";
 import { syncUserOrganization } from "../runtime/organization-tree.js";
+import { pgCreateOrganizationUser, pgDeactivateOrganizationUser, pgSyncOrganizationMembership, pgUpdateOrganizationUser, pgUserById } from "../postgres/organization-repository.js";
+import { pgBindApprovalRole, pgSetApprovalRoles, pgUnbindApprovalRole, pgUpdatePreferences } from "../postgres/account-access-repository.js";
+import { pgCreateConnector, pgDeleteConnector, pgUpdateConnector } from "../postgres/connector-authorization-repository.js";
 
 export const enterprise = new Hono();
 
@@ -508,15 +511,13 @@ enterprise.post("/admin/users", async (c) => {
   }
   const id = nid("usr");
   const now = nowIso();
-  getConn().prepare(
-    `INSERT INTO users (id,username,name,password_hash,roles,brands,site,position,manager_user_id,active,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(id, username, String(body.name || username), await hashPassword(String(body.password || "")),
-    JSON.stringify(roles(body.roles || ["employee"])), JSON.stringify(body.brands || []), unitId, String(body.position || ""),
-    body.manager_user_id || null, body.active === false ? 0 : 1, now, now);
-  syncUserOrganization(id, unitId);
-  audit(admin.id, "admin.user.create", { user_id: id });
-  return c.json(safeUser(userById(id)), 201);
+  const passwordHash = await hashPassword(String(body.password || ""));
+  const created = process.env.DATABASE_URL
+    ? await pgCreateOrganizationUser({ id, username, name: String(body.name || username), passwordHash, roles: roles(body.roles || ["employee"]), brands: Array.isArray(body.brands) ? body.brands.map(String) : [], site: unitId, position: String(body.position || ""), managerUserId: body.manager_user_id ? String(body.manager_user_id) : null, active: body.active !== false, email: String(body.email || ""), phone: String(body.phone || ""), now })
+    : null;
+  if (process.env.DATABASE_URL) { if (unitId) await pgSyncOrganizationMembership(id, unitId, now); audit(admin.id, "admin.user.create", { user_id: id }); return c.json({ ...created, password_hash: undefined }, 201); }
+  getConn().prepare(`INSERT INTO users (id,username,name,password_hash,roles,brands,site,position,manager_user_id,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, username, String(body.name || username), passwordHash, JSON.stringify(roles(body.roles || ["employee"])), JSON.stringify(body.brands || []), unitId, String(body.position || ""), body.manager_user_id || null, body.active === false ? 0 : 1, now, now);
+  syncUserOrganization(id, unitId); audit(admin.id, "admin.user.create", { user_id: id }); return c.json(safeUser(userById(id)), 201);
 });
 
 enterprise.get("/admin/users/:uid", (c) => {
@@ -563,26 +564,26 @@ enterprise.patch("/admin/users/:uid", async (c) => {
   if (body.password !== undefined) { sets.push("password_hash=?"); values.push(await hashPassword(String(body.password))); }
   if (!sets.length) return c.json(safeUser(userById(uid)));
   sets.push("updated_at=?"); values.push(nowIso(), uid);
-  getConn().prepare(`UPDATE users SET ${sets.join(",")} WHERE id=?`).run(...values);
-  if (body.password !== undefined) getConn().prepare("DELETE FROM auth_sessions WHERE user_id=?").run(uid);
+  if (process.env.DATABASE_URL) {
+    const changes: Record<string, unknown> = {}; for (const [field, value] of Object.entries(body)) { if (["email","name","site","position","manager_user_id","roles","brands","active","password"].includes(field)) changes[field === "password" ? "password_hash" : field] = field === "roles" || field === "brands" ? JSON.stringify(Array.isArray(value) ? value.map(String) : []) : field === "password" ? await hashPassword(String(value)) : value === "active" ? (value ? 1 : 0) : value || null; }
+    await pgUpdateOrganizationUser(uid, changes); if (body.password !== undefined) { const { pgRevokeUserSessions } = await import("../postgres/organization-repository.js"); await pgRevokeUserSessions(uid); }
+  } else { getConn().prepare(`UPDATE users SET ${sets.join(",")} WHERE id=?`).run(...values); if (body.password !== undefined) getConn().prepare("DELETE FROM auth_sessions WHERE user_id=?").run(uid); }
   if (siteChanged || body.name !== undefined || body.email !== undefined) {
     const site = String(userById(uid).site || "");
     const validUnit = Boolean(site) && listOrganizationUnits().some((unit) => unit.id === site);
-    if (validUnit || (siteChanged && !site)) syncUserOrganization(uid, site);
+    if (process.env.DATABASE_URL) { if (validUnit || (siteChanged && !site)) await pgSyncOrganizationMembership(uid, site || null, nowIso()); } else if (validUnit || (siteChanged && !site)) syncUserOrganization(uid, site);
   }
   audit(admin.id, "admin.user.update", { user_id: uid, fields: sets.map((s) => s.split("=")[0]) });
-  return c.json(safeUser(userById(uid)));
+  return c.json(process.env.DATABASE_URL ? { ...(await pgUserById(uid)), password_hash: undefined } : safeUser(userById(uid)));
 });
 
-enterprise.delete("/admin/users/:uid", (c) => {
+enterprise.delete("/admin/users/:uid", async (c) => {
   const admin = requireAdmin();
   const uid = c.req.param("uid");
   if (uid === admin.id) throw new HttpFail(409, "cannot deactivate current account");
   userById(uid);
-  tx((db) => {
-    db.prepare("UPDATE users SET active=0,updated_at=? WHERE id=?").run(nowIso(), uid);
-    db.prepare("DELETE FROM auth_sessions WHERE user_id=?").run(uid);
-  });
+  if (process.env.DATABASE_URL) await pgDeactivateOrganizationUser(uid, nowIso());
+  else tx((db) => { db.prepare("UPDATE users SET active=0,updated_at=? WHERE id=?").run(nowIso(), uid); db.prepare("DELETE FROM auth_sessions WHERE user_id=?").run(uid); });
   audit(admin.id, "admin.user.deactivate", { user_id: uid });
   return c.json({ ok: true, deactivated: true });
 });
@@ -641,13 +642,13 @@ enterprise.post("/admin/connectors", async (c) => {
   }
   const now = nowIso();
   try {
-    getConn().prepare(`INSERT INTO connectors(id,label,purpose,enabled,status,credential_ref,declared_protocol,updated_at)
-      VALUES (?,?,?,0,'draft',NULL,?,?)`).run(id, label, purpose, declaredProtocol, now);
+    if (process.env.DATABASE_URL) await pgCreateConnector({ id, label, purpose, protocol: declaredProtocol, now });
+    else getConn().prepare(`INSERT INTO connectors(id,label,purpose,enabled,status,credential_ref,declared_protocol,updated_at) VALUES (?,?,?,0,'draft',NULL,?,?)`).run(id, label, purpose, declaredProtocol, now);
   } catch {
     throw new HttpFail(409, { code: "managed_connector_already_exists", connector_id: id });
   }
   audit(admin.id, "admin.connector.create", { connector_id: id, label, purpose, ...(declaredProtocol ? { protocol: declaredProtocol } : {}) });
-  return c.json(connectorPublic(getConn().prepare("SELECT * FROM connectors WHERE id=?").get(id)), 201);
+  return c.json(connectorPublic(process.env.DATABASE_URL ? await (async()=>{ const { pgConnectorById } = await import("../postgres/connector-authorization-repository.js"); return pgConnectorById(id); })() : getConn().prepare("SELECT * FROM connectors WHERE id=?").get(id)), 201);
 });
 
 enterprise.patch("/admin/connectors/:id", async (c) => {
@@ -680,18 +681,17 @@ enterprise.patch("/admin/connectors/:id", async (c) => {
   }
   if (!sets.length) throw new HttpFail(400, "no changes");
   sets.push("updated_at=?"); values.push(nowIso(), id);
-  const result = getConn().prepare(`UPDATE connectors SET ${sets.join(",")} WHERE id=?`).run(...values);
-  if (!result.changes) throw new HttpFail(404, "connector not found");
+  if (process.env.DATABASE_URL) { const changes: Record<string, unknown> = {}; for (const [field,value] of Object.entries(body)) if (["label","purpose","status","credential_ref","enabled"].includes(field)) changes[field]=field === "enabled" ? (value ? 1 : 0) : value; const updated = await pgUpdateConnector(id, changes); if (!updated) throw new HttpFail(404, "connector not found"); }
+  else { const result = getConn().prepare(`UPDATE connectors SET ${sets.join(",")} WHERE id=?`).run(...values); if (!result.changes) throw new HttpFail(404, "connector not found"); }
   audit(admin.id, "admin.connector.update", { connector_id: id });
-  return c.json(connectorPublic(getConn().prepare("SELECT * FROM connectors WHERE id=?").get(id)));
+  return c.json(connectorPublic(process.env.DATABASE_URL ? await (async()=>{ const { pgConnectorById } = await import("../postgres/connector-authorization-repository.js"); return pgConnectorById(id); })() : getConn().prepare("SELECT * FROM connectors WHERE id=?").get(id)));
 });
 
-enterprise.delete("/admin/connectors/:id", (c) => {
+enterprise.delete("/admin/connectors/:id", async (c) => {
   const admin = requireAdmin();
   const connectorId = requireManagedConnector(c.req.param("id"));
   if (isBuiltinConnectorId(connectorId)) throw new HttpFail(405, { code: "builtin_managed_connector_cannot_delete" });
-  const result = getConn().prepare("DELETE FROM connectors WHERE id=?").run(connectorId);
-  if (!result.changes) throw new HttpFail(404, "connector not found");
+  if (process.env.DATABASE_URL) { if (!(await pgDeleteConnector(connectorId))) throw new HttpFail(404, "connector not found"); } else { const result = getConn().prepare("DELETE FROM connectors WHERE id=?").run(connectorId); if (!result.changes) throw new HttpFail(404, "connector not found"); }
   audit(admin.id, "admin.connector.delete", { connector_id: connectorId });
   return c.json({ ok: true });
 });
@@ -703,21 +703,21 @@ export const APPROVAL_ROLE_KINDS: Record<string, "position" | "named"> = {
   zhang: "named",
 };
 
-enterprise.put("/admin/users/:uid/approval-roles/:role", (c) => {
+enterprise.put("/admin/users/:uid/approval-roles/:role", async (c) => {
   const admin = requireAdmin();
   userById(c.req.param("uid"));
   const role = c.req.param("role");
   const kind = APPROVAL_ROLE_KINDS[role] || "position";
-  getConn().prepare("INSERT OR IGNORE INTO approval_role_bindings (user_id,approval_role,role_kind,created_at) VALUES (?,?,?,?)")
-    .run(c.req.param("uid"), role, kind, nowIso());
+  if (process.env.DATABASE_URL) await pgBindApprovalRole(c.req.param("uid"), role, kind, nowIso());
+  else getConn().prepare("INSERT OR IGNORE INTO approval_role_bindings (user_id,approval_role,role_kind,created_at) VALUES (?,?,?,?)").run(c.req.param("uid"), role, kind, nowIso());
   audit(admin.id, "admin.approval_role.bind", { user_id: c.req.param("uid"), role, role_kind: kind });
   return c.json({ ok: true });
 });
 
-enterprise.delete("/admin/users/:uid/approval-roles/:role", (c) => {
+enterprise.delete("/admin/users/:uid/approval-roles/:role", async (c) => {
   const admin = requireAdmin();
-  getConn().prepare("DELETE FROM approval_role_bindings WHERE user_id=? AND approval_role=?")
-    .run(c.req.param("uid"), c.req.param("role"));
+  if (process.env.DATABASE_URL) await pgUnbindApprovalRole(c.req.param("uid"), c.req.param("role"));
+  else getConn().prepare("DELETE FROM approval_role_bindings WHERE user_id=? AND approval_role=?").run(c.req.param("uid"), c.req.param("role"));
   audit(admin.id, "admin.approval_role.unbind", { user_id: c.req.param("uid"), role: c.req.param("role") });
   return c.json({ ok: true });
 });
@@ -741,7 +741,7 @@ enterprise.put("/admin/users/:uid/approval-roles", async (c) => {
   for (const g of grants) {
     if (!allowed.has(g.role)) throw new HttpFail(400, "invalid approval role");
   }
-  tx((db) => {
+  if (process.env.DATABASE_URL) { await pgSetApprovalRoles(uid, grants.map(g=>({role:g.role,kind:APPROVAL_ROLE_KINDS[g.role]||"position",validFrom:g.valid_from||null,validTo:g.valid_to||null})), nowIso()); } else tx((db) => {
     db.prepare("DELETE FROM approval_role_bindings WHERE user_id=?").run(uid);
     for (const g of grants) {
       db.prepare("INSERT INTO approval_role_bindings (user_id,approval_role,role_kind,valid_from,valid_to,created_at) VALUES (?,?,?,?,?,?)")
@@ -828,6 +828,11 @@ enterprise.patch("/preferences", async (c) => {
     next.default_mailbox = defaultMailbox;
   }
   next.default_mailbox = defaultMailbox;
+  if (process.env.DATABASE_URL) {
+    const updated = await pgUpdatePreferences(user.id, Boolean(analytics), next, nowIso(), has("default_mailbox") ? defaultMailbox : undefined);
+    audit(user.id, "preference.update", { fields });
+    return c.json(settingsPreferences(user, updated, brands, settingsMailboxes(user, definitions)));
+  }
   tx((db) => {
     if (has("default_mailbox")) {
       db.prepare("UPDATE user_starry_bindings SET is_default=0 WHERE user_id=?").run(user.id);

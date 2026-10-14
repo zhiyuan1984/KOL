@@ -4,8 +4,9 @@ import { promisify } from "node:util";
 import type { Context, MiddlewareHandler } from "hono";
 import { Hono } from "hono";
 import { audit, getConn, nowIso, tx } from "./db.js";
-import { postgresQuery } from "./postgres/pool.js";
 import { pgConnectorPermissions, pgCreateSession, pgCreateUser, pgDefaultBinding, pgDeleteSession, pgFindUserForLogin, pgUserCount } from "./postgres/auth-pg.js";
+import { pgUpdatePasswordAndRevokeSessions } from "./postgres/organization-repository.js";
+import { postgresQuery } from "./postgres/pool.js";
 import { examPassed, examTodoCount } from "./exam.js";
 import { HttpFail } from "./host/errors.js";
 import { avatarUrlForUser, canUseSkill, visibleSkillIdsForUser } from "./runtime/organization-tree.js";
@@ -173,6 +174,7 @@ function seedDemoAdminContact(db: ReturnType<typeof getConn>, userId: string): v
 
 /** Server deploy: turn leftover `test` into 黄启友 / 123456789. Skip in automated tests. */
 export function ensureDemoAdmin(): void {
+  if (process.env.DATABASE_URL) return;
   if (process.env.NODE_ENV === "test") return;
   if ((process.env.CODEX_MODE || "").toLowerCase() === "stub" && process.env.AUTH_MODE !== "enabled") return;
   const db = getConn();
@@ -380,8 +382,8 @@ authRouter.get("/auth/status", async (c) => {
 
 authRouter.post("/auth/setup", async (c) => {
   if (authDisabled()) throw new HttpFail(404, "setup unavailable");
-  const count = getConn().prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number };
-  if (Number(count.n) !== 0) throw new HttpFail(409, "setup already completed");
+  const count = process.env.DATABASE_URL ? await pgUserCount() : Number((getConn().prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number }).n);
+  if (Number(count) !== 0) throw new HttpFail(409, "setup already completed");
   const body = (await c.req.json()) as Json;
   const rawIdent = String(body.username || body.email || "");
   const username = normalizeAccount(rawIdent);
@@ -450,12 +452,13 @@ authRouter.post("/auth/password", async (c) => {
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
   const body = (await c.req.json()) as Json;
-  const row = getConn().prepare("SELECT password_hash FROM users WHERE id=?").get(user.id) as Row;
-  if (!(await verifyPassword(String(body.current_password || ""), String(row.password_hash)))) {
+  const [row] = process.env.DATABASE_URL ? await postgresQuery<Row>("SELECT password_hash FROM users WHERE id=$1", [user.id]) : [getConn().prepare("SELECT password_hash FROM users WHERE id=?").get(user.id) as Row];
+  if (!row || !(await verifyPassword(String(body.current_password || ""), String(row.password_hash)))) {
     throw new HttpFail(403, "current password is incorrect");
   }
   const passwordHash = await hashPassword(String(body.new_password || ""));
-  tx((db) => {
+  if (process.env.DATABASE_URL) await pgUpdatePasswordAndRevokeSessions(user.id, passwordHash, nowIso());
+  else tx((db) => {
     db.prepare("UPDATE users SET password_hash=?, updated_at=? WHERE id=?").run(passwordHash, nowIso(), user.id);
     db.prepare("DELETE FROM auth_sessions WHERE user_id=?").run(user.id);
   });
