@@ -1,6 +1,6 @@
 import { authDisabled, mapUser, withScopedUser } from "../auth.js";
 import { DEMO_USER } from "../config.js";
-import { getConn } from "../db.js";
+import { postgresQuery } from "../postgres/pool.js";
 import { host } from "../host/api.js";
 import { tasks } from "../routers/tasks.js";
 import { taskDefinition } from "../tasks/registry.js";
@@ -23,7 +23,7 @@ async function post(app: typeof tasks | typeof host, path: string, body: Json): 
 
 /** Use the same from-text → task run → session message chain as Home. */
 export const runAiTask: CronHandler = async ({ job }): Promise<CronHandlerResult> => {
-  const row = getConn().prepare("SELECT * FROM users WHERE id=? AND active=1").get(job.owner_account_id) as Row | undefined;
+  const [row] = await postgresQuery<Row>("SELECT * FROM users WHERE id=$1 AND active=1", [job.owner_account_id]);
   if (!row && !authDisabled()) throw new Error("任务所有者已停用或不存在");
   const composer = composerOf(job);
   const text = String(composer.text || "").trim();
