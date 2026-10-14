@@ -144,33 +144,6 @@ function MailIco({ d }: { d: string }) {
   );
 }
 
-function MailIcoMore() {
-  return (
-    <svg className="mail-ico" viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="5.5" cy="12" r="1.35" fill="currentColor" />
-      <circle cx="12" cy="12" r="1.35" fill="currentColor" />
-      <circle cx="18.5" cy="12" r="1.35" fill="currentColor" />
-    </svg>
-  );
-}
-
-function useDismissable(open: boolean, close: () => void, ref: { current: HTMLElement | null }) {
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) close();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open, close, ref]);
-}
 
 export default function Mail() {
   const [params, setParams] = useSearchParams();
@@ -194,8 +167,6 @@ export default function Mail() {
   const [tab, setTab] = useState<MailTab>("inbox");
   const [unboundOnly, setUnboundOnly] = useState(false);
   const [starOverrides, setStarOverrides] = useState<Record<string, boolean>>({});
-  const [moreOpen, setMoreOpen] = useState(false);
-  const moreRef = useRef<HTMLDivElement | null>(null);
   const [expandedPeer, setExpandedPeer] = useState("");
   const [expandedId, setExpandedId] = useState("");
   const [letters, setLetters] = useState<MailComposeLetter[]>([]);
@@ -234,7 +205,8 @@ export default function Mail() {
   const [starredOnly, setStarredOnly] = useState(false);
   const [stageFilter, setStageFilter] = useState("");
   const [labelFilter, setLabelFilter] = useState("");
-  const labelConversation = focusId ? (workspace?.conversations.find(row => row.conversation_id === focusId || row.id === focusId)?.conversation_id || "") : "";
+  /** 标签作用域跟随阅读区实际展示的会话；经 effect 同步以打破 memo 声明环。 */
+  const [labelConversation, setLabelConversation] = useState("");
   const labels = useMailLabels(account?.id || "", workspace?.box.bound && loadState === "ok" ? workspace.box.mailbox : "", labelConversation);
   useEffect(() => { setLabelFilter(""); setStageFilter(""); }, [boxParam, account?.id]);
   /** 沉浸式：阅读区 AI 提问框输入 */
@@ -258,6 +230,7 @@ export default function Mail() {
   const topSearchRef = useRef<HTMLInputElement | null>(null);
   const syncPollRef = useRef<number | null>(null);
   const syncPollGeneration = useRef(0);
+  const syncQueuedStuckRef = useRef(0);
   const syncProgressStamp = useRef("");
   const startedRef = useRef<Set<string>>(new Set());
   const timersRef = useRef<Record<string, number>>({});
@@ -309,6 +282,12 @@ export default function Mail() {
     }
     return selectedConversationOf(conversations, focusId);
   }, [conversations, groups, focusId, peerParam]);
+
+  /** 标签作用域跟随阅读区实际展示的会话（默认选中最新会话时同样可打标/推荐）。 */
+  useEffect(() => {
+    const id = selectedConversation?.conversation_id || "";
+    setLabelConversation(previous => (previous === id ? previous : id));
+  }, [selectedConversation]);
 
   const detailThread = selectedConversation ? threads[selectedConversation.conversation_id] ?? null : null;
   const currentMessage = useMemo(
@@ -583,7 +562,6 @@ export default function Mail() {
     };
   }, []);
 
-  useDismissable(moreOpen, () => setMoreOpen(false), moreRef);
 
   const markRead = (row: MailConversation) => {
     if (row.unread_count <= 0) return;
@@ -631,6 +609,7 @@ export default function Mail() {
 
   const pollForSync = (id: string) => {
     stopSyncPoll();
+    syncQueuedStuckRef.current = 0;
     const generation = syncPollGeneration.current;
     sessionStorage.setItem(`mail-sync-job:${boxParam}`, id);
     syncProgressStamp.current = "";
@@ -649,6 +628,18 @@ export default function Mail() {
         }
         const running = ["queued", "running", "retrying"].includes(job.status);
         setSyncing(running);
+        if (job.status === "queued" && !Number(progress?.index?.listed || 0)) {
+          syncQueuedStuckRef.current += 1;
+          if (syncQueuedStuckRef.current >= 15) {
+            stopSyncPoll();
+            setSyncing(false);
+            setNotice("");
+            setError("同步任务已提交，但执行器 30 秒未领取——服务器「邮件同步执行器」可能未运行。请联系管理员检查后点「收取」重新提交。");
+            return;
+          }
+        } else {
+          syncQueuedStuckRef.current = 0;
+        }
         if (running) {
           setNotice(job.status === "queued" ? "正在排队，等待同步执行器。" : progress?.index && Number(progress.index.listed || 0) > 0
             ? `索引已更新 ${progress.index.listed} 个会话；正文 ${progress.body?.completed || 0}/${progress.body?.requested || 0} 已补全${progress.body?.failed ? `，${progress.body.failed} 个失败` : ""}。${job.status === "retrying" ? "正在有限重试。" : "关闭页面后继续。"}`
@@ -679,6 +670,7 @@ export default function Mail() {
   };
 
   const sync = async () => {
+    syncQueuedStuckRef.current = 0;
     setSyncing(true);
     setError("");
     setNotice("正在提交同步任务…");
@@ -1049,7 +1041,7 @@ export default function Mail() {
       const el = document.activeElement as HTMLElement | null;
       const typing = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
       if (e.key === "Escape") {
-        if (!moreOpen && !el?.closest("[data-mi-aibar], [data-mail-boxbar], [data-mail-label-editor]")) goBack();
+        if (!el?.closest("[data-mi-aibar], [data-mail-boxbar], [data-mail-label-editor]")) goBack();
         return;
       }
       if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -1441,17 +1433,11 @@ export default function Mail() {
               <span className="mr-reading-mailbox muted" title={selectedConversation?.mailbox || activeBox}>{selectedConversation?.mailbox || activeBox}</span>
               <button type="button" className="btn ghost sm" data-mi-goto-stage disabled={!kolStage}
                 title={kolStage ? "跳转到阶段变更" : "未绑定合作红人"} onClick={scrollToStage}><MailIcon name="stage" />推进阶段</button>
-              <div className="mail-thread-more" ref={moreRef}>
-                <button type="button" className="mail-more-btn" aria-label="更多会话操作" aria-expanded={moreOpen} onClick={() => setMoreOpen(value => !value)}><MailIcoMore /></button>
-                {moreOpen ? <div className="mail-popover">
-                  <button type="button" data-mail-reply disabled={!selectedConversation} onClick={() => { reply(); setMoreOpen(false); }}>回复（填写草稿）</button>
-                  <button type="button" disabled={!selectedConversation} onClick={() => { if (selectedConversation) markRead(selectedConversation); setMoreOpen(false); }}>标记已读</button>
-                  <button type="button" disabled={!selectedConversation?.peer_email} onClick={() => {
-                    if (selectedConversation?.peer_email) void navigator.clipboard?.writeText(selectedConversation.peer_email).catch(() => undefined);
-                    setMoreOpen(false);
-                  }}>复制对方邮箱</button>
-                </div> : null}
-              </div>
+              <button type="button" className="btn ghost sm" data-mail-reply disabled={!selectedConversation} onClick={() => reply()}>回复（填写草稿）</button>
+              <button type="button" className="btn ghost sm" data-mi-mark-read disabled={!selectedConversation} onClick={() => { if (selectedConversation) markRead(selectedConversation); }}>标记已读</button>
+              <button type="button" className="btn ghost sm" data-mi-copy-peer disabled={!selectedConversation?.peer_email} title={selectedConversation?.peer_email || ""} onClick={() => {
+                if (selectedConversation?.peer_email) void navigator.clipboard?.writeText(selectedConversation.peer_email).catch(() => undefined);
+              }}>复制对方邮箱</button>
             </div>
             <div className="mail-detail-head">
               {detailPeer && detailPeer !== detailPeerEmail ? <p className="mr-peer-name muted">{detailPeer}</p> : null}
@@ -1525,7 +1511,7 @@ export default function Mail() {
                 </p>
               )}
             </MailFold>
-            <MailLabelEditor actorId={account?.id || ""} mailbox={activeBox} conversation={labelConversation ? selectedConversation : null}
+            <MailLabelEditor actorId={account?.id || ""} mailbox={activeBox} conversation={selectedConversation}
               stage={kolStage?.stage_label || (selectedConversation?.stage_code ? stageLabel(selectedConversation.stage_code) : "")}
               labels={labels} candidates={recommendation?.scope === recommendationScope ? recommendation.result?.suggestions : []} recommending={recommendation?.scope === recommendationScope && recommendation.busy} recommendationError={recommendation?.scope === recommendationScope ? recommendation.error : ""} onRecommend={() => void recommendLabels()} onAdopt={adoptLabel} />
             <div className="mi-stagewrap" ref={stageSectionRef} data-mi-stagewrap>
