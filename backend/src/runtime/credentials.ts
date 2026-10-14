@@ -82,12 +82,12 @@ function masterKey(): Buffer {
 }
 export function credentialVaultReady(): boolean { return parseMasterKey(process.env[MASTER_KEY_ENV]) !== undefined; }
 function aad(id: string, ownerUserId: string | null): Buffer { return Buffer.from(`runtime-credential-v1:${id}:${ownerUserId || "organization"}`, "utf8"); }
-function encrypt(id: string, ownerUserId: string | null, value: string): { ciphertext: string; nonce: string; authTag: string } {
+export function encryptRuntimeCredential(id: string, ownerUserId: string | null, value: string): { ciphertext: string; nonce: string; authTag: string } {
   const nonce = randomBytes(12); const cipher = createCipheriv("aes-256-gcm", masterKey(), nonce); cipher.setAAD(aad(id, ownerUserId));
   const ciphertext = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
   return { ciphertext: ciphertext.toString("base64"), nonce: nonce.toString("base64"), authTag: cipher.getAuthTag().toString("base64") };
 }
-function decrypt(row: StoredCredential): string {
+export function decryptRuntimeCredential(row: RuntimeCredentialCipherRecord): string {
   let nonce: Buffer; let ciphertext: Buffer; let authTag: Buffer;
   try { nonce = Buffer.from(row.nonce, "base64"); ciphertext = Buffer.from(row.ciphertext, "base64"); authTag = Buffer.from(row.auth_tag, "base64"); } catch { fail("runtime_credential_ciphertext_invalid", 500); }
   if (nonce!.length !== 12 || authTag!.length !== 16 || ciphertext!.length > MAX_SECRET_BYTES + 32) fail("runtime_credential_ciphertext_invalid", 500);
@@ -130,7 +130,7 @@ export async function createCredentialInTransaction(input: CredentialInput, acto
   if (credentialType === "organization_secret" && ownerUserId !== null) fail("runtime_credential_organization_owner_forbidden");
   if (credentialType === "user_account") { if (!ownerUserId) fail("runtime_credential_owner_user_id_required"); await requireActiveOwner(ownerUserId, client); }
   const id = optionalCredentialId(input.id) || nid("cred"); const clear = secretValue(input.secret); const label = boundedText(input.label, "label");
-  const purpose = boundedText(input.purpose, "purpose"); const recordStatus = status(input.status); const encrypted = encrypt(id, ownerUserId, clear); const now = new Date().toISOString();
+  const purpose = boundedText(input.purpose, "purpose"); const recordStatus = status(input.status); const encrypted = encryptRuntimeCredential(id, ownerUserId, clear); const now = new Date().toISOString();
   try {
     const result = await client.query<StoredCredential>(`INSERT INTO runtime_credentials
       (id,type,owner_user_id,label,purpose,status,ciphertext,nonce,auth_tag,key_version,version,created_by,created_at,updated_at)
@@ -192,7 +192,7 @@ export async function resolveSecretReference(id: string, userId?: string): Promi
   const row = await requireStored(id);
   if (row.status !== "active") fail("runtime_credential_unavailable", 403);
   if (row.type === "user_account") { if (!userId || userId !== row.owner_user_id) fail("runtime_credential_access_denied", 403); await postgresTransaction((client) => requireActiveOwner(userId, client)); }
-  return decrypt(row);
+  return decryptRuntimeCredential(row);
 }
 export async function resolveAccountHeaders(accountId: string, userId: string): Promise<Record<string, string>> {
   const exactAccountId = credentialId(accountId); if (!userId || typeof userId !== "string") fail("runtime_credential_account_required", 403);
@@ -205,3 +205,8 @@ export async function writeCredentialAudit(actor: string, eventType: string, pay
   await postgresQuery("INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)", [new Date().toISOString(), actor === "usr_sriphy" ? "sriphy" : actor, eventType, JSON.stringify(payload)]);
 }
 export const credentialMasterKeyEnvironment = MASTER_KEY_ENV;
+
+export type RuntimeCredentialCipherRecord = { id: string; owner_user_id: string | null; ciphertext: string; nonce: string; auth_tag: string };
+export function reencryptRuntimeCredential(source: RuntimeCredentialCipherRecord, targetId: string, targetOwnerUserId: string): { ciphertext: string; nonce: string; authTag: string } {
+  return encryptRuntimeCredential(targetId, targetOwnerUserId, decryptRuntimeCredential(source));
+}
