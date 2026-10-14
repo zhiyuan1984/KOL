@@ -2373,3 +2373,42 @@
   .connector-config-compact .connector-check-row { margin-left: 0; }
   .connector-panel.is-form .connector-config-compact .connector-config-headers > .connector-config-label { padding-top: 0; }
 }
+
+/* 启用页二次收口：测试结论独立成段，状态字段固定行高，删除重复统计说明。 */
+.enable-test-result .enable-alert-main {
+  display: grid;
+  gap: var(--space-1);
+}
+.enable-test-result .enable-test-result-copy {
+  font-size: var(--ds-font-sm);
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+.enable-facts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.enable-facts-item {
+  min-height: var(--control-h-lg);
+  padding-block: var(--space-1);
+}
+.enable-facts-item:nth-child(n + 5) {
+  grid-column: 1 / -1;
+}
+@container (min-width: 720px) {
+  .enable-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.admin-status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  height: 1em;
+  margin-right: var(--space-1);
+  font-size: .9em;
+  line-height: 1;
+}
+.enable-mount-actions .muted {
+  max-width: 32rem;
+}

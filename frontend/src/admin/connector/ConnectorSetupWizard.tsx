@@ -44,6 +44,13 @@ function friendlyProbeFailure(code: string): string {
   return code ? `测试未通过；请检查已保存配置后重试（错误码：${code}）。` : "测试未通过；请检查已保存配置后重试。";
 }
 
+function formatProbeTime(value: string): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
 /**
  * Connection setup wizard: 保存 → 测试 → 工具清单（只读）→ 启用.
  * One solid main action per step; every write keeps its own side effect and
@@ -101,6 +108,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
   // 本会话的测试结果优先；重新打开弹窗时回落到服务端记录的上次测试。
   const passedAt = testedAt || lastProbe?.checked_at || "";
   const passedToolCount = toolCount ?? lastProbe?.tool_count ?? null;
+  const passedAtLabel = formatProbeTime(passedAt);
   const reachable = (target: WizardStep): boolean => {
     if (target === "save") return true;
     if (!id) return false;
@@ -185,7 +193,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
         ? `配置已保存（版本 ${version}）；改动后需重新测试才能启用。`
         : `配置已保存（版本 ${version}），尚未通过测试；启用前需要一次通过的测试。`;
     }
-    return passedAt ? `测试通过于 ${passedAt}；可启用连接器。` : "测试已通过；可启用连接器。";
+    return passedAt ? `测试通过于 ${passedAtLabel}；可启用连接器。` : "测试已通过；可启用连接器。";
   }, [enabled, id, passedAt, savedInSession, verified, version]);
 
   const rememberSave = (savedVersion: number, message: string) => {
@@ -369,7 +377,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
     }
     return (
       <>
-        <p className="connector-panel-note muted">{enableBlocked || "启用后仍受平台校验与技能挂载约束。"}</p>
+        {enableBlocked && <p className="connector-panel-note muted">{enableBlocked}</p>}
         <button type="button" className="btn" disabled={busy === "enable"} onClick={() => setStep("tools")}>上一步</button>
         {enabled ? (
           <button type="button" className="btn work" data-connector-wizard-primary onClick={finish}>完成</button>
@@ -521,21 +529,21 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
             <strong>{enabled ? "连接器已启用" : "连接器待启用"}</strong>
             <span>{statusLine}</span>
           </div>
-          <span className={"admin-status is-" + (enabled ? "enabled" : "disabled")}>{enabled ? "已启用" : "未启用"}</span>
+          <span className={"admin-status is-" + (enabled ? "enabled" : "disabled")}><span className="admin-status-icon" aria-hidden="true">{enabled ? "✓" : "!"}</span>{enabled ? "已启用" : "未启用"}</span>
         </div>
         {/* antd Alert 形态：测试结论。data-connector-wizard-test-result 在启用步收进这里，文案与 e2e 断言保持一致。 */}
         {verified ? (
-          <div className="enable-alert is-success" data-connector-wizard-test-result role="status">
+          <div className="enable-alert is-success enable-test-result" data-connector-wizard-test-result role="status">
             <span className="enable-alert-icon" aria-hidden="true">
               <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M5.4 8.3l1.9 1.9 3.3-3.9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </span>
             <div className="enable-alert-main">
               <strong>测试通过</strong>
-              <span>（{passedAt || "时间由服务端记录"}{passedToolCount === null ? "" : ` · ${passedToolCount} 个工具`}）。仅验证该身份的 MCP 工具目录，不代表业务动作或其他账号可用。{testNotice}</span>
+              <span className="enable-test-result-copy">{passedAtLabel || "时间由服务端记录"}{passedToolCount === null ? "" : ` · 发现 ${passedToolCount} 个工具`}。仅验证该身份的 MCP 工具目录，不代表业务动作或其他账号可用。{testNotice}</span>
             </div>
           </div>
         ) : (
-          <div className="enable-alert is-warn" data-connector-wizard-test-result role="status">
+          <div className="enable-alert is-warn enable-test-result" data-connector-wizard-test-result role="status">
             <span className="enable-alert-icon" aria-hidden="true">
               <svg viewBox="0 0 16 16"><path d="M8 2.2L14.6 13.4H1.4L8 2.2z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /><path d="M8 6.4v3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /><circle cx="8" cy="11.2" r="0.9" fill="currentColor" /></svg>
             </span>
@@ -549,7 +557,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
         <dl className="enable-facts" aria-label="连接器基本信息">
           <div className="enable-facts-item">
             <dt>当前状态</dt>
-            <dd><span className={"admin-status is-" + (enabled ? "enabled" : "disabled")}>{enabled ? "已启用" : "未启用"}</span></dd>
+            <dd><span className={"admin-status is-" + (enabled ? "enabled" : "disabled")}><span className="admin-status-icon" aria-hidden="true">{enabled ? "✓" : "!"}</span>{enabled ? "已启用" : "未启用"}</span></dd>
           </div>
           <div className="enable-facts-item">
             <dt>已验证</dt>
@@ -557,7 +565,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
           </div>
           <div className="enable-facts-item">
             <dt>测试时间</dt>
-            <dd>{passedAt || "—"}</dd>
+            <dd>{passedAtLabel || "—"}</dd>
           </div>
           <div className="enable-facts-item">
             <dt>启用条件</dt>
@@ -581,13 +589,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
         </dl>
         {/* 启用闸门里唯一还需要人做的一步：把工具挂到技能上。这里直接给出可完成的动作。 */}
         <div className="enable-mount" data-connector-wizard-mount>
-          <p className="enable-mount-summary" data-connector-wizard-mount-summary>
-            {mountGateError
-              ? `技能挂载情况未读取：${mountGateError}`
-              : mountGate
-                ? `启用条件：至少一个技能把它的工具挂到可用状态。扫描结果：${gate.skills} 个已上线技能声明了它的工具，已挂 ${gate.mounted} 个；可一键挂载 ${gate.mountable} 个${gate.skipped ? `，另有 ${gate.skipped} 个要逐项决定` : ""}。`
-                : "正在读取技能挂载情况…"}
-          </p>
+          {mountGateError && <p className="enable-mount-summary" data-connector-wizard-mount-summary>技能挂载情况未读取：{mountGateError}</p>}
           <div className="enable-mount-actions">
             <button
               type="button"
@@ -599,7 +601,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
             >
               {declaredMount.busy ? "挂载中…" : "按技能定义挂载工具"}
             </button>
-            <span className="muted">只挂技能定义（SKILL.md）里声明且已登记启用的工具；L3 工具可挂载，执行前仍需确认及业务门禁。挂载后需单独启用连接器。</span>
+            <span className="muted">仅挂载技能定义中已登记启用的工具；不改变连接器启用状态。</span>
           </div>
           {declaredMount.receipt && <p className="runtime-notice" role="status" data-connector-wizard-mount-receipt>{declaredMount.receipt}现在可以启用连接器。</p>}
           {declaredMount.failure && <p className="error" role="alert" data-connector-wizard-mount-error>{declaredMount.failure}</p>}
