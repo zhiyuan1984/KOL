@@ -6,6 +6,7 @@ import { getConn, resetConn } from "../src/db.js";
 import { saveStarryBinding } from "../src/host/starry-bind.js";
 import { copyAccountAccess } from "../src/runtime/account-access.js";
 import { resolveSecretReference } from "../src/runtime/credentials.js";
+import { freshTestDatabase } from "./support/pg.js";
 import { createAgentBinding, ensureOrganizationTree, reseedOrganizationTreeFromRegistry } from "../src/runtime/organization-tree.js";
 
 let tmp = "";
@@ -17,7 +18,8 @@ function personUser(personRef: string): string | null {
   return row?.user_id ? String(row.user_id) : null;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await freshTestDatabase();
   process.env.RUNTIME_CREDENTIAL_MASTER_KEY = "17".repeat(32);
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-account-access-"));
   Object.assign(process.env, { LINGONG_DB: path.join(tmp, "db.sqlite"), LINGONG_DATA: tmp, NODE_ENV: "test" });
