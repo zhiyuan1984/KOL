@@ -1207,13 +1207,13 @@ test("三图改版：左栏唯一工具区、单一 composer 任务菜单、无�
   await expect(page.locator("[data-mail-box-menu]")).toHaveCount(0);
 });
 
-test("已有标签只能筛选、选择并确认；不允许手写创建，刷新仍来自接口", async ({ page }) => {
+test("已有标签可筛选选择；手动输入新标签走 name 创建并打标", async ({ page }) => {
   await mockFormalMail(page);
   const store = await mockLabelStore(page);
   const sessions = sessionPostsOf(page);
   await page.goto("/mail?c=3901");
-  await expect(page.locator("[data-mail-label-input]")).toHaveCount(0);
   await openLabelPicker(page);
+  await expect(page.locator("[data-mail-label-input]")).toBeVisible();
   const search = page.locator("[data-mail-label-search]");
   await search.fill("报价");
   await expect(page.locator("[data-mail-label-option]")).toHaveCount(1);
@@ -1230,6 +1230,16 @@ test("已有标签只能筛选、选择并确认；不允许手写创建，刷�
   await page.reload();
   await expect(page.locator('[data-mail-saved-label="private_quote"]')).toContainText("报价待确认");
   expect(store.posts).toHaveLength(1);
+  expect(sessions).toEqual([]);
+
+  // 手动输入新标签：走 name 创建（不存在则新建），打标到当前会话。
+  await openLabelPicker(page);
+  await page.locator("[data-mail-label-input]").fill("手工跟进");
+  await page.locator("[data-mail-label-add]").click();
+  await expect(page.locator("[data-mail-label-notice]")).toHaveText("标签已保存。");
+  expect(store.posts[1]).toMatchObject({ box: FORMAL_BOX.mailbox, conversation_id: "3901", mode: "add", confirm: true });
+  expect(store.posts[1].name).toBe("手工跟进");
+  expect(store.posts[1].label_id).toBeUndefined();
   expect(sessions).toEqual([]);
 });
 
