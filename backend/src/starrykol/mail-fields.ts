@@ -135,6 +135,8 @@ export function messageOccurredAt(row: Json): string {
   return asIsoTime(firstString(
     row.sentAt,
     row.receivedAt,
+    row.messageTime,
+    row.message_time,
     row.sendTime,
     row.receiveTime,
     row.sentTime,

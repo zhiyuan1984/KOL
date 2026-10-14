@@ -63,9 +63,10 @@ describe("starry mail field helpers", () => {
     expect(occurredAtMs("2026-09-07T10:18:00.000Z")).toBe(Date.parse("2026-09-07T10:18:00.000Z"));
   });
 
-  it("reads Starry sendTime as the message timestamp", () => {
+  it("reads Starry sendTime and messageTime as the message timestamp", () => {
     expect(messageOccurredAt({ sendTime: "2026-09-07T10:18:00.000Z" })).toBe("2026-09-07T10:18:00.000Z");
     expect(messageOccurredAt({ sent_at: "2026-09-06T09:00:00.000Z" })).toBe("2026-09-06T09:00:00.000Z");
+    expect(messageOccurredAt({ messageTime: "2026-08-18T19:03:00.000Z" })).toBe("2026-08-18T19:03:00.000Z");
   });
 
   it("skips LT placeholder boxes when a real Starry mailbox exists", () => {
