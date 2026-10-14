@@ -306,7 +306,7 @@ function userPublic(user: AppUser): Json {
   };
 }
 
-function permissions(user: AppUser): Json {
+async function permissions(user: AppUser): Promise<Json> {
   const db = getConn();
   const admin = isAdmin(user);
   const now = nowIso();
@@ -317,12 +317,17 @@ function permissions(user: AppUser): Json {
   );
   const approvalRoles = admin
     ? ["*"]
-    : (db.prepare(
-        "SELECT approval_role FROM approval_role_bindings WHERE user_id = ? " +
-        "AND (valid_from IS NULL OR valid_from <= ?) " +
-        "AND (valid_to IS NULL OR valid_to >= ?)"
-      ).all(user.id, now, now) as Row[])
-      .map((r) => String(r.approval_role));
+    : process.env.DATABASE_URL
+      ? (await postgresQuery<{ approval_role: string }>(
+          "SELECT approval_role FROM approval_role_bindings WHERE user_id=$1 AND (valid_from IS NULL OR valid_from <= $2) AND (valid_to IS NULL OR valid_to > $2)",
+          [user.id, now],
+        )).map((r) => String(r.approval_role))
+      : (db.prepare(
+          "SELECT approval_role FROM approval_role_bindings WHERE user_id = ? " +
+          "AND (valid_from IS NULL OR valid_from <= ?) " +
+          "AND (valid_to IS NULL OR valid_to >= ?)"
+        ).all(user.id, now, now) as Row[])
+        .map((r) => String(r.approval_role));
   return { admin, skills, connectors, approval_roles: approvalRoles };
 }
 
@@ -365,7 +370,7 @@ authRouter.get("/auth/status", async (c) => {
     user: user ? userPublic(user) : null,
     account: user ? userPublic(user) : null,
     available_modes: user ? ["employee", ...(isAdmin(user) ? ["admin"] : [])] : [],
-    permissions: user ? permissions(user) : {},
+    permissions: user ? await permissions(user) : {},
   });
 });
 
