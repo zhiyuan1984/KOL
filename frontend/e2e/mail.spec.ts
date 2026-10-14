@@ -457,15 +457,16 @@ test("context chips insert at the saved selection and × only dismisses that chi
     textarea.dispatchEvent(new Event("select", { bubbles: true }));
   });
   await page.locator('[data-composer-chip-insert="subject"]').click();
-  await expect(input).toHaveValue("alpha Re: LiTime collab");
+  const expectedText = "alpha 邮件：Re: LiTime collab";
+  await expect(input).toHaveValue(expectedText);
   await expect.poll(() => input.evaluate((node) => ({
     start: (node as HTMLTextAreaElement).selectionStart,
     end: (node as HTMLTextAreaElement).selectionEnd,
-  }))).toEqual({ start: 23, end: 23 });
+  }))).toEqual({ start: expectedText.length, end: expectedText.length });
 
   await page.locator('[data-composer-draft-chip="subject"] .chip-x').click();
   await expect(page.locator('[data-composer-draft-chip="subject"]')).toHaveCount(0);
-  await expect(input).toHaveValue("alpha Re: LiTime collab");
+  await expect(input).toHaveValue(expectedText);
 });
 
 test("邮件任务菜单包含五项固定建议与推荐标签，点选只预填不直接执行", async ({ page }) => {
@@ -1040,7 +1041,11 @@ for (const viewport of [{ width: 375, height: 667 }, { width: 768, height: 1024 
     if (viewport.width <= 1100) await page.locator('[data-mail-pane="detail"]').click();
     await page.locator("[data-mi-compose]").click();
     const aibar = await page.locator("[data-mi-aibar]").boundingBox();
-    expect(aibar && aibar.x >= 0 && aibar.x + aibar.width <= viewport.width).toBeTruthy();
+    const geometry = await page.locator(".mi-grid, .mail-reading-pane, [data-mi-aibar]").evaluateAll(nodes => nodes.map(node => {
+      const r = node.getBoundingClientRect(), s = getComputedStyle(node);
+      return { className: node.className, x: r.x, width: r.width, minWidth: s.minWidth, maxWidth: s.maxWidth, margin: s.margin, align: s.alignSelf };
+    }));
+    expect(aibar && aibar.x >= 0 && aibar.x + aibar.width <= viewport.width, JSON.stringify(geometry)).toBeTruthy();
     expect(aibar && aibar.y >= 0 && aibar.y + aibar.height <= viewport.height).toBeTruthy();
     await page.locator("[data-composer-input]").fill("保留的写信草稿");
     await page.screenshot({ path: testInfo.outputPath(`mail-${viewport.width}x${viewport.height}.png`), fullPage: false });
