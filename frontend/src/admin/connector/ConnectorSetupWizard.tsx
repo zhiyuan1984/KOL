@@ -529,7 +529,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
             <strong>{enabled ? "连接器已启用" : "连接器待启用"}</strong>
             <span>{statusLine}</span>
           </div>
-          <span className={"admin-status is-" + (enabled ? "enabled" : "disabled")}><span className="admin-status-icon" aria-hidden="true">{enabled ? "✓" : "!"}</span>{enabled ? "已启用" : "未启用"}</span>
+          <span className={"admin-status enable-status-mark is-" + (enabled ? "enabled" : "disabled")}><span className="admin-status-icon" aria-hidden="true">{enabled ? "✓" : "!"}</span>{enabled ? "已启用" : "未启用"}</span>
         </div>
         {/* antd Alert 形态：测试结论。data-connector-wizard-test-result 在启用步收进这里，文案与 e2e 断言保持一致。 */}
         {verified ? (
@@ -557,7 +557,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
         <dl className="enable-facts" aria-label="连接器基本信息">
           <div className="enable-facts-item">
             <dt>当前状态</dt>
-            <dd><span className={"admin-status is-" + (enabled ? "enabled" : "disabled")}><span className="admin-status-icon" aria-hidden="true">{enabled ? "✓" : "!"}</span>{enabled ? "已启用" : "未启用"}</span></dd>
+            <dd><span className={"admin-status enable-status-mark is-" + (enabled ? "enabled" : "disabled")}><span className="admin-status-icon" aria-hidden="true">{enabled ? "✓" : "!"}</span>{enabled ? "已启用" : "未启用"}</span></dd>
           </div>
           <div className="enable-facts-item">
             <dt>已验证</dt>
@@ -566,14 +566,6 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
           <div className="enable-facts-item">
             <dt>测试时间</dt>
             <dd>{passedAtLabel || "—"}</dd>
-          </div>
-          <div className="enable-facts-item">
-            <dt>启用条件</dt>
-            <dd>至少一个技能把它的工具挂到可用状态</dd>
-          </div>
-          <div className="enable-facts-item">
-            <dt>技能声明</dt>
-            <dd>{gate.skills} 个已上线技能声明了它的工具</dd>
           </div>
           <div className="enable-facts-item">
             <dt>挂载进度</dt>
@@ -585,6 +577,14 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
                 <span>已挂 {gate.mounted}/{gate.declared} 个</span>
               </span>
             </dd>
+          </div>
+          <div className="enable-facts-item">
+            <dt>技能声明</dt>
+            <dd>{gate.skills} 个已上线技能声明了它的工具</dd>
+          </div>
+          <div className="enable-facts-item">
+            <dt>启用条件</dt>
+            <dd>至少一个技能把它的工具挂到可用状态</dd>
           </div>
         </dl>
         {/* 启用闸门里唯一还需要人做的一步：把工具挂到技能上。这里直接给出可完成的动作。 */}

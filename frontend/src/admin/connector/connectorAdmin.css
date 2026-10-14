@@ -2412,3 +2412,72 @@
 .enable-mount-actions .muted {
   max-width: 32rem;
 }
+
+
+/* 启用页三次收口：状态标签去卡片化，状态字段按优先级排列，操作链接居中。 */
+.connector-enable-info {
+  gap: var(--space-3);
+}
+.enable-alert {
+  padding: var(--space-2) var(--space-3);
+}
+.enable-status-mark {
+  gap: var(--space-1);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: var(--ds-font-sm);
+  font-weight: 500;
+  line-height: var(--leading-body);
+  white-space: nowrap;
+}
+.enable-status-mark .admin-status-icon {
+  margin-right: 0;
+}
+.enable-test-result .enable-alert-main {
+  display: block;
+}
+.enable-test-result .enable-alert-main strong,
+.enable-test-result .enable-test-result-copy {
+  display: block;
+}
+.enable-test-result .enable-alert-main strong {
+  margin: 0 0 var(--space-1);
+}
+.enable-test-result .enable-test-result-copy {
+  max-width: 100%;
+  line-height: 1.4;
+}
+.enable-facts-item:nth-child(4) .enable-progress {
+  min-width: 0;
+  width: 100%;
+}
+.enable-facts-item:nth-child(4) .enable-progress-track {
+  max-width: 7rem;
+}
+.enable-mount {
+  gap: var(--space-1);
+}
+.enable-mount-actions {
+  gap: var(--space-2);
+}
+.enable-links {
+  justify-content: center;
+  gap: var(--space-3);
+  margin: var(--space-1) 0;
+}
+@container (max-width: 560px) {
+  .enable-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .enable-facts-item:nth-child(n) {
+    grid-column: auto;
+  }
+  .enable-facts-item:nth-child(4) .enable-progress-track {
+    max-width: none;
+  }
+  .enable-links {
+    gap: var(--space-2);
+  }
+}
