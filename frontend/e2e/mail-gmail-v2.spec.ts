@@ -47,6 +47,12 @@ test('本地读取超过5秒显示具体状态，8秒截止后可重试且只有
 test('原文ready且翻译pending不会轮询原文：持续可读、零AI调用',async({page})=>{
  const {posts,reads}=await fixture(page);await open(page);await expect(page.locator('[data-mail-timeline-item]').first()).toBeVisible();await page.locator('[data-mail-timeline-item]').first().click();await expect(page.locator('[data-mail-body]')).toContainText(MESSAGE.body_text);await page.waitForTimeout(4400);expect(reads.length).toBe(1);expect(posts.filter(p=>p.includes('/tasks/')||p.includes('label-suggestions'))).toHaveLength(0);
 });
+test('展开联系人后自动显示最新邮件原文',async({page})=>{
+ await fixture(page);await page.goto(`/mail?box=${encodeURIComponent(BOX)}`);await expect(page.locator('[data-composer-input]')).toBeVisible();
+ await page.locator('[data-mail-correspondent]').first().click();
+ await expect(page.locator('[data-mail-timeline-item]').first()).toBeVisible();
+ await expect(page.locator('[data-mail-body]')).toContainText(MESSAGE.body_text);
+});
 
 test('空字典通过真实接口契约候选后独立确认，只提交receipt不可手写创建',async({page})=>{
  let saved=false;let mutation:Record<string,unknown>={};const snapshot=()=>({mailbox:BOX,labels:saved?[{id:'new-label',name:'待确认档期',count:1}]:[],assignments:saved?[{conversation_id:CONV.conversation_id,label_ids:['new-label']}]:[],selected_label_ids:saved?['new-label']:[],version:saved?1:0});

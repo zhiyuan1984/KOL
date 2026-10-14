@@ -495,18 +495,18 @@ export default function Mail() {
     setPane("detail");
   }, [focusId, conversations]);
 
-  // 深链还要「选中最新一封」：会话详情一到就补写 ?m=，让左栏高亮的那一行
-  // 和右栏读的是同一封；用户自己展开节点时不会写 URL。
+  // 会话详情一到就自动选中最新一封，让右栏不再停留在“选择左侧邮件”。
+  // 这同时覆盖深链和用户从中栏展开会话两条路径；用户手动选择邮件后不覆盖。
   useEffect(() => {
-    if (!focusId || messageId || !selectedConversation) return;
+    if (messageId || !selectedConversation) return;
     const newest = timelineOf(threads[selectedConversation.conversation_id]?.messages || [])[0];
     if (!newest) return;
     const next = new URLSearchParams(params);
     next.set("c", selectedConversation.conversation_id);
     next.set("m", newest.id);
     setParams(next, { replace: true });
-  }, [focusId, messageId, selectedConversation, threads, params, setParams]);
-
+    setFold("original", true);
+  }, [messageId, selectedConversation, threads, params, setParams]);
   useEffect(() => {
     if (!peerParam || focusId || !conversations.length || appliedPeerRef.current === peerParam) return;
     appliedPeerRef.current = peerParam;
@@ -1346,7 +1346,21 @@ export default function Mail() {
                   <CorrespondentRow
                     group={group}
                     expanded={peerExpanded}
-                    onToggle={() => setExpandedPeer(peerExpanded ? "" : group.peer_email)}
+                    onToggle={() => {
+                      if (peerExpanded) {
+                        setExpandedPeer("");
+                        return;
+                      }
+                      const first = group.conversations[0];
+                      setExpandedPeer(group.peer_email);
+                      if (!first) return;
+                      setExpandedId(first.conversation_id);
+                      const next = new URLSearchParams(params);
+                      next.set("c", first.conversation_id);
+                      next.delete("m");
+                      setParams(next, { replace: true });
+                      setPane("detail");
+                    }}
                   />
                   {peerExpanded ? (
                     <div className="mail-conversation-list">

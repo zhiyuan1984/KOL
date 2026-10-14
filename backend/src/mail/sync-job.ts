@@ -6,7 +6,6 @@ import { postgresPool } from "../postgres/pool.js";
 import { pgEnqueueExecutionJob, pgExecutionJobPayload, pgExecutionJobPublic } from "../execution-jobs/postgres-store.js";
 import type { ClaimedExecutionJob } from "../execution-jobs/contracts.js";
 import { syncFollowedKolMail, type MailSyncAuthorizedScope, type MailSyncProgress } from "../starrykol/mail-sync.js";
-import { withStarryCredential } from "../starrykol/service.js";
 import type { Json, Row } from "../types.js";
 
 type MailSyncAuthorization = {
@@ -237,7 +236,7 @@ export async function executeMailSyncJob(job: ClaimedExecutionJob, checkpoint: (
     }
     authorization = fresh;
   };
-  return await withScopedUser(initial.actor, () => withStarryCredential(initial.credentialId, async () => {
+  return await withScopedUser(initial.actor, async () => {
     const onProgress = async (progress: MailSyncProgress) => {
       latestProgress = progress;
       await persistMailSyncReceipt(job, check, {
@@ -265,5 +264,5 @@ export async function executeMailSyncJob(job: ClaimedExecutionJob, checkpoint: (
       note: "邮件索引已同步；正文补全完成；摘要与翻译未生成。", diagnostic_id: result.diagnostic_id || null,
       ...receiptProgress(progress), ai: { summary: "not_generated", translation: "not_generated" },
     };
-  }));
+  });
 }
