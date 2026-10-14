@@ -19,7 +19,7 @@ function actor(): string {
   return user.id;
 }
 async function view(action: RuntimeAction) {
-  authorizeConnector(action.context_json, action.connector_id);
+  (await authorizeConnector(action.context_json, action.connector_id));
   let blocked: string | null = null;
   try { if (action.state === "pending") await runtimeActionGate(action.connector_id, action.tool_name).validate(action.context_json, action.args_json); }
   catch { blocked = "此动作仍需业务范围或审批校验，请使用对应业务操作入口。"; }
@@ -51,7 +51,7 @@ async function view(action: RuntimeAction) {
 export const runtimeActionOperations: Operation[] = [
   { id: "runtime.crawl.results.retry", kind: "action", async handle(c, input) {
     const action = await runtimeAction(String(input.action_id || ""), actor());
-    authorizeConnector(action.context_json, action.connector_id);
+    (await authorizeConnector(action.context_json, action.connector_id));
     const crawl = (await postgresPool().query("SELECT state,result_state FROM runtime_crawl_jobs WHERE id=$1 AND actor_id=$2", [action.id, action.actor_id])).rows[0];
     if (!crawl || !["succeeded", "cancelled"].includes(crawl.state) || !["failed", "partial"].includes(crawl.result_state)) throw new HttpFail(409, { code: "crawl_result_not_retryable" });
     // Read-only recovery; retry a failed result read, never start another remote collection.
@@ -114,7 +114,7 @@ export const runtimeActionOperations: Operation[] = [
   { id: "runtime.confirm", kind: "action", async handle(c, input) {
     const action = await runtimeAction(String(input.action_id || ""), actor());
     if (action.snapshot !== input.confirmation_version) throw new HttpFail(409, { code: "runtime_action_snapshot_stale" });
-    authorizeConnector(action.context_json, action.connector_id);
+    (await authorizeConnector(action.context_json, action.connector_id));
     if (action.state === "succeeded") {
       await validateRuntimeToolScope(action.connector_id, action.context_json, action.tool_name, action.args_json);
       return c.json({ receipt: action.receipt_json });
@@ -129,7 +129,7 @@ export const runtimeActionOperations: Operation[] = [
   } },
   { id: "runtime.cancel", kind: "action", async handle(c, input) {
     const action = await runtimeAction(String(input.action_id || ""), actor());
-    authorizeConnector(action.context_json, action.connector_id);
+    (await authorizeConnector(action.context_json, action.connector_id));
     await postgresPool().query("UPDATE runtime_actions SET state='cancelled',updated_at=now() WHERE id=$1 AND state='pending'", [action.id]);
     return c.json(await view(await runtimeAction(action.id, actor())));
   } },

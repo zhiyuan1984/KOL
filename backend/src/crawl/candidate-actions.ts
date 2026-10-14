@@ -46,12 +46,12 @@ const STARRY_RECONCILE_TIMEOUT_MS = 100_000;
 const STALE_DISPATCHING_MS = 10 * 60_000;
 
 /** Starry 公海导入的授权门禁（抽出供 ingest / follow 复用）。 */
-function authorizeStarryImport(action: { context_json: RuntimeContext }, actorId: string): void {
-  const importContext = { ...action.context_json, agentId: runtimeAgentForSkill("creator_discovery", actorId), skillId: "creator_discovery" };
-  authorizeConnector(importContext, "starrykol");
+async function authorizeStarryImport(action: { context_json: RuntimeContext }, actorId: string): Promise<void> {
+  const importContext = { ...action.context_json, agentId: (await runtimeAgentForSkill("creator_discovery", actorId)), skillId: "creator_discovery" };
+  (await authorizeConnector(importContext, "starrykol"));
   const tool = "importKolProfilesFromCrawler";
-  const binding = getSkillTools(importContext.skillId, "starrykol").find(item => item.tool_name === tool);
-  const policy = getToolPolicy("starrykol", tool);
+  const binding = (await getSkillTools(importContext.skillId, "starrykol")).find(item => item.tool_name === tool);
+  const policy = (await getToolPolicy("starrykol", tool));
   if (!binding?.enabled || !policy?.enabled || policy.risk !== "L3" || policy.access !== "write") {
     throw new HttpFail(403, { code: "runtime_tool_not_granted", message: "当前智能体未获准将候选导入正式公海。" });
   }
@@ -68,7 +68,7 @@ async function starryImportCandidate(input: {
 }): Promise<{ kol_uid: string; reused: boolean }> {
   const { row, actionId, actorId, sourceBatch, candidateId, allowFollowed } = input;
   const action = await runtimeAction(actionId, actorId);
-  authorizeStarryImport(action, actorId);
+  (await authorizeStarryImport(action, actorId));
   const importState = await postgresTransaction(async client => {
     await lock(client, row);
     await currentSnapshot(client, actionId, row, input.snapshotVersion);
@@ -261,7 +261,7 @@ async function currentSnapshot(client: PoolClient, actionId: string, row: Json, 
 
 /** Filtering precedes employee output and model input, including saved snapshots. */
 export async function runtimeCandidateViews(context: RuntimeContext, actionId: string, candidates: Json[]): Promise<Json[]> {
-  authorizeConnector(context, "claw");
+  (await authorizeConnector(context, "claw"));
   if (scopedUser() && scopedUser()!.id !== context.userId) throw new HttpFail(403, { code: "candidate_scope_denied" });
   const actorRow = (await postgresPool().query("SELECT * FROM users WHERE id=$1 AND active=1", [context.userId])).rows[0];
   if (!actorRow) throw new HttpFail(401, { code: "runtime_identity_unavailable" });
@@ -310,7 +310,7 @@ export async function runtimeCandidateCommand(actionId: string, candidateId: str
   const actor = user();
   const action = await runtimeAction(actionId, actor.id);
   if (action.tool_name !== "start_crawl") throw new HttpFail(404, { code: "candidate_not_found" });
-  authorizeConnector(action.context_json, "claw");
+  (await authorizeConnector(action.context_json, "claw"));
   const job = (await postgresPool().query("SELECT result_json FROM runtime_crawl_jobs WHERE id=$1 AND actor_id=$2", [actionId, actor.id])).rows[0];
   const row = job?.result_json?.candidates?.find((item: Json) => String(item.id) === candidateId) as Json | undefined;
   if (!row) throw new HttpFail(404, { code: "candidate_not_found" });
@@ -324,7 +324,7 @@ export async function runtimeCandidateCommand(actionId: string, candidateId: str
   if (verb === "ignore" || verb === "restore") {
     await postgresTransaction(async client => {
       await lock(client, row);
-      authorizeConnector(action.context_json, "claw");
+      (await authorizeConnector(action.context_json, "claw"));
       await currentSnapshot(client, actionId, row, input.snapshot_version);
       const owned = await follow(client, row);
       if (owned && owned.employee_id !== actor.id && !isAdmin(actor)) throw new HttpFail(403, { code: "candidate_scope_denied" });
@@ -340,7 +340,7 @@ export async function runtimeCandidateCommand(actionId: string, candidateId: str
     if (input.confirmed !== true) throw new HttpFail(422, { code: "follow_click_required" });
     const result = await postgresTransaction(async client => {
       await lock(client, row);
-      authorizeConnector(action.context_json, "claw");
+      (await authorizeConnector(action.context_json, "claw"));
       await currentSnapshot(client, actionId, row, input.snapshot_version);
       const existing = await follow(client, row);
       if (existing) {
@@ -428,7 +428,7 @@ export async function runtimeCandidateCommand(actionId: string, candidateId: str
   }
   if (verb !== "ingest") throw new HttpFail(404, { code: "candidate_action_unknown" });
   requireSkill("creator_discovery");
-  authorizeStarryImport(action, actor.id);
+  (await authorizeStarryImport(action, actor.id));
   if (input.confirmed !== true) throw new HttpFail(422, { code: "l3_confirm_required", message: "加入公海需要确认。" });
   const sourceBatch = `runtime:${actionId}`;
   let imported;

@@ -21,7 +21,7 @@ beforeEach(async () => {
   process.env.AUTH_MODE = "enabled";
   resetConn();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const setup = await app.request("/api/auth/setup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

@@ -53,7 +53,7 @@ function addMember(personRef: string, unitId: string) {
   ).run(`m:${personRef}:${unitId}`, personRef, "company:amperetime", unitId);
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-pool-brand-"));
   Object.assign(process.env, {
     LINGONG_DB: path.join(tmp, "db.sqlite"),
@@ -63,7 +63,7 @@ beforeEach(() => {
   });
   resetConn();
   getConn();
-  ensureOrganizationTree();
+  (await ensureOrganizationTree());
   // 四级组织：一级中心 → 二级推广部 → 三级LT组 → 四级投放小组
   const zhang = insertUser("u_zhang", "张慧玲");
   const zhong = insertUser("u_zhong", "钟剑奎");
@@ -107,24 +107,24 @@ describe("resolveLeadBrand", () => {
 });
 
 describe("leaderScopeForUser（department_head 即组长，不限层级）", () => {
-  it("recognizes unit heads at any level as 组长", () => {
-    expect(leaderScopeForUser("u_ye").isLeader).toBe(true); // 三级 LT组组长
-    expect(leaderScopeForUser("u_zhong").isLeader).toBe(true); // 二级 推广部组长
-    expect(leaderScopeForUser("u_zhang").isLeader).toBe(true); // 一级 中心组长
-    expect(leaderScopeForUser("u_a").isLeader).toBe(false); // 普通成员
-    expect(leaderScopeForUser("nope").isLeader).toBe(false);
+  it("recognizes unit heads at any level as 组长", async () => {
+    expect((await leaderScopeForUser("u_ye")).isLeader).toBe(true); // 三级 LT组组长
+    expect((await leaderScopeForUser("u_zhong")).isLeader).toBe(true); // 二级 推广部组长
+    expect((await leaderScopeForUser("u_zhang")).isLeader).toBe(true); // 一级 中心组长
+    expect((await leaderScopeForUser("u_a")).isLeader).toBe(false); // 普通成员
+    expect((await leaderScopeForUser("nope")).isLeader).toBe(false);
   });
 
-  it("scopes a leader to their unit plus all descendant units", () => {
-    const ye = leaderScopeForUser("u_ye");
+  it("scopes a leader to their unit plus all descendant units", async () => {
+    const ye = (await leaderScopeForUser("u_ye"));
     expect(new Set(ye.unitIds)).toEqual(new Set(["org:l3", "org:l4"]));
     expect(new Set(ye.memberUserIds)).toEqual(new Set(["u_ye", "u_a", "u_b"]));
   });
 
-  it("gives superiors a strictly larger scope（组长的上级权限更多）", () => {
-    const ye = new Set(leaderScopeForUser("u_ye").memberUserIds);
-    const zhong = new Set(leaderScopeForUser("u_zhong").memberUserIds);
-    const zhang = new Set(leaderScopeForUser("u_zhang").memberUserIds);
+  it("gives superiors a strictly larger scope（组长的上级权限更多）", async () => {
+    const ye = new Set((await leaderScopeForUser("u_ye")).memberUserIds);
+    const zhong = new Set((await leaderScopeForUser("u_zhong")).memberUserIds);
+    const zhang = new Set((await leaderScopeForUser("u_zhang")).memberUserIds);
     for (const id of ye) expect(zhong.has(id)).toBe(true);
     expect(zhong.has("u_zhong")).toBe(true);
     for (const id of zhong) expect(zhang.has(id)).toBe(true);
@@ -135,22 +135,22 @@ describe("leaderScopeForUser（department_head 即组长，不限层级）", () 
 });
 
 describe("isGroupLeader / poolViewerBrands", () => {
-  it("treats admins and any-level heads as leaders (pool: no brand filter)", () => {
-    expect(isGroupLeader(user("u_ye", { name: "叶观旺" }))).toBe(true);
-    expect(isGroupLeader(user("u_zhong", { name: "钟剑奎" }))).toBe(true);
-    expect(isGroupLeader(user("u_admin", { roles: ["employee", "admin"] }))).toBe(true);
-    expect(poolViewerBrands(user("u_ye", { name: "叶观旺", brands: ["LT"] }))).toBeNull();
+  it("treats admins and any-level heads as leaders (pool: no brand filter)", async () => {
+    expect((await isGroupLeader(user("u_ye", { name: "叶观旺" })))).toBe(true);
+    expect((await isGroupLeader(user("u_zhong", { name: "钟剑奎" })))).toBe(true);
+    expect((await isGroupLeader(user("u_admin", { roles: ["employee", "admin"] })))).toBe(true);
+    expect((await poolViewerBrands(user("u_ye", { name: "叶观旺", brands: ["LT"] })))).toBeNull();
   });
 
-  it("keeps the brand filter for ordinary members", () => {
-    expect(isGroupLeader(user("u_a", { name: "成员A", brands: ["LT"] }))).toBe(false);
-    expect(poolViewerBrands(user("u_a", { name: "成员A", brands: ["LT"] }))).toEqual(["LT"]);
-    expect(poolViewerBrands(undefined)).toBeUndefined();
+  it("keeps the brand filter for ordinary members", async () => {
+    expect((await isGroupLeader(user("u_a", { name: "成员A", brands: ["LT"] })))).toBe(false);
+    expect((await poolViewerBrands(user("u_a", { name: "成员A", brands: ["LT"] })))).toEqual(["LT"]);
+    expect((await poolViewerBrands(undefined))).toBeUndefined();
   });
 
-  it("exposes leader member ids for the lead list scope", () => {
-    expect(new Set(leaderMemberUserIds(user("u_ye")))).toEqual(new Set(["u_ye", "u_a", "u_b"]));
-    expect(leaderMemberUserIds(user("u_a"))).toEqual([]);
-    expect(leaderMemberUserIds(undefined)).toEqual([]);
+  it("exposes leader member ids for the lead list scope", async () => {
+    expect(new Set((await leaderMemberUserIds(user("u_ye"))))).toEqual(new Set(["u_ye", "u_a", "u_b"]));
+    expect((await leaderMemberUserIds(user("u_a")))).toEqual([]);
+    expect((await leaderMemberUserIds(undefined))).toEqual([]);
   });
 });

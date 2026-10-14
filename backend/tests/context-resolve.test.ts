@@ -61,7 +61,7 @@ beforeEach(async () => {
   seedAll();
   // createApp 会重建这套种子数据，工作台样例必须在它之后再落库。
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   seedWorkbenchFixtures();
 });
 
@@ -71,8 +71,8 @@ afterEach(() => {
 });
 
 describe("来源优先级链", () => {
-  it("第 1 级显式载荷命中，来源档可审计", () => {
-    const resolution = resolveContext(collaborate("col_xiaomei"));
+  it("第 1 级显式载荷命中，来源档可审计", async () => {
+    const resolution = (await resolveContext(collaborate("col_xiaomei")));
     expect(resolution).toMatchObject({
       status: "ready",
       skill_id: "email_compose",
@@ -82,49 +82,49 @@ describe("来源优先级链", () => {
     expect((resolution.resolved.collaboration as Json).id).toBe("col_xiaomei");
   });
 
-  it("第 2 级 UI 选中态（object_refs）在无显式载荷时命中", () => {
-    const resolution = resolveContext({
+  it("第 2 级 UI 选中态（object_refs）在无显式载荷时命中", async () => {
+    const resolution = (await resolveContext({
       skillId: "email_compose",
       body: { object_refs: [{ kind: "collaboration", id: "col_xiaomei" }] },
       requires: ["collaboration"],
-    });
+    }));
     expect(resolution.sources.collaboration).toBe("object_refs");
     expect((resolution.resolved.collaboration as Json).id).toBe("col_xiaomei");
   });
 
-  it("第 3 级会话绑定在无显式载荷与选中态时命中", () => {
-    const resolution = resolveContext({
+  it("第 3 级会话绑定在无显式载荷与选中态时命中", async () => {
+    const resolution = (await resolveContext({
       skillId: "email_compose",
       session: sessionWith("col_xiaomei"),
       requires: ["collaboration"],
-    });
+    }));
     expect(resolution.sources.collaboration).toBe("session");
     expect((resolution.resolved.collaboration as Json).id).toBe("col_xiaomei");
   });
 
-  it("第 4 级文本 @handle 回退；id 命中时不再回退", () => {
-    const fromText = resolveContext({
+  it("第 4 级文本 @handle 回退；id 命中时不再回退", async () => {
+    const fromText = (await resolveContext({
       skillId: "email_compose",
       body: {},
       text: "写合作邮件 @小美妆日记",
       requires: ["collaboration"],
-    });
+    }));
     expect(fromText.status).toBe("ready");
     expect(fromText.sources.collaboration).toBe("text");
     expect((fromText.resolved.collaboration as Json).id).toBe("col_xiaomei");
 
-    const explicitWins = resolveContext({
+    const explicitWins = (await resolveContext({
       skillId: "email_compose",
       body: { collaboration_id: "col_laozhang" },
       text: "写合作邮件 @小美妆日记",
       requires: ["collaboration"],
-    });
+    }));
     expect(explicitWins.sources.collaboration).toBe("explicit");
     expect((explicitWins.resolved.collaboration as Json).id).toBe("col_laozhang");
   });
 
-  it("多候选只列候选，不取第一只", () => {
-    const resolution = resolveContext({
+  it("多候选只列候选，不取第一只", async () => {
+    const resolution = (await resolveContext({
       skillId: "email_compose",
       body: {
         object_refs: [
@@ -133,20 +133,20 @@ describe("来源优先级链", () => {
         ],
       },
       requires: ["collaboration"],
-    });
+    }));
     expect(resolution.status).toBe("needs_context");
     expect(resolution.resolved.collaboration).toBeUndefined();
     expect(resolution.candidates.map((candidate) => candidate.id).sort()).toEqual(["col_laozhang", "col_xiaomei"]);
     expect(resolution.missing[0]).toMatchObject({ key: "collaboration", tier: "requires" });
   });
 
-  it("第 1 级与第 3 级冲突时不静默取其一", () => {
-    const resolution = resolveContext({
+  it("第 1 级与第 3 级冲突时不静默取其一", async () => {
+    const resolution = (await resolveContext({
       skillId: "email_compose",
       body: { collaboration_id: "col_laozhang" },
       session: sessionWith("col_xiaomei"),
       requires: ["collaboration"],
-    });
+    }));
     expect(resolution.status).toBe("blocked");
     expect(resolution.resolved.collaboration).toBeUndefined();
     expect(String(resolution.missing[0].reason)).toContain("会话已绑定其他合作对象");
@@ -154,8 +154,8 @@ describe("来源优先级链", () => {
 });
 
 describe("统一信封", () => {
-  it("requires 未满足即 needs_context，且不返回任何解析结果", () => {
-    const resolution = resolveContext({ skillId: "email_compose", body: {}, requires: ["collaboration", "stage"] });
+  it("requires 未满足即 needs_context，且不返回任何解析结果", async () => {
+    const resolution = (await resolveContext({ skillId: "email_compose", body: {}, requires: ["collaboration", "stage"] }));
     expect(resolution.status).toBe("needs_context");
     expect(resolution.resolved).toEqual({});
     expect(resolution.sources).toEqual({});
@@ -163,24 +163,24 @@ describe("统一信封", () => {
     expect(resolution.missing.every((entry) => entry.tier === "requires")).toBe(true);
   });
 
-  it("prefers 未满足只记 missing，不阻塞 ready", () => {
-    const resolution = resolveContext({
+  it("prefers 未满足只记 missing，不阻塞 ready", async () => {
+    const resolution = (await resolveContext({
       skillId: "email_compose",
       body: { collaboration_id: "col_xiaomei" },
       requires: ["collaboration"],
       prefers: ["message"],
-    });
+    }));
     expect(resolution.status).toBe("ready");
     expect(resolution.missing).toEqual([expect.objectContaining({ key: "message", tier: "prefers" })]);
     expect(resolution.resolved.message).toBeUndefined();
   });
 
-  it("阶段与阶段轨道逐键解析，依赖键在取数前补齐", () => {
-    const resolution = resolveContext({
+  it("阶段与阶段轨道逐键解析，依赖键在取数前补齐", async () => {
+    const resolution = (await resolveContext({
       skillId: "confirm_stage",
       body: { collaboration_id: "col_xiaomei" },
       requires: ["stage", "stage_tracks"],
-    });
+    }));
     expect(resolution.status).toBe("ready");
     expect(resolution.sources.stage).toBe("object_fact");
     const stage = resolution.resolved.stage as Json;
@@ -189,66 +189,66 @@ describe("统一信封", () => {
     expect((resolution.resolved.stage_tracks as Json[]).map((track) => track.id)).toEqual(["main", "branch", "exception"]);
   });
 
-  it("未启用（未 cite）的已发布模板不算解析成功", () => {
-    const resolution = resolveContext({
+  it("未启用（未 cite）的已发布模板不算解析成功", async () => {
+    const resolution = (await resolveContext({
       skillId: "email_compose",
       body: { collaboration_id: "col_xiaomei" },
       requires: ["collaboration", "mail_template"],
-    });
+    }));
     expect(resolution.status).toBe("needs_context");
     expect(resolution.resolved.mail_template).toBeUndefined();
     expect(String(resolution.missing.find((entry) => entry.key === "mail_template")?.reason)).toContain("适用模板");
   });
 
-  it("启用后按阶段与品牌解析成唯一模板；并列时出候选而不是取第一只", () => {
+  it("启用后按阶段与品牌解析成唯一模板；并列时出候选而不是取第一只", async () => {
     cite("kb_mail_kol");
-    const automatic = resolveContext({
+    const automatic = (await resolveContext({
       skillId: "email_compose",
       body: { collaboration_id: "col_xiaomei" },
       requires: ["collaboration", "mail_template"],
-    });
+    }));
     expect(automatic.status).toBe("ready");
     expect(automatic.sources.mail_template).toBe("object_fact");
     expect(automatic.resolved.mail_template).toMatchObject({ knowledge_id: "kb_mail_kol", source: "knowledge" });
 
     cite("kb_mail_followup");
-    const tied = resolveContext({
+    const tied = (await resolveContext({
       skillId: "email_compose",
       body: { collaboration_id: "col_xiaomei" },
       requires: ["collaboration", "mail_template"],
-    });
+    }));
     expect(tied.status).toBe("needs_context");
     expect(tied.resolved.mail_template).toBeUndefined();
     expect(tied.candidates.map((candidate) => candidate.id).sort()).toEqual(["kb_mail_followup", "kb_mail_kol"]);
 
-    const pinned = resolveContext({
+    const pinned = (await resolveContext({
       skillId: "email_compose",
       body: { collaboration_id: "col_xiaomei", knowledge_id: "kb_mail_followup" },
       requires: ["collaboration", "mail_template"],
-    });
+    }));
     expect(pinned.status).toBe("ready");
     expect(pinned.sources.mail_template).toBe("explicit");
     expect(pinned.resolved.mail_template).toMatchObject({ knowledge_id: "kb_mail_followup" });
   });
 
-  it("解析按需发生：未声明的键不会被读取，也不会凭空报缺口", () => {
+  it("解析按需发生：未声明的键不会被读取，也不会凭空报缺口", async () => {
     const session = openContext({ skillId: "email_compose", body: {} });
-    expect(session.stage()).toBeNull();
-    expect(session.creator()).toBeNull();
-    expect(session.resolution([], []).status).toBe("ready");
+    expect((await session.stage())).toBeNull();
+    expect((await session.creator())).toBeNull();
+    expect((await session.resolution([], [])).status).toBe("ready");
   });
 
-  it("context_version 随内容变化，重复解析稳定", () => {
-    const first = resolveContext(collaborate("col_xiaomei"));
-    const again = resolveContext(collaborate("col_xiaomei"));
-    const other = resolveContext(collaborate("col_laozhang"));
+  it("context_version 随内容变化，重复解析稳定", async () => {
+    const first = (await resolveContext(collaborate("col_xiaomei")));
+    const again = (await resolveContext(collaborate("col_xiaomei")));
+    const other = (await resolveContext(collaborate("col_laozhang")));
     expect(first.context_version).toBe(again.context_version);
     expect(other.context_version).not.toBe(first.context_version);
     expect(first.context_version).toHaveLength(24);
   });
 
-  it("未登记的合作对象不解析出结果", () => {
-    const resolution = resolveContext(collaborate("col_not_exists"));
+  it("未登记的合作对象不解析出结果", async () => {
+    const resolution = (await resolveContext(collaborate("col_not_exists")));
     expect(resolution.status).toBe("needs_context");
     expect(resolution.resolved).toEqual({});
   });
@@ -303,14 +303,14 @@ describe("阶段类技能（P2.1）", () => {
     });
   });
 
-  it("CONTEXT.md 只注入声明过的键，带 sources 与 context_version，且不重复进 extra", () => {
+  it("CONTEXT.md 只注入声明过的键，带 sources 与 context_version，且不重复进 extra", async () => {
     const definition = requireTaskDefinition("confirm_stage");
     const prompt = "记状态 @小美妆日记";
     const extra = { collaboration_id: "col_xiaomei", handle: "小美妆日记", text: prompt };
-    const resolution = resolveContext({ skillId: "confirm_stage", body: extra, text: prompt });
+    const resolution = (await resolveContext({ skillId: "confirm_stage", body: extra, text: prompt }));
     expect(resolution.status).toBe("ready");
-    const box = writeBox("wrk_context_probe", definition, prompt, { ...extra, context_resolution: resolution },
-      collabRow("col_xiaomei"), runtimeAgentScopeContext("agent:kol"));
+    const box = (await writeBox("wrk_context_probe", definition, prompt, { ...extra, context_resolution: resolution },
+      collabRow("col_xiaomei"), (await runtimeAgentScopeContext("agent:kol"))));
     const written = fs.readFileSync(path.join(box, "CONTEXT.md"), "utf8");
     const raw = written.slice(written.indexOf("```json\n") + "```json\n".length, written.indexOf("\n```", written.indexOf("```json\n")));
     const ctx = JSON.parse(raw) as Json;
@@ -337,13 +337,13 @@ describe("阶段类技能（P2.1）", () => {
     expect(workerSafeExtra({ ...extra, context_resolution: resolution }).context_resolution).toMatchObject({ status: "ready" });
   });
 
-  it("未声明 context 的技能不解析、不拦（保持现状）", () => {
-    expect(workerRunContext("creator_discovery", { text: "发现达人" }, "发现达人")).toBeNull();
-    expect(workerRunContext("email_compose", { text: "写合作邮件" }, "写合作邮件")).toBeNull();
+  it("未声明 context 的技能不解析、不拦（保持现状）", async () => {
+    expect((await workerRunContext("creator_discovery", { text: "发现达人" }, "发现达人"))).toBeNull();
+    expect((await workerRunContext("email_compose", { text: "写合作邮件" }, "写合作邮件"))).toBeNull();
   });
 
-  it("requires 未满足：不出结果，缺口逐键如实回执", () => {
-    const gap = workerRunContext("stage_sop", { text: "阶段SOP" }, "阶段SOP");
+  it("requires 未满足：不出结果，缺口逐键如实回执", async () => {
+    const gap = (await workerRunContext("stage_sop", { text: "阶段SOP" }, "阶段SOP"));
     expect(gap?.status).toBe("needs_context");
     expect(gap?.resolved).toEqual({});
     expect(gap?.missing.map((entry) => [entry.key, entry.tier])).toEqual([
@@ -354,13 +354,13 @@ describe("阶段类技能（P2.1）", () => {
     ]);
   });
 
-  it("requires 未满足：不启动 turn，落缺口卡并回结构化缺口", () => {
+  it("requires 未满足：不启动 turn，落缺口卡并回结构化缺口", async () => {
     const now = nowIso();
     const sid = "ses_stage_gap";
     getConn().prepare(
       "INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id) VALUES (?,?,?,?,?,?,?)",
     ).run(sid, "阶段缺口", now, now, "kol", 0, null);
-    const gap = workerRunContext("stage_sop", { text: "阶段SOP" }, "阶段SOP");
+    const gap = (await workerRunContext("stage_sop", { text: "阶段SOP" }, "阶段SOP"));
     if (!gap) throw new Error("stage_sop 应声明 context");
     const response = contextGapResponse(sid, {}, {
       type: "stage_sop",
@@ -389,8 +389,8 @@ describe("阶段类技能（P2.1）", () => {
     expect(String(card.message)).toContain("本次未起箱");
   });
 
-  it("requires 满足：照常起箱，不报缺口", () => {
-    const gap = workerRunContext("stage_sop", { collaboration_id: "col_xiaomei" }, "阶段SOP @小美妆日记");
+  it("requires 满足：照常起箱，不报缺口", async () => {
+    const gap = (await workerRunContext("stage_sop", { collaboration_id: "col_xiaomei" }, "阶段SOP @小美妆日记"));
     expect(gap?.status).toBe("ready");
     expect(Object.keys(gap?.resolved || {})).toContain("stage");
   });
@@ -571,36 +571,36 @@ describe("收发件解析不再依赖合作对象（ADR-2026-10-07）", () => {
     ).run(input.id, input.conversation_id, "t", input.mailbox, input.last_at, now, now, input.peer_email, "unbound");
   }
 
-  it("mailbox 不依赖 collaboration：无合作时也能解析出挂载的默认邮箱", () => {
+  it("mailbox 不依赖 collaboration：无合作时也能解析出挂载的默认邮箱", async () => {
     bindDefaultMailbox("ctx@litime.com");
     const session = openContext({ skillId: "email_compose", body: {} });
-    const mailbox = session.mailbox();
+    const mailbox = (await session.mailbox());
     expect(mailbox?.from).toBe("ctx@litime.com");
   });
 
-  it("recipient 逐档回退：口令写明 > 选中会话 > 最近往来", () => {
+  it("recipient 逐档回退：口令写明 > 选中会话 > 最近往来", async () => {
     bindDefaultMailbox("ctx@litime.com");
     insertThread({ id: "th_c1", mailbox: "ctx@litime.com", conversation_id: "conv_c1", peer_email: "mem@gmail.com", last_at: "2026-10-06T10:00:00.000Z" });
     insertThread({ id: "th_c2", mailbox: "ctx@litime.com", conversation_id: "conv_c2", peer_email: "conv@gmail.com", last_at: "2026-10-05T10:00:00.000Z" });
 
     const byMemory = openContext({ skillId: "email_compose", body: {} });
-    expect(byMemory.recipient()?.to).toBe("mem@gmail.com");
-    expect(byMemory.recipient()?.source).toBe("memory");
+    expect((await byMemory.recipient())?.to).toBe("mem@gmail.com");
+    expect((await byMemory.recipient())?.source).toBe("memory");
 
     const byConversation = openContext({ skillId: "email_compose", body: { conversation_id: "conv_c2" } });
-    expect(byConversation.recipient()?.to).toBe("conv@gmail.com");
-    expect(byConversation.recipient()?.source).toBe("conversation");
+    expect((await byConversation.recipient())?.to).toBe("conv@gmail.com");
+    expect((await byConversation.recipient())?.source).toBe("conversation");
 
     const byExplicit = openContext({
       skillId: "email_compose",
       body: {},
       text: "写合作邮件 收件邮箱：boss@brand.com",
     });
-    expect(byExplicit.recipient()?.to).toBe("boss@brand.com");
-    expect(byExplicit.recipient()?.source).toBe("explicit");
+    expect((await byExplicit.recipient())?.to).toBe("boss@brand.com");
+    expect((await byExplicit.recipient())?.source).toBe("explicit");
   });
 
-  it("无合作时 mail_thread 走收件人的人摘要，不再直接失败", () => {
+  it("无合作时 mail_thread 走收件人的人摘要，不再直接失败", async () => {
     bindDefaultMailbox("ctx@litime.com");
     insertThread({ id: "th_c3", mailbox: "ctx@litime.com", conversation_id: "conv_c3", peer_email: "mem@gmail.com", last_at: "2026-10-06T10:00:00.000Z" });
     getConn().prepare("INSERT OR REPLACE INTO app_state (key, value) VALUES (?,?)").run(
@@ -608,15 +608,15 @@ describe("收发件解析不再依赖合作对象（ADR-2026-10-07）", () => {
       JSON.stringify({ text: "人摘要", source: "memory", mail_count: 2, fingerprint: "fp" }),
     );
     const session = openContext({ skillId: "email_compose", body: {} });
-    const thread = session.mailThread();
+    const thread = (await session.mailThread());
     expect(thread?.text).toBe("人摘要");
     expect(thread?.mail_count).toBe(2);
   });
 
-  it("resolution 信封里 recipient 键可被声明为 prefers 且带出来源", () => {
+  it("resolution 信封里 recipient 键可被声明为 prefers 且带出来源", async () => {
     bindDefaultMailbox("ctx@litime.com");
     insertThread({ id: "th_c4", mailbox: "ctx@litime.com", conversation_id: "conv_c4", peer_email: "mem@gmail.com", last_at: "2026-10-06T10:00:00.000Z" });
-    const resolution = openContext({ skillId: "email_compose", body: {}, prefers: ["recipient"] }).resolution();
+    const resolution = (await openContext({ skillId: "email_compose", body: {}, prefers: ["recipient"] }).resolution());
     expect((resolution.resolved.recipient as { to: string }).to).toBe("mem@gmail.com");
     expect(resolution.sources.recipient).toBe("memory");
   });
@@ -658,43 +658,43 @@ describe("P0：message / conversation 键（mail_summary / mail_translate / emai
     ).run(input.itemId, input.threadId, input.conversation_id, "t", input.peer_email, input.mailbox, "Hello", now, now);
   }
 
-  it("message：显式 message_id 解析出邮件（来源 explicit）", () => {
+  it("message：显式 message_id 解析出邮件（来源 explicit）", async () => {
     bindDefaultMailbox("ctx@litime.com");
     insertThreadWithItem({
       threadId: "th_m1", itemId: "msg_m1", mailbox: "ctx@litime.com",
       conversation_id: "conv_m1", peer_email: "a@gmail.com",
     });
     const session = openContext({ skillId: "mail_translate", body: { message_id: "msg_m1" }, requires: ["message"] });
-    const msg = session.message();
+    const msg = (await session.message());
     expect(msg?.id).toBe("msg_m1");
-    const resolution = session.resolution();
+    const resolution = (await session.resolution());
     expect(resolution.sources.message).toBe("explicit");
   });
 
-  it("message：没给 ID 时报 needs_context（不再是 TODO 未实现）", () => {
+  it("message：没给 ID 时报 needs_context（不再是 TODO 未实现）", async () => {
     bindDefaultMailbox("ctx@litime.com");
     const session = openContext({ skillId: "mail_translate", body: {}, requires: ["message"] });
-    const resolution = session.resolution();
+    const resolution = (await session.resolution());
     expect(resolution.missing.some((m) => m.key === "message")).toBe(true);
     // 不应再出现 TODO 占位文案
     const reasons = resolution.missing.map((m) => String(m.reason || ""));
     expect(reasons.join(" ")).not.toContain("P2.3");
   });
 
-  it("message：不属于本人邮箱的邮件被拒绝，不降级", () => {
+  it("message：不属于本人邮箱的邮件被拒绝，不降级", async () => {
     bindDefaultMailbox("ctx@litime.com");
     insertThreadWithItem({
       threadId: "th_m2", itemId: "msg_m2", mailbox: "other@litime.com",
       conversation_id: "conv_m2", peer_email: "b@gmail.com",
     });
     const session = openContext({ skillId: "mail_translate", body: { message_id: "msg_m2" }, requires: ["message"] });
-    const resolution = session.resolution();
+    const resolution = (await session.resolution());
     // 被 blocked 或 missing，但绝不能解析出别人的邮件
-    const msg = session.message();
+    const msg = (await session.message());
     expect(msg?.id).not.toBe("msg_m2");
   });
 
-  it("conversation：mail_summary 用选中的会话直接解析，不追问 ID", () => {
+  it("conversation：mail_summary 用选中的会话直接解析，不追问 ID", async () => {
     bindDefaultMailbox("ctx@litime.com");
     const now = new Date().toISOString();
     conn().prepare(
@@ -702,9 +702,9 @@ describe("P0：message / conversation 键（mail_summary / mail_translate / emai
        VALUES (?,?,?,?,?,?,?,?,?)`,
     ).run("th_c5", "conv_c5", "t", "ctx@litime.com", now, now, now, "c@gmail.com", "unbound");
     const session = openContext({ skillId: "mail_summary", body: { conversation_id: "conv_c5" }, requires: ["conversation"] });
-    const conv = session.conversation();
+    const conv = (await session.conversation());
     expect(conv).toBeTruthy();
-    const resolution = session.resolution();
+    const resolution = (await session.resolution());
     expect(resolution.sources.conversation).toBe("explicit");
   });
 });
@@ -722,37 +722,37 @@ describe("P1：creator 键（达人技能：profile/decrypt/status/owner/scoring
     );
   }
 
-  it("creator：显式 handle 解析出达人（来源 explicit）", () => {
+  it("creator：显式 handle 解析出达人（来源 explicit）", async () => {
     insertCreator({ id: "col_k1", handle: "xiaomei" });
     const session = openContext({ skillId: "creator_profile", body: { handle: "xiaomei" }, requires: ["creator"] });
-    const creator = session.creator();
+    const creator = (await session.creator());
     expect(creator?.handle).toBe("xiaomei");
     expect(creator?.collaboration_id).toBe("col_k1");
-    const resolution = session.resolution();
+    const resolution = (await session.resolution());
     expect(resolution.sources.creator).toBe("explicit");
   });
 
-  it("creator：object_refs 选中态解析（来源 object_refs）", () => {
+  it("creator：object_refs 选中态解析（来源 object_refs）", async () => {
     insertCreator({ id: "col_k2", handle: "damei" });
     const session = openContext({
       skillId: "creator_profile",
       body: { object_refs: [{ kind: "kol", id: "damei" }] },
       requires: ["creator"],
     });
-    const creator = session.creator();
+    const creator = (await session.creator());
     expect(creator?.handle).toBe("damei");
-    const resolution = session.resolution();
+    const resolution = (await session.resolution());
     expect(resolution.sources.creator).toBe("object_refs");
   });
 
-  it("creator：没给达人时报 needs_input，不猜", () => {
+  it("creator：没给达人时报 needs_input，不猜", async () => {
     const session = openContext({ skillId: "creator_profile", body: {}, requires: ["creator"] });
-    const resolution = session.resolution();
+    const resolution = (await session.resolution());
     expect(resolution.status).toBe("needs_input");
-    expect(session.creator()).toBeNull();
+    expect((await session.creator())).toBeNull();
   });
 
-  it("creator：多候选只列候选，不取第一只", () => {
+  it("creator：多候选只列候选，不取第一只", async () => {
     insertCreator({ id: "col_k3", handle: "twin_a", display_name: "小美" });
     insertCreator({ id: "col_k4", handle: "twin_b", display_name: "小美" });
     const session = openContext({
@@ -761,7 +761,7 @@ describe("P1：creator 键（达人技能：profile/decrypt/status/owner/scoring
       text: "@小美 看下画像",
       requires: ["creator"],
     });
-    const resolution = session.resolution();
+    const resolution = (await session.resolution());
     // 按 display_name 搜出两个时，不应静默取第一个
     if (resolution.status === "needs_input" && resolution.candidates.length >= 2) {
       expect(resolution.candidates.length).toBeGreaterThanOrEqual(2);
@@ -769,7 +769,7 @@ describe("P1：creator 键（达人技能：profile/decrypt/status/owner/scoring
       // 文本抽取没命中时也是 needs_input（不猜），同样符合要求
       expect(resolution.status).toBe("needs_input");
     }
-    expect(session.creator()).toBeNull();
+    expect((await session.creator())).toBeNull();
   });
 
   it("六个 P1 技能都已声明 context.requires=[creator]", () => {

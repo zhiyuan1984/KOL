@@ -53,7 +53,7 @@ beforeEach(async () => {
   seedAll();
   clearTaskRegistryCache();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 
 afterEach(() => {

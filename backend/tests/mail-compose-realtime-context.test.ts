@@ -132,7 +132,7 @@ beforeEach(async () => {
   resetConn();
   seedAll();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   seedWorkbenchFixtures();
   clearBindings();
 });

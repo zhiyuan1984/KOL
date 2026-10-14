@@ -148,13 +148,13 @@ beforeEach(async () => {
   }];
   resetConn();
   seedAll();
-  configureCrawlerFixture();
+  (await configureCrawlerFixture());
   resetCollectorConnectionCache();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();
   setCrawlMcpClientFactory(mockMcp);
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 
 afterEach(() => {
@@ -369,7 +369,7 @@ describe("AI发现 is not 今日任务 recommendations", () => {
 
     const { results } = await confirmAndComplete();
     const candidate = (results.candidates as Json[])[0];
-    const board = buildHomeBoard() as Json;
+    const board = (await buildHomeBoard()) as Json;
     const recs = ((board.workbench as Json).recommendations as Json[]) || [];
     expect(recs.some((row) => row.candidate_id === candidate.id)).toBe(false);
     expect(recs.every((row) => row.source_label !== "AI发现")).toBe(true);
@@ -555,7 +555,7 @@ describe("discovery auth and secrets", () => {
     process.env.CODEX_MODE = "real";
     resetConn();
     const { createApp } = await import("../src/app.js");
-    app = createApp();
+    app = (await createApp());
     expect((await request("GET", "/api/discovery/requests")).status).toBe(401);
     expect((await request("POST", "/api/discovery/requests", {
       keywords: ["battery"],

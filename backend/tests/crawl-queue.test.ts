@@ -115,17 +115,17 @@ beforeEach(async () => {
   const db = getConn();
   db.prepare("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES(?,?,?,'fixture','[\"employee\"]','[]','',1,'now','now')")
     .run(context.userId, context.userId, "Queue fixture");
-  seedPublishedAgent(context.agentId, "Queue fixture");
-  createAgentBinding({ agent_id: context.agentId, target_type: "organization_unit", target_id: "org:lt_team", company_id: "company:amperetime", source: "test" });
+  (await seedPublishedAgent(context.agentId, "Queue fixture"));
+  (await createAgentBinding({ agent_id: context.agentId, target_type: "organization_unit", target_id: "org:lt_team", company_id: "company:amperetime", source: "test" }));
   db.prepare("UPDATE organization_people SET user_id=? WHERE person_ref='person:ye_guanwang'").run(context.userId);
-  configureCrawlerFixture(url);
-  setAgentSkill(context.agentId, context.skillId, true, 0);
-  setSkillConnector(context.skillId, "claw", true, 0);
+  (await configureCrawlerFixture(url));
+  (await setAgentSkill(context.agentId, context.skillId, true, 0));
+  (await setSkillConnector(context.skillId, "claw", true, 0));
   for (const descriptor of descriptors) {
-    setToolPolicy("claw", descriptor.name, { enabled: true,
+    (await setToolPolicy("claw", descriptor.name, { enabled: true,
       risk: descriptor.name === "start_crawl" ? "L3" : "L1", access: descriptor.name === "start_crawl" ? "write" : "read",
-      schema_hash: toolSchemaHash(descriptor as unknown as Json) }, 0);
-    setSkillTool(context.skillId, "claw", descriptor.name, true, 0);
+      schema_hash: toolSchemaHash(descriptor as unknown as Json) }, 0));
+    (await setSkillTool(context.skillId, "claw", descriptor.name, true, 0));
   }
 });
 

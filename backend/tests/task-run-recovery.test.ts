@@ -74,7 +74,7 @@ describe("task run lifecycle honesty", () => {
     resetRunControl();
     seedAll();
     const { createApp } = await import("../src/app.js");
-    app = createApp();
+    app = (await createApp());
   });
 
   afterEach(() => {
@@ -142,14 +142,14 @@ describe("task run lifecycle honesty", () => {
       expect(login.status, login.text).toBe(200);
       const cookie = login.cookie;
       // 先绑定 Agent，任务才能创建并排队；随后的 ask 才代表「有资格之后被撤权」。
-      const binding = createAgentBinding({
+      const binding = (await createAgentBinding({
         agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
         company_id: "company:amperetime", source: "test",
-      });
+      }));
       getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(String(employee.body.id), "person:ye_guanwang");
       const { taskId, sessionId, runId, pending } = await createAndQueueTask(cookie);
       // 撤掉 Agent 绑定：ask 必须在任何执行之前被拒绝。
-      revokeAgentBinding(binding.id);
+      (await revokeAgentBinding(binding.id));
       const posted = await request("POST", `/api/sessions/${sessionId}/messages`, pending, cookie);
       expect(posted.status, posted.text).toBe(400);
       expect(workItemStatus(taskId)).toBe("failed");

@@ -589,17 +589,17 @@ async function persistSuggestionReceipt(
   return receipt;
 }
 
-function selectAuthorizedAgent(actor: Actor, requestedAgentId: string): { agentId: string; skillVersion: string } {
-  const agentId = requestedAgentId || runtimeAgentForSkill(RUNTIME_SKILL_ID, actor.id, { employeeChoice: true });
-  if (requestedAgentId && !runtimeAgentCandidates(RUNTIME_SKILL_ID, actor.id).includes(agentId)) {
+async function selectAuthorizedAgent(actor: Actor, requestedAgentId: string): Promise<{ agentId: string; skillVersion: string }> {
+  const agentId = requestedAgentId || (await runtimeAgentForSkill(RUNTIME_SKILL_ID, actor.id, { employeeChoice: true }));
+  if (requestedAgentId && !(await runtimeAgentCandidates(RUNTIME_SKILL_ID, actor.id)).includes(agentId)) {
     throw new HttpFail(403, { code: "runtime_agent_not_usable" });
   }
-  const authorization = assertRuntimeSkill({
+  const authorization = (await assertRuntimeSkill({
     agentId,
     skillId: RUNTIME_SKILL_ID,
     userId: actor.id,
     runId: `mail-label-suggestions:${randomUUID()}`,
-  });
+  }));
   return { agentId, skillVersion: authorization.skillVersion };
 }
 
@@ -646,7 +646,7 @@ export function createMailLabelSuggestionOperations(options: { harness?: LabelSu
     const mailbox = requiredMailbox((input as { box?: unknown }).box);
     const conversationId = requiredConversationId((input as { conversation_id?: unknown }).conversation_id);
     const requestedAgentId = optionalAgentId((input as { agent_id?: unknown }).agent_id);
-    const runtime = selectAuthorizedAgent(actor, requestedAgentId);
+    const runtime = (await selectAuthorizedAgent(actor, requestedAgentId));
     const first = await postgresTransaction(
       (client) => loadLabelSuggestionEvidence(client, actor, mailbox, conversationId),
       { isolation: "REPEATABLE READ" },

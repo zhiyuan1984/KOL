@@ -41,7 +41,7 @@ beforeEach(async () => {
   resetConn();
   resetStarryHomeLibrarySync();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const setup = await call("POST", "/api/auth/setup", {
     name: DEMO_ADMIN.name,
     email: DEMO_ADMIN.email,
@@ -198,10 +198,10 @@ describe("admin identity and Starry mailbox bind", () => {
     });
     expect(bound.status).toBe(200);
     const user = getConn().prepare("SELECT id FROM users WHERE username=?").get(DEMO_ADMIN.handle) as { id: string };
-    saveStarryBinding(user.id, {
+    (await saveStarryBinding(user.id, {
       mailbox_email: "second.mailbox@amperetime.com",
       owner_name: "赵良玉",
-    });
+    }));
 
     const pub = await call("GET", "/api/me/starry-binding");
     const bindings = pub.json.bindings as Json[];

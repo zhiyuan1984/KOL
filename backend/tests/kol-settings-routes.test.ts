@@ -35,7 +35,7 @@ beforeEach(async () => {
   alice = insertUser("settings-alice", "Alice");
   bob = insertUser("settings-bob", "Bob");
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 
 afterEach(() => { resetConn(); process.env.AUTH_MODE = "disabled"; });

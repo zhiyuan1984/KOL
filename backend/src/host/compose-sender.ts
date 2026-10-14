@@ -47,9 +47,9 @@ export function collaborationBrand(collaborationId?: string | null): string {
 }
 
 /** 本人挂载的默认邮箱：is_default=1 的那只；没有默认返回空（不取第一只）。 */
-function defaultBoundMailbox(user: Persona): string {
+async function defaultBoundMailbox(user: Persona): Promise<string> {
   try {
-    const rows = starryBindingRows(user.id);
+    const rows = (await starryBindingRows(user.id));
     const def = rows.find((row) => Number(row.is_default || 0) === 1);
     return normalizeEmail(String(def?.mailbox_email || ""));
   } catch {
@@ -58,10 +58,10 @@ function defaultBoundMailbox(user: Persona): string {
 }
 
 /** 本人挂载的全部邮箱（小写归一），给「通讯页选中」做归属校验。 */
-function mountedMailboxSet(user: Persona): Set<string> {
+async function mountedMailboxSet(user: Persona): Promise<Set<string>> {
   const set = new Set<string>();
   try {
-    for (const row of starryBindingRows(user.id)) {
+    for (const row of (await starryBindingRows(user.id))) {
       const email = normalizeEmail(String(row.mailbox_email || ""));
       if (email) set.add(email);
     }
@@ -85,13 +85,13 @@ function brandForMailbox(email: string): string {
 
 const emptySender = (): ComposeSender => ({ from: "", send_from: "", brand: "", source: "none", candidates: [] });
 
-export function composeSenderFor(input: {
+export async function composeSenderFor(input: {
   collaboration?: Row | null;
   requested?: unknown;
   /** 通讯页选中的邮箱（第 2 档）；不是本人挂载时返回 source=none 且 from 为空 */
   selectedMailbox?: unknown;
   user?: Persona | null;
-}): ComposeSender {
+}): Promise<ComposeSender> {
   const user = input.user || currentUser();
   const col = input.collaboration || null;
   const brand = String(col?.brand || "").trim();
@@ -110,7 +110,7 @@ export function composeSenderFor(input: {
   // 第 2 档：通讯页选中的邮箱——必须是本人挂载。
   const selected = normalizeEmail(String(input.selectedMailbox || ""));
   if (selected) {
-    if (!mountedMailboxSet(user).has(selected)) return emptySender();
+    if (!(await mountedMailboxSet(user)).has(selected)) return emptySender();
     const owned = authorizedSenderBrand(selected, user, brand);
     if (owned) return { from: owned.email, send_from: owned.email, brand: owned.brand, source: "selected", candidates: [] };
     return { from: selected, send_from: "", brand: "", source: "selected", candidates: [] };
@@ -119,13 +119,13 @@ export function composeSenderFor(input: {
   // 第 3 档：本人挂载的默认邮箱。绑定即授权：用户在绑定 UI 上明确绑定的邮箱
   // 直接采用，不强求它是品牌邮箱（个人企业邮箱如 @amperetime.com 不在 BRAND_MAILBOXES 里）。
   // 品牌能查到就带上，查不到不阻塞发件箱填充。
-  const def = defaultBoundMailbox(user);
+  const def = (await defaultBoundMailbox(user));
   if (def) {
     return { from: def, send_from: def, brand: brandForMailbox(def), source: "user_binding", candidates: [] };
   }
 
   // 挂了多只又没有默认：不取第一只，返回候选让人选。
-  const mounted = [...mountedMailboxSet(user)];
+  const mounted = [...(await mountedMailboxSet(user))];
   if (mounted.length > 1) {
     return {
       ...emptySender(),
@@ -137,7 +137,7 @@ export function composeSenderFor(input: {
     return { from: mounted[0], send_from: mounted[0], brand: brandForMailbox(mounted[0]), source: "user_binding", candidates: [] };
   }
   // 兜底：legacy 单绑定。
-  const legacy = normalizeEmail(boundMailboxEmail() || "");
+  const legacy = normalizeEmail((await boundMailboxEmail()) || "");
   if (legacy) {
     return { from: legacy, send_from: legacy, brand: brandForMailbox(legacy), source: "user_binding", candidates: [] };
   }

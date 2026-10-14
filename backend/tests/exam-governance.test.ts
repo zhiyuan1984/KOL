@@ -56,7 +56,7 @@ beforeEach(async () => {
   process.env.AUTH_MODE = "enabled";
   resetConn();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const setup = await call("POST", "/api/auth/setup", {
     username: "admin",
     name: "Admin",
@@ -162,7 +162,7 @@ describe("exam demo endpoint ignores persona pass", () => {
     process.env.AUTH_MODE = "disabled";
     resetConn();
     const { createApp } = await import("../src/app.js");
-    app = createApp();
+    app = (await createApp());
     adminCookie = "";
   });
 

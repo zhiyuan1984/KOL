@@ -27,15 +27,15 @@ afterEach(() => {
 });
 
 describe("organization person account import", () => {
-  it("dry run leaves accounts untouched; apply links 20 people and preserves existing credentials", () => {
-    expect(importOrganizationAccounts().filter((row) => row.action === "create")).toHaveLength(19);
+  it("dry run leaves accounts untouched; apply links 20 people and preserves existing credentials", async () => {
+    expect((await importOrganizationAccounts()).filter((row) => row.action === "create")).toHaveLength(19);
     expect((getConn().prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number }).n).toBe(1);
 
-    const applied = importOrganizationAccounts(true);
+    const applied = (await importOrganizationAccounts(true));
     expect(applied.filter((row) => row.action === "create")).toHaveLength(19);
     expect(applied.filter((row) => row.action === "update")).toHaveLength(1);
     expect((getConn().prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number }).n).toBe(20);
-    expect(listOrganizationPeople().filter((row) => row.user_id)).toHaveLength(20);
+    expect((await listOrganizationPeople()).filter((row) => row.user_id)).toHaveLength(20);
     expect(getConn().prepare("SELECT password_hash,roles FROM users WHERE id='sriphy'").get()).toEqual({
       password_hash: "existing-hash", roles: '["employee","admin"]',
     });
@@ -44,13 +44,13 @@ describe("organization person account import", () => {
     expect(getConn().prepare("SELECT username,email,site,position,active,roles,brands FROM users WHERE id='usr_org_wang_xiang'").get())
       .toMatchObject({ username: "xiang.wang@amperetime.com", email: "xiang.wang@amperetime.com", site: "org:ai_product",
         position: "AI产品经理", active: 1, roles: '["employee"]', brands: "[]" });
-    expect(listOrganizationPeople().find((row) => row.person_ref === "person:wang_xiang")).toMatchObject({
+    expect((await listOrganizationPeople()).find((row) => row.person_ref === "person:wang_xiang")).toMatchObject({
       user_id: "usr_org_wang_xiang", employee_no: "1083", avatar_url: "/avatars/employees/wang_xiang.png",
     });
-    expect(effectiveAgentUsers("agent:kol").user_ids).not.toContain("usr_org_wang_xiang");
+    expect((await effectiveAgentUsers("agent:kol")).user_ids).not.toContain("usr_org_wang_xiang");
 
-    expect(importOrganizationAccounts(true).filter((row) => row.action === "create")).toHaveLength(0);
-    reseedOrganizationTreeFromRegistry();
-    expect(listOrganizationPeople().filter((row) => row.user_id)).toHaveLength(20);
+    expect((await importOrganizationAccounts(true)).filter((row) => row.action === "create")).toHaveLength(0);
+    (await reseedOrganizationTreeFromRegistry());
+    expect((await listOrganizationPeople()).filter((row) => row.user_id)).toHaveLength(20);
   });
 });

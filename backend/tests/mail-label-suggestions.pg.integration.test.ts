@@ -104,24 +104,24 @@ async function label(id: string, name: string): Promise<void> {
   );
 }
 
-function seedCurrentAgentEligibility(user: AppUser): void {
+async function seedCurrentAgentEligibility(user: AppUser): Promise<void> {
   // The test uses the same current-user → Agent binding and published existing
   // mail_summary skill guard as production, not an auth-disabled bypass.
-  ensureRuntimeSchema();
-  ensureManagedAgents();
+  (await ensureRuntimeSchema());
+  (await ensureManagedAgents());
   const db = resetConn();
   db.prepare(`INSERT INTO managed_agents(id,name,description,status,version,created_at,updated_at)
     VALUES ('agent:kol','KOL test Agent','', 'published',1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
     ON CONFLICT (id) DO UPDATE SET status='published'`).run();
-  setAgentSkill("agent:kol", "mail_summary", true, 1);
-  const personRef = syncUserOrganization(user.id, "org:lt_team");
-  createAgentBinding({
+  (await setAgentSkill("agent:kol", "mail_summary", true, 1));
+  const personRef = (await syncUserOrganization(user.id, "org:lt_team"));
+  (await createAgentBinding({
     agent_id: "agent:kol",
     target_type: "person",
     target_id: personRef,
     company_id: "company:amperetime",
     source: "test",
-  });
+  }));
 }
 
 function installApp(harness: LabelSuggestionHarness): void {
@@ -212,7 +212,7 @@ beforeEach(async () => {
   resetConn();
   await postgresPool().query(migrationSql);
   await ensureUser(ACTOR_A);
-  seedCurrentAgentEligibility(ACTOR_A);
+  (await seedCurrentAgentEligibility(ACTOR_A));
   await bind(ACTOR_A.id, BOX_A);
   await thread();
   await label("label-follow-up", "Follow up");

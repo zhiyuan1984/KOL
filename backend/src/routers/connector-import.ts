@@ -197,12 +197,12 @@ connectorImportRouter.post("/admin/connectors/import-mcp", async (c) => {
           refs[header] = value;
           continue;
         }
-        const credential = createCredential({
+        const credential = (await createCredential({
           type: "organization_secret",
           label: `${server.label} · ${header}`,
           purpose: "由 JSON 导入写入",
           secret: value,
-        }, admin.id);
+        }, admin.id));
         refs[header] = credential.id;
       }
       const config: ConnectorConfig = { protocol: "mcp", transport: server.transport, url: server.url, timeout_ms: 30_000 };
@@ -213,7 +213,7 @@ connectorImportRouter.post("/admin/connectors/import-mcp", async (c) => {
         // No header values were provided. The preview states this explicitly before confirm.
         config.allow_unauthenticated = true;
       }
-      setConnectorConfig(server.id, config, 0);
+      (await setConnectorConfig(server.id, config, 0));
       created.push({ id: server.id, label: server.label });
     } catch {
       // Never leave a half-imported connector behind.

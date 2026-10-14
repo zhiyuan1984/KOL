@@ -60,7 +60,7 @@ const execute=(instance:string)=>processExecutionJobById(`knowledge-publish:comp
 beforeEach(async()=>{
   await freshTestDatabase();tmp=fs.mkdtempSync(path.join(os.tmpdir(),"kol-publication-"));
   process.env.LINGONG_DATA=tmp;process.env.CODEX_MODE="stub";process.env.AUTH_MODE="disabled";process.env.KNOWLEDGE_ENGINE_MODE="stub";
-  resetConn();seedAll();ensureDemoAdmin();ensureOrganizationTree();
+  resetConn();seedAll();ensureDemoAdmin();(await ensureOrganizationTree());
   const db=getConn(),time=new Date().toISOString();
   db.prepare("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)")
     .run("sriphy","publication-owner","资料管理员","unused",'["employee","admin"]','[]','',1,time,time);
@@ -84,7 +84,7 @@ describe("knowledge publication through real review instances and PostgreSQL out
 
   it("checks immediate publication authority and approval at the HTTP boundary",async()=>{
     const f=await fixture(),s=await submitted(f.id,f.base);
-    const {createApp}=await import("../src/app.js"),app=createApp();
+    const {createApp}=await import("../src/app.js"),app=(await createApp());
     for(const actor of ["sriphy","knowledge-reviewer"]){
       getConn().prepare("INSERT INTO auth_sessions(id_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)")
         .run(tokenDigest(`publish-${actor}`),actor,new Date(Date.now()+60000).toISOString(),new Date().toISOString());
@@ -334,7 +334,7 @@ describe("knowledge publication through real review instances and PostgreSQL out
     const trial=await knowledgeReviewTrial(s.instance,"有什么产品",ctx("knowledge-reviewer"));
     expect((trial.citations as any[])[0]).toMatchObject({document_id:f.id,page:1});
     expect((trial.citations as any[])[0].source_url).toContain(`/instances/${s.instance}/knowledge/file`);
-    const {createApp}=await import("../src/app.js"),app=createApp();
+    const {createApp}=await import("../src/app.js"),app=(await createApp());
     for(const actor of ["sriphy","knowledge-reviewer"]){const token=`session-${actor}`;
       getConn().prepare("INSERT INTO auth_sessions(id_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)")
         .run(tokenDigest(token),actor,new Date(Date.now()+60000).toISOString(),new Date().toISOString());}

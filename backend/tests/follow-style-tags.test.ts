@@ -41,7 +41,7 @@ beforeEach(async () => {
   resetConn();
   seedAll();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   seedWorkbenchFixtures();
 });
 
@@ -89,7 +89,7 @@ describe("follow-style tags", () => {
     expect(((opened.body.journey as Json).follow_style_tags as Json[])[0]).toMatchObject({ label: "犹豫谨慎" });
 
     getConn().prepare("UPDATE collaborations SET kol_uid='KOLXIAOMEI' WHERE id='col_xiaomei'").run();
-    const board = buildHomeBoard();
+    const board = (await buildHomeBoard());
     const card = ((board.kols as Json[]) || []).find((row) => row.handle === "小美妆日记");
     expect(card).toBeTruthy();
     expect((card?.follow_style_tags as Json[]).some((tag) => tag.label === "犹豫谨慎")).toBe(true);

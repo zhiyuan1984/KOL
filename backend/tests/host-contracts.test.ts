@@ -89,7 +89,7 @@ beforeEach(async () => {
   resetConn();
   seedAll();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   seedWorkbenchFixtures();
 });
 
@@ -104,13 +104,13 @@ describe("host contracts", () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
     const draft = draftOn(sid, { subject: "发货通知", body: "old interest body" });
     const card = emailCardPayload(draft);
-    const result = emailMcpResultCard("email_compose", {
+    const result = (await emailMcpResultCard("email_compose", {
       mailboxEmail: draft.from_addr,
       from: draft.from_addr,
       to: draft.to_addr,
       subject: draft.subject,
       body: draft.body_en,
-    });
+    }));
     const now = new Date().toISOString();
     getConn().prepare(
       "INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES (?,?,?,?,?,?)",
@@ -964,10 +964,10 @@ describe("host contracts", () => {
 
       // 资格来自 Agent 绑定：账号挂到组织人员，Agent 绑定到该人员所在的三级组。
       getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(employeeId, "person:ye_guanwang");
-      createAgentBinding({
+      (await createAgentBinding({
         agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
         company_id: "company:amperetime", source: "test",
-      });
+      }));
       const granted = (await (await request("GET", "/api/skills", undefined, employeeCookie)).json()) as unknown as Json[];
       expect(granted.find((s) => s.id === "creator_discovery")).toBeTruthy();
     } finally {

@@ -92,7 +92,7 @@ describe("nested Codex create_draft inside task_result", () => {
     ]);
   });
 
-  it("reads nested JSON even when the sibling create_draft was not lifted", () => {
+  it("reads nested JSON even when the sibling create_draft was not lifted", async () => {
     const payload = composePayloadFromItem(quoteResult, []);
     expect(payload).toMatchObject({
       from: LARRY,
@@ -101,7 +101,7 @@ describe("nested Codex create_draft inside task_result", () => {
     });
     expect(payload.to).toEqual(expect.arrayContaining([QIYOU]));
     expect(String(payload.body)).toContain("USD 1000");
-    const card = emailMcpResultCard("email_compose", payload);
+    const card = (await emailMcpResultCard("email_compose", payload));
     expect(String(card.summary)).not.toContain("还需要补充");
     expect(JSON.stringify(card.sections)).toContain(`发件邮箱：${LARRY}`);
     expect(JSON.stringify(card.sections)).toContain(`收件邮箱：${QIYOU}`);

@@ -220,7 +220,7 @@ export async function ensureOrganizationTree(): Promise<void> {
 }
 /** Explicit administrative re-import. This is idempotent and uses the migrated schema; it never issues DDL. */
 export async function reseedOrganizationTreeFromRegistry(): Promise<void> {
-  await postgresTransaction((client) => upsertRegistry(client, readRegistry()), { isolation: "SERIALIZABLE" });
+  await postgresTransaction(async (client) => (await upsertRegistry(client, readRegistry())), { isolation: "SERIALIZABLE" });
 }
 
 export async function listOrganizationUnits(companyId?: string): Promise<OrganizationUnitRow[]> {
@@ -441,7 +441,7 @@ export async function visibleSkillIdsForUser(userId: string | null | undefined):
   if (!userId) return [];
   await ensureOrganizationTree();
   const agents = await postgresQuery<{ agent_id: string }>("SELECT DISTINCT agent_id FROM runtime_agent_skills WHERE enabled=1");
-  const usable = (await Promise.all(agents.map(async (row) => (await canUseAgent(userId, row.agent_id)) ? row.agent_id : null))).filter((id): id is string => Boolean(id));
+  const usable = (await Promise.all((await Promise.all(agents.map(async (row) => (await canUseAgent(userId, row.agent_id)) ? row.agent_id : null))))).filter((id): id is string => Boolean(id));
   if (!usable.length) return [];
   return (await postgresQuery<{ skill_id: string }>("SELECT DISTINCT skill_id FROM runtime_agent_skills WHERE enabled=1 AND agent_id=ANY($1::text[])", [usable])).map((row) => row.skill_id);
 }

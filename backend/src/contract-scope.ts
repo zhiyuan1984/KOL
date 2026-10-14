@@ -137,9 +137,9 @@ function buildScope(agentId: string): RuntimeAgentScope {
 }
 
 /** Scope sent to every Codex CONTEXT; Host remains the authority for decisions. */
-export function runtimeAgentScopeContext(agentId: string): RuntimeAgentScope {
+export async function runtimeAgentScopeContext(agentId: string): Promise<RuntimeAgentScope> {
   if (agentId.startsWith("agent_")) {
-    const agent = managedAgent(agentId);
+    const agent = (await managedAgent(agentId));
     // Managed agents do not inherit KOL business scope from a static manifest.
     // Resource scope is resolved by each skill at the execution gate.
     return { agent_id: agent.id, agent_version: String(agent.version), status: agent.status,
@@ -155,8 +155,8 @@ export function runtimeAgentScopeContext(agentId: string): RuntimeAgentScope {
 }
 
 /** Backward-compatible KOL business-agent scope helper. */
-export function kolAgentScopeContext(): RuntimeAgentScope {
-  return runtimeAgentScopeContext("agent:kol");
+export async function kolAgentScopeContext(): Promise<RuntimeAgentScope> {
+  return (await runtimeAgentScopeContext("agent:kol"));
 }
 
 export function clearContractScopeCache(): void { cached.clear(); }

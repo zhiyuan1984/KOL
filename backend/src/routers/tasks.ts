@@ -442,15 +442,15 @@ function applyTaskUpdate(item: Row, patch: Json, note?: string): { task: Json; a
   return { task: publicWorkItem(ownedWorkItem(String(item.id))), applied };
 }
 
-function createWorkItem(body: Json, source: string): Json {
+async function createWorkItem(body: Json, source: string): Promise<Json> {
   const explicitType = String(body.task_type || body.definition_id || body.intent || "");
   const definition = taskDefinition(explicitType);
   if (!definition) throw new HttpFail(400, { code: "unknown_task_type", task_type: explicitType });
   requireSkill(definition.id);
   const input = taskInput(body);
   if (!(isTestRuntime() && codexMode() === "stub" && !scopedUser() && !input.agent_id)) {
-    input.agent_id = String(input.agent_id || runtimeAgentForSkill(definition.id, ownerId(), { employeeChoice: true }));
-    assertRuntimeSkill({ agentId: String(input.agent_id), skillId: definition.id, userId: ownerId(), runId: "task-submission" });
+    input.agent_id = String(input.agent_id || (await runtimeAgentForSkill(definition.id, ownerId(), { employeeChoice: true })));
+    (await assertRuntimeSkill({ agentId: String(input.agent_id), skillId: definition.id, userId: ownerId(), runId: "task-submission" }));
   }
   const template = skillTemplate(definition);
   if (input.skill_template_version && input.skill_template_version !== template.version) {
@@ -1178,7 +1178,7 @@ tasks.get("/tasks/operations-dashboard", (c) => {
 
 tasks.post("/tasks", async (c) => {
   const body = await c.req.json() as Json;
-  return c.json(createWorkItem(body, String(body.source || "manual")), 201);
+  return c.json((await createWorkItem(body, String(body.source || "manual"))), 201);
 });
 
 tasks.patch("/tasks/:id", async (c) => {
@@ -1265,7 +1265,7 @@ tasks.post("/tasks/adopt-recommendation", async (c) => {
   const raw = await c.req.json() as Json;
   const requested = parseTaskRecommendationCandidate(raw);
   const owner = ownerId();
-  const board = buildHomeBoard({ restoreOfficialStages: false }) as Record<string, unknown>;
+  const board = (await buildHomeBoard({ restoreOfficialStages: false })) as Record<string, unknown>;
   const workbench = board.workbench && typeof board.workbench === "object" ? board.workbench as Record<string, unknown> : {};
   const recommendations = Array.isArray(workbench.recommendations) ? workbench.recommendations as Record<string, unknown>[] : [];
   const requestedId = requested.recommendation_id || (requested.work_item_id ? `rec-ai-${requested.work_item_id}` : "");
@@ -1322,7 +1322,7 @@ tasks.post("/tasks/adopt-recommendation", async (c) => {
     return c.json({ ...publicWorkItem(duplicate), candidate: false, reused: true, created: false });
   }
   const intent = candidate.intent || "creator_daily_tasks";
-  const created = createWorkItem({
+  const created = (await createWorkItem({
     prompt: candidate.prompt || candidate.title,
     task_type: intent,
     title: candidate.title,
@@ -1334,7 +1334,7 @@ tasks.post("/tasks/adopt-recommendation", async (c) => {
       handle: candidate.handle,
       recommendation_id: recId || undefined,
     },
-  }, "manual");
+  }, "manual"));
   const now = nowIso();
   tx((db) => {
     db.prepare(
@@ -1450,14 +1450,14 @@ tasks.post("/tasks/from-text", async (c) => {
       clarification: missingFieldsMessage(issueFields, "请在参数卡中补齐或修正后再提交。"),
     });
   }
-  const created = createWorkItem({
+  const created = (await createWorkItem({
     ...body,
     agent_id: resolution.agent_id,
     text,
     title: body.title,
     task_type: resolution.task_type,
     entities: resolution.entities,
-  }, String(body.source || "text"));
+  }, String(body.source || "text")));
   return c.json({
     resolution,
     task: created,
@@ -1543,8 +1543,8 @@ tasks.post("/tasks/:id/run", async (c) => {
   const runText = String(body.text || storedInput.prompt || item.title);
   if (storedInput.agent_id && (runInput as Json).agent_id !== storedInput.agent_id) throw new HttpFail(409, "任务已绑定其他智能体");
   if (!(isTestRuntime() && codexMode() === "stub" && !scopedUser() && !(runInput as Json).agent_id)) {
-    const runAgentId = String((runInput as Json).agent_id || storedInput.agent_id || runtimeAgentForSkill(definition.id, ownerId(), { employeeChoice: true }));
-    assertRuntimeSkill({ agentId: runAgentId, skillId: definition.id, userId: ownerId(), runId: "task-run" });
+    const runAgentId = String((runInput as Json).agent_id || storedInput.agent_id || (await runtimeAgentForSkill(definition.id, ownerId(), { employeeChoice: true })));
+    (await assertRuntimeSkill({ agentId: runAgentId, skillId: definition.id, userId: ownerId(), runId: "task-run" }));
     (runInput as Json).agent_id = runAgentId;
   }
   const resolution = resolveTaskIntent({

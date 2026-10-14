@@ -31,10 +31,10 @@ export function brandScope(user = inboundActor()): string[] | null {
  * 组长可以看到所有公海 KOL（不受品牌锁限制）与本单元及下级单元的全部跟进线索；
  * 组长的上级（父单元 head）范围更大（父子树为超集），权限更多。
  */
-export function isGroupLeader(user = inboundActor()): boolean {
+export async function isGroupLeader(user = inboundActor()): Promise<boolean> {
   if (!user) return false;
   if (isAdmin(user)) return true;
-  return leaderScopeForUser(user.id).isLeader;
+  return (await leaderScopeForUser(user.id)).isLeader;
 }
 
 /** @deprecated 用 isGroupLeader 替代（组长不限于推广部）。 */
@@ -44,9 +44,9 @@ export const isPromotionGroupLeader = isGroupLeader;
  * 组长直管成员 user id（含组长本人），用于线索列表的范围过滤；
  * 非组长返回空数组（调用方回落到仅看自己）。
  */
-export function leaderMemberUserIds(user = inboundActor()): string[] {
+export async function leaderMemberUserIds(user = inboundActor()): Promise<string[]> {
   if (!user) return [];
-  return leaderScopeForUser(user.id).memberUserIds;
+  return (await leaderScopeForUser(user.id)).memberUserIds;
 }
 
 /**
@@ -54,9 +54,9 @@ export function leaderMemberUserIds(user = inboundActor()): string[] {
  * 公司级部门负责人），此时不做品牌排除；undefined 表示无法判定查看者，
  * 调用方应按失败开放（不过滤）处理，保持现有行为。
  */
-export function poolViewerBrands(user = inboundActor()): string[] | null | undefined {
+export async function poolViewerBrands(user = inboundActor()): Promise<string[] | null | undefined> {
   if (!user) return undefined;
-  if (isGroupLeader(user)) return null;
+  if ((await isGroupLeader(user))) return null;
   return brandScope(user);
 }
 

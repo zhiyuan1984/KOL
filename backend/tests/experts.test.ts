@@ -92,8 +92,8 @@ beforeEach(async () => {
   resetConn();
   seedAll();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  employee = agentTestUser();
+  app = (await createApp());
+  employee = (await agentTestUser());
 });
 
 afterEach(() => {
@@ -364,7 +364,7 @@ describe("experts auth", () => {
     process.env.CODEX_MODE = "real";
     resetConn();
     const { createApp } = await import("../src/app.js");
-    app = createApp();
+    app = (await createApp());
     try {
       expect((await request("GET", "/api/experts")).status).toBe(401);
       expect((await request("GET", "/api/experts/expert:kol")).status).toBe(401);

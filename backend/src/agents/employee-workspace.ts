@@ -89,6 +89,6 @@ export async function employeeAgentWorkspace(id: string, sourceSession?: string)
     [userId, id, sourceSession || null],
   ) : [];
   // A read that waited for manifests must recheck current qualification before returning.
-  employeeExpert(id);
+  (await employeeExpert(id));
   return { skills, knowledge, recent_session: sessions[0] || null };
 }

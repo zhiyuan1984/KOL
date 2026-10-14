@@ -178,7 +178,7 @@ beforeEach(async () => {
   resetConn();
   seedAll();
   const { createApp } = await import("../src/app.js");
-  chatApp = createApp();
+  chatApp = (await createApp());
 });
 
 afterEach(() => {
@@ -541,7 +541,7 @@ describe("Starry KOL MCP live smoke", () => {
 
   it.skipIf(!live)("still lists Wendell Fishing from the test MCP", async () => {
     const { createManagedClient } = await import("../src/runtime/managed-client.js");
-    const client = createManagedClient("starrykol", process.env.LIVE_TEST_USER_ID || "");
+    const client = (await createManagedClient("starrykol", process.env.LIVE_TEST_USER_ID || ""));
     try {
       const listed = await client.callTool("listAllKolProfiles", {});
       const data = (listed.data || listed) as { list?: Json[] };

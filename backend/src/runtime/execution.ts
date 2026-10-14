@@ -2,7 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { ExecutionNotDispatched } from "../execution-jobs/failure.js";
 import fs from "node:fs";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
-import { audit, getConn } from "../db.js";
+import { pgAudit } from "../postgres/auth-pg.js";
+import { postgresQuery } from "../postgres/pool.js";
 import { runtimeRequiresGate } from "../gateway/runtime-policy.js";
 import { HttpFail } from "../host/errors.js";
 import { RemoteMcpClient, type RemoteMcpOptions } from "../mcp/remote.js";
@@ -98,54 +99,54 @@ function assertNoCredentialEcho(value: unknown, headers: Record<string, string> 
   }
 }
 export async function assertRuntimeSkill(context: RuntimeContext): Promise<{ user: Row; binding: Row; skillVersion: string }> {
-  ensureRuntimeSchema();
+  (await ensureRuntimeSchema());
   const platform = isPlatformPrincipal(context.userId);
   // 平台系统主体只能用平台系统智能体；人员（含管理员）不能用平台系统智能体。
   if (platform !== isPlatformAgent(context.agentId)) reject("runtime_agent_not_usable");
   const user = platform
     ? { id: context.userId, active: 1, roles: "[\"system\"]" } as Row
-    : getConn().prepare("SELECT id,active,roles FROM users WHERE id=?").get(context.userId) as Row | undefined;
+    : (await postgresQuery<Row>("SELECT id,active,roles FROM users WHERE id=$1", [context.userId]))[0] as Row | undefined;
   if (!user?.active) reject("runtime_identity_unavailable", 401);
   if(isKnowledgePreview(context)) {
     if(!parseRoles(user.roles).includes('admin') || requireTaskDefinition(context.skillId).mcp.some(tool=>tool!==DOCUMENT_TOOL))reject('runtime_preview_not_authorized');
-    return {user,binding:{enabled:1},skillVersion:runtimeSkillVersion(context.skillId)};
+    return {user,binding:{enabled:1},skillVersion:(await runtimeSkillVersion(context.skillId))};
   }
-  const binding = getAgentSkills(context.agentId).find((row) => row.skill_id === context.skillId);
+  const binding = (await getAgentSkills(context.agentId)).find((row) => row.skill_id === context.skillId);
   if (!binding?.enabled) reject("runtime_skill_unbound");
   if (!(await agentIsPublished(context.agentId))) reject("runtime_agent_not_usable");
   const definition = requireTaskDefinition(context.skillId);
-  const lifecycle = getConn().prepare("SELECT stage FROM skill_lifecycle WHERE skill_id=?").get(context.skillId) as Row | undefined;
+  const lifecycle = (await postgresQuery<Row>("SELECT stage FROM skill_lifecycle WHERE skill_id=$1", [context.skillId]))[0] as Row | undefined;
   if (lifecycle && lifecycle.stage !== "published") reject("runtime_skill_not_published");
   if (!lifecycle && definition.source === "published") reject("runtime_skill_not_published");
   // 人员资格锚点是「人 → Agent」使用绑定（CONST-05 / ADR-2026-10-03），不再有逐人技能授权。
   if (!platform && !parseRoles(user.roles).includes("admin") && !(await canUseAgent(context.userId, context.agentId))) {
     reject("runtime_agent_not_usable");
   }
-  const skillVersion=runtimeSkillVersion(context.skillId);
+  const skillVersion=(await runtimeSkillVersion(context.skillId));
   if (binding.release_hash && binding.release_hash !== skillVersion) reject("runtime_agent_skill_upgrade_required", 409);
   if(definition.mcp.includes(DOCUMENT_TOOL)) {
-    const config=getConn().prepare('SELECT published_revision,published_hash FROM skill_knowledge_configs WHERE skill_id=?').get(context.skillId) as Row|undefined;
+    const config=(await postgresQuery<Row>("SELECT published_revision,published_hash FROM skill_knowledge_configs WHERE skill_id=$1", [context.skillId]))[0] as Row|undefined;
     if(config && (!config.published_revision || config.published_hash!==skillVersion))reject('runtime_knowledge_skill_release_incomplete',409);
-    if(config){const pin=getConn().prepare('SELECT skill_hash,config_revision FROM agent_knowledge_skill_releases WHERE agent_id=? AND skill_id=?').get(context.agentId,context.skillId) as Row|undefined;
+    if(config){const pin=(await postgresQuery<Row>("SELECT skill_hash,config_revision FROM agent_knowledge_skill_releases WHERE agent_id=$1 AND skill_id=$2", [context.agentId, context.skillId]))[0] as Row|undefined;
       if(!pin || pin.skill_hash!==skillVersion || Number(pin.config_revision)!==Number(config.published_revision))reject('runtime_agent_skill_upgrade_required',409);
     }
   }
   return { user, binding, skillVersion };
 }
-export function runtimeSkillVersion(skillId:string):string {
+export async function runtimeSkillVersion(skillId:string):Promise<string> {
   const definition=requireTaskDefinition(skillId);
-  const sop=getConn().prepare('SELECT summary,body,updated_at FROM skill_sops WHERE id=?').get(skillId);
+  const sop=(await postgresQuery<Row>("SELECT summary,body,updated_at FROM skill_sops WHERE id=$1", [skillId]))[0];
   return runtimeHash({definition,body:fs.readFileSync(definition.path,'utf8'),sop});
 }
 
 /** Agents through which this person may run the skill (published, skill enabled, person covered). */
 export async function runtimeAgentCandidates(skillId: string, userId: string): Promise<string[]> {
-  ensureRuntimeSchema();
+  (await ensureRuntimeSchema());
   requireTaskDefinition(skillId);
-  const user = getConn().prepare("SELECT active,roles FROM users WHERE id=?").get(userId) as Row | undefined;
+  const user = (await postgresQuery<Row>("SELECT active,roles FROM users WHERE id=$1", [userId]))[0] as Row | undefined;
   if (!user?.active) reject("runtime_identity_unavailable", 401);
   const admin = parseRoles(user.roles).includes("admin");
-  const rows = getConn().prepare("SELECT agent_id FROM runtime_agent_skills WHERE skill_id=? AND enabled=1 ORDER BY agent_id").all(skillId) as Row[];
+  const rows = (await postgresQuery<Row>("SELECT agent_id FROM runtime_agent_skills WHERE skill_id=$1 AND enabled=1 ORDER BY agent_id", [skillId])) as Row[];
   const candidates: string[] = [];
   for (const row of rows) {
     const id = String(row.agent_id);
@@ -165,11 +166,11 @@ export async function runtimeAgentForSkill(skillId: string, userId: string, opti
   if (!options.employeeChoice && usable.includes(definition.runtime_agent_id)) return definition.runtime_agent_id;
   if (usable.length === 1) return usable[0];
   if (usable.length > 1) {
-    const named = usable.map((id) => {
+    const named = (await Promise.all(usable.map(async (id) => {
       let name = id;
-      try { name = String((getConn().prepare("SELECT name FROM managed_agents WHERE id=?").get(id) as Row | undefined)?.name || id); } catch { /* manifest-only agent */ }
+      try { name = String(((await postgresQuery<Row>("SELECT name FROM managed_agents WHERE id=$1", [id]))[0] as Row | undefined)?.name || id); } catch { /* manifest-only agent */ }
       return { id, name };
-    });
+    })));
     throw new HttpFail(409, { code: "runtime_agent_ambiguous", message: "这个技能装配在多个智能体上，请选择要使用的智能体。", skill_id: skillId, candidates: named });
   }
   reject("runtime_agent_not_usable");
@@ -183,18 +184,18 @@ export async function runtimeAgentForSkill(skillId: string, userId: string, opti
  */
 export async function authorizeConnector(context: RuntimeContext, connectorId: string) {
   const skill = await assertRuntimeSkill(context);
-  if (!isPlatformPrincipal(context.userId) && !parseRoles(skill.user.roles).includes("admin") && !canUseSkill(context.userId, context.skillId)) {
+  if (!isPlatformPrincipal(context.userId) && !parseRoles(skill.user.roles).includes("admin") && !(await canUseSkill(context.userId, context.skillId))) {
     reject("runtime_agent_not_usable");
   }
-  const binding = getSkillConnectors(context.skillId).find((row) => row.connector_id === connectorId);
+  const binding = (await getSkillConnectors(context.skillId)).find((row) => row.connector_id === connectorId);
   if (!binding?.enabled) reject("runtime_connector_unbound");
-  const connector = getConn().prepare("SELECT id,enabled,updated_at FROM connectors WHERE id=?").get(connectorId) as Row | undefined;
+  const connector = (await postgresQuery<Row>("SELECT id,enabled,updated_at FROM connectors WHERE id=$1", [connectorId]))[0] as Row | undefined;
   if (!connector?.enabled) reject("runtime_connector_disabled");
-  const configuration = getConnectorConfig(connectorId);
+  const configuration = (await getConnectorConfig(connectorId));
   if (!configuration) reject("runtime_connector_not_configured", 409);
   return { ...skill, resourceBinding: binding, connector, configuration };
 }
-function authorizationStamp(auth: ReturnType<typeof authorizeConnector>, policy?: Row, toolBinding?: Row): string {
+function authorizationStamp(auth: Awaited<ReturnType<typeof authorizeConnector>>, policy?: Row, toolBinding?: Row): string {
   return runtimeHash({ agent_binding: auth.binding.version, resource_binding: auth.resourceBinding.version,
     config: auth.configuration.version, connector: auth.connector, skill: auth.skillVersion, policy, tool_binding: toolBinding });
 }
@@ -258,11 +259,11 @@ export async function connectorOptions(context: RuntimeContext, config: Connecto
 }
 
 /** Create the protocol-specific remote using only a validated, reference-only configuration. */
-export function createConfiguredClient(
+export async function createConfiguredClient(
   context: RuntimeContext,
   config: ConnectorConfig,
   mcpFactory: (options: RemoteMcpOptions) => RuntimeRemote = (options) => new RemoteMcpClient(options),
-): RuntimeRemote {
+): Promise<RuntimeRemote> {
   const options = await connectorOptions(context, config);
   if ((config.protocol || "mcp") === "http") return new HttpConnectorClient(httpOptions(options), config);
   return mcpFactory(options);
@@ -312,16 +313,16 @@ export class SkillExecution {
     for (const client of this.clients) void client.close().catch(() => undefined);
     this.clients.clear();
   }
-  private client(context: RuntimeContext, config: ConnectorConfig): RuntimeRemote {
+  private async client(context: RuntimeContext, config: ConnectorConfig): Promise<RuntimeRemote> {
     this.active();
-    const client = createConfiguredClient(context, config, this.clientFactory);
+    const client = (await createConfiguredClient(context, config, this.clientFactory));
     this.clients.add(client);
     return client;
   }
   private active(): void { if (this.closed) reject("runtime_run_closed", 410); }
   async discover(): Promise<RuntimeCatalog> {
     this.active();
-    assertRuntimeSkill(this.context);
+    (await assertRuntimeSkill(this.context));
     const tools: DiscoveredTool[] = [];
     if (hasDocumentTool(this.context.skillId)) {
       const manifest=isKnowledgePreview(this.context)?await previewManifest(this.context):await runtimeKnowledgeManifest(this.context.skillId,this.context.userId);
@@ -330,19 +331,19 @@ export class SkillExecution {
         schemaHash: toolSchemaHash(documentToolSchema), stamp: "", toolBindingVersion: 1 });
     }
     const unavailable: RuntimeCatalog["unavailable"] = [];
-    for (const binding of isKnowledgePreview(this.context)?[]:getSkillConnectors(this.context.skillId)) {
+    for (const binding of isKnowledgePreview(this.context)?[]:(await getSkillConnectors(this.context.skillId))) {
       const connectorId = String(binding.connector_id);
       if (!binding.enabled) { unavailable.push({ connector_id: connectorId, code: "runtime_connector_unbound" }); continue; }
       let client: RuntimeRemote | undefined;
       try {
-        const before = authorizeConnector(this.context, connectorId);
+        const before = (await authorizeConnector(this.context, connectorId));
         const beforeStamp = authorizationStamp(before);
         const options = await connectorOptions(this.context, before.configuration.config);
-        client = this.client(this.context, before.configuration.config);
+        client = (await this.client(this.context, before.configuration.config));
         const remoteTools = await client.listTools();
         assertNoCredentialEcho(remoteTools, options.headers);
         this.active();
-        const after = authorizeConnector(this.context, connectorId);
+        const after = (await authorizeConnector(this.context, connectorId));
         if (beforeStamp !== authorizationStamp(after)) reject("runtime_binding_changed", 409);
         const seen = new Set<string>();
         for (const remote of remoteTools) {
@@ -352,11 +353,11 @@ export class SkillExecution {
         let authorized = 0;
         for (const remote of remoteTools) {
           const name = String(remote.name);
-          const policy = getToolPolicy(connectorId, name);
-          const toolBinding = getSkillTool(this.context.skillId, connectorId, name);
+          const policy = (await getToolPolicy(connectorId, name));
+          const toolBinding = (await getSkillTool(this.context.skillId, connectorId, name));
           if (!toolBinding?.enabled || !isPolicyAllowed(policy, remote)) continue;
-          let current: ReturnType<typeof authorizeConnector>;
-          try { current = authorizeConnector(this.context, connectorId); }
+          let current: Awaited<ReturnType<typeof authorizeConnector>>;
+          try { current = (await authorizeConnector(this.context, connectorId)); }
           catch { continue; }
           const alias = runtimeToolAlias(connectorId, name);
           // Codex treats a missing readOnlyHint as approval-required. Translate the
@@ -382,9 +383,9 @@ export class SkillExecution {
       } finally { if (client) this.clients.delete(client); await client?.close().catch(() => undefined); }
     }
     this.active();
-    assertRuntimeSkill(this.context);
+    (await assertRuntimeSkill(this.context));
     this.handles = new Map(tools.map((tool) => [String(tool.exposed.name), tool]));
-    audit(this.context.userId, "runtime.tools.discovered", { ...this.trace(), tool_count: tools.length, unavailable });
+    await pgAudit(this.context.userId, "runtime.tools.discovered", { ...this.trace(), tool_count: tools.length, unavailable }, new Date().toISOString());
     return { tools, unavailable };
   }
 
@@ -404,35 +405,35 @@ export class SkillExecution {
       if (handle.connectorId === "knowledge" && handle.remoteName === DOCUMENT_TOOL) {
         const valid = new AjvJsonSchemaValidator().getValidator(documentToolSchema.inputSchema as object)(args).valid;
         if (!valid) reject("runtime_tool_arguments_invalid", 422);
-        const authorize = () => { this.active(); assertRuntimeSkill(this.context); };
+        const authorize = async () => { this.active(); (await assertRuntimeSkill(this.context)); };
         await this.checkpoint();
-        authorize();
-        audit(this.context.userId, "runtime.tool.started", { ...trace, risk: "L1" });
+        (await authorize());
+        await pgAudit(this.context.userId, "runtime.tool.started", { ...trace, risk: "L1" }, new Date().toISOString());
         const result = await invokeDocumentTool(this.context, args, authorize);
         await this.checkpoint();
-        authorize();
-        audit(this.context.userId, "runtime.tool.completed", { ...trace, output: summary(result), risk: "L1" });
+        (await authorize());
+        await pgAudit(this.context.userId, "runtime.tool.completed", { ...trace, output: summary(result), risk: "L1" }, new Date().toISOString());
         return result;
       }
-      const check = () => {
+      const check = async () => {
         this.active();
-        const policy = getToolPolicy(handle.connectorId, handle.remoteName);
+        const policy = (await getToolPolicy(handle.connectorId, handle.remoteName));
         if (!policy?.enabled) reject("runtime_tool_not_granted");
-        const toolBinding = getSkillTool(this.context.skillId, handle.connectorId, handle.remoteName);
+        const toolBinding = (await getSkillTool(this.context.skillId, handle.connectorId, handle.remoteName));
         if (!toolBinding?.enabled) reject("runtime_tool_unbound");
         if (!["L1", "L2", "L3"].includes(String(policy.risk))) reject("runtime_gateway_required");
-        const current = authorizeConnector(this.context, handle.connectorId);
+        const current = (await authorizeConnector(this.context, handle.connectorId));
         if (handle.toolBindingVersion !== Number(toolBinding.version) || handle.schemaHash !== policy.schema_hash
           || handle.stamp !== authorizationStamp(current, policy, toolBinding)) {
           reject("runtime_binding_changed", 409);
         }
         return { ...current, policy, toolBinding };
       };
-      let authorized = check();
+      let authorized = (await check());
       const options = await connectorOptions(this.context, authorized.configuration.config);
       const credentialStamp = runtimeHash({ url: options.url, headers: options.headers });
-      const guardedCheck = () => {
-        const current = check();
+      const guardedCheck = async () => {
+        const current = (await check());
         const currentOptions = await connectorOptions(this.context, current.configuration.config);
         if (credentialStamp !== runtimeHash({ url: currentOptions.url, headers: currentOptions.headers })) {
           reject("runtime_credentials_changed", 409);
@@ -448,7 +449,7 @@ export class SkillExecution {
       // initialize/reconnect between discovery and tools/call.
       const guardedOptions: RemoteMcpOptions = { ...options, fetch: async (input, init) => {
         await this.checkpoint();
-        guardedCheck();
+        (await guardedCheck());
         return transportFetch(input, init);
       } };
       client = (config.protocol || "mcp") === "http"
@@ -464,9 +465,9 @@ export class SkillExecution {
       const remote = matching[0];
       assertRuntimeToolArguments([remote.inputSchema as Json, handle.exposed.inputSchema as Json], args);
       if (Buffer.byteLength(JSON.stringify(args)) > 1_000_000) reject("runtime_tool_arguments_too_large", 413);
-      authorized = guardedCheck();
+      authorized = (await guardedCheck());
       await validateRuntimeToolScope(handle.connectorId, this.context, handle.remoteName, args);
-      authorized = guardedCheck();
+      authorized = (await guardedCheck());
       const controlled = runtimeRequiresGate(handle.remoteName) || authorized.policy.risk === "L3";
       const snapshot = runtimeHash({ context: this.context, alias, args, stamp: handle.stamp, credentialStamp });
       if (controlled) {
@@ -476,7 +477,7 @@ export class SkillExecution {
           assertRuntimeActionAllowed(handle.connectorId, handle.remoteName);
           const action = await proposeRuntimeAction({ context: this.context, connectorId: handle.connectorId,
             tool: handle.remoteName, args, snapshot, proposalKey: snapshot });
-          guardedCheck();
+          (await guardedCheck());
           return { content: [{ type: "text", text: "操作尚未执行。请用户在待确认动作中核对范围并确认；模型不能代替用户确认。" }],
             structuredContent: { action_id: action.id, status: action.state, confirmation_required: true } };
         }
@@ -485,18 +486,18 @@ export class SkillExecution {
         if (action.snapshot !== snapshot) reject("runtime_action_snapshot_stale", 409);
         const gate = runtimeActionGate(handle.connectorId, handle.remoteName);
         await gate.validate(this.context, args);
-        guardedCheck();
+        (await guardedCheck());
         if (!await claimRuntimeAction(action.id, this.context.userId, snapshot)) reject("runtime_action_already_claimed", 409);
         claimedHere = true;
       }
       Object.assign(trace, { agent_binding_version: authorized.binding.version,
         resource_binding_version: authorized.resourceBinding.version, connector_version: authorized.configuration.version,
         policy_version: authorized.policy.version, skill_version: authorized.skillVersion });
-      audit(this.context.userId, "runtime.tool.started", trace);
+      await pgAudit(this.context.userId, "runtime.tool.started", trace, new Date().toISOString());
       // No await between final authorization and submission.
       const dispatch = async () => {
         await this.checkpoint();
-        guardedCheck();
+        (await guardedCheck());
         dispatched = true;
         const result = await client!.callToolRaw(handle.remoteName, args);
         assertNoCredentialEcho(result, options.headers);
@@ -505,12 +506,12 @@ export class SkillExecution {
       const result = controlled
         ? await runtimeActionGate(handle.connectorId, handle.remoteName).execute(this.context, args, this.confirmedActionId!, dispatch)
         : await dispatch();
-      audit(this.context.userId, "runtime.tool.received", { ...trace, output: summary(result), is_error: result.isError === true });
-      guardedCheck(); // Suppress data received after revocation; do not claim the remote action was rolled back.
+      await pgAudit(this.context.userId, "runtime.tool.received", { ...trace, output: summary(result), is_error: result.isError === true }, new Date().toISOString());
+      (await guardedCheck()); // Suppress data received after revocation; do not claim the remote action was rolled back.
       assertNoCredentialEcho(result, options.headers);
       if (controlled) await finishRuntimeAction(this.confirmedActionId!, result.isError ? "uncertain" : "succeeded", result);
-      audit(this.context.userId, "runtime.tool.completed", { ...trace, output: summary(result), is_error: result.isError === true,
-        duration_ms: Date.now() - started });
+      await pgAudit(this.context.userId, "runtime.tool.completed", { ...trace, output: summary(result), is_error: result.isError === true,
+        duration_ms: Date.now() - started }, new Date().toISOString());
       return result;
     } catch (error) {
       const code = runtimeErrorCode(error);
@@ -520,7 +521,7 @@ export class SkillExecution {
           ? await rejectPendingRuntimeAction(this.confirmedActionId, this.context.userId,
             preClaimSnapshot, code)
           : false;
-      audit(this.context.userId, "runtime.tool.denied_or_failed", { ...trace, code, dispatched, duration_ms: Date.now() - started });
+      await pgAudit(this.context.userId, "runtime.tool.denied_or_failed", { ...trace, code, dispatched, duration_ms: Date.now() - started }, new Date().toISOString());
       if (rejectionSaved && !dispatched) {
         throw new ExecutionNotDispatched(error instanceof HttpFail ? error.status : 502, runtimeErrorDetail(error), code);
       }
@@ -554,12 +555,12 @@ export class SkillExecution {
 
 /** Governance discovery only. It does not imply a grant or expose a tool to a worker. */
 export async function inspectConnectorTools(context: RuntimeContext, connectorId: string): Promise<Json[]> {
-  const configuration = getConnectorConfig(connectorId);
-  const connector = getConn().prepare("SELECT id FROM connectors WHERE id=?").get(connectorId) as Row | undefined;
+  const configuration = (await getConnectorConfig(connectorId));
+  const connector = (await postgresQuery<Row>("SELECT id FROM connectors WHERE id=$1", [connectorId]))[0] as Row | undefined;
   if (!connector) reject("runtime_connector_not_found", 404);
   if (!configuration) reject("runtime_connector_not_configured", 409);
   const options = await connectorOptions(context, configuration.config);
-  const client = createConfiguredClient(context, configuration.config);
+  const client = (await createConfiguredClient(context, configuration.config));
   try {
     const tools = await client.listTools();
     assertNoCredentialEcho(tools, options.headers);

@@ -19,11 +19,11 @@ import { isPlatformAgent } from "../runtime/platform-principal.js";
 import {runtimeSkillVersion} from '../runtime/execution.js';
 import { assertLegacyAgentWriteAllowed } from '../agents/workspace.js';
 async function confirmKnowledgeReleases(agentId:string,actor:string) {
-  const skills=getAgentSkills(agentId).filter(s=>s.enabled);
+  const skills=(await getAgentSkills(agentId)).filter(s=>s.enabled);
   await postgresTransaction(async db=>{
     for(const skill of skills){const cfg=(await db.query('SELECT published_hash,published_revision FROM skill_knowledge_configs WHERE skill_id=$1',[skill.skill_id])).rows[0];
       if(!cfg)continue;
-      if(!cfg.published_hash || cfg.published_hash!==runtimeSkillVersion(String(skill.skill_id)))throw new HttpFail(409,'知识技能尚未完成正式发布，请先到技能页试算并发布。');
+      if(!cfg.published_hash || cfg.published_hash!==(await runtimeSkillVersion(String(skill.skill_id))))throw new HttpFail(409,'知识技能尚未完成正式发布，请先到技能页试算并发布。');
       await db.query(`INSERT INTO agent_knowledge_skill_releases(agent_id,skill_id,skill_hash,config_revision,confirmed_by,confirmed_at) VALUES($1,$2,$3,$4,$5,$6)
         ON CONFLICT(agent_id,skill_id) DO UPDATE SET skill_hash=EXCLUDED.skill_hash,config_revision=EXCLUDED.config_revision,confirmed_by=EXCLUDED.confirmed_by,confirmed_at=EXCLUDED.confirmed_at`,[agentId,skill.skill_id,cfg.published_hash,cfg.published_revision,actor,new Date().toISOString()]);
     }
@@ -34,8 +34,8 @@ export const adminAgentsRouter = new Hono();
 
 async function agentView(id: string) {
   const agent = await managedAgent(id);
-  const skills = getAgentSkills(id);
-  const [bindings, coverage] = await Promise.all([listAgentBindings(id), effectiveAgentUsers(id)]);
+  const skills = (await getAgentSkills(id));
+  const [bindings, coverage] = await Promise.all([(await listAgentBindings(id)), (await effectiveAgentUsers(id))]);
   const knowledge = getConn().prepare(
     `SELECT kb.id,kb.skill_id,kb.selector,kb.enabled,kb.note FROM knowledge_bindings kb
       JOIN runtime_agent_skills ras ON ras.skill_id=kb.skill_id AND ras.agent_id=? AND ras.enabled=1
@@ -124,7 +124,7 @@ adminAgentsRouter.patch("/admin/agents/:id", async (c) => {
   };
   if(Number(body.expected_version)!==Number((await managedAgent(id)).version))throw new HttpFail(409,'Agent 已变化，请刷新后重试。');
   if (body.status === "published") {
-    if (!getAgentSkills(id).some((skill) => Number(skill.enabled) === 1)) {
+    if (!(await getAgentSkills(id)).some((skill) => Number(skill.enabled) === 1)) {
       throw new HttpFail(409, "发布前请先装配至少一项技能");
     }
     // 平台系统智能体不对应人员，没有绑定点；其余 Agent 发布前必须绑定组织或人员。
@@ -148,7 +148,7 @@ adminAgentsRouter.put("/admin/agents/:id/skills", async (c) => {
     enabled: row.enabled as boolean,
     expected_version: Number(row.expected_version),
   }));
-  const updated = setAgentSkills(id, skills);
+  const updated = (await setAgentSkills(id, skills));
   if((await managedAgent(id)).status==='published')await confirmKnowledgeReleases(id,admin.id);
   audit(admin.id, "admin.agent.skills", {
     agent_id: id,
@@ -194,7 +194,7 @@ adminAgentsRouter.put("/admin/agents/:id/skills/:skillId", async (c) => {
   if (typeof body.enabled !== "boolean" || !Number.isInteger(body.expected_version)) {
     throw new HttpFail(400, "enabled 与 expected_version 必填");
   }
-  const row = setAgentSkill(id, c.req.param("skillId"), body.enabled, Number(body.expected_version));
+  const row = (await setAgentSkill(id, c.req.param("skillId"), body.enabled, Number(body.expected_version)));
   audit(admin.id, "admin.agent.skill", { agent_id: id, skill_id: row.skill_id, enabled: row.enabled, version: row.version });
   return c.json(await agentView(id));
 });
@@ -207,7 +207,7 @@ adminAgentsRouter.post("/admin/agents/:id/knowledge", async (c) => {
   const body = await c.req.json() as { skill_id?: string; base_id?: string };
   const skillId = String(body.skill_id || "").trim();
   const baseId = String(body.base_id || "").trim();
-  if (!getAgentSkills(id).some((skill) => skill.skill_id === skillId && Number(skill.enabled) === 1)) {
+  if (!(await getAgentSkills(id)).some((skill) => skill.skill_id === skillId && Number(skill.enabled) === 1)) {
     throw new HttpFail(409, "先将该技能装配到 Agent");
   }
   const base = listBases().find((row) => String(row.id) === baseId);

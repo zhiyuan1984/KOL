@@ -6,7 +6,7 @@ import type { Row } from "../types.js";
 import { readReplyContext } from "./reply-context.js";
 import { replyFingerprint } from "./reply-source.js";
 
-type SendView = ReturnType<typeof mailSendAction>;
+type SendView = Awaited<ReturnType<typeof mailSendAction>>;
 async function contextFor(draft: Row) {
   if (authDisabled() || !draft.collaboration_id) return null;
   const present = (await postgresPool().query(`SELECT 1 FROM kol_mail_threads t JOIN user_starry_bindings b ON lower(b.mailbox_email)=lower(t.mailbox)

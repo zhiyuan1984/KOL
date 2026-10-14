@@ -150,7 +150,7 @@ beforeEach(async () => {
   }];
   resetConn();
   seedAll();
-  configureCrawlerFixture();
+  (await configureCrawlerFixture());
   clearTaskRegistryCache();
   resetCollectorConnectionCache();
   setCollectorProbeClientFactory();
@@ -158,7 +158,7 @@ beforeEach(async () => {
   setCrawlMcpClientFactory(mockMcp);
   setDiscoveryBriefRunner(null);
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 
 afterEach(() => {

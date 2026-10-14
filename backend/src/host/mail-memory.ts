@@ -91,8 +91,8 @@ type StarryBindingRow = Row & {
 
 const MATCH_STATES = new Set<MatchState>(["matched", "unbound", "deferred", "ignored"]);
 
-export function currentMailbox(): string {
-  return normalizeEmail(boundMailboxEmail() || currentFollowScope().mailbox_email || "");
+export async function currentMailbox(): Promise<string> {
+  return normalizeEmail((await boundMailboxEmail()) || (await currentFollowScope()).mailbox_email || "");
 }
 
 export function matchStateOf(value: unknown, collaborationId?: unknown): MatchState {
@@ -270,8 +270,8 @@ const LIST_JOINS = `FROM kol_mail_threads t
          LEFT JOIN (SELECT thread_id, COUNT(*) AS message_count FROM kol_mail_items GROUP BY thread_id) mc
                 ON mc.thread_id = t.id`;
 
-export function listMailboxConversations(mailbox?: string): ConversationRow[] {
-  const box = mailbox === undefined ? currentMailbox() : mailbox;
+export async function listMailboxConversations(mailbox?: string): Promise<ConversationRow[]> {
+  const box = mailbox === undefined ? (await currentMailbox()) : mailbox;
   if (!box) return [];
   const rows = getConn().prepare(
     `SELECT ${LIST_COLUMNS}
@@ -281,11 +281,11 @@ export function listMailboxConversations(mailbox?: string): ConversationRow[] {
   return rows.map(conversationRowOf);
 }
 
-export function findMailThread(id: string, mailbox?: string): Row | undefined {
+export async function findMailThread(id: string, mailbox?: string): Promise<Row | undefined> {
   const raw = String(id || "").trim();
   if (!raw) return undefined;
-  const box = mailbox === undefined ? currentMailbox() : mailbox;
-  const allowed = mailboxBindings().map((binding) => normalizeEmail(binding.mailbox));
+  const box = mailbox === undefined ? (await currentMailbox()) : mailbox;
+  const allowed = (await mailboxBindings()).map((binding) => normalizeEmail(binding.mailbox));
   if (!allowed.length || (box && !allowed.includes(normalizeEmail(box)))) return undefined;
   const byId = getConn().prepare("SELECT * FROM kol_mail_threads WHERE id=?").get(raw) as Row | undefined;
   if (byId && allowed.includes(normalizeEmail(String(byId.mailbox || ""))) && (!box || normalizeEmail(String(byId.mailbox || "")) === normalizeEmail(box))) return byId;
@@ -303,7 +303,7 @@ export function findMailThread(id: string, mailbox?: string): Row | undefined {
  * 按 ID 找邮件（kol_mail_items），并核对归属：邮件所在会话的 mailbox 必须是本人挂载的，
  * 否则返回 undefined（不降级、不猜）。
  */
-export function findMailItem(id: string): Row | undefined {
+export async function findMailItem(id: string): Promise<Row | undefined> {
   const raw = String(id || "").trim();
   if (!raw) return undefined;
   const item = getConn().prepare("SELECT * FROM kol_mail_items WHERE id=?").get(raw) as Row | undefined;
@@ -323,17 +323,17 @@ export function findMailItem(id: string): Row | undefined {
   if (!thread) return undefined;
   const mailbox = String(thread.mailbox || "");
   if (!mailbox) return undefined;
-  const owned = mailboxBindings().some(
+  const owned = (await mailboxBindings()).some(
     (binding) => String(binding.mailbox || "").toLowerCase() === mailbox.toLowerCase(),
   );
   if (!owned) return undefined;
   return item;
 }
 
-export function mailboxBoxStatus(mailbox?: string): MailBoxStatus {
-  const box = mailbox === undefined ? currentMailbox() : mailbox;
+export async function mailboxBoxStatus(mailbox?: string): Promise<MailBoxStatus> {
+  const box = mailbox === undefined ? (await currentMailbox()) : mailbox;
   const userId = safeEmployeeId();
-  const bind = userId ? starryBindingRow(userId, box || undefined) as StarryBindingRow | undefined : undefined;
+  const bind = userId ? (await starryBindingRow(userId, box || undefined)) as StarryBindingRow | undefined : undefined;
   const unread = box ? unreadCountForMailbox(box) : 0;
   return {
     mailbox: box || String(bind?.mailbox_email || ""),
@@ -365,9 +365,9 @@ export type MailboxBinding = {
  * mailbox_owners table when present; there is no per-mailbox region source yet
  * and none may be invented from the address.
  */
-export function mailboxBindings(): MailboxBinding[] {
+export async function mailboxBindings(): Promise<MailboxBinding[]> {
   const userId = safeEmployeeId();
-  const rows = userId ? starryBindingRows(userId) : [];
+  const rows = userId ? (await starryBindingRows(userId)) : [];
   return rows.map((row) => {
     const mailbox = String(row.mailbox_email || "").trim();
     const owner = mailbox
@@ -388,7 +388,7 @@ export function mailboxBindings(): MailboxBinding[] {
   });
 }
 
-export function updateBindingSyncCursor(input: {
+export async function updateBindingSyncCursor(input: {
   userId?: string;
   mailbox?: string;
   syncedAt: string;
@@ -397,11 +397,11 @@ export function updateBindingSyncCursor(input: {
   pageNo?: number;
   error?: string;
   tool?: string;
-}): void {
+}): Promise<void> {
   const userId = String(input.userId || safeEmployeeId() || "");
   if (!userId) return;
   const box = String(input.mailbox || "").trim();
-  const existing = starryBindingRow(userId, box || undefined) as StarryBindingRow | undefined;
+  const existing = (await starryBindingRow(userId, box || undefined)) as StarryBindingRow | undefined;
   if (!existing) return;
   getConn().prepare(
     `UPDATE user_starry_bindings

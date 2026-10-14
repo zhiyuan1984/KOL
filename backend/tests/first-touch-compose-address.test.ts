@@ -145,7 +145,7 @@ describe("compose never asks first-touch for a conversation id", () => {
     });
     expect(preview.data).toMatchObject({ sent: false, mailboxEmail: LARRY, to: [QIYOU] });
     expect(preview.data.needs_input).not.toBe(true);
-    const card = emailMcpResultCard("email_compose", preview.data);
+    const card = (await emailMcpResultCard("email_compose", preview.data));
     expect(JSON.stringify(card.sections)).toContain(`发件邮箱：${LARRY}`);
     expect(JSON.stringify(card.sections)).toContain(`收件邮箱：${QIYOU}`);
     expect(String(card.summary)).not.toMatch(/MCP/i);
@@ -175,7 +175,7 @@ describe("compose never asks first-touch for a conversation id", () => {
     expect(compose.data.needs_input).toBe(true);
     expect(compose.data.missing_fields).toEqual(["to"]);
     expect(compose.data.missing_fields).not.toContain("conversationId");
-    const card = emailMcpResultCard("email_compose", compose.data);
+    const card = (await emailMcpResultCard("email_compose", compose.data));
     expect(String(card.summary)).toContain(LARRY);
     expect(String(card.summary)).toContain("不能当作红人收件邮箱");
     expect(String(card.summary)).not.toMatch(/MCP/i);
@@ -201,7 +201,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       subject: "LiTime Mini 12V — weekend van test",
       prompt: LABELED,
     });
-    const card = emailMcpResultCard("email_compose", compose.data);
+    const card = (await emailMcpResultCard("email_compose", compose.data));
     expect(compose.data.missing_fields).toEqual(["mailboxEmail"]);
     expect(String(card.summary)).toContain(LARRY);
     expect(String(card.summary)).toContain("未授权给当前账号");
@@ -227,8 +227,8 @@ describe("compose never asks first-touch for a conversation id", () => {
       ...extractTaskEntities(OPERATOR),
       prompt: OPERATOR,
     });
-    const card = emailMcpResultCard("email_compose", compose.data);
-    const actor = describeStarryActor();
+    const card = (await emailMcpResultCard("email_compose", compose.data));
+    const actor = (await describeStarryActor());
     expect(String(actor.label)).toContain("灵工登录");
     expect(String(actor.label)).toContain("Starry 身份");
     expect(String(card.summary)).toContain("灵工登录");
@@ -277,7 +277,7 @@ describe("compose never asks first-touch for a conversation id", () => {
     });
     expect(compose.data).toMatchObject({ sent: false, conversationId: 707, mailboxEmail: LARRY, to: [QQ] });
     expect(compose.data.needs_input).not.toBe(true);
-    expect(emailMcpResultCard("email_compose", compose.data).summary).not.toContain("看不见");
+    expect((await emailMcpResultCard("email_compose", compose.data)).summary).not.toContain("看不见");
   });
 
   it("reuses the existing QQ profile when addKolProfile says the email is taken", async () => {
@@ -323,7 +323,7 @@ describe("compose never asks first-touch for a conversation id", () => {
     });
     expect(compose.data).toMatchObject({ sent: false, conversationId: 606, mailboxEmail: LARRY, to: [QQ] });
     expect(compose.data.needs_input).not.toBe(true);
-    const card = emailMcpResultCard("email_compose", compose.data);
+    const card = (await emailMcpResultCard("email_compose", compose.data));
     expect(String(card.summary)).not.toContain("不在当前账号可见范围内");
     expect(String(card.summary)).not.toContain("请换一个可见的收件邮箱");
   });
@@ -371,7 +371,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       kolUid: "KOL9D62420657814F6BAEC8",
     });
     expect(compose.data).toMatchObject({ sent: false, conversationId: 808, mailboxEmail: LARRY, to: [QQ] });
-    expect(emailMcpResultCard("email_compose", compose.data).summary).not.toContain("看不见");
+    expect((await emailMcpResultCard("email_compose", compose.data)).summary).not.toContain("看不见");
   });
 
   it("retries create with the host Starry identity when the bound JWT can list but not create", async () => {
@@ -426,8 +426,8 @@ describe("compose never asks first-touch for a conversation id", () => {
     expect(calls.filter((row) => row.name === "createEmailConversation")).toHaveLength(2);
     expect(compose.data).toMatchObject({ sent: false, conversationId: 813, mailboxEmail: LARRY, to: [QQ] });
     expect(compose.data.needs_input).not.toBe(true);
-    expect(String(emailMcpResultCard("email_compose", compose.data).summary)).not.toContain("还没有红人画像");
-    expect(String(emailMcpResultCard("email_compose", compose.data).summary)).not.toContain("看不见");
+    expect(String((await emailMcpResultCard("email_compose", compose.data)).summary)).not.toContain("还没有红人画像");
+    expect(String((await emailMcpResultCard("email_compose", compose.data)).summary)).not.toContain("看不见");
   });
 
   it("writes the operator To onto the followed portrait when create still misses", async () => {
@@ -495,7 +495,7 @@ describe("compose never asks first-touch for a conversation id", () => {
     expect(JSON.parse(String(calls.find((row) => row.name === "createEmailConversation")?.args.requestJson)).mailboxId).toBeUndefined();
     expect(compose.data).toMatchObject({ sent: false, conversationId: 814, mailboxEmail: LARRY, to: [QQ] });
     expect(compose.data.needs_input).not.toBe(true);
-    expect(String(emailMcpResultCard("email_compose", compose.data).summary)).not.toContain("还没有红人画像");
+    expect(String((await emailMcpResultCard("email_compose", compose.data)).summary)).not.toContain("还没有红人画像");
   });
 
   it("creates the QQ thread with Starry kolId when kolUid create is rejected", async () => {
@@ -557,7 +557,7 @@ describe("compose never asks first-touch for a conversation id", () => {
     expect(JSON.parse(String(created?.args.requestJson)).kolUid).toBeUndefined();
     expect(compose.data).toMatchObject({ sent: false, conversationId: 326, mailboxEmail: LARRY, to: [QQ] });
     expect(compose.data.needs_input).not.toBe(true);
-    expect(String(emailMcpResultCard("email_compose", compose.data).summary)).not.toContain("没对上跟进编号");
+    expect(String((await emailMcpResultCard("email_compose", compose.data)).summary)).not.toContain("没对上跟进编号");
   });
 
   it("reuses lastConversationId when that thread is already on larry.zhao", async () => {
@@ -747,7 +747,7 @@ describe("compose never asks first-touch for a conversation id", () => {
     });
     expect(calls.some((row) => row.name === "decryptKolContact")).toBe(false);
     expect(compose.data).toMatchObject({ sent: false, conversationId: 809, mailboxEmail: LARRY, to: [QQ] });
-    expect(emailMcpResultCard("email_compose", compose.data).summary).not.toContain("看不见");
+    expect((await emailMcpResultCard("email_compose", compose.data)).summary).not.toContain("看不见");
   });
 
   it("previews when a unique masked contact email matches the followed QQ", async () => {
@@ -801,7 +801,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       mailboxEmail: LARRY,
     });
     expect(compose.data).toMatchObject({ sent: false, conversationId: 810, to: [QQ] });
-    expect(emailMcpResultCard("email_compose", compose.data).summary).not.toContain("看不见");
+    expect((await emailMcpResultCard("email_compose", compose.data)).summary).not.toContain("看不见");
   });
 
   it("does not pick a random followed portrait from a large list without an email match", async () => {
@@ -835,7 +835,7 @@ describe("compose never asks first-touch for a conversation id", () => {
     expect(created.every((row) => !JSON.parse(String(row.args.requestJson || "{}")).kolUid)).toBe(true);
     expect(calls.some((row) => row.name === "decryptKolContact")).toBe(false);
     expect(compose.data.needs_input).toBe(true);
-    expect(String(emailMcpResultCard("email_compose", compose.data).summary)).toContain("不要换收件邮箱");
+    expect(String((await emailMcpResultCard("email_compose", compose.data)).summary)).toContain("不要换收件邮箱");
   });
 
   it("previews after getKolProfileDetail unmasks a followed QQ portrait", async () => {
@@ -889,8 +889,8 @@ describe("compose never asks first-touch for a conversation id", () => {
       kolUid: "KOL9D62420657814F6BAEC8",
     });
     expect(compose.data).toMatchObject({ sent: false, conversationId: 811, mailboxEmail: LARRY, to: [QQ] });
-    expect(emailMcpResultCard("email_compose", compose.data).summary).not.toContain("看不见");
-    expect(emailMcpResultCard("email_compose", compose.data).summary).not.toContain("粘贴 JWT");
+    expect((await emailMcpResultCard("email_compose", compose.data)).summary).not.toContain("看不见");
+    expect((await emailMcpResultCard("email_compose", compose.data)).summary).not.toContain("粘贴 JWT");
   });
 
   it("reuses the kolUid returned when addKolProfile says the QQ is taken", async () => {
@@ -965,7 +965,7 @@ describe("compose never asks first-touch for a conversation id", () => {
     ]);
     expect(compose.data).toMatchObject({ sent: false, conversationId: 505, mailboxEmail: LARRY, to: [QQ] });
     expect(compose.data.needs_input).not.toBe(true);
-    const card = emailMcpResultCard("email_compose", compose.data);
+    const card = (await emailMcpResultCard("email_compose", compose.data));
     expect(String(card.summary)).not.toContain("还没有红人画像");
     expect(JSON.stringify(card.sections)).not.toContain("这项信息");
     expect(JSON.stringify(card.sections)).not.toContain("待补充字段");
@@ -1013,7 +1013,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       conversationId: 404,
     });
     expect(compose.data.needs_input).not.toBe(true);
-    const card = emailMcpResultCard("email_compose", compose.data);
+    const card = (await emailMcpResultCard("email_compose", compose.data));
     expect(String(card.summary)).not.toContain("未授权给当前账号");
     expect(JSON.stringify(card.sections)).toContain(`发件邮箱：${LARRY}`);
     expect(JSON.stringify(card.sections)).toContain(`收件邮箱：${QQ}`);
@@ -1038,7 +1038,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       subject: "LiTime MCP 连通测试",
       prompt: OPERATOR,
     });
-    const card = emailMcpResultCard("email_compose", compose.data);
+    const card = (await emailMcpResultCard("email_compose", compose.data));
     expect(compose.data.missing_fields).toEqual([]);
     expect(String(card.summary)).toContain("已在授权列表中");
     expect(String(card.summary)).not.toContain("未授权给当前账号");
@@ -1054,7 +1054,7 @@ describe("compose never asks first-touch for a conversation id", () => {
     });
     expect(compose.data.missing_fields).not.toContain("conversationId");
     expect(String(compose.data.error)).toContain("不用先填会话编号");
-    const card = emailMcpResultCard("email_compose", compose.data);
+    const card = (await emailMcpResultCard("email_compose", compose.data));
     expect(String(card.summary)).not.toContain("邮件会话");
     expect(String(card.summary)).toContain("发件邮箱");
     expect(compose.data.fields).toBeUndefined();
@@ -1206,8 +1206,8 @@ describe("compose never asks first-touch for a conversation id", () => {
     expect(card?.recommended_actions).toEqual(["核对预览后回复「确认发送」"]);
   });
 
-  it("ignores a stale 必要字段 error when From, To and subject are already known", () => {
-    const card = emailMcpResultCard("email_compose", {
+  it("ignores a stale 必要字段 error when From, To and subject are already known", async () => {
+    const card = (await emailMcpResultCard("email_compose", {
       needs_input: true,
       missing_fields: ["mailboxEmail", "to", "subject"],
       error: "还需要补充：必要字段。当前识别：发件邮箱 larry.zhao@amperetime.com，收件邮箱 qiyou1984@gmail.com。",
@@ -1215,7 +1215,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       to: [QIYOU],
       subject: "Re: KOL合作",
       body: "Hi Qiyou, following up on the LiTime collaboration.",
-    });
+    }));
     expect(card.title).toBe("邮件草稿");
     expect(String(card.summary)).toContain("确认发送");
     expect(String(card.summary)).not.toContain("还需要补充");
@@ -1226,8 +1226,8 @@ describe("compose never asks first-touch for a conversation id", () => {
     expect(card.recommended_actions).toEqual(["核对预览后回复「确认发送」"]);
   });
 
-  it("does not say 还需要补充 when From and To are already known", () => {
-    const card = emailMcpResultCard("email_compose", {
+  it("does not say 还需要补充 when From and To are already known", async () => {
+    const card = (await emailMcpResultCard("email_compose", {
       needs_input: true,
       missing_fields: ["mailboxEmail", "to", "subject"],
       error: "首封必填发件邮箱、收件邮箱和邮件主题。",
@@ -1235,7 +1235,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       to: [QIYOU],
       subject: "Re: KOL合作",
       conversationId: 327,
-    });
+    }));
     expect(String(card.summary)).toContain("确认发送");
     expect(String(card.summary)).not.toContain("还需要补充");
     expect(String(card.summary)).not.toContain("当前识别");
@@ -1244,21 +1244,21 @@ describe("compose never asks first-touch for a conversation id", () => {
     expect(card.recommended_actions).toContain("核对预览后回复「确认发送」");
   });
 
-  it("names only the compose field that is still empty", () => {
-    const card = emailMcpResultCard("email_compose", {
+  it("names only the compose field that is still empty", async () => {
+    const card = (await emailMcpResultCard("email_compose", {
       needs_input: true,
       missing_fields: ["mailboxEmail", "to", "subject"],
       mailboxEmail: LARRY,
       to: [QIYOU],
-    });
+    }));
     expect(String(card.summary)).toBe("还需要补充：邮件主题。");
     expect(String(card.summary)).not.toContain("当前识别");
     const extra = ((card.sections as Json[]) || []).find((row) => row.title === "待补充字段");
     expect(extra?.items).toEqual(["邮件主题"]);
   });
 
-  it("does not paint a SENT receipt as an incomplete draft", () => {
-    const card = emailMcpResultCard("email_compose", {
+  it("does not paint a SENT receipt as an incomplete draft", async () => {
+    const card = (await emailMcpResultCard("email_compose", {
       sent: true,
       needs_input: true,
       missing_fields: ["subject"],
@@ -1272,7 +1272,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       state: "SENT",
       operation: "SYNC_SENT",
       messageId: "<d9fc15boienegtkbjsl24ovt1.DL9HYQ0FEX1F@amperetime.com>",
-    });
+    }));
     expect(card.title).toBe("邮件已发送");
     expect(String(card.summary)).toContain("已提交发送");
     expect(JSON.stringify(card.sections)).toContain("已发正文");
@@ -1325,7 +1325,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       ...extractTaskEntities(OPERATOR),
       prompt: OPERATOR,
     });
-    const card = emailMcpResultCard("email_compose", preview.data);
+    const card = (await emailMcpResultCard("email_compose", preview.data));
     const followup = lastComposeFollowup([{ kind: "task_result_card", payload: card }]);
     expect(followup).toMatchObject({
       conversationId: 303,
@@ -1346,7 +1346,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       content: followup.body,
     });
     expect(sent.data).toMatchObject({ sent: true, conversationId: 303, mailboxEmail: LARRY, to: [QQ] });
-    const sentCard = emailMcpResultCard("email_compose", sent.data);
+    const sentCard = (await emailMcpResultCard("email_compose", sent.data));
     expect(String(sentCard.summary)).toContain("已提交发送");
     expect(sentCard.recommended_actions).toContain("再写一封");
 

@@ -32,7 +32,7 @@ async function request(method: string, url: string, body?: unknown) {
   return { status: response.status, body: text ? JSON.parse(text) as Json : {} };
 }
 
-function bindLarry(): void {
+async function bindLarry(): Promise<void> {
   const now = new Date().toISOString();
   getConn().prepare(
     `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
@@ -44,7 +44,7 @@ function bindLarry(): void {
      ON CONFLICT(user_id, mailbox_email) DO UPDATE SET mailbox_id=excluded.mailbox_id, owner_name=excluded.owner_name, status=excluded.status, updated_at=excluded.updated_at`,
   ).run(DEMO_USER.id, "larry.zhao@amperetime.com", 1, "mbx_larry", "赵良玉", "", "connected", now);
   process.env.RUNTIME_CREDENTIAL_MASTER_KEY = "a".repeat(64);
-  saveStarryBinding(DEMO_USER.id, { mailbox_email: "larry.zhao@amperetime.com", bearer: "test-only-token" });
+  (await saveStarryBinding(DEMO_USER.id, { mailbox_email: "larry.zhao@amperetime.com", bearer: "test-only-token" }));
 }
 
 beforeEach(async () => {
@@ -102,7 +102,7 @@ beforeEach(async () => {
   resetConn();
   seedAll();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   seedWorkbenchFixtures();
   getConn().prepare("UPDATE collaborations SET kol_uid=?, email=? WHERE id='col_xiaomei'")
     .run("KOL51DA646D8D8A4544BB93", "xiaomei.beauty@example.com");
@@ -119,7 +119,7 @@ afterEach(async () => {
 
 describe("followed KOL unread mail sync", () => {
   it("rejects moving a remembered conversation to another collaboration", async () => {
-    bindLarry();
+    (await bindLarry());
     await ensureFollowedMailSync(true);
     getConn().prepare(`INSERT INTO collaborations(id,handle,display_name,brand,email,mailbox_from,lifecycle_id,conversation_id,stage_code,kol_uid)
       SELECT 'col_other_source',handle,display_name,brand,email,mailbox_from,lifecycle_id,'other-conversation',stage_code,kol_uid
@@ -133,7 +133,7 @@ describe("followed KOL unread mail sync", () => {
     expect(getConn().prepare("SELECT COUNT(*) AS n FROM kol_mail_items WHERE collaboration_id='col_other_source'").get()).toMatchObject({n: 0});
   });
   it("uses local mail memory and skips unchanged remote conversation details", async () => {
-    bindLarry();
+    (await bindLarry());
     setStarryKolClientFactory(() => ({
       async callTool(name: string, args: Json = {}) {
         calls.push(name);
@@ -179,7 +179,7 @@ describe("followed KOL unread mail sync", () => {
   });
 
   it("drops conversations belonging to another mailbox", async () => {
-    bindLarry();
+    (await bindLarry());
     setStarryKolClientFactory(() => ({
       async callTool(name: string) {
         calls.push(name);
@@ -203,7 +203,7 @@ describe("followed KOL unread mail sync", () => {
   });
 
   it("keeps brand-mailbox and external conversations, drops same-domain coworker mailboxes", async () => {
-    bindLarry();
+    (await bindLarry());
     setStarryKolClientFactory(() => ({
       async callTool(name: string) {
         calls.push(name);
@@ -254,7 +254,7 @@ describe("followed KOL unread mail sync", () => {
   });
 
   it("POST /api/jobs/mail.sync/start accepts immediately and syncs in the background", async () => {
-    bindLarry();
+    (await bindLarry());
     const started = Date.now();
     const response = await request("POST", "/api/jobs/mail.sync/start");
     const elapsed = Date.now() - started;

@@ -22,7 +22,7 @@ const ACTIVE = new Set(["queued", "crawling", "uploading", "analyzing", "startin
 const monitors = new Map<string, ReturnType<typeof setTimeout>>();
 /** Poll count per job, for the monitor backoff. Reset when a job settles. */
 const monitorAttempts = new Map<string, number>();
-let clientFactory: () => Pick<RemoteMcpClient, "callTool" | "close"> = () => createMediaCrawlerClient();
+let clientFactory: () => Pick<RemoteMcpClient, "callTool" | "close"> | Promise<Pick<RemoteMcpClient, "callTool" | "close">> = async () => (await createMediaCrawlerClient());
 /** Discovery (and other hosts) subscribe to crawl settle without importing crawl internals. */
 export function onCrawlJobSettled(handler: (job: Row) => void): void {
   const bucket = settleBucket();
@@ -56,9 +56,9 @@ function clearMonitors(): void {
 onConnReset(clearMonitors);
 
 export function setCrawlMcpClientFactory(
-  factory?: () => Pick<RemoteMcpClient, "callTool" | "close">,
+  factory?: () => Pick<RemoteMcpClient, "callTool" | "close"> | Promise<Pick<RemoteMcpClient, "callTool" | "close">>,
 ): void {
-  clientFactory = factory || (() => createMediaCrawlerClient());
+  clientFactory = factory || (async () => (await createMediaCrawlerClient()));
 }
 
 function json(value: unknown): Json {
@@ -161,7 +161,7 @@ async function remoteCall(name: string, args: Json, jobId?: string): Promise<Jso
       operation, label, operation_status: "running",
     });
   }
-  const client = clientFactory();
+  const client = (await clientFactory());
   try {
     const result = await client.callTool(name, args);
     if (jobId) {
@@ -186,7 +186,7 @@ export async function startCrawl(input: Parameters<typeof startLegacyCrawl>[0]):
   if (getConn().prepare("SELECT 1 FROM runtime_bootstrap_migrations WHERE id='runtime.crawler-skill.v1'").get()) {
     throw new HttpFail(410, { code: "crawler_skill_entry_required", message: "采集已迁移到线索智能体，请在采集线索技能中核对并确认。", next_action: "open_crawler_agent" });
   }
-  const url = getConnectorConfig("claw")?.config.url;
+  const url = (await getConnectorConfig("claw"))?.config.url;
   if (!url) return startLegacyCrawl(input);
   return withCrawlerInstanceLock(url, async () => {
     await assertNoRuntimeCrawl(url);
@@ -207,7 +207,7 @@ async function startLegacyCrawl(input: {
   const platform = input.platform.toLowerCase();
   const mode = input.mode.toLowerCase();
   validateInput(platform, mode, input.parameters);
-  if (!mediaCrawlerConfigured()) {
+  if (!(await mediaCrawlerConfigured())) {
     throw new HttpFail(503, {
       code: "mediacrawler_not_configured",
       message: "远程采集服务未配置。",

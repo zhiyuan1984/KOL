@@ -3,9 +3,9 @@ import { getConn } from "../db.js";
 import { getConnectorConfig } from "../runtime/store.js";
 
 /** Metadata only; credentials are resolved exclusively by the shared runtime vault. */
-export function starryKolConnectionHealth() {
+export async function starryKolConnectionHealth() {
   try {
-    const config = getConnectorConfig("starrykol")?.config;
+    const config = (await getConnectorConfig("starrykol"))?.config;
     const enabled = Boolean((getConn().prepare("SELECT enabled FROM connectors WHERE id='starrykol'").get() as Row | undefined)?.enabled);
     return { mode: "vault", configured: Boolean(config && enabled),
       user_jwt: Boolean(config?.bearer_secret_ref || config?.credential_account_id ||
@@ -14,4 +14,4 @@ export function starryKolConnectionHealth() {
   } catch { return { mode: "vault", configured: false, user_jwt: false, url: null }; }
 }
 
-export function starryKolMcpConfigured(): boolean { return starryKolConnectionHealth().configured; }
+export async function starryKolMcpConfigured(): Promise<boolean> { return (await starryKolConnectionHealth()).configured; }

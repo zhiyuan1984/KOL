@@ -63,7 +63,7 @@ describe("approval inbox by login name", () => {
     resetConn();
     seedAll();
     const { createApp } = await import("../src/app.js");
-    app = createApp();
+    app = (await createApp());
     const setup = await call("POST", "/api/auth/setup", {
       username: "admin",
       name: "Admin",

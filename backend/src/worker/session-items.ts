@@ -136,11 +136,11 @@ export async function collectStarryKolItems(input: {
     }
   }
   const card = input.task === "email_compose"
-    ? attachComposeLoopCard(emailMcpResultCard(input.task, data), facts, {
+    ? attachComposeLoopCard((await emailMcpResultCard(input.task, data)), facts, {
       ...data,
       handle: String(data.handle || input.handle || ""),
     })
-    : emailMcpResultCard(input.task, data);
+    : (await emailMcpResultCard(input.task, data));
   const items: Json[] = [{
     ...card,
     type: "task_result",
@@ -512,16 +512,16 @@ function contextComposeDraft(extra: Json): Json | null {
   return { type: "create_draft", from: route.from, to: route.to, subject };
 }
 
-function rebuildStarryCards(skill: EmailMcpTask, items: Json[], extra: Json = {}): Json[] {
+async function rebuildStarryCards(skill: EmailMcpTask, items: Json[], extra: Json = {}): Promise<Json[]> {
   const fallback = contextComposeDraft(extra);
   const siblings = fallback ? [...items, fallback] : items;
-  const rebuilt = items.map((item) => {
+  const rebuilt = (await Promise.all(items.map(async (item) => {
     if (item.type !== "task_result") return item;
     if (skill === "email_compose") {
       if (!isComposeResultItem(item) && !starryPayload(item)) return item;
       const data = composePayloadFromItem(item, siblings, composeRouteFacts({ extra }));
       return {
-        ...emailMcpResultCard(skill, data),
+        ...(await emailMcpResultCard(skill, data)),
         type: "task_result",
         ...(Array.isArray(item.operations) ? { operations: item.operations } : {}),
       };
@@ -529,18 +529,18 @@ function rebuildStarryCards(skill: EmailMcpTask, items: Json[], extra: Json = {}
     const data = starryPayload(item);
     if (!data) return item;
     return {
-      ...emailMcpResultCard(skill, data),
+      ...(await emailMcpResultCard(skill, data)),
       type: "task_result",
       ...(Array.isArray(item.operations) ? { operations: item.operations } : {}),
     };
-  });
+  })));
   const draft = composeDraftFromStarry(skill, rebuilt);
   const withDraft = draft ? [draft, ...rebuilt] : rebuilt;
   if (skill === "email_compose" && withDraft.some((item) => item.type === "create_draft") && !withDraft.some(isComposeResultItem)) {
     const data = composePayloadFromItem({ type: "task_result", title: "邮件草稿" }, withDraft);
     return [
       ...withDraft.filter((item) => item.type === "create_draft"),
-      { ...emailMcpResultCard(skill, data), type: "task_result" },
+      { ...(await emailMcpResultCard(skill, data)), type: "task_result" },
       ...withDraft.filter((item) => item.type !== "create_draft"),
     ];
   }
@@ -597,7 +597,7 @@ export async function completeTurnItems(
   if (isEmailMcpTask(skill) && skill === "email_compose" && (
     existing.some(isComposeResultItem) || existing.some((item) => item.type === "create_draft")
   )) {
-    return rebuildStarryCards(skill, existing, extra);
+    return (await rebuildStarryCards(skill, existing, extra));
   }
   if (isEmailMcpTask(skill) && !hasUsableStarryReadResult(existing)) {
     const hostReadFallback = isStarryKolReadTask(skill);
@@ -655,7 +655,7 @@ export async function completeTurnItems(
     return items;
   }
   if (isEmailMcpTask(skill) && hasStarryResult(existing)) {
-    return rebuildStarryCards(skill, existing, extra);
+    return (await rebuildStarryCards(skill, existing, extra));
   }
   if (isKolClawTask(skill) && !existing.some((item) => item.skill === skill && item.type === "task_result")) {
     if (codexMode() !== "stub") {

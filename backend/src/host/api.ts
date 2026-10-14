@@ -198,12 +198,12 @@ const progressBySession = new Map<string, (progress: WorkerProgress) => void>();
 const minimalStreamClose = new Map<string, () => void>();
 
 /** 只读的上下文解析入口沿用提交侧同一套技能授权：未授权就连上下文也不解析。 */
-export function requireTaskAccess(skill: string, agentId?: string): void {
+export async function requireTaskAccess(skill: string, agentId?: string): Promise<void> {
   const definition = taskDefinition(skill);
   if (!definition) throw new HttpFail(400, { code: "unknown_task_type", task_type: skill });
   if (codexMode() !== "stub") {
-    assertRuntimeSkill({ agentId: agentId || runtimeAgentForSkill(skill, scopedUser()?.id || ""), skillId: skill,
-      userId: scopedUser()?.id || "", runId: "submission" });
+    (await assertRuntimeSkill({ agentId: agentId || (await runtimeAgentForSkill(skill, scopedUser()?.id || "")), skillId: skill,
+      userId: scopedUser()?.id || "", runId: "submission" }));
     return;
   }
   if (definition.runtime_access === "authenticated") {
@@ -279,11 +279,11 @@ function prepareReply(partial: Omit<ComposePrepare, "skill_id">): ComposePrepare
 }
 
 /** 本人挂载的邮箱集合（小写归一）：通讯页选中的邮箱必须在其中。 */
-function isOwnMailbox(email: string): boolean {
+async function isOwnMailbox(email: string): Promise<boolean> {
   const target = normalizeEmail(email);
   if (!target) return false;
   try {
-    return mailboxBindings().some((binding) => normalizeEmail(String(binding.mailbox || "")) === target);
+    return (await mailboxBindings()).some((binding) => normalizeEmail(String(binding.mailbox || "")) === target);
   } catch {
     return false;
   }
@@ -313,14 +313,14 @@ function senderSourceLabel(sender: ComposeSender): string {
  * 未指定发件箱时的默认发件箱：当前用户挂载的 Starry 邮箱 → 合作记录 mailbox_from
  * → 当前品牌唯一授权箱；核对不过就留空，交给岗位补。规则只此一处（compose-sender）。
  */
-function preparedSender(row: Row): string {
-  return composeSenderFor({ collaboration: row }).from;
+async function preparedSender(row: Row): Promise<string> {
+  return (await composeSenderFor({ collaboration: row })).from;
 }
 
-function mailComposeContextVersion(row: Row, template: UsableTemplate): string {
+async function mailComposeContextVersion(row: Row, template: UsableTemplate): Promise<string> {
   return composeContextVersion({
     collaboration_id: row.id, stage: String(row.stage_code || ""), stage_version: row.stage_version || 0,
-    brand: String(row.brand || ""), from: preparedSender(row), to: firstEmail(row.email),
+    brand: String(row.brand || ""), from: (await preparedSender(row)), to: firstEmail(row.email),
     knowledge_id: template.id, published_version: template.version,
   });
 }
@@ -360,7 +360,7 @@ function readComposeInput(value: unknown): ComposeInput | null {
   };
 }
 
-function validateComposeInput(intent: Intent, col: Row | null): ComposeInput | null {
+async function validateComposeInput(intent: Intent, col: Row | null): Promise<ComposeInput | null> {
   const composeInput = readComposeInput(intent.extras?.compose_input);
   if (!composeInput) return null;
   const knowledgeId = String(intent.extras?.knowledge_id || "").trim();
@@ -375,10 +375,10 @@ function validateComposeInput(intent: Intent, col: Row | null): ComposeInput | n
     brand: String(col.brand || ""),
   });
   assertCollaborationInScope(String(col.id));
-  if (composeInput.context_version && composeInput.context_version !== mailComposeContextVersion(col, template)) {
+  if (composeInput.context_version && composeInput.context_version !== (await mailComposeContextVersion(col, template))) {
     throw new HttpFail(409, { code: "compose_context_stale", message: "合作阶段、收发件信息或模板版本已变化，请保留草稿并重新核对上下文。" });
   }
-  if (!preparedSender(col) || !firstEmail(col.email)) {
+  if (!(await preparedSender(col)) || !firstEmail(col.email)) {
     throw new HttpFail(422, { code: "compose_addresses_required", message: "请补充授权发件邮箱和当前合作的收件邮箱。" });
   }
   if (leftoverPlaceholders(`${composeInput.subject}\n${composeInput.body}`).length) {
@@ -386,7 +386,7 @@ function validateComposeInput(intent: Intent, col: Row | null): ComposeInput | n
   }
   if (composeInput.source_draft_id) {
     const source = getDraft(composeInput.source_draft_id);
-    assertDraftEditable(source);
+    (await assertDraftEditable(source));
     if (String(source.collaboration_id || "") !== String(col.id)) {
       throw new HttpFail(409, { code: "compose_source_conflict", message: "原草稿属于其他合作对象。" });
     }
@@ -418,26 +418,26 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
   if (String(body.skill_id || "") !== "email_compose") {
     throw new HttpFail(400, { code: "invalid_skill", message: "skill_id 必须是 email_compose" });
   }
-  requireTaskAccess("email_compose");
+  (await requireTaskAccess("email_compose"));
   const sessionId = String(body.session_id || "").trim();
   const session = sessionId ? sessionRow(sessionId) : null;
   // 上下文一律走解析层（合作对象/阶段/模板/发件箱/往来摘要）；邮件自己的状态与文案仍由本动作判定。
   let resolved = openContext({ skillId: "email_compose", body, session, text: String(body.text || "") });
-  const selected = resolved.collaboration();
+  const selected = (await resolved.collaboration());
   if (selected.conflict) {
     throw new HttpFail(409, { code: "collaboration_conflict", message: "会话已绑定其他合作对象，不能由请求覆盖" });
   }
 
   // 收发件不依赖合作对象（ADR-2026-10-07）：先解析发件箱与收件人。
   const requestedMailbox = String(body.mailbox || "").trim();
-  if (requestedMailbox && !isOwnMailbox(requestedMailbox)) {
+  if (requestedMailbox && !(await isOwnMailbox(requestedMailbox))) {
     throw new HttpFail(400, { code: "mailbox_not_mounted", message: "选中的邮箱不是本人挂载的邮箱" });
   }
-  const sender = composeSenderFor({
+  const sender = (await composeSenderFor({
     collaboration: selected.row,
     requested: String(body.from || ""),
     selectedMailbox: requestedMailbox || null,
-  });
+  }));
   const extracted = extractTaskEntities(String(body.text || ""));
   const toList = Array.isArray(extracted.to) ? extracted.to : [];
   const explicitTo = firstNonEmpty(
@@ -445,12 +445,12 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
     toList[0], typeof extracted.email === "string" ? extracted.email : "",
   );
   const conversationId = String(body.conversation_id || body.thread_id || "").trim();
-  let recipient = composeRecipientFor({
+  let recipient = (await composeRecipientFor({
     mailbox: sender.from,
     collaboration: selected.row,
     conversationId: conversationId || null,
     explicitTo: explicitTo || null,
-  });
+  }));
   if (recipient.error) {
     throw new HttpFail(400, { code: recipient.error.code, message: recipient.error.message });
   }
@@ -476,12 +476,12 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
         session,
         text: String(body.text || ""),
       });
-      recipient = composeRecipientFor({
+      recipient = (await composeRecipientFor({
         mailbox: sender.from,
         collaboration: row,
         conversationId: conversationId || null,
         explicitTo: explicitTo || null,
-      });
+      }));
     }
   }
 
@@ -543,7 +543,7 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
     scene: stageMailSpec(stage).kind,
     brand,
   };
-  const templateFacts = resolved.mailTemplate();
+  const templateFacts = (await resolved.mailTemplate());
   const templates = templateFacts?.templates || [];
   // 无模板时也要带回 editor/sources/候选：首封可提交草稿，前端可编辑主题正文。
   const noTemplateEditor = {
@@ -598,8 +598,8 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
     if (field === "to" && !to) missing.add(token);
   }
   const missingFields = [...missing];
-  const contextVersion = mailComposeContextVersion(row, template);
-  const mailContext = resolved.mailThread();
+  const contextVersion = (await mailComposeContextVersion(row, template));
+  const mailContext = (await resolved.mailThread());
   return c.json(prepareReply({
     status: missingFields.length ? "needs_fields" : "ready",
     ...(missingFields.length ? { message: "请补齐模板中的必填字段。" } : {}),
@@ -638,7 +638,7 @@ function collabDisplay(id: unknown): string {
 /**
  * 当前会话最近一次使用的智能体：若它仍可让此人运行该技能，就沿用它，不重新询问。
  */
-function sessionAgentDefault(sid: string, skillId: string, userId: string): string | undefined {
+async function sessionAgentDefault(sid: string, skillId: string, userId: string): Promise<string | undefined> {
   if (!userId || !skillId) return undefined;
   const row = getConn().prepare(
     "SELECT payload FROM messages WHERE session_id=? AND kind='agent_identity' ORDER BY created_at DESC, id DESC LIMIT 1",
@@ -646,7 +646,7 @@ function sessionAgentDefault(sid: string, skillId: string, userId: string): stri
   let agentId = "";
   try { agentId = String((JSON.parse(String(row?.payload || "{}")) as Json).agent_id || ""); } catch { agentId = ""; }
   if (!agentId) return undefined;
-  try { return runtimeAgentCandidates(skillId, userId).includes(agentId) ? agentId : undefined; } catch { return undefined; }
+  try { return (await runtimeAgentCandidates(skillId, userId)).includes(agentId) ? agentId : undefined; } catch { return undefined; }
 }
 
 function addMsg(sid: string, role: string, kind: string, payload: Json): Json {
@@ -1437,9 +1437,9 @@ function ok(sid: string, me: Json, intent: Intent, extra: Json = {}): Json {
   };
 }
 
-function patchDraftFromSnapshot(did: string, snapshot: ResultSnapshot): Row {
+async function patchDraftFromSnapshot(did: string, snapshot: ResultSnapshot): Promise<Row> {
   const d = getDraft(did);
-  assertDraftEditable(d);
+  (await assertDraftEditable(d));
   const extra = {
     ...(typeof d.extra === "object" && d.extra ? d.extra as Json : {}),
     confirmation_revision: Number((d.extra as Json)?.confirmation_revision || 0) + 1,
@@ -1492,7 +1492,7 @@ async function applyResultRevision(sid: string, me: Json, intent: Intent, text: 
   let draftRow: Row | null = null;
   if (last.draft_id) {
     try {
-      draftRow = patchDraftFromSnapshot(String(last.draft_id), next);
+      draftRow = (await patchDraftFromSnapshot(String(last.draft_id), next));
       next.draft_id = String(draftRow.id);
       next.from = String(draftRow.from_addr || next.from);
       next.to = String(draftRow.to_addr || next.to);
@@ -1522,7 +1522,7 @@ async function applyResultRevision(sid: string, me: Json, intent: Intent, text: 
       current_stage: next.stage,
       sent: false,
     };
-    const rebuilt = emailMcpResultCard("email_compose", data);
+    const rebuilt = (await emailMcpResultCard("email_compose", data));
     const loop = next.compose_loop && typeof next.compose_loop === "object" ? next.compose_loop as Json : {};
     const facts = composeFactsFromContext({
       stage: next.stage,
@@ -1584,7 +1584,7 @@ async function commitFollowStyleTags(input: {
   const { publishJourneyForCollaboration } = await import("./kol-journey.js");
   const journey = publishJourneyForCollaboration(input.collaborationId);
   const kolUid = String(saved.collaboration.kol_uid || "").trim();
-  if (kolUid && starryKolMcpConfigured() && codexMode() !== "stub") {
+  if (kolUid && (await starryKolMcpConfigured()) && codexMode() !== "stub") {
     try {
       await executeStarryKolTask("creator_status_update", {
         kolUid,
@@ -1891,7 +1891,7 @@ function syncEmailCard(did: string): void {
   }
 }
 
-function syncComposeResultCard(d: Row): void {
+async function syncComposeResultCard(d: Row): Promise<void> {
   const rows = getConn()
     .prepare("SELECT id, payload FROM messages WHERE session_id = ? AND kind = 'task_result_card' ORDER BY created_at DESC")
     .all(String(d.session_id)) as { id: string; payload: string }[];
@@ -1915,7 +1915,7 @@ function syncComposeResultCard(d: Row): void {
       from: d.from_addr,
       to: d.to_addr,
     };
-    const rebuilt = emailMcpResultCard("email_compose", data);
+    const rebuilt = (await emailMcpResultCard("email_compose", data));
     const next = {
       ...payload,
       title: rebuilt.title,
@@ -1932,9 +1932,9 @@ function syncComposeResultCard(d: Row): void {
   }
 }
 
-function syncDraftArtifacts(did: string): void {
+async function syncDraftArtifacts(did: string): Promise<void> {
   syncEmailCard(did);
-  syncComposeResultCard(getDraft(did));
+  (await syncComposeResultCard(getDraft(did)));
 }
 
 function attachMinimalProgress(sid: string): void {
@@ -2024,7 +2024,7 @@ function finishWorkerTrace(sid: string, failed: boolean): void {
 async function execWorker(sid: string, skill: string, text: string, extra: Json): Promise<WorkerResult> {
   const definition = taskDefinition(skill);
   if (!definition) throw new HttpFail(400, { code: "unknown_task_type", task_type: skill });
-  requireTaskAccess(skill, extra.agent_id ? String(extra.agent_id) : undefined);
+  (await requireTaskAccess(skill, extra.agent_id ? String(extra.agent_id) : undefined));
   const sec = hostWorkerTimeout();
   const controller = new AbortController();
   attachRunAbort(sid, controller);
@@ -2133,7 +2133,7 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
       if (composeInput && col) {
         if (draftRow) continue;
         Object.assign(item, {
-          skill: "email_compose", from: preparedSender(col), to: firstEmail(col.email),
+          skill: "email_compose", from: (await preparedSender(col)), to: firstEmail(col.email),
           collaboration_id: col.id, official_stage: col.stage_code,
           knowledge_id: intent.extras?.knowledge_id, knowledge_version: composeInput.knowledge_version,
         });
@@ -2241,7 +2241,7 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
         ? composePayloadFromItem(item, wr.items, composeRouteFacts({
           col,
           extra: intent.extras,
-          boundMailbox: boundMailboxEmail(),
+          boundMailbox: (await boundMailboxEmail()),
         }))
         : null;
       if (composePayload) {
@@ -2249,7 +2249,7 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
           subject: composeInput.subject, body: composeInput.body, bodyText: composeInput.body,
           sent: false, status: "draft", knowledge_id: intent.extras?.knowledge_id, knowledge_version: composeInput.knowledge_version,
         });
-        const rebuilt = emailMcpResultCard("email_compose", composePayload);
+        const rebuilt = (await emailMcpResultCard("email_compose", composePayload));
         card = {
           ...card,
           title: rebuilt.title,
@@ -2537,9 +2537,9 @@ function applyNamedMailGates(
  * 只给声明过 `context` 的技能解析当前世界；未声明者保持现状，不解析也不拦。
  * `requires` 未满足即不出结果（与 mail.prepare 的 needs_context 同口径），`prefers` 未满足不阻塞。
  */
-export function workerRunContext(skill: string, extra: Json, text: string): ContextResolution | null {
+export async function workerRunContext(skill: string, extra: Json, text: string): Promise<ContextResolution | null> {
   if (!taskDefinition(skill)?.context) return null;
-  return resolveContext({ skillId: skill, body: extra, text });
+  return (await resolveContext({ skillId: skill, body: extra, text }));
 }
 
 export function contextGapResponse(sid: string, me: Json, intent: Intent, gap: ContextResolution): Json {
@@ -2617,11 +2617,11 @@ function connectorGapResult(sid: string, me: Json, intent: Intent, skill: string
  * 模型只能拿散文报错，员工看到的是引擎词和无来源结论（DESIGN §15、§16）。
  * 判定只读本地治理库，不发远端请求；stub 不调真实工具，也不该被这道检查打断。
  */
-export function connectorGapResponse(sid: string, me: Json, intent: Intent, skill: string): Json | null {
+export async function connectorGapResponse(sid: string, me: Json, intent: Intent, skill: string): Promise<Json | null> {
   if (codexMode() === "stub") return null;
   // 任务协作分析按契约不挂载任何业务工具（worker 以空目录起 turn），声明工具不代表本轮能力。
   if (skill === KOL_ANALYZE_TASK_TYPE) return null;
-  const gaps = skillConnectorGaps(skill);
+  const gaps = (await skillConnectorGaps(skill));
   if (!gaps.length) return null;
   for (const gap of gaps) {
     audit(scopedUser()?.id || "demo", "runtime.connector_gap", {
@@ -2699,7 +2699,7 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
         ...(priorCompose.to ? { to: priorCompose.to } : {}),
       },
     },
-    boundMailbox: boundMailboxEmail(),
+    boundMailbox: (await boundMailboxEmail()),
   });
   const extra: Json = {
     handle: col?.handle || intent.handle,
@@ -2775,10 +2775,10 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
     entities: extra.entities as Json,
   };
   const skill = String(intent.skill || intent.type || "creator_discovery");
-  const context = workerRunContext(skill, extra, text);
+  const context = (await workerRunContext(skill, extra, text));
   if (context && context.status !== "ready") return contextGapResponse(sid, me, intent, context);
   if (context) extra.context_resolution = context;
-  const connectorGap = connectorGapResponse(sid, me, intent, skill);
+  const connectorGap = (await connectorGapResponse(sid, me, intent, skill));
   if (connectorGap) return connectorGap;
   const namedGate = applyNamedMailGates(sid, me, intent, col, text, composeFacts);
   if (namedGate) return namedGate;
@@ -2786,9 +2786,9 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
     const wr = await execWorker(sid, skill, text, workerSafeExtra(extra));
     const mapped = await mapWorker(sid, me, intent, wr);
     if (!mapped.draft && composeInput && mailTemplate) {
-      const route = composeRouteFacts({ col, extra, boundMailbox: boundMailboxEmail() });
+      const route = composeRouteFacts({ col, extra, boundMailbox: (await boundMailboxEmail()) });
       // 未指定发件箱时默认当前用户挂载的邮箱（compose-sender 单点规则）。
-      const sender = composeSenderFor({ collaboration: col, requested: col ? undefined : route.from });
+      const sender = (await composeSenderFor({ collaboration: col, requested: col ? undefined : route.from }));
       const item: Json = {
         type: "create_draft",
         skill: "email_compose",
@@ -2807,7 +2807,7 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
       };
       const draft = persistDraft(sid, item);
       addMsg(sid, "assistant", "email_card", emailCardPayload(draft));
-      syncDraftArtifacts(String(draft.id));
+      (await syncDraftArtifacts(String(draft.id)));
       return { ...ok(sid, me, intent, { worker: mapped.worker, draft, items: mapped.items }), worker: mapped.worker };
     }
     if (!mapped.draft && mailTemplate && !hasComposeDraftOutput(wr.items)) {
@@ -2820,7 +2820,7 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
         && compiled.missing.length === 0
         && !unfilledComposeSlots(mailTemplate, knowledgeFillValues(intent, col))
       ) {
-        return { ...persistKnowledgeDraft(sid, me, intent, col, mailTemplate), worker: mapped.worker };
+        return { ...(await persistKnowledgeDraft(sid, me, intent, col, mailTemplate)), worker: mapped.worker };
       }
     }
     return mapped;
@@ -2967,18 +2967,18 @@ function throwKnowledgeSupplement(sid: string, me: Json, intent: Intent, missing
   });
 }
 
-function persistKnowledgeDraft(
+async function persistKnowledgeDraft(
   sid: string,
   me: Json,
   intent: Intent,
   col: Row | null,
   template: UsableTemplate,
-): Json {
+): Promise<Json> {
   const compiled = compileMailDraft(template, knowledgeFillValues(intent, col));
   const leftover = [...new Set([...compiled.missing, ...leftoverPlaceholders(intent.raw)])];
   if (leftover.length) throwKnowledgeSupplement(sid, me, intent, leftover);
   // 未指定发件箱时默认当前用户挂载的邮箱；没有可用默认再退品牌箱（仍是同一处规则）。
-  const sender = composeSenderFor({ collaboration: col });
+  const sender = (await composeSenderFor({ collaboration: col }));
   const item: Json = {
     type: "create_draft",
     skill: template.skill_id || intent.skill || intent.type,
@@ -3215,7 +3215,7 @@ async function applyKnowledge(
     && filled.missing.length === 0
     && !unfilledComposeSlots(template, knowledgeFillValues(intent, col))
   ) {
-    return { ...persistKnowledgeDraft(sid, me, intent, col, template), worker: wr.worker };
+    return { ...(await persistKnowledgeDraft(sid, me, intent, col, template)), worker: wr.worker };
   }
   return wr;
 }
@@ -3546,7 +3546,7 @@ async function syncConfirmedStageToMcp(
 ): Promise<Json | null> {
   const kolUid = String(col.kol_uid || "").trim();
   if (!kolUid) return { skipped: true, reason: "missing_kol_uid" };
-  if (!starryKolMcpConfigured() && codexMode() !== "stub") {
+  if (!(await starryKolMcpConfigured()) && codexMode() !== "stub") {
     return { skipped: true, reason: "mcp_not_configured" };
   }
   if (codexMode() !== "stub" && !liveRemoteSideEffectsEnabled()) {
@@ -3933,7 +3933,7 @@ async function recognizeBoxOrAsk(
 host.post("/sessions/:sid/compose-preview", async (c) => {
   const sid = c.req.param("sid");
   const session = sessionRow(sid);
-  requireTaskAccess("email_compose");
+  (await requireTaskAccess("email_compose"));
   const body = (await c.req.json().catch(() => ({}))) as Json;
   const col = collabById(String(body.collaboration_id || session.collaboration_id || ""))
     || resolveCollab({
@@ -3997,6 +3997,15 @@ host.post("/sessions/:sid/messages", async (c) => {
   const session = sessionRow(sid);
   if (!isSessionRunning(sid)) beginSessionAsk(sid);
   const body = (await c.req.json()) as Json;
+  // Explicit task selection is authorized before recognition can return a clarification.
+  // An unavailable task must not receive an accepted=true early-return receipt.
+  const explicitSkill = typeof body.intent === "string" && taskDefinition(body.intent) ? body.intent : null;
+  const explicitActor = scopedUser();
+  if (explicitSkill && !authDisabled() && explicitActor && !isAdmin(explicitActor)
+    && !explicitActor.authority_skills?.includes(explicitSkill)) {
+    throw new HttpFail(400, "未授权该技能");
+  }
+
   if (workspace && ((body.intent && body.intent !== "kol_analyze") || body.collaboration_id || body.work_item_id || body.task_id || body.compose_input)) {
     throw new HttpFail(409,{code:"task_workspace_analysis_only"});
   }
@@ -4007,7 +4016,7 @@ host.post("/sessions/:sid/messages", async (c) => {
     throw new HttpFail(400, "go 只改路由，禁止 POST /messages、禁止起箱");
   }
   if (session.expert_id) {
-    employeeExpert(String(session.expert_id));
+    (await employeeExpert(String(session.expert_id)));
     const agentId = agentForExpert(String(session.expert_id));
     if (body.agent_id && body.agent_id !== agentId) throw new HttpFail(409, "当前会话已绑定其他智能体");
     body.agent_id = agentId;
@@ -4076,15 +4085,15 @@ host.post("/sessions/:sid/messages", async (c) => {
   // Historical unauthenticated stub fixtures do not execute a harness. Real or identified runs always validate the selected pair.
   const unscopedFixture = isTestRuntime() && codexMode() === "stub" && !submittingUser && !body.agent_id;
   let selectedAgent: string | undefined;
-  let agent: ReturnType<typeof managedAgent> | null = null;
+  let agent: Awaited<ReturnType<typeof managedAgent>> | null = null;
   try {
     const skillForAgent = intent.skill || intent.type;
     selectedAgent = unscopedFixture ? undefined : String(body.agent_id || intent.extras?.agent_id
-      || sessionAgentDefault(sid, skillForAgent, scopedUser()?.id || "")
-      || runtimeAgentForSkill(skillForAgent, scopedUser()?.id || "", { employeeChoice: true }));
-    if (selectedAgent) assertRuntimeSkill({ agentId: selectedAgent, skillId: intent.skill || intent.type,
-      userId: scopedUser()?.id || "", runId: "submission", sessionId: sid });
-    agent = selectedAgent ? managedAgent(selectedAgent) : null;
+      || (await sessionAgentDefault(sid, skillForAgent, scopedUser()?.id || ""))
+      || (await runtimeAgentForSkill(skillForAgent, scopedUser()?.id || "", { employeeChoice: true })));
+    if (selectedAgent) (await assertRuntimeSkill({ agentId: selectedAgent, skillId: intent.skill || intent.type,
+      userId: scopedUser()?.id || "", runId: "submission", sessionId: sid }));
+    agent = selectedAgent ? (await managedAgent(selectedAgent)) : null;
   } catch (error) {
     failBoundTask(boundTask, error);
     throw error;
@@ -4115,7 +4124,7 @@ host.post("/sessions/:sid/messages", async (c) => {
       ...extractTaskEntities(text),
       ...(intent.extras.entities && typeof intent.extras.entities === "object" ? intent.extras.entities as Json : {}),
     });
-    if (intent.skill && !isSkillGranted(intent.skill)) {
+    if (intent.skill && !(await isSkillGranted(intent.skill))) {
       throw new HttpFail(400, "未授权该技能");
     }
     col = workspace ? null : resolveCollab(intent) || null;
@@ -4135,11 +4144,11 @@ host.post("/sessions/:sid/messages", async (c) => {
       intent.collaboration_id = String(col.id);
       if (!intent.handle) intent.handle = String(col.handle || "");
     }
-    validateComposeInput(intent, col);
+    (await validateComposeInput(intent, col));
     if (col && isMailDraftIntent(intent) && !isEmailMcpTask(intent.type) && !intent.extras?.result_revise && !resolveMailTo(col, intent, {}, text)) {
       throwMailToSupplement(sid, me, intent, col);
     }
-    if (startsWorker) requireTaskAccess(skill, selectedAgent);
+    if (startsWorker) (await requireTaskAccess(skill, selectedAgent));
     if (isWriteSkill(skill) && isSessionRunning(sid)) {
       dropOwnMe(me);
       throw new HttpFail(409, "请先停止当前生成，再确认阶段。");
@@ -4258,7 +4267,7 @@ host.delete("/sessions/:sid/queue/:qid", (c) => {
 
 export const mailDraftActions: Operation["handle"] = async (c, input) => {
   const draft = getDraft(String(input.draft_id || ""));
-  return c.json(await replySendView(draft, mailSendAction(draft)));
+  return c.json(await replySendView(draft, (await mailSendAction(draft))));
 };
 
 export const sendMailDraft: Operation["handle"] = async (c, payload) => {
@@ -4269,7 +4278,7 @@ export const sendMailDraft: Operation["handle"] = async (c, payload) => {
     throw new HttpFail(409, { code: "mail_edits_require_reconfirmation", message: "请先保存修改，再核对当前草稿并确认发送。" });
   }
   try {
-    validateMailSend(d);
+    (await validateMailSend(d));
   } catch (error) {
     if (error instanceof PepFail) {
       // Preserve the existing persistent, actionable policy feedback, but do not send.
@@ -4284,8 +4293,8 @@ export const sendMailDraft: Operation["handle"] = async (c, payload) => {
     }
     throw error;
   }
-  const input = await bindReplySend(d, mailSendAction(d), { confirmation_version: String(body.confirmation_version || ""), request_id: String(body.request_id || "") });
-  const claimed = claimMailSend(did, input);
+  const input = await bindReplySend(d, (await mailSendAction(d)), { confirmation_version: String(body.confirmation_version || ""), request_id: String(body.request_id || "") });
+  const claimed = await claimMailSend(did, input);
   if (claimed.replay) {
     return c.json({ ok: true, status: "sent", replayed: true, result: claimed.replay, stage_changed: false, keep_stage: true });
   }
@@ -4300,10 +4309,10 @@ export const sendMailDraft: Operation["handle"] = async (c, payload) => {
     }
     // A successful provider receipt must not be turned into a false failure by ancillary work.
     if (getDraft(did).status === "sent") {
-      const replay = claimMailSend(did, input).replay;
+      const replay = (await claimMailSend(did, input)).replay;
       return c.json({ ok: true, status: "sent", replayed: true, result: replay, stage_changed: false, keep_stage: true });
     }
-    markMailSendUnknown(did, String(input.request_id));
+    await markMailSendUnknown(did, String(input.request_id));
     const msg = addMsg(String(d.session_id), "assistant", "error_card", {
       status: "send_unknown", message: "邮件发送回执暂未确认；请核对邮件服务结果，勿重复发送。",
       next_action: "核对邮件回执后再处理。正式阶段未改。", persistent: true,
@@ -4368,7 +4377,7 @@ export const exportMailDraft: Operation["handle"] = (c, input) => {
 host.patch("/drafts/:did", async (c) => {
   const did = c.req.param("did");
   const existing = getDraft(did);
-  assertDraftEditable(existing);
+  (await assertDraftEditable(existing));
   const body = (await c.req.json()) as Json;
   const fields: string[] = [];
   const vals: unknown[] = [];
@@ -4413,9 +4422,9 @@ host.patch("/drafts/:did", async (c) => {
     vals.push(body.template_id);
   }
   if (!fields.length) return c.json(getDraft(did));
-  tx((db) => {
+  tx(async (db) => {
     const current = getDraft(did);
-    assertDraftEditable(current);
+    (await assertDraftEditable(current));
     const extra = typeof current.extra === "object" && current.extra ? current.extra as Json : {};
     const revisedExtra = { ...extra, confirmation_revision: Number(extra.confirmation_revision || 0) + 1 };
     db.prepare(`UPDATE drafts SET ${fields.join(", ")}, extra = ? WHERE id = ?`).run(...vals, JSON.stringify(revisedExtra), did);
@@ -4425,7 +4434,7 @@ host.patch("/drafts/:did", async (c) => {
   tx((db) => {
     db.prepare("UPDATE drafts SET fingerprint = ? WHERE id = ?").run(fp, did);
   });
-  syncDraftArtifacts(did);
+  (await syncDraftArtifacts(did));
   return c.json(getDraft(did));
 });
 

@@ -94,7 +94,7 @@ beforeEach(async () => {
   resetConn();
   seedAll();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   seedWorkbenchFixtures();
 });
 
@@ -335,7 +335,7 @@ describe("KOL persistent session and fact-advance", () => {
   it("writes session_id onto the home board after the KOL thread is opened", async () => {
     insertCollab("col_wendell", "Wendell Fishing", "INITIAL_CONTACT", { kol_uid: "KOLA58D2B0B4445431A9655" });
     const opened = await (await request("POST", "/api/collaborations/col_wendell/session", {})).json();
-    const board = buildHomeBoard();
+    const board = (await buildHomeBoard());
     const card = ((board.kols as Json[]) || []).find((row) => row.id === "col_wendell");
     expect(card?.session_id).toBe(opened.id);
   });

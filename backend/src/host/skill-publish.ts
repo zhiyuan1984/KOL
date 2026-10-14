@@ -467,16 +467,16 @@ export function deletePublishedSkill(id: string): { ok: true; id: string } {
   return { ok: true, id };
 }
 
-export function skillAdminMeta(): {
+export async function skillAdminMeta(): Promise<{
   profiles: readonly string[];
   outputs: readonly string[];
   funnels: readonly string[];
   mcp: string[];
-} {
+}> {
   return {
     profiles: TASK_PROFILES,
     outputs: TASK_OUTPUTS,
     funnels: TASK_FUNNELS,
-    mcp: registeredToolCatalog(),
+    mcp: (await registeredToolCatalog()),
   };
 }

@@ -71,7 +71,7 @@ beforeEach(async () => {
   process.env.AUTH_MODE = "enabled";
   resetConn();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const initial = await call("GET", "/api/auth/status", undefined, "");
   expect(initial.json).toMatchObject({ setup_required: true, authenticated: false });
   const setup = await call("POST", "/api/auth/setup", {
@@ -135,9 +135,9 @@ describe("publish gate", () => {
 
     insertUser("usr_pub", "叶观旺");
     getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_pub", "person:ye_guanwang");
-    expect(canUseAgent("usr_pub", agentId)).toBe(true);
+    expect((await canUseAgent("usr_pub", agentId))).toBe(true);
     getConn().prepare("UPDATE users SET active = 0 WHERE id = ?").run("usr_pub");
-    expect(canUseAgent("usr_pub", agentId)).toBe(false);
+    expect((await canUseAgent("usr_pub", agentId))).toBe(false);
   });
 
   it("技能装配要求 enabled 与 expected_version", async () => {
@@ -215,23 +215,23 @@ describe("binding coverage and levels", () => {
     insertUser("usr_sync", "鄢棽", { site: "org:lt_team" });
     const person = await bind({ target_type: "person", user_id: "usr_sync" });
     expect(person.response.status).toBe(200);
-    expect(listOrganizationPeople().find((row) => row.user_id === "usr_sync")?.person_ref).toBe("person:user:usr_sync");
+    expect((await listOrganizationPeople()).find((row) => row.user_id === "usr_sync")?.person_ref).toBe("person:user:usr_sync");
     expect(coverageOf(person.json).user_ids).toContain("usr_sync");
 
-    const before = listAgentBindings(agentId).length;
+    const before = (await listAgentBindings(agentId)).length;
     const duplicate = await bind({ target_type: "organization_unit", target_id: "org:lt_team" });
     expect(duplicate.response.status).toBe(200);
-    expect(listAgentBindings(agentId)).toHaveLength(before);
+    expect((await listAgentBindings(agentId))).toHaveLength(before);
 
-    const binding = listAgentBindings(agentId).find((row) => row.target_id === "org:lt_team");
+    const binding = (await listAgentBindings(agentId)).find((row) => row.target_id === "org:lt_team");
     expect(binding).toBeTruthy();
     const revoked = await call("DELETE", `/api/admin/agents/${agentId}/bindings/${binding?.id}`);
     expect(revoked.response.status).toBe(200);
-    expect(listAgentBindings(agentId).some((row) => row.id === binding?.id)).toBe(false);
+    expect((await listAgentBindings(agentId)).some((row) => row.id === binding?.id)).toBe(false);
 
     const revived = await bind({ target_type: "organization_unit", target_id: "org:lt_team" });
     expect(revived.response.status).toBe(200);
-    const reborn = listAgentBindings(agentId).find((row) => row.target_id === "org:lt_team");
+    const reborn = (await listAgentBindings(agentId)).find((row) => row.target_id === "org:lt_team");
     expect(reborn?.id).toBe(binding?.id);
     expect(Number(reborn?.binding_version)).toBeGreaterThan(Number(binding?.binding_version));
   });
@@ -253,7 +253,7 @@ describe("binding change preview", () => {
     expect(viaByRef.get("person:zhong_jiankui")).toBe("ancestor_head");
     expect((preview.json.after as { person_refs: string[] }).person_refs).toEqual(added.map((row) => row.person_ref));
     expect(Number(preview.json.org_version)).toBeGreaterThan(0);
-    expect(listAgentBindings(agentId)).toHaveLength(0);
+    expect((await listAgentBindings(agentId))).toHaveLength(0);
   });
 
   it("remove 预览给出 removed，且不落库", async () => {
@@ -263,7 +263,7 @@ describe("binding change preview", () => {
       target_type: "organization_unit", target_id: "org:lt_team",
     });
     expect(bound.response.status).toBe(200);
-    const binding = listAgentBindings(agentId)[0];
+    const binding = (await listAgentBindings(agentId))[0];
 
     const preview = await call("POST", `/api/admin/agents/${agentId}/bindings/${binding.id}/revoke-preview`);
     expect(preview.response.status).toBe(200);
@@ -273,15 +273,15 @@ describe("binding change preview", () => {
     expect(removedByRef.get("person:gu_jiarui")).toBe("unit_member");
     expect((preview.json.before as { person_refs: string[] }).person_refs.length).toBe(removed.length);
     expect((preview.json.after as { person_refs: string[] }).person_refs).toEqual([]);
-    expect(listAgentBindings(agentId)).toHaveLength(1);
+    expect((await listAgentBindings(agentId))).toHaveLength(1);
   });
 
   it("人员预览按 users.site 模拟组织关系，不写 users/site", async () => {
     const agent = await createAgent("人员预览 Agent");
     const agentId = String(agent.id);
-    listOrganizationPeople(); // 先触发一次性组织回填，再取基线
+    (await listOrganizationPeople()); // 先触发一次性组织回填，再取基线
     insertUser("usr_preview", "顾嘉瑞", { site: "org:lt_team" });
-    const peopleBefore = listOrganizationPeople().length;
+    const peopleBefore = (await listOrganizationPeople()).length;
     const membershipsBefore = Number(
       (getConn().prepare("SELECT COUNT(*) AS c FROM organization_memberships").get() as { c: number }).c,
     );
@@ -295,11 +295,11 @@ describe("binding change preview", () => {
     expect(byRef.get("person:user:usr_preview")).toMatchObject({ via: "binding_target", display_name: "顾嘉瑞" });
     expect(byRef.get("person:ye_guanwang")?.via).toBe("unit_head");
 
-    expect(listOrganizationPeople()).toHaveLength(peopleBefore);
+    expect((await listOrganizationPeople())).toHaveLength(peopleBefore);
     expect(Number(
       (getConn().prepare("SELECT COUNT(*) AS c FROM organization_memberships").get() as { c: number }).c,
     )).toBe(membershipsBefore);
-    expect(listAgentBindings(agentId)).toHaveLength(0);
+    expect((await listAgentBindings(agentId))).toHaveLength(0);
   });
 });
 
@@ -373,9 +373,9 @@ describe("employee Agent sources", () => {
     }
     insertUser("usr_choice", "鄢棽");
     getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_choice", "person:yan_chen");
-    expect(runtimeAgentCandidates("creator_library_all", "usr_choice")).toEqual(expect.arrayContaining(ids));
+    expect((await runtimeAgentCandidates("creator_library_all", "usr_choice"))).toEqual(expect.arrayContaining(ids));
     let detail: Json = {};
-    try { runtimeAgentForSkill("creator_library_all", "usr_choice", { employeeChoice: true }); }
+    try { (await runtimeAgentForSkill("creator_library_all", "usr_choice", { employeeChoice: true })); }
     catch (error) { detail = (error as { detail?: Json }).detail || {}; }
     expect(detail.code).toBe("runtime_agent_ambiguous");
     expect(rows<{ id: string }>(detail.candidates).map((row) => row.id)).toEqual(expect.arrayContaining(ids));

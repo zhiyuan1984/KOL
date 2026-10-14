@@ -486,9 +486,9 @@ export async function setAgentSkill(agentId: string, skillId: string, enabled: b
   assertTaskDefinition(skill);
   const active = assertBoolean(enabled, "enabled");
   await ensureRuntimeSchema();
-  return versionedUpsert("runtime_agent_skills", [agent, skill], ["agent_id", "skill_id", "enabled", "version", "updated_at"],
+  return (await versionedUpsert("runtime_agent_skills", [agent, skill], ["agent_id", "skill_id", "enabled", "version", "updated_at"],
     [agent, skill, active ? 1 : 0, 1, nowIso()], ["enabled"], expectedVersion,
-    (client) => assertAgentAssemblyMutable(client, agent));
+    async (client) => (await assertAgentAssemblyMutable(client, agent))));
 }
 
 export async function setAgentSkills(agentId: string, selections: Array<{ skill_id: string; enabled: boolean; expected_version: number }>): Promise<Row[]> {
@@ -517,9 +517,9 @@ export async function setSkillConnector(skillId: string, connectorId: string, en
   assertTaskDefinition(skill);
   const active = assertBoolean(enabled, "enabled");
   await ensureRuntimeSchema();
-  return versionedUpsert("runtime_skill_connectors", [skill, connector], ["skill_id", "connector_id", "enabled", "version", "updated_at"],
+  return (await versionedUpsert("runtime_skill_connectors", [skill, connector], ["skill_id", "connector_id", "enabled", "version", "updated_at"],
     [skill, connector, active ? 1 : 0, 1, nowIso()], ["enabled"], expectedVersion,
-    async (client) => { if (!(await client.query("SELECT 1 FROM connectors WHERE id=$1", [connector])).rows[0]) throw new HttpFail(404, "connector not found"); });
+    async (client) => { if (!(await client.query("SELECT 1 FROM connectors WHERE id=$1", [connector])).rows[0]) throw new HttpFail(404, "connector not found"); }));
 }
 
 /** A tool mount needs both an enabled parent binding and an existing policy, checked in the same transaction. */
@@ -530,7 +530,7 @@ export async function setSkillTool(skillId: string, connectorId: string, toolNam
   assertTaskDefinition(skill);
   const active = assertBoolean(enabled, "enabled");
   await ensureRuntimeSchema();
-  return versionedUpsert("runtime_skill_tools", [skill, connector, tool], ["skill_id", "connector_id", "tool_name", "enabled", "version", "updated_at"],
+  return (await versionedUpsert("runtime_skill_tools", [skill, connector, tool], ["skill_id", "connector_id", "tool_name", "enabled", "version", "updated_at"],
     [skill, connector, tool, active ? 1 : 0, 1, nowIso()], ["enabled"], expectedVersion,
     async (client) => {
       if (!(await client.query("SELECT 1 FROM connectors WHERE id=$1", [connector])).rows[0]) throw new HttpFail(404, "connector not found");
@@ -538,7 +538,7 @@ export async function setSkillTool(skillId: string, connectorId: string, toolNam
       if (!parent || Number(parent.enabled) !== 1) throw new HttpFail(409, "enabled skill connector binding is required before binding a tool");
       const policy = (await client.query("SELECT 1 FROM runtime_tool_policies WHERE connector_id=$1 AND tool_name=$2 FOR SHARE", [connector, tool])).rows[0];
       if (!policy) throw new HttpFail(409, "tool policy is required before binding a tool");
-    });
+    }));
 }
 
 export async function setConnectorConfig(id: string, config: ConnectorConfig, expectedVersion: number): Promise<Row> {
@@ -546,9 +546,9 @@ export async function setConnectorConfig(id: string, config: ConnectorConfig, ex
   const validated = validateConnectorConfig(config);
   assertConnectorCredentialStorage(connectorId, validated);
   await ensureRuntimeSchema();
-  return versionedUpsert("runtime_connector_config", [connectorId], ["connector_id", "config_json", "version", "updated_at"],
+  return (await versionedUpsert("runtime_connector_config", [connectorId], ["connector_id", "config_json", "version", "updated_at"],
     [connectorId, JSON.stringify(validated), 1, nowIso()], ["config_json"], expectedVersion,
-    async (client) => { if (!(await client.query("SELECT 1 FROM connectors WHERE id=$1", [connectorId])).rows[0]) throw new HttpFail(404, "connector not found"); });
+    async (client) => { if (!(await client.query("SELECT 1 FROM connectors WHERE id=$1", [connectorId])).rows[0]) throw new HttpFail(404, "connector not found"); }));
 }
 
 export async function setToolPolicy(
@@ -567,7 +567,7 @@ export async function setToolPolicy(
   if (typeof value.schema_hash !== "string" || !SCHEMA_HASH.test(value.schema_hash)) invalid("schema_hash must be exactly 64 hexadecimal characters");
   const schemaHash = value.schema_hash.toLowerCase();
   await ensureRuntimeSchema();
-  return versionedUpsert("runtime_tool_policies", [connectorId, toolName], ["connector_id", "tool_name", "enabled", "risk", "access", "schema_hash", "version", "updated_at"],
+  return (await versionedUpsert("runtime_tool_policies", [connectorId, toolName], ["connector_id", "tool_name", "enabled", "risk", "access", "schema_hash", "version", "updated_at"],
     [connectorId, toolName, enabled ? 1 : 0, value.risk, value.access, schemaHash, 1, nowIso()], ["enabled", "risk", "access", "schema_hash"], expectedVersion,
-    async (client) => { if (!(await client.query("SELECT 1 FROM connectors WHERE id=$1", [connectorId])).rows[0]) throw new HttpFail(404, "connector not found"); });
+    async (client) => { if (!(await client.query("SELECT 1 FROM connectors WHERE id=$1", [connectorId])).rows[0]) throw new HttpFail(404, "connector not found"); }));
 }

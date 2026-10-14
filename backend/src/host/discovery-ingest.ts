@@ -269,7 +269,7 @@ function writeOpenPool(input: {
  * 「负责人无可用邮箱」，编一个 id 只会写出错误负责人。
  */
 async function ownerFieldsForIngest(): Promise<Json> {
-  const binding = starryBindingRow(actorId());
+  const binding = (await starryBindingRow(actorId()));
   return resolveStarryOwnerForMailbox({
     mailboxId: binding?.mailbox_id,
     mailboxEmail: binding?.mailbox_email,

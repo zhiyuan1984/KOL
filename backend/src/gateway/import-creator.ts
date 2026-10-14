@@ -242,7 +242,7 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
   rejectDiscoveryHarnessTool("importKolProfilesFromCrawler");
   const actor = input.actor || "host";
   if (codexMode() !== "stub") {
-    if (!liveRemoteSideEffectsEnabled() || !starryKolMcpConfigured()) {
+    if (!liveRemoteSideEffectsEnabled() || !(await starryKolMcpConfigured())) {
       throw new HttpFail(409, {
         code: "import_creator_live_disabled",
         message: "当前未开启主档写入，无法加入跟进。",
@@ -394,7 +394,7 @@ export async function addKolProfileConfirmed(input: AddKolProfileInput): Promise
   rejectDiscoveryHarnessTool(ADD_KOL_PROFILE_TOOL);
   const actor = input.actor || "host";
   if (codexMode() !== "stub") {
-    if (!liveRemoteSideEffectsEnabled() || !starryKolMcpConfigured()) {
+    if (!liveRemoteSideEffectsEnabled() || !(await starryKolMcpConfigured())) {
       throw new HttpFail(409, {
         code: "import_creator_live_disabled",
         message: "当前未开启主档写入，无法加入跟进。",

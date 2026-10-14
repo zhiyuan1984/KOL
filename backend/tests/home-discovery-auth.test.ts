@@ -83,11 +83,11 @@ beforeEach(async () => {
   process.env.MEDIACRAWLER_POLL_INTERVAL_MS = "600000";
   resetConn();
   seedAll();
-  configureCrawlerFixture();
+  (await configureCrawlerFixture());
   setCrawlMcpClientFactory(mockMcp);
   setDiscoveryBriefRunner(async () => ({ items: [] }));
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const setup = await call("POST", "/api/auth/setup", {
     username: "admin",
     name: "Admin",
@@ -145,10 +145,10 @@ describe("home discovery submit authorization", () => {
     expect(denied.json.detail).toMatchObject({ code: "agent_not_usable", skill_id: "creator_discovery" });
 
     getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(userId, "person:ye_guanwang");
-    createAgentBinding({
+    (await createAgentBinding({
       agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
       company_id: "company:amperetime", source: "test",
-    });
+    }));
 
     const allowed = await call("POST", "/api/home/discovery/run", RUN_BODY, employeeCookie);
     expect(allowed.status, JSON.stringify(allowed.json)).toBe(202);

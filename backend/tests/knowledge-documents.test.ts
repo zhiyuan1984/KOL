@@ -139,7 +139,7 @@ beforeEach(async () => {
   delete process.env.KNOWLEDGE_STUB_NORMALIZE_MS;
   resetConn();
   seedAll();
-  process.env.AUTH_MODE="disabled";ensureOrganizationTree();
+  process.env.AUTH_MODE="disabled";(await ensureOrganizationTree());
   const db=getConn(),time=new Date().toISOString();
   for(const [id,roles] of [["sriphy",'["employee","admin"]'],["pdf-reviewer",'["employee"]']])
     db.prepare("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)")
@@ -147,7 +147,7 @@ beforeEach(async () => {
   db.prepare("UPDATE organization_people SET user_id='sriphy' WHERE person_ref='person:yan_chen'").run();
   db.prepare("UPDATE organization_people SET user_id='pdf-reviewer' WHERE person_ref='person:zhang_gan'").run();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 
 afterEach(() => {
@@ -229,7 +229,7 @@ describe("knowledge documents (P1 pipeline)", () => {
       const result = await request("POST", "/api/admin/skills/product_consultation/stage", { stage });
       expect(result.status, await result.text()).toBe(200);
     }
-    seedPublishedAgent("agent_product_test", "产品专家");
+    (await seedPublishedAgent("agent_product_test", "产品专家"));
     const enabled = await request("PUT", "/api/admin/agents/agent_product_test/skills/product_consultation", { enabled: true, expected_version: 0 });
     expect(enabled.status).toBe(200);
     const binding = await request("POST", "/api/admin/agents/agent_product_test/knowledge", { skill_id: "product_consultation", base_id: base.id });
@@ -238,10 +238,10 @@ describe("knowledge documents (P1 pipeline)", () => {
     db.prepare("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)")
       .run("product-user", "product-user", "产品测试用户", "no-login", '["employee"]', '[]', '', 1, "now", "now");
     db.prepare("UPDATE organization_people SET user_id=? WHERE person_ref=?").run("product-user", "person:ye_guanwang");
-    const access = createAgentBinding({ agent_id: "agent_product_test", target_type: "person", target_id: "person:ye_guanwang", company_id: "company:amperetime", source: "test" });
-    expect(canUseAgent("product-user", "agent_product_test")).toBe(true);
-    expect(runtimeAgentForSkill("product_consultation", "product-user")).toBe("agent_product_test");
-    expect(runtimeAgentScopeContext("agent_product_test").execution_scope).toBe("skill-resources");
+    const access = (await createAgentBinding({ agent_id: "agent_product_test", target_type: "person", target_id: "person:ye_guanwang", company_id: "company:amperetime", source: "test" }));
+    expect((await canUseAgent("product-user", "agent_product_test"))).toBe(true);
+    expect((await runtimeAgentForSkill("product_consultation", "product-user"))).toBe("agent_product_test");
+    expect((await runtimeAgentScopeContext("agent_product_test")).execution_scope).toBe("skill-resources");
     const runtime = new SkillExecution({ agentId: "agent_product_test", skillId: "product_consultation", userId: "product-user", runId: "product-test" });
     try {
       const catalog = await runtime.discover();
@@ -271,7 +271,7 @@ describe("knowledge documents (P1 pipeline)", () => {
       const originalBridge = bridge.runBridge;
       const revoked = vi.spyOn(bridge, "runBridge").mockImplementationOnce(async (call) => {
         const outcome = await originalBridge(call);
-        revokeAgentBinding(access.id, { reason: "查询过程中撤权" });
+        (await revokeAgentBinding(access.id, { reason: "查询过程中撤权" }));
         return outcome;
       });
       await expect(runtime.invoke("knowledge.ask_documents", { query: "规格？" })).rejects.toMatchObject({ detail: { code: "runtime_agent_not_usable" } });

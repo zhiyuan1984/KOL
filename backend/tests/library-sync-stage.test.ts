@@ -67,7 +67,7 @@ describe("Starry library sync preserves confirmed official stage", () => {
     expect(journey.stage_code).toBe("INTERESTED");
     expect((journey.sop as Json).phase_label).toBe("意向");
 
-    const board = buildHomeBoard() as Json;
+    const board = (await buildHomeBoard()) as Json;
     const card = (board.kols as Json[]).find((row) => String(row.kol_uid || "") === "KOLTEST001") as Json;
     expect(card.stage_code).toBe("INTERESTED");
     expect(String(card.current_stage || card.stage_label || "")).toMatch(/已回复-有兴趣|意向/);
@@ -91,7 +91,7 @@ describe("Starry library sync preserves confirmed official stage", () => {
   it("still imports a new Starry profile as 建联", async () => {
     await syncStarryHomeLibrary();
     expect(stageOfUid()).toBe("INITIAL_CONTACT");
-    const board = buildHomeBoard() as Json;
+    const board = (await buildHomeBoard()) as Json;
     const card = (board.kols as Json[]).find((row) => String(row.kol_uid || "") === "KOLTEST001") as Json;
     expect(card.stage_code).toBe("INITIAL_CONTACT");
     expect(String(card.current_stage || "")).toContain("初步接触");
@@ -164,7 +164,7 @@ describe("Starry library sync preserves confirmed official stage", () => {
     const again = await syncStarryHomeLibrary();
     expect(again.ok).toBe(true);
     expect(parseFollowStyleTags(outdoorRow().follow_style_tags).map((tag) => tag.id)).toContain("cautious");
-    const board = buildHomeBoard() as Json;
+    const board = (await buildHomeBoard()) as Json;
     const card = (board.kols as Json[]).find((row) => String(row.kol_uid || "") === "KOLTEST001") as Json;
     expect((card.follow_style_tags as Json[]).some((tag) => String(tag.id) === "cautious")).toBe(true);
   });

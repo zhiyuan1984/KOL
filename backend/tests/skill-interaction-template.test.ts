@@ -39,7 +39,7 @@ beforeEach(async () => {
   clearTaskRegistryCache();
   seedAll();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 afterEach(() => {
   setTaskClassifier();
@@ -163,16 +163,16 @@ describe("one Skill / one knowledge interaction template", () => {
     expect(await (await scoped("/knowledge/skill-templates")).json()).toEqual([]);
     // 资格来自「人 → Agent → 技能」装配（ADR-2026-10-03）：Agent 必须先发布，
     // 技能装在 Agent 上，再把 Agent 绑定到该人员所在的三级组。
-    const agent = createManagedAgent({ name: "模板测试 Agent" });
-    updateManagedAgent(agent.id, { status: "published", expected_version: 1 });
-    setAgentSkill(agent.id, skillId, true, 0);
+    const agent = (await createManagedAgent({ name: "模板测试 Agent" }));
+    (await updateManagedAgent(agent.id, { status: "published", expected_version: 1 }));
+    (await setAgentSkill(agent.id, skillId, true, 0));
     getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(user.id, "person:ye_guanwang");
-    const binding = createAgentBinding({
+    const binding = (await createAgentBinding({
       agent_id: agent.id, target_type: "organization_unit", target_id: "org:lt_team",
       company_id: "company:amperetime", source: "test",
-    });
+    }));
     expect((await (await scoped("/knowledge/skill-templates")).json() as Json[]).map((item) => item.skill_id)).toEqual([skillId]);
-    revokeAgentBinding(binding.id);
+    (await revokeAgentBinding(binding.id));
     // Bare router uses Hono's default 500 response for thrown HttpFail; invoke
     // through a wrapper that preserves the status, as createApp normally does.
     const { Hono } = await import("hono");

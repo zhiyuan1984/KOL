@@ -46,11 +46,11 @@ function emailsInText(text: string): Set<string> {
   return new Set([...text.matchAll(EMAIL_RE)].map((match) => normalizeEmail(match[0])));
 }
 
-function boundMailboxEmail(): string {
+async function boundMailboxEmail(): Promise<string> {
   try {
     const user = scopedUser();
     if (!user) return "";
-    return normalizeEmail(String(starryBindingRow(user.id)?.mailbox_email || ""));
+    return normalizeEmail(String((await starryBindingRow(user.id))?.mailbox_email || ""));
   } catch {
     return "";
   }
@@ -197,7 +197,7 @@ export async function recognizeTaskIntent(input: {
   if (!selectedId && candidates?.length === 1) selected = candidates[0];
   // A locked task preserves existing task execution semantics; free text must resolve ownership.
   if (!selectedId && !selected && lockedType && candidates?.length) {
-    const id = runtimeAgentForSkill(lockedType, scopedUser()!.id);
+    const id = (await runtimeAgentForSkill(lockedType, scopedUser()!.id));
     selected = candidates.find(route => route.agent_id === id);
   }
   if (routes && taskType && (!selected || (!lockedType && (verdict?.confidence || 0) < 0.75))) {
@@ -206,7 +206,7 @@ export async function recognizeTaskIntent(input: {
       next_action: candidates?.length ? `请说明要由哪位智能体处理：${candidates.map(route => route.agent_name).join("、")}。`
         : "当前入口没有可用的对应技能，请选择有使用资格的智能体或补充问题归属。" };
   }
-  const bound = boundMailboxEmail();
+  const bound = (await boundMailboxEmail());
   const extracted = extractTaskEntities(text);
   const llmEntities = sanitizeIntentEntities(verdict?.entities || {}, text, bound);
   const merged = mergeEntities(extracted, llmEntities, input.entities || {}, bound, taskType);

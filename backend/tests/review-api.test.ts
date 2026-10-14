@@ -50,7 +50,7 @@ beforeEach(async () => {
   if (process.env.TEST_DATABASE_URL || process.env.DATABASE_URL)
     await freshTestDatabase();
   const db = resetConn();
-  ensureOrganizationTree();
+  (await ensureOrganizationTree());
   for (const company of ["review-test-a", "review-test-b"])
     db.prepare(
       "INSERT INTO organization_units(id,company_id,display_name,type,level,head_person_ref,status,org_version,created_at,updated_at) VALUES(?,?,?,?,1,?,'active',1,?,?)",

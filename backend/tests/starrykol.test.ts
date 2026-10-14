@@ -192,7 +192,7 @@ beforeEach(async () => {
   resetConn();
   seedAll();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   seedWorkbenchFixtures();
 });
 
@@ -235,7 +235,7 @@ describe("Email MCP Host orchestration", () => {
     expect(Array.isArray(data.mailbox_owners)).toBe(true);
     expect((data.mailbox_owners as Json[]).some((row) => row.email === "kol.lt@litime.example" && row.owner_name === "钟槿年")).toBe(true);
     expect(operations[0]).toMatchObject({ name: "starrykol.pageMailboxes", status: "done" });
-    expect(emailMcpResultCard("email_mailbox_list", data).title).toBe("邮箱列表");
+    expect((await emailMcpResultCard("email_mailbox_list", data)).title).toBe("邮箱列表");
   });
 
   it("lists conversations and reads a conversation id", async () => {
@@ -264,7 +264,7 @@ describe("Email MCP Host orchestration", () => {
       keyword: "qiyou1984@gmail.com",
       recipient: "qiyou1984@gmail.com",
     });
-    const card = emailMcpResultCard("email_conversation_list", listed.data);
+    const card = (await emailMcpResultCard("email_conversation_list", listed.data));
     expect(card.summary).toBe("未找到与 qiyou1984@gmail.com 相关的邮件会话。");
     expect(JSON.stringify(card.sections)).toContain("不是 Gmail / 163 收件箱");
     expect(card.recommended_actions).toEqual([
@@ -291,7 +291,7 @@ describe("Email MCP Host orchestration", () => {
       recipientEmail: "qiyou1984@gmail.com",
     });
     expect(preview.data).toMatchObject({ sent: false, conversationId: 101 });
-    expect(emailMcpResultCard("email_compose", preview.data).recommended_actions).toContain("核对预览后回复「确认发送」");
+    expect((await emailMcpResultCard("email_compose", preview.data)).recommended_actions).toContain("核对预览后回复「确认发送」");
 
     calls.length = 0;
     const sent = await withMailSendAuthority("adapter-test-draft", "adapter-test-confirmed", () => executeEmailMcpTask("email_compose", {
@@ -363,7 +363,7 @@ describe("Email MCP Host orchestration", () => {
       subject: "LiTime MCP 连通测试",
     });
     expect(calls.map((item) => item.name).filter((name) => !["pageMailboxes", "pageKolProfiles", "listAllKolProfiles", "pageEmailConversations", "getKolProfileDetail"].includes(name))).toEqual(["createEmailConversation", "addKolProfile"]);
-    const card = emailMcpResultCard("email_compose", compose.data);
+    const card = (await emailMcpResultCard("email_compose", compose.data));
     expect(compose.data.error).toBe("联系邮箱已被其他红人占用");
     expect(String(card.summary)).toContain("收件邮箱 qiyou1984@gmail.com 已有红人画像");
     expect(String(card.summary)).toContain("灵工登录");
@@ -393,7 +393,7 @@ describe("Email MCP Host orchestration", () => {
       error: "负责人无可用邮箱",
       missing_fields: ["mailboxEmail"],
     });
-    const card = emailMcpResultCard("email_compose", compose.data);
+    const card = (await emailMcpResultCard("email_compose", compose.data));
     expect(card.summary).toBe("发件邮箱 henry.wei@amperetime.com 未授权给当前账号，无法用它新建红人画像或发出首封邮件。请改用已授权的发件邮箱，或请管理员在邮箱权限里开通。");
     expect(card.recommended_actions).toContain("请改用已授权的发件邮箱后再写邮件");
   });
@@ -434,7 +434,7 @@ describe("Email MCP KOL library", () => {
     expect(data).toMatchObject({ total: 1 });
     expect(operations[0]).toMatchObject({ name: "starrykol.pageKolProfiles", status: "done" });
     expect(operations.map((item) => item.name).join(",")).not.toContain("decryptKolContact");
-    expect(emailMcpResultCard("creator_library_query", data).title).toBe("达人库查询结果");
+    expect((await emailMcpResultCard("creator_library_query", data)).title).toBe("达人库查询结果");
   });
 
   it("unwraps pageKolProfiles when the MCP payload is a raw data array", async () => {
@@ -451,7 +451,7 @@ describe("Email MCP KOL library", () => {
     }));
     const { data } = await executeEmailMcpTask("creator_library_query", {});
     expect(data.list).toEqual([expect.objectContaining({ kolUid: "KOLARR", kolName: "数组达人" })]);
-    expect(String(emailMcpResultCard("creator_library_query", data).summary)).toContain("1 条");
+    expect(String((await emailMcpResultCard("creator_library_query", data)).summary)).toContain("1 条");
   });
 
   it("falls back to listAllKolProfiles when pageKolProfiles is empty", async () => {
@@ -470,7 +470,7 @@ describe("Email MCP KOL library", () => {
     const { data, operations } = await executeEmailMcpTask("creator_library_query", { keyword: "Wendell" });
     expect(operations.map((item) => item.name)).toContain("starrykol.listAllKolProfiles");
     expect(data.list).toEqual([expect.objectContaining({ kolName: "Wendell Fishing" })]);
-    expect(JSON.stringify(emailMcpResultCard("creator_library_query", data).sections)).toContain("Wendell Fishing");
+    expect(JSON.stringify((await emailMcpResultCard("creator_library_query", data)).sections)).toContain("Wendell Fishing");
   });
 
   it("loads profile detail by kolUid and attaches platform data", async () => {
@@ -483,7 +483,7 @@ describe("Email MCP KOL library", () => {
     expect(calls[0].args).toMatchObject({ kolUid: "KOLTEST001" });
     expect(data).toMatchObject({ kolUid: "KOLTEST001", kolName: "户外电源达人" });
     expect(operations.map((item) => item.name).join(",")).not.toContain("decryptKolContact");
-    const card = emailMcpResultCard("creator_profile", data);
+    const card = (await emailMcpResultCard("creator_profile", data));
     expect(card.title).toBe("达人画像");
     expect(JSON.stringify(card.sections)).toContain("平台数据");
     expect(JSON.stringify(card.sections)).toContain("红人绑定 / 负责人");
@@ -508,7 +508,7 @@ describe("Email MCP KOL library", () => {
     });
     expect(data).toMatchObject({ updated: true, kolUid: "KOLTEST001" });
     expect(operations.map((item) => item.name).join(",")).not.toContain("decryptKolContact");
-    expect(emailMcpResultCard("creator_owner_update", data).title).toBe("红人负责人更新结果");
+    expect((await emailMcpResultCard("creator_owner_update", data)).title).toBe("红人负责人更新结果");
   });
 
   it("resolves a profile from a name when kolUid is missing", async () => {
@@ -529,7 +529,7 @@ describe("Email MCP KOL library", () => {
       kolName: "新测试达人",
       contactEmail: "new.creator@example.com",
     });
-    expect(String(emailMcpResultCard("creator_library_sync", created.data).summary)).toContain("新增达人画像");
+    expect(String((await emailMcpResultCard("creator_library_sync", created.data)).summary)).toContain("新增达人画像");
     expect(JSON.parse(String(calls[2].args.requestJson))).toMatchObject({
       kolName: "新测试达人",
       contactEmail: "new.creator@example.com",
@@ -555,10 +555,10 @@ describe("Email MCP KOL library", () => {
     expect(calls.map((item) => item.name)).toEqual(["listAllKolProfiles"]);
     expect(data).toMatchObject({ total: 1 });
     expect(operations[0]).toMatchObject({ name: "starrykol.listAllKolProfiles", status: "done" });
-    expect(emailMcpResultCard("creator_library_all", data).title).toBe("达人库全量结果");
+    expect((await emailMcpResultCard("creator_library_all", data)).title).toBe("达人库全量结果");
     // 标题与下一步动作来自技能 md（result_title / next_actions），不是按技能 ID 写死。
-    expect(emailMcpResultCard("creator_library_all", data).recommended_actions).toEqual(["查看达人画像", "更新红人负责人"]);
-    expect(emailMcpResultCard("creator_library_all", { list: [] }).recommended_actions).toEqual(["换关键词再查", "写合作邮件"]);
+    expect((await emailMcpResultCard("creator_library_all", data)).recommended_actions).toEqual(["查看达人画像", "更新红人负责人"]);
+    expect((await emailMcpResultCard("creator_library_all", { list: [] })).recommended_actions).toEqual(["换关键词再查", "写合作邮件"]);
   });
 
   it("updates creator stage through updateKolProfile after reading detail", async () => {
@@ -598,7 +598,7 @@ describe("Email MCP KOL library", () => {
     expect(calls.map((item) => item.name)).toEqual(["decryptKolContact"]);
     expect(JSON.parse(String(calls[0].args.requestJson))).toMatchObject({ kolUid: "KOLTEST001" });
     expect(data).toMatchObject({ decrypted: true, contactEmail: "qiyou1984@gmail.com" });
-    expect(emailMcpResultCard("creator_contact_decrypt", data).title).toBe("达人联系方式");
+    expect((await emailMcpResultCard("creator_contact_decrypt", data)).title).toBe("达人联系方式");
   });
 
   it("loads lifecycle, risk conversations, filter options and app conversations", async () => {
@@ -623,7 +623,7 @@ describe("Email MCP KOL library", () => {
     const scan = await executeEmailMcpTask("risk_scan", {});
     expect(Array.isArray(scan.data.overdue)).toBe(true);
     expect((scan.data.overdue as Json[]).some((row) => row.handle === "小美妆日记")).toBe(true);
-    const card = emailMcpResultCard("risk_scan", scan.data);
+    const card = (await emailMcpResultCard("risk_scan", scan.data));
     expect(card.title).toBe("超时/风险扫描");
     expect(JSON.stringify(card.sections)).toContain("T8 失联与延期");
     expect(JSON.stringify(card.sections)).toContain("风险汇总");
@@ -652,7 +652,7 @@ describe("Email MCP KOL library", () => {
     expect(Array.isArray(data.checklist)).toBe(true);
     expect((data.checklist as Json[]).some((row) => row.code === "INTERESTED" && String(row.note || "").includes("当前指针"))).toBe(true);
     expect((data.checklist as Json[]).some((row) => row.code === "PUBLISHED" && row.status === "未开始")).toBe(true);
-    const card = emailMcpResultCard("reply_analysis", data);
+    const card = (await emailMcpResultCard("reply_analysis", data));
     expect(card.title).toBe("回复分析");
     expect(card.summary).toContain("已回复-有兴趣");
     expect(JSON.stringify(card.sections)).toContain("十五阶段清单");

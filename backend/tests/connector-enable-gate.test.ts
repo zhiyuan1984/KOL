@@ -52,7 +52,7 @@ async function verifiedConnector(id: string): Promise<void> {
   expect(created.status, JSON.stringify(created.body)).toBe(201);
   const verified = await call("PATCH", `/api/admin/connectors/${id}`, { status: "verified" });
   expect(verified.status).toBe(200);
-  setConnectorConfig(id, { url: "https://fixture.example/mcp", allow_unauthenticated: true }, 0);
+  (await setConnectorConfig(id, { url: "https://fixture.example/mcp", allow_unauthenticated: true }, 0));
   await call("GET", `/api/admin/runtime/connectors/${id}/activity`);
   getConn().prepare(`INSERT INTO runtime_connector_probes
     (connector_id,config_version,actor_id,checked_at,status,probe_kind,tool_count,duration_ms,error_code)
@@ -80,7 +80,7 @@ beforeEach(async () => {
   process.env.NODE_ENV = "test";
   resetConn();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const setup = await app.request("/api/auth/setup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -107,8 +107,8 @@ describe("connector enable gate follows Skill bindings only", () => {
     const id = "gate_hostcrawler";
     await verifiedConnector(id);
     process.env.MEDIACRAWLER_MCP_URL = "https://crawler.example/mcp";
-    configureCrawlerFixture("https://crawler.example/mcp");
-    setConnectorConfig(id, { url: process.env.MEDIACRAWLER_MCP_URL, allow_unauthenticated: true }, 1);
+    (await configureCrawlerFixture("https://crawler.example/mcp"));
+    (await setConnectorConfig(id, { url: process.env.MEDIACRAWLER_MCP_URL, allow_unauthenticated: true }, 1));
     const saved = await call("GET", `/api/admin/runtime/connectors/${id}/config`);
     expect(saved.body).toMatchObject({ version: 2 });
     expect(saved.body).not.toHaveProperty("probe_mode");
@@ -120,7 +120,7 @@ describe("connector enable gate follows Skill bindings only", () => {
     await setEnabled(id, 409, "connector_skill_binding_required");
     await bindTool(id);
     await setEnabled(id, 200);
-    setConnectorConfig(id, { url: process.env.MEDIACRAWLER_MCP_URL, allow_unauthenticated: true }, 2);
+    (await setConnectorConfig(id, { url: process.env.MEDIACRAWLER_MCP_URL, allow_unauthenticated: true }, 2));
     await setEnabled(id, 409, "connector_verification_required");
   });
 

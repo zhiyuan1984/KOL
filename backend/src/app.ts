@@ -75,12 +75,12 @@ export function isFormalAuthorityPath(pathname: string): boolean {
     || pathname.startsWith("/api/kol/");
 }
 
-export function createApp(): Hono {
+export async function createApp(): Promise<Hono> {
   getConn();
   seedIfEmpty();
   reconcileTickets();
   reconcileDocumentJobs();
-  ensureRuntimeSchema();
+  (await ensureRuntimeSchema());
   ensureDemoAdmin();
   restoreActiveCrawlJobs();
   restoreActiveDiscoveryRuns();

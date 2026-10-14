@@ -23,8 +23,8 @@ const HASH = "a".repeat(64);
 let tmp = "";
 let env: Record<string, string | undefined>;
 
-function policy(connectorId: string, toolName: string, enabled: boolean, risk: "L1" | "L2" | "L3"): void {
-  setToolPolicy(connectorId, toolName, { enabled, risk, access: risk === "L1" ? "read" : "write", schema_hash: HASH }, 0);
+async function policy(connectorId: string, toolName: string, enabled: boolean, risk: "L1" | "L2" | "L3"): Promise<void> {
+  (await setToolPolicy(connectorId, toolName, { enabled, risk, access: risk === "L1" ? "read" : "write", schema_hash: HASH }, 0));
 }
 
 beforeEach(async () => {
@@ -97,14 +97,14 @@ describe("skillImplementation", () => {
 });
 
 describe("skillCoverage read model", () => {
-  it("reads per-tool mount state from the connector catalog and the skill bindings", () => {
-    policy("starrykol", "pageKolProfiles", true, "L1");
-    policy("starrykol", "previewEmailDraft", true, "L2");
-    policy("starrykol", "decryptKolContact", false, "L3");
-    setSkillConnector("declared_fixture", "starrykol", true, 0);
-    setSkillTool("declared_fixture", "starrykol", "pageKolProfiles", true, 0);
+  it("reads per-tool mount state from the connector catalog and the skill bindings", async () => {
+    (await policy("starrykol", "pageKolProfiles", true, "L1"));
+    (await policy("starrykol", "previewEmailDraft", true, "L2"));
+    (await policy("starrykol", "decryptKolContact", false, "L3"));
+    (await setSkillConnector("declared_fixture", "starrykol", true, 0));
+    (await setSkillTool("declared_fixture", "starrykol", "pageKolProfiles", true, 0));
 
-    const coverage = skillCoverage({ root: SKILL_FIXTURES_ROOT, connectorId: "starrykol" });
+    const coverage = (await skillCoverage({ root: SKILL_FIXTURES_ROOT, connectorId: "starrykol" }));
     expect(coverage.summary).toEqual({
       skills: 2,
       live: 0,
@@ -139,8 +139,8 @@ describe("skillCoverage read model", () => {
     expect(unregistered).not.toHaveProperty("policy_enabled");
   });
 
-  it("keeps a legacy connector out of the catalog list and marks its tools unknown", () => {
-    const coverage = skillCoverage({ root: SKILL_FIXTURES_ROOT });
+  it("keeps a legacy connector out of the catalog list and marks its tools unknown", async () => {
+    const coverage = (await skillCoverage({ root: SKILL_FIXTURES_ROOT }));
     const legacy = coverage.skills
       .flatMap((skill) => skill.tools)
       .find((tool) => tool.declared_as === "starry.get_collaboration");
@@ -150,10 +150,10 @@ describe("skillCoverage read model", () => {
     expect(coverage.connectors.map((connector) => connector.id)).toEqual(["starrykol"]);
   });
 
-  it("marks a skill live only with an enabled Agent binding plus a published stage and version", () => {
+  it("marks a skill live only with an enabled Agent binding plus a published stage and version", async () => {
     const now = nowIso();
     // 运行目录表由 store 惰性建；直接写表前先显式建表。
-    ensureRuntimeSchema();
+    (await ensureRuntimeSchema());
     getConn().prepare("INSERT INTO skill_lifecycle (skill_id,stage,origin,updated_at) VALUES (?,?,?,?)")
       .run("declared_fixture", "published", "official", now);
     getConn().prepare("INSERT INTO runtime_agent_skills (agent_id,skill_id,enabled,version,updated_at) VALUES (?,?,?,?,?)")
@@ -161,7 +161,7 @@ describe("skillCoverage read model", () => {
     getConn().prepare("INSERT INTO skill_versions (id,skill_id,version,status,published_at) VALUES (?,?,?,?,?)")
       .run("sv_fixture", "declared_fixture", 3, "published", now);
 
-    const coverage = skillCoverage({ root: SKILL_FIXTURES_ROOT, connectorId: "starrykol" });
+    const coverage = (await skillCoverage({ root: SKILL_FIXTURES_ROOT, connectorId: "starrykol" }));
     expect(coverage.skills.find((entry) => entry.skill_id === "declared_fixture")).toMatchObject({
       stage: "published",
       published_version: 3,
@@ -180,19 +180,19 @@ describe("skillCoverage read model", () => {
     expect(coverage.summary.defined).toBe(1);
   });
 
-  it("does not call a tool mounted while its connector binding is disabled", () => {
-    policy("starrykol", "pageKolProfiles", true, "L1");
-    setSkillConnector("declared_fixture", "starrykol", true, 0);
-    setSkillTool("declared_fixture", "starrykol", "pageKolProfiles", true, 0);
-    setSkillConnector("declared_fixture", "starrykol", false, 1);
+  it("does not call a tool mounted while its connector binding is disabled", async () => {
+    (await policy("starrykol", "pageKolProfiles", true, "L1"));
+    (await setSkillConnector("declared_fixture", "starrykol", true, 0));
+    (await setSkillTool("declared_fixture", "starrykol", "pageKolProfiles", true, 0));
+    (await setSkillConnector("declared_fixture", "starrykol", false, 1));
 
-    const coverage = skillCoverage({ root: SKILL_FIXTURES_ROOT, connectorId: "starrykol" });
+    const coverage = (await skillCoverage({ root: SKILL_FIXTURES_ROOT, connectorId: "starrykol" }));
     expect(coverage.skills.find((entry) => entry.skill_id === "declared_fixture")?.tools[0]).toMatchObject({
       tool_name: "pageKolProfiles",
       state: "available",
       policy_enabled: true,
     });
     expect(coverage.summary.mounted_tools).toBe(0);
-    expect(connectorInUseBySkill("starrykol")).toBe(false);
+    expect((await connectorInUseBySkill("starrykol"))).toBe(false);
   });
 });

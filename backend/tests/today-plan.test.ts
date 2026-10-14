@@ -123,7 +123,7 @@ beforeEach(async () => {
   resetConn();
   seedAll();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 
 afterEach(() => {
@@ -134,7 +134,7 @@ afterEach(() => {
 });
 
 describe("today_plan harness", () => {
-  it("migrates platform planning skills to workspace-planner without KOL connector bindings", () => {
+  it("migrates platform planning skills to workspace-planner without KOL connector bindings", async () => {
     for (const id of ["today_plan", "todo_plan", "today_analyze"] as const) {
       expect(taskDefinition(id)).toMatchObject({
         runtime_agent_id: "agent:workspace-planner",
@@ -145,28 +145,28 @@ describe("today_plan harness", () => {
       const lifecycle = getConn().prepare("SELECT stage FROM skill_lifecycle WHERE skill_id=?").get(id) as { stage: string };
       expect(lifecycle.stage).toBe("published");
     }
-    const mounted = getAgentSkills("agent:workspace-planner");
+    const mounted = (await getAgentSkills("agent:workspace-planner"));
     expect(mounted.filter((row) => row.enabled).map((row) => row.skill_id)).toEqual([
       "today_analyze", "today_plan", "todo_plan",
     ]);
-    expect(getAgentSkills("agent:kol").some((row) => row.skill_id === "today_plan")).toBe(false);
+    expect((await getAgentSkills("agent:kol")).some((row) => row.skill_id === "today_plan")).toBe(false);
     const plannerUser = "user_workspace_planner";
     getConn().prepare(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
       VALUES(?,?,?,?,?,?,?,?,?,?)`).run(
       plannerUser, "workspace-planner", "工作规划员工", "not-for-login", JSON.stringify(["employee"]), "[]", "", 1, "now", "now",
     );
     // 人员资格锚点是 Agent（ADR-2026-10-03）：未绑定的账号即使技能是 authenticated 也不放行。
-    expect(() => assertRuntimeSkill({
+    await expect((async () => (await assertRuntimeSkill({
       agentId: "agent:workspace-planner", skillId: "today_plan", userId: plannerUser, runId: "planning-preflight-denied",
-    })).toThrow(/runtime_agent_not_usable/);
+    })))()).rejects.toThrow(/runtime_agent_not_usable/);
     getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(plannerUser, "person:ye_guanwang");
-    createAgentBinding({
+    (await createAgentBinding({
       agent_id: "agent:workspace-planner", target_type: "organization_unit", target_id: "org:lt_team",
       company_id: "company:amperetime", source: "test",
-    });
-    expect(() => assertRuntimeSkill({
+    }));
+    await expect((async () => (await assertRuntimeSkill({
       agentId: "agent:workspace-planner", skillId: "today_plan", userId: plannerUser, runId: "planning-preflight",
-    })).not.toThrow();
+    })))()).resolves.not.toBeInstanceOf(Error);
     const audit = getConn().prepare("SELECT payload FROM audit_events WHERE event_type='runtime.workspace_planner.migrated'").get() as { payload: string };
     expect(JSON.parse(audit.payload)).toMatchObject({ agent_id: "agent:workspace-planner" });
   });

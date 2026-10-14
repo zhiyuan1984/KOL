@@ -98,7 +98,7 @@ beforeEach(async () => {
   publishFixtureSkills(tmp, [SKILL, DEFINED_SKILL]);
   resetConn();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const setup = await app.request("/api/auth/setup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -108,7 +108,7 @@ beforeEach(async () => {
   adminCookie = setup.headers.get("set-cookie")?.split(";")[0] || "";
   expect(adminCookie).toBeTruthy();
 
-  const credential = createCredential({ type: "organization_secret", secret: "mount-test-key" }, "admin");
+  const credential = (await createCredential({ type: "organization_secret", secret: "mount-test-key" }, "admin"));
   const config = await call("PUT", `/api/admin/runtime/connectors/${CONNECTOR}/config`, {
     url: "https://mcp.example.test/streamable",
     headers_secret_refs: { "X-MCP-API-KEY": credential.id },
@@ -117,9 +117,9 @@ beforeEach(async () => {
   expect(config.status, JSON.stringify(config.body)).toBe(200);
   await probeConnector();
   for (const name of ["decryptKolContact", "sendEmailNow"]) {
-    const policy = getToolPolicy(CONNECTOR, name)!;
+    const policy = (await getToolPolicy(CONNECTOR, name))!;
     expect(policy).toMatchObject({ risk: "L3", access: "write" });
-    setToolPolicy(CONNECTOR, name, { enabled: false, risk: "L3", access: "write", schema_hash: String(policy.schema_hash) }, Number(policy.version));
+    (await setToolPolicy(CONNECTOR, name, { enabled: false, risk: "L3", access: "write", schema_hash: String(policy.schema_hash) }, Number(policy.version)));
   }
 
   // 夹具技能上线：Agent 绑定走真实路由，发布阶段直接写生命周期表（阶段流转自带前后置条件）。

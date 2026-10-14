@@ -86,7 +86,7 @@ beforeEach(async () => {
   process.env.AUTH_MODE = "enabled";
   resetConn();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const setup = await call("POST", "/api/auth/setup", {
     username: "admin",
     name: "Admin",
@@ -213,8 +213,8 @@ describe("employee connector use-surface DTO", () => {
       db.prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES(?,?,?,?,?)")
         .run(id, id, 1, "configured", now);
     }
-    setConnectorConfig("dto_http", { protocol: "http", url: "https://api.example.com", allow_unauthenticated: true }, 0);
-    setToolPolicy("dto_mcp", "list_records", { enabled: true, risk: "L1", access: "read", schema_hash: "b".repeat(64) }, 0);
+    (await setConnectorConfig("dto_http", { protocol: "http", url: "https://api.example.com", allow_unauthenticated: true }, 0));
+    (await setToolPolicy("dto_mcp", "list_records", { enabled: true, risk: "L1", access: "read", schema_hash: "b".repeat(64) }, 0));
     db.prepare("UPDATE connectors SET icon_ref='stored-icon.png' WHERE id='dto_mcp'").run();
 
     const rows = (await call("GET", "/api/admin/connectors")).json as Record<string, unknown>[];

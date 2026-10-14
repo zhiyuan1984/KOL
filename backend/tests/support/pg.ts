@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+import fs from "node:fs";
 /**
  * 测试用 PostgreSQL：每个用例从模板库拷一个全新库（文件级拷贝，实测 ~0.2s），跑完统一 DROP。
  *
@@ -60,6 +62,10 @@ export async function freshTestDatabase(): Promise<string> {
   await postgresPool().query(candidateAssessmentSchema);
   const { runtimeActionEventSchema } = await import("../../src/runtime/action-event-schema.js");
   await postgresPool().query(runtimeActionEventSchema);
+  // Formal domain extensions are executed only against this newly created test DB.
+  for (const filename of ["032_review_postgres.sql", "033_credential_native_default.sql", "042_organization_native_postgres.sql", "043_mail_send_native.sql"]) {
+    await postgresPool().query(fs.readFileSync(fileURLToPath(new URL(`../../migrations/${filename}`, import.meta.url)), "utf8"));
+  }
   return name;
 }
 

@@ -43,8 +43,8 @@ beforeEach(async () => {
   resetConn();
   seedAll();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  employee = agentTestUser();
+  app = (await createApp());
+  employee = (await agentTestUser());
 });
 
 afterEach(() => {

@@ -856,10 +856,10 @@ function taskMatchesKol(task: Json, kol: { id: string; handle: string }): boolea
   return title.includes(`@${kol.handle}`) || title.includes(kol.handle);
 }
 
-export function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}): Json {
+export async function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}): Promise<Json> {
   const conn = getConn();
   const owner = ownerId();
-  const followScope = currentFollowScope();
+  const followScope = (await currentFollowScope());
   const definitions = taskDefinitionIndex();
   const ownershipByUid=new Map((conn.prepare(`SELECT o.kol_uid,o.owner_open_id,o.owner_mailbox FROM starry_profile_ownership o
     JOIN starry_ownership_sync_state health ON health.company_id=o.company_id AND health.state='ready' WHERE o.company_id=?`).all(memoryCompanyId()) as Row[])

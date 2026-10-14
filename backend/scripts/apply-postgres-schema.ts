@@ -1097,6 +1097,10 @@ const migrations: SchemaMigration[] = [
        WHERE enabled=0`,
     ],
   },
+  { id: "20261015_032_review_postgres", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "032_review_postgres.sql"), "utf8")] },
+  { id: "20261015_033_credential_native_default", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "033_credential_native_default.sql"), "utf8")] },
+  { id: "20261015_042_organization_native_postgres", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "042_organization_native_postgres.sql"), "utf8")] },
+  { id: "20261015_043_mail_send_native", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "043_mail_send_native.sql"), "utf8")] },
 ];
 
 const { replyContextSchema } = await import("../src/mail/reply-context-schema.js");

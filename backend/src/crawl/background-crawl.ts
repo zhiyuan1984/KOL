@@ -97,14 +97,14 @@ export type CrawlConnectorAuth = {
  * 采集连接器可用性校验：连接器行已启用 + 配置存在（含服务地址）。
  * 组织级凭据可被平台主体解析；个人账号凭据会如实失败（见 ADR-2026-10-06）。
  */
-export function assertCrawlConnectorAvailable(): CrawlConnectorAuth {
+export async function assertCrawlConnectorAvailable(): Promise<CrawlConnectorAuth> {
   const connector = getConn().prepare("SELECT id,enabled,updated_at FROM connectors WHERE id=?").get("claw") as
     | Row
     | undefined;
   if (!connector?.enabled) {
     throw new HttpFail(409, { code: "runtime_connector_disabled" });
   }
-  const configuration = getConnectorConfig("claw");
+  const configuration = (await getConnectorConfig("claw"));
   if (!configuration) {
     throw new HttpFail(409, { code: "runtime_connector_not_configured" });
   }
@@ -119,11 +119,11 @@ export function assertCrawlConnectorAvailable(): CrawlConnectorAuth {
  * 使用资格校验（平台同步 Agent 只读装配是既有治理，本通道不触碰它），
  * 连接器「已启用 + 已配置」校验保留。
  */
-export function authorizeBackgroundCrawl(context: RuntimeContext): CrawlConnectorAuth {
+export async function authorizeBackgroundCrawl(context: RuntimeContext): Promise<CrawlConnectorAuth> {
   if (!isPlatformPrincipal(context.userId) || !isPlatformAgent(context.agentId)) {
     fail("runtime_agent_not_usable");
   }
-  return assertCrawlConnectorAvailable();
+  return (await assertCrawlConnectorAvailable());
 }
 
 /** 与 SkillExecution 的 {discover, invoke, close} 子集结构兼容的后台执行器。 */
@@ -142,12 +142,12 @@ const BACKGROUND_TOOLS = ["get_crawl_status", "get_creators"] as const;
  * 只装只读技能），直接按已登记的 claw 工具契约调用。调用前必须已完成
  * authorizeBackgroundCrawl（入队/出队时已做，出队只是履约）。
  */
-export function backgroundToolRuntime(
+export async function backgroundToolRuntime(
   context: RuntimeContext,
   mcpFactory: (options: RemoteMcpOptions) => RuntimeRemote = (options) => new RemoteMcpClient(options),
-): BackgroundToolInvoker {
-  const { configuration } = authorizeBackgroundCrawl(context);
-  const client = createConfiguredClient(context, configuration.config, mcpFactory);
+): Promise<BackgroundToolInvoker> {
+  const { configuration } = (await authorizeBackgroundCrawl(context));
+  const client = (await createConfiguredClient(context, configuration.config, mcpFactory));
   let closed = false;
   return {
     async discover() {

@@ -82,15 +82,15 @@ function pendingDeclaredTools(id: string): string[] {
  * 技能风险等级：读取时从声明工具的风险策略派生（取最高），不另存列，
  * 保证「工具风险变了，技能风险自动跟着变」的单一事实源。
  */
-export function skillRiskLevel(id: string): "L1" | "L2" | "L3" | null {
-  return skillToolProfile(id, pendingDeclaredTools(id)).risk;
+export async function skillRiskLevel(id: string): Promise<"L1" | "L2" | "L3" | null> {
+  return (await skillToolProfile(id, pendingDeclaredTools(id))).risk;
 }
 
-export function skillDependencyIssues(id: string): { unregistered: string[]; unmounted: string[] } {
+export async function skillDependencyIssues(id: string): Promise<{ unregistered: string[]; unmounted: string[] }> {
   const tools = pendingDeclaredTools(id);
   return {
-    unregistered: unregisteredDeclaredTools(tools).map((tool) => tool.declared_as),
-    unmounted: unmountedDeclaredTools(id, tools).map((tool) => tool.declared_as),
+    unregistered: (await unregisteredDeclaredTools(tools)).map((tool) => tool.declared_as),
+    unmounted: (await unmountedDeclaredTools(id, tools)).map((tool) => tool.declared_as),
   };
 }
 
@@ -98,9 +98,9 @@ export function skillDependencyIssues(id: string): { unregistered: string[]; unm
  * 进入测试或发布前：所需工具必须已登记并已挂载，宁可拦住不放行。
  * stub 模式不走挂载链（执行由本地桩完成），因此只在真实执行模式下拦截。
  */
-function assertDeclaredToolsReady(id: string): void {
+async function assertDeclaredToolsReady(id: string): Promise<void> {
   if (codexMode() === "stub") return;
-  const issues = skillDependencyIssues(id);
+  const issues = (await skillDependencyIssues(id));
   if (issues.unregistered.length) {
     throw new HttpFail(409, {
       code: "skill_tools_unregistered",
@@ -117,7 +117,7 @@ function assertDeclaredToolsReady(id: string): void {
   }
 }
 
-export function skillLifecycleMeta(id: string): {
+export async function skillLifecycleMeta(id: string): Promise<{
   stage: SkillStage;
   stage_label: string;
   origin: SkillOrigin;
@@ -134,7 +134,7 @@ export function skillLifecycleMeta(id: string): {
   /** 读取时派生：所需工具里未登记 / 未挂载的项（编写时提示，进入测试或发布时拦截）。 */
   dependencies: { unregistered: string[]; unmounted: string[] };
   test_summary: { total: number; pass_rate: number | null; failing: number; last_run_at: string | null };
-} {
+}> {
   requireSkill(id);
   const stage = currentStage(id);
   const row = lifecycleRow(id);
@@ -162,14 +162,14 @@ export function skillLifecycleMeta(id: string): {
     tags,
     biz_family: row?.biz_family || null,
     biz_domain: row?.biz_domain || null,
-    risk: skillRiskLevel(id),
+    risk: (await skillRiskLevel(id)),
     current_version: version.v ?? null,
     release: version.v
       ? { kind: "versioned", version: version.v }
       : stage === "published" && isBundledSkill(id)
         ? { kind: "bundled_baseline" }
         : { kind: "none" },
-    dependencies: skillDependencyIssues(id),
+    dependencies: (await skillDependencyIssues(id)),
     test_summary: {
       total: tests.n,
       pass_rate: lastRuns.length ? Math.round(((lastRuns.length - failing) / lastRuns.length) * 1000) / 10 : null,
@@ -199,7 +199,7 @@ export function skillStageHistory(id: string): Json[] {
     .all(id) as Json[];
 }
 
-export function transitionSkillStage(id: string, toStage: string, reason?: string): { stage: SkillStage } {
+export async function transitionSkillStage(id: string, toStage: string, reason?: string): Promise<{ stage: SkillStage }> {
   requireSkill(id);
   const to = toStage as SkillStage;
   if (!SKILL_STAGES.includes(to)) throw new HttpFail(400, `unknown stage ${toStage}`);
@@ -211,8 +211,8 @@ export function transitionSkillStage(id: string, toStage: string, reason?: strin
   if (from !== "draft" && to === "disabled" && !String(reason || "").trim()) {
     throw new HttpFail(400, "reason required to disable a published skill");
   }
-  if (to === "testing" || to === "published") assertDeclaredToolsReady(id);
-  if (to === "published") assertSkillPublishAllowed(id);
+  if (to === "testing" || to === "published") (await assertDeclaredToolsReady(id));
+  if (to === "published") (await assertSkillPublishAllowed(id));
   if (to === "published") applySkillDraft(id);
   const conn = getConn();
   const operator = currentUser().handle;
@@ -227,7 +227,7 @@ export function transitionSkillStage(id: string, toStage: string, reason?: strin
     )
     .run(id, to, nowIso());
   if (to === "published") {
-    publishSkillVersion(id, reason);
+    (await publishSkillVersion(id, reason));
   }
   audit(operator, "skill.stage", { skill: id, from, to, reason: reason || null });
   return { stage: to };
@@ -277,13 +277,13 @@ export function latestSkillPublishApproval(id: string): SkillPublishApprovalSumm
  *    且该审批的 base_version 必须等于当前已发布版本（一次审批只放行一次发布，发布后即失效）。
  * 未通过时抛 403/400 中文原因，前端直接展示。
  */
-export function assertSkillPublishAllowed(id: string): void {
+export async function assertSkillPublishAllowed(id: string): Promise<void> {
   requireSkill(id);
   const row = lifecycleRow(id);
   if (!row?.owner || !row.owner.trim()) {
     throw new HttpFail(400, { code: "skill_owner_required", message: "请先设置技能负责人，再发布。" });
   }
-  if (skillRiskLevel(id) !== "L3") return;
+  if ((await skillRiskLevel(id)) !== "L3") return;
   const base = currentPublishedVersion(id);
   const approval = latestSkillPublishApproval(id);
   if (approval && approval.status === "consumed" && approval.base_version === base) return;
@@ -311,9 +311,9 @@ export type SkillPublishCheck = {
 };
 
 /** 发布前检查：有一项不通过就不能发布，前端逐项展示中文原因。 */
-export function skillPublishCheck(id: string): SkillPublishCheck {
+export async function skillPublishCheck(id: string): Promise<SkillPublishCheck> {
   requireSkill(id);
-  const meta = skillLifecycleMeta(id);
+  const meta = (await skillLifecycleMeta(id));
   const reasons: string[] = [];
 
   const t = meta.test_summary;
@@ -438,10 +438,10 @@ export function listSkillVersions(id: string): Json[] {
     .all(id) as Json[];
 }
 
-export function publishSkillVersion(id: string, description?: string, version?: number): { version: number } {
+export async function publishSkillVersion(id: string, description?: string, version?: number): Promise<{ version: number }> {
   requireSkill(id);
   // 发布门禁：负责人必填；R3 无已通过审批单时 403。两条发布路径（阶段流转 / 直接发版）都走这里。
-  assertSkillPublishAllowed(id);
+  (await assertSkillPublishAllowed(id));
   const bundled = isBundledSkill(id);
   const dir = bundled ? packagedSkillDir(id) : skillDir(id);
   if (!dir || !fs.existsSync(path.join(dir, "SKILL.md"))) throw new HttpFail(400, "skill pack not found");

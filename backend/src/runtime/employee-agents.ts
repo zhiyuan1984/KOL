@@ -27,7 +27,7 @@ export async function employeeExperts(expertId?: string): Promise<Json[]> {
   }));
   const represented = new Set(staticRows.map((row) => agentForExpert(String(row.id))));
   const ids = [...usable].filter((id) => !represented.has(id));
-  const managed = await Promise.all(ids.map((id) => managedAgent(id)));
+  const managed = await Promise.all((await Promise.all(ids.map(async (id) => (await managedAgent(id))))));
   return [...staticRows, ...managed.map((agent) => {
     const skills = routes.filter((route) => route.agent_id === agent.id);
     return { id: agent.id, version: String(agent.version), status: agent.status, display_name: agent.name,

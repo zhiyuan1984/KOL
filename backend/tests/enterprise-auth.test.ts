@@ -58,7 +58,7 @@ beforeEach(async () => {
   process.env.AUTH_MODE = "enabled";
   resetConn();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const initial = await call("GET", "/api/auth/status", undefined, "");
   expect(initial.json).toMatchObject({ setup_required: true, authenticated: false });
   const setup = await call("POST", "/api/auth/setup", {
@@ -156,10 +156,10 @@ describe("production account and enterprise controls", () => {
     expect(retiredGrant.response.status).toBe(410);
     expect(await (await call("GET", "/api/skills", undefined, cookie)).json).toEqual([]);
     getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(String(employee.id), "person:ye_guanwang");
-    createAgentBinding({
+    (await createAgentBinding({
       agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
       company_id: "company:amperetime", source: "test",
-    });
+    }));
     const skills = await call("GET", "/api/skills", undefined, cookie);
     expect((skills.json as unknown as { id: string }[]).map((skill) => skill.id)).toContain("email_compose");
   });
@@ -355,7 +355,7 @@ describe("production account and enterprise controls", () => {
   });
 
   it("returns 王想 in the admin employee directory after confirmed organization account import", async () => {
-    importOrganizationAccounts(true);
+    (await importOrganizationAccounts(true));
     const directory = await call("GET", "/api/admin/users");
     expect(directory.response.status).toBe(200);
     const employee = (directory.json as unknown as Array<Record<string, unknown>>).find((row) => row.id === "usr_org_wang_xiang");

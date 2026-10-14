@@ -9,11 +9,11 @@ import { withMailSendAuthority } from "./mail-authority.js";
 import { assertReplySendCurrent } from "../mail/reply-send.js";
 
 export async function sendDraft(draftId: string, via = "operator", requestId = ""): Promise<Json> {
-  assertClaimedMailSend(draftId, requestId);
+  (await assertClaimedMailSend(draftId, requestId));
   const d = getConn().prepare("SELECT * FROM drafts WHERE id = ?").get(draftId) as Row | undefined;
   if (!d) throw new Error(draftId);
   await assertReplySendCurrent(d, requestId);
-  validateMailSend(d);
+  (await validateMailSend(d));
   const col = d.collaboration_id
     ? getConn().prepare("SELECT * FROM collaborations WHERE id = ?").get(d.collaboration_id) as Row | undefined
     : undefined;
@@ -35,7 +35,7 @@ export async function sendDraft(draftId: string, via = "operator", requestId = "
         body: d.body_en,
         confirm_send: true,
         ...(col?.kol_uid ? { kolUid: col.kol_uid } : {}),
-      }, via), async () => { await assertReplySendCurrent(d, requestId); validateMailSend(d); });
+      }, via), async () => { await assertReplySendCurrent(d, requestId); (await validateMailSend(d)); });
       result = remote.data;
       if (!Boolean(result.sent)) throw new Error("provider_result_unconfirmed");
     } else {
@@ -43,10 +43,10 @@ export async function sendDraft(draftId: string, via = "operator", requestId = "
     }
     // A durable receipt must precede memory refresh or UI notifications.
     const receipt = { ok: true, send: result, request_id: requestId, official_stage: col?.stage_code ?? null, stage_changed: false };
-    completeMailSend(draftId, requestId, receipt);
+    await completeMailSend(draftId, requestId, receipt);
   } catch (error) {
     // Once the network call may have started, do not assume an error means unsent.
-    markMailSendUnknown(draftId, requestId);
+    await markMailSendUnknown(draftId, requestId);
     throw error;
   }
   let extra: Json = {};

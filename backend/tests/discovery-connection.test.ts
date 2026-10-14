@@ -68,13 +68,13 @@ beforeEach(async () => {
   process.env.MEDIACRAWLER_PROBE_TIMEOUT_MS = "400";
   resetConn();
   seedAll();
-  configureCrawlerFixture();
+  (await configureCrawlerFixture());
   resetCollectorConnectionCache();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();
   setCrawlMcpClientFactory();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 
 afterEach(() => {

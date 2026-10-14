@@ -41,7 +41,7 @@ beforeEach(async () => {
   setAgentSubmissionOverride();
   resetConn();
   seedAll();
-  runtimeCookie = seedRuntimeTestActor(["creator_discovery"]);
+  runtimeCookie = (await seedRuntimeTestActor(["creator_discovery"]));
   getConn().prepare(
     `INSERT OR REPLACE INTO claw_creators
      (id, handle, name, platform, followers, score, status, outreach_script, payload)
@@ -80,7 +80,7 @@ afterEach(async () => {
 describe("real Codex HTTP flow", () => {
   it("acknowledges creator discovery immediately and publishes the background outcome", async () => {
     const { createApp } = await import("../src/app.js");
-    const app = authenticatedTestApp(createApp(), runtimeCookie);
+    const app = authenticatedTestApp((await createApp()), runtimeCookie);
     const created = await app.request("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -171,7 +171,7 @@ describe("real Codex HTTP flow", () => {
     process.env.FAKE_CODEX_MODE = "crawl-plan-success";
     process.env.FAKE_CODEX_DELAY = "120";
     const { createApp } = await import("../src/app.js");
-    const app = authenticatedTestApp(createApp(), runtimeCookie);
+    const app = authenticatedTestApp((await createApp()), runtimeCookie);
     const created = await app.request("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -216,7 +216,7 @@ describe("real Codex HTTP flow", () => {
     process.env.FAKE_CODEX_MODE = "crawl-plan-success";
     process.env.FAKE_CODEX_DELAY = "50";
     const { createApp } = await import("../src/app.js");
-    const app = authenticatedTestApp(createApp(), runtimeCookie);
+    const app = authenticatedTestApp((await createApp()), runtimeCookie);
     const created = await app.request("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -258,7 +258,7 @@ describe("real Codex HTTP flow", () => {
     process.env.FAKE_CODEX_DELAY = "2000";
     process.env.HOST_WORKER_TIMEOUT = "8";
     const { createApp } = await import("../src/app.js");
-    const app = authenticatedTestApp(createApp(), runtimeCookie);
+    const app = authenticatedTestApp((await createApp()), runtimeCookie);
     const created = await app.request("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -312,7 +312,7 @@ describe("real Codex HTTP flow", () => {
     setAgentSubmissionOverride(false);
     try {
       const { createApp } = await import("../src/app.js");
-      const app = authenticatedTestApp(createApp(), runtimeCookie);
+      const app = authenticatedTestApp((await createApp()), runtimeCookie);
       const created = await app.request("/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

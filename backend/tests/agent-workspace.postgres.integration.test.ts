@@ -110,11 +110,11 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
  });
  it('assigns, moves and clears a single primary department with immutable receipts, keeping human qualification and drafts',async()=>{
   // Initialize the existing runtime registry bootstrap before taking either preview snapshot.
-  expect(canUseAgent('employee',agentId)).toBe(true);
+  expect((await canUseAgent('employee',agentId))).toBe(true);
   await saveAgentDraft(actor,agentId,input());const releaseCheck=await prepareAgentRelease(actor,agentId),before=await agentWorkspaceDetail(agentId);
   const check=await ownerPreview();expect(check.after?.path.map(unit=>unit.level)).toEqual([1,2,3]);
   const key=randomUUID(),[first,replay]=await Promise.all([ownerChange(check.preparation_id,key),ownerChange(check.preparation_id,key)]);expect(first.id).toBe(replay.id);
-  const assigned=await agentWorkspaceDetail(agentId);expect(assigned.organization.revision).toBe(1);expect(assigned.bindings).toEqual(before.bindings);expect(assigned.coverage).toEqual(before.coverage);expect(assigned.draft).toEqual(before.draft);expect(assigned.effective).toEqual(before.effective);expect(assigned.version).toBe(before.version);expect(canUseAgent('employee',agentId)).toBe(true);
+  const assigned=await agentWorkspaceDetail(agentId);expect(assigned.organization.revision).toBe(1);expect(assigned.bindings).toEqual(before.bindings);expect(assigned.coverage).toEqual(before.coverage);expect(assigned.draft).toEqual(before.draft);expect(assigned.effective).toEqual(before.effective);expect(assigned.version).toBe(before.version);expect((await canUseAgent('employee',agentId))).toBe(true);
   const scoped=await agentWorkspace({level1:'owner-root',level2:'owner-dept',level3:'owner-team'});expect(scoped.browse.rows.map(row=>row.id)).toEqual([agentId]);expect(scoped.browse.facets.level1.find(option=>option.value==='owner-root')?.count).toBe(1);
   const moved=await ownerPreview('owner-root',1);await ownerChange(moved.preparation_id);expect((await agentWorkspace({level1:'owner-root'})).browse.rows.map(row=>row.id)).toEqual([agentId]);expect((await agentWorkspace({level2:'owner-dept'})).browse.rows).toEqual([]);
   const cleared=await ownerPreview(null,2);await ownerChange(cleared.preparation_id);const after=await agentWorkspaceDetail(agentId);expect(after.organization.assignment).toBeNull();expect(after.organization_history.map(row=>row.revision)).toEqual([3,2,1]);expect(Number((await postgresPool().query("SELECT COUNT(*) FROM agent_organization_memberships WHERE agent_id=$1 AND status='active'",[agentId])).rows[0].count)).toBe(0);
@@ -192,13 +192,13 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
  });
  it("does not permit assembly updates through legacy APIs after draft governance starts",async()=>{
   await saveAgentDraft(actor,agentId,input());await expect(assertLegacyAgentWriteAllowed(agentId)).rejects.toMatchObject({status:409});
-  expect(()=>setAgentSkill(agentId,skillB,true,0)).toThrow('修订草稿');expect(()=>setAgentSkills(agentId,[{skill_id:skillB,enabled:true,expected_version:0}])).toThrow('修订草稿');
+  await expect((async ()=>(await setAgentSkill(agentId,skillB,true,0)))()).rejects.toThrow('修订草稿');await expect((async ()=>(await setAgentSkills(agentId,[{skill_id:skillB,enabled:true,expected_version:0}])))()).rejects.toThrow('修订草稿');
  });
  it("blocks runtime invocation when a pinned skill has changed",async()=>{
   await saveAgentDraft(actor,agentId,input());const check=await prepareAgentRelease(actor,agentId);await release(check.preparation_id);
-  expect(()=>assertRuntimeSkill({agentId,skillId:skillB,userId:actor,runId:'test'})).not.toThrow();
+  await expect((async ()=>(await assertRuntimeSkill({agentId,skillId:skillB,userId:actor,runId:'test'})))()).resolves.not.toBeInstanceOf(Error);
   await postgresPool().query("INSERT INTO skill_sops(id,summary,body,updated_at) VALUES($1,'changed','changed',$2)",[skillB,stamp]);
-  expect(()=>assertRuntimeSkill({agentId,skillId:skillB,userId:actor,runId:'test'})).toThrow('runtime_agent_skill_upgrade_required');
+  await expect((async ()=>(await assertRuntimeSkill({agentId,skillId:skillB,userId:actor,runId:'test'})))()).rejects.toThrow('runtime_agent_skill_upgrade_required');
  });
  it("returns real projection data to admins and denies employees",async()=>{
   const app=new Hono().route('/api',agentWorkspaceRouter);app.onError((e,c)=>c.json({message:e.message},(e instanceof HttpFail?e.status:500) as 403));
@@ -214,8 +214,8 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
   const call=(method:string,url:string,body?:unknown)=>withScopedUser(admin,()=>app.request(url,{method,headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})}));
   const check=await (await call('POST',`${base}/revoke-preview`)).json() as {org_version:number;preview_signature:string};
   await postgresPool().query("UPDATE agent_bindings SET binding_version=binding_version+1 WHERE id='test-binding'");
-  expect((await call('DELETE',base,{...check,reason:'test'})).status).toBe(409);expect(canUseAgent('employee',agentId)).toBe(true);
-  const next=await (await call('POST',`${base}/revoke-preview`)).json();expect((await call('DELETE',base,{...next,reason:'test'})).status).toBe(200);expect(canUseAgent('employee',agentId)).toBe(false);
+  expect((await call('DELETE',base,{...check,reason:'test'})).status).toBe(409);expect((await canUseAgent('employee',agentId))).toBe(true);
+  const next=await (await call('POST',`${base}/revoke-preview`)).json();expect((await call('DELETE',base,{...next,reason:'test'})).status).toBe(200);expect((await canUseAgent('employee',agentId))).toBe(false);
  });
  it("creates an unpublished draft and requires confirmation for release",async()=>{
   const created=await saveAgentDraft(actor,null,{...input(),expected_version:undefined});expect(created.status).toBe('draft');expect(created.published_revision).toBeNull();expect(created.effective.skills).toEqual([]);

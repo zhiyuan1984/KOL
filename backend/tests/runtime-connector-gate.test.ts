@@ -40,14 +40,14 @@ function setMode(mode: string): void {
   process.env.CODEX_MODE = mode;
 }
 
-function policy(connectorId: string, toolName: string): void {
-  setToolPolicy(connectorId, toolName, { enabled: true, risk: "L1", access: "read", schema_hash: HASH }, 0);
+async function policy(connectorId: string, toolName: string): Promise<void> {
+  (await setToolPolicy(connectorId, toolName, { enabled: true, risk: "L1", access: "read", schema_hash: HASH }, 0));
 }
 
 /** 线上口径：声明工具的策略已由管理员放行，只差把技能挂上去。 */
-function policiesFor(skillId: string, connectorId = "starrykol"): void {
+async function policiesFor(skillId: string, connectorId = "starrykol"): Promise<void> {
   for (const tool of parseDeclaredMcp(taskDefinition(skillId)?.mcp || [])) {
-    if (tool.connector_id === connectorId && !getToolPolicy(connectorId, tool.tool_name)) policy(connectorId, tool.tool_name);
+    if (tool.connector_id === connectorId && !(await getToolPolicy(connectorId, tool.tool_name))) (await policy(connectorId, tool.tool_name));
   }
 }
 
@@ -74,7 +74,7 @@ function intentFor(skill: string): Intent {
   };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   env = Object.fromEntries(["LINGONG_DB", "LINGONG_DATA", "DATABASE_URL", "CODEX_MODE", "AUTH_MODE"].map((key) => [key, process.env[key]]));
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "connector-gate-"));
   delete process.env.DATABASE_URL;
@@ -87,7 +87,7 @@ beforeEach(() => {
   });
   publishFixtureSkills(tmp, ["declared_fixture"]);
   resetConn();
-  ensureRuntimeSchema();
+  (await ensureRuntimeSchema());
 });
 
 afterEach(() => {
@@ -102,93 +102,93 @@ afterEach(() => {
 });
 
 describe("declaredManagedConnectors", () => {
-  it("只认已登记的受管连接器，未登记别名不进缺口判定", () => {
+  it("只认已登记的受管连接器，未登记别名不进缺口判定", async () => {
     // 夹具同时声明 starrykol.*（受管）与 starry.get_collaboration（legacy 未登记）。
-    expect(declaredManagedConnectors("declared_fixture")).toEqual(["starrykol"]);
+    expect((await declaredManagedConnectors("declared_fixture"))).toEqual(["starrykol"]);
     // confirm_stage / creator_scoring 只声明 legacy 与 kolclaw 别名，目录里没有这两行。
-    expect(declaredManagedConnectors("confirm_stage")).toEqual([]);
-    expect(declaredManagedConnectors("creator_scoring")).toEqual([]);
+    expect((await declaredManagedConnectors("confirm_stage"))).toEqual([]);
+    expect((await declaredManagedConnectors("creator_scoring"))).toEqual([]);
     // 没有声明任何工具的技能不是缺口候选。
-    expect(declaredManagedConnectors("today_plan")).toEqual([]);
-    expect(declaredManagedConnectors("不存在的技能")).toEqual([]);
+    expect((await declaredManagedConnectors("today_plan"))).toEqual([]);
+    expect((await declaredManagedConnectors("不存在的技能"))).toEqual([]);
   });
 });
 
 describe("skillConnectorGaps", () => {
-  it("已登记连接器没有父绑定就是缺口", () => {
-    policiesFor("declared_fixture");
-    policiesFor("creator_library_query");
-    expect(skillConnectorGaps("declared_fixture")).toEqual([{ connector_id: "starrykol", reason: "connector_unbound" }]);
+  it("已登记连接器没有父绑定就是缺口", async () => {
+    (await policiesFor("declared_fixture"));
+    (await policiesFor("creator_library_query"));
+    expect((await skillConnectorGaps("declared_fixture"))).toEqual([{ connector_id: "starrykol", reason: "connector_unbound" }]);
     // 线上真实场景：达人库查询声明了 starrykol 工具，策略已放行，却没有任何挂载行。
-    expect(skillConnectorGaps("creator_library_query")).toEqual([{ connector_id: "starrykol", reason: "connector_unbound" }]);
+    expect((await skillConnectorGaps("creator_library_query"))).toEqual([{ connector_id: "starrykol", reason: "connector_unbound" }]);
   });
 
-  it("声明工具的策略都未放行时不算未接通：那是等管理员审批策略的另一种治理状态", () => {
+  it("声明工具的策略都未放行时不算未接通：那是等管理员审批策略的另一种治理状态", async () => {
     // 谈判纪要只声明了受写入策略约束的远端工具，本职（整理本地摘要）不依赖它，不能整体拦掉。
-    expect(skillConnectorGaps("declared_fixture")).toEqual([]);
-    setToolPolicy("starrykol", "pageKolProfiles", { enabled: false, risk: "L1", access: "read", schema_hash: HASH }, 0);
-    expect(skillConnectorGaps("declared_fixture")).toEqual([]);
+    expect((await skillConnectorGaps("declared_fixture"))).toEqual([]);
+    (await setToolPolicy("starrykol", "pageKolProfiles", { enabled: false, risk: "L1", access: "read", schema_hash: HASH }, 0));
+    expect((await skillConnectorGaps("declared_fixture"))).toEqual([]);
   });
 
-  it("有启用工具绑定就不算缺口", () => {
-    policy("starrykol", "pageKolProfiles");
-    setSkillConnector("declared_fixture", "starrykol", true, 0);
-    setSkillTool("declared_fixture", "starrykol", "pageKolProfiles", true, 0);
-    expect(skillConnectorGaps("declared_fixture")).toEqual([]);
+  it("有启用工具绑定就不算缺口", async () => {
+    (await policy("starrykol", "pageKolProfiles"));
+    (await setSkillConnector("declared_fixture", "starrykol", true, 0));
+    (await setSkillTool("declared_fixture", "starrykol", "pageKolProfiles", true, 0));
+    expect((await skillConnectorGaps("declared_fixture"))).toEqual([]);
   });
 
-  it("父绑定被停用、或启用工具绑定为 0 都是缺口", () => {
-    policy("starrykol", "pageKolProfiles");
-    setSkillConnector("declared_fixture", "starrykol", true, 0);
-    setSkillTool("declared_fixture", "starrykol", "pageKolProfiles", true, 0);
-    setSkillConnector("declared_fixture", "starrykol", false, 1);
-    expect(skillConnectorGaps("declared_fixture")).toEqual([{ connector_id: "starrykol", reason: "connector_unbound" }]);
+  it("父绑定被停用、或启用工具绑定为 0 都是缺口", async () => {
+    (await policy("starrykol", "pageKolProfiles"));
+    (await setSkillConnector("declared_fixture", "starrykol", true, 0));
+    (await setSkillTool("declared_fixture", "starrykol", "pageKolProfiles", true, 0));
+    (await setSkillConnector("declared_fixture", "starrykol", false, 1));
+    expect((await skillConnectorGaps("declared_fixture"))).toEqual([{ connector_id: "starrykol", reason: "connector_unbound" }]);
 
-    setSkillConnector("declared_fixture", "starrykol", true, 2);
-    setSkillTool("declared_fixture", "starrykol", "pageKolProfiles", false, 1);
-    expect(skillConnectorGaps("declared_fixture")).toEqual([{ connector_id: "starrykol", reason: "no_tool_bound" }]);
+    (await setSkillConnector("declared_fixture", "starrykol", true, 2));
+    (await setSkillTool("declared_fixture", "starrykol", "pageKolProfiles", false, 1));
+    expect((await skillConnectorGaps("declared_fixture"))).toEqual([{ connector_id: "starrykol", reason: "no_tool_bound" }]);
   });
 
-  it("unknown_connector 不计入，也不误伤只声明 legacy 别名的技能", () => {
+  it("unknown_connector 不计入，也不误伤只声明 legacy 别名的技能", async () => {
     // confirm_stage 只声明 legacy `starry.*`，kolclaw 系技能声明的是未登记的 `kolclaw.*`。
-    expect(declaredManagedConnectors("confirm_stage")).toEqual([]);
-    expect(skillConnectorGaps("confirm_stage")).toEqual([]);
-    expect(skillConnectorGaps("creator_daily_tasks")).toEqual([]);
-    expect(skillConnectorGaps("creator_budget_report")).toEqual([]);
+    expect((await declaredManagedConnectors("confirm_stage"))).toEqual([]);
+    expect((await skillConnectorGaps("confirm_stage"))).toEqual([]);
+    expect((await skillConnectorGaps("creator_daily_tasks"))).toEqual([]);
+    expect((await skillConnectorGaps("creator_budget_report"))).toEqual([]);
   });
 });
 
 describe("unusableDiscoveredConnector", () => {
-  it("声明了已登记连接器、远端又报它失败，且该连接器 0 个工具时才算运行期缺口", () => {
-    expect(unusableDiscoveredConnector("creator_library_query", {
+  it("声明了已登记连接器、远端又报它失败，且该连接器 0 个工具时才算运行期缺口", async () => {
+    expect((await unusableDiscoveredConnector("creator_library_query", {
       tools: [],
       unavailable: [{ connector_id: "starrykol", code: "runtime_remote_timeout" }],
-    })).toEqual({ connector_id: "starrykol", code: "runtime_remote_timeout" });
+    }))).toEqual({ connector_id: "starrykol", code: "runtime_remote_timeout" });
     // 已经发现到工具：turn 有真数据可调用，不拦。
-    expect(unusableDiscoveredConnector("creator_library_query", {
+    expect((await unusableDiscoveredConnector("creator_library_query", {
       tools: [{ connectorId: "starrykol" }],
       unavailable: [{ connector_id: "starrykol", code: "runtime_no_authorized_tools" }],
-    })).toBeNull();
+    }))).toBeNull();
     // 没有绑定行时 discover 连 unavailable 都不记，这种缺口由前置拦截负责。
-    expect(unusableDiscoveredConnector("creator_library_query", { tools: [], unavailable: [] })).toBeNull();
+    expect((await unusableDiscoveredConnector("creator_library_query", { tools: [], unavailable: [] }))).toBeNull();
     // 只报未登记连接器（legacy starry）或别家连接器，不算缺口。
-    expect(unusableDiscoveredConnector("creator_library_query", {
+    expect((await unusableDiscoveredConnector("creator_library_query", {
       tools: [],
       unavailable: [{ connector_id: "starry", code: "runtime_connector_unbound" }],
-    })).toBeNull();
-    expect(unusableDiscoveredConnector("today_plan", {
+    }))).toBeNull();
+    expect((await unusableDiscoveredConnector("today_plan", {
       tools: [],
       unavailable: [{ connector_id: "starrykol", code: "runtime_remote_unavailable" }],
-    })).toBeNull();
+    }))).toBeNull();
   });
 });
 
 describe("连接缺口卡（Host 闸门）", () => {
-  it("真实模式命中缺口：不落 steps、不起箱，只落业务语言的连接缺口卡", () => {
+  it("真实模式命中缺口：不落 steps、不起箱，只落业务语言的连接缺口卡", async () => {
     session("ses_connector_gap");
     setMode("real");
-    policiesFor("creator_library_query");
-    const response = connectorGapResponse("ses_connector_gap", {}, intentFor("creator_library_query"), "creator_library_query");
+    (await policiesFor("creator_library_query"));
+    const response = (await connectorGapResponse("ses_connector_gap", {}, intentFor("creator_library_query"), "creator_library_query"));
     expect(response).not.toBeNull();
     expect(response!.worker).toBeNull();
     expect(response!.connector_gap).toMatchObject({ code: "runtime_connector_unmounted", skill_id: "creator_library_query", connectors: ["starrykol"] });
@@ -223,32 +223,32 @@ describe("连接缺口卡（Host 闸门）", () => {
     });
   });
 
-  it("stub 模式不拦截：不落卡、不写审计", () => {
+  it("stub 模式不拦截：不落卡、不写审计", async () => {
     session("ses_stub_no_gate");
     setMode("stub");
-    expect(connectorGapResponse("ses_stub_no_gate", {}, intentFor("creator_library_query"), "creator_library_query")).toBeNull();
+    expect((await connectorGapResponse("ses_stub_no_gate", {}, intentFor("creator_library_query"), "creator_library_query"))).toBeNull();
     expect(listAudit("runtime.connector_gap")).toHaveLength(0);
   });
 
-  it("工具绑定齐备时不拦截", () => {
+  it("工具绑定齐备时不拦截", async () => {
     session("ses_connector_ready");
-    policy("starrykol", "pageKolProfiles");
-    setSkillConnector("creator_library_query", "starrykol", true, 0);
-    setSkillTool("creator_library_query", "starrykol", "pageKolProfiles", true, 0);
+    (await policy("starrykol", "pageKolProfiles"));
+    (await setSkillConnector("creator_library_query", "starrykol", true, 0));
+    (await setSkillTool("creator_library_query", "starrykol", "pageKolProfiles", true, 0));
     setMode("real");
-    expect(connectorGapResponse("ses_connector_ready", {}, intentFor("creator_library_query"), "creator_library_query")).toBeNull();
+    expect((await connectorGapResponse("ses_connector_ready", {}, intentFor("creator_library_query"), "creator_library_query"))).toBeNull();
   });
 
-  it("任务协作分析（kol_analyze）本轮不挂载业务工具，不按声明工具拦截", () => {
+  it("任务协作分析（kol_analyze）本轮不挂载业务工具，不按声明工具拦截", async () => {
     session("ses_task_analysis");
     setMode("real");
-    expect(connectorGapResponse("ses_task_analysis", {}, intentFor("kol_analyze"), "kol_analyze")).toBeNull();
+    expect((await connectorGapResponse("ses_task_analysis", {}, intentFor("kol_analyze"), "kol_analyze"))).toBeNull();
   });
 
-  it("只声明 legacy 别名的技能不被拦截", () => {
+  it("只声明 legacy 别名的技能不被拦截", async () => {
     session("ses_stage_write");
     setMode("real");
-    expect(connectorGapResponse("ses_stage_write", {}, intentFor("confirm_stage"), "confirm_stage")).toBeNull();
+    expect((await connectorGapResponse("ses_stage_write", {}, intentFor("confirm_stage"), "confirm_stage"))).toBeNull();
   });
 });
 
@@ -293,10 +293,10 @@ describe.skipIf(!hasPostgres)("运行路径的连接缺口闸门（需要 Postgr
   }
 
   it("声明了连接器却没有任何挂载：不起箱、不起 turn，员工只看到连接缺口卡", async () => {
-    const cookie = seedRuntimeTestActor(["creator_library_query"]);
-    policiesFor("creator_library_query");
+    const cookie = (await seedRuntimeTestActor(["creator_library_query"]));
+    (await policiesFor("creator_library_query"));
     const { createApp } = await import("../src/app.js");
-    const app = authenticatedTestApp(createApp(), cookie);
+    const app = authenticatedTestApp((await createApp()), cookie);
     const sid = await ask(app, "creator_library_query", "查询达人库");
     const messages = await waitForKind(app, sid, "error_card");
     const card = messages.find((message) => message.kind === "error_card")?.payload as Json;
@@ -329,7 +329,7 @@ describe.skipIf(!hasPostgres)("运行路径的连接缺口闸门（需要 Postgr
     setMode("stub");
     process.env.AUTH_MODE = "disabled";
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const created = await app.request("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -46,14 +46,14 @@ beforeEach(async () => {
   const now = new Date().toISOString();
   getConn().prepare("INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
     .run(user.id, user.username, user.name, "x", JSON.stringify(user.roles), "[]", user.site, 1, now, now);
-  const person = syncUserOrganization(user.id, user.site);
-  const agent = createManagedAgent({ name: "产品专家", description: "负责产品规格、选型和使用咨询" });
+  const person = (await syncUserOrganization(user.id, user.site));
+  const agent = (await createManagedAgent({ name: "产品专家", description: "负责产品规格、选型和使用咨询" }));
   agentId = agent.id;
-  setAgentSkill(agentId, skillId, true, 0);
+  (await setAgentSkill(agentId, skillId, true, 0));
   getConn().prepare("INSERT INTO skill_lifecycle (skill_id,stage,updated_at) VALUES (?,?,?)").run(skillId, "published", now);
-  bindingId = createAgentBinding({ agent_id: agentId, target_type: "person", target_id: person,
-    company_id: "company:amperetime", source: "test" }).id;
-  updateManagedAgent(agentId, { status: "published", expected_version: 1 });
+  bindingId = (await createAgentBinding({ agent_id: agentId, target_type: "person", target_id: person,
+    company_id: "company:amperetime", source: "test" })).id;
+  (await updateManagedAgent(agentId, { status: "published", expected_version: 1 }));
 });
 
 afterEach(() => {
@@ -91,7 +91,7 @@ describe("employee Agent routing", () => {
       expect(own.published_by).toBeNull(); // No fabricated publisher for a legacy release without provenance.
       await postgresQuery("UPDATE knowledge_bindings SET enabled=0 WHERE id=$1", ["browse-fixture"]);
       expect((await withScopedUser(brandedUser, () => employeeAgentBrowse())).rows.find(row => row.expert_id === agentId)?.scopes).toEqual([]);
-      asUser(() => revokeAgentBinding(bindingId));
+      (await asUser(async () => (await revokeAgentBinding(bindingId))));
       expect((await withScopedUser(brandedUser, () => employeeAgentBrowse())).rows.some(row => row.expert_id === agentId)).toBe(false);
     } finally {
       if (previousAuthMode === undefined) delete process.env.AUTH_MODE; else process.env.AUTH_MODE = previousAuthMode;
@@ -110,9 +110,9 @@ describe("employee Agent routing", () => {
     const now = new Date().toISOString();
     await postgresQuery("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
       [other.id, other.username, "另一位产品员工", "fixture", '["employee"]', "[]", other.site, 1, now, now]);
-    const otherPerson = syncUserOrganization(other.id, other.site);
-    createAgentBinding({ agent_id: agentId, target_type: "person", target_id: otherPerson, company_id: "company:amperetime", source: "test" });
-    expect(withScopedUser(other, () => employeeExperts())).toContainEqual(expect.objectContaining({ id: agentId }));
+    const otherPerson = (await syncUserOrganization(other.id, other.site));
+    (await createAgentBinding({ agent_id: agentId, target_type: "person", target_id: otherPerson, company_id: "company:amperetime", source: "test" }));
+    expect(withScopedUser(other, async () => (await employeeExperts()))).toContainEqual(expect.objectContaining({ id: agentId }));
     expect(await withScopedUser(other, () => employeeAgentPreferences())).toEqual([]);
     await expect(asUser(() => updateEmployeeAgentPreference(agentId, { favorite: "true" }))).rejects.toThrow();
     await expect(asUser(() => updateEmployeeAgentPreference(agentId, { viewed: false }))).rejects.toThrow();
@@ -120,8 +120,8 @@ describe("employee Agent routing", () => {
 
   it("rechecks publication and qualification for preferences, details and continuation", async () => {
     await asUser(() => updateEmployeeAgentPreference(agentId, { favorite: true }));
-    const session = asUser(() => summonEmployeeAgent(agentId));
-    asUser(() => revokeAgentBinding(bindingId));
+    const session = (await asUser(async () => (await summonEmployeeAgent(agentId))));
+    (await asUser(async () => (await revokeAgentBinding(bindingId))));
     expect(await asUser(() => employeeAgentPreferences())).toEqual([]);
     await expect(asUser(() => employeeAgentWorkspace(agentId))).rejects.toThrow();
     await expect(asUser(() => updateEmployeeAgentPreference(agentId, { viewed: true }))).rejects.toThrow();
@@ -129,7 +129,7 @@ describe("employee Agent routing", () => {
   });
 
   it("projects published skills and resumes only an active owned session of this Agent", async () => {
-    const session = asUser(() => summonEmployeeAgent(agentId));
+    const session = (await asUser(async () => (await summonEmployeeAgent(agentId))));
     const countBefore = await postgresQuery<{ count: string }>("SELECT COUNT(*) AS count FROM sessions");
     const workspace = await asUser(() => employeeAgentWorkspace(agentId));
     expect(workspace.skills).toEqual([expect.objectContaining({ id: skillId, name: "产品咨询" })]);
@@ -194,7 +194,7 @@ describe("employee Agent routing", () => {
     const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
     Object.assign(process.env, { CODEX_MODE: "real", CODEX_BIN: path.resolve("tests/fixtures/fake-codex.mjs"), FAKE_CODEX_MODE: "task-result-success", FAKE_CODEX_REJECT_EMPTY_FORK: "1" });
     try {
-      const session = asUser(() => summonEmployeeAgent(agentId));
+      const session = (await asUser(async () => (await summonEmployeeAgent(agentId))));
       const result = await asUser(() => Promise.resolve(runner.runWorker(String(session.session_id), skillId, "有什么产品？功能是什么？", { agent_id: agentId, derive_child: true })));
       expect(result.status).toBe("done");
       expect(result.contract_log.some(entry => entry.method === "thread/start")).toBe(true);
@@ -202,32 +202,32 @@ describe("employee Agent routing", () => {
     } finally { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } }
   });
 
-  it("lists and summons a published managed Agent with a persisted entry binding", () => asUser(() => {
-    expect(employeeExperts()).toContainEqual(expect.objectContaining({ id: agentId, display_name: "产品专家", skill_ids: [skillId] }));
-    const session = summonEmployeeAgent(agentId);
+  it("lists and summons a published managed Agent with a persisted entry binding", async () => (await asUser(async () => {
+    expect((await employeeExperts())).toContainEqual(expect.objectContaining({ id: agentId, display_name: "产品专家", skill_ids: [skillId] }));
+    const session = (await summonEmployeeAgent(agentId));
     expect(getConn().prepare("SELECT expert_id,expert_version FROM sessions WHERE id=?").get(session.session_id))
       .toMatchObject({ expert_id: agentId, expert_version: "2" });
-  }));
+  })));
 
-  it("does not expose an unbound Agent, and revocation removes an existing entry", () => asUser(() => {
-    revokeAgentBinding(bindingId);
-    expect(availableAgentRoutes().some(route => route.agent_id === agentId)).toBe(false);
-    expect(() => employeeExpert(agentId)).toThrow();
-    expect(() => summonEmployeeAgent(agentId)).toThrow();
-  }));
+  it("does not expose an unbound Agent, and revocation removes an existing entry", async () => (await asUser(async () => {
+    (await revokeAgentBinding(bindingId));
+    expect((await availableAgentRoutes()).some(route => route.agent_id === agentId)).toBe(false);
+    await expect((async () => (await employeeExpert(agentId)))()).rejects.toThrow();
+    await expect((async () => (await summonEmployeeAgent(agentId)))()).rejects.toThrow();
+  })));
 
-  it("removes disabled Agents and unpublished skills from the candidate catalog", () => asUser(() => {
-    updateManagedAgent(agentId, { status: "disabled", expected_version: 2 });
+  it("removes disabled Agents and unpublished skills from the candidate catalog", async () => (await asUser(async () => {
+    (await updateManagedAgent(agentId, { status: "disabled", expected_version: 2 }));
     expect(availableAgentRoutes(agentId)).toEqual([]);
-    updateManagedAgent(agentId, { status: "published", expected_version: 3 });
+    (await updateManagedAgent(agentId, { status: "published", expected_version: 3 }));
     getConn().prepare("UPDATE skill_lifecycle SET stage='draft' WHERE skill_id=?").run(skillId);
     expect(availableAgentRoutes(agentId)).toEqual([]);
-  }));
+  })));
 
   it("retains the model-selected Agent when the same skill also belongs to the default Agent", async () => {
-    setAgentSkill("agent:kol", skillId, true, 0);
-    const person = syncUserOrganization(user.id, user.site);
-    createAgentBinding({ agent_id: "agent:kol", target_type: "person", target_id: person, company_id: "company:amperetime", source: "test" });
+    (await setAgentSkill("agent:kol", skillId, true, 0));
+    const person = (await syncUserOrganization(user.id, user.site));
+    (await createAgentBinding({ agent_id: "agent:kol", target_type: "person", target_id: person, company_id: "company:amperetime", source: "test" }));
     setTaskClassifier(async () => ({ task_type: skillId, agent_id: agentId, confidence: 0.99 }));
     const result = await asUser(() => recognizeTaskIntent({ text: "该产品的规格是什么？" }));
     expect(result).toMatchObject({ agent_id: agentId, agent_name: "产品专家", task_type: skillId, clarification_kind: "none" });
@@ -247,7 +247,7 @@ describe("employee Agent routing", () => {
 
   it("persists routing through task creation and passes the same identity to the Worker", async () => {
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     setTaskClassifier(async () => ({ task_type: skillId, agent_id: agentId, confidence: 0.99 }));
     const request = (url: string, body: unknown) => asUser(() => app.request(url, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
@@ -273,7 +273,7 @@ describe("employee Agent routing", () => {
 
   it("gives Luna/Codex only qualified pairs and Jev selects the same pair in one classification", async () => {
     process.env.OPENROUTER_API_KEY = "fixture-only";
-    const routes = asUser(() => availableAgentRoutes(agentId));
+    const routes = (await asUser(() => availableAgentRoutes(agentId)));
     await withAgentRoutes(routes, async () => {
       expect(intentSystemPrompt()).toContain(`agent_id=${agentId}`);
       expect(intentSystemPrompt()).not.toContain("- email_compose:");
@@ -305,7 +305,7 @@ describe("employee Agent routing", () => {
       await expect(execution.invoke(String(tool.exposed.name), { query: "产品参数" })).rejects.toThrow();
       expect(query).not.toHaveBeenCalled();
       query.mockClear();
-      revokeAgentBinding(bindingId);
+      (await revokeAgentBinding(bindingId));
       await expect(execution.invoke(String(tool.exposed.name), { query: "再次查询" })).rejects.toThrow();
       expect(query).not.toHaveBeenCalled();
     } finally { execution.close(); }

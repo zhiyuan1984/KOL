@@ -26,7 +26,7 @@ beforeEach(async()=>{
   process.env.CODEX_BIN=path.resolve("tests/fixtures/fake-codex.mjs");
   process.env.FAKE_CODEX_MODE="task-collaboration-evidence";process.env.FAKE_CODEX_DELAY="500";
   process.env.FAKE_CODEX_THREAD_START=path.join(tmp,"thread.json");
-  seed(); seedPublishedAgent("agent:kol"); seedRuntimeTestActor(["kol_analyze"],true);
+  seed(); (await seedPublishedAgent("agent:kol")); (await seedRuntimeTestActor(["kol_analyze"],true));
   const user=mapUser(getConn().prepare("SELECT * FROM users WHERE id='usr_runtime_fixture'").get() as Row);
   await syncWorkbenchTicketPrincipal(user);
   taskId=(await createTaskRootPostgres(user.id,{title:"Native dependency analysis",goal:"Explain actual blockers",idempotency_key:"worker-task-create"})).task_id;

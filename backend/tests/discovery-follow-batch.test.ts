@@ -168,14 +168,14 @@ beforeEach(async () => {
   creators = threeCreators();
   resetConn();
   seedAll();
-  configureCrawlerFixture();
+  (await configureCrawlerFixture());
   resetCollectorConnectionCache();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();
   setCrawlMcpClientFactory(mockCrawl);
   setStarryKolClientFactory();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 
 afterEach(() => {

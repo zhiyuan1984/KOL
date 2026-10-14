@@ -97,16 +97,16 @@ beforeEach(async () => {
   const db = getConn();
   db.prepare("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES(?,?,?,'fixture','[\"employee\"]','[]','',1,'now','now')")
     .run(context.userId, context.userId, "Recovery fixture");
-  seedPublishedAgent(context.agentId, "Recovery fixture");
-  createAgentBinding({ agent_id: context.agentId, target_type: "organization_unit", target_id: "org:lt_team", company_id: "company:amperetime", source: "test" });
+  (await seedPublishedAgent(context.agentId, "Recovery fixture"));
+  (await createAgentBinding({ agent_id: context.agentId, target_type: "organization_unit", target_id: "org:lt_team", company_id: "company:amperetime", source: "test" }));
   db.prepare("UPDATE organization_people SET user_id=? WHERE person_ref='person:ye_guanwang'").run(context.userId);
-  configureCrawlerFixture(url);
-  setAgentSkill(context.agentId, context.skillId, true, 0);
-  setSkillConnector(context.skillId, "claw", true, 0);
+  (await configureCrawlerFixture(url));
+  (await setAgentSkill(context.agentId, context.skillId, true, 0));
+  (await setSkillConnector(context.skillId, "claw", true, 0));
   for (const tool of descriptors) {
-    setToolPolicy("claw", tool.name, { enabled: true, risk: tool.name === "start_crawl" ? "L3" : "L1",
-      access: tool.name === "start_crawl" ? "write" : "read", schema_hash: toolSchemaHash(tool as unknown as Json) }, Number(getToolPolicy("claw", tool.name)?.version || 0));
-    setSkillTool(context.skillId, "claw", tool.name, true, 0);
+    (await setToolPolicy("claw", tool.name, { enabled: true, risk: tool.name === "start_crawl" ? "L3" : "L1",
+      access: tool.name === "start_crawl" ? "write" : "read", schema_hash: toolSchemaHash(tool as unknown as Json) }, Number((await getToolPolicy("claw", tool.name))?.version || 0)));
+    (await setSkillTool(context.skillId, "claw", tool.name, true, 0));
   }
 });
 

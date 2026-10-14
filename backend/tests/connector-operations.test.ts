@@ -19,7 +19,7 @@ beforeEach(async () => {
   Object.assign(process.env, { LINGONG_DB: path.join(tmp, "db.sqlite"), LINGONG_DATA: tmp, AUTH_MODE: "disabled", NODE_ENV: "test" });
   resetConn();
   getConn().prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('probe_fixture','Fixture',1,'configured','now')").run();
-  setConnectorConfig("probe_fixture", { url: "https://fixture.example/mcp", allow_unauthenticated: true }, 0);
+  (await setConnectorConfig("probe_fixture", { url: "https://fixture.example/mcp", allow_unauthenticated: true }, 0));
 });
 afterEach(() => {
   resetConn(); fs.rmSync(tmp, { recursive: true, force: true });
@@ -35,7 +35,7 @@ const root = "/api/admin/runtime/connectors/probe_fixture";
 describe("connector operations (isolated inspector, no external service)", () => {
   it("uses read-only discovery even for MediaCrawler URLs and never starts a crawl", async () => {
     process.env.MEDIACRAWLER_MCP_URL = "https://fixture.example/mcp";
-    configureCrawlerFixture("https://fixture.example/mcp");
+    (await configureCrawlerFixture("https://fixture.example/mcp"));
     let starts = 0;
     const a = app(async () => [{ name: "start_crawl", inputSchema: { type: "object" } }], async () => { starts += 1; });
     const response = await a.request(root + "/probe", { method: "POST" });
@@ -96,7 +96,7 @@ describe("connector operations (isolated inspector, no external service)", () =>
     expect(JSON.stringify(getConn().prepare("SELECT payload FROM audit_events").all())).not.toContain(secret);
   });
   it("invalidates probe success when configuration changes during inspection", async () => {
-    const a = app(async () => { setConnectorConfig("probe_fixture", {url:"https://changed.example/mcp", allow_unauthenticated:true},1); return []; });
+    const a = app(async () => { (await setConnectorConfig("probe_fixture", {url:"https://changed.example/mcp", allow_unauthenticated:true},1)); return []; });
     const response = await a.request(root + "/probe", {method:"POST"});
     expect(await response.json()).toMatchObject({status:"failed", error_code:"runtime_binding_changed",live_verified:false});
   });

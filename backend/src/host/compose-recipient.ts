@@ -74,14 +74,14 @@ function fmtDay(iso: string | null): string {
   return `${mm}-${dd}`;
 }
 
-function ownMailboxSet(user: Persona | null | undefined): Set<string> {
+async function ownMailboxSet(user: Persona | null | undefined): Promise<Set<string>> {
   const set = new Set<string>();
   try {
-    for (const binding of mailboxBindings()) {
+    for (const binding of (await mailboxBindings())) {
       const email = normalizeEmail(String(binding.mailbox || ""));
       if (email) set.add(email);
     }
-    const bound = normalizeEmail(boundMailboxEmail() || "");
+    const bound = normalizeEmail((await boundMailboxEmail()) || "");
     if (bound) set.add(bound);
   } catch {
     // 读绑定失败时不扩大范围：只按空集合处理，候选照常过滤系统地址。
@@ -132,16 +132,16 @@ function collaborationThreads(collaborationId: string, limit: number): ThreadPee
   }));
 }
 
-export function composeRecipientFor(input: {
+export async function composeRecipientFor(input: {
   /** 已解析的发件箱；为空时 memory 档跳过（最近往来只看当前发件箱） */
   mailbox: string;
   collaboration?: Row | null;
   conversationId?: string | null;
   explicitTo?: string | null;
   user?: Persona | null;
-}): ComposeRecipient {
+}): Promise<ComposeRecipient> {
   const user = input.user || null;
-  const owned = ownMailboxSet(user || currentUserSafe());
+  const owned = (await ownMailboxSet(user || currentUserSafe()));
   const mailbox = normalizeEmail(String(input.mailbox || ""));
 
   // 第 1 档：口令里写明的地址。写明了但属于本人/系统地址时不静默换人，
@@ -173,7 +173,7 @@ export function composeRecipientFor(input: {
   // 第 2 档：通讯页选中的会话的对方。会话必须在（所选/默认）发件箱下，否则拒绝。
   const conversationId = String(input.conversationId || "").trim();
   if (conversationId) {
-    const thread = findMailThread(conversationId, mailbox || undefined);
+    const thread = (await findMailThread(conversationId, mailbox || undefined));
     if (!thread) {
       return {
         to: "",

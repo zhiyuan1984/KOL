@@ -51,7 +51,7 @@ beforeEach(async () => {
   seedAll();
   clearTaskRegistryCache();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 
 afterEach(() => {
@@ -150,7 +150,7 @@ describe("skill lifecycle", () => {
 
   it("reports a live bundled skill without snapshots as the bundled baseline, not unpublished", async () => {
     await loginPm();
-    ensureRuntimeSchema();
+    (await ensureRuntimeSchema());
     const list = await request("GET", "/api/admin/skills");
     expect(list.status).toBe(200);
     const lifecycle = (list.body.skills as Json[]).find((s) => s.id === "creator_library_all")?.lifecycle as Json;
@@ -164,7 +164,7 @@ describe("skill lifecycle", () => {
 
   it("bundled skills take presentation overrides through draft → publish, never runtime contract fields", async () => {
     await loginPm();
-    ensureRuntimeSchema();
+    (await ensureRuntimeSchema());
     const id = "creator_library_all";
     const before = taskDefinition(id)!;
     expect(before.icon).toBe("database");
@@ -188,7 +188,7 @@ describe("skill lifecycle", () => {
 
   it("declared tools are checked against the registered catalog at testing/publish time, not a code allowlist", async () => {
     await loginPm();
-    ensureRuntimeSchema();
+    (await ensureRuntimeSchema());
     const id = "catalog_probe";
     const created = await request("POST", "/api/admin/skills", { ...NEW_SKILL, id, mcp: ["starrykol.brandNewRemoteTool"] });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
@@ -204,13 +204,13 @@ describe("skill lifecycle", () => {
       expect(unregistered.status).toBe(409);
       expect(JSON.stringify(unregistered.body)).toContain("skill_tools_unregistered");
 
-      setToolPolicy("starrykol", "brandNewRemoteTool", { enabled: true, risk: "L1", access: "read", schema_hash: "a".repeat(64) }, 0);
+      (await setToolPolicy("starrykol", "brandNewRemoteTool", { enabled: true, risk: "L1", access: "read", schema_hash: "a".repeat(64) }, 0));
       const unmounted = await request("POST", `/api/admin/skills/${id}/stage`, { stage: "testing" });
       expect(unmounted.status).toBe(409);
       expect(JSON.stringify(unmounted.body)).toContain("skill_tools_unmounted");
 
-      setSkillConnector(id, "starrykol", true, 0);
-      setSkillTool(id, "starrykol", "brandNewRemoteTool", true, 0);
+      (await setSkillConnector(id, "starrykol", true, 0));
+      (await setSkillTool(id, "starrykol", "brandNewRemoteTool", true, 0));
       const ready = await request("POST", `/api/admin/skills/${id}/stage`, { stage: "testing" });
       expect(ready.status, JSON.stringify(ready.body)).toBe(200);
     } finally {

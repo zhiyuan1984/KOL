@@ -195,7 +195,7 @@ describe("MCP compose with From locked to larry.zhao", () => {
   it("explains an empty conversation list for Wendell's portrait-sheet email", async () => {
     const listed = await executeEmailMcpTask("email_conversation_list", { to: "wendellfishing@gmail.com" });
     expect(listed.data.total).toBe(0);
-    const card = emailMcpResultCard("email_conversation_list", listed.data);
+    const card = (await emailMcpResultCard("email_conversation_list", listed.data));
     expect(card.summary).toContain("wendellfishing@gmail.com");
     expect(JSON.stringify(card.sections)).toContain("不是 Gmail / 163 收件箱");
   });
@@ -302,7 +302,7 @@ describe("MCP compose with From locked to larry.zhao", () => {
     }));
     const taken = await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-12")?.entities || {});
     expect(taken.data.error).toBe("联系邮箱已被其他红人占用");
-    expect(emailMcpResultCard("email_compose", taken.data).summary).toContain("已有红人画像");
+    expect((await emailMcpResultCard("email_compose", taken.data)).summary).toContain("已有红人画像");
 
     calls.length = 0;
     setEmailMcpClientFactory(() => mockMcp({
@@ -311,7 +311,7 @@ describe("MCP compose with From locked to larry.zhao", () => {
     }));
     const owner = await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-13")?.entities || {});
     expect(owner.data).toMatchObject({ needs_input: true, error: "负责人无可用邮箱", missing_fields: [] });
-    expect(emailMcpResultCard("email_compose", owner.data).summary).toContain("已在授权列表中");
+    expect((await emailMcpResultCard("email_compose", owner.data)).summary).toContain("已在授权列表中");
     expect(JSON.parse(String(calls.find((row) => row.name === "createEmailConversation")?.args.requestJson)).mailboxEmail).toBe(LARRY_ZHAO_MAILBOX);
   });
 });

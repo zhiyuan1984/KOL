@@ -83,10 +83,10 @@ function pathBytes(target: string): number {
   }
 }
 
-function safeUser(row: Row): Json {
+async function safeUser(row: Row): Promise<Json> {
   const { password_hash: _password, ...rest } = row;
   const db = getConn();
-  const avatarUrl = avatarUrlForUser(String(row.id));
+  const avatarUrl = (await avatarUrlForUser(String(row.id)));
   const person = db.prepare("SELECT person_ref,email,employee_no FROM organization_people WHERE user_id=?")
     .get(row.id) as { person_ref?: string; email?: string | null; employee_no?: string | null } | undefined;
   const mailboxCount = db.prepare("SELECT COUNT(*) AS n FROM user_starry_bindings WHERE user_id=?")
@@ -130,7 +130,7 @@ function userById(id: string): Row {
 }
 
 /** Management-only business binding projection; the Starry bearer is never selected. */
-function employeeContext(row: Row): Json {
+async function employeeContext(row: Row): Promise<Json> {
   const db = getConn();
   const mailboxes = (db.prepare(
     `SELECT mailbox_email,mailbox_id,owner_name,status,is_default,updated_at,synced_at,last_error
@@ -166,7 +166,7 @@ function employeeContext(row: Row): Json {
     mailbox_email: kol.mailbox_email ? String(kol.mailbox_email) : null,
     claimed_at: kol.claimed_at ? String(kol.claimed_at) : null,
   }));
-  return { user: safeUser(row), avatar_url: avatarUrlForUser(String(row.id)), mailboxes, kols };
+  return { user: (await safeUser(row)), avatar_url: (await avatarUrlForUser(String(row.id))), mailboxes, kols };
 }
 
 /** Direct employee capability grants are backed by the same PEP table used at runtime. */
@@ -195,9 +195,9 @@ function projectEmployeeTools(granted: Set<string>): Json {
 }
 
 /** Catalog card metadata; an unreadable runtime table degrades to the MCP defaults. */
-function connectorRuntimeFacts(connectorId: string): { protocol: "mcp" | "http"; approved_tool_count: number } {
+async function connectorRuntimeFacts(connectorId: string): Promise<{ protocol: "mcp" | "http"; approved_tool_count: number }> {
   try {
-    ensureRuntimeSchema();
+    (await ensureRuntimeSchema());
     const stored = getConn().prepare(
       "SELECT config_json FROM runtime_connector_config WHERE connector_id=?",
     ).get(connectorId) as Row | undefined;
@@ -221,10 +221,10 @@ function connectorRuntimeFacts(connectorId: string): { protocol: "mcp" | "http";
   }
 }
 
-function connectorPublic(row: unknown): Json {
+async function connectorPublic(row: unknown): Promise<Json> {
   const value = row as Row;
   const id = String(value.id || "");
-  const facts = connectorRuntimeFacts(id);
+  const facts = (await connectorRuntimeFacts(id));
   return {
     ...value,
     enabled: Boolean(value.enabled),
@@ -319,9 +319,9 @@ function settingsBrandCode(value: unknown, definitions = settingsBrandDefinition
 }
 
 /** Current, active authority facts only; historical/ended memberships never authorize settings choices. */
-function settingsOrganization(user: AppUser): SettingsOrganization {
+async function settingsOrganization(user: AppUser): Promise<SettingsOrganization> {
   // Ensures the organization tables exist before direct, bounded lookup queries.
-  listOrganizationUnits();
+  (await listOrganizationUnits());
   const db = getConn();
   const person = db.prepare(
     "SELECT person_ref,display_name,email,employee_no,status FROM organization_people WHERE user_id=? AND status='active'",
@@ -435,9 +435,9 @@ function settingsPreferences(
   return preferences;
 }
 
-function settingsProfile(user: AppUser, organization: SettingsOrganization): Json {
+async function settingsProfile(user: AppUser, organization: SettingsOrganization): Promise<Json> {
   const membership = organization.membership;
-  const units = membership ? listOrganizationUnits(membership.company_id) : [];
+  const units = membership ? (await listOrganizationUnits(membership.company_id)) : [];
   const byId = new Map(units.map((unit) => [unit.id, unit]));
   const path: string[] = [];
   const seen = new Set<string>();
@@ -463,14 +463,14 @@ function settingsProfile(user: AppUser, organization: SettingsOrganization): Jso
   };
 }
 
-function settingsContext(user: AppUser): Json {
+async function settingsContext(user: AppUser): Promise<Json> {
   const definitions = settingsBrandDefinitions();
-  const organization = settingsOrganization(user);
+  const organization = (await settingsOrganization(user));
   const authorizedBrands = settingsAuthorizedBrands(user, organization, definitions);
   const mailboxes = settingsMailboxes(user, definitions);
   const preferenceRow = getConn().prepare("SELECT * FROM user_preferences WHERE user_id=?").get(user.id) as Row | undefined;
   return {
-    profile: settingsProfile(user, organization),
+    profile: (await settingsProfile(user, organization)),
     brands: definitions.filter((brand) => authorizedBrands.includes(brand.code)).map((brand) => ({ id: brand.code, label: brand.label })),
     mailboxes,
     preferences: settingsPreferences(user, preferenceRow, authorizedBrands, mailboxes),
@@ -478,14 +478,14 @@ function settingsContext(user: AppUser): Json {
   };
 }
 
-enterprise.get("/admin/organization-people", (c) => {
+enterprise.get("/admin/organization-people", async (c) => {
   requireAdmin();
   const memberships = new Map(
-    listOrganizationMemberships()
+    (await listOrganizationMemberships())
       .filter((row) => row.relation === "primary" && row.status === "active")
       .map((row) => [row.person_ref, row]),
   );
-  const people = listOrganizationPeople()
+  const people = (await listOrganizationPeople())
     .map((person) => {
       const membership = memberships.get(person.person_ref);
       return {
@@ -513,7 +513,7 @@ enterprise.post("/admin/users", async (c) => {
   const username = String(body.username || "").trim().toLowerCase();
   if (!/^[a-z0-9._@-]{3,100}$/.test(username)) throw new HttpFail(400, "invalid username");
   const unitId = String(body.site || "").trim();
-  if (unitId && !listOrganizationUnits().some((unit) => unit.id === unitId && unit.status === "active")) {
+  if (unitId && !(await listOrganizationUnits()).some((unit) => unit.id === unitId && unit.status === "active")) {
     throw new HttpFail(400, "请选择有效组织单元");
   }
   const id = nid("usr");
@@ -524,19 +524,19 @@ enterprise.post("/admin/users", async (c) => {
     : null;
   if (process.env.DATABASE_URL) { if (unitId) await pgSyncOrganizationMembership(id, unitId, now); audit(admin.id, "admin.user.create", { user_id: id }); return c.json({ ...created, password_hash: undefined }, 201); }
   getConn().prepare(`INSERT INTO users (id,username,name,password_hash,roles,brands,site,position,manager_user_id,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, username, String(body.name || username), passwordHash, JSON.stringify(roles(body.roles || ["employee"])), JSON.stringify(body.brands || []), unitId, String(body.position || ""), body.manager_user_id || null, body.active === false ? 0 : 1, now, now);
-  syncUserOrganization(id, unitId); audit(admin.id, "admin.user.create", { user_id: id }); return c.json(safeUser(userById(id)), 201);
+  (await syncUserOrganization(id, unitId)); audit(admin.id, "admin.user.create", { user_id: id }); return c.json((await safeUser(userById(id))), 201);
 });
 
 enterprise.get("/admin/users/:uid", async (c) => {
   requireAdmin();
   if (process.env.DATABASE_URL) return c.json(await pgEnterpriseAccount(c.req.param("uid")));
-  return c.json(safeUser(userById(c.req.param("uid"))));
+  return c.json((await safeUser(userById(c.req.param("uid")))));
 });
 
 enterprise.get("/admin/users/:uid/context", async (c) => {
   requireAdmin();
   if (process.env.DATABASE_URL) return c.json(await pgEnterpriseEmployeeContext(c.req.param("uid")));
-  return c.json(employeeContext(userById(c.req.param("uid"))));
+  return c.json((await employeeContext(userById(c.req.param("uid")))));
 });
 
 enterprise.get("/admin/users/:uid/tools", async (c) => {
@@ -557,7 +557,7 @@ enterprise.patch("/admin/users/:uid", async (c) => {
   // 只有组织真的变了才校验并同步权威成员关系；原样回传的旧 site（如「深圳站」）不得清空现有组织归属。
   const siteChanged = body.site !== undefined && String(body.site || "") !== String(before.site || "");
   if (siteChanged && String(body.site || "") &&
-      !listOrganizationUnits().some((unit) => unit.id === String(body.site) && unit.status === "active")) {
+      !(await listOrganizationUnits()).some((unit) => unit.id === String(body.site) && unit.status === "active")) {
     throw new HttpFail(400, "请选择有效组织单元");
   }
   const sets: string[] = [];
@@ -576,7 +576,7 @@ enterprise.patch("/admin/users/:uid", async (c) => {
   if (body.brands !== undefined) { sets.push("brands=?"); values.push(JSON.stringify(body.brands)); }
   if (body.active !== undefined) { sets.push("active=?"); values.push(body.active ? 1 : 0); }
   if (body.password !== undefined) { sets.push("password_hash=?"); values.push(await hashPassword(String(body.password))); }
-  if (!sets.length) return c.json(safeUser(userById(uid)));
+  if (!sets.length) return c.json((await safeUser(userById(uid))));
   sets.push("updated_at=?"); values.push(nowIso(), uid);
   if (process.env.DATABASE_URL) {
     const changes: Record<string, unknown> = {}; for (const [field, value] of Object.entries(body)) { if (["email","name","site","position","manager_user_id","roles","brands","active","password"].includes(field)) changes[field === "password" ? "password_hash" : field] = field === "roles" || field === "brands" ? JSON.stringify(Array.isArray(value) ? value.map(String) : []) : field === "password" ? await hashPassword(String(value)) : value === "active" ? (value ? 1 : 0) : value || null; }
@@ -584,11 +584,11 @@ enterprise.patch("/admin/users/:uid", async (c) => {
   } else { getConn().prepare(`UPDATE users SET ${sets.join(",")} WHERE id=?`).run(...values); if (body.password !== undefined) getConn().prepare("DELETE FROM auth_sessions WHERE user_id=?").run(uid); }
   if (siteChanged || body.name !== undefined || body.email !== undefined) {
     const site = String(userById(uid).site || "");
-    const validUnit = Boolean(site) && listOrganizationUnits().some((unit) => unit.id === site);
-    if (process.env.DATABASE_URL) { if (validUnit || (siteChanged && !site)) await pgSyncOrganizationMembership(uid, site || null, nowIso()); } else if (validUnit || (siteChanged && !site)) syncUserOrganization(uid, site);
+    const validUnit = Boolean(site) && (await listOrganizationUnits()).some((unit) => unit.id === site);
+    if (process.env.DATABASE_URL) { if (validUnit || (siteChanged && !site)) await pgSyncOrganizationMembership(uid, site || null, nowIso()); } else if (validUnit || (siteChanged && !site)) (await syncUserOrganization(uid, site));
   }
   audit(admin.id, "admin.user.update", { user_id: uid, fields: sets.map((s) => s.split("=")[0]) });
-  return c.json(process.env.DATABASE_URL ? { ...(await pgUserById(uid)), password_hash: undefined } : safeUser(userById(uid)));
+  return c.json(process.env.DATABASE_URL ? { ...(await pgUserById(uid)), password_hash: undefined } : (await safeUser(userById(uid))));
 });
 
 enterprise.delete("/admin/users/:uid", async (c) => {
@@ -662,7 +662,7 @@ enterprise.post("/admin/connectors", async (c) => {
     throw new HttpFail(409, { code: "managed_connector_already_exists", connector_id: id });
   }
   audit(admin.id, "admin.connector.create", { connector_id: id, label, purpose, ...(declaredProtocol ? { protocol: declaredProtocol } : {}) });
-  return c.json(connectorPublic(process.env.DATABASE_URL ? await (async()=>{ const { pgConnectorById } = await import("../postgres/connector-authorization-repository.js"); return pgConnectorById(id); })() : getConn().prepare("SELECT * FROM connectors WHERE id=?").get(id)), 201);
+  return c.json((await connectorPublic(process.env.DATABASE_URL ? await (async()=>{ const { pgConnectorById } = await import("../postgres/connector-authorization-repository.js"); return pgConnectorById(id); })() : getConn().prepare("SELECT * FROM connectors WHERE id=?").get(id))), 201);
 });
 
 enterprise.patch("/admin/connectors/:id", async (c) => {
@@ -683,11 +683,11 @@ enterprise.patch("/admin/connectors/:id", async (c) => {
       if (String(current.status) !== "verified") {
         throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
       }
-      const config = getConnectorConfig(id);
+      const config = (await getConnectorConfig(id));
       if (!config || !connectorProbeVerified(id, config.version)) {
         throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
       }
-      if (!connectorInUseBySkill(id)) {
+      if (!(await connectorInUseBySkill(id))) {
         throw new HttpFail(409, { code: "connector_skill_binding_required", connector_id: id });
       }
     }
@@ -698,7 +698,7 @@ enterprise.patch("/admin/connectors/:id", async (c) => {
   if (process.env.DATABASE_URL) { const changes: Record<string, unknown> = {}; for (const [field,value] of Object.entries(body)) if (["label","purpose","status","credential_ref","enabled"].includes(field)) changes[field]=field === "enabled" ? (value ? 1 : 0) : value; const updated = await pgUpdateConnector(id, changes); if (!updated) throw new HttpFail(404, "connector not found"); }
   else { const result = getConn().prepare(`UPDATE connectors SET ${sets.join(",")} WHERE id=?`).run(...values); if (!result.changes) throw new HttpFail(404, "connector not found"); }
   audit(admin.id, "admin.connector.update", { connector_id: id });
-  return c.json(connectorPublic(process.env.DATABASE_URL ? await (async()=>{ const { pgConnectorById } = await import("../postgres/connector-authorization-repository.js"); return pgConnectorById(id); })() : getConn().prepare("SELECT * FROM connectors WHERE id=?").get(id)));
+  return c.json((await connectorPublic(process.env.DATABASE_URL ? await (async()=>{ const { pgConnectorById } = await import("../postgres/connector-authorization-repository.js"); return pgConnectorById(id); })() : getConn().prepare("SELECT * FROM connectors WHERE id=?").get(id))));
 });
 
 enterprise.delete("/admin/connectors/:id", async (c) => {
@@ -769,16 +769,16 @@ enterprise.put("/admin/users/:uid/approval-roles", async (c) => {
   return c.json({ ok: true, user_id: uid, roles: values });
 });
 
-enterprise.get("/me/settings-context", (c) => {
+enterprise.get("/me/settings-context", async (c) => {
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
-  return c.json(settingsContext(user));
+  return c.json((await settingsContext(user)));
 });
 
-enterprise.get("/preferences", (c) => {
+enterprise.get("/preferences", async (c) => {
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
-  return c.json((settingsContext(user) as Record<string, Json>).preferences);
+  return c.json(((await settingsContext(user)) as Record<string, Json>).preferences);
 });
 
 enterprise.patch("/preferences", async (c) => {
@@ -790,7 +790,7 @@ enterprise.patch("/preferences", async (c) => {
   if (fields.some((key) => !SETTINGS_PREFERENCE_KEYS.has(key))) throw new HttpFail(400, "unknown preference field");
   const current = getConn().prepare("SELECT * FROM user_preferences WHERE user_id=?").get(user.id) as Row | undefined;
   const definitions = settingsBrandDefinitions();
-  const brands = settingsAuthorizedBrands(user, settingsOrganization(user), definitions);
+  const brands = settingsAuthorizedBrands(user, (await settingsOrganization(user)), definitions);
   const mailboxes = settingsMailboxes(user, definitions);
   const stored = settingsPreferences(user, current, brands, mailboxes) as Record<string, unknown>;
   const has = (key: string) => Object.prototype.hasOwnProperty.call(body, key);

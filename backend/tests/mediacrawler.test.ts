@@ -139,7 +139,7 @@ beforeEach(async () => {
   resetConn();
   seedAll();
   await startMockMcp();
-  configureCrawlerFixture(baseUrl);
+  (await configureCrawlerFixture(baseUrl));
   process.env.MEDIACRAWLER_MCP_URL = baseUrl;
   process.env.MEDIACRAWLER_MCP_TOKEN = "test-secret";
 });
@@ -166,39 +166,38 @@ describe("remote Streamable HTTP MCP", () => {
       .rejects.toMatchObject({ status: 410, detail: { code: "crawler_skill_entry_required" } });
     expect(calls).toEqual([]);
   });
-  it("migrates only on apply, is idempotent and requires new configuration verification", () => {
-    const before = getConnectorConfig("claw")!.version;
+  it("migrates only on apply, is idempotent and requires new configuration verification", async () => {
+    const before = (await getConnectorConfig("claw"))!.version;
     const input = { url: baseUrl, token: "replacement-secret", apply: false };
-    expect(migrateCrawlerVault(input)).toMatchObject({ pending: true, migrated: false });
-    expect(getConnectorConfig("claw")!.version).toBe(before);
-    const applied = migrateCrawlerVault({ ...input, apply: true });
+    expect((await migrateCrawlerVault(input))).toMatchObject({ pending: true, migrated: false });
+    expect((await getConnectorConfig("claw"))!.version).toBe(before);
+    const applied = (await migrateCrawlerVault({ ...input, apply: true }));
     expect(applied).toMatchObject({ migrated: true, version: before + 1 });
     expect(getConn().prepare("SELECT enabled,status FROM connectors WHERE id='claw'").get())
       .toMatchObject({ enabled: 0, status: "pending_verification" });
-    expect(migrateCrawlerVault({ ...input, apply: true })).toMatchObject({ migrated: false, version: before + 1 });
-    expect(JSON.stringify(getConnectorConfig("claw"))).not.toContain("replacement-secret");
+    expect((await migrateCrawlerVault({ ...input, apply: true }))).toMatchObject({ migrated: false, version: before + 1 });
+    expect(JSON.stringify((await getConnectorConfig("claw")))).not.toContain("replacement-secret");
   });
 
   it("uses vault credentials even when obsolete environment values disagree", async () => {
     process.env.MEDIACRAWLER_MCP_URL = "http://127.0.0.1:1/obsolete";
     process.env.MEDIACRAWLER_MCP_TOKEN = "wrong-token";
-    const client = createMediaCrawlerClient();
+    const client = (await createMediaCrawlerClient());
     try { expect((await client.listTools()).map((tool) => tool.name)).toContain("start_crawl"); }
     finally { await client.close(); }
     expect(() => new RemoteMcpClient()).toThrow("MCP URL");
-    expect(() => setConnectorConfig("claw", { url_env: "MEDIACRAWLER_MCP_URL", bearer_env: "MEDIACRAWLER_MCP_TOKEN" }, 1))
-      .toThrow();
+    await expect((async () => (await setConnectorConfig("claw", { url_env: "MEDIACRAWLER_MCP_URL", bearer_env: "MEDIACRAWLER_MCP_TOKEN" }, 1)))()).rejects.toThrow();
   });
 
-  it("fails closed for disabled connectors and revoked vault credentials", () => {
+  it("fails closed for disabled connectors and revoked vault credentials", async () => {
     getConn().prepare("UPDATE connectors SET enabled=0 WHERE id='claw'").run();
-    expect(mediaCrawlerConfigured()).toBe(false);
-    expect(() => createMediaCrawlerClient()).toThrow();
+    expect((await mediaCrawlerConfigured())).toBe(false);
+    await expect((async () => (await createMediaCrawlerClient()))()).rejects.toThrow();
     getConn().prepare("UPDATE connectors SET enabled=1 WHERE id='claw'").run();
-    const reference = getConnectorConfig("claw")!.config.bearer_secret_ref!;
-    updateCredentialMetadata(reference, { status: "disabled", expected_version: 1 });
-    expect(mediaCrawlerConfigured()).toBe(false);
-    expect(() => createMediaCrawlerClient()).toThrow();
+    const reference = (await getConnectorConfig("claw"))!.config.bearer_secret_ref!;
+    (await updateCredentialMetadata(reference, { status: "disabled", expected_version: 1 }));
+    expect((await mediaCrawlerConfigured())).toBe(false);
+    await expect((async () => (await createMediaCrawlerClient()))()).rejects.toThrow();
   });
 
   it("parses the remote URL and bearer credential from mcp_server.md", () => {
@@ -209,7 +208,7 @@ describe("remote Streamable HTTP MCP", () => {
   });
 
   it("lists and calls tools with bearer auth and JSON normalization", async () => {
-    const client = createMediaCrawlerClient();
+    const client = (await createMediaCrawlerClient());
     const tools = await client.listTools();
     expect(tools.map((tool) => tool.name)).toContain("start_crawl");
     expect(await client.callTool("start_crawl", { platform: "youtube", mode: "search", keywords: "battery" }))
@@ -233,7 +232,7 @@ describe("remote Streamable HTTP MCP", () => {
     process.env.CODEX_MODE = "real";
     process.env.CLAW_MODE = "remote";
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const response = await app.request("/mock/claw/api/v1/health");
     expect(response.status).toBe(404);
     process.env.CODEX_MODE = "stub";
@@ -245,15 +244,15 @@ describe("creator ingestion and scoring", () => {
   it("authenticates the upload callback with a vault reference, never the obsolete MCP environment token", async () => {
     process.env.AUTH_MODE = "enabled";
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const request = () => app.request("/api/integrations/mediacrawler/creators", {
       method: "POST", headers: { "Content-Type": "application/json", "x-mediacrawler-token": "test-secret" },
       body: JSON.stringify({ creators: [] }),
     });
     expect((await request()).status).not.toBe(202);
-    process.env.MEDIACRAWLER_INGEST_SECRET_REF = getConnectorConfig("claw")!.config.bearer_secret_ref!;
+    process.env.MEDIACRAWLER_INGEST_SECRET_REF = (await getConnectorConfig("claw"))!.config.bearer_secret_ref!;
     expect((await request()).status).toBe(202);
-    updateCredentialMetadata(process.env.MEDIACRAWLER_INGEST_SECRET_REF, { status: "disabled", expected_version: 1 });
+    (await updateCredentialMetadata(process.env.MEDIACRAWLER_INGEST_SECRET_REF, { status: "disabled", expected_version: 1 }));
     expect((await request()).status).toBe(403);
   });
 
@@ -277,7 +276,7 @@ describe("creator ingestion and scoring", () => {
 
   it("accepts crawler auto-upload through the ingestion HTTP endpoint", async () => {
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const response = await app.request("/api/integrations/mediacrawler/creators", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -298,7 +297,7 @@ describe("creator ingestion and scoring", () => {
   it("rejects anonymous ingest when auth is enabled", async () => {
     process.env.AUTH_MODE = "enabled";
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const response = await app.request("/api/integrations/mediacrawler/creators", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -313,7 +312,7 @@ describe("creator ingestion and scoring", () => {
     process.env.AUTH_MODE = "enabled";
     process.env.MEDIACRAWLER_INGEST_TOKEN = "ingest-secret";
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const response = await app.request("/api/integrations/mediacrawler/creators", {
       method: "POST",
       headers: {
@@ -338,7 +337,7 @@ describe("crawl lifecycle", () => {
   it("rejects missing remote configuration before creating a crawl job", async () => {
     getConn().prepare("DELETE FROM runtime_connector_config WHERE connector_id='claw'").run();
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const created = await app.request("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -359,7 +358,7 @@ describe("crawl lifecycle", () => {
 
   it("routes creator-discovery text to the dedicated discovery workspace", async () => {
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const response = await app.request("/api/tasks/from-text", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -377,7 +376,7 @@ describe("crawl lifecycle", () => {
 
   it("pulls creators when only the remote auto-upload step failed", async () => {
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const created = await app.request("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -416,7 +415,7 @@ describe("crawl lifecycle", () => {
   it("enforces one active job, emits task events, persists result artifact, and supports admin tools", async () => {
     process.env.CODEX_MODE = "stub";
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const createTask = async () => {
       const response = await app.request("/api/tasks", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -516,7 +515,7 @@ describe("crawl lifecycle", () => {
 
   async function runCreatorCrawl(): Promise<Json> {
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const created = await app.request("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -579,7 +578,7 @@ describe("crawl lifecycle", () => {
 
   it("calls remote stop_crawl and releases the active lock", async () => {
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = (await createApp());
     const created = await app.request("/api/tasks", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ task_type: "creator_discovery" }),

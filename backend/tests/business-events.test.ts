@@ -165,7 +165,7 @@ describe("business events ledger", () => {
 
   it("serves GET /api/events", async () => {
     const { createApp } = await import("../src/app.js");
-    app = createApp();
+    app = (await createApp());
     appendBusinessEvent({
       eventType: "email.received",
       objectType: "email",

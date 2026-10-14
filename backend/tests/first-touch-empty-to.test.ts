@@ -92,7 +92,7 @@ describe("first-touch To cannot stay empty for 灵工连通测试-qiyou1984", ()
     resetConn();
     seedAll();
     const { createApp } = await import("../src/app.js");
-    app = createApp();
+    app = (await createApp());
   });
 
   afterEach(() => {

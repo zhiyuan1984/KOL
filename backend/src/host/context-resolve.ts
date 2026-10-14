@@ -129,17 +129,17 @@ export type ContextResolveInput = {
 
 export type ContextSession = {
   skillId: string;
-  collaboration(): CollaborationPick;
-  stage(): StageFact | null;
-  stageTracks(): StageTracksFact | null;
-  mailbox(): ComposeSender | null;
-  mailThread(): MailThreadFact | null;
-  mailTemplate(): MailTemplateFact | null;
-  creator(): CreatorFact | null;
-  conversation(): Json | null;
-  message(): Json | null;
-  recipient(): ComposeRecipient | null;
-  resolution(requires?: readonly TaskContextKey[], prefers?: readonly TaskContextKey[]): ContextResolution;
+  collaboration(): Promise<CollaborationPick>;
+  stage(): Promise<StageFact | null>;
+  stageTracks(): Promise<StageTracksFact | null>;
+  mailbox(): Promise<ComposeSender | null>;
+  mailThread(): Promise<MailThreadFact | null>;
+  mailTemplate(): Promise<MailTemplateFact | null>;
+  creator(): Promise<CreatorFact | null>;
+  conversation(): Promise<Json | null>;
+  message(): Promise<Json | null>;
+  recipient(): Promise<ComposeRecipient | null>;
+  resolution(requires?: readonly TaskContextKey[], prefers?: readonly TaskContextKey[]): Promise<ContextResolution>;
 };
 
 /** 版本哈希：内容变化即版本变化，旧确认快照随之失效。 */
@@ -353,7 +353,7 @@ export function openContext(input: ContextResolveInput): ContextSession {
     return { row: only.row, source: only.source, conflict: false, ambiguous: false, candidates: [], reason: "" };
   }
 
-  const resolvers: Record<TaskContextKey, () => KeyResult> = {
+  const resolvers: Record<TaskContextKey, () => KeyResult | Promise<KeyResult>> = {
     collaboration() {
       pick = pickCollaboration();
       facts.collaboration = pick.row;
@@ -401,8 +401,8 @@ export function openContext(input: ContextResolveInput): ContextSession {
       };
       return { ok: true, source: only.source };
     },
-    stage() {
-      const collaboration = read("collaboration");
+    async stage() {
+      const collaboration = (await read("collaboration"));
       const row = facts.collaboration;
       if (!collaboration.ok || !row) return dependencyFailed(collaboration, "缺少合作对象，无法确定正式阶段");
       const code = normalizeStage(String(row.stage_code || "").trim());
@@ -418,21 +418,21 @@ export function openContext(input: ContextResolveInput): ContextSession {
       };
       return { ok: true, source: "object_fact" };
     },
-    stage_tracks() {
-      const stage = read("stage");
+    async stage_tracks() {
+      const stage = (await read("stage"));
       if (!stage.ok || !facts.stage) return dependencyFailed(stage, "缺少正式阶段，无法列出阶段轨道");
       facts.stage_tracks = groupedStageTracks(facts.stage.stage_code);
       return { ok: true, source: "object_fact" };
     },
-    mailbox() {
-      read("collaboration");
+    async mailbox() {
+      (await read("collaboration"));
       // 发件箱不依赖合作对象：body.mailbox 是通讯页选中的邮箱（第 2 档），
       // body.from 是口令里明确指定的（第 1 档）。
-      const sender = composeSenderFor({
+      const sender = (await composeSenderFor({
         collaboration: facts.collaboration,
         requested: firstString(body.from),
         selectedMailbox: firstString(body.mailbox, body.mailbox_from),
-      });
+      }));
       if (!sender.send_from) {
         facts.mailbox = null;
         if (sender.candidates.length) {
@@ -447,8 +447,8 @@ export function openContext(input: ContextResolveInput): ContextSession {
       facts.mailbox = sender;
       return { ok: true, source: MAILBOX_SOURCE[sender.source] };
     },
-    mail_thread() {
-      const collaboration = read("collaboration");
+    async mail_thread() {
+      const collaboration = (await read("collaboration"));
       if (collaboration.ok && facts.collaboration) {
         const thread = composeContextForCollaboration(String(facts.collaboration.id));
         facts.mail_thread = thread;
@@ -456,11 +456,11 @@ export function openContext(input: ContextResolveInput): ContextSession {
         return { ok: true, source: "memory" };
       }
       // 无合作对象时：走收件人的人摘要（发件箱 + 最近往来对方）。
-      const recipient = read("recipient");
+      const recipient = (await read("recipient"));
       if (!recipient.ok || !facts.recipient?.to) {
         return dependencyFailed(recipient, "缺少收件人，无法读取往来摘要");
       }
-      const mailbox = read("mailbox");
+      const mailbox = (await read("mailbox"));
       const from = facts.mailbox?.from || "";
       if (!mailbox.ok || !from) return dependencyFailed(mailbox, "缺少发件箱，无法读取往来摘要");
       const digest = readPersonDigest(from, facts.recipient.to);
@@ -470,8 +470,8 @@ export function openContext(input: ContextResolveInput): ContextSession {
       facts.mail_thread = { digest, memory: [], text: digest.text, mail_count: digest.mail_count };
       return { ok: true, source: "memory" };
     },
-    mail_template() {
-      const stage = read("stage");
+    async mail_template() {
+      const stage = (await read("stage"));
       if (skillId !== "email_compose") return failed("context", "邮件模板解析目前只登记了 email_compose（P2 按技能补齐）");
       if (!stage.ok || !facts.stage) return dependencyFailed(stage, "缺少正式阶段，无法匹配适用模板");
       const brand = String(facts.collaboration?.brand || "").trim();
@@ -489,16 +489,16 @@ export function openContext(input: ContextResolveInput): ContextSession {
       }
       return { ok: true, source: knowledgeId ? "explicit" : "object_fact" };
     },
-    conversation() {
+    async conversation() {
       // 通讯页选中的邮箱下查会话（须属本人挂载）；没选时沿用默认邮箱。
       const selected = firstString(body.mailbox, body.mailbox_from);
       if (selected) {
-        const owned = mailboxBindings().some(
+        const owned = (await mailboxBindings()).some(
           (binding) => normalizeEmail(String(binding.mailbox || "")) === normalizeEmail(selected),
         );
         if (!owned) return failed("blocked", "选中的邮箱不是本人挂载的邮箱");
       }
-      const mailbox = selected ? normalizeEmail(selected) : currentMailbox();
+      const mailbox = selected ? normalizeEmail(selected) : (await currentMailbox());
       if (!mailbox) return failed("context", "当前账号没有已挂载的邮箱，无法解析邮件会话");
       const asked: Array<[string, ContextSource]> = [];
       const explicit = firstString(body.conversation_id, body.thread_id);
@@ -509,7 +509,7 @@ export function openContext(input: ContextResolveInput): ContextSession {
       if (!asked.length) return failed("input", "没有给定邮件会话，请从收件箱或会话卡片里选一个");
       const found = new Map<string, ContextSource>();
       for (const [id, source] of asked) {
-        const thread = findMailThread(id, mailbox);
+        const thread = (await findMailThread(id, mailbox));
         if (thread && !found.has(String(thread.id))) found.set(String(thread.id), source);
       }
       if (!found.size) return failed("context", "当前邮箱下没有这条会话");
@@ -518,15 +518,15 @@ export function openContext(input: ContextResolveInput): ContextSession {
           [...found.keys()].map((id) => ({ key: "conversation", id, label: id })));
       }
       const [id, source] = [...found.entries()][0];
-      const thread = findMailThread(id, mailbox);
+      const thread = (await findMailThread(id, mailbox));
       facts.conversation = thread ? conversationRowOf(thread) as unknown as Json : null;
       return { ok: true, source };
     },
-    recipient() {
+    async recipient() {
       // 收件人来源链（compose-recipient.ts）：口令写明 → 通讯页选中会话 →
       // 已选红人最近往来 → 合作记录邮箱 → 当前发件箱最近真实往来。
-      const mailboxResult = read("mailbox");
-      read("conversation");
+      const mailboxResult = (await read("mailbox"));
+      (await read("conversation"));
       const found = entities();
       const toList = Array.isArray(found.to) ? found.to : [];
       const explicitTo = firstString(
@@ -535,17 +535,17 @@ export function openContext(input: ContextResolveInput): ContextSession {
         toList[0],
         typeof found.email === "string" ? found.email : "",
       );
-      const recipient = composeRecipientFor({
+      const recipient = (await composeRecipientFor({
         mailbox: mailboxResult.ok && facts.mailbox ? facts.mailbox.from : "",
         collaboration: facts.collaboration,
         conversationId: firstString(body.conversation_id, body.thread_id) || null,
         explicitTo: explicitTo || null,
-      });
+      }));
       if (recipient.error) return failed("blocked", recipient.error.message);
       facts.recipient = recipient;
       return { ok: true, source: RECIPIENT_SOURCE[recipient.source] };
     },
-    message() {
+    async message() {
       // 当前选中的邮件（kol_mail_items）：显式 message_id → object_refs → 文本抽取。
       // 必须归属本人挂载邮箱下的会话，否则拒绝，不降级读别的邮件。
       const asked: Array<[string, ContextSource]> = [];
@@ -557,7 +557,7 @@ export function openContext(input: ContextResolveInput): ContextSession {
       if (!asked.length) return failed("input", "没有给定邮件，请从通讯页选中一封邮件");
       const found = new Map<string, ContextSource>();
       for (const [id, source] of asked) {
-        const item = findMailItem(id);
+        const item = (await findMailItem(id));
         if (item && !found.has(String(item.id))) found.set(String(item.id), source);
       }
       if (!found.size) return failed("context", "找不到这封邮件，或它不在你的邮箱范围内");
@@ -566,7 +566,7 @@ export function openContext(input: ContextResolveInput): ContextSession {
           [...found.keys()].map((id) => ({ key: "message", id, label: id })));
       }
       const [id, source] = [...found.entries()][0];
-      const item = findMailItem(id);
+      const item = (await findMailItem(id));
       facts.message = item ? messageRowOf(item) as unknown as Json : null;
       return { ok: true, source };
     },
@@ -574,8 +574,8 @@ export function openContext(input: ContextResolveInput): ContextSession {
       // TODO(P2.4)：达人库筛选态与字典来源还没登记，先如实报未解析，不猜。
       return failed("context", "达人库筛选口径的解析器尚未登记（P2.4 接通字典与当前筛选）");
     },
-    risk_scope() {
-      read("collaboration");
+    async risk_scope() {
+      (await read("collaboration"));
       const scope = brandScope();
       const requested = Array.isArray(body.brands) ? body.brands.map((value) => String(value || "").trim()).filter(Boolean) : [];
       if (scope && requested.some((brand) => !scope.includes(brand))) return failed("blocked", "所选品牌超出当前账号范围");
@@ -588,14 +588,14 @@ export function openContext(input: ContextResolveInput): ContextSession {
     },
   };
 
-  function read(key: TaskContextKey): KeyResult {
+  async function read(key: TaskContextKey): Promise<KeyResult> {
     const hit = memo.get(key);
     if (hit) return hit;
     if (resolving.has(key)) return failed("context", `上下文键 ${key} 互相依赖，无法解析`);
     resolving.add(key);
     let result: KeyResult;
     try {
-      result = resolvers[key]();
+      result = await resolvers[key]();
     } finally {
       resolving.delete(key);
     }
@@ -603,14 +603,14 @@ export function openContext(input: ContextResolveInput): ContextSession {
     return result;
   }
 
-  function resolution(
+  async function resolution(
     requires = input.requires ?? taskDefinition(skillId)?.context?.requires ?? [],
     prefers = input.prefers ?? taskDefinition(skillId)?.context?.prefers ?? [],
-  ): ContextResolution {
+  ): Promise<ContextResolution> {
     const declared = [...new Set([...requires, ...prefers])];
     const wanted = new Set<TaskContextKey>(declared);
     for (const key of declared) for (const dependency of KEY_DEPENDS[key] || []) wanted.add(dependency);
-    for (const key of KEY_ORDER) if (wanted.has(key)) read(key);
+    for (const key of KEY_ORDER) if (wanted.has(key)) (await read(key));
 
     const resolved: Record<string, unknown> = {};
     const sources: Record<string, string> = {};
@@ -622,7 +622,7 @@ export function openContext(input: ContextResolveInput): ContextSession {
     let needsInput = false;
     for (const key of declared) {
       const tier = requires.includes(key) ? "requires" : "prefers";
-      const result = read(key);
+      const result = (await read(key));
       if (result.ok) {
         const value = PUBLIC_VALUE[key](facts);
         if (value === null || value === undefined) {
@@ -662,44 +662,44 @@ export function openContext(input: ContextResolveInput): ContextSession {
 
   return {
     skillId,
-    collaboration: () => {
-      read("collaboration");
+    collaboration: async () => {
+      (await read("collaboration"));
       return pick || { row: null, source: null, conflict: false, ambiguous: false, candidates: [], reason: "" };
     },
-    stage: () => {
-      read("stage");
+    stage: async () => {
+      (await read("stage"));
       return facts.stage;
     },
-    stageTracks: () => {
-      read("stage_tracks");
+    stageTracks: async () => {
+      (await read("stage_tracks"));
       return facts.stage_tracks;
     },
-    mailbox: () => {
-      read("mailbox");
+    mailbox: async () => {
+      (await read("mailbox"));
       return facts.mailbox;
     },
-    mailThread: () => {
-      read("mail_thread");
+    mailThread: async () => {
+      (await read("mail_thread"));
       return facts.mail_thread;
     },
-    mailTemplate: () => {
-      read("mail_template");
+    mailTemplate: async () => {
+      (await read("mail_template"));
       return facts.mail_template;
     },
-    creator: () => {
-      read("creator");
+    creator: async () => {
+      (await read("creator"));
       return facts.creator;
     },
-    conversation: () => {
-      read("conversation");
+    conversation: async () => {
+      (await read("conversation"));
       return facts.conversation;
     },
-    message: () => {
-      read("message");
+    message: async () => {
+      (await read("message"));
       return facts.message;
     },
-    recipient: () => {
-      read("recipient");
+    recipient: async () => {
+      (await read("recipient"));
       return facts.recipient;
     },
     resolution,
@@ -707,6 +707,6 @@ export function openContext(input: ContextResolveInput): ContextSession {
 }
 
 /** 统一入口：按声明解析并返回信封（`context.resolve` 的回答体）。 */
-export function resolveContext(input: ContextResolveInput): ContextResolution {
-  return openContext(input).resolution(input.requires, input.prefers);
+export async function resolveContext(input: ContextResolveInput): Promise<ContextResolution> {
+  return (await openContext(input).resolution(input.requires, input.prefers));
 }

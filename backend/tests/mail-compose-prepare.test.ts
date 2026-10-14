@@ -133,7 +133,7 @@ beforeEach(async () => {
   resetConn();
   seedAll();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   seedWorkbenchFixtures();
   removeSeededMailTemplates();
 });
@@ -446,9 +446,9 @@ describe("mail compose edge invariants", () => {
     process.env.CODEX_MODE = "appserver";
     try {
       const { assertMailGatewayReady } = await import("../src/host/mail-send-confirmation.js");
-      expect(() => assertMailGatewayReady({ from_addr: "kol.lt@litime.example" })).toThrow("示例地址不能用于真实外发");
-      expect(() => assertMailGatewayReady({ from_addr: "sender@brand.com", cc: "reviewer@brand.com" })).toThrow("抄送契约");
-      expect(() => assertMailGatewayReady({ from_addr: "sender@brand.com", to_addr: "one@brand.com,two@brand.com" })).toThrow("单个收件人");
+      await expect((async () => (await assertMailGatewayReady({ from_addr: "kol.lt@litime.example" })))()).rejects.toThrow("示例地址不能用于真实外发");
+      await expect((async () => (await assertMailGatewayReady({ from_addr: "sender@brand.com", cc: "reviewer@brand.com" })))()).rejects.toThrow("抄送契约");
+      await expect((async () => (await assertMailGatewayReady({ from_addr: "sender@brand.com", to_addr: "one@brand.com,two@brand.com" })))()).rejects.toThrow("单个收件人");
     } finally {
       if (previous === undefined) delete process.env.CODEX_MODE;
       else process.env.CODEX_MODE = previous;

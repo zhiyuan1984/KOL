@@ -33,7 +33,7 @@ beforeEach(async () => {
   resetConn();
   seedAll();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   seedWorkbenchFixtures();
 });
 
@@ -61,8 +61,8 @@ describe("home workbench", () => {
     }
   });
 
-  it("splits seed work into todos and unpromoted AI insights", () => {
-    const board = buildHomeBoard() as Json;
+  it("splits seed work into todos and unpromoted AI insights", async () => {
+    const board = (await buildHomeBoard()) as Json;
     const workbench = board.workbench as Json;
     const todo = workbench.todo as Json[];
     const open = workbench.open as Json[];
@@ -85,7 +85,7 @@ describe("home workbench", () => {
     expect(isInsightWorkItem({ source: "discovery", status: "pending" })).toBe(false);
   });
 
-  it("does not load full planner input snapshots into the home board", () => {
+  it("does not load full planner input snapshots into the home board", async () => {
     getConn().prepare(
       `INSERT INTO tickets
        (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,data_version,created_at,updated_at)
@@ -96,13 +96,13 @@ describe("home workbench", () => {
       "2099-01-01T00:00:00.000Z", "2099-01-01T00:00:00.000Z",
     );
 
-    const board = buildHomeBoard() as Json;
+    const board = (await buildHomeBoard()) as Json;
     const tasks = board.tasks as Json[];
     expect(tasks.find((row) => row.id === "tsk_large_planner_input")?.input).toEqual({});
   });
 
-  it("surfaces numbered icon recommendations beyond 3 and pads from the catalog", () => {
-    const board = buildHomeBoard() as Json;
+  it("surfaces numbered icon recommendations beyond 3 and pads from the catalog", async () => {
+    const board = (await buildHomeBoard()) as Json;
     const recs = ((board.workbench as Json).recommendations as Json[]) || [];
     expect(recs.length).toBeGreaterThan(3);
     expect(recs.length).toBeLessThanOrEqual(8);
@@ -136,7 +136,7 @@ describe("home workbench", () => {
   });
 
   it("promotes an AI insight into 我的待办 and dismisses another", async () => {
-    const before = buildHomeBoard() as Json;
+    const before = (await buildHomeBoard()) as Json;
     expect(((before.workbench as Json).insights as Json[]).some((row) => row.id === "tsk_home_xiaomei_lost")).toBe(true);
 
     const promoted = await request("POST", "/api/tasks/tsk_home_xiaomei_lost/promote", {});
@@ -144,7 +144,7 @@ describe("home workbench", () => {
     expect(promoted.body.promoted_at).toBeTruthy();
     expect(promoted.body.dismissed_at).toBeFalsy();
 
-    const afterPromote = buildHomeBoard() as Json;
+    const afterPromote = (await buildHomeBoard()) as Json;
     const todoIds = ((afterPromote.workbench as Json).todo as Json[]).map((row) => row.id);
     const insightIds = ((afterPromote.workbench as Json).insights as Json[]).map((row) => row.id);
     expect(todoIds).toContain("tsk_home_xiaomei_lost");
@@ -153,7 +153,7 @@ describe("home workbench", () => {
     const dismissed = await request("POST", "/api/tasks/tsk_home_outdoor_profile/dismiss", {});
     expect(dismissed.status).toBe(200);
     expect(dismissed.body.dismissed_at).toBeTruthy();
-    const afterDismiss = buildHomeBoard() as Json;
+    const afterDismiss = (await buildHomeBoard()) as Json;
     expect(((afterDismiss.workbench as Json).insights as Json[]).some((row) => row.id === "tsk_home_outdoor_profile")).toBe(false);
     expect(((afterDismiss.workbench as Json).todo as Json[]).some((row) => row.id === "tsk_home_outdoor_profile")).toBe(false);
   });
@@ -234,13 +234,13 @@ describe("home workbench", () => {
       .toEqual({ stage_code: "INITIAL_CONTACT" });
     resetDemoRuntimeState();
     seedWorkbenchFixtures();
-    expect((buildHomeBoard() as Json).workbench).toMatchObject({
+    expect(((await buildHomeBoard()) as Json).workbench).toMatchObject({
       summary: { open: 4, insights: 2 },
     });
   });
 
-  it("marks today bucket items vs candidate recommendations", () => {
-    const board = buildHomeBoard() as Json;
+  it("marks today bucket items vs candidate recommendations", async () => {
+    const board = (await buildHomeBoard()) as Json;
     const workbench = board.workbench as Json;
     const todo = workbench.todo as Json[];
     const insights = workbench.insights as Json[];
@@ -346,7 +346,7 @@ describe("home workbench", () => {
   });
 
   it("adopt-recommendation is idempotent and writes a formal WorkItem", async () => {
-    const boardBefore = buildHomeBoard() as Json;
+    const boardBefore = (await buildHomeBoard()) as Json;
     const recommendations = (boardBefore.workbench as Json).recommendations as Json[];
     const recommendation = recommendations.find((row) => String(row.id).startsWith("rec-ai-"));
     expect(recommendation).toBeTruthy();
@@ -370,7 +370,7 @@ describe("home workbench", () => {
     expect(second.status).toBe(200);
     expect(String(second.body.id)).toBe(id);
     expect(second.body.reused).toBe(true);
-    const board = buildHomeBoard() as Json;
+    const board = (await buildHomeBoard()) as Json;
     const todoIds = ((board.workbench as Json).todo as Json[]).map((row) => String(row.id));
     const insightIds = ((board.workbench as Json).insights as Json[]).map((row) => String(row.id));
     expect(todoIds).toContain(id);
@@ -389,7 +389,7 @@ describe("home workbench", () => {
     expect(first.body.candidate).toBe(false);
     expect(first.body.title).toBe("给@小美妆日记 写合作邮件");
     expect(first.body.promoted_at).toBeTruthy();
-    const board = buildHomeBoard() as Json;
+    const board = (await buildHomeBoard()) as Json;
     const todo = ((board.workbench as Json).todo as Json[]).find((row) => row.id === "tsk_home_xiaomei_lost");
     expect(todo?.title).toBe("给@小美妆日记 写合作邮件");
     expect(todo?.candidate).toBe(false);

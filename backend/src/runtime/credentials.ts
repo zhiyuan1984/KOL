@@ -140,7 +140,7 @@ export async function createCredentialInTransaction(input: CredentialInput, acto
   } catch (error) { if (error && typeof error === "object" && "code" in error && String((error as {code?: unknown}).code) === "23505") fail("runtime_credential_already_exists", 409); throw error; }
 }
 export async function createCredential(input: CredentialInput, actorId: string): Promise<CredentialMetadata> {
-  return postgresTransaction((client) => createCredentialInTransaction(input, actorId, client));
+  return postgresTransaction(async (client) => (await createCredentialInTransaction(input, actorId, client)));
 }
 export async function updateCredentialMetadata(id: string, input: { label?: unknown; purpose?: unknown; status?: unknown; expected_version: unknown }): Promise<CredentialMetadata> {
   const credentialIdValue = credentialId(id); const expected = expectedVersion(input.expected_version);
@@ -187,11 +187,11 @@ export async function deleteCredentialInTransaction(id: string, expectedVersionV
   const result = await client.query("DELETE FROM runtime_credentials WHERE id=$1 AND version=$2", [credentialIdValue, expected]);
   if (!result.rowCount) fail("runtime_credential_version_conflict", 409);
 }
-export async function deleteCredential(id: string, expectedVersionValue: unknown): Promise<void> { await postgresTransaction((client) => deleteCredentialInTransaction(id, expectedVersionValue, client)); }
+export async function deleteCredential(id: string, expectedVersionValue: unknown): Promise<void> { await postgresTransaction(async (client) => (await deleteCredentialInTransaction(id, expectedVersionValue, client))); }
 export async function resolveSecretReference(id: string, userId?: string): Promise<string> {
   const row = await requireStored(id);
   if (row.status !== "active") fail("runtime_credential_unavailable", 403);
-  if (row.type === "user_account") { if (!userId || userId !== row.owner_user_id) fail("runtime_credential_access_denied", 403); await postgresTransaction((client) => requireActiveOwner(userId, client)); }
+  if (row.type === "user_account") { if (!userId || userId !== row.owner_user_id) fail("runtime_credential_access_denied", 403); await postgresTransaction(async (client) => (await requireActiveOwner(userId, client))); }
   return decryptRuntimeCredential(row);
 }
 export async function resolveAccountHeaders(accountId: string, userId: string): Promise<Record<string, string>> {

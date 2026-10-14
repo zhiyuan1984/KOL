@@ -20,7 +20,7 @@ export async function availableAgentRoutes(agentId?: string): Promise<AgentRoute
   const routes: AgentRoute[] = [];
   for (const agent of await listManagedAgents()) {
     if (agent.status !== "published" || (agentId && agent.id !== agentId)) continue;
-    for (const binding of getAgentSkills(agent.id)) {
+    for (const binding of (await getAgentSkills(agent.id))) {
       if (!binding.enabled) continue;
       const skill = taskDefinition(String(binding.skill_id));
       if (!skill) continue;

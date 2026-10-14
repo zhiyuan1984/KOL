@@ -48,9 +48,9 @@ beforeEach(async () => {
   process.env.LINGONG_DATA = temp; process.env.AUTH_MODE = "enabled"; process.env.NODE_ENV = "test";
   resetConn();
   const db = getConn();
-  for (const skill of ["crawler_collect", "creator_discovery"]) setAgentSkill("agent:discovery-test", skill, true, 0);
-  seedPublishedAgent("agent:discovery-test");
-  createAgentBinding({ agent_id: "agent:discovery-test", target_type: "organization_unit", target_id: "org:lt_team", company_id: COMPANY, source: "test" });
+  for (const skill of ["crawler_collect", "creator_discovery"]) (await setAgentSkill("agent:discovery-test", skill, true, 0));
+  (await seedPublishedAgent("agent:discovery-test"));
+  (await createAgentBinding({ agent_id: "agent:discovery-test", target_type: "organization_unit", target_id: "org:lt_team", company_id: COMPANY, source: "test" }));
   const people = db.prepare("SELECT person_ref FROM organization_memberships WHERE org_unit_id='org:lt_team' AND status='active' ORDER BY person_ref LIMIT 2").all() as { person_ref: string }[];
   expect(people.length).toBe(2);
   for (let i = 0; i < 2; i++) {
@@ -59,14 +59,14 @@ beforeEach(async () => {
     db.prepare("UPDATE organization_people SET user_id=? WHERE person_ref=?").run(`employee-${i}`, people[i].person_ref);
   }
   users = [0, 1].map(i => mapUser(db.prepare("SELECT * FROM users WHERE id=?").get(`employee-${i}`) as never));
-  const credential = configureCrawlerFixture("http://crawler.example.test/mcp");
-  setSkillConnector("crawler_collect", "claw", true, 0);
+  const credential = (await configureCrawlerFixture("http://crawler.example.test/mcp"));
+  (await setSkillConnector("crawler_collect", "claw", true, 0));
   db.prepare(`INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('starrykol','Starry',1,'configured','now')
     ON CONFLICT(id) DO UPDATE SET label=EXCLUDED.label,enabled=EXCLUDED.enabled,status=EXCLUDED.status,updated_at=EXCLUDED.updated_at`).run();
-  setSkillConnector("creator_discovery", "starrykol", true, 0);
-  setConnectorConfig("starrykol", { url: "http://starry.example.test/mcp", bearer_secret_ref: credential.id }, 0);
-  setToolPolicy("starrykol", "importKolProfilesFromCrawler", { enabled: true, risk: "L3", access: "write", schema_hash: "a".repeat(64) }, 0);
-  setSkillTool("creator_discovery", "starrykol", "importKolProfilesFromCrawler", true, 0);
+  (await setSkillConnector("creator_discovery", "starrykol", true, 0));
+  (await setConnectorConfig("starrykol", { url: "http://starry.example.test/mcp", bearer_secret_ref: credential.id }, 0));
+  (await setToolPolicy("starrykol", "importKolProfilesFromCrawler", { enabled: true, risk: "L3", access: "write", schema_hash: "a".repeat(64) }, 0));
+  (await setSkillTool("creator_discovery", "starrykol", "importKolProfilesFromCrawler", true, 0));
   for (let i = 0; i < 2; i++) {
     await postgresPool().query(`INSERT INTO runtime_actions(id,actor_id,session_id,context_json,connector_id,tool_name,args_json,snapshot,proposal_key,state)
       VALUES($1,$2,$3,$4,'claw','start_crawl','{}','test-version',$1,'succeeded')`, [`action-${i}`, users[i].id, ctx(users[i].id).sessionId, JSON.stringify(ctx(users[i].id))]);

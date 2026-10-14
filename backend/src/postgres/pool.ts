@@ -1,4 +1,11 @@
-import { Pool, type PoolClient, type QueryResultRow } from "pg";
+import { Pool, types, type PoolClient, type QueryResultRow } from "pg";
+
+// Normalize safe int8 flags/counters without losing precision of large integers.
+// PostgreSQL enabled/active=0 must never become the truthy string "0".
+types.setTypeParser(20, (value: string) => {
+  const number = Number(value);
+  return Number.isSafeInteger(number) ? number : value;
+});
 
 let pool: Pool | null = null;
 let poolUrl: string | null = null;

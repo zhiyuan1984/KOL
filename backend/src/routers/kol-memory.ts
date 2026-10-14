@@ -215,7 +215,7 @@ kolMemory.get("/home/pool", async (c) => {
   const started = performance.now();
   // 品牌可见性：同品牌跟进锁定的 KOL 对同品牌查看者不可见；组长/管理员看全量。
   const result = await readPublicPoolPage(
-    parsePoolPageOptions(c.req.query()), memoryCompanyId(), poolViewerBrands(scopedUser()),
+    parsePoolPageOptions(c.req.query()), memoryCompanyId(), (await poolViewerBrands(scopedUser())),
   );
   c.header("Server-Timing", `pool_read;dur=${(performance.now() - started).toFixed(1)}`);
   return c.json(result);

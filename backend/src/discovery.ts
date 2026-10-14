@@ -105,8 +105,8 @@ function ownerId(): string {
   throw new HttpFail(401, "authentication required");
 }
 
-function connectionPayload(): Json {
-  return publicCollectorConnection(getCollectorConnectionSnapshot());
+async function connectionPayload(): Promise<Json> {
+  return publicCollectorConnection((await getCollectorConnectionSnapshot()));
 }
 
 function platformLabel(code: unknown): string {
@@ -417,7 +417,7 @@ function topCandidates(requestId: string, limit = 8): Json[] {
   ).all(requestId, limit) as Row[]).map(publicCandidate);
 }
 
-export function discoveryResult(requestId: string, run?: Row | null): Json {
+export async function discoveryResult(requestId: string, run?: Row | null): Promise<Json> {
   const counts = countsFor(requestId);
   const latest = run || latestRun(requestId);
   const errors = [employeeError(latest?.error)].filter(Boolean);
@@ -427,11 +427,11 @@ export function discoveryResult(requestId: string, run?: Row | null): Json {
     errors,
     ready: counts.suggested_count > 0,
     pending_confirm: counts.suggested_count > 0,
-    connection: connectionPayload(),
+    connection: (await connectionPayload()),
   };
 }
 
-function publicRun(row: Row): Json {
+async function publicRun(row: Row): Promise<Json> {
   syncRunFromCrawl(row);
   const current = getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(row.id) as Row;
   const status = String(current.status);
@@ -452,7 +452,7 @@ function publicRun(row: Row): Json {
     started_at: current.started_at,
     updated_at: current.updated_at,
     completed_at: current.completed_at,
-    connection: connectionPayload(),
+    connection: (await connectionPayload()),
   };
 }
 
@@ -472,7 +472,7 @@ function latestRun(requestId: string): Row | undefined {
   ).get(requestId) as Row | undefined;
 }
 
-function publicRequest(row: Row): Json {
+async function publicRequest(row: Row): Promise<Json> {
   const latest = row.latest_run_id
     ? getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(row.latest_run_id) as Row | undefined
     : latestRun(String(row.id));
@@ -490,15 +490,15 @@ function publicRequest(row: Row): Json {
     title: summary,
     plan_summary: summary,
     brand: current.brand || null,
-    latest_run: latest ? publicRun(latest) : null,
+    latest_run: latest ? (await publicRun(latest)) : null,
     error: employeeError(current.error),
     created_at: current.created_at,
     updated_at: current.updated_at,
-    connection: connectionPayload(),
+    connection: (await connectionPayload()),
   };
 }
 
-export function getDiscoveryResults(id: string): Json {
+export async function getDiscoveryResults(id: string): Promise<Json> {
   const request = requestRow(id);
   const latest = latestRun(String(request.id));
   if (latest) {
@@ -530,8 +530,8 @@ export function getDiscoveryResults(id: string): Json {
     plan_summary: summary,
     created_at: current.created_at,
     updated_at: current.updated_at,
-    request: publicRequest(current),
-    run: run ? publicRun(run) : null,
+    request: (await publicRequest(current)),
+    run: run ? (await publicRun(run)) : null,
     candidates,
     counts,
     error: employeeError(current.error),
@@ -539,7 +539,7 @@ export function getDiscoveryResults(id: string): Json {
     empty_hint: succeeded && counts.candidate_count === 0 ? emptyDiscoveryHint(searchKeywords) : null,
     ready: counts.suggested_count > 0,
     pending_confirm: String(current.status) === "open" || counts.suggested_count > 0,
-    connection: connectionPayload(),
+    connection: (await connectionPayload()),
   };
 }
 
@@ -776,7 +776,7 @@ export async function startDiscoveryRun(input: {
   const existing = getConn().prepare("SELECT * FROM discovery_runs WHERE idempotency_key=?").get(idempotencyKey) as
     | Row
     | undefined;
-  if (existing) return { ...publicRun(existing), duplicate: true };
+  if (existing) return { ...(await publicRun(existing)), duplicate: true };
 
   const ownerUserId = String(request.owner_user_id);
   const workItemId = createContainerWorkItem({ ownerUserId, platform, mode, keywords });
@@ -837,7 +837,7 @@ export async function startDiscoveryRun(input: {
     refreshRequestStatus(String(request.id));
     const run = getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(runId) as Row;
     if (String(job.status) === "result_ready") ingestDiscoveryFromCrawlJob(job as Row);
-    return publicRun(run);
+    return (await publicRun(run));
   } catch (error) {
     const source = error instanceof HttpFail ? error.detail ?? error : error;
     const mapped = mapEmployeeError(source);
@@ -878,7 +878,7 @@ export async function checkDiscoveryConnection(): Promise<Json> {
   return publicCollectorConnection(await probeMediaCrawlerConnection());
 }
 
-export function createDiscoveryRequest(body: Json): Json {
+export async function createDiscoveryRequest(body: Json): Promise<Json> {
   const keywords = asStringList(body.keywords ?? body.keyword);
   const mode = validateMode(String(body.mode || "search"));
   if (mode === "search" && !keywords.length) {
@@ -918,32 +918,32 @@ export function createDiscoveryRequest(body: Json): Json {
     actor: owner,
     source_version: "1",
   });
-  return publicRequest(requestRow(id));
+  return (await publicRequest(requestRow(id)));
 }
 
-export function listDiscoveryRequests(): Json[] {
+export async function listDiscoveryRequests(): Promise<Json[]> {
   const adminAll = isAdmin();
   const rows = adminAll
     ? getConn().prepare("SELECT * FROM discovery_requests ORDER BY updated_at DESC").all() as Row[]
     : getConn().prepare(
         "SELECT * FROM discovery_requests WHERE owner_user_id=? ORDER BY updated_at DESC",
       ).all(ownerId()) as Row[];
-  return rows.map(publicRequest);
+  return await Promise.all(rows.map(publicRequest));
 }
 
-export function getDiscoveryRequest(id: string): Json {
-  return publicRequest(requestRow(id));
+export async function getDiscoveryRequest(id: string): Promise<Json> {
+  return (await publicRequest(requestRow(id)));
 }
 
-export function getDiscoveryRun(id: string): Json {
-  return publicRun(runRow(id));
+export async function getDiscoveryRun(id: string): Promise<Json> {
+  return (await publicRun(runRow(id)));
 }
 
-export function listRunCandidates(runId: string, query: {
+export async function listRunCandidates(runId: string, query: {
   status?: string;
   limit?: number;
   offset?: number;
-}): Json {
+}): Promise<Json> {
   const run = runRow(runId);
   syncRunFromCrawl(run);
   if (run.crawl_job_id) {
@@ -971,7 +971,7 @@ export function listRunCandidates(runId: string, query: {
     total,
     limit,
     offset,
-    run: publicRun(getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(run.id) as Row),
+    run: (await publicRun(getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(run.id) as Row)),
   };
 }
 

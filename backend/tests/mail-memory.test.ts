@@ -49,10 +49,10 @@ function unreadOf(mailbox: string): number {
   return Number((getConn().prepare("SELECT COALESCE(SUM(unread_count),0) AS n FROM kol_mail_threads WHERE mailbox=?").get(mailbox) as { n: number }).n);
 }
 
-function bindLarry(): void {
+async function bindLarry(): Promise<void> {
   bindStarryUser();
   process.env.RUNTIME_CREDENTIAL_MASTER_KEY = "a".repeat(64);
-  saveStarryBinding(DEMO_USER.id, { mailbox_email: "larry.zhao@amperetime.com", bearer: "test-only-token" });
+  (await saveStarryBinding(DEMO_USER.id, { mailbox_email: "larry.zhao@amperetime.com", bearer: "test-only-token" }));
 }
 
 function stubStarry(extraConversations: Json[] = []): void {
@@ -158,7 +158,7 @@ beforeEach(async () => {
   resetConn();
   seedAll();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   seedWorkbenchFixtures();
   getConn().prepare("UPDATE collaborations SET kol_uid=?, email=? WHERE id='col_xiaomei'")
     .run("KOL51DA646D8D8A4544BB93", "xiaomei.beauty@example.com");
@@ -177,7 +177,7 @@ afterEach(async () => {
 
 describe("mailbox memory P0", () => {
   it("runs the selected summary and translation Skills through named routes", async () => {
-    bindLarry();
+    (await bindLarry());
     await ensureFollowedMailSync(true);
     process.env.INTENT_LLM_MODE = "real";
     const listed = await request("GET", "/api/queries/mail.conversations");
@@ -199,7 +199,7 @@ describe("mailbox memory P0", () => {
   });
 
   it("GET box / conversations / thread create no session and call no model", async () => {
-    bindLarry();
+    (await bindLarry());
     await ensureFollowedMailSync(true);
     const starryBefore = calls.filter((name) => name === "pageEmailConversations" || name === "getEmailConversation").length;
     const sessionsBefore = sessionCount();
@@ -223,7 +223,7 @@ describe("mailbox memory P0", () => {
   });
 
   it("returns each mail title separately from the conversation subject", async () => {
-    bindLarry();
+    (await bindLarry());
     await ensureFollowedMailSync(true);
     const listed = await request("GET", "/api/queries/mail.conversations");
     const conversation = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "3901")!;
@@ -251,7 +251,7 @@ describe("mailbox memory P0", () => {
       direction: "inbound",
       snippet: "Hello, can we work together next month?",
     }]);
-    bindLarry();
+    (await bindLarry());
     const collabsBefore = Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations").get() as { n: number }).n);
     const queued = await request("POST", "/api/jobs/mail.sync/start");
     await processExecutionJobById(String((queued.body.job as Json).id));
@@ -267,7 +267,7 @@ describe("mailbox memory P0", () => {
   });
 
   it("gzip-compresses the mailbox conversation list for slow links", async () => {
-    bindLarry();
+    (await bindLarry());
     const response = await app.request("/api/queries/mail.conversations", {
       headers: { "Accept-Encoding": "gzip" },
     });
@@ -276,7 +276,7 @@ describe("mailbox memory P0", () => {
   });
 
   it("mutexes sync per user+mailbox and writes cursor fields on the binding", async () => {
-    bindLarry();
+    (await bindLarry());
     listDelayMs = 40;
     const [first, second] = await Promise.all([
       request("POST", "/api/jobs/mail.sync/start"),
@@ -297,7 +297,7 @@ describe("mailbox memory P0", () => {
   });
 
   it("finds threads when collaboration mailbox_from ≠ bound mailbox but peer/binding matches", async () => {
-    bindLarry();
+    (await bindLarry());
     getConn().prepare("UPDATE collaborations SET mailbox_from=?, owner_mailbox=? WHERE id='col_xiaomei'")
       .run("kol.lt@litime.example", "");
     expect(matchesFollowedMailbox({
@@ -347,7 +347,7 @@ describe("mailbox memory P0", () => {
     expect(letter.summary_source).toBe("body_analysis");
     expect(letter.summary).toMatch(/有兴趣|合作意愿/);
 
-    bindLarry();
+    (await bindLarry());
     await ensureFollowedMailSync(true);
     const listed = await request("GET", "/api/queries/mail.conversations");
     const thread = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "3901");
@@ -363,7 +363,7 @@ describe("mailbox memory P0", () => {
   });
 
   it("keeps provider_message_id inserts idempotent", async () => {
-    bindLarry();
+    (await bindLarry());
     await ensureFollowedMailSync(true);
     const first = Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_mail_items").get() as { n: number }).n);
     await ensureFollowedMailSync(true);
@@ -379,7 +379,7 @@ describe("mailbox memory P0", () => {
   });
 
   it("exposes bindings/total_unread, starred toggle, mark-read, and translation fields", async () => {
-    bindLarry();
+    (await bindLarry());
     await ensureFollowedMailSync(true);
 
     const box = await request("GET", "/api/queries/mail.box");
@@ -428,9 +428,9 @@ describe("mailbox memory P0", () => {
   });
 
   it("serves ?box= per mailbox: bindings stay per-mailbox and unknown boxes are rejected", async () => {
-    bindLarry();
+    (await bindLarry());
     await ensureFollowedMailSync(true);
-    saveStarryBinding(DEMO_USER.id, { mailbox_email: "second.box@amperetime.com", owner_name: "赵良玉" });
+    (await saveStarryBinding(DEMO_USER.id, { mailbox_email: "second.box@amperetime.com", owner_name: "赵良玉" }));
     const now = new Date().toISOString();
     getConn().prepare(
       `INSERT INTO kol_mail_threads (id, conversation_id, subject, mailbox, unread_count, last_at, created_at, updated_at)
@@ -491,7 +491,7 @@ describe("mailbox memory P0", () => {
   });
 
   it("indexes kol_mail_items by thread and counts mail without a per-thread subquery", async () => {
-    bindLarry();
+    (await bindLarry());
     const now = "2026-09-20T03:00:00.000Z";
     const index = getConn()
       .prepare("SELECT indexname AS name FROM pg_indexes WHERE indexname='kol_mail_items_thread'")
@@ -531,7 +531,7 @@ describe("mailbox memory P0", () => {
   });
 
   it("projects collaboration stage_code through the PostgreSQL mailbox list and conversation route", async () => {
-    bindLarry();
+    (await bindLarry());
     getConn().prepare("UPDATE collaborations SET stage_code=? WHERE id='col_xiaomei'")
       .run("QUOTE_PENDING");
     const now = new Date().toISOString();
@@ -545,7 +545,7 @@ describe("mailbox memory P0", () => {
     ).run(now, now, now);
     // listMailboxConversations runs the LIST_COLUMNS PostgreSQL query and maps
     // every row through conversationRowOf before the HTTP operation sees it.
-    const mailboxThread = listMailboxConversations("larry.zhao@amperetime.com")
+    const mailboxThread = (await listMailboxConversations("larry.zhao@amperetime.com"))
       .find((row) => row.conversation_id === "stage-3901");
     expect(mailboxThread).toMatchObject({
       collaboration_id: "col_xiaomei",
@@ -565,7 +565,7 @@ describe("mailbox memory P0", () => {
   });
 
   it("keeps bound mailboxes selectable without a default and isolates reads without creating Agent sessions", async () => {
-    bindLarry();
+    (await bindLarry());
     const boxEmail = "larry.zhao@amperetime.com";
     const now = new Date().toISOString();
     const db = getConn();
@@ -633,7 +633,7 @@ describe("mailbox memory P0", () => {
   });
 
   it("persists a cancellable sync job without making calls in the HTTP request", async () => {
-    bindLarry();
+    (await bindLarry());
     const queued = await request("POST", "/api/jobs/mail.sync/start", { request_id: "cancel-test" });
     expect(queued.status).toBe(202);
     const id = String((queued.body.job as Json).id);
@@ -646,7 +646,7 @@ describe("mailbox memory P0", () => {
   });
 
   it("rejects another actor's job and rechecks revoked mailbox bindings before execution", async () => {
-    bindLarry();
+    (await bindLarry());
     const queued = await request("POST", "/api/jobs/mail.sync/start", {});
     const id = String((queued.body.job as Json).id);
     getConn().prepare("UPDATE execution_jobs SET actor_ref=? WHERE id=?").run("someone-else", id);
@@ -664,7 +664,7 @@ describe("mailbox memory P0", () => {
   });
 
   it("does not let an old sync worker overwrite a newer lease or cancellation", async () => {
-    bindLarry();
+    (await bindLarry());
     const queued = await request("POST", "/api/jobs/mail.sync/start", {});
     const id = String((queued.body.job as Json).id);
     await pgClaimExecutionJobById(id, "old-worker");

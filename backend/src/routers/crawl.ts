@@ -97,10 +97,10 @@ crawlRouter.post("/admin/crawl-history/clear", async (c) => {
   return c.json(await clearRemoteHistory());
 });
 
-function requireCrawlIngest(c: { req: { header: (name: string) => string | undefined } }): void {
+async function requireCrawlIngest(c: { req: { header: (name: string) => string | undefined } }): Promise<void> {
   if (authDisabled()) return;
   const secret = (process.env.MEDIACRAWLER_INGEST_SECRET_REF
-    ? resolveSecretReference(process.env.MEDIACRAWLER_INGEST_SECRET_REF)
+    ? (await resolveSecretReference(process.env.MEDIACRAWLER_INGEST_SECRET_REF))
     : String(process.env.MEDIACRAWLER_INGEST_TOKEN || "")).trim();
   const presented = String(c.req.header("x-mediacrawler-token") || c.req.header("authorization") || "")
     .replace(/^Bearer\s+/i, "")
@@ -110,7 +110,7 @@ function requireCrawlIngest(c: { req: { header: (name: string) => string | undef
 }
 
 crawlRouter.post("/integrations/mediacrawler/creators", async (c) => {
-  requireCrawlIngest(c);
+  (await requireCrawlIngest(c));
   const body = await c.req.json() as Json;
   return c.json(ingestMediacrawler(body), 202);
 });

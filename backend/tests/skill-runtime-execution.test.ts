@@ -67,15 +67,15 @@ beforeEach(async () => {
     db.prepare(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
       VALUES(?,?,?,?,?,?,?,?,?,?)`).run(id, id, id, "not-for-login", JSON.stringify(id.startsWith("admin") ? ["admin"] : ["employee"]), "[]", "", 1, "now", "now");
   }
-  setAgentSkill(context.agentId, context.skillId, true, 0);
+  (await setAgentSkill(context.agentId, context.skillId, true, 0));
   // 使用资格闸门要求 Agent 已发布（CONST-05 / ADR-2026-10-03）；未发布的 Agent 不产生资格。
-  seedPublishedAgent(context.agentId, "运行时测试 Agent");
+  (await seedPublishedAgent(context.agentId, "运行时测试 Agent"));
   // 人员资格锚点是「人 → Agent」绑定（CONST-05 / ADR-2026-10-03）：把测试账号挂到
   // 组织人员上，并把被测 Agent 绑定到该人员所在的三级组。
-  runtimeBindingId = createAgentBinding({
+  runtimeBindingId = (await createAgentBinding({
     agent_id: context.agentId, target_type: "organization_unit", target_id: "org:lt_team",
     company_id: COMPANY, source: "test",
-  }).id;
+  })).id;
   db.prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(context.userId, "person:ye_guanwang");
 });
 afterEach(async () => {
@@ -88,23 +88,23 @@ afterEach(async () => {
   delete process.env.LINGONG_DATA;
 });
 
-function connector(id: string, descriptors = [tool()], url = `http://${id}.example.test/mcp`): void {
+async function connector(id: string, descriptors = [tool()], url = `http://${id}.example.test/mcp`): Promise<void> {
   getConn().prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES(?,?,1,'configured',?)").run(id, id, "now");
-  setSkillConnector(context.skillId, id, true, 0);
-  setConnectorConfig(id, { url, allow_unauthenticated: true }, 0);
+  (await setSkillConnector(context.skillId, id, true, 0));
+  (await setConnectorConfig(id, { url, allow_unauthenticated: true }, 0));
   for (const descriptor of descriptors) {
-    approve(id, descriptor);
-    setSkillTool(context.skillId, id, String(descriptor.name), true, 0);
+    (await approve(id, descriptor));
+    (await setSkillTool(context.skillId, id, String(descriptor.name), true, 0));
   }
 }
-function approve(id: string, descriptor: Json, risk: "L1" | "L2" | "L3" = "L1", access: "read" | "write" = "read"): void {
-  const current = getToolPolicy(id, String(descriptor.name));
-  setToolPolicy(id, String(descriptor.name), { enabled: true, risk, access, schema_hash: toolSchemaHash(descriptor) }, Number(current?.version || 0));
+async function approve(id: string, descriptor: Json, risk: "L1" | "L2" | "L3" = "L1", access: "read" | "write" = "read"): Promise<void> {
+  const current = (await getToolPolicy(id, String(descriptor.name)));
+  (await setToolPolicy(id, String(descriptor.name), { enabled: true, risk, access, schema_hash: toolSchemaHash(descriptor) }, Number(current?.version || 0)));
 }
 
 describe("discovery workspace persistence and result isolation", () => {
   it("atomically prepares one task/run/session and rejects request-key reuse with different criteria", async () => {
-    setAgentSkill(context.agentId, "crawler_collect", true, 0);
+    (await setAgentSkill(context.agentId, "crawler_collect", true, 0));
     const owner = mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get(context.userId) as never);
     const brief = { platforms: ["youtube"], region: "na", directions: [], keywords: ["camping"], min_followers: 100,
       max_followers: 20000, min_avg_plays_10: 100, expect_count: 10 };
@@ -136,13 +136,13 @@ describe("discovery workspace persistence and result isolation", () => {
   });
 
   it.each(["ready", "empty", "wrong-task", "unsupported", "partial", "read-error-retry", "wrong-platform", "snapshot-changed", "revoked-after-read"])("persists only verifiable task results: %s", async mode => {
-    configureCrawlerFixture("http://crawler.example.test/mcp");
-    setAgentSkill(context.agentId, "crawler_collect", true, 0);
-    setSkillConnector("crawler_collect", "claw", true, 0);
+    (await configureCrawlerFixture("http://crawler.example.test/mcp"));
+    (await setAgentSkill(context.agentId, "crawler_collect", true, 0));
+    (await setSkillConnector("crawler_collect", "claw", true, 0));
     const descriptor = { name: "get_creators", inputSchema: { type: "object", properties: {
       ...(mode === "unsupported" ? {} : { task_id: { type: "string" } }), offset: { type: "integer" }, limit: { type: "integer" },
     }, additionalProperties: false } };
-    approve("claw", descriptor); setSkillTool("crawler_collect", "claw", descriptor.name, true, 0);
+    (await approve("claw", descriptor)); (await setSkillTool("crawler_collect", "claw", descriptor.name, true, 0));
     const ctx = { ...context, skillId: "crawler_collect", sessionId: "result-session" };
     await postgresPool().query(`INSERT INTO runtime_crawl_jobs(id,instance_key,actor_id,context_json,config_version,args_json,remote_task_id,state)
       VALUES('result-job',$1,$2,$3,1,$4,'remote-result','succeeded')`, [runtimeHash("http://crawler.example.test/mcp"), context.userId,
@@ -153,8 +153,8 @@ describe("discovery workspace persistence and result isolation", () => {
       expect(_name).toBe("get_creators"); // Recovery must never start another crawl.
       if (mode === "read-error-retry" && calls === 1) throw new Error("simulated transport interruption");
       if (mode === "revoked-after-read") {
-        const binding = getSkillConnectors("crawler_collect").find(row => row.connector_id === "claw")!;
-        setSkillConnector("crawler_collect", "claw", false, Number(binding.version));
+        const binding = (await getSkillConnectors("crawler_collect")).find(row => row.connector_id === "claw")!;
+        (await setSkillConnector("crawler_collect", "claw", false, Number(binding.version)));
       }
       if (mode === "snapshot-changed") {
         const offset = Number(args?.offset);
@@ -185,8 +185,8 @@ describe("discovery workspace persistence and result isolation", () => {
       if (mode === "ready") expect(snapshots[0].candidates).toEqual([expect.objectContaining({ followers: null, reported_followers: 4,
         followers_evidence: expect.objectContaining({ state: "missing_source" }) })]);
       expect(await discoveryResultContext({ ...ctx, sessionId: "other-session" })).toEqual([]);
-      const binding = getSkillConnectors("crawler_collect").find(row => row.connector_id === "claw")!;
-      setSkillConnector("crawler_collect", "claw", false, Number(binding.version));
+      const binding = (await getSkillConnectors("crawler_collect")).find(row => row.connector_id === "claw")!;
+      (await setSkillConnector("crawler_collect", "claw", false, Number(binding.version)));
       await expect(discoveryResultContext(ctx)).rejects.toThrow();
     } else if (mode === "partial") {
       await expect(read()).resolves.toMatchObject({ state: "partial", count: 2000 });
@@ -222,7 +222,7 @@ function fake(catalogs: Record<string, Json[]>, hooks: { list?: (url: string) =>
   return { calls, factory };
 }
 async function one(hooks: Parameters<typeof fake>[1] = {}) {
-  connector("catalog_a");
+  (await connector("catalog_a"));
   const fixture = fake({ "http://catalog_a.example.test/mcp": [tool()] }, hooks);
   const runtime = new SkillExecution(context, fixture.factory);
   const catalog = await runtime.discover();
@@ -233,7 +233,7 @@ async function one(hooks: Parameters<typeof fake>[1] = {}) {
 describe("governed Skill Runtime", () => {
   it("only the owning authenticated user can enqueue the immutable confirmation once", async () => {
     const { runtime, calls } = await one();
-    approve("catalog_a", tool(), "L3", "write");
+    (await approve("catalog_a", tool(), "L3", "write"));
     const catalog = await runtime.discover();
     const result = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
     const action = await runtimeAction(String((result.structuredContent as Json).action_id), context.userId);
@@ -254,15 +254,15 @@ describe("governed Skill Runtime", () => {
     expect(calls).toHaveLength(0);
   });
   it.each([null, "remote process failed", "timeout"])("mounts MediaCrawler writes, persists one remote job, enforces task scope, and resumes monitoring (%s)", async (remoteError) => {
-    configureCrawlerFixture("http://crawler.example.test/mcp");
+    (await configureCrawlerFixture("http://crawler.example.test/mcp"));
     const crawlContext = { ...context, skillId: "crawler_collect" };
-    setAgentSkill(context.agentId, "crawler_collect", true, 0);
-    setSkillConnector("crawler_collect", "claw", true, 0);
+    (await setAgentSkill(context.agentId, "crawler_collect", true, 0));
+    (await setSkillConnector("crawler_collect", "claw", true, 0));
     const start = { name: "start_crawl", inputSchema: { type: "object", properties: { platforms: { type: "array" }, crawler_type: { type: "string" }, keywords: { type: "string" } } } };
     const status = { name: "get_crawl_status", inputSchema: { type: "object", properties: { task_id: { type: "string" } }, required: ["task_id"] } };
     for (const descriptor of [start, status]) {
-      approve("claw", descriptor, descriptor === start ? "L3" : "L1", descriptor === start ? "write" : "read");
-      setSkillTool("crawler_collect", "claw", descriptor.name, true, 0);
+      (await approve("claw", descriptor, descriptor === start ? "L3" : "L1", descriptor === start ? "write" : "read"));
+      (await setSkillTool("crawler_collect", "claw", descriptor.name, true, 0));
     }
     let remoteCalls = 0;
     const factory = (): RuntimeRemote => ({
@@ -335,8 +335,8 @@ describe("governed Skill Runtime", () => {
     ["L2 cannot claim read-only", { readOnlyHint: true }, "L2", "write", false],
   ] as const)("publishes governed read-only hints: %s", async (_label, annotations, risk, access, expected) => {
     const descriptor: Json = { ...tool(), ...(annotations ? { annotations } : {}) };
-    connector("hints", [descriptor]);
-    approve("hints", descriptor, risk, access);
+    (await connector("hints", [descriptor]));
+    (await approve("hints", descriptor, risk, access));
     const fixture = fake({ "http://hints.example.test/mcp": [descriptor] });
     const catalog = await new SkillExecution(context, fixture.factory).discover();
     expect(catalog.tools).toHaveLength(1);
@@ -360,7 +360,7 @@ describe("governed Skill Runtime", () => {
   });
 
   it("A: discovers multiple resources with collision-free names while retaining descriptions/schema", async () => {
-    connector("catalog_a"); connector("catalog_b");
+    (await connector("catalog_a")); (await connector("catalog_b"));
     const fixture = fake({ "http://catalog_a.example.test/mcp": [tool()], "http://catalog_b.example.test/mcp": [tool()] });
     const runtime = new SkillExecution(context, fixture.factory);
     const catalog = await runtime.discover();
@@ -376,20 +376,20 @@ describe("governed Skill Runtime", () => {
   it.each(["unbind", "disable", "binding_revoke", "user_disable", "agent_unbind"])("B: rejects an old handle after %s", async (action) => {
     const { runtime, alias, calls } = await one();
     const db = getConn();
-    if (action === "unbind") setSkillConnector(context.skillId, "catalog_a", false, Number(getSkillConnectors(context.skillId)[0].version));
+    if (action === "unbind") (await setSkillConnector(context.skillId, "catalog_a", false, Number((await getSkillConnectors(context.skillId))[0].version)));
     if (action === "disable") db.prepare("UPDATE connectors SET enabled=0 WHERE id='catalog_a'").run();
-    if (action === "binding_revoke") revokeAgentBinding(runtimeBindingId);
+    if (action === "binding_revoke") (await revokeAgentBinding(runtimeBindingId));
     if (action === "user_disable") db.prepare("UPDATE users SET active=0 WHERE id=?").run(context.userId);
-    if (action === "agent_unbind") setAgentSkill(context.agentId, context.skillId, false, Number(getAgentSkills(context.agentId)[0].version));
+    if (action === "agent_unbind") (await setAgentSkill(context.agentId, context.skillId, false, Number((await getAgentSkills(context.agentId))[0].version)));
     await expect(runtime.invoke(alias, { query: "x" })).rejects.toHaveProperty("status");
     expect(calls).toHaveLength(0);
   });
 
   it("C: replaces the service ID and remote tool name without editing Skill or Host", async () => {
     const { runtime, alias, calls } = await one();
-    setSkillConnector(context.skillId, "catalog_a", false, Number(getSkillConnectors(context.skillId)[0].version));
+    (await setSkillConnector(context.skillId, "catalog_a", false, Number((await getSkillConnectors(context.skillId))[0].version)));
     const replacement = tool("find_public_profile_v2");
-    connector("replacement_provider", [replacement]);
+    (await connector("replacement_provider", [replacement]));
     const fixture = fake({ "http://replacement_provider.example.test/mcp": [replacement] });
     const replacementRuntime = new SkillExecution(context, fixture.factory);
     const catalog = await replacementRuntime.discover();
@@ -401,16 +401,16 @@ describe("governed Skill Runtime", () => {
   });
 
   it("D: new remote tools require both a reviewed policy and an explicit Skill mount, not a code whitelist", async () => {
-    connector("catalog_a");
+    (await connector("catalog_a"));
     const descriptors = [tool()];
     const fixture = fake({ "http://catalog_a.example.test/mcp": descriptors });
     const runtime = new SkillExecution(context, fixture.factory);
     expect((await runtime.discover()).tools).toHaveLength(1);
     const added = tool("brand_new_capability_2026"); descriptors.push(added);
     expect((await runtime.discover()).tools).toHaveLength(1);
-    approve("catalog_a", added);
+    (await approve("catalog_a", added));
     expect((await runtime.discover()).tools).toHaveLength(1);
-    setSkillTool(context.skillId, "catalog_a", String(added.name), true, 0);
+    (await setSkillTool(context.skillId, "catalog_a", String(added.name), true, 0));
     const refreshed = await runtime.discover();
     expect(refreshed.tools).toHaveLength(2);
     await runtime.invoke(String(refreshed.tools.find((entry) => entry.remoteName === added.name)!.exposed.name), { query: "x" });
@@ -426,7 +426,7 @@ describe("governed Skill Runtime", () => {
     const catalog = await admin.discover();
     getConn().prepare("UPDATE connectors SET enabled=0 WHERE id='catalog_a'").run();
     await expect(admin.invoke(String(catalog.tools[0].exposed.name), { query: "x" })).rejects.toMatchObject(denied("runtime_connector_disabled"));
-    setAgentSkill(context.agentId, context.skillId, false, Number(getAgentSkills(context.agentId)[0].version));
+    (await setAgentSkill(context.agentId, context.skillId, false, Number((await getAgentSkills(context.agentId))[0].version)));
     await expect(admin.discover()).rejects.toMatchObject(denied("runtime_skill_unbound"));
   });
 
@@ -460,7 +460,7 @@ describe("governed Skill Runtime", () => {
     process.env.RUNTIME_TEST_NO_ECHO = secret;
     try {
       const { runtime } = await one({ result: { content: [{ type: "text", text: `Bearer ${secret}` }], isError: true } });
-      setConnectorConfig("catalog_a", { url: "http://catalog_a.example.test/mcp", bearer_env: "RUNTIME_TEST_NO_ECHO" }, 1);
+      (await setConnectorConfig("catalog_a", { url: "http://catalog_a.example.test/mcp", bearer_env: "RUNTIME_TEST_NO_ECHO" }, 1));
       const alias = String((await runtime.discover()).tools[0].exposed.name);
       await expect(runtime.invoke(alias, { query: "x" })).rejects.toMatchObject(denied("runtime_credential_in_result"));
       const audit = getConn().prepare("SELECT payload FROM audit_events WHERE event_type LIKE 'runtime.%'").all();
@@ -472,7 +472,7 @@ describe("governed Skill Runtime", () => {
 
   it("L3 registration cannot make a tool directly callable, even by admin", async () => {
     const { runtime, alias, calls } = await one();
-    approve("catalog_a", tool(), "L3", "write");
+    (await approve("catalog_a", tool(), "L3", "write"));
     await expect(runtime.invoke(alias, { query: "x" })).rejects.toMatchObject(denied("runtime_binding_changed"));
     const catalog = await runtime.discover();
     expect(catalog.tools).toHaveLength(1);
@@ -483,7 +483,7 @@ describe("governed Skill Runtime", () => {
 
   it("runs an approved L2 write tool for the Skill holder; per-person write levels are retired", async () => {
     const { runtime, calls } = await one();
-    approve("catalog_a", tool(), "L2", "write");
+    (await approve("catalog_a", tool(), "L2", "write"));
     const catalog = await runtime.discover();
     expect(catalog.tools).toHaveLength(1);
     await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
@@ -492,7 +492,7 @@ describe("governed Skill Runtime", () => {
 
   it("does not let governance relabel existing Gateway-only operations as L1", async () => {
     const dangerous = tool("sendEmailNow");
-    connector("catalog_a", [dangerous]);
+    (await connector("catalog_a", [dangerous]));
     const fixture = fake({ "http://catalog_a.example.test/mcp": [dangerous] });
     const runtime = new SkillExecution({ ...context, userId: "admin-a" }, fixture.factory);
     const catalog = await runtime.discover();
@@ -506,12 +506,12 @@ describe("governed Skill Runtime", () => {
 
   it("persists a proposal and confirms exactly once across fresh runtimes and simultaneous requests", async () => {
     const { runtime, calls, factory } = await one();
-    approve("catalog_a", tool(), "L3", "write");
+    (await approve("catalog_a", tool(), "L3", "write"));
     const catalog = await runtime.discover();
     const result = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
     const action = await runtimeAction(String((result.structuredContent as Json).action_id), context.userId);
     expect(calls).toHaveLength(0);
-    const confirmed = await Promise.allSettled([1, 2].map(() => new SkillExecution(context, factory).confirm(action.id, action.snapshot)));
+    const confirmed = await Promise.allSettled((await Promise.all([1, 2].map(async () => (await new SkillExecution(context, factory).confirm(action.id, action.snapshot))))));
     expect(confirmed.some((item) => item.status === "fulfilled")).toBe(true);
     expect(calls).toHaveLength(1);
     expect((await runtimeAction(action.id, context.userId)).state).toBe("succeeded");
@@ -522,8 +522,8 @@ describe("governed Skill Runtime", () => {
   it("submits a confirmed write tool that has no dedicated business gate through the generic gate", async () => {
     // 写入型工具通用放行：没有专用门禁的工具不再一律 409，但仍须员工确认、只提交一次、留回执。
     const update = tool("updateProfile");
-    connector("catalog_b", [update]);
-    approve("catalog_b", update, "L3", "write");
+    (await connector("catalog_b", [update]));
+    (await approve("catalog_b", update, "L3", "write"));
     const fixture = fake({ "http://catalog_b.example.test/mcp": [update] });
     const runtime = new SkillExecution(context, fixture.factory);
     const catalog = await runtime.discover();
@@ -540,12 +540,12 @@ describe("governed Skill Runtime", () => {
 
   it.each(["parameters", "policy", "identity"])("invalidates confirmation after %s changes", async (change) => {
     const { runtime, calls, factory } = await one();
-    approve("catalog_a", tool(), "L3", "write");
+    (await approve("catalog_a", tool(), "L3", "write"));
     const catalog = await runtime.discover();
     const result = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
     const action = await runtimeAction(String((result.structuredContent as Json).action_id), context.userId);
     if (change === "parameters") await postgresPool().query("UPDATE runtime_actions SET args_json=$2 WHERE id=$1", [action.id, JSON.stringify({ query: "other" })]);
-    if (change === "policy") approve("catalog_a", tool(), "L3", "write");
+    if (change === "policy") (await approve("catalog_a", tool(), "L3", "write"));
     if (change === "identity") getConn().prepare("UPDATE users SET active=0 WHERE id=?").run(context.userId);
     await expect(new SkillExecution(context, factory).confirm(action.id, action.snapshot)).rejects.toHaveProperty("status");
     expect(calls).toHaveLength(0);
@@ -553,7 +553,7 @@ describe("governed Skill Runtime", () => {
 
   it("retains an uncertain receipt after a dispatched timeout and forbids replay", async () => {
     const { runtime, calls, factory } = await one({ call: () => { throw new Error("timeout"); } });
-    approve("catalog_a", tool(), "L3", "write");
+    (await approve("catalog_a", tool(), "L3", "write"));
     const catalog = await runtime.discover();
     const result = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
     const action = await runtimeAction(String((result.structuredContent as Json).action_id), context.userId);
@@ -564,7 +564,7 @@ describe("governed Skill Runtime", () => {
   });
 
   it("pins schema and description changes and rejects invalid arguments", async () => {
-    connector("catalog_a");
+    (await connector("catalog_a"));
     const descriptors = [tool()];
     const fixture = fake({ "http://catalog_a.example.test/mcp": descriptors });
     const runtime = new SkillExecution(context, fixture.factory);
@@ -578,8 +578,8 @@ describe("governed Skill Runtime", () => {
 
   it("rechecks the Agent use binding during the awaited discovery before dispatch", async () => {
     let revoke = false;
-    const { runtime, alias, calls } = await one({ list: () => {
-      if (revoke) revokeAgentBinding(runtimeBindingId);
+    const { runtime, alias, calls } = await one({ list: async () => {
+      if (revoke) (await revokeAgentBinding(runtimeBindingId));
     } });
     revoke = true;
     await expect(runtime.invoke(alias, { query: "x" })).rejects.toMatchObject(denied("runtime_agent_not_usable"));
@@ -587,8 +587,8 @@ describe("governed Skill Runtime", () => {
   });
 
   it("suppresses a result arriving after a binding revoke and records that dispatch already happened", async () => {
-    const { runtime, alias, calls } = await one({ call: () => {
-      revokeAgentBinding(runtimeBindingId);
+    const { runtime, alias, calls } = await one({ call: async () => {
+      (await revokeAgentBinding(runtimeBindingId));
     } });
     await expect(runtime.invoke(alias, { query: "sensitive-input" })).rejects.toMatchObject(denied("runtime_agent_not_usable"));
     expect(calls).toHaveLength(1);
@@ -606,7 +606,7 @@ describe("governed Skill Runtime", () => {
     await expect(runtime.invoke(alias, { query: "x" })).rejects.toMatchObject(denied("runtime_run_closed"));
     expect(calls).toHaveLength(0);
     const bad = tool("bad_schema"); bad.inputSchema = { type: "object", $ref: "https://secret.example/schema" };
-    approve("catalog_a", bad);
+    (await approve("catalog_a", bad));
     const fixture = fake({ "http://catalog_a.example.test/mcp": [bad] });
     const catalog = await new SkillExecution(context, fixture.factory).discover();
     expect(catalog.tools).toHaveLength(0);
@@ -648,29 +648,28 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
     process.env.RUNTIME_CREDENTIAL_MASTER_KEY = "29".repeat(32);
     try {
       const remote = await localRemote(tool(), { "X-MCP-API-KEY": "vault-key", Authorization: "Bearer personal-vault-token" });
-      const key = createCredential({ type: "organization_secret", secret: "vault-key" }, "admin-a");
+      const key = (await createCredential({ type: "organization_secret", secret: "vault-key" }, "admin-a"));
       getConn().prepare("UPDATE connectors SET enabled=1 WHERE id='starrykol'").run();
-      expect(() => setConnectorConfig("starrykol", { url: remote.url, headers_env: { "X-Key": "OLD_KEY" } }, 0))
-        .toThrow();
-      expect(() => setConnectorConfig("starrykol", { url: remote.url, allow_unauthenticated: true }, 0)).toThrow();
-      setConnectorConfig("starrykol", { url: remote.url, headers_secret_refs: { "X-MCP-API-KEY": key.id } }, 0);
-      saveStarryBinding(context.userId, { mailbox_email: "person@example.test", bearer: "personal-vault-token" });
-      const reference = boundStarryCredentialId(context.userId);
+      await expect((async () => (await setConnectorConfig("starrykol", { url: remote.url, headers_env: { "X-Key": "OLD_KEY" } }, 0)))()).rejects.toThrow();
+      await expect((async () => (await setConnectorConfig("starrykol", { url: remote.url, allow_unauthenticated: true }, 0)))()).rejects.toThrow();
+      (await setConnectorConfig("starrykol", { url: remote.url, headers_secret_refs: { "X-MCP-API-KEY": key.id } }, 0));
+      (await saveStarryBinding(context.userId, { mailbox_email: "person@example.test", bearer: "personal-vault-token" }));
+      const reference = (await boundStarryCredentialId(context.userId));
       expect(reference).toMatch(/^cred_/);
       expect(JSON.stringify(getConn().prepare("SELECT * FROM user_starry_bindings").all())).not.toContain("personal-vault-token");
-      expect(() => deleteCredential(reference, 1)).toThrow();
-      const client = createManagedClient("starrykol", context.userId, reference);
+      await expect((async () => (await deleteCredential(reference, 1)))()).rejects.toThrow();
+      const client = (await createManagedClient("starrykol", context.userId, reference));
       try { expect(await client.callTool("lookup", { query: "fixture" })).toEqual({ creator: "creator-local-42" }); }
       finally { await client.close(); }
       expect(remote.calls).toEqual(["lookup"]);
-      expect(() => createManagedClient("starrykol", "user-b", reference)).toThrow();
+      await expect((async () => (await createManagedClient("starrykol", "user-b", reference)))()).rejects.toThrow();
       getConn().prepare("UPDATE runtime_credentials SET status='disabled' WHERE id=?").run(reference);
-      expect(() => createManagedClient("starrykol", context.userId, reference)).toThrow();
+      await expect((async () => (await createManagedClient("starrykol", context.userId, reference)))()).rejects.toThrow();
       expect(remote.calls).toHaveLength(1);
       getConn().prepare("UPDATE user_starry_bindings SET bearer_token='legacy-plaintext' WHERE user_id=?").run(context.userId);
-      expect(() => boundStarryCredentialId(context.userId)).toThrow();
+      await expect((async () => (await boundStarryCredentialId(context.userId)))()).rejects.toThrow();
       getConn().prepare("UPDATE connectors SET enabled=0 WHERE id='starrykol'").run();
-      expect(() => createManagedClient("starrykol", context.userId)).toThrow();
+      await expect((async () => (await createManagedClient("starrykol", context.userId)))()).rejects.toThrow();
     } finally {
       if (previous === undefined) delete process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
       else process.env.RUNTIME_CREDENTIAL_MASTER_KEY = previous;
@@ -692,16 +691,16 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
     for (const key of Object.keys(legacyEnv)) delete process.env[key];
     process.env.RUNTIME_CREDENTIAL_MASTER_KEY = Buffer.alloc(32, 19).toString("base64");
     try {
-      const apiKey = createCredential({ type: "organization_secret", secret: "fixture-vault-key" }, "admin-a");
-      const bearer = createCredential({ type: "user_account", owner_user_id: ctx.userId,
-        secret: "fixture-vault-account" }, "admin-a");
-      connector("vaulted_starry", [descriptor], remote.url);
-      setConnectorConfig("vaulted_starry", { url: remote.url,
+      const apiKey = (await createCredential({ type: "organization_secret", secret: "fixture-vault-key" }, "admin-a"));
+      const bearer = (await createCredential({ type: "user_account", owner_user_id: ctx.userId,
+        secret: "fixture-vault-account" }, "admin-a"));
+      (await connector("vaulted_starry", [descriptor], remote.url));
+      (await setConnectorConfig("vaulted_starry", { url: remote.url,
         headers_secret_refs: { "X-MCP-API-KEY": apiKey.id },
-        credential_provider: "user-account", credential_account_id: bearer.id }, 1);
-      setAgentSkill(ctx.agentId, ctx.skillId, true, 0);
-      setSkillConnector(ctx.skillId, "vaulted_starry", true, 0);
-      setSkillTool(ctx.skillId, "vaulted_starry", "listAllKolProfiles", true, 0);
+        credential_provider: "user-account", credential_account_id: bearer.id }, 1));
+      (await setAgentSkill(ctx.agentId, ctx.skillId, true, 0));
+      (await setSkillConnector(ctx.skillId, "vaulted_starry", true, 0));
+      (await setSkillTool(ctx.skillId, "vaulted_starry", "listAllKolProfiles", true, 0));
       // Explicitly remove obsolete per-person resource grants. Assembly is not a user grant.
       getConn().prepare("DELETE FROM user_skill_grants WHERE user_id=?").run(ctx.userId);
       getConn().prepare("DELETE FROM user_connector_grants WHERE user_id=?").run(ctx.userId);
@@ -715,7 +714,7 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
       expect(result.structuredContent).toEqual(expected);
       expect(remote.calls).toEqual(["listAllKolProfiles"]);
       expect(legacyCalls).toBe(0);
-      revokeAgentBinding(runtimeBindingId);
+      (await revokeAgentBinding(runtimeBindingId));
       const deniedResult = await client.callToolRaw(String(tools[0].name), {});
       expect(deniedResult.isError).toBe(true);
       expect(remote.calls).toHaveLength(1);
@@ -730,7 +729,7 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
 
   it("wires the actual Worker through an isolated fake-Codex protocol process and the runtime proxy", async () => {
     const remote = await localRemote();
-    connector("local_provider", [tool()], remote.url);
+    (await connector("local_provider", [tool()], remote.url));
     const saved = { CODEX_BIN: process.env.CODEX_BIN, CODEX_HOME: process.env.CODEX_HOME,
       CODEX_MODE: process.env.CODEX_MODE, RUNTIME_FIXTURE_SECRET: process.env.RUNTIME_FIXTURE_SECRET };
     Object.assign(process.env, { CODEX_BIN: path.resolve("tests/fixtures/fake-runtime-codex.mjs"),
@@ -738,14 +737,14 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
     fs.chmodSync(process.env.CODEX_BIN!, 0o755);
     fs.mkdirSync(process.env.CODEX_HOME!);
     fs.writeFileSync(path.join(process.env.CODEX_HOME!, "config.toml"), '[mcp_servers.forbidden]\nurl="http://untrusted.example/mcp"\n');
-    setConnectorConfig("local_provider", { url: remote.url, headers_env: { "X-Test-Key": "RUNTIME_FIXTURE_SECRET" } }, 1);
-    const existingKOLBinding = getAgentSkills(kolAgentScopeContext().agent_id).find((row) => row.skill_id === context.skillId);
-    if (!existingKOLBinding) setAgentSkill(kolAgentScopeContext().agent_id, context.skillId, true, 0);
+    (await setConnectorConfig("local_provider", { url: remote.url, headers_env: { "X-Test-Key": "RUNTIME_FIXTURE_SECRET" } }, 1));
+    const existingKOLBinding = (await getAgentSkills((await kolAgentScopeContext()).agent_id)).find((row) => row.skill_id === context.skillId);
+    if (!existingKOLBinding) (await setAgentSkill((await kolAgentScopeContext()).agent_id, context.skillId, true, 0));
     // runCodex 按技能声明的 runtime_agent_id 走 agent:kol，人员资格同样来自 Agent 绑定。
-    createAgentBinding({
-      agent_id: kolAgentScopeContext().agent_id, target_type: "organization_unit", target_id: "org:lt_team",
+    (await createAgentBinding({
+      agent_id: (await kolAgentScopeContext()).agent_id, target_type: "organization_unit", target_id: "org:lt_team",
       company_id: COMPANY, source: "test",
-    });
+    }));
     getConn().prepare("INSERT INTO sessions(id,title,created_at,updated_at,thread_ref,owner_user_id) VALUES(?,?,?,?,?,?)")
       .run("runtime-session", "runtime", "now", "now", "stale-old-thread", context.userId);
     try {
@@ -767,7 +766,7 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
 
   it("lists and calls remote tools over SDK protocol, then denies a revoked binding", async () => {
     const remote = await localRemote();
-    connector("local_provider", [tool()], remote.url);
+    (await connector("local_provider", [tool()], remote.url));
     const proxy = await startRuntimeProxy(new SkillExecution(context));
     cleanup.push(proxy.close);
     const client = proxyClient(proxy); cleanup.push(() => client.close());
@@ -779,7 +778,7 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
     const result = await client.callToolRaw(String(tools[0].name), { query: "outdoor" });
     expect(result.structuredContent).toEqual({ creator: "creator-local-42" });
     expect(remote.calls).toEqual(["lookup"]);
-    setSkillConnector(context.skillId, "local_provider", false, Number(getSkillConnectors(context.skillId)[0].version));
+    (await setSkillConnector(context.skillId, "local_provider", false, Number((await getSkillConnectors(context.skillId))[0].version)));
     const blocked = await client.callToolRaw(String(tools[0].name), { query: "outdoor" });
     expect(blocked.isError).toBe(true);
     expect(remote.calls).toHaveLength(1);
@@ -810,18 +809,18 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
       "INSERT INTO sessions(id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id) VALUES(?,?,?,?,?,?,?,?)",
     ).run("planner-session", "今日规划", "now", "now", "today_plan", 0, context.userId, "platform:workspace-planner");
     try {
-      expect(getAgentSkills("agent:workspace-planner").filter((row) => row.enabled).map((row) => row.skill_id))
+      expect((await getAgentSkills("agent:workspace-planner")).filter((row) => row.enabled).map((row) => row.skill_id))
         .toEqual(expect.arrayContaining(["today_plan", "todo_plan", "today_analyze"]));
-      expect(getAgentSkills(kolAgentScopeContext().agent_id).some((row) => row.skill_id === "today_plan")).toBe(false);
-      expect(getSkillConnectors("today_plan")).toEqual([]);
+      expect((await getAgentSkills((await kolAgentScopeContext()).agent_id)).some((row) => row.skill_id === "today_plan")).toBe(false);
+      expect((await getSkillConnectors("today_plan"))).toEqual([]);
       // 未绑定：平台规划技能也不放行；绑定后才可运行（人员资格锚点是 Agent）。
-      expect(() => assertRuntimeSkill({
+      await expect((async () => (await assertRuntimeSkill({
         agentId: "agent:workspace-planner", skillId: "today_plan", userId: "user-b", runId: "planner-denied",
-      })).toThrow(/runtime_agent_not_usable/);
-      createAgentBinding({
+      })))()).rejects.toThrow(/runtime_agent_not_usable/);
+      (await createAgentBinding({
         agent_id: "agent:workspace-planner", target_type: "organization_unit", target_id: "org:lt_team",
         company_id: COMPANY, source: "test",
-      });
+      }));
       const user = mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get(context.userId) as Json);
       const result = await withScopedUser(user, () => runCodex(
         "planner-session",

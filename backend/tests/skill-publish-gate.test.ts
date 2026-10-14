@@ -63,7 +63,7 @@ beforeEach(async () => {
   seedAll();
   clearTaskRegistryCache();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 
 afterEach(() => {
@@ -78,10 +78,10 @@ async function prepareSkill(skill: ProbeSkill, risk?: "L3") {
   expect(created.status, JSON.stringify(created.body)).toBe(201);
   const id = skill.id;
   if (risk) {
-    ensureRuntimeSchema();
-    setToolPolicy("starrykol", "dangerTool", { enabled: true, risk, access: "write", schema_hash: "a".repeat(64) }, 0);
-    setSkillConnector(id, "starrykol", true, 0);
-    setSkillTool(id, "starrykol", "dangerTool", true, 0);
+    (await ensureRuntimeSchema());
+    (await setToolPolicy("starrykol", "dangerTool", { enabled: true, risk, access: "write", schema_hash: "a".repeat(64) }, 0));
+    (await setSkillConnector(id, "starrykol", true, 0));
+    (await setSkillTool(id, "starrykol", "dangerTool", true, 0));
   }
   const owner = await request("PATCH", `/api/admin/skills/${id}/lifecycle`, { owner: "测试负责人" });
   expect(owner.status, JSON.stringify(owner.body)).toBe(200);

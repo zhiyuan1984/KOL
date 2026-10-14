@@ -25,10 +25,10 @@ const publicationAudit=(client:PoolClient,actor:string,event:string,payload:Row)
   client.query("INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)",[stamp(),actor,event,JSON.stringify(payload)]);
 
 /** Reuse the existing authority for organization/roles, never invent reviewers. */
-export function publicationContext(company?: string): ReviewContext {
+export async function publicationContext(company?: string): Promise<ReviewContext> {
   const user = scopedUser();
   if (!user) fail("authentication_required", "请登录", 401);
-  ensureOrganizationTree();
+  (await ensureOrganizationTree());
   return reviewContextForActor(getConn(), user!.id, company);
 }
 async function document(id: string, tenant: string, client?: PoolClient) {

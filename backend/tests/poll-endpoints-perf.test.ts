@@ -62,7 +62,7 @@ beforeEach(async () => {
   resetFollowedMailSync();
   seedAll();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   seedWorkbenchFixtures();
 });
 
@@ -270,13 +270,13 @@ describe("GET /api/sessions projection", () => {
 });
 
 describe("GET /api/home/board list caps", () => {
-  it("caps kol sub-lists and workbench rows while keeping the counts exact", () => {
+  it("caps kol sub-lists and workbench rows while keeping the counts exact", async () => {
     // The board only projects collaborations bound to a remote KOL identity, so
     // without this the per-kol assertions below would be vacuous.
     getConn().prepare(
       "UPDATE collaborations SET kol_uid='ku_' || id WHERE id IN ('col_xiaomei','col_laozhang','col_mum','col_trip')",
     ).run();
-    const board = buildHomeBoard() as Json;
+    const board = (await buildHomeBoard()) as Json;
     const kols = board.kols as Json[];
     const workbench = board.workbench as Json;
     const summary = workbench.summary as Json;
@@ -307,20 +307,20 @@ describe("GET /api/home/board list caps", () => {
     expect(Object.keys(workbench).sort()).toEqual(["insights", "open", "recommendations", "summary", "today", "todo"]);
   });
 
-  it("keeps owner_mailbox so 无主 judgment still sees every owner key it had", () => {
+  it("keeps owner_mailbox so 无主 judgment still sees every owner key it had", async () => {
     // frontend/src/home/kolContract.ts#isUnownedRow calls a row 无主 only when
     // *every* owner key present in it is empty. Dropping `owner_mailbox` would
     // leave `owner_name: ""` as the only key and send a 有主 KOL to the public sea.
     getConn().prepare(
       "UPDATE collaborations SET kol_uid='ku_xiaomei', owner_name='', owner_mailbox='ops@example.com' WHERE id='col_xiaomei'",
     ).run();
-    const board = buildHomeBoard() as Json;
+    const board = (await buildHomeBoard()) as Json;
     const kol = (board.kols as Json[]).find((row) => row.id === "col_xiaomei") as Json;
     expect(kol.owner_mailbox).toBe("ops@example.com");
     expect("owner_name" in kol).toBe(true);
   });
 
-  it("keeps the unread-inbound signal from the whole thread list even though the board caps it", () => {
+  it("keeps the unread-inbound signal from the whole thread list even though the board caps it", async () => {
     const conn = getConn();
     conn.prepare("UPDATE collaborations SET kol_uid='ku_xiaomei' WHERE id='col_xiaomei'").run();
     const collab = conn.prepare("SELECT id FROM collaborations WHERE id='col_xiaomei'").get() as { id: string };
@@ -340,7 +340,7 @@ describe("GET /api/home/board list caps", () => {
         unread ? "inbound" : "outbound", `片段 ${i}`, unread ? 2 : 0, at, at, at,
       );
     }
-    const board = buildHomeBoard() as Json;
+    const board = (await buildHomeBoard()) as Json;
     const kol = (board.kols as Json[]).find((row) => row.id === collab.id) as Json;
     expect(((kol.mail_threads as Json[]) || []).length).toBe(MAX_KOL_MAIL_THREADS);
     const recommendations = (board.workbench as Json).recommendations as Json[];
@@ -360,7 +360,7 @@ describe("GET /api/home/board list caps", () => {
     }
   });
 
-  it("caps a work item's related tasks per kol without losing the unread total", () => {
+  it("caps a work item's related tasks per kol without losing the unread total", async () => {
     const conn = getConn();
     // The board only projects collaborations bound to a remote KOL identity.
     conn.prepare("UPDATE collaborations SET kol_uid='ku_xiaomei' WHERE id='col_xiaomei'").run();
@@ -376,7 +376,7 @@ describe("GET /api/home/board list caps", () => {
         "email_compose", "lead", collab.id, collab.id, "{}", "{}", stamp, stamp, "", "none",
       );
     }
-    const board = buildHomeBoard() as Json;
+    const board = (await buildHomeBoard()) as Json;
     const kol = (board.kols as Json[]).find((row) => row.id === collab.id) as Json;
     expect(kol).toBeTruthy();
     expect((kol.tasks as Json[]).length).toBe(MAX_KOL_TASKS);

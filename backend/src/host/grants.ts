@@ -36,14 +36,14 @@ export function memberScopeIds(handle: string): { orgs: string[]; teams: string[
 }
 
 /** 关闭鉴权的开发/测试态沿用既有放行口径；管理员保持与 requireSkill 一致的直通；其余按 Agent 使用资格派生。 */
-export function visibleSkillIds(userId?: string): Set<string> {
+export async function visibleSkillIds(userId?: string): Promise<Set<string>> {
   if (authDisabled() || isAdmin()) return new Set(SKILL_CATALOG.map((s) => s.id));
-  return new Set(visibleSkillIdsForUser(userId || scopedUser()?.id || null));
+  return new Set((await visibleSkillIdsForUser(userId || scopedUser()?.id || null)));
 }
 
-export function isSkillGranted(skillId: string, userId?: string): boolean {
+export async function isSkillGranted(skillId: string, userId?: string): Promise<boolean> {
   if (authDisabled() || isAdmin()) return true;
-  return canUseSkill(userId || scopedUser()?.id || null, skillId);
+  return (await canUseSkill(userId || scopedUser()?.id || null, skillId));
 }
 
 export function grantsForSkill(skillId: string): { org: string[]; team: string[]; user: string[] } {

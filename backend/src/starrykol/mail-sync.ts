@@ -339,14 +339,14 @@ onConnReset(() => {
   lastStarted.clear();
 });
 
-function mailboxSyncKey(mailbox = ""): string {
+async function mailboxSyncKey(mailbox = ""): Promise<string> {
   const context = durableSync.getStore();
-  const box = mailbox || context?.authorizedScope?.mailbox_email || boundMailboxEmail() || currentFollowScope().mailbox_email || "*";
+  const box = mailbox || context?.authorizedScope?.mailbox_email || (await boundMailboxEmail()) || (await currentFollowScope()).mailbox_email || "*";
   return `${syncActorId() || "anon"}:${box}`;
 }
 
-function mailboxStateKey(mailbox = ""): string {
-  return `${MAIL_STATE_KEY}:${mailboxSyncKey(mailbox).toLowerCase()}`;
+async function mailboxStateKey(mailbox = ""): Promise<string> {
+  return `${MAIL_STATE_KEY}:${(await mailboxSyncKey(mailbox)).toLowerCase()}`;
 }
 
 export function resetFollowedMailSync(): void {
@@ -361,8 +361,8 @@ export async function waitForBackgroundSync(): Promise<void> {
   if (backgroundSyncTask) await backgroundSyncTask;
 }
 
-export function startFollowedMailSync(force = false, mailbox = ""): Promise<FollowedMailSync> {
-  const key = mailboxSyncKey(mailbox);
+export async function startFollowedMailSync(force = false, mailbox = ""): Promise<FollowedMailSync> {
+  const key = (await mailboxSyncKey(mailbox));
   const existing = inflight.get(key);
   if (existing) return existing;
   const pending = syncFollowedKolMail(mailbox).finally(() => {
@@ -375,24 +375,24 @@ export function startFollowedMailSync(force = false, mailbox = ""): Promise<Foll
 }
 
 export async function ensureFollowedMailSync(force = false, mailbox = ""): Promise<FollowedMailSync> {
-  const key = mailboxSyncKey(mailbox);
+  const key = (await mailboxSyncKey(mailbox));
   const existing = inflight.get(key);
   if (existing) return existing;
   if (!force && lastStarted.has(key) && Date.now() - (lastStarted.get(key) || 0) < CACHE_MS) {
     const cached = await followedMailStatus(mailbox);
     if (cached.synced_at) return cached;
   }
-  return startFollowedMailSync(force, mailbox);
+  return (await startFollowedMailSync(force, mailbox));
 }
 
 export async function followedMailStatus(mailboxOverride = ""): Promise<FollowedMailSync> {
-  const mailbox = mailboxOverride || boundMailboxEmail() || currentFollowScope().mailbox_email || "";
+  const mailbox = mailboxOverride || (await boundMailboxEmail()) || (await currentFollowScope()).mailbox_email || "";
   let raw: string | undefined;
   let unread = 0;
   let bind: Awaited<ReturnType<typeof bindingHealthPg>>;
   try {
     [raw, unread, bind] = await Promise.all([
-      mailSyncStateGet(mailboxStateKey(mailbox)),
+      mailSyncStateGet((await mailboxStateKey(mailbox))),
       unreadCountForMailboxPg(mailbox),
       safeEmployeeId() ? bindingHealthPg(safeEmployeeId()) : Promise.resolve(undefined),
     ]);
@@ -477,7 +477,7 @@ function isUnread(row: Json): boolean {
 }
 
 async function followedCollaborations(boundMailbox = ""): Promise<Row[]> {
-  const scope = durableSync.getStore()?.authorizedScope || currentFollowScope();
+  const scope = durableSync.getStore()?.authorizedScope || (await currentFollowScope());
   const rows = await listBoundCollaborationsPg();
   return rows.filter((row) => {
     if (!scope.required) return true;
@@ -487,7 +487,7 @@ async function followedCollaborations(boundMailbox = ""): Promise<Row[]> {
 }
 
 async function persistStatus(result: FollowedMailSync): Promise<void> {
-  await mailSyncStateSet(mailboxStateKey(result.mailbox), JSON.stringify(result));
+  await mailSyncStateSet((await mailboxStateKey(result.mailbox)), JSON.stringify(result));
 }
 
 async function upsertThread(input: {
@@ -996,7 +996,7 @@ function scheduleBackgroundSync(
         ...(failure.retryAfterMs !== undefined ? { retry_after_ms: failure.retryAfterMs } : {}),
       };
       try { await persistStatus(result); } catch { /* the primary failure is retained below */ }
-      if (starryKolMcpConfigured()) {
+      if ((await starryKolMcpConfigured())) {
         await updateBindingSyncCursorPg({
           userId,
           mailbox,
@@ -1125,7 +1125,7 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
   await syncCheckpoint();
   const syncedAt = nowIso();
   const runtime = durableSync.getStore();
-  const scope = runtime?.authorizedScope || currentFollowScope();
+  const scope = runtime?.authorizedScope || (await currentFollowScope());
   const userId = syncActorId();
   if (scope.required && scope.bound) {
     // Read-only verification refreshes only a previously selected binding.
@@ -1139,7 +1139,7 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
       });
     }
   }
-  const mailbox = mailboxOverride || runtime?.authorizedScope?.mailbox_email || boundMailboxEmail() || scope.mailbox_email || "";
+  const mailbox = mailboxOverride || runtime?.authorizedScope?.mailbox_email || (await boundMailboxEmail()) || scope.mailbox_email || "";
   const requestedConversationId = String(runtime?.conversationId || "").trim();
   const collabs = await followedCollaborations(mailbox);
   const startPageNo = userId ? await bindingPageNoPg(userId, mailbox) : 1;
@@ -1291,7 +1291,7 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
     try { await persistStatus(result); } catch { /* result is still returned and binding/audit below remain safe */ }
     // A server-wide missing Starry config is not this mailbox's health: the receipt
     // already carries the reason, so the binding keeps its previous last_error.
-    if (starryKolMcpConfigured()) {
+    if ((await starryKolMcpConfigured())) {
       await updateBindingSyncCursorPg({
         userId,
         mailbox,

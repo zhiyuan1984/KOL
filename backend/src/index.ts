@@ -57,7 +57,7 @@ async function main(): Promise<void> {
     console.warn("未配置 RUNTIME_CREDENTIAL_MASTER_KEY（或格式无效）：凭据保险库不可用，含密钥的连接器保存 / 测试 / 发现都会 503。");
   }
 
-  const app = createApp();
+  const app = (await createApp());
   void startStarryHomeLibrarySync().catch((error) => console.error("Starry 红人库启动同步失败", error));
   void startFollowedMailSync().catch((error) => console.error("Starry 关注红人邮件同步失败", error));
   serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, (info) => {

@@ -37,7 +37,7 @@ function assessmentProfile(row: Json): Row {
 
 export async function enqueueCandidateAssessments(actionId: string, context: RuntimeContext, candidates: Json[],
   client: PoolClient, retry = false): Promise<void> {
-  authorizeConnector(context, "claw");
+  (await authorizeConnector(context, "claw"));
   const criteria = await crawlScoringCriteria(actionId, client);
   for (const row of candidates) {
     const key = candidateAssessmentKey(row, criteria);
@@ -82,7 +82,7 @@ export async function scoreDiscoveryCandidate(job: ClaimedExecutionJob, checkpoi
     await checkpoint();
     const crawl = (await postgresPool().query("SELECT context_json,actor_id FROM runtime_crawl_jobs WHERE id=$1", [payload.action_id])).rows[0];
     if (!crawl || crawl.actor_id !== job.actor_ref) throw new HttpFail(403, { code: "candidate_scope_denied" });
-    authorizeConnector(crawl.context_json, "claw");
+    (await authorizeConnector(crawl.context_json, "claw"));
     const record = (await postgresPool().query(`SELECT * FROM kol_candidate_assessments
       WHERE company_id=$1 AND platform=$2 AND creator_id=$3 AND assessment_key=$4`, values)).rows[0];
     if (!record || record.state === "scored") return { state: record ? "scored" : "missing", reused: true };
@@ -95,7 +95,7 @@ export async function scoreDiscoveryCandidate(job: ClaimedExecutionJob, checkpoi
       WHERE company_id=$1 AND platform=$2 AND creator_id=$3 AND assessment_key=$4`, values);
     const result = await assessor(assessmentProfile(record.evidence_json), record.criteria_json);
     await checkpoint();
-    authorizeConnector(crawl.context_json, "claw");
+    (await authorizeConnector(crawl.context_json, "claw"));
     await postgresPool().query(`UPDATE kol_candidate_assessments SET state='scored',result_json=$5,error_code=NULL,updated_at=now()
       WHERE company_id=$1 AND platform=$2 AND creator_id=$3 AND assessment_key=$4`, [...values, JSON.stringify(result)]);
     return { state: "scored", creator_id: payload.creator_id, assessed_at: result.assessed_at };

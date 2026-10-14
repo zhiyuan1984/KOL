@@ -34,8 +34,8 @@ export async function createDiscoveryWorkspace(inputBody: unknown): Promise<Json
   if (!user?.active) throw new HttpFail(401, { code: "runtime_identity_unavailable" });
   if (!inputBody || typeof inputBody !== "object" || Array.isArray(inputBody)) return invalid();
   const body = inputBody as Json;
-  const agentId = runtimeAgentForSkill("crawler_collect", user.id);
-  assertRuntimeSkill({ agentId, skillId: "crawler_collect", userId: user.id, runId: "discovery-prepare" });
+  const agentId = (await runtimeAgentForSkill("crawler_collect", user.id));
+  (await assertRuntimeSkill({ agentId, skillId: "crawler_collect", userId: user.id, runId: "discovery-prepare" }));
   const brief = validateWorkspaceBrief(body.brief);
   if (typeof body.request_id !== "string" || !/^[a-zA-Z0-9-]{16,80}$/.test(body.request_id)) throw new HttpFail(422, { code: "request_id_required" });
   if (typeof body.text !== "string" || !body.text.trim() || body.text.length > 20000) return invalid();
@@ -86,7 +86,7 @@ export async function pendingDiscoveryWorkspace(taskId: string): Promise<Json> {
   if (!row) throw new HttpFail(404, { code: "discovery_task_not_found" });
   const workspace = JSON.parse(row.input).discovery_workspace;
   if (workspace?.kind !== "discovery") throw new HttpFail(404, { code: "discovery_task_not_found" });
-  assertRuntimeSkill({ agentId: workspace.agent_id, skillId: "crawler_collect", userId: user.id, runId: row.run_id });
+  (await assertRuntimeSkill({ agentId: workspace.agent_id, skillId: "crawler_collect", userId: user.id, runId: row.run_id }));
   const retryable = ["pending", "failed"].includes(String(row.status))
     && ["pending", "failed"].includes(String(row.task_status));
   return { pending: retryable ? { text: workspace.submitted_text, intent: "crawler_collect",

@@ -51,9 +51,9 @@ beforeEach(async () => {
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   resetConn();
-  ensureManagedAgents();
+  (await ensureManagedAgents());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 
 afterEach(() => {

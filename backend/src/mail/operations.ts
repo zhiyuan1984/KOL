@@ -50,10 +50,10 @@ const COMMAND = {
 };
 
 /** An explicit mailbox must be bound; never silently switch scope. */
-function requestedMailbox(raw: string): string {
+async function requestedMailbox(raw: string): Promise<string> {
   const requested = normalizeEmail(String(raw || ""));
   if (!requested) return "";
-  if (!mailboxBindings().some((row) => row.mailbox === requested)) throw new HttpFail(403, { code: "mailbox_access_denied" });
+  if (!(await mailboxBindings()).some((row) => row.mailbox === requested)) throw new HttpFail(403, { code: "mailbox_access_denied" });
   return requested;
 }
 
@@ -99,11 +99,11 @@ const mailComposeCatalog: Operation["handle"] = (c, input) => {
  * 按会话查：会话是用户已可见的通讯，collaboration_id 是服务端匹配结果，
  * 不接受直接传 collaboration_id，避免越权探测任意合作。
  */
-const mailCollaborationStage: Operation["handle"] = (c, input) => {
+const mailCollaborationStage: Operation["handle"] = async (c, input) => {
   c.header("Cache-Control", "no-store");
   const conversationId = String(input.conversation_id || "").trim();
   if (!conversationId) throw new HttpFail(400, "conversation_id is required");
-  const thread = findMailThread(conversationId);
+  const thread = (await findMailThread(conversationId));
   if (!thread) throw new HttpFail(404, "conversation not found");
   const collaborationId = thread.collaboration_id ? String(thread.collaboration_id) : "";
   if (!collaborationId) return c.json({ ...MEMORY, collaboration_id: null });
@@ -138,7 +138,7 @@ const runMailSkill: Operation["handle"] = async (c, input) => {
   if (skillId !== "mail_summary" && skillId !== "mail_translate") throw new HttpFail(404, "mail skill not found");
   requireSkill(skillId);
   const body = input as { box?: unknown; conversation_id?: unknown; message_id?: unknown };
-  const mailbox = requestedMailbox(String(body?.box || "")) || mailboxBoxStatus().mailbox;
+  const mailbox = (await requestedMailbox(String(body?.box || ""))) || (await mailboxBoxStatus()).mailbox;
   if (!mailbox) throw new HttpFail(400, "mailbox is required");
   const conversationId = String(body?.conversation_id || "").trim();
   const messageId = String(body?.message_id || "").trim();
@@ -161,11 +161,11 @@ const runMailSkill: Operation["handle"] = async (c, input) => {
   return c.json({ ...COMMAND, entry: "think", kind: "think", calls_model: true, skill_id: skillId, accepted: true, pending: false, mailbox, result });
 };
 
-const mailRead: Operation["handle"] = (c, input) => {
-  const thread = findMailThread(String(input.id || ""));
+const mailRead: Operation["handle"] = async (c, input) => {
+  const thread = (await findMailThread(String(input.id || "")));
   if (!thread) throw new HttpFail(404, "conversation not found");
   markConversationMailRead(String(thread.id));
-  const refreshed = findMailThread(String(input.id || "")) || thread;
+  const refreshed = (await findMailThread(String(input.id || ""))) || thread;
   return c.json({
     ...COMMAND,
     ok: true,
@@ -174,7 +174,7 @@ const mailRead: Operation["handle"] = (c, input) => {
 };
 
 const mailStar: Operation["handle"] = async (c, input) => {
-  const thread = findMailThread(String(input.id || ""));
+  const thread = (await findMailThread(String(input.id || "")));
   if (!thread) throw new HttpFail(404, "conversation not found");
   const body = input as { starred?: unknown };
   if (body.starred !== undefined && typeof body.starred !== "boolean") {
@@ -183,7 +183,7 @@ const mailStar: Operation["handle"] = async (c, input) => {
   if (typeof body.starred === "boolean") {
     setConversationStarred(String(thread.id), body.starred);
   }
-  const refreshed = findMailThread(String(input.id || "")) || thread;
+  const refreshed = (await findMailThread(String(input.id || ""))) || thread;
   return c.json({
     ...COMMAND,
     ok: true,
@@ -195,9 +195,9 @@ export const mailOperations: Operation[] = [
   { kind: "query", id: "mail.reply-context", handle: async (c, input) => {
     if (!authDisabled()) {
       const userId = scopedUser()?.id || "";
-      const agentId = runtimeAgentForSkill("reply_analysis",userId);
-      if (!canUseAgent(userId,agentId)) throw new HttpFail(403, {code: "runtime_agent_not_usable"});
-      assertRuntimeSkill({agentId,skillId: "reply_analysis",userId,runId: "reply-context-read"});
+      const agentId = (await runtimeAgentForSkill("reply_analysis",userId));
+      if (!(await canUseAgent(userId,agentId))) throw new HttpFail(403, {code: "runtime_agent_not_usable"});
+      (await assertRuntimeSkill({agentId,skillId: "reply_analysis",userId,runId: "reply-context-read"}));
     }
     const after = Number(input.after || 0);
     if (!Number.isSafeInteger(after) || after < 0) throw new HttpFail(400, "invalid context cursor");

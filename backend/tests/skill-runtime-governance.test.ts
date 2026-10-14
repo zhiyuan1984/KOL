@@ -98,7 +98,7 @@ beforeEach(async () => {
     "INSERT INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES (?,?,?,?,?,?)",
   ).run("runtime_mcp", "Runtime MCP", 1, "configured", null, now);
   // 使用资格闸门要求 Agent 已发布（CONST-05 / ADR-2026-10-03）。
-  seedPublishedAgent("agent:creator", "Creator 测试 Agent");
+  (await seedPublishedAgent("agent:creator", "Creator 测试 Agent"));
 
   const login = await request("POST", "/api/auth/login", {
     username: "runtime-employee",
@@ -255,10 +255,10 @@ describe("skill runtime governance", () => {
     expect((await request("GET", "/api/agents/agent:creator/capabilities", undefined, employeeCookie)).body.capabilities).toEqual([]);
     // 资格来自 Agent 绑定（ADR-2026-10-03）：账号挂到组织人员，Agent 绑定到该人员所在的三级组。
     getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_runtime_employee", "person:gu_jiarui");
-    createAgentBinding({
+    (await createAgentBinding({
       agent_id: "agent:creator", target_type: "organization_unit", target_id: "org:lt_team",
       company_id: "company:amperetime", source: "test",
-    });
+    }));
     let result = await request("GET", "/api/agents/agent:creator/capabilities", undefined, employeeCookie);
     expect(result.body.capabilities).toEqual([expect.objectContaining({ skill_id: "creator_profile", unavailable_resources: 1, live_verified: false })]);
     const policy = await request("PUT", "/api/admin/runtime/connectors/runtime_mcp/tools/lookup", {
@@ -316,7 +316,7 @@ describe("skill runtime governance", () => {
   });
 
   it("defaults unknown discovered tools to deny, records L3 only as policy metadata, and cascades connector deletion", async () => {
-    expect(getToolPolicy("runtime_mcp", "newly_discovered_tool")).toBeUndefined();
+    expect((await getToolPolicy("runtime_mcp", "newly_discovered_tool"))).toBeUndefined();
 
     const l3 = await request("PUT", "/api/admin/runtime/connectors/runtime_mcp/tools/side_effect", {
       enabled: true,
@@ -328,7 +328,7 @@ describe("skill runtime governance", () => {
     expect(l3.status).toBe(200);
     // This router has no execution endpoint: L3 registration remains metadata;
     // the parent-owned Gateway is the only formal action path.
-    expect(getToolPolicy("runtime_mcp", "side_effect")).toMatchObject({ enabled: 1, risk: "L3", access: "write" });
+    expect((await getToolPolicy("runtime_mcp", "side_effect"))).toMatchObject({ enabled: 1, risk: "L3", access: "write" });
 
     const config = await request("PUT", "/api/admin/runtime/connectors/runtime_mcp/config", {
       ...validConfig,
