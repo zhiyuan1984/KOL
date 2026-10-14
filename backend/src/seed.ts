@@ -157,7 +157,9 @@ function seedCore(): void {
   seedKnowledge(conn);
   conn.prepare("INSERT OR REPLACE INTO app_state (key, value) VALUES ('persona', 'sriphy')").run();
   seedMailboxOwners();
-  ensureSystemCronJobs(conn);
+  // PostgreSQL production cron jobs are authoritative in cron/postgres-store.
+  // Keep the legacy seeder only for embedded SQLite/test mode.
+  if (databaseEngine() === "sqlite") ensureSystemCronJobs(conn);
   // 演示对象是给人看/点的：「项目」组只列「跟我有关的」（有往来/有阶段写入/有任务/有草稿，
   // 或显式放进项目），而 e2e 每次启动都会清掉 tickets —— 所以这四条显式放进来，
   // 否则桩环境里项目组会是空的。
