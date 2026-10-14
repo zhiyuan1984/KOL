@@ -113,6 +113,12 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     label: "平台配置",
     rows: [
       {
+        id: "master-data",
+        label: "主数据",
+        href: "/admin/master-data",
+        icon: "M4 7h16 M4 12h16 M4 17h16",
+      },
+      {
         id: "data",
         label: "数据",
         href: "/admin/data",

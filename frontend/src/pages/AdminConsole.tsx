@@ -8,6 +8,7 @@ import AdminKnowledge from "./AdminKnowledge";
 import AdminExams from "./AdminExams";
 import { AdminAgents } from "./AdminAgents";
 import AdminCosts from "./AdminCosts";
+import AdminMasterData from "./AdminMasterData";
 import AdminScheduling from "./AdminScheduling";
 import AdminWorkOrders from "./AdminWorkOrders";
 import AdminWorkReport from "./AdminWorkReport";
@@ -118,6 +119,7 @@ export default function AdminConsole() {
         )}
         {tab === "exams" && <AdminExams exams={exams} assignments={assignments} users={users} onReload={load} />}
         {tab === "data" && <DataPanel policy={policy} auditRows={auditRows} onSave={save} />}
+        {tab === "master-data" && <AdminMasterData />}
         {tab === "cost" && <AdminCosts />}
         {tab === "overview" && <AdminWorkReport />}
         {(tab === "lead-funnel" || tab === "project-delivery") && (
