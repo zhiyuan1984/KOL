@@ -1204,6 +1204,9 @@
 .mail-page.mail-gmail .mail-reading-pane > .mi-aibar.mail-ai-composer,
 .mail-page.mail-gmail .mi-aibar.mail-ai-composer {
   flex: 0 0 auto;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
   margin: 0;
   padding: var(--space-2) var(--space-3);
   overflow: visible;
