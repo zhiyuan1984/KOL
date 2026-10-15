@@ -60,6 +60,13 @@ const migrations: SchemaMigration[] = [
   { id: "20261004_review_operations", statements: reviewSchema },
   { id: "20261004_review_lifecycle", statements: reviewSchema },
   { id: "20261004_review_attachments", statements: reviewSchema },
+  {
+    id: "20261016_review_badge_read_indexes",
+    statements: [
+      "CREATE INDEX IF NOT EXISTS approvals_pending_ontology_badge_idx ON approvals(id) WHERE kind='ontology_change' AND status='pending'",
+      "CREATE INDEX IF NOT EXISTS review_notifications_unread_badge_idx ON review_notifications(tenant,user_id,instance_id) WHERE read_at IS NULL",
+    ],
+  },
   { id: "20261005_knowledge_publication", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "024_knowledge_publication.sql"), "utf8").replace(/\r\n/g, "\n")] },
   { id: "20261005_knowledge_publication_applications", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "025_knowledge_publication_applications.sql"), "utf8")] },
   { id: "20261005_knowledge_workspace", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "026_knowledge_workspace.sql"), "utf8")] },

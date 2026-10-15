@@ -3,6 +3,7 @@ import type { ReviewCommand } from "../../../shared/review";
 import { useAdminConfirm } from "../components/ConfirmDialog";
 import { prepareReview, reviewApi, ReviewApiError } from "./api";
 import { randomUuid } from "../uuid";
+import { refreshReviewInbox } from "./inbox-events";
 const labels = {
   submit: "提交审批",
   publish: "发布流程",
@@ -52,6 +53,7 @@ export function useReviewCommand(after: (receipt: { id: string; resourceId: stri
             confirmationId: prepared.confirmationId,
             idempotencyKey: key,
           });
+          refreshReviewInbox();
           setReceipt(`已${labels[command.action]} · 回执 ${r.id}`);
           const outcome = await after(r, command.action);
           if (outcome) setReceipt(`已${labels[command.action]} · ${outcome} · 回执 ${r.id}`);
