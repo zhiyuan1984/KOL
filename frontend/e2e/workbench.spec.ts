@@ -3186,7 +3186,9 @@ test("approval, knowledge, and exam are vertical primary nav items before cloud"
   await expect(page.locator(".review-workbench")).not.toContainText("等我确认");
   await expect(page.locator('[data-nav="approvals"]')).toHaveClass(/active/);
   await page.locator('[data-nav="knowledge"]').click();
-  await expect(page.getByRole("heading", { name: "知识库" })).toBeVisible();
+  await expect(page).toHaveURL(/\/kb$/);
+  await expect(page.getByRole("region", { name: "知识列表" })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "知识详情" })).toBeVisible();
   await page.locator('[data-nav="exam"]').click();
   await expect(page.getByRole("heading", { name: "学习考试" })).toBeVisible();
   const exam = page.locator("[data-exam-page]");
