@@ -1,5 +1,6 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { authDisabled, isAdmin, scopedUser, type AppUser } from "../auth.js";
-import { getConn } from "../db.js";
+import { postgresPool } from "../postgres/pool.js";
 import type { Row } from "../types.js";
 import { HttpFail } from "./errors.js";
 import { departmentHeadAccessForUser } from "../contract-scope.js";
@@ -31,10 +32,10 @@ export function brandScope(user = inboundActor()): string[] | null {
  * 组长可以看到所有公海 KOL（不受品牌锁限制）与本单元及下级单元的全部跟进线索；
  * 组长的上级（父单元 head）范围更大（父子树为超集），权限更多。
  */
-export function isGroupLeader(user = inboundActor()): boolean {
+export async function isGroupLeader(user = inboundActor()): Promise<boolean> {
   if (!user) return false;
   if (isAdmin(user)) return true;
-  return leaderScopeForUser(user.id).isLeader;
+  return (await leaderScopeForUser(user.id)).isLeader;
 }
 
 /** @deprecated 用 isGroupLeader 替代（组长不限于推广部）。 */
@@ -44,9 +45,9 @@ export const isPromotionGroupLeader = isGroupLeader;
  * 组长直管成员 user id（含组长本人），用于线索列表的范围过滤；
  * 非组长返回空数组（调用方回落到仅看自己）。
  */
-export function leaderMemberUserIds(user = inboundActor()): string[] {
+export async function leaderMemberUserIds(user = inboundActor()): Promise<string[]> {
   if (!user) return [];
-  return leaderScopeForUser(user.id).memberUserIds;
+  return (await leaderScopeForUser(user.id)).memberUserIds;
 }
 
 /**
@@ -54,9 +55,9 @@ export function leaderMemberUserIds(user = inboundActor()): string[] {
  * 公司级部门负责人），此时不做品牌排除；undefined 表示无法判定查看者，
  * 调用方应按失败开放（不过滤）处理，保持现有行为。
  */
-export function poolViewerBrands(user = inboundActor()): string[] | null | undefined {
+export async function poolViewerBrands(user = inboundActor()): Promise<string[] | null | undefined> {
   if (!user) return undefined;
-  if (isGroupLeader(user)) return null;
+  if ((await isGroupLeader(user))) return null;
   return brandScope(user);
 }
 
@@ -69,29 +70,23 @@ export function collaborationInScope(row: { brand?: unknown; mailbox_from?: unkn
   return false;
 }
 
-export function assertCollaborationInScope(collaborationId: string, user = inboundActor()): Row {
-  const row = getConn().prepare("SELECT * FROM collaborations WHERE id = ?").get(collaborationId) as Row | undefined;
+export async function assertCollaborationInScope(collaborationId: string, user = inboundActor()): Promise<Row> {
+  const row = (await postgresConnection().query("SELECT * FROM collaborations WHERE id = $1", [collaborationId])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(404, "collaboration not found");
   if (!collaborationInScope(row, user)) throw new HttpFail(403, "超出当前品牌范围");
   return row;
 }
 
-export function scopedCollaborationSearch(query: string, user = inboundActor()): Row[] {
+export async function scopedCollaborationSearch(query: string, user = inboundActor()): Promise<Row[]> {
   const q = `%${query}%`;
   const brands = brandScope(user);
   if (!brands) {
-    return getConn()
-      .prepare("SELECT id, handle, brand, stage_code, mailbox_from FROM collaborations WHERE handle LIKE ? OR display_name LIKE ?")
-      .all(q, q) as Row[];
+    return (await postgresConnection().query("SELECT id, handle, brand, stage_code, mailbox_from FROM collaborations WHERE handle LIKE $1 OR display_name LIKE $2", [q, q])).rows as Row[];
   }
   if (!brands.length) return [];
-  const placeholders = brands.map(() => "?").join(",");
-  return getConn()
-    .prepare(
-      `SELECT id, handle, brand, stage_code, mailbox_from FROM collaborations
-       WHERE (handle LIKE ? OR display_name LIKE ?) AND brand IN (${placeholders})`,
-    )
-    .all(q, q, ...brands) as Row[];
+  const placeholders = brands.map((_, i) => `$${i + 3}`).join(",");
+  return (await postgresConnection().query(`SELECT id, handle, brand, stage_code, mailbox_from FROM collaborations
+       WHERE (handle LIKE $1 OR display_name LIKE $2) AND brand IN (${placeholders})`, [q, q, ...brands])).rows as Row[];
 }
 
 export function inboundVisibleSql(user = inboundActor()): { sql: string; params: unknown[] } {
@@ -103,4 +98,12 @@ export function inboundVisibleSql(user = inboundActor()): { sql: string; params:
     sql: `(IFNULL(brand,'') = '' OR brand IN (${placeholders}))`,
     params: brands,
   };
+}
+
+/** Native parameterized range SQL; offset is chosen by the caller, never SQL translation. */
+export function nativeInboundVisibleSql(firstParameter = 1, user = inboundActor()): { sql: string; params: unknown[] } {
+  const brands = brandScope(user);
+  if (!brands) return { sql: "1=1", params: [] };
+  if (!brands.length) return { sql: "1=0", params: [] };
+  return { sql: `(COALESCE(brand, '') = '' OR brand IN (${brands.map((_, i) => `$${firstParameter + i}`).join(",")}))`, params: brands };
 }

@@ -25,6 +25,6 @@ knowledgeScopeRouter.get('/admin/skills/:id/knowledge-config',async c=>c.json(aw
 knowledgeScopeRouter.put('/admin/skills/:id/knowledge-config',async c=>c.json(await saveKnowledgeConfig(actor(),c.req.header('X-Review-Company'),c.req.param('id'),await c.req.json())));
 knowledgeScopeRouter.post('/admin/skills/:id/knowledge-test',async c=>c.json(await requestKnowledgeTest(actor(),c.req.header('X-Review-Company'),c.req.param('id'),await c.req.json()),202));
 knowledgeScopeRouter.get('/admin/skills/:id/capability-manifest',async c=>{
-  await postgresTransaction(db=>workspaceContext(db,actor(),c.req.header('X-Review-Company')));
+  await postgresTransaction(async db=>(workspaceContext(db,actor(),c.req.header('X-Review-Company'))));
   return c.json(await runtimeKnowledgeManifest(c.req.param('id'),actor()));
 });

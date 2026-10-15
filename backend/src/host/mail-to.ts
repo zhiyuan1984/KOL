@@ -30,15 +30,15 @@ export function resolveMailTo(
     || firstEmail(intent?.raw);
 }
 
-export function bindCollaborationEmail(collaborationId: string | null | undefined, email: string): boolean {
+export async function bindCollaborationEmail(collaborationId: string | null | undefined, email: string): Promise<Awaited<boolean>> {
   const id = String(collaborationId || "").trim();
   const to = firstEmail(email);
   if (!id || !to) return false;
-  const row = getConn().prepare("SELECT email FROM collaborations WHERE id=?").get(id) as
+  const row = (await getConn().query("SELECT email FROM collaborations WHERE id=$1",[id])).rows[0] as
     | { email?: string }
     | undefined;
   if (!row) return false;
   if (String(row.email || "").trim()) return false;
-  getConn().prepare("UPDATE collaborations SET email=? WHERE id=?").run(to, id);
+  (await getConn().query("UPDATE collaborations SET email=$1 WHERE id=$2",[to,id]));
   return true;
 }

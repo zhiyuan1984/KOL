@@ -54,9 +54,9 @@ beforeEach(async () => {
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "real";
   process.env.AUTH_MODE = "enabled";
-  resetConn();
+  (await resetConn());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const setup = await call("POST", "/api/auth/setup", {
     username: "admin",
     name: "Admin",
@@ -67,8 +67,8 @@ beforeEach(async () => {
   adminCookie = setup.cookie;
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
   process.env.CODEX_MODE = "stub";
@@ -160,9 +160,9 @@ describe("exam demo endpoint ignores persona pass", () => {
     process.env.LINGONG_DATA = tmp;
     process.env.CODEX_MODE = "stub";
     process.env.AUTH_MODE = "disabled";
-    resetConn();
+    (await resetConn());
     const { createApp } = await import("../src/app.js");
-    app = createApp();
+    app = (await createApp());
     adminCookie = "";
   });
 

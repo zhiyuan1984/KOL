@@ -99,7 +99,7 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;
   process.env.NODE_ENV = "test";
-  resetConn();
+  (await resetConn());
   sseTransports = new Map();
   fixtureServers = [];
   dispatched = [];
@@ -118,7 +118,7 @@ afterEach(async () => {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.LINGONG_DB;
   delete process.env.LINGONG_DATA;
@@ -148,27 +148,27 @@ describe("managed connector SSE transport", () => {
   });
 
   it("passes the configured MCP transport and leaves MCP on the default fetch path", async () => {
-    const mcpOptions = connectorOptions(context, validateConnectorConfig({
+    const mcpOptions = (await connectorOptions(context, validateConnectorConfig({
       protocol: "mcp", transport: "sse", url: "https://example.test/sse", allow_unauthenticated: true,
-    }));
+    })));
     expect(mcpOptions.transport).toBe("sse");
-    expect(connectorOptions(context, validateConnectorConfig({
+    expect((await connectorOptions(context, validateConnectorConfig({
       url: "https://example.test/mcp", allow_unauthenticated: true,
-    })).transport).toBeUndefined();
-    expect(connectorOptions(context, validateConnectorConfig({
+    }))).transport).toBeUndefined();
+    expect((await connectorOptions(context, validateConnectorConfig({
       protocol: "http", url: "https://example.test/api", allow_unauthenticated: true,
-    })).transport).toBeUndefined();
+    }))).transport).toBeUndefined();
     // MCP follows the same default-fetch path as the built-in MediaCrawler
     // client; the guarded fetch remains limited to HTTP action connectors.
     expect(mcpOptions.fetch).toBeUndefined();
   });
 
-  it("normalizes a raw MCP Authorization token like the env-token path", () => {
+  it("normalizes a raw MCP Authorization token like the env-token path", async () => {
     process.env.TEST_MCP_TOKEN = "CN_raw_token";
-    const options = connectorOptions(context, validateConnectorConfig({
+    const options = (await connectorOptions(context, validateConnectorConfig({
       protocol: "mcp", url: "https://example.test/mcp", headers_env: { Authorization: "TEST_MCP_TOKEN" },
       allow_unauthenticated: true,
-    }));
+    })));
     expect(options.headers).toEqual({ Authorization: "Bearer CN_raw_token" });
     delete process.env.TEST_MCP_TOKEN;
   });
@@ -213,9 +213,9 @@ describe("managed connector SSE transport", () => {
   });
 
   it("runs the managed path end to end: config -> connectorOptions -> SSE client", async () => {
-    const options = connectorOptions(context, validateConnectorConfig({
+    const options = (await connectorOptions(context, validateConnectorConfig({
       protocol: "mcp", transport: "sse", url: sseUrl, allow_unauthenticated: true,
-    }));
+    })));
     expect(options.transport).toBe("sse");
     const client = new RemoteMcpClient(options);
     try {

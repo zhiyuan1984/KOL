@@ -69,14 +69,14 @@ describe("Starry KOL L1 reads under approvalPolicy never", () => {
     process.env.CODEX_MODE = "real";
     calls.length = 0;
     setEmailMcpClientFactory(mockClient);
-    resetConn();
-    seedAll();
-    seedWorkbenchFixtures();
+    (await resetConn());
+    (await seedAll());
+    (await seedWorkbenchFixtures());
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     setEmailMcpClientFactory();
-    resetConn();
+    (await resetConn());
     if (previousMode === undefined) delete process.env.CODEX_MODE;
     else process.env.CODEX_MODE = previousMode;
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -178,7 +178,7 @@ describe("Starry KOL L1 reads under approvalPolicy never", () => {
       expect.objectContaining({ name: "starrykol.pageRiskConversations", status: "done" }),
       expect.objectContaining({ name: "starrykol.summarizeRiskConversations", status: "done" }),
     ]);
-    const overdue = getConn().prepare("SELECT handle FROM collaborations WHERE overdue = 1").all() as { handle: string }[];
+    const overdue = (await getConn().query("SELECT handle FROM collaborations WHERE overdue = 1",[])).rows as { handle: string }[];
     expect(overdue.some((row) => row.handle === "小美妆日记")).toBe(true);
   });
 

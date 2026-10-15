@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 /**
  * 线索阶段 Jev 打分（2026-10-08 一期）。
  *
@@ -50,7 +51,7 @@ function leadToProfileRow(lead: Row): Row {
 }
 
 async function writeLeadAssessment(leadId: string, assessment: LeadAssessment): Promise<void> {
-  await postgresPool().query(
+  await postgresConnection().query(
     `UPDATE kol_leads
         SET potential_score=$2, potential_confidence=$3, risk_score=$4, risk_confidence=$5,
             assessment_version=$6, assessment_criteria=$7, assessed_at=$8, assessment_error=NULL,
@@ -75,7 +76,7 @@ async function findReusableAssessment(lead: Row): Promise<LeadAssessment | null>
   if (!isUsableCreatorKey(key)) return null;
   const platform = key.split(":")[0];
   const normalizedId = key.slice(key.indexOf(":") + 1);
-  const { rows } = await postgresPool().query(
+  const { rows } = await postgresConnection().query(
     `SELECT potential_score, potential_confidence, risk_score, risk_confidence,
             assessment_version, assessment_criteria, assessed_at
        FROM kol_leads
@@ -107,7 +108,7 @@ export async function scoreKolLeadWithJev(
   leadId: string,
   criteria?: KolScoringCriteria | null,
 ): Promise<void> {
-  const { rows } = await postgresPool().query(`SELECT * FROM kol_leads WHERE id=$1`, [leadId]);
+  const { rows } = await postgresConnection().query(`SELECT * FROM kol_leads WHERE id=$1`, [leadId]);
   const lead = rows[0] as Row | undefined;
   if (!lead || lead.assessed_at) return;
   const reused = await findReusableAssessment(lead).catch(() => null);
@@ -115,7 +116,7 @@ export async function scoreKolLeadWithJev(
     await writeLeadAssessment(leadId, reused);
     return;
   }
-  const resolvedCriteria = criteria ?? latestDiscoveryCriteria(String(lead.owner_principal_id || ""));
+  const resolvedCriteria = criteria ?? await latestDiscoveryCriteria(String(lead.owner_principal_id || ""));
   try {
     const assessment = await assessPublicKolWithJev(leadToProfileRow(lead), resolvedCriteria);
     await writeLeadAssessment(leadId, {
@@ -129,7 +130,7 @@ export async function scoreKolLeadWithJev(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 180) : "Jev 评分失败";
-    await postgresPool().query(`UPDATE kol_leads SET assessment_error=$2, updated_at=now() WHERE id=$1`, [
+    await postgresConnection().query(`UPDATE kol_leads SET assessment_error=$2, updated_at=now() WHERE id=$1`, [
       leadId,
       message,
     ]);
@@ -154,7 +155,7 @@ export async function attachLeadAssessments(items: Json[]): Promise<Json[]> {
   const ids = keyed.map((entry) => entry.key.slice(entry.key.indexOf(":") + 1));
   let rows: Row[] = [];
   try {
-    const result = await postgresPool().query(
+    const result = await postgresConnection().query(
       `SELECT DISTINCT ON (lower(platform), lower(account_handle))
               id AS lead_id, lower(platform) AS platform, lower(account_handle) AS account_handle,
               potential_score, potential_confidence, risk_score, risk_confidence,

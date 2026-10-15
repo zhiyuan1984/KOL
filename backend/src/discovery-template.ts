@@ -22,6 +22,15 @@ export const DEFAULT_DISCOVERY_THRESHOLDS = {
 export const MAX_DISCOVERY_TARGET = 80;
 export const MAX_DISCOVERY_DIRECTIONS = 8;
 
+/** Keep API-delivered initial conditions equal to the Home fallback brief. */
+export const DEFAULT_DISCOVERY_DIRECTIONS = ["portable_power"] as const;
+export const DEFAULT_DISCOVERY_KEYWORDS = [
+  "camping", "outdoor camping", "camping gear",
+  "van life", "RV travel", "RV living",
+  "portable power station", "solar generator", "energy storage",
+  "road trip",
+] as const;
+
 export type DiscoveryPlatform = (typeof DISCOVERY_PLATFORMS)[number];
 export type DiscoveryRegion = (typeof DISCOVERY_REGION_CODES)[number];
 
@@ -96,14 +105,14 @@ export function isDiscoveryRegion(code: string): code is DiscoveryRegion {
   return (DISCOVERY_REGION_CODES as readonly string[]).includes(code);
 }
 
-export function employeeAuthorizedBrands(): string[] {
-  return allowedFromMailboxes(currentUser(), null).map((row) => row.brand);
+export async function employeeAuthorizedBrands(): Promise<Awaited<string[]>> {
+  return (await allowedFromMailboxes((await currentUser()), null)).map((row) => row.brand);
 }
 
-export function employeeDefaultBrand(): string | null {
-  const brands = employeeAuthorizedBrands();
-  const user = currentUser();
-  const row = user.id ? getConn().prepare("SELECT preferences FROM user_preferences WHERE user_id=?").get(user.id) as { preferences?: string } | undefined : undefined;
+export async function employeeDefaultBrand(): Promise<Awaited<string | null>> {
+  const brands = (await employeeAuthorizedBrands());
+  const user = (await currentUser());
+  const row = user.id ? (await getConn().query("SELECT preferences FROM user_preferences WHERE user_id=$1",[user.id])).rows[0] as { preferences?: string } | undefined : undefined;
   if (row) {
     try {
       const preferences = JSON.parse(String(row.preferences || "{}")) as Record<string, unknown>;
@@ -121,9 +130,9 @@ export function employeeDefaultRegion(): DiscoveryRegion {
   return "global_en";
 }
 
-export function discoveryTemplate(): Json {
-  const brands = employeeAuthorizedBrands();
-  const defaultBrand = employeeDefaultBrand();
+export async function discoveryTemplate(): Promise<Awaited<Json>> {
+  const brands = (await employeeAuthorizedBrands());
+  const defaultBrand = (await employeeDefaultBrand());
   const defaultRegion = employeeDefaultRegion();
   return {
     entry: "memory",
@@ -154,8 +163,8 @@ export function discoveryTemplate(): Json {
       brand: defaultBrand,
       region: defaultRegion,
       platforms: ["youtube"],
-      directions: [],
-      keywords: ["camping", "portable power station"],
+      directions: [...DEFAULT_DISCOVERY_DIRECTIONS],
+      keywords: [...DEFAULT_DISCOVERY_KEYWORDS],
       thresholds: { ...DEFAULT_DISCOVERY_THRESHOLDS },
     },
     employee: {

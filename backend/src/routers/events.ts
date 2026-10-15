@@ -4,7 +4,7 @@ import { HttpFail } from "../host/errors.js";
 
 export const events = new Hono();
 
-events.get("/events", (c) => {
+events.get("/events", async (c) => {
   const rawLimit = c.req.query("limit");
   let limit = 50;
   if (rawLimit != null && rawLimit !== "") {
@@ -13,7 +13,7 @@ events.get("/events", (c) => {
     limit = Math.min(200, Math.floor(parsed));
   }
   return c.json({
-    events: listBusinessEvents({
+    events: await listBusinessEvents({
       objectType: c.req.query("object_type") || undefined,
       objectId: c.req.query("object_id") || undefined,
       eventType: c.req.query("event_type") || undefined,

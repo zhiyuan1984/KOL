@@ -57,14 +57,13 @@ beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-connector-icon-"));
   Object.assign(process.env, { LINGONG_DB: path.join(tmp, "db.sqlite"), LINGONG_DATA: tmp, AUTH_MODE: "disabled", NODE_ENV: "test" });
-  resetConn();
+  (await resetConn());
   app = testApp();
-  getConn().prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES(?,?,1,'configured','now')")
-    .run(CONNECTOR_ID, "Icon fixture");
+  (await getConn().query("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES($1,$2,1,'configured','now')",[CONNECTOR_ID,"Icon fixture"]));
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   for (const key of ["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "NODE_ENV"]) delete process.env[key];
 });
@@ -75,11 +74,11 @@ describe("connector icon", () => {
     expect(created.status).toBe(201);
     expect(created.body).toEqual({ id: CONNECTOR_ID, icon_url: `/api/admin/connectors/${CONNECTOR_ID}/icon` });
 
-    const stored = getConn().prepare("SELECT icon_ref FROM connectors WHERE id=?").get(CONNECTOR_ID) as { icon_ref: string | null };
+    const stored = (await getConn().query("SELECT icon_ref FROM connectors WHERE id=$1",[CONNECTOR_ID])).rows[0] as { icon_ref: string | null };
     expect(stored.icon_ref).toMatch(new RegExp(`^${CONNECTOR_ID}-[0-9a-f]{16}\\.png$`));
     expect(fs.readFileSync(path.join(tmp, "connector-icons", String(stored.icon_ref)))).toEqual(PNG_1X1);
 
-    const event = getConn().prepare("SELECT payload FROM audit_events WHERE event_type='admin.connector.icon.updated'").get() as { payload: string };
+    const event = (await getConn().query("SELECT payload FROM audit_events WHERE event_type='admin.connector.icon.updated'",[])).rows[0] as { payload: string };
     expect(JSON.parse(event.payload)).toEqual({ connector_id: CONNECTOR_ID });
 
     const served = await get();

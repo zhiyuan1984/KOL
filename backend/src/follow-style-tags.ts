@@ -170,23 +170,23 @@ export function readFollowStyleTags(col: { follow_style_tags?: unknown } | null 
   return parseFollowStyleTags(col.follow_style_tags);
 }
 
-export function writeFollowStyleTags(
+export async function writeFollowStyleTags(
   collaborationId: string,
   incoming: unknown,
   opts: { mode?: "replace" | "add"; actor?: string } = {},
-): { tags: FollowStyleTag[]; previous: FollowStyleTag[]; collaboration: Row } {
-  const row = getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(collaborationId) as Row | undefined;
+): Promise<Awaited<{ tags: FollowStyleTag[]; previous: FollowStyleTag[]; collaboration: Row }>> {
+  const row = (await getConn().query("SELECT * FROM collaborations WHERE id=$1",[collaborationId])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(404, "collaboration not found");
   const previous = readFollowStyleTags(row);
   const tags = mergeFollowStyleTags(previous, incoming, opts.mode || "replace");
-  getConn().prepare("UPDATE collaborations SET follow_style_tags=? WHERE id=?").run(serializeFollowStyleTags(tags), collaborationId);
-  audit(opts.actor || "demo", "follow_style_tags.update", {
+  (await getConn().query("UPDATE collaborations SET follow_style_tags=$1 WHERE id=$2",[serializeFollowStyleTags(tags),collaborationId]));
+  (await audit(opts.actor || "demo", "follow_style_tags.update", {
     collaboration_id: collaborationId,
     handle: row.handle,
     tags: tags.map((tag) => tag.label),
     mode: opts.mode || "replace",
     at: nowIso(),
-  });
+  }));
   const collaboration = { ...row, follow_style_tags: serializeFollowStyleTags(tags) };
   return { tags, previous, collaboration };
 }

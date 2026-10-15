@@ -1,8 +1,9 @@
+import { postgresConnection } from "../postgres/pool.js";
 /**
  * Explicit handler registry. Cron execution state and read models are
- * PostgreSQL-native. A handler must never quietly reach the legacy SQLite
- * compatibility layer: work whose business repository is not migrated is
- * represented as a governed `needs_takeover` result instead.
+ * PostgreSQL-native, including the business repositories. No handler reaches a
+ * SQLite compatibility layer. `needs_takeover` remains a governed terminal only
+ * for actual manual-recovery conditions, not an unimplemented storage adapter.
  */
 import { postgresPool } from "../postgres/pool.js";
 import { label } from "../stages.js";
@@ -12,8 +13,6 @@ import { HttpFail } from "../host/errors.js";
 import { enqueueSystemCrawl } from "../crawl/runtime-gates.js";
 import { cronJson, normalizeSystemTemplate } from "./contracts.js";
 import { syncKolProfileIndexPostgres } from "../postgres/kol-pool-sync.js";
-import { getConn } from "../db.js";
-import { evaluateOwnershipRelease, listOwnedCollaborations, releaseFollowOwnershipIfEligible, ownershipReceiptMeta } from "../gateway/ownership-release.js";
 import { listNativeOwnershipCandidates, releaseNativeIfUnchanged, NATIVE_OWNERSHIP_POLICY } from "../postgres/ownership-release-repository.js";
 import { runMailMemoryIncrement } from "../host/mail-memory-job.js";
 import { runAiTask } from "./ai-task.js";
@@ -63,7 +62,7 @@ function formalTicketScope(viewer?: TicketPrincipal): { where: string; values: s
  * ticket facts; it does not fabricate a collaboration or remote-mail state. */
 async function overdueScan(ctx: CronHandlerContext): Promise<CronHandlerResult> {
   const scope = formalTicketScope(ctx.viewer);
-  const rows = await postgresPool().query<Row>(
+  const rows = await postgresConnection().query<Row>(
     `SELECT t.id,t.title,t.status,t.priority,t.due_at,t.business_category,t.stage_code,t.owner_user_id,
             pa.assignee_user_id,pa.assignee_person_ref
        FROM tickets t
@@ -95,7 +94,7 @@ async function overdueScan(ctx: CronHandlerContext): Promise<CronHandlerResult> 
  * not a claim that remote collaboration or mail data was refreshed. */
 async function dailyTaskSnapshot(ctx: CronHandlerContext): Promise<CronHandlerResult> {
   const scope = formalTicketScope(ctx.viewer);
-  const rows = await postgresPool().query<Row>(
+  const rows = await postgresConnection().query<Row>(
     `SELECT t.id,t.title,t.status,t.priority,t.business_category,t.stage_code,t.due_at,t.updated_at,
             pa.assignee_user_id,pa.assignee_person_ref
        FROM tickets t
@@ -131,20 +130,6 @@ async function dailyTaskSnapshot(ctx: CronHandlerContext): Promise<CronHandlerRe
 }
 
 async function ownershipRelease(ctx: CronHandlerContext): Promise<CronHandlerResult> {
-  if (!process.env.DATABASE_URL?.trim()) {
-    const db = getConn();
-    const rows = listOwnedCollaborations(db);
-    const released: Json[] = [];
-    const skipped: Json[] = [];
-    for (const row of rows) {
-      const lastAt = String(row.last_effective_mail_at || "").trim() || null;
-      const decision = evaluateOwnershipRelease(row, lastAt, ctx.nowMs ?? Date.now());
-      if (decision.action !== "release") { skipped.push({ follow_id: decision.follow_id, collaboration_id: decision.collaboration_id, reason: decision.reason, detail: decision.detail }); continue; }
-      const applied = releaseFollowOwnershipIfEligible({ db, followId: decision.follow_id, collaborationId: decision.collaboration_id, expectedOwner: decision.owner_before, expectedLastAt: lastAt || "", actor: ctx.actor, nowMs: ctx.nowMs });
-      (applied.action === "release" ? released : skipped).push(applied as unknown as Json);
-    }
-    return { status: "succeeded", receipt: { handler_key: "ownership-release", side_effect: released.length ? "write" : "none", created_session: false, source: "legacy_test_only", scanned: rows.length, released: released.length, skipped: skipped.length } };
-  }
   const rows = await listNativeOwnershipCandidates({ now: new Date(ctx.nowMs ?? Date.now()), limit: 5000 });
   const released: Json[] = [];
   const skipped: Json[] = [];
@@ -166,11 +151,20 @@ async function mailMemoryIncrement(ctx: CronHandlerContext): Promise<CronHandler
   const condition = cronJson(ctx.job.condition_json);
   const mailbox = String(condition.mailbox || "").trim() || undefined;
   const stats = await runMailMemoryIncrement(mailbox);
+  const contended = stats.completion_scope === "skipped_lock_contended";
+  const failed = stats.errors > 0;
   return {
-    status: stats.errors && !stats.scanned ? "failed" : "succeeded",
-    error_code: stats.errors && !stats.scanned ? "mail_memory_increment_failed" : undefined,
-    error_summary: stats.errors && !stats.scanned ? String(stats.error || "邮件记忆增量失败") : undefined,
-    receipt: { handler_key: "mail-memory-increment", side_effect: stats.translated || stats.summarized || stats.digested || stats.persons ? "write" : "none", created_session: false, source: "mail_memory_increment", mailbox: mailbox || "*", ...stats },
+    status: contended ? "skipped" : failed ? "failed" : "succeeded",
+    error_code: contended ? "mail_memory_increment_lock_contended" : failed ? "mail_memory_increment_failed" : undefined,
+    error_summary: contended ? "另一进程正在执行邮件记忆增量；本次未调用模型或写入。" : failed ? String(stats.error || "邮件记忆增量失败") : undefined,
+    receipt: {
+      handler_key: "mail-memory-increment",
+      side_effect: stats.persisted ? "write" : "none",
+      created_session: false,
+      source: "mail_memory_increment",
+      mailbox: mailbox || "*",
+      ...stats,
+    },
   };
 }
 

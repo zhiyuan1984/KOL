@@ -59,6 +59,29 @@ test("reply source failure and revocation remain explicit while human editor sur
   expect(fixture.errors).toEqual([]);
 });
 
+for (const move of ["keyboard", "pointer"] as const) {
+  test(`reply polling respects a deliberate ${move} focus move away from the draft`, async ({page}) => {
+    const fixture = await replyFixture(page);
+    await page.clock.install();
+    await page.goto("/s/reply-ui-session");
+    const panel = page.locator("[data-reply-context]");
+    await expect(panel).toContainText("读取已核验缓存");
+    await page.clock.runFor(500);
+    const body = page.locator("[data-draft-body]");
+    await body.fill("Human edit retained after focus move");
+    if (move === "keyboard") await body.press("Tab");
+    else await panel.getByText("查看原文与来源版本", {exact: true}).click();
+    await expect(body).not.toBeFocused();
+    await page.evaluate(() => document.activeElement?.setAttribute("data-human-focus-marker", "true"));
+    fixture.revise();
+    await page.clock.runFor(15100);
+    await expect(panel).toContainText("人工草稿未被替换");
+    await expect(body).toHaveValue("Human edit retained after focus move");
+    await expect(page.locator("[data-human-focus-marker]")).toBeFocused();
+    expect(fixture.errors).toEqual([]);
+  });
+}
+
 test("a new reply analysis round keeps the earlier unsaved human draft", async ({page}) => {
   const fixture = await replyFixture(page);
   const clients = new Set<ServerResponse>();
@@ -300,9 +323,22 @@ test("short discovery reveals focused input after context growth and respects ma
   })).toBe(true);
   await expect(submit).toBeFocused();
   const stage = page.locator(".scope-workspace-center-scroll");
-  await stage.evaluate(el => { el.scrollTop = el.scrollHeight; });
-  await stage.evaluate(el => { el.scrollTop = 0; });
+  await stage.evaluate(el => {
+    // Positioning at the tail is setup only. The return to history must use a
+    // trusted wheel event so this test exercises the reader-intent contract.
+    el.dataset.manualReadingWheel = "";
+    el.addEventListener("wheel", event => {
+      el.dataset.manualReadingWheel = JSON.stringify({ isTrusted: event.isTrusted, deltaY: event.deltaY });
+    }, { once: true });
+    el.scrollTop = el.scrollHeight;
+  });
+  await expect.poll(() => stage.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(1);
+  await stage.hover();
+  await page.mouse.wheel(0, -4000);
   await expect.poll(() => stage.evaluate(el => el.scrollTop)).toBe(0);
+  const manualReadingWheel = JSON.parse(await stage.getAttribute("data-manual-reading-wheel") || "null");
+  expect(manualReadingWheel).toMatchObject({ isTrusted: true });
+  expect(manualReadingWheel.deltaY).toBeLessThan(0);
   await grow();
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   await expect.poll(() => stage.evaluate(el => el.scrollTop)).toBe(0);

@@ -1,3 +1,4 @@
+import { closePostgresPool } from "../src/postgres/pool.js";
 import { callStarryKolTool } from "../src/starrykol/service.js";
 /** Authorized, read-only remote query acceptance. Configuration changes require --configure.
  * Run on the target deployment as its service OS user. Never prints secrets or profile contents.
@@ -25,11 +26,11 @@ let phase = "identity";
 const emit = (value: unknown) => console.log(JSON.stringify(value));
 const db = getConn();
 try {
-  const row = db.prepare("SELECT * FROM users WHERE id=?").get(userId) as Json | undefined;
+  const row = (await db.query("SELECT * FROM users WHERE id=$1",[userId])).rows[0] as Json | undefined;
   if (!row || !Number(row.active)) throw new Error("active account required");
-  const user = mapUser(row);
-  if (!canUseAgent(userId, context.agentId)) throw new Error("explicit Agent qualification required, including administrators");
-  const cfg = getConnectorConfig(connector);
+  const user = (await mapUser(row));
+  if (!(await canUseAgent(userId, context.agentId))) throw new Error("explicit Agent qualification required, including administrators");
+  const cfg = (await getConnectorConfig(connector));
   if (!cfg || cfg.config.url_env || cfg.config.headers_env || cfg.config.bearer_env) {
     throw new Error("saved connector must use URL and vault references only");
   }
@@ -50,27 +51,27 @@ try {
     app.route("/api", createConnectorOperationsRouter());
     app.route("/api", enterprise);
     const request = async (method: string, path: string, body?: unknown) => {
-      const response = await withScopedUser(user, () => app.request(`/api${path}`, {
+      const response = await withScopedUser(user, async () => (await app.request(`/api${path}`, {
         method, headers: { "content-type": "application/json" },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      }));
+      })));
       const result = await response.json() as Json;
       emit({ phase, path, status: response.status,
         ...(path.endsWith("/probe") ? { receipt: result } : {}) });
       if (!response.ok) throw new Error(`governance request failed (${response.status})`);
       return result;
     };
-    audit(userId, "acceptance.configured_starry.started", { run_id: context.runId });
+    (await audit(userId, "acceptance.configured_starry.started", { run_id: context.runId }));
     // Re-save identical reference-only config to request a fresh probe, preserving its secrets.
     await request("PUT", `/admin/runtime/connectors/${connector}/config`, { ...cfg.config, expected_version: cfg.version });
     await request("POST", `/admin/runtime/connectors/${connector}/probe`);
-    const agentBinding = getAgentSkills(context.agentId).find((binding) => binding.skill_id === context.skillId);
+    const agentBinding = (await getAgentSkills(context.agentId)).find((binding) => binding.skill_id === context.skillId);
     if (!agentBinding?.enabled) await request("PUT", `/admin/runtime/agents/${context.agentId}/skills/${context.skillId}`,
       { enabled: true, expected_version: Number(agentBinding?.version || 0) });
-    const resource = getSkillConnectors(context.skillId).find((binding) => binding.connector_id === connector);
+    const resource = (await getSkillConnectors(context.skillId)).find((binding) => binding.connector_id === connector);
     if (!resource?.enabled) await request("PUT", `/admin/runtime/skills/${context.skillId}/connectors/${connector}`,
       { enabled: true, expected_version: Number(resource?.version || 0) });
-    const mount = getSkillTools(context.skillId).find((binding) => binding.connector_id === connector && binding.tool_name === target.name);
+    const mount = (await getSkillTools(context.skillId)).find((binding) => binding.connector_id === connector && binding.tool_name === target.name);
     if (!mount?.enabled) await request("PUT", `/admin/runtime/skills/${context.skillId}/tools/${connector}/${target.name}`,
       { enabled: true, expected_version: Number(mount?.version || 0) });
     await request("PATCH", `/admin/connectors/${connector}`, { enabled: true });
@@ -100,7 +101,7 @@ try {
   } finally { execution.close(); }
   if (process.argv.includes("--business")) {
     phase = "business_gateway_query";
-    const result = await withScopedUser(user, () => callStarryKolTool("listAllKolProfiles", {}));
+    const result = await withScopedUser(user, async () => (await callStarryKolTool("listAllKolProfiles", {})));
     const data = (result.data || result) as Json;
     emit({ phase, connection_path: "saved_config_vault", total: data.total,
       rows: Array.isArray(data.list) ? data.list.length : null,
@@ -111,18 +112,16 @@ try {
     phase = "real_codex_harness";
     if (process.env.CODEX_MODE !== "real") throw new Error("real Codex mode required");
     const sessionId = `acceptance-starry-${Date.now()}`;
-    db.prepare("INSERT INTO sessions(id,title,created_at,updated_at,owner_user_id) VALUES(?,?,?,?,?)")
-      .run(sessionId, "验收：保险柜全量 KOL 查询", nowIso(), nowIso(), userId);
+    (await db.query("INSERT INTO sessions(id,title,created_at,updated_at,owner_user_id) VALUES($1,$2,$3,$4,$5)",[sessionId,"验收：保险柜全量 KOL 查询",nowIso(),nowIso(),userId]));
     emit({ phase, session_id: sessionId, status: "started" });
-    const result = await withScopedUser(user, () => runCodex(sessionId, context.skillId,
-      "验证当前技能的全量画像查询：只调用 skill_runtime 中已挂载的 listAllKolProfiles 一次。返回实际查询总数及字段说明即可，不输出完整画像名单，不调用其他业务工具；如果失败如实报告。", {}));
-    const completed = (db.prepare("SELECT payload FROM audit_events WHERE event_type='runtime.tool.completed'")
-      .all() as { payload: string }[]).map((row) => JSON.parse(row.payload) as Json)
+    const result = await withScopedUser(user, async () => (await runCodex(sessionId, context.skillId,
+      "验证当前技能的全量画像查询：只调用 skill_runtime 中已挂载的 listAllKolProfiles 一次。返回实际查询总数及字段说明即可，不输出完整画像名单，不调用其他业务工具；如果失败如实报告。", {})));
+    const completed = ((await db.query("SELECT payload FROM audit_events WHERE event_type='runtime.tool.completed'",[])).rows as { payload: string }[]).map((row) => JSON.parse(row.payload) as Json)
       .filter((event) => event.session_id === sessionId && event.is_error === false);
     emit({ phase, session_id: sessionId, status: result.status, connection_path: "saved_config_vault",
       item_types: result.items.map((item) => item.type),
       completed_tool_calls: completed.length,
-      mcp_calls: result.contract_log.find((entry) => entry.method === "turn/output")?.params?.mcp_calls,
+      mcp_calls: (() => { const params = result.contract_log.find(entry => entry.method === "turn/output")?.params; return params && typeof params === "object" && "mcp_calls" in params ? params.mcp_calls : undefined; })(),
       contract_methods: result.contract_log.map((entry) => entry.method),
       result_sha256: createHash("sha256").update(JSON.stringify(result.items)).digest("hex") });
     if (result.status !== "done" || completed.length !== 1) throw new Error("harness acceptance failed");
@@ -131,4 +130,4 @@ try {
   emit({ phase, failure: runtimeErrorCode(error), error_type: error instanceof Error ? error.name : typeof error,
     connection_path: "saved_config_vault" });
   process.exitCode = 1;
-} finally { db.close(); }
+} finally { (await closePostgresPool()); }

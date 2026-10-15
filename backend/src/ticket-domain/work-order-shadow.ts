@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { HttpFail } from "../host/errors.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
 import { taskWorkOrderAggregate, workOrderDecisionInputHash } from "./task-work-orders.js";
@@ -107,7 +108,7 @@ export async function recordWorkOrderShadowDecision(
   const task = await taskWorkOrderAggregate(actorId, required(taskId, "task_id", 120), Boolean(options.isAdmin));
   const targetId = String(raw.work_order_id || "").trim() || null;
   const targetResult = targetId
-    ? await postgresPool().query<TargetWorkOrder>(
+    ? await postgresConnection().query<TargetWorkOrder>(
       `SELECT wo.id,wo.task_id,wo.template_id,wo.template_code,wo.template_version,wo.status,wo.stage_code,wo.data_version,t.stage_policy_json
          FROM work_orders wo JOIN work_order_templates t ON t.id=wo.template_id
         WHERE wo.id=$1 AND wo.task_id=$2`,
@@ -117,7 +118,7 @@ export async function recordWorkOrderShadowDecision(
   const target = targetResult.rows[0] || null;
   if (targetId && !target) throw new HttpFail(404, { code: "work_order_target_not_found" });
   if (target && ["completed", "cancelled"].includes(target.status)) throw new HttpFail(409, { code: "work_order_target_not_open", status: target.status });
-  const publishedRows = await postgresPool().query<TemplateRow>(
+  const publishedRows = await postgresConnection().query<TemplateRow>(
     `SELECT id,template_code,version,title,description,automation_level,routing_policy_code,stage_policy_json
        FROM work_order_templates
       WHERE status='published'
@@ -151,7 +152,7 @@ export async function recordWorkOrderShadowDecision(
       task: { id: task.task.task_id, title: task.task.title, goal: task.task.goal, status: task.task.status, stage_code: target?.stage_code },
       source_event: event, templates, routing_policy_codes: routingPolicyCodes, allowed_stage_targets: allowedStageTargets,
     })
-      .catch((error) => error instanceof JevWorkOrderUnavailable ? disabledVerdict(error.message) : Promise.reject(error));
+      .catch(async (error) => error instanceof JevWorkOrderUnavailable ? disabledVerdict(error.message) : (Promise.reject(error)));
   const selected = verdict.template_code
     ? templateRows.find((row) => row.template_code === verdict.template_code && Number(row.version) === verdict.template_version) || null
     : null;

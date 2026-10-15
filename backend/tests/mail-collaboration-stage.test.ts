@@ -9,13 +9,14 @@ import { mailOperations } from "../src/mail/operations.js";
 import { operationRouter } from "../src/runtime/operations.js";
 import type { Json } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { bindStarryUser } from "./helpers/starry-binding.js";
 
 let tmp = "";
 let app: Hono;
 
 async function query(conversationId: string) {
   const response = await app.request(
-    `/queries/mail.collaboration-stage?conversation_id=${encodeURIComponent(conversationId)}`,
+    `/queries/mail.collaboration-stage?box=larry.zhao%40amperetime.com&conversation_id=${encodeURIComponent(conversationId)}`,
   );
   const text = await response.text();
   return { status: response.status, body: (text ? JSON.parse(text) : {}) as Json };
@@ -25,7 +26,8 @@ beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mail-stage-"));
   process.env.LINGONG_DATA = tmp;
-  resetConn();
+  (await resetConn());
+  await bindStarryUser();
   const router = operationRouter(mailOperations);
   router.onError((error, c) => {
     if (error instanceof HttpFail) return c.json({ detail: error.detail }, error.status as 400);
@@ -33,25 +35,13 @@ beforeEach(async () => {
   });
   app = router;
   const now = new Date().toISOString();
-  getConn().prepare(
-    `INSERT INTO collaborations
-       (id, handle, display_name, brand, platform, email, mailbox_from, lifecycle_id, conversation_id, stage_code)
-     VALUES ('col_1', 'testhandle', 'Test KOL', 'LT', 'youtube', 'kol@example.com', 'larry.zhao@amperetime.com', 'lc1', 'conv_1', 'QUOTE_PENDING')`,
-  ).run();
-  getConn().prepare(
-    `INSERT INTO kol_mail_threads
-       (id, collaboration_id, conversation_id, subject, mailbox, created_at, updated_at)
-     VALUES ('thr_1', 'col_1', 'conv_1', 'Hello', 'larry.zhao@amperetime.com', ?, ?)`,
-  ).run(now, now);
-  getConn().prepare(
-    `INSERT INTO kol_mail_threads
-       (id, collaboration_id, conversation_id, subject, mailbox, created_at, updated_at)
-     VALUES ('thr_2', NULL, 'conv_2', 'No bind', 'larry.zhao@amperetime.com', ?, ?)`,
-  ).run(now, now);
+  (await getConn().query("INSERT INTO collaborations\n       (id, handle, display_name, brand, platform, email, mailbox_from, lifecycle_id, conversation_id, stage_code)\n     VALUES ('col_1', 'testhandle', 'Test KOL', 'LT', 'youtube', 'kol@example.com', 'larry.zhao@amperetime.com', 'lc1', 'conv_1', 'QUOTE_PENDING')",[]));
+  (await getConn().query("INSERT INTO kol_mail_threads\n       (id, collaboration_id, conversation_id, subject, mailbox, created_at, updated_at)\n     VALUES ('thr_1', 'col_1', 'conv_1', 'Hello', 'larry.zhao@amperetime.com', $1, $2)",[now,now]));
+  (await getConn().query("INSERT INTO kol_mail_threads\n       (id, collaboration_id, conversation_id, subject, mailbox, created_at, updated_at)\n     VALUES ('thr_2', NULL, 'conv_2', 'No bind', 'larry.zhao@amperetime.com', $1, $2)",[now,now]));
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   delete process.env.LINGONG_DATA;
   fs.rmSync(tmp, { recursive: true, force: true });
 });
@@ -77,6 +67,12 @@ describe("mail.collaboration-stage", () => {
 
   it("404s for an unknown conversation instead of leaking collaborations", async () => {
     const { status } = await query("conv_nope");
+    expect(status).toBe(404);
+  });
+
+  it("rejects the conversation after its mailbox binding is revoked", async () => {
+    await getConn().query("DELETE FROM user_starry_bindings WHERE mailbox_email=$1", ["larry.zhao@amperetime.com"]);
+    const { status } = await query("conv_1");
     expect(status).toBe(404);
   });
 

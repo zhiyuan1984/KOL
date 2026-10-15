@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { HttpFail } from "../host/errors.js";
 import { pgEnqueueExecutionJob, pgExecutionJobPublic } from "../execution-jobs/postgres-store.js";
 import { postgresPool } from "../postgres/pool.js";
@@ -16,7 +17,7 @@ export async function enqueueWorkOrderDecisionExecution(
 ): Promise<{ execution_job: Json; created: boolean }> {
   const id = String(decisionId || "").trim();
   if (!id) throw new HttpFail(422, { code: "work_order_decision_id_required" });
-  const decision = await postgresPool().query<DecisionRow>(
+  const decision = await postgresConnection().query<DecisionRow>(
     "SELECT id,task_id,source_event_id,outcome,status FROM work_order_decisions WHERE id=$1",
     [id],
   );

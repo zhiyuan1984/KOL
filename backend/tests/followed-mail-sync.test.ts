@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
-import { ensureFollowedMailSync, resetFollowedMailSync, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
+import { ensureFollowedMailSync as startFixtureMailSync, resetFollowedMailSync, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import type { Json } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
@@ -20,35 +20,36 @@ let tmp: string;
 let app: Hono;
 const calls: string[] = [];
 
+// The native sync commits its index before body hydration. Fixture assertions
+// explicitly await that background work; the job-route test still tests 202.
+async function ensureFollowedMailSync(force: boolean): Promise<Awaited<ReturnType<typeof startFixtureMailSync>>> {
+  const result = await startFixtureMailSync(force);
+  await waitForBackgroundSync();
+  return result;
+}
+
 async function request(method: string, url: string, body?: unknown) {
-  const actor = getConn().prepare("SELECT * FROM users WHERE id=?").get(DEMO_USER.id) as Json | undefined;
-  const invoke = () => app.request(url, {
+  const actor = (await getConn().query("SELECT * FROM users WHERE id=$1",[DEMO_USER.id])).rows[0] as Json | undefined;
+  const invoke = async () => (await app.request(url, {
     method,
     headers: { "Content-Type": "application/json" },
     ...(method === "GET" ? {} : { body: JSON.stringify(body || {}) }),
-  });
-  const response = actor ? await withScopedUser(mapUser(actor), invoke) : await invoke();
+  }));
+  const response = actor ? await withScopedUser((await mapUser(actor)), invoke) : await invoke();
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) as Json : {} };
 }
 
-function bindLarry(): void {
+async function bindLarry(): Promise<void> {
   const now = new Date().toISOString();
-  getConn().prepare(
-    `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-  ).run(DEMO_USER.id, DEMO_USER.handle, DEMO_USER.name, "x", JSON.stringify(["employee", "admin"]), "[]", "", 1, now, now);
-  getConn().prepare(
-    `INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, mailbox_id, owner_name, bearer_token, status, updated_at)
-     VALUES (?,?,?,?,?,?,?,?)
-     ON CONFLICT(user_id, mailbox_email) DO UPDATE SET mailbox_id=excluded.mailbox_id, owner_name=excluded.owner_name, status=excluded.status, updated_at=excluded.updated_at`,
-  ).run(DEMO_USER.id, "larry.zhao@amperetime.com", 1, "mbx_larry", "赵良玉", "", "connected", now);
+  (await getConn().query("INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING",[DEMO_USER.id,DEMO_USER.handle,DEMO_USER.name,"x",JSON.stringify(["employee", "admin"]),"[]","",1,now,now]));
+  (await getConn().query("INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, mailbox_id, owner_name, bearer_token, status, updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)\n     ON CONFLICT(user_id, mailbox_email) DO UPDATE SET mailbox_id=excluded.mailbox_id, owner_name=excluded.owner_name, status=excluded.status, updated_at=excluded.updated_at",[DEMO_USER.id,"larry.zhao@amperetime.com",1,"mbx_larry","赵良玉","","connected",now]));
   process.env.RUNTIME_CREDENTIAL_MASTER_KEY = "a".repeat(64);
-  saveStarryBinding(DEMO_USER.id, { mailbox_email: "larry.zhao@amperetime.com", bearer: "test-only-token" });
+  (await saveStarryBinding(DEMO_USER.id, { mailbox_email: "larry.zhao@amperetime.com", bearer: "test-only-token" }));
 }
 
 beforeEach(async () => {
-  await freshTestDatabase();
+  await freshTestDatabase({ reclaimPrevious: true });
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-mail-sync-"));
   process.env.LINGONG_DB = path.join(tmp, "mail.db");
   process.env.LINGONG_DATA = tmp;
@@ -99,13 +100,12 @@ beforeEach(async () => {
     },
     async close() { /* noop */ },
   }));
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
-  getConn().prepare("UPDATE collaborations SET kol_uid=?, email=? WHERE id='col_xiaomei'")
-    .run("KOL51DA646D8D8A4544BB93", "xiaomei.beauty@example.com");
+  app = (await createApp());
+  (await seedWorkbenchFixtures());
+  (await getConn().query("UPDATE collaborations SET kol_uid=$1, email=$2 WHERE id='col_xiaomei'",["KOL51DA646D8D8A4544BB93","xiaomei.beauty@example.com"]));
 });
 
 afterEach(async () => {
@@ -113,27 +113,25 @@ afterEach(async () => {
   await closePostgresPool();
   setStarryKolClientFactory();
   resetFollowedMailSync();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
 describe("followed KOL unread mail sync", () => {
   it("rejects moving a remembered conversation to another collaboration", async () => {
-    bindLarry();
+    (await bindLarry());
     await ensureFollowedMailSync(true);
-    getConn().prepare(`INSERT INTO collaborations(id,handle,display_name,brand,email,mailbox_from,lifecycle_id,conversation_id,stage_code,kol_uid)
-      SELECT 'col_other_source',handle,display_name,brand,email,mailbox_from,lifecycle_id,'other-conversation',stage_code,kol_uid
-      FROM collaborations WHERE id='col_xiaomei'`).run();
-    getConn().prepare("UPDATE collaborations SET kol_uid='OTHER-UID',email='other@example.test' WHERE id='col_other_source'").run();
-    getConn().prepare("UPDATE kol_mail_threads SET collaboration_id='col_other_source' WHERE conversation_id='3901'").run();
+    (await getConn().query("INSERT INTO collaborations(id,handle,display_name,brand,email,mailbox_from,lifecycle_id,conversation_id,stage_code,kol_uid)\n      SELECT 'col_other_source',handle,display_name,brand,email,mailbox_from,lifecycle_id,'other-conversation',stage_code,kol_uid\n      FROM collaborations WHERE id='col_xiaomei'",[]));
+    (await getConn().query("UPDATE collaborations SET kol_uid='OTHER-UID',email='other@example.test' WHERE id='col_other_source'",[]));
+    (await getConn().query("UPDATE kol_mail_threads SET collaboration_id='col_other_source' WHERE conversation_id='3901'",[]));
     const result = await ensureFollowedMailSync(true);
     expect(result.ok).toBe(false);
     expect(result.error).toContain("mail_conversation_association_mismatch");
-    expect(getConn().prepare("SELECT collaboration_id FROM kol_mail_threads WHERE conversation_id='3901'").get()).toMatchObject({collaboration_id: "col_other_source"});
-    expect(getConn().prepare("SELECT COUNT(*) AS n FROM kol_mail_items WHERE collaboration_id='col_other_source'").get()).toMatchObject({n: 0});
+    expect((await getConn().query("SELECT collaboration_id FROM kol_mail_threads WHERE conversation_id='3901'",[])).rows[0]).toMatchObject({collaboration_id: "col_other_source"});
+    expect((await getConn().query("SELECT COUNT(*) AS n FROM kol_mail_items WHERE collaboration_id='col_other_source'",[])).rows[0]).toMatchObject({n: 0});
   });
   it("uses local mail memory and skips unchanged remote conversation details", async () => {
-    bindLarry();
+    (await bindLarry());
     setStarryKolClientFactory(() => ({
       async callTool(name: string, args: Json = {}) {
         calls.push(name);
@@ -164,22 +162,24 @@ describe("followed KOL unread mail sync", () => {
 
     await ensureFollowedMailSync(true);
     expect(calls.filter((name) => name === "getEmailConversation")).toHaveLength(1);
-    expect(getConn().prepare("SELECT conversation_id,mailbox,last_at FROM kol_mail_threads WHERE conversation_id='4901'").get()).toBeTruthy();
+    expect((await getConn().query("SELECT conversation_id,mailbox,last_at FROM kol_mail_threads WHERE conversation_id='4901'",[])).rows[0]).toBeTruthy();
     calls.length = 0;
     await ensureFollowedMailSync(true);
     expect(calls).toContain("pageEmailConversations");
     expect(calls.filter((name) => name === "getEmailConversation")).toHaveLength(0);
+    expect((await getConn().query("SELECT last_snippet,last_preview FROM kol_mail_threads WHERE conversation_id='4901'",[])).rows[0])
+      .toMatchObject({ last_snippet: "Stored once", last_preview: "Stored once" });
     // A remembered index cannot certify a missing body. Fetch the authorized
     // detail again, without creating another event for the same source version.
-    getConn().prepare("UPDATE kol_mail_items SET body_text=NULL WHERE provider_message_id='mid-4901'").run();
+    (await getConn().query("UPDATE kol_mail_items SET body_text=NULL WHERE provider_message_id='mid-4901'",[]));
     calls.length = 0;
     await ensureFollowedMailSync(true);
     expect(calls.filter((name) => name === "getEmailConversation")).toHaveLength(1);
-    expect(getConn().prepare("SELECT body_text FROM kol_mail_items WHERE provider_message_id='mid-4901'").get()).toMatchObject({body_text: "Stored once"});
+    expect((await getConn().query("SELECT body_text FROM kol_mail_items WHERE provider_message_id='mid-4901'",[])).rows[0]).toMatchObject({body_text: "Stored once"});
   });
 
   it("drops conversations belonging to another mailbox", async () => {
-    bindLarry();
+    (await bindLarry());
     setStarryKolClientFactory(() => ({
       async callTool(name: string) {
         calls.push(name);
@@ -198,12 +198,12 @@ describe("followed KOL unread mail sync", () => {
     }));
 
     await ensureFollowedMailSync(true);
-    expect(getConn().prepare("SELECT 1 FROM kol_mail_threads WHERE conversation_id='5901'").get()).toBeUndefined();
+    expect((await getConn().query("SELECT 1 FROM kol_mail_threads WHERE conversation_id='5901'",[])).rows[0]).toBeUndefined();
     expect(calls).not.toContain("getEmailConversation");
   });
 
   it("keeps brand-mailbox and external conversations, drops same-domain coworker mailboxes", async () => {
-    bindLarry();
+    (await bindLarry());
     setStarryKolClientFactory(() => ({
       async callTool(name: string) {
         calls.push(name);
@@ -248,15 +248,15 @@ describe("followed KOL unread mail sync", () => {
 
     await ensureFollowedMailSync(true);
     await waitForBackgroundSync();
-    expect(getConn().prepare("SELECT 1 FROM kol_mail_threads WHERE conversation_id='6001'").get()).toBeUndefined();
-    expect(getConn().prepare("SELECT 1 FROM kol_mail_threads WHERE conversation_id='6002'").get()).toBeTruthy();
-    expect(getConn().prepare("SELECT 1 FROM kol_mail_threads WHERE conversation_id='6003'").get()).toBeTruthy();
+    expect((await getConn().query("SELECT 1 FROM kol_mail_threads WHERE conversation_id='6001'",[])).rows[0]).toBeUndefined();
+    expect((await getConn().query("SELECT 1 FROM kol_mail_threads WHERE conversation_id='6002'",[])).rows[0]).toBeTruthy();
+    expect((await getConn().query("SELECT 1 FROM kol_mail_threads WHERE conversation_id='6003'",[])).rows[0]).toBeTruthy();
   });
 
   it("POST /api/jobs/mail.sync/start accepts immediately and syncs in the background", async () => {
-    bindLarry();
+    (await bindLarry());
     const started = Date.now();
-    const response = await request("POST", "/api/jobs/mail.sync/start");
+    const response = await request("POST", "/api/jobs/mail.sync/start", { box: "larry.zhao@amperetime.com" });
     const elapsed = Date.now() - started;
     expect(response.status).toBe(202);
     expect(response.body.accepted).toBe(true);
@@ -264,7 +264,7 @@ describe("followed KOL unread mail sync", () => {
     expect((response.body.job as Json).status).toBe("queued");
     await processExecutionJobById(String((response.body.job as Json).id));
     expect((await request("GET", `/api/jobs/${String((response.body.job as Json).id)}`)).body.job).toMatchObject({status: "succeeded"});
-    expect(getConn().prepare("SELECT 1 FROM kol_mail_threads WHERE conversation_id='3901'").get()).toBeTruthy();
+    expect((await getConn().query("SELECT 1 FROM kol_mail_threads WHERE conversation_id='3901'",[])).rows[0]).toBeTruthy();
   });
 
   it("collects Starry inbound threads on home refresh and shows unread by thread id", async () => {
@@ -301,9 +301,9 @@ describe("followed KOL unread mail sync", () => {
       )).rows[0].n)).toBe(0);
   });
 
-  it("matches inbound by handle suffix and keeps the conversation body", async () => {
-    getConn().prepare("UPDATE collaborations SET handle=?, email=?, kol_uid=? WHERE id='col_xiaomei'")
-      .run("灵工连通测试-qiyou1984", "", "KOLQIYOU1984");
+  it("matches inbound by stable KOL identity and keeps the conversation body", async () => {
+    (await bindLarry());
+    (await getConn().query("UPDATE collaborations SET handle=$1, email=$2, kol_uid=$3 WHERE id='col_xiaomei'",["灵工连通测试-qiyou1984","qiyou1984@gmail.com","KOLQIYOU1984"]));
     setStarryKolClientFactory(() => ({
       async callTool(name: string) {
         calls.push(name);
@@ -314,6 +314,7 @@ describe("followed KOL unread mail sync", () => {
                 id: 320,
                 conversationId: 320,
                 subject: "",
+                kolUid: "KOLQIYOU1984",
                 from: "黄启友 <qiyou1984@gmail.com>",
                 recipientEmail: "larry.zhao@amperetime.com",
                 mailboxEmail: "larry.zhao@amperetime.com",

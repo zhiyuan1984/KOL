@@ -41,30 +41,15 @@ export function publicSeaPayload(raw: Json = {}): Json {
   return trimmed;
 }
 
-export function recordDiscoveryFact(input: DiscoveryFactInput): Json {
+export async function recordDiscoveryFact(input: DiscoveryFactInput): Promise<Awaited<Json>> {
   const now = nowIso();
   const id = nid("dmf");
   const companyId = input.company_id || memoryCompanyId();
   const factKind = input.fact_kind || (input.kind === "score_inference" ? "inference" : "fact");
   const visibility = input.visibility || "public_sea";
   const payload = visibility === "public_sea" ? publicSeaPayload(input.payload || {}) : (input.payload || {});
-  getConn().prepare(
-    `INSERT INTO discovery_memory_facts
-     (id,company_id,kind,object_type,object_id,fact_kind,visibility,payload,source_version,created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    id,
-    companyId,
-    input.kind,
-    input.object_type,
-    input.object_id,
-    factKind,
-    visibility,
-    JSON.stringify(payload),
-    input.source_version || null,
-    now,
-  );
-  audit(input.actor || "host", `discovery.fact.${input.kind}`, {
+  (await getConn().query("INSERT INTO discovery_memory_facts\n     (id,company_id,kind,object_type,object_id,fact_kind,visibility,payload,source_version,created_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",[id,companyId,input.kind,input.object_type,input.object_id,factKind,visibility,JSON.stringify(payload),input.source_version || null,now]));
+  (await audit(input.actor || "host", `discovery.fact.${input.kind}`, {
     fact_id: id,
     object_type: input.object_type,
     object_id: input.object_id,
@@ -72,16 +57,12 @@ export function recordDiscoveryFact(input: DiscoveryFactInput): Json {
     visibility,
     sent: false,
     stage_changed: false,
-  });
+  }));
   return { id, kind: input.kind, fact_kind: factKind, visibility };
 }
 
-export function listDiscoveryFacts(objectType: string, objectId: string): Json[] {
-  return (getConn().prepare(
-    `SELECT * FROM discovery_memory_facts
-      WHERE company_id=? AND object_type=? AND object_id=?
-      ORDER BY created_at`,
-  ).all(memoryCompanyId(), objectType, objectId) as Array<Record<string, unknown>>).map((row) => ({
+export async function listDiscoveryFacts(objectType: string, objectId: string): Promise<Awaited<Json[]>> {
+  return ((await getConn().query("SELECT * FROM discovery_memory_facts\n      WHERE company_id=$1 AND object_type=$2 AND object_id=$3\n      ORDER BY created_at",[memoryCompanyId(),objectType,objectId])).rows as Array<Record<string, unknown>>).map((row) => ({
     ...row,
     payload: JSON.parse(String(row.payload || "{}")),
   }));

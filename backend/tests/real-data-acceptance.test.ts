@@ -1,11 +1,17 @@
 import { confirmAndSendDraft } from "./helpers/confirmed-mail.js";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { BRAND_MAILBOXES } from "../src/config.js";
-import { SKILL_CATALOG } from "../src/host/skills-catalog.js";
+import { mapUser, tokenDigest, withScopedUser } from "../src/auth.js";
+import { drainBackgroundWork } from "../src/background-work.js";
+import { waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
+import { skillCatalog } from "../src/host/skills-catalog.js";
+import { saveStarryBinding } from "../src/host/starry-bind.js";
+import { journeyPayload } from "../src/host/kol-journey.js";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { EMAIL_TEMPLATES, templateAllowedForStage } from "../src/email-templates.js";
@@ -13,6 +19,10 @@ import { LEGACY_STAGE_ALIASES, MAIN_STAGES, label, normalizeStage } from "../src
 import { judgeCollaborationStage } from "../src/stage-judgment.js";
 import { executeStarryKolTask, setStarryKolClientFactory } from "../src/starrykol/service.js";
 import { ensureStarryHomeLibrary } from "../src/starrykol/library-sync.js";
+import { ensureOrganizationTree, syncUserOrganization } from "../src/runtime/organization-tree.js";
+import { runtimeAgentCandidates } from "../src/runtime/execution.js";
+import { ensureRuntimeSchema, getSkillConnectors, setSkillConnector, setConnectorConfig } from "../src/runtime/store.js";
+import { pgVisibleSkillIdsForUser } from "../src/postgres/auth-pg.js";
 import type { Json } from "../src/types.js";
 import {
   PORTRAIT_SHEET_EMAILS,
@@ -29,11 +39,25 @@ import {
   wendellProfile,
   type StarryProfile,
 } from "./fixtures/real-data/load.js";
+import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
 import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 let chatApp: Hono;
+let authCookie = "";
 const calls: Array<{ name: string; args: Json }> = [];
+const fixtureUser = {
+  id: "usr_real_data_acceptance",
+  username: "sriphy",
+  name: "鄢棽",
+  brands: ["LT"],
+  site: "org:ai_product",
+  personRef: "person:yan_chen",
+  companyId: "company:amperetime",
+};
+const initialEnv = Object.fromEntries(
+  ["AUTH_MODE", "CODEX_MODE", "LINGONG_DATA"].map((key) => [key, process.env[key]]),
+);
 
 function mockFromSnapshot() {
   const profiles = starryProfiles();
@@ -48,10 +72,13 @@ function mockFromSnapshot() {
         let body: Json = {};
         try { body = JSON.parse(String(args.requestJson || "{}")) as Json; } catch { body = args; }
         const keyword = String(body.keyword || "").trim().toLowerCase();
-        const list = keyword
+        const matched = keyword
           ? profiles.filter((row) => JSON.stringify(row).toLowerCase().includes(keyword))
-          : profiles.slice(0, Number(body.pageSize || 20));
-        return { data: { pageNo: 1, pageSize: list.length, total: list.length, list } };
+          : profiles;
+        const pageNo = Math.max(1, Number(body.pageNo || 1));
+        const pageSize = Math.max(1, Number(body.pageSize || 20));
+        const list = matched.slice((pageNo - 1) * pageSize, pageNo * pageSize);
+        return { data: { pageNo, pageSize, total: matched.length, list } };
       }
       if (name === "getKolProfileDetail") {
         const hit = profiles.find((row) => row.kolUid === args.kolUid) || profiles[0];
@@ -72,7 +99,7 @@ function mockFromSnapshot() {
 async function request(method: string, url: string, body?: unknown) {
   const response = await chatApp.request(url, {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Cookie: authCookie },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const text = await response.text();
@@ -93,98 +120,110 @@ function portraitEmail(name: string): string {
   return portraitRows().find((row) => row["名称"] === name)?.["邮箱"] || "";
 }
 
-function insertCollaboration(profile: StarryProfile, stageCode = "INITIAL_CONTACT"): string {
+async function insertCollaboration(profile: StarryProfile, stageCode = "INITIAL_CONTACT"): Promise<Awaited<string>> {
   const id = `col_${profile.kolUid}`;
   const followers = profile.followerCountTenThousands != null ? `${profile.followerCountTenThousands}万` : "";
   const geo = profile.audienceGeo && typeof profile.audienceGeo === "object"
     ? Object.entries(profile.audienceGeo).sort((a, b) => Number.parseFloat(b[1]) - Number.parseFloat(a[1]))[0]?.[0] || ""
     : String(profile.countryName || "");
   const boundEmail = portraitEmail(profile.kolName) || `${profile.kolUid.toLowerCase()}@litime.example`;
-  getConn().prepare(
-    `INSERT OR REPLACE INTO collaborations
-     (id, handle, display_name, brand, platform, followers, email, mailbox_from,
-      lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,
-      stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    id,
-    profile.kolName,
-    profile.kolName,
-    String(profile.brandName || "LT").replace(/品牌$/, ""),
-    profile.platform || "YouTube",
-    followers,
-    boundEmail,
-    BRAND_MAILBOXES.LT,
-    `lc_${profile.kolUid}`,
-    `conv_${profile.kolUid}`,
-    stageCode,
-    9,
-    String(profile.nicheTagsText || "").slice(0, 80),
-    0,
-    0,
-    "",
-    "",
-    "",
-    profile.countryName || "",
-    "",
-    "LT-MINI-12",
-    "1",
-    0,
-  );
-  getConn().prepare(
-    `UPDATE collaborations SET owner_name=?, engagement_rate=?, audience_geo=?, duplicate_checked=1
-     WHERE id=?`,
-  ).run(
-    profile.ownerName || "",
-    profile.avgVideoEngagementRate10 ?? "",
-    geo,
-    id,
-  );
+  (await getConn().query("INSERT INTO collaborations\n     (id, handle, display_name, brand, platform, followers, email, mailbox_from,\n      lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,\n      stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,display_name=EXCLUDED.display_name,brand=EXCLUDED.brand,platform=EXCLUDED.platform,followers=EXCLUDED.followers,email=EXCLUDED.email,mailbox_from=EXCLUDED.mailbox_from,lifecycle_id=EXCLUDED.lifecycle_id,conversation_id=EXCLUDED.conversation_id,stage_code=EXCLUDED.stage_code,days_in_stage=EXCLUDED.days_in_stage,notes=EXCLUDED.notes,overdue=EXCLUDED.overdue,stage_version=EXCLUDED.stage_version,recipient_name=EXCLUDED.recipient_name,phone=EXCLUDED.phone,address_line=EXCLUDED.address_line,country=EXCLUDED.country,postal=EXCLUDED.postal,sku=EXCLUDED.sku,qty=EXCLUDED.qty,locked=EXCLUDED.locked",[id,profile.kolName,profile.kolName,String(profile.brandName || "LT").replace(/品牌$/, ""),profile.platform || "YouTube",followers,boundEmail,BRAND_MAILBOXES.LT,`lc_${profile.kolUid}`,`conv_${profile.kolUid}`,stageCode,9,String(profile.nicheTagsText || "").slice(0, 80),0,0,"","","",profile.countryName || "","","LT-MINI-12","1",0]));
+  (await getConn().query("UPDATE collaborations SET owner_name=$1, engagement_rate=$2, audience_geo=$3, duplicate_checked=1\n     WHERE id=$4",[profile.ownerName || "",profile.avgVideoEngagementRate10 ?? "",geo,id]));
   return id;
 }
 
-function insertUnboundCreator(portrait: Record<string, string>): void {
+async function insertUnboundCreator(portrait: Record<string, string>): Promise<Awaited<void>> {
   const id = `cr_md_${portrait["名称"].replace(/\s+/g, "_")}`;
-  getConn().prepare(
-    `INSERT OR REPLACE INTO claw_creators
-     (id, handle, name, platform, followers, score, status, outreach_script, payload)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    id,
-    portrait["名称"],
-    portrait["名称"],
-    portrait["主平台"] || "youtube",
-    Math.round(Number(portrait["粉丝量/万"] || 0) * 10000),
-    0.7,
-    "discovered",
-    portrait["备注"] || "画像台账导入，待建联",
-    JSON.stringify({
+  (await getConn().query("INSERT INTO claw_creators\n     (id, handle, name, platform, followers, score, status, outreach_script, payload)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,name=EXCLUDED.name,platform=EXCLUDED.platform,followers=EXCLUDED.followers,score=EXCLUDED.score,status=EXCLUDED.status,outreach_script=EXCLUDED.outreach_script,payload=EXCLUDED.payload",[id,portrait["名称"],portrait["名称"],portrait["主平台"] || "youtube",Math.round(Number(portrait["粉丝量/万"] || 0) * 10000),0.7,"discovered",portrait["备注"] || "画像台账导入，待建联",JSON.stringify({
       niche: "vanlife",
       brand_fit: portrait["品牌"] || "LT",
       email: portrait["邮箱"] || "",
       unbound: true,
-    }),
-  );
+    })]));
+}
+
+/** Wait for the actual detached mail-memory write before this clone is torn down. */
+async function awaitOutboundDigest(collaborationId: string): Promise<void> {
+  await drainBackgroundWork();
+  const journey = await journeyPayload(collaborationId);
+  const digest = journey?.mail_digest as Json;
+  // CODEX_MODE=stub intentionally returns transparent body_analysis rather than
+  // fabricating a remote Codex/Luna persisted result. The outgoing card itself
+  // must be durably ingested before the derived summary is asserted.
+  expect(digest?.source).toBe("body_analysis");
+  expect(Number(digest?.mail_count || 0)).toBeGreaterThanOrEqual(1);
+  expect(String(digest?.text || "")).not.toBe("");
+  const history = journey?.mail_history as Json[];
+  expect(history.some(row => row.direction === "outbound" && String(row.body).includes("Just a follow-up."))).toBe(true);
 }
 
 beforeEach(async () => {
-  await freshTestDatabase();
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-real-data-"));
-  process.env.LINGONG_DB = path.join(tmp, "real.db");
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-native-real-data-"));
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
+  process.env.AUTH_MODE = "enabled";
+  // Reclaim only this process's completed clone: every test still starts from
+  // the native template and no shared/production database is addressable.
+  await freshTestDatabase({ reclaimPrevious: true });
   calls.length = 0;
   setStarryKolClientFactory(mockFromSnapshot);
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
+  const now = new Date().toISOString();
+  (await getConn().query("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at,email,phone) VALUES($1,$2,$3,$4,$5,$6,$7,1,$8,$8,$9,$10)", [
+    fixtureUser.id, fixtureUser.username, fixtureUser.name, "fixture-local-session-only", '["employee"]', JSON.stringify(fixtureUser.brands), fixtureUser.site, now, "sriphy.yan@amperetime.com", "",
+  ]));
+  // The production native Agent→Skill release exists before the confirmed
+  // person/org/company facts are loaded; no admin or cross-tenant bypass is used.
+  await seedPublishedAgent("agent:kol", "Real-data acceptance local Agent");
+  await ensureRuntimeSchema();
+  await ensureOrganizationTree();
+  const personRef = await syncUserOrganization(fixtureUser.id, fixtureUser.site);
+  expect(personRef).toBe(fixtureUser.personRef);
+  const membership = (await getConn().query(
+    "SELECT company_id FROM organization_memberships WHERE person_ref=$1 AND org_unit_id=$2 AND status='active'",
+    [fixtureUser.personRef, fixtureUser.site],
+  )).rows[0] as { company_id?: string } | undefined;
+  expect(membership?.company_id).toBe(fixtureUser.companyId);
+  // The published Agent binding is created by the formal runtime bootstrap.
+  // Read visibility with a timestamp after that migration, not with the user
+  // creation timestamp that can precede binding.effective_from by milliseconds.
+  expect(await pgVisibleSkillIdsForUser(fixtureUser.id, new Date().toISOString())).toContain("confirm_stage");
+  expect(await runtimeAgentCandidates("confirm_stage", fixtureUser.id)).toEqual(["agent:kol"]);
+  // `confirm_stage` declares the retained Starry alias and its current Starry
+  // permission.  Seed only its two read grants for this ordinary local user;
+  // this exercises, rather than disables, the native connector gate.
+  // Grants reference actual connector entities, not runtime alias strings alone.
+  for (const id of ["starry", "starrykol"]) {
+    await getConn().query("INSERT INTO connectors(id,label,purpose,updated_at,enabled) VALUES($1,$1,'isolated snapshot fixture',$2,1) ON CONFLICT(id) DO UPDATE SET enabled=1", [id, now]);
+  }
+  await getConn().query(
+    "INSERT INTO user_connector_grants(user_id,connector_id,access,created_at) VALUES($1,$2,'read',$3) ON CONFLICT(user_id,connector_id) DO UPDATE SET access=EXCLUDED.access,created_at=EXCLUDED.created_at",
+    [fixtureUser.id, "starry", now],
+  );
+  await getConn().query(
+    "INSERT INTO user_connector_grants(user_id,connector_id,access,created_at) VALUES($1,$2,'read',$3) ON CONFLICT(user_id,connector_id) DO UPDATE SET access=EXCLUDED.access,created_at=EXCLUDED.created_at",
+    [fixtureUser.id, "starrykol", now],
+  );
+  const token = randomUUID();
+  (await getConn().query("INSERT INTO auth_sessions(id_hash,user_id,expires_at,created_at) VALUES($1,$2,$3,$4)", [
+    tokenDigest(token), fixtureUser.id, new Date(Date.now() + 60_000).toISOString(), now,
+  ]));
+  authCookie = `lingong_session=${encodeURIComponent(token)}`;
   const { createApp } = await import("../src/app.js");
-  chatApp = createApp();
+  chatApp = (await createApp());
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await waitForBackgroundSync();
+  await drainBackgroundWork();
   setStarryKolClientFactory();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
+  authCookie = "";
+  for (const [key, value] of Object.entries(initialEnv)) {
+    if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
 });
 
 describe("real markdown + Starry KOL MCP fixtures", () => {
@@ -474,7 +513,7 @@ describe("Starry KOL MCP functional path with the real snapshot", () => {
 });
 
 describe("home board and host flows with Starry + markdown creators", () => {
-  it("loads Wendell Fishing from the Starry library sync, not markdown-only creators", async () => {
+  it("indexes Wendell Fishing from the Starry library without leaking rows absent verified ownership", async () => {
     const first = await request("GET", "/api/home/board");
     expect(first.status).toBe(200);
     await ensureStarryHomeLibrary();
@@ -487,34 +526,51 @@ describe("home board and host flows with Starry + markdown creators", () => {
     expect(tabs.every((tab) => tab.history_summary == null)).toBe(true);
     expect(library).toMatchObject({ ok: true, source: "starry", tool: "listAllKolProfiles" });
     expect(Number(library.count)).toBe(220);
-    expect(kols.length).toBe(220);
+    // The real snapshot has display owner names but no canonical owner id or
+    // mailbox on any profile.  An authenticated employee with no verified
+    // mailbox binding therefore receives no KOL rows; the 220-row library is
+    // still durably indexed below and must not be exposed by name inference.
+    expect(kols).toHaveLength(0);
     expect(calls.map((item) => item.name)).toContain("listAllKolProfiles");
     expect(calls.map((item) => item.name)).not.toContain("decryptKolContact");
 
-    const card = kols.find((row) => String(row.kol_uid || row.kolUid) === WENDELL_UID) as Json;
-    expect(card.kol_name).toBe("Wendell Fishing");
-    expect(String(card.collab_summary)).toMatch(/LT|张浩城/);
-    expect(String(card.current_stage)).toContain("初步接触");
-    expect(card.suggested_stage).toBe("已回复-有兴趣");
-    expect((card.profile_tags as Json[]).some((tag) => tag.label === "YouTube" || tag.label === "美国受众")).toBe(true);
-
-    expect(kols.find((row) => row.handle === "Holly Yoo")).toBeUndefined();
-    expect(kols.find((row) => row.handle === "小美妆日记")).toBeUndefined();
+    const indexed = (await getConn().query(
+      "SELECT display_name,brand,owner_name,stage_code,platform,audience_geo,source FROM collaborations WHERE kol_uid=$1",
+      [WENDELL_UID],
+    )).rows[0] as { display_name?: string; brand?: string; owner_name?: string; stage_code?: string; platform?: string; audience_geo?: string; source?: string } | undefined;
+    expect(indexed).toMatchObject({
+      display_name: "Wendell Fishing",
+      brand: "LT",
+      owner_name: "张浩城",
+      stage_code: "INITIAL_CONTACT",
+      platform: "YouTube",
+      source: "starry",
+    });
+    expect(String(indexed?.audience_geo || "")).toContain("美国");
+    expect(Number((await getConn().query("SELECT COUNT(*) AS n FROM collaborations WHERE source='starry'", [])).rows[0].n)).toBe(220);
+    expect((await getConn().query("SELECT COUNT(*) AS n FROM collaborations WHERE handle IN ('Holly Yoo','小美妆日记')", [])).rows[0].n).toBe(0);
   });
 
   it("keeps the skill home catalog while the board uses real creator rows", async () => {
     const home = await request("GET", "/api/home");
-    expect((home.body.recs as Json[]).length).toBe(SKILL_CATALOG.length);
+    expect((home.body.recs as Json[]).length).toBe((await skillCatalog()).length);
     expect((home.body.recs as Json[]).every((rec) => rec.act === "ask")).toBe(true);
     expect((home.body.recs as Json[]).some((rec) => rec.id === "business_approval")).toBe(true);
   });
 
   it("sends a follow-up to Wendell Fishing without changing the official stage", async () => {
-    const id = insertCollaboration(wendellProfile(), "INITIAL_CONTACT");
+    const resource = (await getSkillConnectors("email_compose")).find(row => row.connector_id === "starrykol");
+    await setSkillConnector("email_compose", "starrykol", true, Number(resource?.version || 0));
+    const config = (await getConn().query("SELECT version FROM runtime_connector_config WHERE connector_id='starrykol'")).rows[0];
+    await setConnectorConfig("starrykol", { protocol: "mcp", url: "https://api.example.test/mcp", headers_secret_refs: { "X-MCP-API-KEY": "isolated-mail-secret" } }, Number(config?.version || 0));
+    await saveStarryBinding(fixtureUser.id, { mailbox_email: BRAND_MAILBOXES.LT, mailbox_id: "mbx_snapshot_fixture", owner_name: fixtureUser.name, owner_open_id: "open_snapshot_fixture" });
+    const id = (await insertCollaboration(wendellProfile(), "INITIAL_CONTACT"));
     const [sid] = await ask("记状态 @Wendell Fishing", "confirm_stage", id);
+    const selected = await getConn().query("UPDATE sessions SET collaboration_id=$1 WHERE id=$2 AND owner_user_id=$3", [id, sid, fixtureUser.id]);
+    expect(selected.rowCount).toBe(1);
     const { persistDraft } = await import("../src/host/api.js");
-    const { BRAND_MAILBOXES } = await import("../src/config.js");
-    const draft = persistDraft(sid, {
+    const scopedActor = await mapUser((await getConn().query("SELECT * FROM users WHERE id=$1", [fixtureUser.id])).rows[0]);
+    const draft = await withScopedUser(scopedActor, () => persistDraft(sid, {
       skill: "email_compose",
       template_id: "stage_mail.followup",
       from: BRAND_MAILBOXES.LT,
@@ -524,14 +580,26 @@ describe("home board and host flows with Starry + markdown creators", () => {
       keep_stage: true,
       official_stage: "INITIAL_CONTACT",
       collaboration_id: id,
-    });
+    }));
     expect(Boolean(draft.keep_stage)).toBe(true);
     expect(String(draft.to || draft.to_addr)).toBe("wendellfishing@gmail.com");
     const sent = await confirmAndSendDraft(request, String(draft.id), {});
     expect(sent.status, JSON.stringify(sent.body)).toBe(200);
     expect(sent.body.stage_changed).toBe(false);
     expect(sent.body.official_stage).toBe("INITIAL_CONTACT");
-    const row = getConn().prepare("SELECT stage_code FROM collaborations WHERE id=?").get(id) as { stage_code: string };
+    await withScopedUser(scopedActor, () => awaitOutboundDigest(id));
+    // The acceptance path uses the local gateway stub only: no Starry MCP tool
+    // is called to fabricate an external result or alter the official stage.
+    expect(calls).toEqual([]);
+    const sendAudit = (await getConn().query(
+      "SELECT payload FROM audit_events WHERE event_type='gateway.send' ORDER BY id DESC LIMIT 1",
+    )).rows[0] as { payload: string } | undefined;
+    expect(sendAudit).toBeTruthy();
+    expect(JSON.parse(String(sendAudit?.payload || "{}"))).toMatchObject({
+      draft_id: String(draft.id),
+      stage_untouched: true,
+    });
+    const row = (await getConn().query("SELECT stage_code FROM collaborations WHERE id=$1",[id])).rows[0] as { stage_code: string };
     expect(row.stage_code).toBe("INITIAL_CONTACT");
   });
 });
@@ -541,7 +609,7 @@ describe("Starry KOL MCP live smoke", () => {
 
   it.skipIf(!live)("still lists Wendell Fishing from the test MCP", async () => {
     const { createManagedClient } = await import("../src/runtime/managed-client.js");
-    const client = createManagedClient("starrykol", process.env.LIVE_TEST_USER_ID || "");
+    const client = (await createManagedClient("starrykol", process.env.LIVE_TEST_USER_ID || ""));
     try {
       const listed = await client.callTool("listAllKolProfiles", {});
       const data = (listed.data || listed) as { list?: Json[] };

@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { postgresPool } from "../postgres/pool.js";
 import type { Json } from "../types.js";
 
@@ -35,7 +36,7 @@ function count(value: unknown): number {
  * has recorded them; they never imply an automatic business side effect.
  */
 export async function schedulingRuleEffectivenessRawReport(limit?: number): Promise<Json> {
-  const rows = await postgresPool().query<RuleEffectivenessRow>(
+  const rows = await postgresConnection().query<RuleEffectivenessRow>(
     `SELECT rule.id AS rule_id,rule.version AS rule_version,rule.title,rule.rule_type,
             rule.status AS rule_status,rule.published_at,
             COUNT(evaluation.id)::int AS evaluations,

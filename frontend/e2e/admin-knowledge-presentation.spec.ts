@@ -122,10 +122,10 @@ test('validation preserves fields and unsaved exit can be cancelled',async({page
  const s=await surface(page);await page.goto('/admin/knowledge?reviewCompany=company&stage=create&mode=create');await page.locator('textarea[name="body"]').fill('保留这段正文');s.failSave();await page.getByRole('button',{name:'保存',exact:true}).click();await expect(page.getByRole('alert')).toContainText('请修正知识字段');await expect(page.locator('input[name="title"]')).toBeFocused();await expect(page.locator('textarea[name="body"]')).toHaveValue('保留这段正文');page.once('dialog',d=>d.dismiss());await page.getByRole('button',{name:'← 返回列表',exact:true}).click();await expect(page.locator('[data-workspace-mode="create"]')).toBeVisible();page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'← 返回列表',exact:true}).click();await expect(page.locator('[data-workspace-mode="list"]')).toBeVisible();
 });
 test('approval is confirmed once and approved waits for separate publication',async({page})=>{
- const s=await surface(page);await pdf(page);await page.getByRole('button',{name:'提交审批',exact:true}).click();await expect(page.locator('[data-workspace-mode="review"]')).toBeVisible();await page.locator('.kbv-release-note textarea').fill('规格更新');await expect(page.locator('[data-kbv-doc-action="submit"]')).toBeEnabled();await page.locator('[data-kbv-doc-action="submit"]').click();expect(s.calls).toEqual([]);await page.getByRole('button',{name:'确认提交审批',exact:true}).dblclick();await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('审批中');s.approve();await expect(page.getByRole('button',{name:'发布',exact:true})).toBeVisible({timeout:10000});await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('审批通过 · 等待发布');expect(s.calls).toEqual(['submit']);await page.getByRole('button',{name:'发布',exact:true}).click();await page.getByRole('button',{name:'确认发布',exact:true}).click();await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('publish-receipt');expect(s.calls).toEqual(['submit','publish']);expect(s.errors).toEqual([]);
+ const s=await surface(page);await pdf(page);await page.getByRole('button',{name:'提交审批',exact:true}).click();await expect(page.locator('[data-workspace-mode="review"]')).toBeVisible();await page.getByRole('textbox',{name:'发布说明',exact:true}).fill('规格更新');await expect(page.locator('[data-kbv-doc-action="submit"]')).toBeEnabled();await page.locator('[data-kbv-doc-action="submit"]').click();expect(s.calls).toEqual([]);await page.getByRole('button',{name:'确认提交审批',exact:true}).dblclick();await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('审批中');s.approve();await expect(page.getByRole('button',{name:'发布',exact:true})).toBeVisible({timeout:10000});await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('审批通过 · 等待发布');expect(s.calls).toEqual(['submit']);await page.getByRole('button',{name:'发布',exact:true}).click();await page.getByRole('button',{name:'确认发布',exact:true}).click();await expect(page.locator('[data-workspace-mode="detail"]')).toContainText('publish-receipt');expect(s.calls).toEqual(['submit','publish']);expect(s.errors).toEqual([]);
 });
 test('submit failure retains form and never reports success',async({page})=>{
- const s=await surface(page);s.failSubmit();await pdf(page);await page.getByRole('button',{name:'提交审批',exact:true}).click();await page.locator('.kbv-release-note textarea').fill('不能丢失的说明');await expect(page.locator('[data-kbv-doc-action="submit"]')).toBeEnabled();await page.locator('[data-kbv-doc-action="submit"]').click();await page.getByRole('button',{name:'确认提交审批',exact:true}).click();await expect(page.getByRole('dialog')).toContainText('材料已变化');await expect(page.locator('.kbv-release-note textarea')).toHaveValue('不能丢失的说明');await expect(page.locator('[data-admin-receipt]')).toHaveCount(0);
+ const s=await surface(page);s.failSubmit();await pdf(page);await page.getByRole('button',{name:'提交审批',exact:true}).click();await page.getByRole('textbox',{name:'发布说明',exact:true}).fill('不能丢失的说明');await expect(page.locator('[data-kbv-doc-action="submit"]')).toBeEnabled();await page.locator('[data-kbv-doc-action="submit"]').click();await page.getByRole('button',{name:'确认提交审批',exact:true}).click();await expect(page.getByRole('dialog')).toContainText('材料已变化');await expect(page.getByRole('textbox',{name:'发布说明',exact:true})).toHaveValue('不能丢失的说明');await expect(page.locator('[data-admin-receipt]')).toHaveCount(0);
 });
 test('processing retry and cancel remain independent actions',async({page})=>{
  const s=await surface(page,'failed');await pdf(page);await expect(page.getByRole('alert')).toContainText('索引服务不可用');await page.locator('[data-kbv-doc-action="retry"]').dblclick();await expect(page.locator('[data-kbv-doc-action="cancel"]')).toBeVisible();await page.locator('[data-kbv-doc-action="cancel"]').click();await expect(page.locator('[data-kbv-doc-action="retry"]')).toBeVisible();expect(s.calls).toEqual(['retry','cancel']);
@@ -319,5 +319,43 @@ test('processing detail load failures can retry without showing logs or issuing 
  failed=false;await detail.getByRole('button',{name:'重试读取详情',exact:true}).click();
  await expect(detail.locator('.ant-descriptions')).toBeVisible();
  await detail.getByRole('button',{name:'收起',exact:true}).click();await expect(detail).toHaveCount(0);
+ expect(s.calls).toEqual([]);expect(s.errors).toEqual([]);
+});
+
+function tinySourcePdf() {
+ const stream='BT /F1 14 Tf 20 100 Td (Source) Tj ET\n';
+ const objects = ['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 200] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',`<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}endstream`,'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
+ let text='%PDF-1.4\n';const offsets=[0];objects.forEach((body,index)=>{offsets.push(Buffer.byteLength(text));text+=`${index+1} 0 obj\n${body}\nendobj\n`;});const xref=Buffer.byteLength(text);text+=`xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(offset=>String(offset).padStart(10,'0')+' 00000 n \n').join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;return Buffer.from(text);
+}
+
+test('pending original PDF read is cancelled safely when switching to approval',async({page})=>{
+ const s=await surface(page);let release!:()=>void;const gate=new Promise<void>(resolve=>{release=resolve;});
+ await page.route('**/api/admin/knowledge/documents/pdf/preview*',async route=>{
+  if(route.request().method()==='HEAD')return route.fulfill({status:200,contentType:'application/pdf'});
+  await gate;await route.fulfill({status:200,contentType:'application/pdf',body:tinySourcePdf()});
+ });
+ const source=page.waitForRequest(request=>request.method()==='GET'&&new URL(request.url()).pathname.endsWith('/pdf/preview'));
+ await pdf(page);await source;
+ await page.getByRole('button',{name:'提交审批',exact:true}).click();
+ await expect(page.locator('[data-workspace-mode="review"]')).toBeVisible();
+ release();
+ await page.getByRole('textbox',{name:'发布说明',exact:true}).fill('未完成原件加载时仍可核对审批，尚未提交');
+ await expect(page.getByRole('textbox',{name:'发布说明',exact:true})).toHaveValue('未完成原件加载时仍可核对审批，尚未提交');
+ expect(s.calls).toEqual([]);expect(s.errors).toEqual([]);
+});
+
+test('original PDF fetch failure stays explicit and a fresh read renders source bytes',async({page})=>{
+ const s=await surface(page);let failed=true;
+ await page.route('**/api/admin/knowledge/documents/pdf/preview*',route=>{
+  if(route.request().method()==='HEAD')return route.fulfill({status:200,contentType:'application/pdf'});
+  return failed?route.fulfill({status:503}):route.fulfill({status:200,contentType:'application/pdf',body:tinySourcePdf()});
+ });
+ await pdf(page);await expect(page.locator('.kbpilot-pdf')).toContainText('PDF 原件读取失败（HTTP 503）');
+ await expect(page.getByRole('link',{name:'查看 PDF 原件',exact:true})).toBeVisible();
+ expect(s.errors).toEqual([]);failed=false;
+ await page.getByRole('button',{name:'重新读取预览',exact:true}).click();
+ await expect(page.locator('.kbpilot-pdf canvas')).toHaveAttribute('data-rendered','true');
+ expect(await page.locator('.kbpilot-pdf canvas').evaluate(el=>(el as HTMLCanvasElement).width)).toBeGreaterThan(0);
+ await expect(page.locator('.kbpilot-pdf')).not.toContainText('PDF 原页不可用');
  expect(s.calls).toEqual([]);expect(s.errors).toEqual([]);
 });

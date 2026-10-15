@@ -114,6 +114,9 @@ jobs:
           --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/kol_uiux_test
+      TEST_DB_TEMPLATE: lingong_template
+      TEST_DB_PREFIX: lingong_t_knowledge_${{ github.run_id }}
+      NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -123,6 +126,18 @@ jobs:
         run: |
           npm ci --prefix frontend --no-audit --no-fund
           npm ci --prefix backend --no-audit --no-fund
+      - name: Initialize isolated current-schema PostgreSQL template
+        working-directory: backend
+        run: |
+          node --input-type=module - <<'JS'
+          import pg from 'pg';
+          const client = new pg.Client({ connectionString: process.env.TEST_DATABASE_URL });
+          await client.connect();
+          try { await client.query('CREATE DATABASE lingong_template'); }
+          finally { await client.end(); }
+          JS
+          DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/lingong_template npm run db:apply:postgres-schema
+          DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/lingong_template npm run db:seed:reference
       - name: Validate knowledge component contracts and build
         working-directory: frontend
         run: |

@@ -773,7 +773,7 @@ export function DetailPanel(props: {
     }
   };
 
-  const [activeTab, setActiveTab] = useState<"overview" | "dependencies" | "access" | "release">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "config" | "tools" | "knowledge" | "access" | "tests" | "versions">("overview");
 
   async function saveSkillContent() {
     const saveRevision = contentRevisionRef.current;
@@ -828,7 +828,6 @@ export function DetailPanel(props: {
           <details className="skill-action-menu">
             <summary className="skill-governance-secondary">更多操作</summary>
             <div className="skill-action-menu-items">
-              <button type="button" onClick={() => void publishVersion()}>发布草稿并生成版本</button>
               {stageActions.map((action) => <button type="button" key={action.stage} onClick={() => onStage(action.stage, action.needReason)}>{action.label}</button>)}
             </div>
           </details>
@@ -843,27 +842,17 @@ export function DetailPanel(props: {
       </p> : null}
       <nav className="skill-detail-tabs" aria-label="技能详情分类">
         {([
-          ["overview", "概览与配置"],
-          ["dependencies", "工具与知识"],
-          ["access", "Agent 引用"],
-          ["release", "测试与版本"],
+          ["overview", "概览"],
+          ["config", "配置"],
+          ["tools", "工具"],
+          ["knowledge", "知识"],
+          ["access", "Agent引用"],
+          ["tests", "测试"],
+          ["versions", "版本"],
         ] as const).map(([id, label]) => <button type="button" key={id} aria-current={activeTab === id ? "page" : undefined} onClick={() => setActiveTab(id)}>{label}</button>)}
       </nav>
-
       <div className="skill-detail-content">
         {activeTab === "overview" && <div className="skill-detail-stack">
-          <section className="skill-detail-card" aria-labelledby="skill-markdown-heading">
-            <div className="skill-section-head"><div><h3 id="skill-markdown-heading">技能内容</h3><p>{skill.source === "bundled" ? "内置技能名称不可改；保存后先形成未发布草稿。" : "保存后先形成未发布草稿；编辑第三方内容会将来源转为官方。"}</p></div></div>
-            {contentLoading ? <p className="muted">正在读取技能内容…</p> : <>
-              <label className="skill-content-field">技能名称<input value={titleText} disabled={skill.source === "bundled"} onChange={(event) => { setTitleText(event.target.value); markContentDirty(); }} /></label>
-              <label className="skill-content-field">简介<input value={summaryText} onChange={(event) => { setSummaryText(event.target.value); markContentDirty(); }} maxLength={200} /></label>
-              <label className="skill-content-field">技能说明（Markdown）<textarea value={bodyText} onChange={(event) => { setBodyText(event.target.value); markContentDirty(); }} rows={14} spellCheck={false} /></label>
-              <div className="skill-contract-actions"><button type="button" className="skill-governance-primary" disabled={contentBusy || !bodyText.trim() || !summaryText.trim()} onClick={() => void saveSkillContent()}>{contentBusy ? "保存中…" : "保存草稿"}</button><span role="status">{contentNotice || `来源：${official ? "官方" : "第三方"} · 未发布草稿不会改变员工当前使用的版本。`}</span></div>
-            </>}
-          </section>
-          <div onChangeCapture={() => setPresentationDirty(true)}>
-            <SkillPresentationEditor skill={skill} onSaved={async () => { setPresentationDirty(false); await onChanged(); }} />
-          </div>
           <section className="skill-detail-card">
             <h3>核心信息</h3>
             <div className="skill-detail-fields">
@@ -906,6 +895,20 @@ export function DetailPanel(props: {
               {bizError && <span className="error" role="alert">{bizError}</span>}
             </div>}
           </section>
+        </div>}
+        {activeTab === "config" && <div className="skill-detail-stack">
+          <section className="skill-detail-card" aria-labelledby="skill-markdown-heading">
+            <div className="skill-section-head"><div><h3 id="skill-markdown-heading">技能内容</h3><p>{skill.source === "bundled" ? "内置技能名称不可改；保存后先形成未发布草稿。" : "保存后先形成未发布草稿；编辑第三方内容会将来源转为官方。"}</p></div></div>
+            {contentLoading ? <p className="muted">正在读取技能内容…</p> : <>
+              <label className="skill-content-field">技能名称<input value={titleText} disabled={skill.source === "bundled"} onChange={(event) => { setTitleText(event.target.value); markContentDirty(); }} /></label>
+              <label className="skill-content-field">简介<input value={summaryText} onChange={(event) => { setSummaryText(event.target.value); markContentDirty(); }} maxLength={200} /></label>
+              <label className="skill-content-field">技能说明（Markdown）<textarea value={bodyText} onChange={(event) => { setBodyText(event.target.value); markContentDirty(); }} rows={14} spellCheck={false} /></label>
+              <div className="skill-contract-actions"><button type="button" className="skill-governance-primary" disabled={contentBusy || !bodyText.trim() || !summaryText.trim()} onClick={() => void saveSkillContent()}>{contentBusy ? "保存中…" : "保存草稿"}</button><span role="status">{contentNotice || `来源：${official ? "官方" : "第三方"} · 未发布草稿不会改变员工当前使用的版本。`}</span></div>
+            </>}
+          </section>
+          <div onChangeCapture={() => setPresentationDirty(true)}>
+            <SkillPresentationEditor skill={skill} onSaved={async () => { setPresentationDirty(false); await onChanged(); }} />
+          </div>
           <section className="skill-detail-card" aria-labelledby="skill-contract-heading">
             <div className="skill-section-head"><div><h3 id="skill-contract-heading">运行契约</h3><p>{skill.source === "bundled" ? "内置技能的运行契约随平台代码维护，此处只读。" : "输入字段、结果类型、动作、记忆策略和异步能力；修改先存为草稿。"}</p></div></div>
             <textarea aria-label="技能参数与运行契约 JSON" value={contractText} onChange={(event) => { setContractText(event.target.value); markContractDirty(); }} rows={10} spellCheck={false} readOnly={skill.source === "bundled"} />
@@ -913,20 +916,20 @@ export function DetailPanel(props: {
           </section>
         </div>}
 
-        {activeTab === "dependencies" && <div className="skill-detail-stack">
+        {activeTab === "tools" && <div className="skill-detail-stack">
           <SkillDeclaredDependencies skillId={skill.id} row={props.coverageRow} onMounted={onChanged} />
           <section className="skill-detail-card" aria-labelledby="skill-tools-heading">
             <div className="skill-section-head"><div><h3 id="skill-tools-heading">MCP / API 工具</h3><p>技能内依赖。工具风险与执行边界由平台治理，不向人员单独授权。</p></div></div>
             <SkillConnectorBindings skillId={skill.id} />
           </section>
+        </div>}
+        {activeTab === "knowledge" && <div className="skill-detail-stack">
           <SkillTemplatePreview skillId={skill.id} />
           <SkillKnowledgeBindings skillId={skill.id} />
-          <PublishedAgentUsage skillId={skill.id} />
         </div>}
-
         {activeTab === "access" && <PublishedAgentUsage skillId={skill.id} />}
 
-        {activeTab === "release" && <div className="skill-detail-stack">
+        {activeTab === "tests" && <div className="skill-detail-stack">
           <PublishCheckCard skillId={skill.id} onChanged={onChanged} />
           <div className="skill-release-grid">
             <section className="skill-detail-card">
@@ -939,6 +942,8 @@ export function DetailPanel(props: {
               {metrics ? <><div className="skill-metrics-grid"><Stat label="调用次数" value={String(metrics.calls)} /><Stat label="成功率" value={metrics.success_rate === null ? "—" : `${metrics.success_rate}%`} /><Stat label="平均耗时" value={metrics.avg_duration_ms === null ? "—" : `${metrics.avg_duration_ms}ms`} /><Stat label="告警次数" value={String(metrics.alerts)} /></div><div className="skill-metrics-chart" aria-label="每日调用趋势">{metrics.trend.map((trend) => <span key={trend.day} title={`${trend.day}: ${trend.n}`} style={{ height: `${(trend.n / maxTrend) * 100}%` }} />)}{!metrics.trend.length && <p className="muted">该周期内暂无调用记录</p>}</div></> : <p className="muted">正在读取运行数据…</p>}
             </section>
           </div>
+        </div>}
+        {activeTab === "versions" && <div className="skill-detail-stack">
           <section className="skill-detail-card">
             <div className="skill-section-head"><div><h3>版本记录</h3><p>发布会应用待发布草稿；员工使用此版本，历史版本可回滚。</p></div><button type="button" className="skill-governance-secondary" onClick={() => void publishVersion()}>发布草稿并生成版本</button></div>
             <div className="skill-version-list">{versions.map((version) => <div className="skill-version-row" key={String(version.id)}><strong>v{String(version.version)}</strong><span>{String(version.status)}</span><span>{String(version.description || "—")}</span><button type="button" className="skill-governance-secondary" onClick={() => void rollback(Number(version.version))}>回滚</button></div>)}{!versions.length && <p className="muted">尚无版本记录</p>}</div>

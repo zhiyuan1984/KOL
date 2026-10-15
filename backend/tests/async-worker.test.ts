@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { drainBackgroundWork } from "../src/background-work.js";
 import { setAgentSubmissionOverride } from "../src/contract-scope.js";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
@@ -39,30 +40,18 @@ beforeEach(async () => {
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
   delete process.env.MEDIACRAWLER_AUTO_START;
   setAgentSubmissionOverride();
-  resetConn();
-  seedAll();
-  runtimeCookie = seedRuntimeTestActor(["creator_discovery"]);
-  getConn().prepare(
-    `INSERT OR REPLACE INTO claw_creators
-     (id, handle, name, platform, followers, score, status, outreach_script, payload)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    "cr_async_kol",
-    "async-creator",
-    "async-creator",
-    "youtube",
-    1000,
-    8,
-    "discovered",
-    "Hi, LiTime would like to collaborate.",
-    JSON.stringify({ email: "async.creator@example.com" }),
-  );
+  (await resetConn());
+  (await seedAll());
+  // The real-mode Host PEP requires a current person→published Agent binding;
+  // a session cookie or admin role must not bypass that runtime qualification.
+  runtimeCookie = (await seedRuntimeTestActor(["creator_discovery"], true));
+  (await getConn().query("INSERT INTO claw_creators\n     (id, handle, name, platform, followers, score, status, outreach_script, payload)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,name=EXCLUDED.name,platform=EXCLUDED.platform,followers=EXCLUDED.followers,score=EXCLUDED.score,status=EXCLUDED.status,outreach_script=EXCLUDED.outreach_script,payload=EXCLUDED.payload",["cr_async_kol","async-creator","async-creator","youtube",1000,8,"discovered","Hi, LiTime would like to collaborate.",JSON.stringify({ email: "async.creator@example.com" })]));
 });
 
 afterEach(async () => {
   await new Promise((r) => setTimeout(r, 80));
   setAgentSubmissionOverride();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
   delete process.env.CODEX_BIN;
@@ -78,9 +67,26 @@ afterEach(async () => {
 });
 
 describe("real Codex HTTP flow", () => {
+  it("does not let an admin bypass a revoked Agent qualification", async () => {
+    const { createApp } = await import("../src/app.js");
+    const app = authenticatedTestApp(await createApp(), runtimeCookie);
+    const created = await app.request("/api/sessions", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "qualification revoked" }),
+    });
+    const { id } = await created.json() as { id: string };
+    const removed = await getConn().query(`DELETE FROM agent_bindings WHERE target_type='person'
+      AND target_id IN (SELECT person_ref FROM organization_people WHERE user_id=$1) RETURNING id`, ["usr_runtime_fixture"]);
+    expect(removed.rows.length).toBeGreaterThan(0);
+    const response = await app.request(`/api/sessions/${id}/messages`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "搜索 YouTube 露营达人", intent: "creator_discovery", act: "ask" }),
+    });
+    expect(response.status).toBe(403);
+  });
+
   it("acknowledges creator discovery immediately and publishes the background outcome", async () => {
     const { createApp } = await import("../src/app.js");
-    const app = authenticatedTestApp(createApp(), runtimeCookie);
+    const app = authenticatedTestApp((await createApp()), runtimeCookie);
     const created = await app.request("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -88,7 +94,11 @@ describe("real Codex HTTP flow", () => {
     });
     const { id } = (await created.json()) as { id: string };
 
-    const startedAt = Date.now();
+    // The acknowledgement contract is causal, not a CI-host scheduling SLO:
+    // while a known-slow real worker is active, POST must already acknowledge
+    // 202/running. A synchronous dispatch would instead wait for this worker
+    // and return its terminal response, so this remains a strict async gate.
+    process.env.FAKE_CODEX_DELAY = "1000";
     const response = await app.request(`/api/sessions/${id}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -100,7 +110,6 @@ describe("real Codex HTTP flow", () => {
       messages?: unknown[];
     };
     expect(response.status).toBe(202);
-    expect(Date.now() - startedAt).toBeLessThan(500);
     expect(body.accepted).toBe(true);
     expect(body.agent_status).toBe("running");
     expect(body.messages?.length).toBeGreaterThan(0);
@@ -171,7 +180,7 @@ describe("real Codex HTTP flow", () => {
     process.env.FAKE_CODEX_MODE = "crawl-plan-success";
     process.env.FAKE_CODEX_DELAY = "120";
     const { createApp } = await import("../src/app.js");
-    const app = authenticatedTestApp(createApp(), runtimeCookie);
+    const app = authenticatedTestApp((await createApp()), runtimeCookie);
     const created = await app.request("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -184,6 +193,7 @@ describe("real Codex HTTP flow", () => {
       body: JSON.stringify({ text: "搜索 YouTube 露营达人", intent: "creator_discovery", act: "ask" }),
     });
     expect(response.status).toBe(202);
+    await drainBackgroundWork();
 
     let session: {
       agent_status?: string;
@@ -216,7 +226,7 @@ describe("real Codex HTTP flow", () => {
     process.env.FAKE_CODEX_MODE = "crawl-plan-success";
     process.env.FAKE_CODEX_DELAY = "50";
     const { createApp } = await import("../src/app.js");
-    const app = authenticatedTestApp(createApp(), runtimeCookie);
+    const app = authenticatedTestApp((await createApp()), runtimeCookie);
     const created = await app.request("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -258,7 +268,7 @@ describe("real Codex HTTP flow", () => {
     process.env.FAKE_CODEX_DELAY = "2000";
     process.env.HOST_WORKER_TIMEOUT = "8";
     const { createApp } = await import("../src/app.js");
-    const app = authenticatedTestApp(createApp(), runtimeCookie);
+    const app = authenticatedTestApp((await createApp()), runtimeCookie);
     const created = await app.request("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -312,7 +322,7 @@ describe("real Codex HTTP flow", () => {
     setAgentSubmissionOverride(false);
     try {
       const { createApp } = await import("../src/app.js");
-      const app = authenticatedTestApp(createApp(), runtimeCookie);
+      const app = authenticatedTestApp((await createApp()), runtimeCookie);
       const created = await app.request("/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -340,9 +350,9 @@ describe("real Codex HTTP flow", () => {
     // Same isolation as afterEach: a later test opens a new SQLite file, so a
     // delayed crawl follow-up must not insert against missing parents.
     process.env.LINGONG_DB = path.join(tmp, "torn-down.db");
-    resetConn();
-    seedAll();
-    expect(appendTaskEvent(workItemId, runId, "crawl.start_failed", "远程采集启动失败", "failed", "gone")).toBeNull();
-    expect(appendTaskEvent(workItemId, null, "crawl.clarification", "请补充关键词", "needs_clarification")).toBeNull();
+    (await resetConn());
+    (await seedAll());
+    expect(await appendTaskEvent(workItemId, runId, "crawl.start_failed", "远程采集启动失败", "failed", "gone")).toBeNull();
+    expect(await appendTaskEvent(workItemId, null, "crawl.clarification", "请补充关键词", "needs_clarification")).toBeNull();
   });
 });

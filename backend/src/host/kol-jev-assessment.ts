@@ -1,5 +1,5 @@
 import { TypeSafeClient } from "@typesafe-ai/sdk";
-import { audit, getConn, nowIso, type SqliteConn } from "../db.js";
+import { audit, getConn, nowIso, type DatabaseConnection } from "../db.js";
 import type { Row } from "../types.js";
 import { memoryCompanyId } from "./kol-memory.js";
 import { criteriaState, criteriaSummary, type KolScoringCriteria } from "./kol-scoring-criteria.js";
@@ -196,21 +196,23 @@ export async function assessPublicKolWithJev(
   };
 }
 
-function eligibleProfiles(companyId: string, limit: number, db: SqliteConn, kolUids: string[] = []): Row[] {
-  const scoped = kolUids.length
-    ? ` AND kol_uid IN (${kolUids.map(() => "?").join(",")})`
-    : "";
-  return db.prepare(
+async function eligibleProfiles(companyId: string, limit: number, db: DatabaseConnection, kolUids: string[] = []): Promise<Row[]> {
+  const scoped = kolUids.length ? " AND kol_uid = ANY($3::text[])" : "";
+  const limitParam = kolUids.length ? "$4" : "$3";
+  const params: unknown[] = kolUids.length
+    ? [companyId, "open", kolUids, limit]
+    : [companyId, "open", limit];
+  return (await db.query(
     `SELECT *
        FROM kol_profile_index
-      WHERE company_id=? AND pool_status='open'${scoped}
+      WHERE company_id=$1 AND pool_status=$2${scoped}
       ORDER BY CASE WHEN potential_score IS NULL THEN 0 ELSE 1 END,
                CASE WHEN assessed_at IS NULL OR trim(assessed_at)='' THEN 0 ELSE 1 END,
                assessed_at ASC, ingested_at DESC, kol_uid
-      LIMIT ?`,
-  ).all(companyId, ...kolUids, limit) as Row[];
+      LIMIT ${limitParam}`,
+    params,
+  )).rows as Row[];
 }
-
 /** 去空、去重、限长：调用方不能借 kol_uids 绕过批量上限。 */
 export const JEV_MAX_TARGETS = 12;
 export function normalizeJevTargets(value: unknown): string[] {
@@ -243,7 +245,7 @@ export type JevAssessmentResult = {
 export async function assessPublicKolsWithJev(input: {
   limit?: number;
   companyId?: string;
-  db?: SqliteConn;
+  db?: DatabaseConnection;
   kol_uids?: string[];
   /** 员工声明的目标条件；由路由解析（显式传入优先，其次最近一次 AI 发现请求）。 */
   criteria?: KolScoringCriteria | null;
@@ -255,7 +257,7 @@ export async function assessPublicKolsWithJev(input: {
     ? kolUids.length
     : Math.max(1, Math.min(12, Math.floor(Number(input.limit || 12))));
   const criteria = input.criteria || null;
-  const profiles = eligibleProfiles(companyId, limit, db, kolUids);
+  const profiles = await eligibleProfiles(companyId, limit, db, kolUids);
   let assessed = 0;
   let highPotential = 0;
   let highRisk = 0;
@@ -263,37 +265,13 @@ export async function assessPublicKolsWithJev(input: {
   for (const profile of profiles) {
     try {
       const assessment = await assessPublicKolWithJev(profile, criteria);
-      db.prepare(
-        `UPDATE kol_profile_index
-            SET potential_score=?, potential_probabilities=?, potential_confidence=?, risk_score=?, risk_probabilities=?, risk_confidence=?,
-                assessment_model=?, assessment_version=?, assessed_at=?, assessment_error='',
-                assessment_criteria=?, updated_at=?
-          WHERE company_id=? AND kol_uid=?`,
-      ).run(
-        assessment.potential_score,
-        assessment.potential_probabilities,
-        assessment.potential_confidence,
-        assessment.risk_score,
-        assessment.risk_probabilities,
-        assessment.risk_confidence,
-        assessment.model,
-        assessment.version,
-        assessment.assessed_at,
-        assessment.criteria_summary,
-        assessment.assessed_at,
-        companyId,
-        String(profile.kol_uid),
-      );
+      (await db.query("UPDATE kol_profile_index\n            SET potential_score=$1, potential_probabilities=$2, potential_confidence=$3, risk_score=$4, risk_probabilities=$5, risk_confidence=$6,\n                assessment_model=$7, assessment_version=$8, assessed_at=$9, assessment_error='',\n                assessment_criteria=$10, updated_at=$11\n          WHERE company_id=$12 AND kol_uid=$13",[assessment.potential_score,assessment.potential_probabilities,assessment.potential_confidence,assessment.risk_score,assessment.risk_probabilities,assessment.risk_confidence,assessment.model,assessment.version,assessment.assessed_at,assessment.criteria_summary,assessment.assessed_at,companyId,String(profile.kol_uid)]));
       assessed += 1;
       if ((assessment.potential_score || 0) >= 80) highPotential += 1;
       if ((assessment.risk_score || 0) >= 80) highRisk += 1;
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 180) : "Jev 评分失败";
-      db.prepare(
-        `UPDATE kol_profile_index
-            SET assessment_error=?, assessed_at=?, updated_at=?
-          WHERE company_id=? AND kol_uid=?`,
-      ).run(message, nowIso(), nowIso(), companyId, String(profile.kol_uid));
+      (await db.query("UPDATE kol_profile_index\n            SET assessment_error=$1, assessed_at=$2, updated_at=$3\n          WHERE company_id=$4 AND kol_uid=$5",[message,nowIso(),nowIso(),companyId,String(profile.kol_uid)]));
       failed += 1;
     }
   }
@@ -301,9 +279,9 @@ export async function assessPublicKolsWithJev(input: {
     ok: true, eligible: profiles.length, assessed, high_potential: highPotential, high_risk: highRisk, failed,
     criteria_summary: criteriaSummary(criteria),
   };
-  audit("system", "kol.memory.jev_assessment", {
+  (await audit("system", "kol.memory.jev_assessment", {
     ...result, limit, model: model(), version: ASSESSMENT_VERSION,
     criteria: criteria || null,
-  });
+  }));
   return result;
 }

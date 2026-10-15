@@ -977,4 +977,61 @@
     position: absolute;
     inset: calc((var(--composer-side-btn-size) - var(--touch-hit-min)) / 2);
   }
+
+  /* The submit control itself owns the 44px hit area. Its 32px visible circle
+     stays centered, so coarse input does not inflate the visual CTA. */
+  .composer .btn.send.send-arrow[data-ai-prompt-submit] {
+    width: var(--touch-hit-min);
+    height: var(--touch-hit-min);
+    min-width: var(--touch-hit-min);
+    min-height: var(--touch-hit-min);
+    /* The invisible target must include its corners; only ::before is round. */
+    border-radius: 0;
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .composer .btn.send.send-arrow[data-ai-prompt-submit]::after {
+    content: none;
+  }
+
+  .composer .btn.send.send-arrow[data-ai-prompt-submit]::before {
+    content: "";
+    position: absolute;
+    inset: calc((var(--touch-hit-min) - var(--composer-side-btn-size)) / 2);
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: var(--composer-send-idle);
+  }
+
+  .composer .btn.send.send-arrow[data-ai-prompt-submit].is-ready::before {
+    border-color: var(--primary);
+    background: var(--primary);
+  }
+
+  .composer .btn.send.send-arrow[data-ai-prompt-submit].is-stop::before {
+    border-color: var(--composer-toolbar-fg);
+    background: var(--composer-toolbar-fg);
+  }
+
+  .scope-workspace.scope-workspace .composer .btn.send.send-arrow[data-ai-prompt-submit][data-send-emphasis="secondary"],
+  .scope-workspace.scope-workspace [data-workspace-awaiting-confirm] .composer .btn.send.send-arrow[data-ai-prompt-submit] {
+    border-color: transparent;
+  }
+
+  .scope-workspace.scope-workspace .composer .btn.send.send-arrow[data-ai-prompt-submit][data-send-emphasis="secondary"]::before,
+  .scope-workspace.scope-workspace [data-workspace-awaiting-confirm] .composer .btn.send.send-arrow[data-ai-prompt-submit]::before {
+    border-color: var(--border);
+    background: var(--bg);
+  }
+
+  .composer .btn.send.send-arrow[data-ai-prompt-submit] > * {
+    position: relative;
+    z-index: 1;
+  }
+}
+
+.composer .btn.send.send-arrow[data-ai-prompt-submit]:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
 }

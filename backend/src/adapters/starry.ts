@@ -33,11 +33,11 @@ export function dictionaryOptions(parentKey: string): Json[] {
   return [];
 }
 
-export function confirmStage(lifecycleId: string, body: Json): Json {
+export async function confirmStage(lifecycleId: string, body: Json): Promise<Awaited<Json>> {
   const code = normalizeStage(String(body.stage_code || body.stageCode || ""));
   const actor = String(body.actor || "host");
   if (!code) throw new Error("stage_code required");
-  const row = getConn().prepare("SELECT * FROM collaborations WHERE lifecycle_id = ?").get(lifecycleId) as Row | undefined;
+  const row = (await getConn().query("SELECT * FROM collaborations WHERE lifecycle_id = $1",[lifecycleId])).rows[0] as Row | undefined;
   if (!row) throw new KeyError(lifecycleId);
   const from = normalizeStage(String(row.stage_code));
   if (!BY_CODE[code]) throw new Error(`unknown stage: ${code}`);
@@ -66,44 +66,12 @@ export function confirmStage(lifecycleId: string, body: Json): Json {
     advancement_mode: String(supplied.advancement_mode || stage?.advancementMode || "旁路"),
   };
   const transitionId = nid("trn");
-  tx((c) => {
-    const updated = c
-      .prepare(
-        `UPDATE collaborations
-         SET stage_code = ?, days_in_stage = 0, stage_version = ?
-         WHERE lifecycle_id = ? AND stage_version = ?`,
-      )
-      .run(code, transition.data_version_after, lifecycleId, transition.data_version_before);
-    if (updated.changes !== 1) throw new Error("stage version conflict");
-    c.prepare("INSERT INTO starry_stage_writes (lifecycle_id, stage_code, actor, ts) VALUES (?,?,?,?)").run(
-      lifecycleId,
-      code,
-      actor,
-      occurredAt,
-    );
-    c.prepare(
-      `INSERT INTO stage_transitions
-       (id, collaboration_id, lifecycle_id, from_stage, to_stage, reason_code, evidence,
-        recommender, approver, occurred_at, data_version_before, data_version_after,
-        capability_profile, advancement_mode)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      transitionId,
-      transition.collaboration_id,
-      lifecycleId,
-      transition.from_stage,
-      transition.to_stage,
-      transition.reason_code,
-      JSON.stringify(transition.evidence),
-      transition.recommender,
-      transition.approver,
-      transition.occurred_at,
-      transition.data_version_before,
-      transition.data_version_after,
-      transition.capability_profile,
-      transition.advancement_mode,
-    );
-    appendBusinessEvent(
+  (await tx(async (c) => {
+    const updated = (await c.query("UPDATE collaborations\n         SET stage_code = $1, days_in_stage = 0, stage_version = $2\n         WHERE lifecycle_id = $3 AND stage_version = $4",[code,transition.data_version_after,lifecycleId,transition.data_version_before]));
+    if ((updated.rowCount ?? 0) !== 1) throw new Error("stage version conflict");
+    (await c.query("INSERT INTO starry_stage_writes (lifecycle_id, stage_code, actor, ts) VALUES ($1,$2,$3,$4)",[lifecycleId,code,actor,occurredAt]));
+    (await c.query("INSERT INTO stage_transitions\n       (id, collaboration_id, lifecycle_id, from_stage, to_stage, reason_code, evidence,\n        recommender, approver, occurred_at, data_version_before, data_version_after,\n        capability_profile, advancement_mode)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",[transitionId,transition.collaboration_id,lifecycleId,transition.from_stage,transition.to_stage,transition.reason_code,JSON.stringify(transition.evidence),transition.recommender,transition.approver,transition.occurred_at,transition.data_version_before,transition.data_version_after,transition.capability_profile,transition.advancement_mode]));
+    (await appendBusinessEvent(
       {
         eventType: stageEventType(from, code),
         objectType: "collaboration",
@@ -124,15 +92,15 @@ export function confirmStage(lifecycleId: string, body: Json): Json {
         correlationId: lifecycleId,
       },
       { conn: c },
-    );
-  });
-  audit("starry", "starry.stage", {
+    ));
+  }));
+  (await audit("starry", "starry.stage", {
     lifecycle_id: lifecycleId,
     transition_id: transitionId,
     from_stage: from,
     to_stage: code,
     actor,
-  });
+  }));
   return {
     ok: true,
     lifecycleId,
@@ -143,40 +111,29 @@ export function confirmStage(lifecycleId: string, body: Json): Json {
   };
 }
 
-export function sendConversation(conversationId: string, body: Json): Json {
-  const row = getConn().prepare("SELECT * FROM collaborations WHERE conversation_id = ?").get(conversationId) as Row | undefined;
-  tx((c) => {
-    c.prepare(
-      `INSERT INTO starry_sends (conversation_id, from_addr, to_addr, cc, subject, body, ts)
-       VALUES (?,?,?,?,?,?,?)`,
-    ).run(
-      conversationId,
-      body.from || body.from_addr || null,
-      body.to || body.to_addr || null,
-      body.cc || "",
-      body.subject || "",
-      body.body || body.html || "",
-      nowIso(),
-    );
-  });
-  audit("starry", "starry.send", {
+export async function sendConversation(conversationId: string, body: Json): Promise<Awaited<Json>> {
+  const row = (await getConn().query("SELECT * FROM collaborations WHERE conversation_id = $1",[conversationId])).rows[0] as Row | undefined;
+  (await tx(async (c) => {
+    (await c.query("INSERT INTO starry_sends (conversation_id, from_addr, to_addr, cc, subject, body, ts)\n       VALUES ($1,$2,$3,$4,$5,$6,$7)",[conversationId,body.from || body.from_addr || null,body.to || body.to_addr || null,body.cc || "",body.subject || "",body.body || body.html || "",nowIso()]));
+  }));
+  (await audit("starry", "starry.send", {
     conversation_id: conversationId,
     subject: body.subject,
     stage_before: row ? row.stage_code : null,
-  });
+  }));
   return { ok: true, conversationId, status: "sent" };
 }
 
-export function translateZh(body: Json): Json {
+export async function translateZh(body: Json): Promise<Awaited<Json>> {
   const text = String(body.text || body.body || "");
   const cached = String(body.zh || "");
   const zh = isUsableInternalZh(cached, text) ? cached : stubInternalZh(text);
-  audit("starry", "starry.translate_zh", { chars: text.length });
+  (await audit("starry", "starry.translate_zh", { chars: text.length }));
   return { ok: true, zh, internal_only: true };
 }
 
-export function getConversation(conversationId: string): Json | null {
-  const row = getConn().prepare("SELECT * FROM collaborations WHERE conversation_id = ?").get(conversationId) as Row | undefined;
+export async function getConversation(conversationId: string): Promise<Awaited<Json | null>> {
+  const row = (await getConn().query("SELECT * FROM collaborations WHERE conversation_id = $1",[conversationId])).rows[0] as Row | undefined;
   if (!row) return null;
   return {
     id: row.conversation_id,

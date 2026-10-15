@@ -9,7 +9,11 @@ import {
   projectApproval,
   type ApprovalBox,
 } from "../approval/queue.js";
-import { authDisabled, scopedUser } from "../auth.js";
+import { authDisabled, requireAdmin, scopedUser } from "../auth.js";
+import {
+  assignCurrentOwner,
+  CurrentOwnerAssignmentError,
+} from "../approval/current-owner-assignment-repository.js";
 import { audit } from "../db.js";
 import {
   createReceipt,
@@ -61,7 +65,7 @@ function requireVisible(approval: Row) {
   }
 }
 
-function defaultRequester(): Pick<PlanInput, "requester_id" | "requester_name"> {
+async function defaultRequester(): Promise<Awaited<Pick<PlanInput, "requester_id" | "requester_name">>> {
   try {
     const user = scopedUser();
     if (user) {
@@ -71,7 +75,7 @@ function defaultRequester(): Pick<PlanInput, "requester_id" | "requester_name"> 
         requester_name: person?.name || user.name,
       };
     }
-    const me = currentUser();
+    const me = (await currentUser());
     const person = employeeForUser({ name: me.name, username: me.handle });
     return {
       requester_id: person?.id,
@@ -82,14 +86,14 @@ function defaultRequester(): Pick<PlanInput, "requester_id" | "requester_name"> 
   }
 }
 
-function expensePlanInput(body: ExpenseCreateBody): PlanInput {
+async function expensePlanInput(body: ExpenseCreateBody): Promise<Awaited<PlanInput>> {
   const kind = String(body.kind || "").trim();
   if (kind !== "expense") {
     throw new HttpFail(400, { code: "unsupported_kind", message: "本页只能发起费用审批。" });
   }
   const requester_id = String(body.requester_id || "").trim();
   const requester_name = String(body.requester_name || "").trim();
-  const fallback = !requester_id && !requester_name ? defaultRequester() : {};
+  const fallback = !requester_id && !requester_name ? (await defaultRequester()) : {};
   return {
     amount: Number(body.amount),
     currency: String(body.currency || "CNY").trim() || "CNY",
@@ -102,8 +106,8 @@ function expensePlanInput(body: ExpenseCreateBody): PlanInput {
   };
 }
 
-function planOrThrow(body: ExpenseCreateBody) {
-  const plan = calculateApprovalPlan(expensePlanInput(body));
+async function planOrThrow(body: ExpenseCreateBody) {
+  const plan = calculateApprovalPlan((await expensePlanInput(body)));
   if (plan.blocked) {
     throw new HttpFail(400, {
       code: plan.blocked.code,
@@ -129,8 +133,8 @@ function requireExpectedVersion(value: unknown): number {
   return version;
 }
 
-function createExpenseApproval(body: ExpenseCreateBody) {
-  const plan = planOrThrow(body);
+async function createExpenseApproval(body: ExpenseCreateBody) {
+  const plan = (await planOrThrow(body));
   const planVersion = planContentVersion(plan);
   const expected = body.expected_version == null || body.expected_version === ""
     ? (authDisabled() ? planVersion : null)
@@ -146,10 +150,10 @@ function createExpenseApproval(body: ExpenseCreateBody) {
     throw new HttpFail(400, { code: "idempotency_key_required", message: "提交需要幂等键。" });
   }
   if (idempotencyKey) {
-    const replayed = createReceipt(idempotencyKey);
+    const replayed = (await createReceipt(idempotencyKey));
     if (replayed) return enrich(replayed);
   }
-  const approval = createWorkApproval({
+  const approval = (await createWorkApproval({
     kind: "expense",
     brand: "LT",
     amountUsd: plan.amount_base,
@@ -160,27 +164,27 @@ function createExpenseApproval(body: ExpenseCreateBody) {
       steps: plan.steps,
       purpose: String(body.purpose || "").trim() || undefined,
     },
-  });
+  }));
   if (!approval?.id) {
     throw new HttpFail(400, {
       code: "empty_approval_chain",
       message: plan.explanation || "规则没有算出可执行的审批链。",
     });
   }
-  if (idempotencyKey) saveCreateReceipt(idempotencyKey, approval);
-  audit("host", "expense.approval.created", {
+  if (idempotencyKey) (await saveCreateReceipt(idempotencyKey, approval));
+  (await audit("host", "expense.approval.created", {
     approval_id: approval.id,
     policy_id: plan.policy_id,
     rule_id: plan.rule_id,
     requester_id: plan.requester_id,
     idempotency_key: idempotencyKey || undefined,
-  });
+  }));
   return enrich(approval);
 }
 
-function visibleRows(box?: ApprovalBox) {
+async function visibleRows(box?: ApprovalBox) {
   const user = viewer();
-  return listApprovals()
+  return (await listApprovals())
     .filter((approval) => {
       if (!isVisibleToViewer(approval, user)) return false;
       if (box) return inApprovalBox(approval, box, user);
@@ -189,30 +193,30 @@ function visibleRows(box?: ApprovalBox) {
     .map((approval) => enrich(approval));
 }
 
-approvals.get("/approvals/badge", (c) => {
+approvals.get("/approvals/badge", async (c) => {
   const user = viewer();
-  const count = listApprovals().filter((approval) => inApprovalBox(approval, "inbox", user)).length;
+  const count = (await listApprovals()).filter((approval) => inApprovalBox(approval, "inbox", user)).length;
   return c.json({ count });
 });
 
-approvals.get("/approvals", (c) => {
+approvals.get("/approvals", async (c) => {
   let box: ApprovalBox | undefined;
   try {
     box = parseApprovalBox(c.req.query("box"));
   } catch {
     throw new HttpFail(400, { code: "unknown_box", message: "box 只能是 inbox、submitted 或 done。" });
   }
-  return c.json(visibleRows(box));
+  return c.json((await visibleRows(box)));
 });
 
 approvals.post("/approvals", async (c) => {
   const body = (await c.req.json()) as ExpenseCreateBody;
-  return c.json(createExpenseApproval(body));
+  return c.json((await createExpenseApproval(body)));
 });
 
 approvals.post("/approvals/preview", async (c) => {
   const body = (await c.req.json()) as ExpenseCreateBody;
-  const plan = planOrThrow(body);
+  const plan = (await planOrThrow(body));
   return c.json({
     kind: "expense",
     plan,
@@ -221,11 +225,59 @@ approvals.post("/approvals/preview", async (c) => {
   });
 });
 
-approvals.get("/approvals/:aid", (c) => {
-  const row = getApproval(c.req.param("aid"));
+approvals.get("/approvals/:aid", async (c) => {
+  const row = (await getApproval(c.req.param("aid")));
   if (!row) throw new HttpFail(404, "Not Found");
   requireVisible(row);
   return c.json(enrich(row));
+});
+
+/**
+ * Repair one explicitly authorized, orphaned current node on an objects
+ * ontology-change approval.  This is intentionally not a global role/binding
+ * operation and never decides or consumes the approval.
+ */
+approvals.post("/admin/approvals/:aid/assign-current-owner", async (c) => {
+  if (authDisabled()) {
+    throw new HttpFail(503, { code: "approval_owner_assignment_auth_required", message: "该管理操作要求启用真实认证。" });
+  }
+  const actor = requireAdmin();
+  const body = (await c.req.json().catch(() => ({}))) as {
+    target_user_id?: unknown;
+    reason?: unknown;
+    expected_version?: unknown;
+    idempotency_key?: unknown;
+  };
+  const targetUserId = String(body.target_user_id || "").trim();
+  if (!targetUserId) {
+    throw new HttpFail(400, { code: "target_user_id_required", message: "必须指定目标真实用户。" });
+  }
+  const reason = String(body.reason || "").trim();
+  if (!reason) {
+    throw new HttpFail(400, { code: "assignment_reason_required", message: "必须说明本次单票指派原因。" });
+  }
+  const expectedVersion = requireExpectedVersion(body.expected_version);
+  const idempotencyKey = requireIdempotencyKey(body.idempotency_key);
+  try {
+    const result = await assignCurrentOwner({
+      approvalId: c.req.param("aid"),
+      targetUserId,
+      reason,
+      expectedVersion,
+      idempotencyKey,
+      actor: { id: actor.id, name: actor.name || actor.handle, handle: actor.handle },
+    });
+    // Keep the established read/projection contract for the response; the
+    // write itself was performed solely through the native PG repository.
+    const approval = await getApproval(c.req.param("aid"));
+    if (!approval) throw new HttpFail(404, "Not Found");
+    return c.json({ ...(await enrich(approval)), replayed: result.replayed });
+  } catch (error) {
+    if (error instanceof CurrentOwnerAssignmentError) {
+      throw new HttpFail(error.status, { code: error.code, message: error.message });
+    }
+    throw error;
+  }
 });
 
 approvals.post("/approvals/:aid/decide", async (c) => {
@@ -236,14 +288,14 @@ approvals.post("/approvals/:aid/decide", async (c) => {
     expected_version?: unknown;
     idempotency_key?: unknown;
   };
-  const approval = getApproval(c.req.param("aid"));
+  const approval = (await getApproval(c.req.param("aid")));
   if (!approval) throw new HttpFail(404, "Not Found");
   const expectedVersion = requireExpectedVersion(body.expected_version);
   const idempotencyKey = requireIdempotencyKey(body.idempotency_key);
-  const replayed = decideReceipt(c.req.param("aid"), idempotencyKey);
+  const replayed = (await decideReceipt(c.req.param("aid"), idempotencyKey));
   if (replayed) {
     if (!authDisabled()) requireVisible(approval);
-    return c.json(enrich({ ...getApproval(c.req.param("aid")), ...replayed, replayed: true } as Row));
+    return c.json(enrich({ ...(await getApproval(c.req.param("aid"))), ...replayed, replayed: true } as Row));
   }
   let actor = body.actor;
   if (!authDisabled()) {
@@ -267,14 +319,14 @@ approvals.post("/approvals/:aid/decide", async (c) => {
       expected_version: expectedVersion,
       idempotency_key: idempotencyKey,
     });
-    audit("gateway", "approval.decide", {
+    (await audit("gateway", "approval.decide", {
       approval_id: c.req.param("aid"),
       decision: body.decision,
       expected_version: expectedVersion,
       idempotency_key: idempotencyKey,
       replayed: Boolean((result as { replayed?: boolean }).replayed),
-    });
-    return c.json(enrich({ ...getApproval(c.req.param("aid")), ...result } as Row));
+    }));
+    return c.json(enrich({ ...(await getApproval(c.req.param("aid"))), ...result } as Row));
   } catch (e) {
     if (e instanceof KeyError) throw new HttpFail(404, "Not Found");
     if (e instanceof HttpFail) throw e;
@@ -285,10 +337,10 @@ approvals.post("/approvals/:aid/decide", async (c) => {
   }
 });
 
-approvals.get("/wecom/cards", (c) => {
-  if (authDisabled()) return c.json(listWecomCards());
-  const visible = new Set(visibleRows().map(row => String(row.id)));
-  return c.json(listWecomCards().filter(card => visible.has(String(card.approval_id || ""))));
+approvals.get("/wecom/cards", async (c) => {
+  if (authDisabled()) return c.json((await listWecomCards()));
+  const visible = new Set((await visibleRows()).map(row => String(row.id)));
+  return c.json((await listWecomCards()).filter(card => visible.has(String(card.approval_id || ""))));
 });
 
 approvals.post("/approvals/:aid/transfer", async (c) => {
@@ -298,7 +350,7 @@ approvals.post("/approvals/:aid/transfer", async (c) => {
     expected_version?: unknown;
     idempotency_key?: unknown;
   };
-  const approval = getApproval(c.req.param("aid"));
+  const approval = (await getApproval(c.req.param("aid")));
   if (!approval) throw new HttpFail(404, "Not Found");
   const expectedVersion = requireExpectedVersion(body.expected_version);
   const target = String(body.target_employee_id || "").trim();
@@ -313,14 +365,14 @@ approvals.post("/approvals/:aid/transfer", async (c) => {
     actor = (approval.chain as string[])[Number(approval.current_index)];
   }
   try {
-    const result = transferApproval(c.req.param("aid"), target, actor, String(body.reason || ""), {
+    const result = (await transferApproval(c.req.param("aid"), target, actor, String(body.reason || ""), {
       expected_version: expectedVersion,
-    });
-    audit("gateway", "approval.transfer", {
+    }));
+    (await audit("gateway", "approval.transfer", {
       approval_id: c.req.param("aid"),
       target,
       expected_version: expectedVersion,
-    });
+    }));
     return c.json(enrich(result));
   } catch (e) {
     if (e instanceof KeyError) throw new HttpFail(404, "Not Found");
@@ -330,7 +382,7 @@ approvals.post("/approvals/:aid/transfer", async (c) => {
 
 approvals.post("/approvals/:aid/withdraw", async (c) => {
   const body = (await c.req.json()) as { expected_version?: unknown; idempotency_key?: unknown };
-  const approval = getApproval(c.req.param("aid"));
+  const approval = (await getApproval(c.req.param("aid")));
   if (!approval) throw new HttpFail(404, "Not Found");
   const expectedVersion = requireExpectedVersion(body.expected_version);
   if (!authDisabled()) {
@@ -340,13 +392,13 @@ approvals.post("/approvals/:aid/withdraw", async (c) => {
     }
   }
   try {
-    const result = withdrawApproval(c.req.param("aid"), viewer()?.handle, {
+    const result = (await withdrawApproval(c.req.param("aid"), viewer()?.handle, {
       expected_version: expectedVersion,
-    });
-    audit("gateway", "approval.withdraw", {
+    }));
+    (await audit("gateway", "approval.withdraw", {
       approval_id: c.req.param("aid"),
       expected_version: expectedVersion,
-    });
+    }));
     return c.json(enrich(result));
   } catch (e) {
     if (e instanceof KeyError) throw new HttpFail(404, "Not Found");
@@ -361,7 +413,7 @@ approvals.post("/approvals/:aid/countersign", async (c) => {
     expected_version?: unknown;
     idempotency_key?: unknown;
   };
-  const approval = getApproval(c.req.param("aid"));
+  const approval = (await getApproval(c.req.param("aid")));
   if (!approval) throw new HttpFail(404, "Not Found");
   const expectedVersion = requireExpectedVersion(body.expected_version);
   const target = String(body.target_employee_id || "").trim();
@@ -376,9 +428,9 @@ approvals.post("/approvals/:aid/countersign", async (c) => {
     actor = (approval.chain as string[])[Number(approval.current_index)];
   }
   try {
-    const result = countersignApproval(c.req.param("aid"), target, actor, String(body.reason || ""), {
+    const result = (await countersignApproval(c.req.param("aid"), target, actor, String(body.reason || ""), {
       expected_version: expectedVersion,
-    });
+    }));
     return c.json(enrich(result));
   } catch (e) {
     if (e instanceof KeyError) throw new HttpFail(404, "Not Found");
@@ -386,6 +438,6 @@ approvals.post("/approvals/:aid/countersign", async (c) => {
   }
 });
 
-function canDecideProjected(approval: Row, user: ReturnType<typeof scopedUser>) {
+function canDecideProjected(approval: Row, user: Awaited<ReturnType<typeof scopedUser>>) {
   return Boolean(projectApproval(approval, user || undefined).can_decide);
 }

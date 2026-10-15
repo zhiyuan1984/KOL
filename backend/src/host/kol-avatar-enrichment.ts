@@ -1,5 +1,5 @@
 import { lookup } from "node:dns/promises";
-import { audit, getConn, nowIso, type SqliteConn } from "../db.js";
+import { audit, getConn, nowIso, type DatabaseConnection } from "../db.js";
 import type { Row } from "../types.js";
 import { memoryCompanyId } from "./kol-memory.js";
 
@@ -118,17 +118,8 @@ async function fetchPublicHtml(start: string): Promise<{ html: string; pageUrl: 
   throw new Error("主页重定向未完成");
 }
 
-function eligibleProfiles(companyId: string, limit: number, db: SqliteConn): Row[] {
-  return db.prepare(
-    `SELECT kol_uid, homepage_url
-       FROM kol_profile_index
-      WHERE company_id=?
-        AND pool_status='open'
-        AND trim(COALESCE(homepage_url,''))<>''
-        AND trim(COALESCE(avatar_url,''))=''
-      ORDER BY COALESCE(avatar_checked_at,''), updated_at, kol_uid
-      LIMIT ?`,
-  ).all(companyId, limit) as Row[];
+async function eligibleProfiles(companyId: string, limit: number, db: DatabaseConnection): Promise<Awaited<Row[]>> {
+  return (await db.query("SELECT kol_uid, homepage_url\n       FROM kol_profile_index\n      WHERE company_id=$1\n        AND pool_status='open'\n        AND trim(COALESCE(homepage_url,''))<>''\n        AND trim(COALESCE(avatar_url,''))=''\n      ORDER BY COALESCE(avatar_checked_at,''), updated_at, kol_uid\n      LIMIT $2",[companyId,limit])).rows as Row[];
 }
 
 export type AvatarEnrichmentResult = {
@@ -146,12 +137,12 @@ export type AvatarEnrichmentResult = {
 export async function enrichMissingPublicAvatars(input: {
   limit?: number;
   companyId?: string;
-  db?: SqliteConn;
+  db?: DatabaseConnection;
 } = {}): Promise<AvatarEnrichmentResult> {
   const db = input.db || getConn();
   const companyId = input.companyId || memoryCompanyId();
   const limit = Math.max(1, Math.min(32, Math.floor(Number(input.limit || 12))));
-  const profiles = eligibleProfiles(companyId, limit, db);
+  const profiles = (await eligibleProfiles(companyId, limit, db));
   let updated = 0;
   let failed = 0;
   for (const profile of profiles) {
@@ -161,23 +152,15 @@ export async function enrichMissingPublicAvatars(input: {
       const avatarUrl = publicAvatarUrlFromHtml(page.html, page.pageUrl);
       if (!avatarUrl) throw new Error("主页未声明公开头像");
       await assertPublicHttpUrl(avatarUrl);
-      db.prepare(
-        `UPDATE kol_profile_index
-            SET avatar_url=?, avatar_checked_at=?, avatar_error='', updated_at=?
-          WHERE company_id=? AND kol_uid=? AND trim(COALESCE(avatar_url,''))=''`,
-      ).run(avatarUrl, checkedAt, checkedAt, companyId, String(profile.kol_uid));
+      (await db.query("UPDATE kol_profile_index\n            SET avatar_url=$1, avatar_checked_at=$2, avatar_error='', updated_at=$3\n          WHERE company_id=$4 AND kol_uid=$5 AND trim(COALESCE(avatar_url,''))=''",[avatarUrl,checkedAt,checkedAt,companyId,String(profile.kol_uid)]));
       updated += 1;
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 180) : "公开头像抓取失败";
-      db.prepare(
-        `UPDATE kol_profile_index
-            SET avatar_checked_at=?, avatar_error=?, updated_at=?
-          WHERE company_id=? AND kol_uid=?`,
-      ).run(checkedAt, message, checkedAt, companyId, String(profile.kol_uid));
+      (await db.query("UPDATE kol_profile_index\n            SET avatar_checked_at=$1, avatar_error=$2, updated_at=$3\n          WHERE company_id=$4 AND kol_uid=$5",[checkedAt,message,checkedAt,companyId,String(profile.kol_uid)]));
       failed += 1;
     }
   }
   const result = { ok: true, eligible: profiles.length, checked: profiles.length, updated, failed };
-  audit("system", "kol.memory.avatar_enrichment", { ...result, limit });
+  (await audit("system", "kol.memory.avatar_enrichment", { ...result, limit }));
   return result;
 }

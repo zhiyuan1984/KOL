@@ -34,20 +34,20 @@ function asRow(row: Row | undefined, message: string): Row {
   return { ...row };
 }
 
-function userById(id: string): Row {
-  return asRow(getConn().prepare("SELECT * FROM users WHERE id=?").get(id) as Row | undefined, "user not found");
+async function userById(id: string): Promise<Row> {
+  return asRow((await getConn().query("SELECT * FROM users WHERE id=$1", [id])).rows[0] as Row | undefined, "user not found");
 }
 
-function examRow(id: string): Row {
-  return asRow(getConn().prepare("SELECT * FROM exams WHERE id=?").get(id) as Row | undefined, "exam not found");
+async function examRow(id: string): Promise<Row> {
+  return asRow((await getConn().query("SELECT * FROM exams WHERE id=$1", [id])).rows[0] as Row | undefined, "exam not found");
 }
 
-function itemRow(id: string): Row {
-  return asRow(getConn().prepare("SELECT * FROM exam_items WHERE id=?").get(id) as Row | undefined, "exam item not found");
+async function itemRow(id: string): Promise<Row> {
+  return asRow((await getConn().query("SELECT * FROM exam_items WHERE id=$1", [id])).rows[0] as Row | undefined, "exam item not found");
 }
 
-function examActor(): { id: string } {
-  if (authDisabled()) return currentUser();
+async function examActor(): Promise<Awaited<{ id: string }>> {
+  if (authDisabled()) return (await currentUser());
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
   return user;
@@ -70,13 +70,13 @@ const MISSING_REQUIRED_SQL = `
      )
 `;
 
-export function examTodoCount(userId: string): number {
-  const row = getConn().prepare(MISSING_REQUIRED_SQL).get(userId) as { missing: number };
+export async function examTodoCount(userId: string): Promise<number> {
+  const row = (await getConn().query("\n  SELECT COUNT(*) AS missing\n    FROM exam_assignments a\n    JOIN exams e ON e.id = a.exam_id\n   WHERE a.user_id = $1 AND a.required = 1\n     AND e.status = 'published' AND e.version > 0\n     AND NOT EXISTS (\n       SELECT 1 FROM exam_attempts t\n        WHERE t.assignment_id = a.id AND t.user_id = a.user_id\n          AND t.passed = 1 AND t.status = 'graded'\n     )\n", [userId])).rows[0] as { missing: number };
   return Number(row?.missing || 0);
 }
 
-export function examPassed(userId: string): boolean {
-  return examTodoCount(userId) === 0;
+export async function examPassed(userId: string): Promise<boolean> {
+  return (await examTodoCount(userId)) === 0;
 }
 
 function publicExam(row: Row): Json {
@@ -106,10 +106,8 @@ function publicItem(row: Row, includeAnswer = false): Json {
   return out;
 }
 
-function snapshotItems(examId: string): Json[] {
-  const rows = getConn().prepare(
-    "SELECT * FROM exam_items WHERE exam_id=? AND accepted=1 ORDER BY created_at, id",
-  ).all(examId) as Row[];
+async function snapshotItems(examId: string): Promise<Json[]> {
+  const rows = (await getConn().query("SELECT * FROM exam_items WHERE exam_id=$1 AND accepted=1 ORDER BY created_at, id", [examId])).rows as Row[];
   return rows.map((row) => ({
     id: String(row.id),
     knowledge_id: row.knowledge_id || "",
@@ -120,10 +118,8 @@ function snapshotItems(examId: string): Json[] {
   }));
 }
 
-function loadSnapshot(examId: string, version: number): { pass_score: number; items: Json[] } {
-  const row = getConn().prepare(
-    "SELECT * FROM exam_snapshots WHERE exam_id=? AND version=?",
-  ).get(examId, version) as Row | undefined;
+async function loadSnapshot(examId: string, version: number): Promise<{ pass_score: number; items: Json[] }> {
+  const row = (await getConn().query("SELECT * FROM exam_snapshots WHERE exam_id=$1 AND version=$2", [examId,version])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(409, "published snapshot not found");
   const items = parseJson(row.items_json, []) as Json[];
   if (!Array.isArray(items) || !items.length) throw new HttpFail(409, "published snapshot not found");
@@ -191,9 +187,9 @@ function gradeSnapshot(items: Json[], answers: Record<string, string>, passScore
   return { score, total, percent, passed, breakdown };
 }
 
-function assignmentForUser(assignmentId: string, userId: string): Row {
+async function assignmentForUser(assignmentId: string, userId: string): Promise<Row> {
   return asRow(
-    getConn().prepare("SELECT * FROM exam_assignments WHERE id=? AND user_id=?").get(assignmentId, userId) as Row | undefined,
+    (await getConn().query("SELECT * FROM exam_assignments WHERE id=$1 AND user_id=$2", [assignmentId,userId])).rows[0] as Row | undefined,
     "assignment not found",
   );
 }
@@ -212,31 +208,16 @@ function employeeAssignmentView(row: Row): Json {
   };
 }
 
-function listEmployeeAssignments(userId: string): Json[] {
-  const rows = getConn().prepare(
-    `SELECT a.*, e.title, e.description, e.status AS exam_status, e.version AS paper_version, e.pass_score,
-            EXISTS(
-              SELECT 1 FROM exam_attempts t
-               WHERE t.assignment_id=a.id AND t.user_id=a.user_id
-                 AND t.passed=1 AND t.status='graded'
-            ) AS passed
-       FROM exam_assignments a
-       JOIN exams e ON e.id=a.exam_id
-      WHERE a.user_id=?
-      ORDER BY a.created_at`,
-  ).all(userId) as Row[];
+async function listEmployeeAssignments(userId: string): Promise<Json[]> {
+  const rows = (await getConn().query("SELECT a.*, e.title, e.description, e.status AS exam_status, e.version AS paper_version, e.pass_score,\n            EXISTS(\n              SELECT 1 FROM exam_attempts t\n               WHERE t.assignment_id=a.id AND t.user_id=a.user_id\n                 AND t.passed=1 AND t.status='graded'\n            ) AS passed\n       FROM exam_assignments a\n       JOIN exams e ON e.id=a.exam_id\n      WHERE a.user_id=$1\n      ORDER BY a.created_at", [userId])).rows as Row[];
   return rows.map(employeeAssignmentView);
 }
 
-function latestAttempt(assignmentId: string, userId: string, status?: string): Row | undefined {
+async function latestAttempt(assignmentId: string, userId: string, status?: string): Promise<Row | undefined> {
   if (status) {
-    return getConn().prepare(
-      "SELECT * FROM exam_attempts WHERE assignment_id=? AND user_id=? AND status=? ORDER BY started_at DESC, submitted_at DESC LIMIT 1",
-    ).get(assignmentId, userId, status) as Row | undefined;
+    return (await getConn().query("SELECT * FROM exam_attempts WHERE assignment_id=$1 AND user_id=$2 AND status=$3 ORDER BY started_at DESC, submitted_at DESC LIMIT 1", [assignmentId,userId,status])).rows[0] as Row | undefined;
   }
-  return getConn().prepare(
-    "SELECT * FROM exam_attempts WHERE assignment_id=? AND user_id=? ORDER BY submitted_at DESC, started_at DESC LIMIT 1",
-  ).get(assignmentId, userId) as Row | undefined;
+  return (await getConn().query("SELECT * FROM exam_attempts WHERE assignment_id=$1 AND user_id=$2 ORDER BY submitted_at DESC, started_at DESC LIMIT 1", [assignmentId,userId])).rows[0] as Row | undefined;
 }
 
 function questionsFromSnapshot(items: Json[]): Json[] {
@@ -248,28 +229,17 @@ function questionsFromSnapshot(items: Json[]): Json[] {
   }));
 }
 
-function createExam(body: Json): Json {
+async function createExam(body: Json): Promise<Json> {
   const id = nid("exm");
   const now = nowIso();
   const passScore = body.pass_score == null ? 80 : Number(body.pass_score);
   if (!Number.isFinite(passScore) || passScore < 0 || passScore > 100) throw new HttpFail(400, "invalid pass_score");
-  getConn().prepare(
-    `INSERT INTO exams (id,title,description,active,status,pass_score,version,effects,published_at,created_at)
-     VALUES (?,?,?,?, 'draft', ?, 0, ?, NULL, ?)`,
-  ).run(
-    id,
-    String(body.title || "Exam"),
-    String(body.description || ""),
-    body.active === false ? 0 : 1,
-    passScore,
-    JSON.stringify(body.effects && typeof body.effects === "object" ? body.effects : {}),
-    now,
-  );
-  return publicExam(examRow(id));
+  (await getConn().query("INSERT INTO exams (id,title,description,active,status,pass_score,version,effects,published_at,created_at)\n     VALUES ($1,$2,$3,$4, 'draft', $5, 0, $6, NULL, $7)", [id,String(body.title || "Exam"),String(body.description || ""),body.active === false ? 0 : 1,passScore,JSON.stringify(body.effects && typeof body.effects === "object" ? body.effects : {}),now]));
+  return publicExam((await examRow(id)));
 }
 
-function addManualItem(examId: string, body: Json): Json {
-  examRow(examId);
+async function addManualItem(examId: string, body: Json): Promise<Json> {
+  (await examRow(examId));
   const prompt = String(body.prompt || "").trim();
   if (!prompt) throw new HttpFail(400, "prompt required");
   const kind = String(body.kind || "true_false");
@@ -283,20 +253,17 @@ function addManualItem(examId: string, body: Json): Json {
     : String(body.answer || "").trim();
   if (!answer) throw new HttpFail(400, "answer required");
   const id = nid("exi");
-  getConn().prepare(
-    `INSERT INTO exam_items (id,exam_id,knowledge_id,prompt,kind,options_json,answer,accepted,source,created_at)
-     VALUES (?,?,?,?,?,?,?,0,'manual',?)`,
-  ).run(id, examId, body.knowledge_id ? String(body.knowledge_id) : null, prompt, kind, JSON.stringify(options), answer, nowIso());
-  return publicItem(itemRow(id), true);
+  (await getConn().query("INSERT INTO exam_items (id,exam_id,knowledge_id,prompt,kind,options_json,answer,accepted,source,created_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,0,'manual',$8)", [id,examId,body.knowledge_id ? String(body.knowledge_id) : null,prompt,kind,JSON.stringify(options),answer,nowIso()]));
+  return publicItem((await itemRow(id)), true);
 }
 
-function generateCandidates(examId: string, knowledgeIds: string[]): Json {
-  examRow(examId);
+async function generateCandidates(examId: string, knowledgeIds: string[]): Promise<Json> {
+  (await examRow(examId));
   const ids = [...new Set(knowledgeIds.map(String).filter(Boolean))];
   if (!ids.length) throw new HttpFail(400, "knowledge_ids required");
   const published: Row[] = [];
   for (const id of ids) {
-    const row = getConn().prepare("SELECT * FROM knowledge WHERE id=?").get(id) as Row | undefined;
+    const row = (await getConn().query("SELECT * FROM knowledge WHERE id=$1", [id])).rows[0] as Row | undefined;
     if (!row) throw new HttpFail(404, "knowledge not found");
     if (String(row.status) !== "published") {
       throw new HttpFail(409, "unpublished knowledge cannot generate");
@@ -304,74 +271,63 @@ function generateCandidates(examId: string, knowledgeIds: string[]): Json {
     published.push(row);
   }
   const created: Json[] = [];
-  tx((db) => {
+  (await tx(async (db) => {
     for (const knowledge of published) {
       const lines = sentencesFromKnowledge(String(knowledge.title || ""), String(knowledge.body || knowledge.body_en || ""));
       const prompts = lines.length ? lines : [String(knowledge.title || "已发布知识")];
       for (const line of prompts) {
         const id = nid("exi");
         const prompt = `根据已发布知识「${knowledge.title}」：${line} 该陈述是否符合现行制度？`;
-        db.prepare(
-          `INSERT INTO exam_items (id,exam_id,knowledge_id,prompt,kind,options_json,answer,accepted,source,created_at)
-           VALUES (?,?,?,?, 'true_false', ?, 'yes', 0, 'generated', ?)`,
-        ).run(id, examId, knowledge.id, prompt, JSON.stringify(TRUE_FALSE_OPTIONS), nowIso());
-        created.push(publicItem(itemRow(id), true));
+        (await db.query("INSERT INTO exam_items (id,exam_id,knowledge_id,prompt,kind,options_json,answer,accepted,source,created_at)\n           VALUES ($1,$2,$3,$4, 'true_false', $5, 'yes', 0, 'generated', $6)", [id,examId,knowledge.id,prompt,JSON.stringify(TRUE_FALSE_OPTIONS),nowIso()]));
+        created.push(publicItem((await itemRow(id)), true));
       }
     }
-  });
+  }));
   return { exam_id: examId, candidates: created, live: false };
 }
 
-function acceptItem(id: string): Json {
-  const row = itemRow(id);
-  getConn().prepare("UPDATE exam_items SET accepted=1 WHERE id=?").run(id);
-  return publicItem(itemRow(String(row.id)), true);
+async function acceptItem(id: string): Promise<Json> {
+  const row = (await itemRow(id));
+  (await getConn().query("UPDATE exam_items SET accepted=1 WHERE id=$1", [id]));
+  return publicItem((await itemRow(String(row.id))), true);
 }
 
-function publishExam(examId: string): Json {
-  const exam = examRow(examId);
-  const items = getConn().prepare("SELECT * FROM exam_items WHERE exam_id=?").all(examId) as Row[];
+async function publishExam(examId: string): Promise<Json> {
+  const exam = (await examRow(examId));
+  const items = (await getConn().query("SELECT * FROM exam_items WHERE exam_id=$1", [examId])).rows as Row[];
   if (!items.length) throw new HttpFail(409, "unaccepted items cannot publish");
   if (items.some((row) => !Number(row.accepted))) throw new HttpFail(409, "unaccepted items cannot publish");
-  const frozen = snapshotItems(examId);
+  const frozen = (await snapshotItems(examId));
   if (!frozen.length) throw new HttpFail(409, "unaccepted items cannot publish");
   const version = Number(exam.version || 0) + 1;
   const now = nowIso();
   const passScore = Number(exam.pass_score || 80);
-  tx((db) => {
-    db.prepare(
-      `INSERT INTO exam_snapshots (id,exam_id,version,pass_score,items_json,created_at) VALUES (?,?,?,?,?,?)`,
-    ).run(nid("exs"), examId, version, passScore, JSON.stringify(frozen), now);
-    db.prepare(
-      "UPDATE exams SET status='published', version=?, published_at=? WHERE id=?",
-    ).run(version, now, examId);
-  });
-  return publicExam(examRow(examId));
+  (await tx(async (db) => {
+    (await db.query("INSERT INTO exam_snapshots (id,exam_id,version,pass_score,items_json,created_at) VALUES ($1,$2,$3,$4,$5,$6)", [nid("exs"),examId,version,passScore,JSON.stringify(frozen),now]));
+    (await db.query("UPDATE exams SET status='published', version=$1, published_at=$2 WHERE id=$3", [version,now,examId]));
+  }));
+  return publicExam((await examRow(examId)));
 }
 
-function assignExam(examId: string, body: Json): Json {
-  const exam = examRow(examId);
+async function assignExam(examId: string, body: Json): Promise<Json> {
+  const exam = (await examRow(examId));
   if (!isPublishedPaper(exam)) throw new HttpFail(409, "draft papers cannot assign");
   const userId = String(body.user_id || "");
-  userById(userId);
-  const existing = getConn().prepare(
-    "SELECT * FROM exam_assignments WHERE exam_id=? AND user_id=?",
-  ).get(examId, userId) as Row | undefined;
+  (await userById(userId));
+  const existing = (await getConn().query("SELECT * FROM exam_assignments WHERE exam_id=$1 AND user_id=$2", [examId,userId])).rows[0] as Row | undefined;
   if (existing) return { ...existing, required: Boolean(Number(existing.required)) };
   const id = nid("exa");
-  getConn().prepare(
-    "INSERT INTO exam_assignments (id,exam_id,user_id,required,due_at,created_at) VALUES (?,?,?,?,?,?)",
-  ).run(id, examId, userId, body.required === false ? 0 : 1, body.due_at || null, nowIso());
-  return getConn().prepare("SELECT * FROM exam_assignments WHERE id=?").get(id) as Row;
+  (await getConn().query("INSERT INTO exam_assignments (id,exam_id,user_id,required,due_at,created_at) VALUES ($1,$2,$3,$4,$5,$6)", [id,examId,userId,body.required === false ? 0 : 1,body.due_at || null,nowIso()]));
+  return (await getConn().query("SELECT * FROM exam_assignments WHERE id=$1", [id])).rows[0] as Row;
 }
 
-function startAttempt(assignmentId: string, userId: string): Json {
-  const assignment = assignmentForUser(assignmentId, userId);
-  const exam = examRow(String(assignment.exam_id));
+async function startAttempt(assignmentId: string, userId: string): Promise<Json> {
+  const assignment = (await assignmentForUser(assignmentId, userId));
+  const exam = (await examRow(String(assignment.exam_id)));
   if (!isPublishedPaper(exam)) throw new HttpFail(409, "draft papers cannot assign");
   const version = Number(exam.version);
-  const snapshot = loadSnapshot(String(exam.id), version);
-  const open = latestAttempt(assignmentId, userId, "started");
+  const snapshot = (await loadSnapshot(String(exam.id), version));
+  const open = (await latestAttempt(assignmentId, userId, "started"));
   if (open && Number(open.paper_version) === version) {
     return {
       id: open.id,
@@ -383,11 +339,7 @@ function startAttempt(assignmentId: string, userId: string): Json {
   }
   const id = nid("ext");
   const now = nowIso();
-  getConn().prepare(
-    `INSERT INTO exam_attempts
-     (id,assignment_id,user_id,answers,passed,submitted_at,status,score,total,paper_version,idempotency_key,started_at,breakdown_json)
-     VALUES (?,?,?,'{}',0,?,?,NULL,NULL,?,NULL,?,NULL)`,
-  ).run(id, assignmentId, userId, now, "started", version, now);
+  (await getConn().query("INSERT INTO exam_attempts\n     (id,assignment_id,user_id,answers,passed,submitted_at,status,score,total,paper_version,idempotency_key,started_at,breakdown_json)\n     VALUES ($1,$2,$3,'{}',0,$4,$5,NULL,NULL,$6,NULL,$7,NULL)", [id,assignmentId,userId,now,"started",version,now]));
   return {
     id,
     assignment_id: assignmentId,
@@ -397,15 +349,13 @@ function startAttempt(assignmentId: string, userId: string): Json {
   };
 }
 
-function submitAttempt(assignmentId: string, userId: string, body: Json): Json {
-  const assignment = assignmentForUser(assignmentId, userId);
-  const exam = examRow(String(assignment.exam_id));
+async function submitAttempt(assignmentId: string, userId: string, body: Json): Promise<Json> {
+  const assignment = (await assignmentForUser(assignmentId, userId));
+  const exam = (await examRow(String(assignment.exam_id)));
   if (!isPublishedPaper(exam)) throw new HttpFail(409, "draft papers cannot assign");
   const idempotency = String(body.idempotency_key || "").trim();
   if (idempotency) {
-    const prior = getConn().prepare(
-      "SELECT * FROM exam_attempts WHERE user_id=? AND idempotency_key=? AND status='graded'",
-    ).get(userId, idempotency) as Row | undefined;
+    const prior = (await getConn().query("SELECT * FROM exam_attempts WHERE user_id=$1 AND idempotency_key=$2 AND status='graded'", [userId,idempotency])).rows[0] as Row | undefined;
     if (prior) {
       return {
         id: prior.id,
@@ -414,64 +364,26 @@ function submitAttempt(assignmentId: string, userId: string, body: Json): Json {
         score: Number(prior.score || 0),
         total: Number(prior.total || 0),
         paper_version: Number(prior.paper_version || 0),
-        exam_passed: examPassed(userId),
+        exam_passed: (await examPassed(userId)),
       };
     }
   }
-  const started = latestAttempt(assignmentId, userId, "started");
+  const started = (await latestAttempt(assignmentId, userId, "started"));
   const version = started ? Number(started.paper_version || exam.version) : Number(exam.version);
-  const snapshot = loadSnapshot(String(exam.id), version);
+  const snapshot = (await loadSnapshot(String(exam.id), version));
   const graded = gradeSnapshot(snapshot.items, answerMap(body), snapshot.pass_score);
   const now = nowIso();
   const id = started ? String(started.id) : nid("ext");
-  tx((db) => {
+  (await tx(async (db) => {
     if (started) {
-      db.prepare(
-        `UPDATE exam_attempts
-            SET answers=?, passed=?, submitted_at=?, status='graded', score=?, total=?,
-                paper_version=?, idempotency_key=?, breakdown_json=?
-          WHERE id=?`,
-      ).run(
-        JSON.stringify(answerMap(body)),
-        graded.passed ? 1 : 0,
-        now,
-        graded.score,
-        graded.total,
-        version,
-        idempotency || null,
-        JSON.stringify(graded.breakdown),
-        id,
-      );
+      (await db.query("UPDATE exam_attempts\n            SET answers=$1, passed=$2, submitted_at=$3, status='graded', score=$4, total=$5,\n                paper_version=$6, idempotency_key=$7, breakdown_json=$8\n          WHERE id=$9", [JSON.stringify(answerMap(body)),graded.passed ? 1 : 0,now,graded.score,graded.total,version,idempotency || null,JSON.stringify(graded.breakdown),id]));
     } else {
-      db.prepare(
-        `INSERT INTO exam_attempts
-         (id,assignment_id,user_id,answers,passed,submitted_at,status,score,total,paper_version,idempotency_key,started_at,breakdown_json)
-         VALUES (?,?,?,?,?,?, 'graded', ?,?,?,?,?,?)`,
-      ).run(
-        id,
-        assignmentId,
-        userId,
-        JSON.stringify(answerMap(body)),
-        graded.passed ? 1 : 0,
-        now,
-        graded.score,
-        graded.total,
-        version,
-        idempotency || null,
-        now,
-        JSON.stringify(graded.breakdown),
-      );
+      (await db.query("INSERT INTO exam_attempts\n         (id,assignment_id,user_id,answers,passed,submitted_at,status,score,total,paper_version,idempotency_key,started_at,breakdown_json)\n         VALUES ($1,$2,$3,$4,$5,$6, 'graded', $7,$8,$9,$10,$11,$12)", [id,assignmentId,userId,JSON.stringify(answerMap(body)),graded.passed ? 1 : 0,now,graded.score,graded.total,version,idempotency || null,now,JSON.stringify(graded.breakdown)]));
     }
     if (graded.passed) {
-      db.prepare(
-        `INSERT INTO exam_qualifications
-         (id,user_id,exam_id,assignment_id,attempt_id,paper_version,passed,score,total,awarded_at)
-         VALUES (?,?,?,?,?,?,1,?,?,?)
-         ON CONFLICT(user_id, exam_id, paper_version) DO UPDATE SET
-           attempt_id=excluded.attempt_id, passed=1, score=excluded.score, total=excluded.total, awarded_at=excluded.awarded_at`,
-      ).run(nid("exq"), userId, exam.id, assignmentId, id, version, graded.score, graded.total, now);
+      (await db.query("INSERT INTO exam_qualifications\n         (id,user_id,exam_id,assignment_id,attempt_id,paper_version,passed,score,total,awarded_at)\n         VALUES ($1,$2,$3,$4,$5,$6,1,$7,$8,$9)\n         ON CONFLICT(user_id, exam_id, paper_version) DO UPDATE SET\n           attempt_id=excluded.attempt_id, passed=1, score=excluded.score, total=excluded.total, awarded_at=excluded.awarded_at", [nid("exq"),userId,exam.id,assignmentId,id,version,graded.score,graded.total,now]));
     }
-  });
+  }));
   return {
     id,
     assignment_id: assignmentId,
@@ -480,13 +392,13 @@ function submitAttempt(assignmentId: string, userId: string, body: Json): Json {
     total: graded.total,
     percent: graded.percent,
     paper_version: version,
-    exam_passed: examPassed(userId),
+    exam_passed: (await examPassed(userId)),
   };
 }
 
-function attemptResult(assignmentId: string, userId: string): Json {
-  assignmentForUser(assignmentId, userId);
-  const attempt = latestAttempt(assignmentId, userId, "graded") || latestAttempt(assignmentId, userId);
+async function attemptResult(assignmentId: string, userId: string): Promise<Json> {
+  (await assignmentForUser(assignmentId, userId));
+  const attempt = (await latestAttempt(assignmentId, userId, "graded")) || (await latestAttempt(assignmentId, userId));
   if (!attempt || String(attempt.status) !== "graded") {
     return { assignment_id: assignmentId, status: "pending", passed: false };
   }
@@ -500,60 +412,41 @@ function attemptResult(assignmentId: string, userId: string): Json {
     paper_version: Number(attempt.paper_version || 0),
     submitted_at: attempt.submitted_at,
     breakdown: parseJson(attempt.breakdown_json, []),
-    exam_passed: examPassed(userId),
+    exam_passed: (await examPassed(userId)),
   };
 }
 
-function listScores(): Json[] {
-  return getConn().prepare(
-    `SELECT t.id, t.assignment_id, t.user_id, u.name AS user_name, e.id AS exam_id, e.title,
-            t.score, t.total, t.passed, t.paper_version, t.submitted_at
-       FROM exam_attempts t
-       JOIN exam_assignments a ON a.id=t.assignment_id
-       JOIN exams e ON e.id=a.exam_id
-       JOIN users u ON u.id=t.user_id
-      WHERE t.status='graded'
-      ORDER BY t.submitted_at DESC`,
-  ).all() as Row[];
+async function listScores(): Promise<Json[]> {
+  return (await getConn().query("SELECT t.id, t.assignment_id, t.user_id, u.name AS user_name, e.id AS exam_id, e.title,\n            t.score, t.total, t.passed, t.paper_version, t.submitted_at\n       FROM exam_attempts t\n       JOIN exam_assignments a ON a.id=t.assignment_id\n       JOIN exams e ON e.id=a.exam_id\n       JOIN users u ON u.id=t.user_id\n      WHERE t.status='graded'\n      ORDER BY t.submitted_at DESC", [])).rows as Row[];
 }
 
-function listAdminAssignments(): Json[] {
-  return getConn().prepare(
-    `SELECT a.*, e.title, e.status AS exam_status, e.version AS paper_version, u.name AS user_name,
-            EXISTS(
-              SELECT 1 FROM exam_attempts t
-               WHERE t.assignment_id=a.id AND t.passed=1 AND t.status='graded'
-            ) AS passed
-       FROM exam_assignments a
-       JOIN exams e ON e.id=a.exam_id
-       JOIN users u ON u.id=a.user_id
-      ORDER BY a.created_at DESC`,
-  ).all() as Row[];
+async function listAdminAssignments(): Promise<Json[]> {
+  return (await getConn().query("SELECT a.*, e.title, e.status AS exam_status, e.version AS paper_version, u.name AS user_name,\n            EXISTS(\n              SELECT 1 FROM exam_attempts t\n               WHERE t.assignment_id=a.id AND t.passed=1 AND t.status='graded'\n            ) AS passed\n       FROM exam_assignments a\n       JOIN exams e ON e.id=a.exam_id\n       JOIN users u ON u.id=a.user_id\n      ORDER BY a.created_at DESC", [])).rows as Row[];
 }
 
-examRouter.get("/admin/exams", (c) => {
+examRouter.get("/admin/exams", async (c) => {
   requireAdmin();
-  return c.json((getConn().prepare("SELECT * FROM exams ORDER BY created_at DESC").all() as Row[]).map(publicExam));
+  return c.json(((await getConn().query("SELECT * FROM exams ORDER BY created_at DESC", [])).rows as Row[]).map(publicExam));
 });
 
-examRouter.get("/admin/exams/:id/items", (c) => {
+examRouter.get("/admin/exams/:id/items", async (c) => {
   requireAdmin();
-  examRow(c.req.param("id"));
-  const rows = getConn().prepare("SELECT * FROM exam_items WHERE exam_id=? ORDER BY created_at, id").all(c.req.param("id")) as Row[];
+  (await examRow(c.req.param("id")));
+  const rows = (await getConn().query("SELECT * FROM exam_items WHERE exam_id=$1 ORDER BY created_at, id", [c.req.param("id")])).rows as Row[];
   return c.json(rows.map((row) => publicItem(row, true)));
 });
 
 examRouter.post("/admin/exams", async (c) => {
   const admin = requireAdmin();
-  const created = createExam((await c.req.json()) as Json);
-  audit(admin.id, "admin.exam.create", { exam_id: created.id, status: "draft" });
+  const created = (await createExam((await c.req.json()) as Json));
+  (await audit(admin.id, "admin.exam.create", { exam_id: created.id, status: "draft" }));
   return c.json(created, 201);
 });
 
 examRouter.post("/admin/exams/:id/items", async (c) => {
   const admin = requireAdmin();
-  const item = addManualItem(c.req.param("id"), (await c.req.json()) as Json);
-  audit(admin.id, "admin.exam.item.create", { exam_id: c.req.param("id"), item_id: item.id, live: false });
+  const item = (await addManualItem(c.req.param("id"), (await c.req.json()) as Json));
+  (await audit(admin.id, "admin.exam.item.create", { exam_id: c.req.param("id"), item_id: item.id, live: false }));
   return c.json(item, 201);
 });
 
@@ -561,69 +454,69 @@ examRouter.post("/admin/exams/:id/generate", async (c) => {
   const admin = requireAdmin();
   const body = (await c.req.json()) as Json;
   const ids = Array.isArray(body.knowledge_ids) ? body.knowledge_ids.map(String) : [];
-  const result = generateCandidates(c.req.param("id"), ids);
-  audit(admin.id, "admin.exam.generate", { exam_id: c.req.param("id"), knowledge_ids: ids, live: false });
+  const result = (await generateCandidates(c.req.param("id"), ids));
+  (await audit(admin.id, "admin.exam.generate", { exam_id: c.req.param("id"), knowledge_ids: ids, live: false }));
   return c.json(result, 201);
 });
 
-examRouter.post("/admin/exam-items/:id/accept", (c) => {
+examRouter.post("/admin/exam-items/:id/accept", async (c) => {
   const admin = requireAdmin();
-  const item = acceptItem(c.req.param("id"));
-  audit(admin.id, "admin.exam.item.accept", { item_id: item.id, exam_id: item.exam_id });
+  const item = (await acceptItem(c.req.param("id")));
+  (await audit(admin.id, "admin.exam.item.accept", { item_id: item.id, exam_id: item.exam_id }));
   return c.json(item);
 });
 
-examRouter.post("/admin/exams/:id/publish", (c) => {
+examRouter.post("/admin/exams/:id/publish", async (c) => {
   const admin = requireAdmin();
-  const published = publishExam(c.req.param("id"));
-  audit(admin.id, "admin.exam.publish", { exam_id: published.id, version: published.version });
+  const published = (await publishExam(c.req.param("id")));
+  (await audit(admin.id, "admin.exam.publish", { exam_id: published.id, version: published.version }));
   return c.json(published);
 });
 
 examRouter.post("/admin/exams/:id/assign", async (c) => {
   const admin = requireAdmin();
-  const assigned = assignExam(c.req.param("id"), (await c.req.json()) as Json);
-  audit(admin.id, "admin.exam.assign", { assignment_id: assigned.id, user_id: assigned.user_id, exam_id: c.req.param("id") });
+  const assigned = (await assignExam(c.req.param("id"), (await c.req.json()) as Json));
+  (await audit(admin.id, "admin.exam.assign", { assignment_id: assigned.id, user_id: assigned.user_id, exam_id: c.req.param("id") }));
   return c.json(assigned, 201);
 });
 
-examRouter.get("/admin/exam-assignments", (c) => {
+examRouter.get("/admin/exam-assignments", async (c) => {
   requireAdmin();
-  return c.json(listAdminAssignments());
+  return c.json((await listAdminAssignments()));
 });
 
 examRouter.post("/admin/exam-assignments", async (c) => {
   const admin = requireAdmin();
   const body = (await c.req.json()) as Json;
-  const assigned = assignExam(String(body.exam_id || ""), body);
-  audit(admin.id, "admin.exam.assign", { assignment_id: assigned.id, user_id: assigned.user_id, exam_id: body.exam_id });
+  const assigned = (await assignExam(String(body.exam_id || ""), body));
+  (await audit(admin.id, "admin.exam.assign", { assignment_id: assigned.id, user_id: assigned.user_id, exam_id: body.exam_id }));
   return c.json(assigned, 201);
 });
 
-examRouter.get("/admin/exam-scores", (c) => {
+examRouter.get("/admin/exam-scores", async (c) => {
   requireAdmin();
-  return c.json(listScores());
+  return c.json((await listScores()));
 });
 
-examRouter.get("/exams", (c) => c.json(listEmployeeAssignments(examActor().id)));
+examRouter.get("/exams", async (c) => c.json((await listEmployeeAssignments((await examActor()).id))));
 
-examRouter.post("/exams/:id/start", (c) => c.json(startAttempt(c.req.param("id"), examActor().id)));
+examRouter.post("/exams/:id/start", async (c) => c.json((await startAttempt(c.req.param("id"), (await examActor()).id))));
 
 examRouter.post("/exams/:id/submit", async (c) => {
-  const user = examActor();
+  const user = (await examActor());
   const body = (await c.req.json().catch(() => ({}))) as Json;
-  const result = submitAttempt(c.req.param("id"), user.id, body);
-  audit(user.id, "exam.submit", { assignment_id: c.req.param("id"), passed: result.passed, ignored_client_pass: true });
+  const result = (await submitAttempt(c.req.param("id"), user.id, body));
+  (await audit(user.id, "exam.submit", { assignment_id: c.req.param("id"), passed: result.passed, ignored_client_pass: true }));
   return c.json(result);
 });
 
-examRouter.get("/exams/:id/result", (c) => c.json(attemptResult(c.req.param("id"), examActor().id)));
+examRouter.get("/exams/:id/result", async (c) => c.json((await attemptResult(c.req.param("id"), (await examActor()).id))));
 
-export function examDemoStatus(userId: string, name: string, brands: string[]): Json {
+export async function examDemoStatus(userId: string, name: string, brands: string[]): Promise<Json> {
   return {
     user: name,
-    passed: examPassed(userId),
-    exam_todo_count: examTodoCount(userId),
+    passed: (await examPassed(userId)),
+    exam_todo_count: (await examTodoCount(userId)),
     brands,
     modules: ["品牌邮箱", "阶段 ≠ 发送", "费用审批", "数据安全与最小权限"],
     note: "合格由服务端按已发布题卷计算。本接口不按演示身份假装通过。",

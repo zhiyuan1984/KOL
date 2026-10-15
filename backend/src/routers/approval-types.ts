@@ -31,15 +31,15 @@ function toRecord(row: Row): ApprovalTypeRecord {
   };
 }
 
-approvalTypes.get("/admin/approval-types", (c) => {
+approvalTypes.get("/admin/approval-types", async (c) => {
   requireAdmin();
-  const rows = getConn().prepare("SELECT * FROM approval_types ORDER BY updated_at DESC").all() as Row[];
+  const rows = (await getConn().query("SELECT * FROM approval_types ORDER BY updated_at DESC", [])).rows as Row[];
   return c.json(rows.map(toRecord));
 });
 
-approvalTypes.get("/admin/approval-types/:id", (c) => {
+approvalTypes.get("/admin/approval-types/:id", async (c) => {
   requireAdmin();
-  const row = getConn().prepare("SELECT * FROM approval_types WHERE id=?").get(c.req.param("id")) as Row | undefined;
+  const row = (await getConn().query("SELECT * FROM approval_types WHERE id=$1", [c.req.param("id")])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(404, "Not Found");
   return c.json(toRecord(row));
 });
@@ -59,26 +59,19 @@ approvalTypes.post("/admin/approval-types", async (c) => {
     throw new HttpFail(400, { code: "flow_invalid", message: check.error || "流程定义无效。" });
   }
   try {
-    getConn().prepare(
-      "INSERT INTO approval_types (id,code,name,grp,owner,visibility,form_schema,flow,version,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,1,'draft',?,?)",
-    ).run(
-      id, code, String(body.name).trim(), String(body.group || ""), String(body.owner || ""),
-      String(body.visibility || "all"),
-      JSON.stringify(Array.isArray(body.form_schema) ? body.form_schema : []),
-      JSON.stringify(flow), now, now,
-    );
+    (await getConn().query("INSERT INTO approval_types (id,code,name,grp,owner,visibility,form_schema,flow,version,status,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,1,'draft',$9,$10)", [id,code,String(body.name).trim(),String(body.group || ""),String(body.owner || ""),String(body.visibility || "all"),JSON.stringify(Array.isArray(body.form_schema) ? body.form_schema : []),JSON.stringify(flow),now,now]));
   } catch {
     throw new HttpFail(409, { code: "code_exists", message: "编码已存在。" });
   }
-  audit(admin.id, "admin.approval_type.create", { id, code });
-  const row = getConn().prepare("SELECT * FROM approval_types WHERE id=?").get(id) as Row;
+  (await audit(admin.id, "admin.approval_type.create", { id, code }));
+  const row = (await getConn().query("SELECT * FROM approval_types WHERE id=$1", [id])).rows[0] as Row;
   return c.json(toRecord(row));
 });
 
 approvalTypes.put("/admin/approval-types/:id", async (c) => {
   const admin = requireAdmin();
   const id = c.req.param("id");
-  const cur = getConn().prepare("SELECT * FROM approval_types WHERE id=?").get(id) as Row | undefined;
+  const cur = (await getConn().query("SELECT * FROM approval_types WHERE id=$1", [id])).rows[0] as Row | undefined;
   if (!cur) throw new HttpFail(404, "Not Found");
   if (String(cur.status) === "published") {
     throw new HttpFail(400, { code: "published_locked", message: "已发布版本锁定，请发布新版本。" });
@@ -86,20 +79,11 @@ approvalTypes.put("/admin/approval-types/:id", async (c) => {
   const body = (await c.req.json()) as Partial<ApprovalTypeRecord>;
   const now = nowIso();
   const flow = (body.flow && typeof body.flow === "object" ? body.flow : JSON.parse(String(cur.flow || "{}"))) as FlowDefinition;
-  tx((db) => {
-    db.prepare(
-      "UPDATE approval_types SET name=?,grp=?,owner=?,visibility=?,form_schema=?,flow=?,updated_at=? WHERE id=?",
-    ).run(
-      String(body.name || cur.name).trim(),
-      String(body.group ?? cur.grp ?? ""),
-      String(body.owner ?? cur.owner ?? ""),
-      String(body.visibility || cur.visibility || "all"),
-      JSON.stringify(Array.isArray(body.form_schema) ? body.form_schema : JSON.parse(String(cur.form_schema || "[]"))),
-      JSON.stringify(flow), now, id,
-    );
-  });
-  audit(admin.id, "admin.approval_type.update", { id });
-  const row = getConn().prepare("SELECT * FROM approval_types WHERE id=?").get(id) as Row;
+  (await tx(async (db) => {
+    (await db.query("UPDATE approval_types SET name=$1,grp=$2,owner=$3,visibility=$4,form_schema=$5,flow=$6,updated_at=$7 WHERE id=$8", [String(body.name || cur.name).trim(),String(body.group ?? cur.grp ?? ""),String(body.owner ?? cur.owner ?? ""),String(body.visibility || cur.visibility || "all"),JSON.stringify(Array.isArray(body.form_schema) ? body.form_schema : JSON.parse(String(cur.form_schema || "[]"))),JSON.stringify(flow),now,id]));
+  }));
+  (await audit(admin.id, "admin.approval_type.update", { id }));
+  const row = (await getConn().query("SELECT * FROM approval_types WHERE id=$1", [id])).rows[0] as Row;
   return c.json(toRecord(row));
 });
 
@@ -107,7 +91,7 @@ approvalTypes.put("/admin/approval-types/:id", async (c) => {
 approvalTypes.post("/admin/approval-types/:id/publish", async (c) => {
   const admin = requireAdmin();
   const id = c.req.param("id");
-  const cur = getConn().prepare("SELECT * FROM approval_types WHERE id=?").get(id) as Row | undefined;
+  const cur = (await getConn().query("SELECT * FROM approval_types WHERE id=$1", [id])).rows[0] as Row | undefined;
   if (!cur) throw new HttpFail(404, "Not Found");
   const flow = JSON.parse(String(cur.flow || "{}")) as FlowDefinition;
   // 发布前强制试运行（方案 §7.2，借鉴企微模拟提交）
@@ -119,15 +103,13 @@ approvalTypes.post("/admin/approval-types/:id/publish", async (c) => {
   }
   const now = nowIso();
   const nextVersion = Number(cur.version || 1) + (String(cur.status) === "published" ? 1 : 0);
-  getConn().prepare(
-    "UPDATE approval_types SET status='published',version=?,updated_at=? WHERE id=?",
-  ).run(nextVersion, now, id);
-  audit(admin.id, "admin.approval_type.publish", {
+  (await getConn().query("UPDATE approval_types SET status='published',version=$1,updated_at=$2 WHERE id=$3", [nextVersion,now,id]));
+  (await audit(admin.id, "admin.approval_type.publish", {
     id, version: nextVersion,
     test_path: result.path,
     test_steps: result.steps.map((s) => s.name),
-  });
-  const row = getConn().prepare("SELECT * FROM approval_types WHERE id=?").get(id) as Row;
+  }));
+  const row = (await getConn().query("SELECT * FROM approval_types WHERE id=$1", [id])).rows[0] as Row;
   return c.json({ ...toRecord(row), test_result: result });
 });
 
@@ -135,7 +117,7 @@ approvalTypes.post("/admin/approval-types/:id/publish", async (c) => {
 approvalTypes.post("/admin/approval-types/:id/test", async (c) => {
   requireAdmin();
   const id = c.req.param("id");
-  const cur = getConn().prepare("SELECT * FROM approval_types WHERE id=?").get(id) as Row | undefined;
+  const cur = (await getConn().query("SELECT * FROM approval_types WHERE id=$1", [id])).rows[0] as Row | undefined;
   if (!cur) throw new HttpFail(404, "Not Found");
   const body = (await c.req.json()) as {
     amount?: number; currency?: string; requester_name?: string;
@@ -145,15 +127,15 @@ approvalTypes.post("/admin/approval-types/:id/test", async (c) => {
   return c.json(testFlow(flow, body));
 });
 
-approvalTypes.delete("/admin/approval-types/:id", (c) => {
+approvalTypes.delete("/admin/approval-types/:id", async (c) => {
   const admin = requireAdmin();
   const id = c.req.param("id");
-  const cur = getConn().prepare("SELECT * FROM approval_types WHERE id=?").get(id) as Row | undefined;
+  const cur = (await getConn().query("SELECT * FROM approval_types WHERE id=$1", [id])).rows[0] as Row | undefined;
   if (!cur) throw new HttpFail(404, "Not Found");
   if (String(cur.status) === "published") {
     throw new HttpFail(400, { code: "published_locked", message: "已发布类型不可删除。" });
   }
-  getConn().prepare("DELETE FROM approval_types WHERE id=?").run(id);
-  audit(admin.id, "admin.approval_type.delete", { id });
+  (await getConn().query("DELETE FROM approval_types WHERE id=$1", [id]));
+  (await audit(admin.id, "admin.approval_type.delete", { id }));
   return c.json({ ok: true });
 });

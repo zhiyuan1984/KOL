@@ -14,6 +14,7 @@ import {
 import { seedAll } from "../src/seed.js";
 import type { Json } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { taskDefinition } from "../src/tasks/registry.js";
 
 let tmp = "";
 let app: Hono;
@@ -61,15 +62,15 @@ beforeEach(async () => {
   process.env.CODEX_MODE = "stub";
   calls.length = 0;
   setKolClawClientFactory(mockClient);
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 
-afterEach(() => {
+afterEach(async () => {
   setKolClawClientFactory();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -146,6 +147,7 @@ describe("KOL Claw task run path", () => {
       expect(task.task_type).toBe(taskType);
       const queued = await request("POST", `/api/tasks/${task.id}/run`, {});
       expect(queued.status, `${taskType}: queue`).toBe(202);
+      const beforeCalls = calls.length;
       const executed = await request(
         "POST",
         `/api/sessions/${queued.body.session_id}/messages`,
@@ -153,6 +155,15 @@ describe("KOL Claw task run path", () => {
       );
       expect(executed.status, `${taskType}: run`).toBe(200);
       const messages = executed.body.messages as Json[];
+      if ((await taskDefinition(taskType))?.context?.requires.length) {
+        expect(executed.body.worker ?? null, `${taskType}: no selected creator`).toBeNull();
+        expect(messages.some((message) => message.kind === "supplement_card"), `${taskType}: recoverable gap`).toBe(true);
+        expect(messages.some((message) => message.kind === "task_result_card"), `${taskType}: no fake result`).toBe(false);
+        expect(calls.length, `${taskType}: no tools before context`).toBe(beforeCalls);
+        const detail = await request("GET", `/api/tasks/${task.id}`);
+        expect((detail.body.artifacts as Json[]).some((artifact) => artifact.artifact_type === "task_result_card")).toBe(false);
+        continue;
+      }
       expect(messages.some((message) => message.kind === "task_result_card"), `${taskType}: card`).toBe(true);
       expect((executed.body.worker as Json)?.skill).toBe(taskType);
       const detail = await request("GET", `/api/tasks/${task.id}`);

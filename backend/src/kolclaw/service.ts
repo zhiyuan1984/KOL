@@ -173,7 +173,7 @@ const TOOL_LABELS: Record<string, string> = {
   get_budget_report: "读取 KOL 预算报告",
 };
 
-export function kolClawResultCard(task: KolClawTask, data: Json): Json {
+export async function kolClawResultCard(task: KolClawTask, data: Json): Promise<Awaited<Json>> {
   const items = rows(data);
   const primitiveItems = Object.entries(data)
     .filter(([key, value]) => key !== "needs_input" && ["string", "number", "boolean"].includes(typeof value))
@@ -210,7 +210,7 @@ export function kolClawResultCard(task: KolClawTask, data: Json): Json {
         ? ["人工复核话术后再创建发送任务"]
       : ["复核结果并选择下一步任务"],
     skill: task,
-    profile: taskDefinition(task)?.profile || "lead",
+    profile: (await taskDefinition(task))?.profile || "lead",
     kolclaw_data: data,
     persistent: true,
   };
@@ -266,10 +266,10 @@ export async function executeKolClawTask(
     const campaignId = number(entities.campaign_id, 1);
     data = await invoke("get_budget_report", { campaign_id: campaignId });
   }
-  audit(actor, `kolclaw.${task}`, {
+  (await audit(actor, `kolclaw.${task}`, {
     task,
     operations: operations.map((operation) => ({ name: operation.name, status: operation.status })),
     write: false,
-  });
+  }));
   return { data, operations };
 }

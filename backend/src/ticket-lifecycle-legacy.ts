@@ -1,24 +1,22 @@
-import { nowIso, tx, type SqliteConn } from "./db.js";
+import { nowIso, tx, type DatabaseConnection } from "./db.js";
 import { HttpFail } from "./host/errors.js";
 import { nid } from "./ids.js";
-import { appendTaskEventInConn } from "./task-events.js";
+import { appendTaskEventInConn } from "./task-events-legacy.js";
 import type { Json, Row } from "./types.js";
 import { parseTicketLifecycleReceipt, ticketAllowedLifecycleActions, validateTicketLifecycleCommand, type TicketTransitionInput, type TicketTransitionReceipt } from "./ticket-lifecycle-contract.js";
 
 /** Compatibility-only lifecycle implementation. PostgreSQL-only HTTP never imports this module. */
-export function transitionTicketLifecycle(input: TicketTransitionInput): TicketTransitionReceipt {
+export async function transitionTicketLifecycle(input: TicketTransitionInput): Promise<Awaited<TicketTransitionReceipt>> {
   validateTicketLifecycleCommand(input);
-  return tx((db) => transitionTicketLifecycleInConn(db, input));
+  return (await tx(async (db) => (await transitionTicketLifecycleInConn(db, input))));
 }
 
-export function transitionTicketLifecycleInConn(db: SqliteConn, input: TicketTransitionInput): TicketTransitionReceipt {
+export async function transitionTicketLifecycleInConn(db: DatabaseConnection, input: TicketTransitionInput): Promise<Awaited<TicketTransitionReceipt>> {
   validateTicketLifecycleCommand(input);
-  const ticket = db.prepare("SELECT id,owner_user_id,status,data_version FROM tickets WHERE id=?").get(input.ticketId) as Row | undefined;
+  const ticket = (await db.query("SELECT id,owner_user_id,status,data_version FROM tickets WHERE id=$1",[input.ticketId])).rows[0] as Row | undefined;
   if (!ticket) throw new HttpFail(404, "task not found");
 
-  const replay = db.prepare(
-    "SELECT ticket_id,action,result_json FROM ticket_command_receipts WHERE idempotency_key=?",
-  ).get(input.idempotencyKey) as Row | undefined;
+  const replay = (await db.query("SELECT ticket_id,action,result_json FROM ticket_command_receipts WHERE idempotency_key=$1",[input.idempotencyKey])).rows[0] as Row | undefined;
   if (replay) {
     if (String(replay.ticket_id) !== input.ticketId || String(replay.action) !== input.action) {
       throw new HttpFail(409, { code: "idempotency_key_reused", message: "幂等键已用于另一条工单命令" });
@@ -42,16 +40,12 @@ export function transitionTicketLifecycleInConn(db: SqliteConn, input: TicketTra
 
   const now = nowIso();
   const nextStatus = input.action === "complete" ? "completed" : input.action === "accept" ? "accepted" : input.action === "reopen" ? "pending" : "cancelled";
-  const changed = db.prepare(
-    `UPDATE tickets SET status=?, completed_at=CASE WHEN ?='completed' THEN ? WHEN ?='pending' THEN NULL ELSE completed_at END,
-     updated_at=?, data_version=data_version+1
-     WHERE id=? AND data_version=?`,
-  ).run(nextStatus, nextStatus, now, nextStatus, now, ticket.id, input.expectedVersion);
-  if (!changed.changes) {
+  const changed = (await db.query("UPDATE tickets SET status=$1, completed_at=CASE WHEN $2='completed' THEN $3 WHEN $4='pending' THEN NULL ELSE completed_at END,\n     updated_at=$5, data_version=data_version+1\n     WHERE id=$6 AND data_version=$7",[nextStatus,nextStatus,now,nextStatus,now,ticket.id,input.expectedVersion]));
+  if (!(changed.rowCount ?? 0)) {
     throw new HttpFail(409, { code: "version_conflict", message: "工单已更新，请刷新后确认。", refresh: `/api/tickets/${ticket.id}` });
   }
 
-  const event = appendTaskEventInConn(
+  const event = (await appendTaskEventInConn(
     db,
     String(ticket.id),
     null,
@@ -65,30 +59,17 @@ export function transitionTicketLifecycleInConn(db: SqliteConn, input: TicketTra
       : input.action === "reopen"
         ? String(input.reason).slice(0, 1000)
       : String(input.reason || "任务在未开始外部执行前已取消").slice(0, 1000),
-  );
+  ));
   if (!event) throw new HttpFail(500, { code: "lifecycle_event_write_failed", message: "未能记录工单生命周期事件。" });
 
   if (input.action === "complete") {
     // Completion is a human acceptance fact, distinct from an execution run.
     // Keep the evidence, actor and then-owner frozen in this same transaction
     // as the completed ticket and immutable task.accepted event.
-    db.prepare(
-      `INSERT INTO ticket_acceptances
-       (ticket_id,acceptance_event_id,accepted_at,owner_user_id_at_acceptance,accepted_by_user_id,evidence_json,rules_version,created_at)
-       VALUES (?,?,?,?,?,?,?,?)`,
-    ).run(
-      ticket.id,
-      event.id,
-      now,
-      String(ticket.owner_user_id),
-      input.actorId,
-      JSON.stringify(input.acceptanceEvidence),
-      "ticket-acceptance.v1",
-      now,
-    );
+    (await db.query("INSERT INTO ticket_acceptances\n       (ticket_id,acceptance_event_id,accepted_at,owner_user_id_at_acceptance,accepted_by_user_id,evidence_json,rules_version,created_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",[ticket.id,event.id,now,String(ticket.owner_user_id),input.actorId,JSON.stringify(input.acceptanceEvidence),"ticket-acceptance.v1",now]));
   }
   if (input.action === "reopen") {
-    db.prepare("DELETE FROM ticket_acceptances WHERE ticket_id=?").run(ticket.id);
+    (await db.query("DELETE FROM ticket_acceptances WHERE ticket_id=$1",[ticket.id]));
   }
 
   const response: TicketTransitionReceipt = {
@@ -99,9 +80,7 @@ export function transitionTicketLifecycleInConn(db: SqliteConn, input: TicketTra
     event_id: String(event.id),
     replayed: false,
   };
-  db.prepare(
-    "INSERT INTO ticket_command_receipts (idempotency_key,ticket_id,action,result_json,created_at) VALUES (?,?,?,?,?)",
-  ).run(input.idempotencyKey, ticket.id, input.action, JSON.stringify(response as Json), now);
+  (await db.query("INSERT INTO ticket_command_receipts (idempotency_key,ticket_id,action,result_json,created_at) VALUES ($1,$2,$3,$4,$5)",[input.idempotencyKey,ticket.id,input.action,JSON.stringify(response as Json),now]));
   return response;
 }
 

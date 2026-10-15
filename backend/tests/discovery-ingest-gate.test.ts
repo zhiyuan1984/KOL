@@ -47,17 +47,10 @@ function addBodyOf(call: { args: Json } | undefined): Json {
 }
 
 /** 工作台绑定：入库靠它取负责人邮箱 / mailbox_id，openId 只能再从 Starry 邮箱清单取。 */
-function bindStarryMailbox(): void {
+async function bindStarryMailbox(): Promise<Awaited<void>> {
   const now = new Date().toISOString();
-  getConn().prepare(
-    `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-  ).run(DEMO_USER.id, DEMO_USER.handle, DEMO_USER.name, "x", JSON.stringify(["employee", "admin"]), "[]", "", 1, now, now);
-  getConn().prepare(
-    `INSERT INTO user_starry_bindings
-     (user_id,mailbox_email,is_default,mailbox_id,owner_name,bearer_token,status,updated_at)
-     VALUES (?,?,1,?,?,?,'connected',?)`,
-  ).run(DEMO_USER.id, BOUND_MAILBOX, "6", "赵良玉", "test-bearer", now);
+  (await getConn().query("INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING",[DEMO_USER.id,DEMO_USER.handle,DEMO_USER.name,"x",JSON.stringify(["employee", "admin"]),"[]","",1,now,now]));
+  (await getConn().query("INSERT INTO user_starry_bindings\n     (user_id,mailbox_email,is_default,mailbox_id,owner_name,bearer_token,status,updated_at)\n     VALUES ($1,$2,1,$3,$4,$5,'connected',$6)",[DEMO_USER.id,BOUND_MAILBOX,"6","赵良玉","test-bearer",now]));
 }
 
 function mockCrawl() {
@@ -83,20 +76,18 @@ async function request(method: string, url: string, body?: unknown) {
   return { status: response.status, body: text ? JSON.parse(text) as Json : {}, text };
 }
 
-function sideEffects() {
+async function sideEffects() {
   return {
-    sends: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: number }).n),
-    stageWrites: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_stage_writes").get() as { n: number }).n),
-    transitions: Number((getConn().prepare("SELECT COUNT(*) AS n FROM stage_transitions").get() as { n: number }).n),
-    follows: Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index").get() as { n: number }).n),
-    collabs: Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'").get() as { n: number }).n),
+    sends: Number(((await getConn().query("SELECT COUNT(*) AS n FROM starry_sends",[])).rows[0] as { n: number }).n),
+    stageWrites: Number(((await getConn().query("SELECT COUNT(*) AS n FROM starry_stage_writes",[])).rows[0] as { n: number }).n),
+    transitions: Number(((await getConn().query("SELECT COUNT(*) AS n FROM stage_transitions",[])).rows[0] as { n: number }).n),
+    follows: Number(((await getConn().query("SELECT COUNT(*) AS n FROM kol_follow_index",[])).rows[0] as { n: number }).n),
+    collabs: Number(((await getConn().query("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'",[])).rows[0] as { n: number }).n),
   };
 }
 
-function crawlJobIdFor(requestId: string): string {
-  const row = getConn().prepare(
-    "SELECT crawl_job_id FROM discovery_runs WHERE request_id=? ORDER BY created_at DESC LIMIT 1",
-  ).get(requestId) as { crawl_job_id?: string } | undefined;
+async function crawlJobIdFor(requestId: string): Promise<Awaited<string>> {
+  const row = (await getConn().query("SELECT crawl_job_id FROM discovery_runs WHERE request_id=$1 ORDER BY created_at DESC LIMIT 1",[requestId])).rows[0] as { crawl_job_id?: string } | undefined;
   return String(row?.crawl_job_id || "");
 }
 
@@ -111,7 +102,7 @@ async function readyRun(extraCreators?: Json[]): Promise<{ runId: string; candid
   expect(created.status).toBe(201);
   const started = await request("POST", `/api/discovery/requests/${created.body.id}/runs`, {});
   expect(started.status).toBe(202);
-  await monitorCrawlJob(crawlJobIdFor(String(created.body.id)));
+  await monitorCrawlJob((await crawlJobIdFor(String(created.body.id))));
   const results = await request("GET", `/api/discovery/requests/${created.body.id}/results`);
   const items = results.body.candidates as Json[];
   expect(items.length).toBeGreaterThan(0);
@@ -143,10 +134,10 @@ beforeEach(async () => {
     profile_url: "https://youtube.com/@outdoorpower",
     email: "business@outdoorpower.example",
   }];
-  resetConn();
-  seedAll();
-  configureCrawlerFixture();
-  bindStarryMailbox();
+  (await resetConn());
+  (await seedAll());
+  (await configureCrawlerFixture());
+  (await bindStarryMailbox());
   resetCollectorConnectionCache();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();
@@ -197,16 +188,16 @@ beforeEach(async () => {
     async close() {},
   }));
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 
-afterEach(() => {
+afterEach(async () => {
   setCrawlMcpClientFactory();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();
   setStarryKolClientFactory();
   resetCollectorConnectionCache();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.MEDIACRAWLER_MCP_URL;
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
@@ -236,7 +227,7 @@ describe("POST /api/home/discovery/ingest", () => {
     expect(unconfirmed.body.status).toBe("needs_confirmation");
     expect(unconfirmed.body.creates_session).toBe(false);
     expect(starryTools(["addKolProfile", "importKolProfilesFromCrawler"])).toEqual([]);
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0, follows: 0, collabs: 0 });
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0, follows: 0, collabs: 0 });
   });
 
   it("2. cancelled L3 → no Starry call", async () => {
@@ -259,7 +250,7 @@ describe("POST /api/home/discovery/ingest", () => {
     expect(confirmedAfterCancel.status).toBe(409);
     expect(confirmedAfterCancel.body.detail).toMatchObject({ code: "l3_cancelled" });
     expect(starryTools(["addKolProfile", "importKolProfilesFromCrawler"])).toEqual([]);
-    expect(sideEffects().follows).toBe(0);
+    expect((await sideEffects()).follows).toBe(0);
   });
 
   it("3. re-import same key → already_imported + same kolUid", async () => {
@@ -287,7 +278,7 @@ describe("POST /api/home/discovery/ingest", () => {
     // 已在库就不该再建档、再导入一次。
     expect(starryTools(["importKolProfilesFromCrawler"])).toHaveLength(imports);
     expect(starryTools(["addKolProfile"])).toHaveLength(adds);
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0, follows: 0, collabs: 0 });
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0, follows: 0, collabs: 0 });
   });
 
   it("4. no existing profile → adds, then imports the platform fields with the returned uid", async () => {
@@ -331,7 +322,7 @@ describe("POST /api/home/discovery/ingest", () => {
     expect(csv.replace(/^\uFEFF/, "").trim().split(/\r?\n/)[0]).toBe("红人统一ID,频道链接,名称,平台,平台账号");
     expect(csv).toContain(item.kol_uid as string);
     expect(JSON.stringify(ingested.body)).not.toMatch(/EMAIL_AGENT_MCP|MEDIACRAWLER_MCP_TOKEN|password|api[_-]?key/i);
-    const profile = getConn().prepare("SELECT * FROM kol_profile_index WHERE kol_uid=?").get(item.kol_uid) as Row;
+    const profile = (await getConn().query("SELECT * FROM kol_profile_index WHERE kol_uid=$1",[item.kol_uid])).rows[0] as Row;
     expect(profile).toMatchObject({
       pool_status: "open",
       ingest_source: "crawler",
@@ -388,7 +379,7 @@ describe("POST /api/home/discovery/ingest", () => {
       "listAllKolProfiles",
       "importKolProfilesFromCrawler",
     ]);
-    const audits = listAudit("host.add_kol_profile");
+    const audits = (await listAudit("host.add_kol_profile"));
     expect(audits).toHaveLength(1);
     expect(audits[0].payload as Json).toMatchObject({
       reused_existing: true,
@@ -396,12 +387,10 @@ describe("POST /api/home/discovery/ingest", () => {
       kol_uid: "KOLFOUNDBYURL",
     });
     // 回执 + 公海照旧。
-    expect(Number((getConn().prepare(
-      "SELECT COUNT(*) AS n FROM discovery_ingest_receipts WHERE kol_uid='KOLFOUNDBYURL'",
-    ).get() as { n: unknown }).n)).toBe(1);
-    expect(getConn().prepare("SELECT pool_status FROM kol_profile_index WHERE kol_uid='KOLFOUNDBYURL'").get())
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM discovery_ingest_receipts WHERE kol_uid='KOLFOUNDBYURL'",[])).rows[0] as { n: unknown }).n)).toBe(1);
+    expect((await getConn().query("SELECT pool_status FROM kol_profile_index WHERE kol_uid='KOLFOUNDBYURL'",[])).rows[0])
       .toEqual({ pool_status: "open" });
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0, follows: 0, collabs: 0 });
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0, follows: 0, collabs: 0 });
   });
 
   it("4c. reuses the profile found by the keyword query and skips the listAll fallback", async () => {
@@ -427,7 +416,7 @@ describe("POST /api/home/discovery/ingest", () => {
     expect(starryTools(["addKolProfile"])).toEqual([]);
     // keyword 已经命中，不该再去拉全量。
     expect(starryTools(["listAllKolProfiles"])).toEqual([]);
-    expect(getConn().prepare("SELECT pool_status FROM kol_profile_index WHERE kol_uid='KOLFOUNDBYKEY02'").get())
+    expect((await getConn().query("SELECT pool_status FROM kol_profile_index WHERE kol_uid='KOLFOUNDBYKEY02'",[])).rows[0])
       .toEqual({ pool_status: "open" });
   });
 
@@ -450,8 +439,8 @@ describe("POST /api/home/discovery/ingest", () => {
     expect(item.already_imported).toBe(false);
     expect(starryTools(["addKolProfile"])).toEqual([]);
     // 孤儿不能被当成成功：没有回执、没进公海。
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM discovery_ingest_receipts").get() as { n: unknown }).n)).toBe(0);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_profile_index").get() as { n: unknown }).n)).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM discovery_ingest_receipts",[])).rows[0] as { n: unknown }).n)).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM kol_profile_index",[])).rows[0] as { n: unknown }).n)).toBe(0);
   });
 
   it("5. a candidate without a contact email fails honestly and never calls Starry", async () => {
@@ -478,13 +467,13 @@ describe("POST /api/home/discovery/ingest", () => {
     });
     expect(item.kol_uid).toBe(null);
     expect(starryTools(["addKolProfile", "importKolProfilesFromCrawler"])).toEqual([]);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_profile_index").get() as { n: unknown }).n)).toBe(0);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM discovery_ingest_receipts").get() as { n: unknown }).n)).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM kol_profile_index",[])).rows[0] as { n: unknown }).n)).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM discovery_ingest_receipts",[])).rows[0] as { n: unknown }).n)).toBe(0);
     expect(ingested.body.counts).toMatchObject({ imported: 0, failed: 1 });
   });
 
   it("5b. an unknown owner openId fails honestly and never calls addKolProfile", async () => {
-    getConn().prepare("DELETE FROM user_starry_bindings").run();
+    (await getConn().query("DELETE FROM user_starry_bindings",[]));
     const ready = await readyRun();
     const ingested = await request("POST", "/api/home/discovery/ingest", {
       run_id: ready.runId,
@@ -497,7 +486,7 @@ describe("POST /api/home/discovery/ingest", () => {
     expect(item.status).toBe("failed");
     expect(item.error).toMatchObject({ code: "import_creator_no_owner_open_id" });
     expect(starryTools(["addKolProfile", "importKolProfilesFromCrawler"])).toEqual([]);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM discovery_ingest_receipts").get() as { n: unknown }).n)).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM discovery_ingest_receipts",[])).rows[0] as { n: unknown }).n)).toBe(0);
   });
 
   it("5. partial failure keeps successful kolUids", async () => {
@@ -557,11 +546,9 @@ describe("POST /api/home/discovery/ingest", () => {
     expect(failed).toBeTruthy();
     // 失败的条目不得标成已在库：没有 receipt，也没进公海。
     expect(failed?.already_imported).toBe(false);
-    expect(Number((getConn().prepare(
-      "SELECT COUNT(*) AS n FROM discovery_ingest_receipts WHERE candidate_id=?",
-    ).get(failed?.candidate_id) as { n: unknown }).n)).toBe(0);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_profile_index WHERE kol_uid='KOLPARTIALOK'").get() as { n: unknown }).n)).toBe(1);
-    expect(sideEffects().follows).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM discovery_ingest_receipts WHERE candidate_id=$1",[failed?.candidate_id])).rows[0] as { n: unknown }).n)).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM kol_profile_index WHERE kol_uid='KOLPARTIALOK'",[])).rows[0] as { n: unknown }).n)).toBe(1);
+    expect((await sideEffects()).follows).toBe(0);
   });
 
   it("6. brief_version mismatch voids confirm", async () => {
@@ -572,7 +559,7 @@ describe("POST /api/home/discovery/ingest", () => {
       expected_brief_version: ready.briefVersion,
     });
     expect(pending.status).toBe(422);
-    getConn().prepare("UPDATE discovery_runs SET brief_version=? WHERE id=?").run(ready.briefVersion + 1, ready.runId);
+    (await getConn().query("UPDATE discovery_runs SET brief_version=$1 WHERE id=$2",[ready.briefVersion + 1,ready.runId]));
     const stale = await request("POST", "/api/home/discovery/ingest", {
       run_id: ready.runId,
       candidate_ids: [ready.candidates[0].id],
@@ -585,9 +572,7 @@ describe("POST /api/home/discovery/ingest", () => {
       confirmation_void: true,
     });
     expect(starryTools(["addKolProfile", "importKolProfilesFromCrawler"])).toEqual([]);
-    const voided = getConn().prepare(
-      "SELECT status FROM discovery_ingest_confirms WHERE run_id=? ORDER BY created_at DESC LIMIT 1",
-    ).get(ready.runId) as { status?: string };
+    const voided = (await getConn().query("SELECT status FROM discovery_ingest_confirms WHERE run_id=$1 ORDER BY created_at DESC LIMIT 1",[ready.runId])).rows[0] as { status?: string };
     expect(voided.status).toBe("voided");
   });
 
@@ -645,7 +630,7 @@ describe("POST /api/home/discovery/ingest", () => {
       "importKolProfilesFromCrawler",
       "pageKolProfiles",
     ]);
-    expect(listAudit("host.import_creator.timeout_lookup").length).toBe(1);
+    expect((await listAudit("host.import_creator.timeout_lookup")).length).toBe(1);
   });
 
   it("writes A.open only and records ingest facts, never claim/mail/stage", async () => {
@@ -671,13 +656,11 @@ describe("POST /api/home/discovery/ingest", () => {
     expect((pool.body.items as Json[]).some((row) => row.kol_uid === uid && row.pool_status === "open")).toBe(true);
     const following = await request("GET", "/api/home/following");
     expect(((following.body.kols as Json[]) || []).some((row) => row.kol_uid === uid)).toBe(false);
-    const facts = getConn().prepare(
-      "SELECT kind, fact_kind FROM discovery_memory_facts WHERE object_id=? ORDER BY created_at",
-    ).all(ready.runId) as Array<{ kind: string; fact_kind: string }>;
+    const facts = (await getConn().query("SELECT kind, fact_kind FROM discovery_memory_facts WHERE object_id=$1 ORDER BY created_at",[ready.runId])).rows as Array<{ kind: string; fact_kind: string }>;
     expect(facts.some((row) => row.kind === "run_create" && row.fact_kind === "fact")).toBe(true);
     expect(facts.some((row) => row.kind === "ingest_receipt" && row.fact_kind === "fact")).toBe(true);
     expect(JSON.stringify(facts)).not.toMatch(/score_details/);
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0, follows: 0, collabs: 0 });
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0, follows: 0, collabs: 0 });
   });
 });
 

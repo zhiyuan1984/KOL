@@ -19,6 +19,11 @@ export function canDecideCurrent(
   if (!user) return false;
   const expected = chain[currentIndex];
   if (!expected) return false;
+  // Canonical nodes are deliberately not resolved through display names,
+  // snapshot employees, approval roles, or admin wildcards.  A same-name
+  // account is not this explicitly assigned human approver.
+  if (expected === `user:${user.id}`) return user.active;
+  if (expected.startsWith("user:")) return false;
   const person = employeeForUser(user);
   if (person && person.id === expected) return true;
   const roles = approvalRoles();

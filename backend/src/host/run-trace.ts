@@ -53,7 +53,7 @@ export function runTraceRow(item: WorkerTraceItem): RunTraceRow {
 
 export type RunTraceSink = {
   onStream: (progress: WorkerProgress) => void;
-  finish: (failed: boolean) => void;
+  finish: (failed: boolean) => Promise<void>;
 };
 
 /**
@@ -67,10 +67,10 @@ export function createRunTraceSink(input: { workItemId: string; runId: string | 
   let narrative = "";
   let narrativeStatus = "running";
   let traceDirty = false;
-  let traceHandle: ReturnType<typeof setTimeout> | null = null;
+  let traceHandle: Awaited<ReturnType<typeof setTimeout>> | null = null;
   /** Only changed rows are written: a flush re-walks every item. */
   const written = new Map<string, string>();
-  const writeRow = (
+  const writeRow = async (
     itemKey: string,
     eventType: string,
     label: string,
@@ -79,48 +79,58 @@ export function createRunTraceSink(input: { workItemId: string; runId: string | 
   ) => {
     const stamp = `${label}\u0000${status}\u0000${summary}`;
     if (written.get(itemKey) === stamp) return;
+    await upsertTaskEvent(input.workItemId, input.runId, itemKey, eventType, label, status, summary);
     written.set(itemKey, stamp);
-    upsertTaskEvent(input.workItemId, input.runId, itemKey, eventType, label, status, summary);
   };
-  const writeTrace = () => {
-    for (const item of items) {
+  // Streaming callbacks stay synchronous. Every persistence Promise has one
+  // queue owner, and finish drains it before a caller may write a terminal fact.
+  let queue: Promise<void> = Promise.resolve();
+  let persistenceFailure: unknown;
+  let closed = false;
+  let finishing: Promise<void> | null = null;
+  const writeTrace = async (snapshot: {
+    items: WorkerTraceItem[];
+    operations: typeof operations;
+    narrative: string;
+    narrativeStatus: string;
+  }) => {
+    for (const item of snapshot.items) {
       const row = runTraceRow(item);
-      writeRow(row.itemKey, row.eventType, row.label, row.status, row.summary);
+      await writeRow(row.itemKey, row.eventType, row.label, row.status, row.summary);
     }
-    for (const operation of operations) {
-      writeRow(
-        `op:${operation.id}`,
-        "run.tool",
-        mcpCallDisplay(operation),
-        operation.status,
-        operation.name,
-      );
+    for (const operation of snapshot.operations) {
+      await writeRow(`op:${operation.id}`, "run.tool", mcpCallDisplay(operation), operation.status, operation.name);
     }
-    if (narrative) writeRow("narrative", "run.say", "说明", narrativeStatus, narrative);
+    if (snapshot.narrative) await writeRow("narrative", "run.say", "说明", snapshot.narrativeStatus, snapshot.narrative);
   };
   const flushTrace = () => {
+    if (traceHandle) clearTimeout(traceHandle);
     traceHandle = null;
     if (!traceDirty) return;
     traceDirty = false;
-    writeTrace();
+    const snapshot = {
+      items: items.map(item => ({ ...item })),
+      operations: operations.map(operation => ({ ...operation })),
+      narrative,
+      narrativeStatus,
+    };
+    queue = queue.then(() => writeTrace(snapshot)).catch(error => {
+      // Retain the original failure for finish; never leave a floating rejected
+      // Promise or claim a successful terminal result after a failed write.
+      persistenceFailure ??= error;
+    });
   };
   const scheduleTrace = (immediate: boolean) => {
     traceDirty = true;
-    if (immediate) {
-      if (traceHandle) clearTimeout(traceHandle);
-      flushTrace();
-      return;
-    }
+    if (immediate) { flushTrace(); return; }
     if (!traceHandle) traceHandle = setTimeout(flushTrace, TRACE_FLUSH_MS);
   };
   const onStream = (progress: WorkerProgress) => {
+    if (closed) return;
     if (progress.delta) {
       streamText += progress.delta;
       const next = streamingNarrative(streamText);
-      if (next && next !== narrative) {
-        narrative = next;
-        scheduleTrace(false);
-      }
+      if (next && next !== narrative) { narrative = next; scheduleTrace(false); }
     }
     if (progress.operation) {
       operations = upsertOperationItem(operations, progress.operation);
@@ -129,15 +139,17 @@ export function createRunTraceSink(input: { workItemId: string; runId: string | 
     }
     if (!progress.trace) return;
     items = applyProgress(items, progress);
-    // Phase and tool transitions are rare and worth showing at once; reasoning
-    // text grows every token, so it batches.
     scheduleTrace(progress.trace.kind !== "reasoning");
   };
-  const finish = (failed: boolean) => {
+  const finish = (failed: boolean): Promise<void> => {
+    if (finishing) return finishing;
+    closed = true;
     items = finishProcessItems(items, failed);
-    operations = operations.map((operation) => ({ ...operation, status: failed ? "failed" : "done" }));
+    operations = operations.map(operation => ({ ...operation, status: failed ? "failed" : "done" }));
     narrativeStatus = failed ? "failed" : "done";
     scheduleTrace(true);
+    finishing = queue.then(() => { if (persistenceFailure !== undefined) throw persistenceFailure; });
+    return finishing;
   };
   return { onStream, finish };
 }

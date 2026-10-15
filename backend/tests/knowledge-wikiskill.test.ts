@@ -5,31 +5,46 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
+import { mapUser, withScopedUser, type AppUser } from "../src/auth.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { bundledSkillPath } from "../src/host/skill-sop.js";
 import { resolveMailTemplate } from "../src/host/knowledge.js";
 import { DEMO_ADMIN, DEMO_USER } from "../src/config.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { installKnowledgePublicationFixture, publishKnowledgeEntry } from "./support/knowledge-publication-fixture.js";
 
 type Json = Record<string, unknown>;
 
 let tmp: string;
 let app: Hono;
+let admin: AppUser;
+
+async function persistedAdmin(): Promise<AppUser> {
+  const row = (await getConn().query("SELECT * FROM users WHERE id=$1", [DEMO_USER.id])).rows[0] as Record<string, unknown> | undefined;
+  if (!row) throw new Error("missing test admin");
+  return mapUser(row);
+}
 
 async function request(
   method: string,
   url: string,
   body?: unknown,
+  actor: AppUser | undefined = admin,
 ): Promise<{ status: number; json: () => Promise<Json>; text: () => Promise<string> }> {
   const init: RequestInit = { method, headers: {} };
+  const headers = init.headers as Record<string, string>;
+  // The publication fixture makes the test actors valid in two companies.
+  // Only management knowledge mutations declare their intended tenant; regular
+  // mail/session APIs must retain their independent request scope.
+  if (url.startsWith("/api/admin/knowledge")) headers["X-Review-Company"] = "knowledge_fixture_company";
   if (body instanceof FormData) {
     init.body = body;
   } else if (body !== undefined) {
-    (init.headers as Record<string, string>)["Content-Type"] = "application/json";
+    headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
-  const res = await app.request(url, init);
+  const res = actor ? await withScopedUser(actor, () => app.request(url, init)) : await app.request(url, init);
   const text = await res.text();
   return {
     status: res.status,
@@ -56,15 +71,17 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
+  app = (await createApp());
+  (await seedWorkbenchFixtures());
+  await installKnowledgePublicationFixture();
+  admin = await persistedAdmin();
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -111,9 +128,7 @@ describe("WikiSkill knowledge", () => {
     expect((draft.extra as Json).knowledge_id).toBe("kb_mail_followup");
     expect((draft.extra as Json).knowledge_version).toBe(1);
     expect(String(draft.body_en)).not.toContain("secret wiki");
-    const cardMsg = getConn()
-      .prepare("SELECT payload FROM messages WHERE session_id=? AND kind='email_card' ORDER BY created_at DESC, id DESC LIMIT 1")
-      .get(sid) as { payload: string } | undefined;
+    const cardMsg = (await getConn().query("SELECT payload FROM messages WHERE session_id=$1 AND kind='email_card' ORDER BY created_at DESC, id DESC LIMIT 1",[sid])).rows[0] as { payload: string } | undefined;
     expect(cardMsg, "草稿卡消息应写入会话").toBeTruthy();
     const card = JSON.parse(String(cardMsg?.payload || "{}")) as Json;
     expect(card.draft_id).toBe(draft.id);
@@ -159,7 +174,7 @@ describe("WikiSkill knowledge", () => {
       status: "draft",
     })).json();
     expect(created.stage_codes).toEqual(["TESTING"]);
-    await request("POST", `/api/admin/knowledge/${created.id}/approve`, { expected_version: created.current_version });
+    await publishKnowledgeEntry(String(created.id));
     const published = await (await request("GET", `/api/knowledge/${created.id}`)).json();
     expect(published.status).toBe("published");
     expect(published.stage_codes).toEqual(["TESTING"]);
@@ -199,8 +214,21 @@ describe("WikiSkill knowledge", () => {
   });
 
   it("blocks brand transfer outside the From whitelist", async () => {
-    const r = await request("POST", "/api/admin/knowledge/kb_mail_followup/transfer", { to_brand: "XX" });
-    expect(r.status).toBe(400);
+    const created = await request("POST", "/api/admin/knowledge", {
+      title: "当前组织移交测试模板",
+      body: "current tenant transfer fixture",
+      kind: "mail_template",
+      base_id: "kbase_legacy",
+      skill_id: "email_compose",
+      brand: "LT",
+      subject: "Tenant transfer fixture",
+      body_en: "Tenant transfer fixture body.",
+      status: "draft",
+    });
+    expect(created.status, await created.text()).toBe(201);
+    const entry = await created.json();
+    const r = await request("POST", `/api/admin/knowledge/${entry.id}/transfer`, { to_brand: "XX" });
+    expect(r.status, await r.text()).toBe(400);
   });
 
   it("extracts an eml upload into a pending page without publishing", async () => {
@@ -219,18 +247,36 @@ describe("WikiSkill knowledge", () => {
   });
 
   it("refuses to physically delete knowledge cited by sent mail", async () => {
-    await request("POST", "/api/knowledge/kb_mail_followup/cite", {});
+    const created = await request("POST", "/api/admin/knowledge", {
+      title: "当前组织阶段跟进",
+      body: "Current tenant stage follow-up template.",
+      kind: "mail_template",
+      base_id: "kbase_legacy",
+      skill_id: "email_compose",
+      brand: "LT",
+      subject: "Current tenant follow-up",
+      body_en: "Hi,\n\nCurrent tenant follow-up.\n\nBest,\nLiTime Creator Desk",
+      stage_codes: ["INITIAL_CONTACT"],
+      status: "draft",
+    });
+    expect(created.status, await created.text()).toBe(201);
+    const entry = await created.json();
+    await publishKnowledgeEntry(String(entry.id));
+    await request("POST", `/api/knowledge/${entry.id}/cite`, {});
     const [, data] = await ask("给@小美妆日记 写阶段跟进", {
       intent: "email_compose",
       collaboration_id: "col_xiaomei",
-      knowledge_id: "kb_mail_followup",
+      knowledge_id: entry.id,
     });
     const draft = data.draft as Json;
-    expect((await confirmAndSendDraft(request, String(draft.id), {})).status).toBe(200);
-    const archived = await request("POST", "/api/admin/knowledge/kb_mail_followup/archive", {});
-    expect(archived.status).toBe(200);
-    const del = await request("DELETE", "/api/admin/knowledge/kb_mail_followup");
+    const sent = await confirmAndSendDraft(request, String(draft.id), {});
+    expect(sent.status, await sent.text()).toBe(200);
+    const archived = await request("POST", `/api/admin/knowledge/${entry.id}/archive`, {});
+    expect(archived.status, await archived.text()).toBe(200);
+    const del = await request("DELETE", `/api/admin/knowledge/${entry.id}`);
     expect(del.status).toBe(403);
+    const retained = await (await request("GET", `/api/knowledge/${entry.id}`)).json();
+    expect(retained.status).toBe("archived");
   });
 
   it("records quote PEP failures into Raw", async () => {
@@ -255,10 +301,10 @@ describe("WikiSkill knowledge", () => {
     for (const id of ["kb_mail_kol", "kb_mail_followup", "kb_mail_quote", "kb_mail_addr", "kb_mail_nudge", "kb_mail_ship"]) {
       await request("POST", `/api/knowledge/${id}/cite`, {});
     }
-    const quote = resolveMailTemplate({ skillId: "email_compose", stageCode: "QUOTE_PENDING" });
+    const quote = (await resolveMailTemplate({ skillId: "email_compose", stageCode: "QUOTE_PENDING" }));
     expect(quote?.id).toBe("kb_mail_quote");
     expect(String(quote?.subject || "")).not.toMatch(/Outline check-in|family camping/);
-    expect(resolveMailTemplate({ skillId: "email_compose", stageCode: "CONTENT_PLANNING" })?.id).toBe("kb_mail_nudge");
+    expect((await resolveMailTemplate({ skillId: "email_compose", stageCode: "CONTENT_PLANNING" }))?.id).toBe("kb_mail_nudge");
   });
 
   it("seeds four policies and six published KOL mail templates", async () => {

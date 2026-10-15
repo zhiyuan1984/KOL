@@ -19,9 +19,9 @@ beforeEach(async () => {
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.AUTH_MODE = "enabled";
-  resetConn();
+  (await resetConn());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const setup = await app.request("/api/auth/setup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -32,8 +32,8 @@ beforeEach(async () => {
   userId = String((await setup.json()).user.id);
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
   process.env.CODEX_MODE = "stub";
@@ -41,8 +41,8 @@ afterEach(() => {
 
 describe("KOL workbench session authentication", () => {
   it("serves both real KOL list routes with the existing workbench cookie, including concurrent reads", async () => {
-    const responses = await Promise.all(paths.flatMap(url => Array.from({ length: 3 }, () =>
-      app.request(url, { headers: { Cookie: cookie } }),
+    const responses = await Promise.all(paths.flatMap(url => Array.from({ length: 3 }, async () =>
+      (app.request(url, { headers: { Cookie: cookie } })),
     )));
     for (const response of responses) {
       expect(response.status).toBe(200);
@@ -58,12 +58,12 @@ describe("KOL workbench session authentication", () => {
 
   it("does not bypass authentication for anonymous, expired, disabled or logged-out sessions", async () => {
     for (const url of paths) expect((await app.request(url)).status).toBe(401);
-    getConn().prepare("UPDATE users SET active=0 WHERE id=?").run(userId);
+    (await getConn().query("UPDATE users SET active=0 WHERE id=$1",[userId]));
     for (const url of paths) expect((await app.request(url, { headers: { Cookie: cookie } })).status).toBe(401);
-    getConn().prepare("UPDATE users SET active=1 WHERE id=?").run(userId);
-    getConn().prepare("UPDATE auth_sessions SET expires_at=? WHERE user_id=?").run("2000-01-01T00:00:00.000Z", userId);
+    (await getConn().query("UPDATE users SET active=1 WHERE id=$1",[userId]));
+    (await getConn().query("UPDATE auth_sessions SET expires_at=$1 WHERE user_id=$2",["2000-01-01T00:00:00.000Z",userId]));
     for (const url of paths) expect((await app.request(url, { headers: { Cookie: cookie } })).status).toBe(401);
-    getConn().prepare("UPDATE auth_sessions SET expires_at=? WHERE user_id=?").run("2099-01-01T00:00:00.000Z", userId);
+    (await getConn().query("UPDATE auth_sessions SET expires_at=$1 WHERE user_id=$2",["2099-01-01T00:00:00.000Z",userId]));
     const logout = await app.request("/api/auth/logout", { method: "POST", headers: { Cookie: cookie } });
     expect(logout.status).toBe(200);
     for (const url of paths) expect((await app.request(url, { headers: { Cookie: cookie } })).status).toBe(401);

@@ -104,7 +104,7 @@ export async function advanceWorkOrderStageForDecision(
   actorId: string,
   decisionId: string,
   raw: StageExecutionInput,
-): Promise<{ attempt: ReturnType<typeof publicAttempt>; work_order: ReturnType<typeof publicWorkOrder> | null; replayed: boolean }> {
+): Promise<{ attempt: Awaited<ReturnType<typeof publicAttempt>>; work_order: Awaited<ReturnType<typeof publicWorkOrder>> | null; replayed: boolean }> {
   const idempotencyKey = required(raw.idempotency_key, "idempotency_key", 240);
   if (idempotencyKey.length < 8) throw new HttpFail(422, { code: "idempotency_key_invalid" });
   const mode = raw.mode === "operator_replay" ? "operator_replay" as const : "automatic" as const;

@@ -97,7 +97,22 @@ jobs:
         working-directory: backend
         env:
           TEST_DATABASE_URL: postgresql://lingong:local-dev-only@127.0.0.1:5432/postgres
+          TEST_DB_PREFIX: lingong_t_ci_${{ github.run_id }}
+          NODE_ENV: test
         run: npm test
+      - name: Agent redlines, redaction scan and rollback rehearsal
+        working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgresql://lingong:local-dev-only@127.0.0.1:5432/postgres
+          TEST_DB_PREFIX: lingong_t_ci_${{ github.run_id }}
+          NODE_ENV: test
+        run: |
+          python3 ../scripts/test-release-verified.py
+          node ../scripts/test-e2e-database.mjs
+          node ../scripts/test-staging-headroom.mjs
+          npm run eval:kol
+          npm run scan:redaction
+          npm run rehearse:rollback
       - name: Frontend typecheck
         working-directory: frontend
         run: npm run typecheck
@@ -129,9 +144,9 @@ jobs:
           ssh-keyscan -H 47.88.94.205 >> ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ecs-user@47.88.94.205 \
-            "cd ~/kol-e2e && ./scripts/server-e2e.sh --rev '$E2E_REVISION' $E2E_SPECS"
+            "cd ~/kol-e2e && git fetch github '$E2E_REVISION' && git show '$E2E_REVISION:scripts/server-e2e.sh' | LINGONG_E2E_ROOT=\$PWD bash -s -- --rev '$E2E_REVISION' $E2E_SPECS"
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ecs-user@47.88.94.205 \
-            "cd ~/kol-e2e && ./scripts/server-e2e.sh --rev '$E2E_REVISION' --no-build --no-schema --config=playwright.runtime.config.ts"
+            "cd ~/kol-e2e && git show '$E2E_REVISION:scripts/server-e2e.sh' | LINGONG_E2E_ROOT=\$PWD bash -s -- --rev '$E2E_REVISION' --no-build --authenticated --config=playwright.runtime.config.ts"
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ecs-user@47.88.94.205 \
             "cd ~/kol-e2e/frontend && npm run test:e2e:agents"
 
@@ -173,26 +188,13 @@ jobs:
             "DEPLOY_REVISION='${DEPLOY_REVISION}' bash -s" <<'REMOTE'
           set -euo pipefail
           cd ~/kol
-          # Other scoped releases may have changes on this host. A deployment
-          # must never discard those files while updating the verified revision.
-          if [ -n "$(git status --porcelain)" ]; then
-            echo "Production checkout has local changes; preserve and reconcile them before deployment." >&2
-            exit 1
-          fi
+          # Stream the verified revision's release entry without first replacing
+          # the live checkout. It locks, backs up PG, refuses tracked changes and
+          # divergent history, and uses normal fast-forward merge. Untracked
+          # operator evidence is retained; colliding paths cause Git to stop.
           git fetch github "$DEPLOY_REVISION"
-          git reset --hard "$DEPLOY_REVISION"
-          if [ -d data/kol ]; then
-            node backend/scripts/validate-kol-data.mjs
-          else
-            echo "Optional offline mailbox/SOP source is absent on this deployment host; skipping this source-file check."
-          fi
-          # The PostgreSQL authority is long-lived, so new tables/indexes must
-          # be applied explicitly before the API starts querying them.
-          bash scripts/apply-postgres-schema.sh
-          # The new crawler.results handler must be loaded before the API can
-          # enqueue it. Keep workers and the API on the same verified revision.
-          sudo -n systemctl restart lingong-execution-worker@1 lingong-execution-worker@2 lingong-outbox
-          bash scripts/deploy.sh
+          git show "$DEPLOY_REVISION:scripts/release-verified.sh" |
+            DEPLOY_REVISION="$DEPLOY_REVISION" LINGONG_RELEASE_ROOT="$PWD" bash -s
           REMOTE
 
       - name: Verify deployed revision

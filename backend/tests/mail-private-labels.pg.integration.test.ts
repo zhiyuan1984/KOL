@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 
@@ -16,14 +15,6 @@ const CONVERSATION_A = "conversation-a";
 const CONVERSATION_B = "conversation-b";
 const PEER_A = "peer-a@example.test";
 const PEER_B = "peer-b@example.test";
-const migrationSql = fs.readFileSync(
-  new URL("../migrations/035_20261012_mail_private_labels.sql", import.meta.url),
-  "utf8",
-);
-const peerMigrationSql = fs.readFileSync(
-  new URL("../migrations/042_20261015_mail_labels_peer_email.sql", import.meta.url),
-  "utf8",
-);
 
 let app: Hono;
 
@@ -51,7 +42,7 @@ const ACTOR_A = actor("label-user-a");
 const ACTOR_B = actor("label-user-b");
 
 async function within<T>(user: AppUser, fn: () => T | Promise<T>): Promise<T> {
-  return await withScopedUser(user, fn);
+  return withScopedUser(user, fn);
 }
 
 async function responseBody(response: Response): Promise<{ status: number; body: Record<string, unknown> }> {
@@ -60,12 +51,12 @@ async function responseBody(response: Response): Promise<{ status: number; body:
 
 async function getLabels(user: AppUser | undefined, box = BOX_A, conversationId?: string) {
   const query = new URLSearchParams({ box, ...(conversationId ? { conversation_id: conversationId } : {}) });
-  const request = () => app.request(`/queries/mail.labels?${query.toString()}`);
+  const request = async () => (await app.request(`/queries/mail.labels?${query.toString()}`));
   return responseBody(user ? await within(user, request) : await request());
 }
 
 async function changeLabel(user: AppUser | undefined, body: Record<string, unknown>) {
-  const request = () => app.request("/actions/mail.label", { method: "POST", body: JSON.stringify(body) });
+  const request = async () => (await app.request("/actions/mail.label", { method: "POST", body: JSON.stringify(body) }));
   return responseBody(user ? await within(user, request) : await request());
 }
 
@@ -82,7 +73,7 @@ async function ensureUser(user: AppUser): Promise<void> {
 async function bind(userId: string, mailbox: string): Promise<void> {
   await postgresPool().query(
     `INSERT INTO user_starry_bindings(user_id,mailbox_email,is_default,status,updated_at)
-     VALUES ($1,$2,1,'connected',now())
+     VALUES ($1,$2,CASE WHEN EXISTS (SELECT 1 FROM user_starry_bindings WHERE user_id=$1 AND is_default=1) THEN 0 ELSE 1 END,'connected',now())
      ON CONFLICT (user_id,mailbox_email) DO UPDATE SET status='connected',updated_at=now()`,
     [userId, mailbox],
   );
@@ -102,8 +93,8 @@ function action(input: Record<string, unknown>): Record<string, unknown> {
 
 beforeEach(async () => {
   await freshTestDatabase();
-  await postgresPool().query(migrationSql);
-  await postgresPool().query(peerMigrationSql);
+  // The runner-built template already applies 035 then 042. Replaying old SQL
+  // would try to index conversation_id after 042 removed that column.
   await ensureUser(ACTOR_A);
   await ensureUser(ACTOR_B);
   await bind(ACTOR_A.id, BOX_A);
@@ -286,8 +277,8 @@ describe("mail private labels PostgreSQL integration", () => {
 
   it("has one dictionary row under concurrent same-name adds", async () => {
     const [left, right] = await Promise.all([
-      changeLabel(ACTOR_A, action({ mode: "add", name: "Concurrent", expected_version: 0 })),
-      changeLabel(ACTOR_A, action({ mode: "add", name: "concurrent", expected_version: 0 })),
+      (await changeLabel(ACTOR_A, action({ mode: "add", name: "Concurrent", expected_version: 0 }))),
+      (await changeLabel(ACTOR_A, action({ mode: "add", name: "concurrent", expected_version: 0 }))),
     ]);
     expect([left.status, right.status].sort()).toEqual([200, 409]);
     const succeeded = left.status === 200 ? left : right;

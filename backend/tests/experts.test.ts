@@ -53,7 +53,7 @@ async function request(
 ): Promise<{ status: number; json: () => Promise<Json | Json[]>; text: () => Promise<string> }> {
   const init: RequestInit = { method, headers: { "Content-Type": "application/json" } };
   if (body !== undefined) init.body = JSON.stringify(body);
-  const res = await withScopedUser(employee, () => app.request(url, init));
+  const res = await withScopedUser(employee, async () => (app.request(url, init)));
   const text = await res.text();
   return {
     status: res.status,
@@ -62,23 +62,23 @@ async function request(
   };
 }
 
-function sideEffects(sessionId?: string) {
+async function sideEffects(sessionId?: string) {
   const messages = sessionId
-    ? (getConn().prepare("SELECT kind FROM messages WHERE session_id=?").all(sessionId) as { kind: string }[])
+    ? ((await getConn().query("SELECT kind FROM messages WHERE session_id=$1",[sessionId])).rows as { kind: string }[])
     : [];
   return {
     messages: messages.map((row) => row.kind),
     drafts: sessionId
-      ? Number((getConn().prepare("SELECT COUNT(*) AS n FROM drafts WHERE session_id=?").get(sessionId) as { n: number }).n)
+      ? Number(((await getConn().query("SELECT COUNT(*) AS n FROM drafts WHERE session_id=$1",[sessionId])).rows[0] as { n: number }).n)
       : 0,
-    sends: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: number }).n),
-    stageWrites: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_stage_writes").get() as { n: number }).n),
-    transitions: Number((getConn().prepare("SELECT COUNT(*) AS n FROM stage_transitions").get() as { n: number }).n),
+    sends: Number(((await getConn().query("SELECT COUNT(*) AS n FROM starry_sends",[])).rows[0] as { n: number }).n),
+    stageWrites: Number(((await getConn().query("SELECT COUNT(*) AS n FROM starry_stage_writes",[])).rows[0] as { n: number }).n),
+    transitions: Number(((await getConn().query("SELECT COUNT(*) AS n FROM stage_transitions",[])).rows[0] as { n: number }).n),
   };
 }
 
-function sessionCount(expertId: string): number {
-  return Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions WHERE expert_id=?").get(expertId) as { n: number }).n);
+async function sessionCount(expertId: string): Promise<Awaited<number>> {
+  return Number(((await getConn().query("SELECT COUNT(*) AS n FROM sessions WHERE expert_id=$1",[expertId])).rows[0] as { n: number }).n);
 }
 
 beforeEach(async () => {
@@ -89,17 +89,17 @@ beforeEach(async () => {
   process.env.CODEX_MODE = "stub";
   clearExpertCache();
   clearExpertPublishOverrides();
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  employee = agentTestUser();
+  app = (await createApp());
+  employee = (await agentTestUser());
 });
 
-afterEach(() => {
+afterEach(async () => {
   clearExpertCache();
   clearExpertPublishOverrides();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -284,7 +284,7 @@ describe("POST /api/experts/:id/summon", () => {
     expect(String(body.session_id)).toMatch(/^ses_/);
     expect(String(body.intro)).toContain("KOL推广");
     expect(String(body.intro)).not.toMatch(/MCP|Codex|LIVE/i);
-    const row = getConn().prepare("SELECT expert_id, expert_version, title FROM sessions WHERE id=?").get(body.session_id) as {
+    const row = (await getConn().query("SELECT expert_id, expert_version, title FROM sessions WHERE id=$1",[body.session_id])).rows[0] as {
       expert_id?: string;
       expert_version?: string;
       title?: string;
@@ -298,7 +298,7 @@ describe("POST /api/experts/:id/summon", () => {
       expert_id: "expert:kol",
       expert_version: "0.1.0",
     });
-    expect(sideEffects(String(body.session_id))).toEqual({
+    expect((await sideEffects(String(body.session_id)))).toEqual({
       messages: [],
       drafts: 0,
       sends: 0,
@@ -324,10 +324,10 @@ describe("POST /api/experts/:id/summon", () => {
     });
     expect(String(approverDetail.message)).toContain("审批队列");
 
-    expect(sessionCount("expert:crawler")).toBe(1);
-    expect(sessionCount("expert:approver")).toBe(0);
-    expect(sideEffects().sends).toBe(0);
-    expect(sideEffects().stageWrites).toBe(0);
+    expect((await sessionCount("expert:crawler"))).toBe(1);
+    expect((await sessionCount("expert:approver"))).toBe(0);
+    expect((await sideEffects()).sends).toBe(0);
+    expect((await sideEffects()).stageWrites).toBe(0);
   });
 
   it("returns 404 for unknown and 409 for unpublished experts", async () => {
@@ -338,9 +338,9 @@ describe("POST /api/experts/:id/summon", () => {
     const blocked = await request("POST", "/api/experts/expert:kol/summon", {});
     expect(blocked.status).toBe(409);
     expect(await blocked.json()).toMatchObject({ detail: { code: "expert_not_published" } });
-    expect(sessionCount("expert:kol")).toBe(0);
-    expect(sideEffects().sends).toBe(0);
-    expect(sideEffects().stageWrites).toBe(0);
+    expect((await sessionCount("expert:kol"))).toBe(0);
+    expect((await sideEffects()).sends).toBe(0);
+    expect((await sideEffects()).stageWrites).toBe(0);
   });
 });
 
@@ -362,9 +362,9 @@ describe("experts auth", () => {
   it("requires authentication when AUTH_MODE is enabled", async () => {
     process.env.AUTH_MODE = "enabled";
     process.env.CODEX_MODE = "real";
-    resetConn();
+    (await resetConn());
     const { createApp } = await import("../src/app.js");
-    app = createApp();
+    app = (await createApp());
     try {
       expect((await request("GET", "/api/experts")).status).toBe(401);
       expect((await request("GET", "/api/experts/expert:kol")).status).toBe(401);

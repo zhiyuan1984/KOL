@@ -8,14 +8,14 @@ import type { Json, Row } from "../types.js";
 
 export const pipeline = new Hono();
 
-pipeline.get("/pipeline", (c) => {
+pipeline.get("/pipeline", async (c) => {
   requireConnector("starry", "read");
   requireConnector("starry", "read");
-  const rows = getConn().prepare("SELECT * FROM collaborations").all() as Row[];
+  const rows = (await getConn().query("SELECT * FROM collaborations",[])).rows as Row[];
   const cols: Record<string, Json[]> = Object.fromEntries(PIPELINE_COLUMNS.map((col) => [col, []]));
   const ledger: Json[] = [];
   for (const r of rows) {
-    restoreOfficialCollaborationStage(r);
+    (await restoreOfficialCollaborationStage(r));
     const card = {
       ...r,
       stage_label: label(String(r.stage_code)),

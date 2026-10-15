@@ -8,6 +8,7 @@ import path from "node:path";
 import { mailAnalysisTimeout } from "../config.js";
 import { remoteMailAnalysisEnabled } from "../host/mail-summary.js";
 import {
+  codexRecognizeThreadConfig,
   extractRemoteIntentText,
   intentLlmApiKey,
   intentLlmFetch,
@@ -158,7 +159,39 @@ export function repairStoredZh(stored: string, english: string): string | null {
   return parseTranslatedZh(text, english);
 }
 
-async function translateWithCodex(english: string): Promise<string | null> {
+/** Keep known-good normal mail bodies on the one-turn path; only exceptional long bodies are split. */
+export const CODEX_TRANSLATION_CHUNK_THRESHOLD = 12_000;
+export const CODEX_TRANSLATION_CHUNK_MAX_CHARS = 4_000;
+
+/**
+ * Splits on Unicode code points, preferring existing whitespace at the boundary.
+ * Each code point is present exactly once: joining the result reconstructs `text`.
+ */
+export function splitLongTextForCodex(text: string, maxChars = CODEX_TRANSLATION_CHUNK_MAX_CHARS): string[] {
+  const source = String(text || "");
+  if (!source) return [];
+  if (!Number.isInteger(maxChars) || maxChars < 1) throw new Error("maxChars must be a positive integer");
+  const points = Array.from(source);
+  if (points.length <= maxChars) return [source];
+  const chunks: string[] = [];
+  for (let start = 0; start < points.length;) {
+    const limit = Math.min(start + maxChars, points.length);
+    let end = limit;
+    if (limit < points.length) {
+      for (let cursor = limit; cursor > start; cursor -= 1) {
+        if (/\s/u.test(points[cursor - 1])) {
+          end = cursor;
+          break;
+        }
+      }
+    }
+    chunks.push(points.slice(start, end).join(""));
+    start = end;
+  }
+  return chunks;
+}
+
+async function translateWithCodexOne(english: string): Promise<string | null> {
   let cwd = "";
   let rpc: CodexAppServer | null = null;
   try {
@@ -170,7 +203,8 @@ async function translateWithCodex(english: string): Promise<string | null> {
       cwd,
       approvalPolicy: "never",
       sandbox: "read-only",
-      config: { mcp_servers: {}, model: intentLlmModel() },
+      // Codex must use CODEX_MODEL / CLI default; gpt-5.6-luna is Responses-only.
+      config: codexRecognizeThreadConfig(),
     });
     const thread = (started.thread as { id?: string } | undefined) || started;
     const threadId = String((thread as { id?: string }).id || "");
@@ -210,7 +244,41 @@ async function translateWithCodex(english: string): Promise<string | null> {
   }
 }
 
+/**
+ * For exceptional long bodies, invoke the existing one-turn Codex translation per
+ * bounded chunk. A partial result is never returned: callers can mark the full body
+ * pending and retry if any individual turn is unavailable or unusable.
+ */
+export async function translateWithCodexChunks(
+  english: string,
+  translateChunk: (chunk: string) => Promise<string | null>,
+): Promise<string | null> {
+  const source = String(english || "");
+  if (!source) return null;
+  const chunks = Array.from(source).length > CODEX_TRANSLATION_CHUNK_THRESHOLD
+    ? splitLongTextForCodex(source)
+    : [source];
+  const translated: string[] = [];
+  for (const chunk of chunks) {
+    const zh = await translateChunk(chunk);
+    if (!zh || !isUsableInternalZh(zh, chunk) || isStubInternalZh(zh)) return null;
+    translated.push(stripInternalZhHeader(zh));
+  }
+  const joined = translated.join("\n\n");
+  return isUsableInternalZh(joined, source) ? ensureInternalZhHeader(joined) : null;
+}
+
+async function translateWithCodex(english: string): Promise<string | null> {
+  return translateWithCodexChunks(english, translateWithCodexOne);
+}
+
 async function translateWithLuna(english: string): Promise<string | null> {
+  // gpt-5.6-luna is not a public api.openai.com model. In real mode an
+  // explicit custom base is required; a test-only fetch override remains local.
+  if (!intentLlmFetchOverridden() && !String(process.env.OPENAI_BASE_URL || "").trim()) {
+    noteFailure("luna", "OPENAI_BASE_URL is not configured");
+    return null;
+  }
   const key = intentLlmApiKey();
   if (!key) return null;
   const base = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
@@ -253,12 +321,74 @@ async function translateWithLuna(english: string): Promise<string | null> {
   }
 }
 
+const MCP_TRANSLATION_TEXT_FIELDS = [
+  "zh", "translation", "translatedText", "translated_text", "translatedBody", "translated_body",
+  "translatedContent", "translated_content", "body", "content", "text", "value",
+] as const;
+const MCP_TRANSLATION_ENVELOPE_FIELDS = ["data", "result", "payload", "translationResult"] as const;
+
+function mcpResultExplicitlyFailed(value: Json): boolean {
+  if (value.isError === true || value.success === false || value.ok === false || value.failed === true) return true;
+  if (value.error || value.error_code || value.errorCode || value.needs_input === true) return true;
+  const status = String(value.status || "").trim().toLowerCase();
+  return status === "error" || status === "failed" || status === "failure";
+}
+
+/**
+ * Starry's managed client has already normalized MCP content blocks, but the translation
+ * endpoint can still return a business envelope (for example `data`, `result`, or a JSON
+ * string). Extract only recognized translation leaves; never promote an error/status payload
+ * or an echoed English request into a completed Chinese translation.
+ */
+function mcpTranslationCandidates(value: unknown, depth = 0): string[] {
+  if (depth > 4 || value == null) return [];
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (!text) return [];
+    try {
+      const parsed = JSON.parse(text) as unknown;
+      if (parsed && typeof parsed === "object") return mcpTranslationCandidates(parsed, depth + 1);
+    } catch {
+      // A non-JSON string is a possible text leaf below.
+    }
+    return [text];
+  }
+  if (Array.isArray(value)) return value.flatMap((item) => mcpTranslationCandidates(item, depth + 1));
+  if (typeof value !== "object") return [];
+  const result = value as Json;
+  if (mcpResultExplicitlyFailed(result)) return [];
+  const candidates: string[] = [];
+  for (const field of MCP_TRANSLATION_TEXT_FIELDS) {
+    const text = result[field];
+    if (typeof text === "string") candidates.push(...mcpTranslationCandidates(text, depth + 1));
+  }
+  for (const field of MCP_TRANSLATION_ENVELOPE_FIELDS) {
+    candidates.push(...mcpTranslationCandidates(result[field], depth + 1));
+  }
+  return candidates;
+}
+
+/** Exported for contract tests: unwrap an actual managed-MCP result only if it contains usable Chinese. */
+export function unwrapMcpTranslatedZh(result: Json, english: string): string | null {
+  if (mcpResultExplicitlyFailed(result)) return null;
+  for (const candidate of mcpTranslationCandidates(result)) {
+    const zh = parseTranslatedZh(candidate, english);
+    if (zh) return zh;
+  }
+  return null;
+}
+
 async function translateWithMcp(english: string): Promise<string | null> {
+  if (!String(english || "").trim()) return null;
   try {
     const { callStarryKolTool } = await import("./service.js");
-    const result = await callStarryKolTool("translateEmailToChinese", { text: english });
-    const zh = String(result.text || result.zh || result.translation || "").trim();
-    return isUsableInternalZh(zh, english) ? ensureInternalZhHeader(zh) : null;
+    // LIVE schema proves requestJson is the only permitted top-level argument. Keep
+    // the existing text member inside its opaque TranslationRequest until its DTO is
+    // supplied by Starry; do not invent title/body fields from the human description.
+    const result = await callStarryKolTool("translateEmailToChinese", {
+      requestJson: JSON.stringify({ text: english }),
+    });
+    return unwrapMcpTranslatedZh(result, english);
   } catch (err) {
     noteFailure("mcp", err);
     return null;

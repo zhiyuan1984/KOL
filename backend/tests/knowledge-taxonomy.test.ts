@@ -1,89 +1,62 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Client } from "pg";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
+import { applyPostgresMigrations } from "../src/postgres/migrations.js";
 import { knowledgeKindSpec, resetKnowledgeKindsCache, validateStructuredFields } from "../src/knowledge-kinds.js";
-import type { Row } from "../src/types.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
-let databaseUrl: string | undefined;
-
-beforeEach(() => {
-  databaseUrl = process.env.DATABASE_URL;
-  delete process.env.DATABASE_URL; // This suite verifies the SQLite legacy migration.
+const MIGRATION = "20261015_046_knowledge_legacy_backfill";
+beforeEach(async () => {
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-kb-taxonomy-"));
-  process.env.LINGONG_DB = path.join(tmp, "kb.db");
   process.env.LINGONG_DATA = tmp;
-  process.env.NODE_ENV = "test";
   resetKnowledgeKindsCache();
-  resetConn();
-  getConn();
+  await resetConn();
 });
-
-afterEach(() => {
+afterEach(async () => {
   resetKnowledgeKindsCache();
-  resetConn();
+  await resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
-  if (databaseUrl === undefined) delete process.env.DATABASE_URL;
-  else process.env.DATABASE_URL = databaseUrl;
 });
 
-describe("knowledge taxonomy (P1)", () => {
-  it("merges a legacy knowledge table: default family/domain/base + backfills", async () => {
-    const dbPath = path.join(tmp, "legacy.db");
-    resetConn();
-    const { DatabaseSync } = await import("node:sqlite");
-    const raw = new DatabaseSync(dbPath);
-    raw.exec(`
-      CREATE TABLE knowledge (
-        id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL, tags TEXT,
-        in_market INTEGER NOT NULL DEFAULT 1, kind TEXT NOT NULL DEFAULT 'policy',
-        status TEXT NOT NULL DEFAULT 'draft', current_version INTEGER NOT NULL DEFAULT 1,
-        effective_at TEXT, expires_at TEXT, created_at TEXT, updated_at TEXT
-      );
-      CREATE TABLE knowledge_versions (
-        id TEXT PRIMARY KEY, knowledge_id TEXT NOT NULL, version INTEGER NOT NULL,
-        title TEXT, body TEXT, kind TEXT, status TEXT, created_at TEXT, note TEXT
-      );
-    `);
-    const now = new Date().toISOString();
-    raw.prepare(
-      "INSERT INTO knowledge (id,title,body,tags,kind,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
-    ).run("k_legacy_1", "历史制度", "正文", "extracted", "policy", "published", now, now);
-    raw.prepare(
-      "INSERT INTO knowledge_versions (id,knowledge_id,version,title,body,kind,status,created_at,note) VALUES (?,?,?,?,?,?,?,?,?)",
-    ).run("kv_1", "k_legacy_1", 1, "历史制度", "正文", "policy", "published", now, "create");
-    raw.close();
-
-    process.env.LINGONG_DB = dbPath;
-    resetConn();
-    const conn = getConn();
-
-    const family = conn.prepare("SELECT * FROM knowledge_domains WHERE code='uncategorized'").get() as Row | undefined;
-    expect(family).toBeTruthy();
-    expect(String(family!.level)).toBe("family");
-    const domain = conn.prepare("SELECT * FROM knowledge_domains WHERE code='legacy'").get() as Row | undefined;
-    expect(domain).toBeTruthy();
-    expect(String(domain!.level)).toBe("domain");
-    expect(String(domain!.parent_id)).toBe("kdom_uncategorized");
-    const base = conn.prepare("SELECT * FROM knowledge_bases WHERE code='legacy'").get() as Row | undefined;
-    expect(base).toBeTruthy();
-    expect(String(base!.kind)).toBe("structured");
-
-    const row = conn.prepare("SELECT base_id, source_body, structured FROM knowledge WHERE id='k_legacy_1'").get() as Row;
-    expect(String(row.base_id)).toBe("kbase_legacy");
-    expect(String(row.source_body)).toBe("正文");
-    expect(row.structured).toBeNull();
-
-    const version = conn.prepare("SELECT tags, in_market FROM knowledge_versions WHERE id='kv_1'").get() as Row;
-    expect(String(version.tags)).toBe("extracted");
-    expect(Number(version.in_market)).toBe(1);
+describe("knowledge taxonomy native PostgreSQL", () => {
+  it("backfills current legacy entry fields once and preserves every historical version field", async () => {
+    const conn = getConn(), now = new Date().toISOString();
+    // The current-schema clone has already recorded this migration. Reopen only
+    // this owned clone's two ledgers before seeding rows that existed beforehand.
+    await conn.query("DELETE FROM app_schema_migrations WHERE id=$1", [MIGRATION]);
+    await conn.query("DELETE FROM schema_migrations WHERE id=$1", [MIGRATION]);
+    await conn.query("INSERT INTO knowledge (id,title,body,tags,kind,status,in_market,current_version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,1,1,$7,$7)", ["k_legacy_1","历史制度","正文","extracted","policy","draft",now]);
+    await conn.query("INSERT INTO knowledge_versions (id,knowledge_id,version,title,body,kind,status,created_at,note) VALUES($1,$2,1,$3,$4,$5,$6,$7,$8)", ["kv_1","k_legacy_1","历史制度","原始版本正文","policy","draft",now,"create"]);
+    const originalVersion = (await conn.query("SELECT * FROM knowledge_versions WHERE id=$1", ["kv_1"])).rows[0];
+    const client = new Client({ connectionString: process.env.DATABASE_URL });
+    await client.connect();
+    try {
+      await applyPostgresMigrations(client, { only: MIGRATION });
+      const family = (await conn.query("SELECT * FROM knowledge_domains WHERE code='uncategorized' AND level='family'")).rows[0];
+      expect(family).toMatchObject({ id: "kdom_uncategorized", level: "family" });
+      const domain = (await conn.query("SELECT * FROM knowledge_domains WHERE id='kdom_legacy'")).rows[0];
+      expect(domain).toMatchObject({ level: "domain", parent_id: "kdom_uncategorized" });
+      const base = (await conn.query("SELECT * FROM knowledge_bases WHERE id='kbase_legacy'")).rows[0];
+      expect(base).toMatchObject({ kind: "structured" });
+      const row = (await conn.query("SELECT base_id,source_body,structured,body FROM knowledge WHERE id=$1", ["k_legacy_1"])).rows[0];
+      expect(row).toMatchObject({ base_id: "kbase_legacy", source_body: "正文", body: "正文", structured: null });
+      const version = (await conn.query("SELECT * FROM knowledge_versions WHERE id=$1", ["kv_1"])).rows[0];
+      // A missing historical tag/base/publication flag is unknown. Current entry
+      // metadata cannot be used to reconstruct an older immutable snapshot.
+      expect(version).toEqual(originalVersion);
+      expect(version.body).toBe("原始版本正文");
+      await expect(applyPostgresMigrations(client, { only: MIGRATION })).resolves.toEqual([]);
+      expect((await conn.query("SELECT * FROM knowledge_versions WHERE id=$1", ["kv_1"])).rows[0]).toEqual(version);
+    } finally { await client.end(); }
   });
-
   it("validates structured fields against config/knowledge-kinds.yaml", () => {
     expect(knowledgeKindSpec("prompt")?.structured).toBe(true);
-    expect(knowledgeKindSpec("mail_template")?.fields.map((field) => field.key)).toContain("body_en");
+    expect(knowledgeKindSpec("mail_template")?.fields.map(field => field.key)).toContain("body_en");
     expect(validateStructuredFields("prompt", { body: "写一封信", variables: ["kol_name"] })).toEqual([]);
     expect(validateStructuredFields("prompt", { variables: [] })).toContain("提示词 缺少必填字段：提示词正文（body）");
     expect(validateStructuredFields("prompt", { body: "x", nope: 1 })).toContain("prompt 不支持字段：nope");

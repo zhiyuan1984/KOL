@@ -12,12 +12,12 @@ import {
   sopPhaseByStage,
   stageSopView,
 } from "../src/sops.js";
-import { matchSkillId } from "../src/host/skills-catalog.js";
+import { matchSkillId, skillCatalog } from "../src/host/skills-catalog.js";
 import { taskDefinitions } from "../src/tasks/registry.js";
 import { collectStageSopItems } from "../src/worker/session-items.js";
 
 describe("15 SOP packs", () => {
-  it("maps one versioned pack per main stage without per-stage skills", () => {
+  it("maps one versioned pack per main stage without per-stage skills", async () => {
     expect(SOP_PACKS).toHaveLength(15);
     expect(MAIN_STAGES).toHaveLength(15);
     expect(SOP_PACKS.map((row) => row.sop_id)).toEqual(MAIN_STAGES.map((row) => row.code));
@@ -25,14 +25,14 @@ describe("15 SOP packs", () => {
       expect(pack.version).toBe(SOP_VERSION);
       expect(pack).not.toHaveProperty("skill_id");
       expect(pack.inputs.length).toBeGreaterThan(0);
-      expect(taskDefinitions().some((row) => row.id === `sop_${pack.stage_code.toLowerCase()}`)).toBe(false);
+      expect((await taskDefinitions()).some((row) => row.id === `sop_${pack.stage_code.toLowerCase()}`)).toBe(false);
     }
   });
 
-  it("retires per-stage SOP skill names and leaves them unbound", () => {
-    expect(matchSkillId("初步接触")).toBeNull();
-    expect(matchSkillId("初步接触SOP")).toBeNull();
-    expect(taskDefinitions().some((row) => row.id.startsWith("sop_"))).toBe(false);
+  it("retires per-stage SOP skill names and leaves them unbound", async () => {
+    expect(matchSkillId("初步接触", await skillCatalog())).toBeNull();
+    expect(matchSkillId("初步接触SOP", await skillCatalog())).toBeNull();
+    expect((await taskDefinitions()).some((row) => row.id.startsWith("sop_"))).toBe(false);
   });
 });
 
@@ -46,7 +46,7 @@ describe("eight SOP phases", () => {
     }
   });
 
-  it("outputs the eight-phase track and current official SOP", () => {
+  it("outputs the eight-phase track and current official SOP", async () => {
     const view = stageSopView("INITIAL_CONTACT");
     expect(view.phase_label).toBe("建联");
     expect(view.track).toHaveLength(8);
@@ -81,9 +81,9 @@ describe("eight SOP phases", () => {
     expect(walk?.items?.some((item) => item.includes("由人选定具体正式阶段"))).toBe(true);
     expect(step?.items?.join("；")).not.toContain("EVALUATING");
     expect(isStageSopSkill("stage_sop")).toBe(true);
-    expect(matchSkillId("阶段SOP")).toBe("stage_sop");
-    expect(matchSkillId("八个阶段")).toBe("stage_sop");
-    expect(taskDefinitions().some((row) => row.id === "stage_sop")).toBe(true);
+    expect(matchSkillId("阶段SOP", await skillCatalog())).toBe("stage_sop");
+    expect(matchSkillId("八个阶段", await skillCatalog())).toBe("stage_sop");
+    expect((await taskDefinitions()).some((row) => row.id === "stage_sop")).toBe(true);
   });
 });
 
@@ -102,7 +102,7 @@ describe("eight-phase exception flow", () => {
     expect(flow.some((item) => item.includes("已完成是结算后的终态"))).toBe(true);
   });
 
-  it("outputs bypass SOP for 争议中 and freezes the eight-phase track", () => {
+  it("outputs bypass SOP for 争议中 and freezes the eight-phase track", async () => {
     const view = stageSopView("DISPUTED");
     expect(view.exception).toBe(true);
     expect(view.exception_kind).toBe("bypass");
@@ -114,8 +114,8 @@ describe("eight-phase exception flow", () => {
     expect(items[0].title).toContain("八阶段异常 SOP");
     const titles = (items[0].sections as { title: string }[]).map((section) => section.title);
     expect(titles).toContain("异常流程");
-    expect(matchSkillId("异常流程")).toBe("stage_sop");
-    expect(matchSkillId("八阶段异常")).toBe("stage_sop");
+    expect(matchSkillId("异常流程", await skillCatalog())).toBe("stage_sop");
+    expect(matchSkillId("八阶段异常", await skillCatalog())).toBe("stage_sop");
   });
 
   it("SOP 建议下一步 names this stage's letter", () => {

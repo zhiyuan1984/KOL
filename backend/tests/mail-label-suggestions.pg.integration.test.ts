@@ -1,9 +1,8 @@
-import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import type { AppUser } from "../src/auth.js";
 import { withScopedUser } from "../src/auth.js";
-import { resetConn } from "../src/db.js";
+import { getConn, resetConn } from "../src/db.js";
 import { HttpFail } from "../src/host/errors.js";
 import {
   createMailLabelSuggestionOperations,
@@ -23,14 +22,6 @@ const BOX_A = "operator-a@example.test";
 const BOX_B = "operator-b@example.test";
 const CONVERSATION_A = "label-suggestions-conversation-a";
 const CONVERSATION_B = "label-suggestions-conversation-b";
-const migrationSql = fs.readFileSync(
-  new URL("../migrations/035_20261012_mail_private_labels.sql", import.meta.url),
-  "utf8",
-);
-const peerMigrationSql = fs.readFileSync(
-  new URL("../migrations/042_20261015_mail_labels_peer_email.sql", import.meta.url),
-  "utf8",
-);
 
 let app: Hono;
 let calls: LabelSuggestionHarnessInput[];
@@ -59,7 +50,7 @@ const ACTOR_A = actor("label-suggestion-user-a");
 const ACTOR_B = actor("label-suggestion-user-b");
 
 async function within<T>(user: AppUser, fn: () => T | Promise<T>): Promise<T> {
-  return await withScopedUser(user, fn);
+  return withScopedUser(user, fn);
 }
 
 async function responseBody(response: Response): Promise<{ status: number; body: Record<string, unknown> }> {
@@ -76,12 +67,19 @@ async function ensureUser(user: AppUser): Promise<void> {
   );
 }
 
-async function bind(userId: string, mailbox: string): Promise<void> {
+async function bind(userId: string, mailbox: string, isDefault = true): Promise<void> {
+  if (isDefault) {
+    await postgresPool().query(
+      "UPDATE user_starry_bindings SET is_default=0 WHERE user_id=$1 AND is_default=1",
+      [userId],
+    );
+  }
   await postgresPool().query(
     `INSERT INTO user_starry_bindings(user_id,mailbox_email,is_default,status,updated_at)
-     VALUES ($1,$2,1,'connected',now())
-     ON CONFLICT (user_id,mailbox_email) DO UPDATE SET status='connected',updated_at=now()`,
-    [userId, mailbox],
+     VALUES ($1,$2,$3,'connected',now())
+     ON CONFLICT (user_id,mailbox_email) DO UPDATE
+       SET is_default=EXCLUDED.is_default,status='connected',updated_at=now()`,
+    [userId, mailbox, isDefault ? 1 : 0],
   );
 }
 
@@ -108,24 +106,28 @@ async function label(id: string, name: string): Promise<void> {
   );
 }
 
-function seedCurrentAgentEligibility(user: AppUser): void {
+async function seedCurrentAgentEligibility(user: AppUser): Promise<void> {
   // The test uses the same current-user → Agent binding and published existing
   // mail_summary skill guard as production, not an auth-disabled bypass.
-  ensureRuntimeSchema();
-  ensureManagedAgents();
-  const db = resetConn();
-  db.prepare(`INSERT INTO managed_agents(id,name,description,status,version,created_at,updated_at)
-    VALUES ('agent:kol','KOL test Agent','', 'published',1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-    ON CONFLICT (id) DO UPDATE SET status='published'`).run();
-  setAgentSkill("agent:kol", "mail_summary", true, 1);
-  const personRef = syncUserOrganization(user.id, "org:lt_team");
-  createAgentBinding({
+  (await ensureRuntimeSchema());
+  (await ensureManagedAgents());
+  const db = getConn();
+  (await db.query("INSERT INTO managed_agents(id,name,description,status,version,created_at,updated_at)\n    VALUES ('agent:kol','KOL test Agent','', 'published',1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)\n    ON CONFLICT (id) DO UPDATE SET status='published'",[]));
+  // The template database can already contain this managed binding. Read its
+  // authoritative version and still submit it through the production CAS API.
+  const skill = (await db.query<{ version: number }>(
+    "SELECT version FROM runtime_agent_skills WHERE agent_id=$1 AND skill_id=$2",
+    ["agent:kol", "mail_summary"],
+  )).rows[0];
+  (await setAgentSkill("agent:kol", "mail_summary", true, Number(skill?.version || 0)));
+  const personRef = (await syncUserOrganization(user.id, "org:lt_team"));
+  (await createAgentBinding({
     agent_id: "agent:kol",
     target_type: "person",
     target_id: personRef,
     company_id: "company:amperetime",
     source: "test",
-  });
+  }));
 }
 
 function installApp(harness: LabelSuggestionHarness): void {
@@ -148,20 +150,20 @@ function installDefaultApp(): void {
 }
 
 async function ask(user: AppUser, body: Record<string, unknown> = { box: BOX_A, conversation_id: CONVERSATION_A }) {
-  return responseBody(await within(user, () => app.request("/actions/mail.label-suggestions", {
+  return responseBody(await within(user, async () => (app.request("/actions/mail.label-suggestions", {
     method: "POST", body: JSON.stringify(body),
-  })));
+  }))));
 }
 
 async function changeLabel(user: AppUser, body: Record<string, unknown>) {
-  return responseBody(await within(user, () => app.request("/actions/mail.label", {
+  return responseBody(await within(user, async () => (app.request("/actions/mail.label", {
     method: "POST", body: JSON.stringify(body),
-  })));
+  }))));
 }
 
 async function getLabels(user: AppUser, box = BOX_A, conversationId = CONVERSATION_A) {
   const query = new URLSearchParams({ box, conversation_id: conversationId });
-  return responseBody(await within(user, () => app.request(`/queries/mail.labels?${query.toString()}`)));
+  return responseBody(await within(user, async () => (app.request(`/queries/mail.labels?${query.toString()}`))));
 }
 
 async function clearDictionary(): Promise<void> {
@@ -213,11 +215,11 @@ function candidateConfirm(receiptId: string, candidateId: string, input: Record<
 
 beforeEach(async () => {
   await freshTestDatabase();
-  resetConn();
-  await postgresPool().query(migrationSql);
-  await postgresPool().query(peerMigrationSql);
+  await resetConn();
+  // freshTestDatabase applies the complete formal native manifest, including
+  // the already-deployed peer assignment schema; never replay obsolete 035 SQL.
   await ensureUser(ACTOR_A);
-  seedCurrentAgentEligibility(ACTOR_A);
+  (await seedCurrentAgentEligibility(ACTOR_A));
   await bind(ACTOR_A.id, BOX_A);
   await thread();
   await label("label-follow-up", "Follow up");
@@ -228,7 +230,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await closePostgresPool();
-  resetConn();
+  (await resetConn());
 });
 
 describe("mail label suggestions PostgreSQL integration", () => {
@@ -437,7 +439,7 @@ describe("mail label suggestions PostgreSQL integration", () => {
 
   it("rejects a receipt replayed into a different bound mailbox and conversation", async () => {
     await clearDictionary();
-    await bind(ACTOR_A.id, BOX_B);
+    await bind(ACTOR_A.id, BOX_B, false);
     await thread(CONVERSATION_B, BOX_B);
     installApp(async () => ({ suggestions: [{ label_id: "", name: "报价跟进", reason: "邮件明确询问报价与后续安排。" }] }));
     const proposed = await ask(ACTOR_A);

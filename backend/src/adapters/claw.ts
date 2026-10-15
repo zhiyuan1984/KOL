@@ -23,61 +23,47 @@ function creator(row: Row): Json {
   };
 }
 
-export function listCreators(): Json[] {
-  return (getConn().prepare("SELECT * FROM claw_creators").all() as Row[]).map(creator);
+export async function listCreators(): Promise<Awaited<Json[]>> {
+  return ((await getConn().query("SELECT * FROM claw_creators",[])).rows as Row[]).map(creator);
 }
 
-export function getCreator(cid: string): Json | null {
+export async function getCreator(cid: string): Promise<Awaited<Json | null>> {
   const db = getConn();
-  let row = db.prepare("SELECT * FROM claw_creators WHERE id = ?").get(cid) as Row | undefined;
-  if (!row) row = db.prepare("SELECT * FROM claw_creators WHERE handle = ?").get(cid) as Row | undefined;
-  if (!row) row = db.prepare("SELECT * FROM claw_creators WHERE platform_creator_id = ?").get(cid) as Row | undefined;
+  let row = (await db.query("SELECT * FROM claw_creators WHERE id = $1",[cid])).rows[0] as Row | undefined;
+  if (!row) row = (await db.query("SELECT * FROM claw_creators WHERE handle = $1",[cid])).rows[0] as Row | undefined;
+  if (!row) row = (await db.query("SELECT * FROM claw_creators WHERE platform_creator_id = $1",[cid])).rows[0] as Row | undefined;
   return row ? creator(row) : null;
 }
 
-export function createCreator(body: Json): Json {
+export async function createCreator(body: Json): Promise<Awaited<Json>> {
   const cid = String(body.id || `cr_${body.handle || "new"}`);
-  tx((c) => {
-    c.prepare(
-      `INSERT OR REPLACE INTO claw_creators
-       (id, handle, name, platform, followers, score, status, outreach_script, payload)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      cid,
-      body.handle ?? null,
-      body.name ?? null,
-      body.platform ?? null,
-      Number(body.followers || 0),
-      Number(body.score || 0),
-      body.status || "discovered",
-      body.outreach_script || "",
-      JSON.stringify(body),
-    );
-  });
-  audit("claw", "claw.creator.create", { id: cid });
-  return getCreator(cid) || {};
+  (await tx(async (c) => {
+    (await c.query("INSERT INTO claw_creators\n       (id, handle, name, platform, followers, score, status, outreach_script, payload)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,name=EXCLUDED.name,platform=EXCLUDED.platform,followers=EXCLUDED.followers,score=EXCLUDED.score,status=EXCLUDED.status,outreach_script=EXCLUDED.outreach_script,payload=EXCLUDED.payload",[cid,body.handle ?? null,body.name ?? null,body.platform ?? null,Number(body.followers || 0),Number(body.score || 0),body.status || "discovered",body.outreach_script || "",JSON.stringify(body)]));
+  }));
+  (await audit("claw", "claw.creator.create", { id: cid }));
+  return ((await getCreator(cid))) || {};
 }
 
-export function outreachScript(cid: string): Json {
-  const cr = getCreator(cid);
+export async function outreachScript(cid: string): Promise<Awaited<Json>> {
+  const cr = (await getCreator(cid));
   if (!cr) throw new Error(cid);
   return { creator_id: cr.id, script: cr.outreach_script || "" };
 }
 
-export function patchStatus(cid: string, body: Json): Json {
-  tx((c) => {
-    c.prepare("UPDATE claw_creators SET status = ? WHERE id = ?").run(body.status, cid);
-  });
-  audit("claw", "claw.creator.status", { id: cid, status: body.status });
-  return getCreator(cid) || {};
+export async function patchStatus(cid: string, body: Json): Promise<Awaited<Json>> {
+  (await tx(async (c) => {
+    (await c.query("UPDATE claw_creators SET status = $1 WHERE id = $2",[body.status,cid]));
+  }));
+  (await audit("claw", "claw.creator.status", { id: cid, status: body.status }));
+  return ((await getCreator(cid))) || {};
 }
 
-export function analysis(cid?: string | null): Json {
+export async function analysis(cid?: string | null): Promise<Awaited<Json>> {
   if (cid) {
-    const cr = getCreator(cid);
+    const cr = (await getCreator(cid));
     return { creator: cr, fit: cr?.score, read_only: true };
   }
-  return { creators: listCreators(), read_only: true };
+  return { creators: (await listCreators()), read_only: true };
 }
 
 export function dailyTasks(): Json {
@@ -103,7 +89,7 @@ export function budgetReport(): Json {
   return { campaigns: campaigns(), spent_usd: 4180, open_approvals_usd: 680 };
 }
 
-export function ingestMediacrawler(body: Json): Json {
+export async function ingestMediacrawler(body: Json): Promise<Awaited<Json>> {
   const nested = body.data && typeof body.data === "object" ? body.data as Json : {};
   const raw = body.items ?? body.creators ?? nested.items ?? nested.creators ?? body.data ?? [];
   const items = Array.isArray(raw) ? raw : [raw];
@@ -116,7 +102,7 @@ export function ingestMediacrawler(body: Json): Json {
   let updated = 0;
   let rejected = 0;
   const accepted: Json[] = [];
-  tx((db) => {
+  (await tx(async (db) => {
     for (const value of items) {
       if (!value || typeof value !== "object" || Array.isArray(value)) {
         rejected += 1;
@@ -135,9 +121,7 @@ export function ingestMediacrawler(body: Json): Json {
       const followers = nonNegativeInt(item.followers ?? item.fans ?? item.follower_count);
       const recentViews = normalizeViews(item.recent_views ?? item.views ?? item.recent_10_views);
       const scoring = calculateCreatorScore(followers, recentViews);
-      const existing = db.prepare(
-        "SELECT id FROM claw_creators WHERE platform=? AND platform_creator_id=?",
-      ).get(platform, platformCreatorId) as { id: string } | undefined;
+      const existing = (await db.query("SELECT id FROM claw_creators WHERE platform=$1 AND platform_creator_id=$2",[platform,platformCreatorId])).rows[0] as { id: string } | undefined;
       const creatorId = existing?.id || `cr_${platform}_${safeId(platformCreatorId)}`;
       const collectedAt = validDate(item.collected_at || body.collected_at) || now;
       const payload: Json = {
@@ -153,38 +137,20 @@ export function ingestMediacrawler(body: Json): Json {
         score_details: scoring,
       };
       if (existing) {
-        db.prepare(
-          `UPDATE claw_creators SET handle=?,name=?,followers=?,score=?,status='discovered',payload=? WHERE id=?`,
-        ).run(nickname, nickname, followers, scoring.score, JSON.stringify(payload), creatorId);
+        (await db.query("UPDATE claw_creators SET handle=$1,name=$2,followers=$3,score=$4,status='discovered',payload=$5 WHERE id=$6",[nickname,nickname,followers,scoring.score,JSON.stringify(payload),creatorId]));
         updated += 1;
       } else {
-        db.prepare(
-          `INSERT INTO claw_creators
-           (id,handle,name,platform,platform_creator_id,followers,score,status,outreach_script,payload)
-           VALUES (?,?,?,?,?,?,?,'discovered','',?)`,
-        ).run(creatorId, nickname, nickname, platform, platformCreatorId, followers, scoring.score, JSON.stringify(payload));
+        (await db.query("INSERT INTO claw_creators\n           (id,handle,name,platform,platform_creator_id,followers,score,status,outreach_script,payload)\n           VALUES ($1,$2,$3,$4,$5,$6,$7,'discovered','',$8)",[creatorId,nickname,nickname,platform,platformCreatorId,followers,scoring.score,JSON.stringify(payload)]));
         inserted += 1;
       }
-      db.prepare(
-        `INSERT INTO creator_snapshots
-         (id,creator_id,ingestion_batch_id,crawl_job_id,platform,platform_creator_id,nickname,followers,
-          recent_views,score,score_details,source,task_id,collected_at,created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      ).run(
-        nid("snap"), creatorId, batchId, crawlJobId, platform, platformCreatorId, nickname, followers,
-        JSON.stringify(recentViews), scoring.score, JSON.stringify(scoring), source, taskId, collectedAt, now,
-      );
+      (await db.query("INSERT INTO creator_snapshots\n         (id,creator_id,ingestion_batch_id,crawl_job_id,platform,platform_creator_id,nickname,followers,\n          recent_views,score,score_details,source,task_id,collected_at,created_at)\n         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",[nid("snap"),creatorId,batchId,crawlJobId,platform,platformCreatorId,nickname,followers,JSON.stringify(recentViews),scoring.score,JSON.stringify(scoring),source,taskId,collectedAt,now]));
       accepted.push({ creator_id: creatorId, platform, platform_creator_id: platformCreatorId, score: scoring.score });
     }
-    db.prepare(
-      `INSERT INTO ingestion_batches
-       (id,source,task_id,crawl_job_id,accepted,inserted,updated,rejected,created_at)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
-    ).run(batchId, source, taskId, crawlJobId, accepted.length, inserted, updated, rejected, now);
-  });
-  audit("claw", "claw.ingest.mediacrawler", {
+    (await db.query("INSERT INTO ingestion_batches\n       (id,source,task_id,crawl_job_id,accepted,inserted,updated,rejected,created_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",[batchId,source,taskId,crawlJobId,accepted.length,inserted,updated,rejected,now]));
+  }));
+  (await audit("claw", "claw.ingest.mediacrawler", {
     batch_id: batchId, accepted: accepted.length, inserted, updated, rejected, source,
-  });
+  }));
   return { ok: true, batch_id: batchId, accepted: accepted.length, inserted, updated, rejected, creators: accepted };
 }
 

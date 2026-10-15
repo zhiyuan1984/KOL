@@ -6,10 +6,12 @@ import type { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setCrawlMcpClientFactory } from "../src/crawl/service.js";
 import { getConn, resetConn } from "../src/db.js";
-import { setDiscoveryBriefRunner } from "../src/home-discovery.js";
-import { createAgentBinding } from "../src/runtime/organization-tree.js";
+import { awaitHomeDiscoveryWork, setDiscoveryBriefRunner } from "../src/home-discovery.js";
+import { createAgentBinding, syncUserOrganization } from "../src/runtime/organization-tree.js";
 import { seedAll } from "../src/seed.js";
 import type { Json } from "../src/types.js";
+import { pgVisibleSkillIdsForUser } from "../src/postgres/auth-pg.js";
+import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
 import { freshTestDatabase } from "./support/pg.js";
 
 /**
@@ -70,9 +72,10 @@ async function createEmployee(username: string): Promise<string> {
 }
 
 beforeEach(async () => {
-  await freshTestDatabase();
+  await freshTestDatabase({ reclaimPrevious: true });
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-discovery-auth-"));
-  process.env.LINGONG_DB = path.join(tmp, "t.db");
+  // Native tests must not select a retired SQLite-shaped database path.
+  delete process.env.LINGONG_DB;
   process.env.LINGONG_DATA = tmp;
   process.env.AUTH_MODE = "enabled";
   process.env.CODEX_MODE = "real";
@@ -81,13 +84,13 @@ beforeEach(async () => {
   process.env.MEDIACRAWLER_MCP_URL = "http://127.0.0.1:9/mcp";
   process.env.MEDIACRAWLER_MCP_TOKEN = "test-secret";
   process.env.MEDIACRAWLER_POLL_INTERVAL_MS = "600000";
-  resetConn();
-  seedAll();
-  configureCrawlerFixture();
+  (await resetConn());
+  (await seedAll());
+  (await configureCrawlerFixture());
   setCrawlMcpClientFactory(mockMcp);
   setDiscoveryBriefRunner(async () => ({ items: [] }));
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const setup = await call("POST", "/api/auth/setup", {
     username: "admin",
     name: "Admin",
@@ -96,14 +99,31 @@ beforeEach(async () => {
   }, "");
   expect(setup.status).toBe(201);
   adminCookie = setup.cookie;
+  const adminId = String((setup.json.user as Json | undefined)?.id || "");
+  expect(adminId).toMatch(/^usr_/);
+
+  // Runtime access is the intersection of a published Agent, its assembled
+  // skill and a current authoritative organization binding.  Admin role alone
+  // is deliberately not a discovery permission bypass.
+  await seedPublishedAgent("agent:kol", "本地发现授权测试 Agent");
+  await syncUserOrganization(adminId, "org:lt_team");
+  await createAgentBinding({
+    agent_id: "agent:kol",
+    target_type: "organization_unit",
+    target_id: "org:lt_team",
+    company_id: "company:amperetime",
+    source: "isolated-native-test",
+  });
+  expect(await pgVisibleSkillIdsForUser(adminId, new Date().toISOString())).toContain("creator_discovery");
 });
 
-afterEach(() => {
+afterEach(async () => {
   setCrawlMcpClientFactory();
   setDiscoveryBriefRunner(null);
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
+  delete process.env.LINGONG_DB;
   process.env.CODEX_MODE = "stub";
   delete process.env.MEDIACRAWLER_MCP_URL;
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
@@ -112,13 +132,13 @@ afterEach(() => {
 
 describe("home discovery submit authorization", () => {
   it("accepts the admin request but records an honest failure without calling a disabled collector", async () => {
-    getConn().prepare("UPDATE connectors SET enabled=0 WHERE id='claw'").run();
+    (await getConn().query("UPDATE connectors SET enabled=0 WHERE id='claw'",[]));
     let remoteCalls = 0;
     setCrawlMcpClientFactory(() => ({
       async callTool() { remoteCalls++; return {}; },
       async close() {},
     }));
-    const claw = getConn().prepare("SELECT enabled FROM connectors WHERE id='claw'").get() as
+    const claw = (await getConn().query("SELECT enabled FROM connectors WHERE id='claw'",[])).rows[0] as
       | { enabled?: number }
       | undefined;
     expect(Number(claw?.enabled || 0)).toBe(0);
@@ -127,11 +147,12 @@ describe("home discovery submit authorization", () => {
     expect(started.status, JSON.stringify(started.json)).toBe(202);
     const runId = String(started.json.id || "");
     expect(runId).toMatch(/^drun_/);
-    const job = getConn().prepare("SELECT crawl_job_id FROM discovery_runs WHERE id=?").get(runId) as
+    const job = (await getConn().query("SELECT crawl_job_id FROM discovery_runs WHERE id=$1",[runId])).rows[0] as
       | { crawl_job_id?: string | null }
       | undefined;
     expect(job?.crawl_job_id).toBeFalsy();
     expect(remoteCalls).toBe(0);
+    await awaitHomeDiscoveryWork();
     const run = await call("GET", `/api/home/discovery/runs/${runId}`);
     expect(run.json.run).toMatchObject({ status: "crawl_failed" });
   });
@@ -144,29 +165,42 @@ describe("home discovery submit authorization", () => {
     expect(denied.status).toBe(403);
     expect(denied.json.detail).toMatchObject({ code: "agent_not_usable", skill_id: "creator_discovery" });
 
-    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(userId, "person:ye_guanwang");
-    createAgentBinding({
-      agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
-      company_id: "company:amperetime", source: "test",
-    });
+    const personRef = await syncUserOrganization(userId, "org:lt_team");
+    expect(personRef).toBe(`person:user:${userId}`);
+    expect(await pgVisibleSkillIdsForUser(userId, new Date().toISOString())).toContain("creator_discovery");
+    // Login once more after authoritative membership projection; no manually
+    // edited person row, skill grant, or admin cross-tenant bypass is used.
+    const refreshedEmployeeCookie = await login("disc_nogrant");
 
-    const allowed = await call("POST", "/api/home/discovery/run", RUN_BODY, employeeCookie);
+    const allowed = await call("POST", "/api/home/discovery/run", RUN_BODY, refreshedEmployeeCookie);
     expect(allowed.status, JSON.stringify(allowed.json)).toBe(202);
     expect(String(allowed.json.id || "")).toMatch(/^drun_/);
   });
 
   it("keeps a broken collector as the run's honest failure, not a submit-time 403", async () => {
+    let remoteCalls = 0;
+    const startupStatuses: string[] = [];
     setCrawlMcpClientFactory(() => ({
-      async callTool() { throw new Error("collector down"); },
+      async callTool() {
+        remoteCalls++;
+        const runs = await getConn().query<{ status: string }>("SELECT status FROM discovery_runs WHERE crawl_job_id IS NULL", []);
+        startupStatuses.push(...runs.rows.map(row => row.status));
+        throw new Error("collector down");
+      },
       async close() {},
     }));
 
     const started = await call("POST", "/api/home/discovery/run", RUN_BODY);
     expect(started.status, JSON.stringify(started.json)).toBe(202);
     const runId = String(started.json.id || "");
+    await awaitHomeDiscoveryWork();
     const run = await call("GET", `/api/home/discovery/runs/${runId}`);
     const row = run.json.run as Json;
     expect(String(row.status)).toBe("crawl_failed");
     expect(String(row.error || "")).not.toBe("");
+    expect(remoteCalls).toBe(1);
+    expect(startupStatuses).toEqual(["crawling"]);
+    const ticket = (await getConn().query<{ status: string }>("SELECT status FROM tickets WHERE id=(SELECT work_item_id FROM discovery_runs WHERE id=$1)", [runId])).rows[0];
+    expect(ticket?.status).toBe("failed");
   });
 });

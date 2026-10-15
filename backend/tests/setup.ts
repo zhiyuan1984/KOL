@@ -1,6 +1,16 @@
 import fs from "node:fs";
 import { afterAll } from "vitest";
-import { dropTestDatabases } from "./support/pg.js";
+import { dropTestDatabases, freshTestDatabase } from "./support/pg.js";
+
+// Native catalog and parser modules read the authority store even in otherwise
+// pure tests, sometimes at import time. Give each isolated worker/file an owned
+// current-schema clone before loading it. Case-specific fresh/empty fixtures can
+// replace this clone; missing or unsafe management configuration still fails closed.
+await freshTestDatabase();
+
+// Retained native integration suites use this alias to opt into PostgreSQL.
+// It must name the same helper-owned clone, never a caller's long-lived URL.
+process.env.TEST_POSTGRES_URL = process.env.DATABASE_URL;
 
 // PostgreSQL 测试库的清理：每个用例从模板库拷出来的新库在本文件结束后统一 DROP。
 afterAll(async () => {

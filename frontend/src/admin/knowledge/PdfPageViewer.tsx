@@ -21,18 +21,26 @@ export default function PdfPageViewer({ url, title, refreshKey = 0 }: { url: str
     // remains mandatory and is not replaced by this component test environment.
     if (!window.fetch) return;
     let cancelled = false;
+    const controller = new AbortController();
     let destroy: (() => Promise<void>) | undefined;
     setPdf(null); setPage(1); setZoom(1); setError(''); setLoading(true);
     void import('pdfjs-dist').then(async library => {
       if (cancelled) return;
+      // This viewer already disables range/stream loading. Own the full-file
+      // request so unmount aborts an observed fetch promise, rather than leaving
+      // PDF.js's internal headers reader rejected by worker termination.
+      const response = await fetch(url, { credentials: 'include', signal: controller.signal });
+      if (!response.ok) throw new Error(`PDF 原件读取失败（HTTP ${response.status}）`);
+      const data = new Uint8Array(await response.arrayBuffer());
+      if (cancelled) return;
       library.GlobalWorkerOptions.workerSrc = workerUrl;
-      const task = library.getDocument({ url, withCredentials: true, disableRange: true, disableStream: true, isEvalSupported: false });
+      const task = library.getDocument({ data, isEvalSupported: false });
       destroy = () => task.destroy();
       const document = await task.promise;
       if (!cancelled) setPdf(document);
     }).catch(cause => { if (!cancelled) setError(cause instanceof Error ? cause.message : 'PDF 原页读取失败'); })
       .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; void destroy?.().catch(() => {}); };
+    return () => { cancelled = true; controller.abort(); void destroy?.().catch(() => {}); };
   }, [url, refreshKey]);
   useEffect(() => {
     if (!pdf || !canvas.current || width < 1) return;

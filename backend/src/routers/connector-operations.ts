@@ -1,125 +1,79 @@
 import { Hono } from "hono";
+import type { PoolClient } from "pg";
 import { authDisabled, requireAdmin } from "../auth.js";
-import { audit, getConn, nowIso } from "../db.js";
 import { HttpFail } from "../host/errors.js";
+import { postgresQuery, postgresTransaction } from "../postgres/pool.js";
 import { inspectConnectorTools, runtimeErrorCode, type RuntimeContext } from "../runtime/execution.js";
-import { getConnectorConfig } from "../runtime/store.js";
-import { registerDiscoveredToolPolicies } from "../runtime/tool-catalog.js";
+import { getConnectorConfig, type ConnectorConfig } from "../runtime/store.js";
+import { registerDiscoveredToolPolicies, type ToolCatalogRegistration } from "../runtime/tool-catalog.js";
 import type { Json, Row } from "../types.js";
 import { requireManagedConnector } from "../connectors/catalog.js";
 import { probeMediaCrawlerStart } from "../runtime/mediacrawler-probe.js";
 
-function admin() {
-  if (authDisabled() && process.env.NODE_ENV !== "test") throw new HttpFail(403, { code: "runtime_auth_required" });
-  return requireAdmin();
-}
-function connector(id: string): Row {
-  const row = getConn().prepare("SELECT id,enabled,status FROM connectors WHERE id=?").get(id) as Row | undefined;
-  if (!row) throw new HttpFail(404, { code: "connector_not_found" });
-  return row;
-}
-function schema(): void {
-  getConn().exec(`CREATE TABLE IF NOT EXISTS runtime_connector_probes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
-    config_version INTEGER NOT NULL, actor_id TEXT NOT NULL, checked_at TEXT NOT NULL,
-    status TEXT NOT NULL, probe_kind TEXT NOT NULL, tool_count INTEGER NOT NULL,
-    duration_ms INTEGER NOT NULL, error_code TEXT
-  )`);
-}
-const TRACE_FIELDS = ["connector_id", "agent_id", "skill_id", "run_id", "session_id", "call_id", "tool", "tool_name",
-  "schema_hash", "version", "connector_version", "policy_version", "action", "duration_ms", "code", "dispatched", "is_error"];
-function tracePayload(value: unknown): Json {
-  let parsed: Json = {};
-  try { parsed = JSON.parse(String(value || "{}")); } catch { return {}; }
-  const safe: Json = {};
-  for (const key of TRACE_FIELDS) {
-    const item = parsed[key];
-    if (typeof item === "string") safe[key] = item.slice(0, 320);
-    else if (typeof item === "boolean" || typeof item === "number" || item === null) safe[key] = item;
-  }
-  // Never serialize arbitrary input/output, config, upstream errors, headers or credential references.
-  return safe;
+function admin(){if(authDisabled()&&process.env.NODE_ENV!=="test")throw new HttpFail(403,{code:"runtime_auth_required"});return requireAdmin();}
+async function connector(id:string):Promise<Row>{const row=(await postgresQuery<Row>("SELECT id,enabled,status FROM connectors WHERE id=$1",[id]))[0];if(!row)throw new HttpFail(404,{code:"connector_not_found"});return row;}
+const TRACE_FIELDS=["connector_id","agent_id","skill_id","run_id","session_id","call_id","tool","tool_name","schema_hash","version","connector_version","policy_version","action","duration_ms","code","dispatched","is_error"];
+function tracePayload(value:unknown):Json{let parsed:Json={};try{parsed=JSON.parse(String(value||"{}"));}catch{return{};}const safe:Json={};for(const key of TRACE_FIELDS){const item=parsed[key];if(typeof item==="string")safe[key]=item.slice(0,320);else if(typeof item==="boolean"||typeof item==="number"||item===null)safe[key]=item;}return safe;}
+type Inspector=(context:RuntimeContext,connectorId:string)=>Promise<Json[]>;type StartProbe=(context:RuntimeContext,config:ConnectorConfig)=>Promise<void>;
+async function lockProbeBasis(client:PoolClient,id:string,version:number):Promise<Row>{const current=(await client.query<Row>("SELECT id,enabled,status FROM connectors WHERE id=$1 FOR UPDATE",[id])).rows[0];if(!current)throw new HttpFail(404,{code:"connector_not_found"});if(Number(current.enabled)!==1&&!["draft","pending_verification","verification_failed"].includes(String(current.status)))throw new HttpFail(403,{code:"runtime_connector_disabled"});const config=(await client.query<Row>("SELECT version FROM runtime_connector_config WHERE connector_id=$1 FOR SHARE",[id])).rows[0];if(!config||Number(config.version)!==version)throw new HttpFail(409,{code:"runtime_binding_changed"});return current;}
+
+/** Audit uses the transaction's physical client so no successful probe can commit without its receipt. */
+async function writeProbeAudit(client:PoolClient,actor:string,eventType:string,payload:Json,now:string):Promise<void>{
+  await client.query("INSERT INTO audit_events (ts,actor,event_type,payload) VALUES ($1,$2,$3,$4)",[now,actor,eventType,JSON.stringify(payload)]);
 }
 
-type Inspector = (context: RuntimeContext, connectorId: string) => Promise<Json[]>;
-type StartProbe = (context: RuntimeContext, config: NonNullable<ReturnType<typeof getConnectorConfig>>["config"]) => Promise<void>;
-export function createConnectorOperationsRouter(inspect: Inspector = inspectConnectorTools, startProbe: StartProbe = probeMediaCrawlerStart): Hono {
-  const router = new Hono();
-  router.post("/admin/runtime/connectors/:connectorId/probe", async (c) => {
-    const actor = admin();
-    const id = c.req.param("connectorId");
-    if (process.env.NODE_ENV !== "test") requireManagedConnector(id);
-    const current = connector(id);
-    // Draft/pending connectors need a successful probe before enablement. MCP
-    // catalog probes are read-only; the MediaCrawler Host probe starts and
-    // stops a real task. An explicitly disabled connector remains blocked.
-    if (!current.enabled && !["draft", "pending_verification", "verification_failed"].includes(String(current.status))) {
-      throw new HttpFail(403, { code: "runtime_connector_disabled" });
+export function createConnectorOperationsRouter(inspect:Inspector=inspectConnectorTools,startProbe:StartProbe=probeMediaCrawlerStart):Hono{
+  void startProbe;
+  const router=new Hono();
+  router.post("/admin/runtime/connectors/:connectorId/probe",async(c)=>{
+    const actor=admin();
+    const id=c.req.param("connectorId");
+    if(process.env.NODE_ENV!=="test")requireManagedConnector(id);
+    const initial=await connector(id);
+    if(Number(initial.enabled)!==1&&!["draft","pending_verification","verification_failed"].includes(String(initial.status)))throw new HttpFail(403,{code:"runtime_connector_disabled"});
+    const before=await getConnectorConfig(id);
+    if(!before)throw new HttpFail(409,{code:"runtime_connector_not_configured"});
+    const started=Date.now();
+    const checkedAt=new Date().toISOString();
+    const kind=before.config.protocol==="http"?"http_definition":"mcp_tools_list";
+    let count=0;
+    let code:string|null=null;
+    let duration=0;
+    let registration:ToolCatalogRegistration|undefined;
+    let tools:Json[]=[];
+    try{
+      const context={agentId:"governance",skillId:"",userId:actor.id,runId:`probe:${id}`};
+      tools=await inspect(context,id);
+      count=tools.length;
+    }catch(error){
+      code=runtimeErrorCode(error);
     }
-    const before = getConnectorConfig(id);
-    if (!before) throw new HttpFail(409, { code: "runtime_connector_not_configured" });
-    schema();
-    const started = Date.now();
-    const checkedAt = nowIso();
-    // An HTTP action catalog is configuration, not an external reachability check.
-    const kind = before.config.protocol === "http" ? "http_definition" : "mcp_tools_list";
-    let count = 0;
-    let code: string | null = null;
-    try {
-      const context = { agentId: "governance", skillId: "", userId: actor.id, runId: `probe:${id}` };
-      const tools = await inspect(context, id);
-      count = tools.length;
-      if (getConnectorConfig(id)?.version !== before.version) {
-        throw new HttpFail(409, { code: "runtime_binding_changed" });
-      }
-      if (kind === "mcp_tools_list") {
-        // 测试即登记：平台按 07 规则推导风险档并写入工具目录；挂载仍在技能侧逐项进行。
-        const registration = registerDiscoveredToolPolicies(id, tools);
-        audit(actor.id, "runtime.tool_catalog.registered", {
-          connector_id: id, config_version: before.version, ...registration,
-        });
-      }
-    } catch (error) { code = runtimeErrorCode(error); }
-    const duration = Date.now() - started;
-    const status = code ? "failed" : "succeeded";
-    getConn().prepare(`INSERT INTO runtime_connector_probes
-      (connector_id,config_version,actor_id,checked_at,status,probe_kind,tool_count,duration_ms,error_code)
-      VALUES(?,?,?,?,?,?,?,?,?)`).run(id, before.version, actor.id, checkedAt, status, kind, count, duration, code);
-    // A probe validates the saved configuration; it is not the administrator's
-    // explicit enable action. Preserve an already-enabled connector after a
-    // successful re-probe, keep a disabled connector disabled, and fail closed
-    // when the probe fails.
-    const enabledAfterProbe = !code && Number(current.enabled) === 1 ? 1 : 0;
-    getConn().prepare(
-      "UPDATE connectors SET enabled=?,status=?,last_verified_at=?,last_error=?,updated_at=? WHERE id=?",
-    ).run(
-      enabledAfterProbe,
-      code ? "verification_failed" : "verified",
-      checkedAt,
-      code || null,
-      checkedAt,
-      id,
-    );
-    audit(actor.id, "runtime.connector.probed", { connector_id: id, version: before.version, status, probe_kind: kind, tool_count: count, duration_ms: duration, code });
-    return c.json({ connector_id: id, config_version: before.version, actor_id: actor.id, checked_at: checkedAt,
-      status, probe_kind: kind, tool_count: count, duration_ms: duration, error_code: code,
-      live_verified: !code && kind !== "http_definition",
-      notice: kind === "http_definition" ? "仅校验 HTTP 动作定义，未调用外部业务接口。" : "仅验证该身份的 MCP 工具目录，不代表业务动作或其他账号可用。",
-    }, code ? 502 : 200);
+    if(code){
+      await postgresTransaction(async client=>{
+        const current=(await client.query<Row>("SELECT id FROM connectors WHERE id=$1 FOR UPDATE",[id])).rows[0];
+        if(!current)return;
+        const config=(await client.query<Row>("SELECT version FROM runtime_connector_config WHERE connector_id=$1 FOR SHARE",[id])).rows[0];
+        duration=Date.now()-started;
+        await client.query(`INSERT INTO runtime_connector_probes(connector_id,config_version,actor_id,checked_at,status,probe_kind,tool_count,duration_ms,error_code) VALUES($1,$2,$3,$4,'failed',$5,$6,$7,$8)`,[id,before.version,actor.id,checkedAt,kind,count,duration,code]);
+        if(config&&Number(config.version)===before.version)await client.query("UPDATE connectors SET enabled=0,status='verification_failed',last_verified_at=$1,last_error=$2,updated_at=$1 WHERE id=$3",[checkedAt,code,id]);
+        await writeProbeAudit(client,actor.id,"runtime.connector.probed",{connector_id:id,version:before.version,status:"failed",probe_kind:kind,tool_count:count,duration_ms:duration,code},checkedAt);
+      },{isolation:"SERIALIZABLE"});
+    }else{
+      registration=await postgresTransaction(async client=>{
+        const current=await lockProbeBasis(client,id,before.version);
+        const registered=kind==="mcp_tools_list"?await registerDiscoveredToolPolicies(id,tools,client):undefined;
+        duration=Date.now()-started;
+        await client.query(`INSERT INTO runtime_connector_probes(connector_id,config_version,actor_id,checked_at,status,probe_kind,tool_count,duration_ms,error_code) VALUES($1,$2,$3,$4,'succeeded',$5,$6,$7,NULL)`,[id,before.version,actor.id,checkedAt,kind,count,duration]);
+        await client.query("UPDATE connectors SET enabled=$1,status='verified',last_verified_at=$2,last_error=NULL,updated_at=$2 WHERE id=$3",[Number(current.enabled)===1?1:0,checkedAt,id]);
+        if(registered)await writeProbeAudit(client,actor.id,"runtime.tool_catalog.registered",{connector_id:id,config_version:before.version,...registered},checkedAt);
+        await writeProbeAudit(client,actor.id,"runtime.connector.probed",{connector_id:id,version:before.version,status:"succeeded",probe_kind:kind,tool_count:count,duration_ms:duration,code:null},checkedAt);
+        return registered;
+      },{isolation:"SERIALIZABLE"});
+    }
+    const status=code?"failed":"succeeded";
+    return c.json({connector_id:id,config_version:before.version,actor_id:actor.id,checked_at:checkedAt,status,probe_kind:kind,tool_count:count,duration_ms:duration,error_code:code,live_verified:!code&&kind!=="http_definition",notice:kind==="http_definition"?"仅校验 HTTP 动作定义，未调用外部业务接口。":"仅验证该身份的 MCP 工具目录，不代表业务动作或其他账号可用。"},code?502:200);
   });
-  router.get("/admin/runtime/connectors/:connectorId/activity", (c) => {
-    admin();
-    const id = c.req.param("connectorId"); if (process.env.NODE_ENV !== "test") requireManagedConnector(id); connector(id); schema();
-    const n = Number(c.req.query("limit") || 30);
-    if (!Number.isInteger(n) || n < 1 || n > 100) throw new HttpFail(400, { code: "invalid_limit" });
-    const probes = getConn().prepare("SELECT * FROM runtime_connector_probes WHERE connector_id=? ORDER BY id DESC LIMIT ?").all(id, n);
-    const events = (getConn().prepare(`SELECT id,ts,actor,event_type,payload FROM audit_events
-      WHERE event_type LIKE 'runtime.%' AND json_extract(payload,'$.connector_id')=?
-      ORDER BY id DESC LIMIT ?`).all(id, n) as Row[]).map((row) => ({ id: row.id, ts: row.ts, actor: row.actor,
-        event_type: row.event_type, payload: tracePayload(row.payload) }));
-    return c.json({ probes, events });
-  });
+  router.get("/admin/runtime/connectors/:connectorId/activity",async(c)=>{admin();const id=c.req.param("connectorId");if(process.env.NODE_ENV!=="test")requireManagedConnector(id);await connector(id);const n=Number(c.req.query("limit")||30);if(!Number.isInteger(n)||n<1||n>100)throw new HttpFail(400,{code:"invalid_limit"});const probes=await postgresQuery<Row>("SELECT * FROM runtime_connector_probes WHERE connector_id=$1 ORDER BY id DESC LIMIT $2",[id,n]);const events=(await postgresQuery<Row>(`SELECT id,ts,actor,event_type,payload FROM audit_events WHERE event_type LIKE 'runtime.%' AND (payload::jsonb ->> 'connector_id')=$1 ORDER BY id DESC LIMIT $2`,[id,n])).map(row=>({id:row.id,ts:row.ts,actor:row.actor,event_type:row.event_type,payload:tracePayload(row.payload)}));return c.json({probes,events});});
   return router;
 }
-export const connectorOperationsRouter = createConnectorOperationsRouter();
+export const connectorOperationsRouter=createConnectorOperationsRouter();

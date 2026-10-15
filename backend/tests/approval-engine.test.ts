@@ -11,9 +11,52 @@ import { employeeByMailbox, getManagerChain, OrgError, roleHolder } from "../src
 import { defaultOrgSnapshot } from "../src/approval/snapshot.js";
 import { listAudit, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
+import { declaredAgentSubmissionAllowed, kolAgentScopeContext } from "../src/contract-scope.js";
+import { runtimeAgentCandidates } from "../src/runtime/execution.js";
 import { stubResolveTaskIntent } from "../src/tasks/resolver.js";
 import type { OrgSnapshot } from "../src/approval/types.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { seedRuntimeTestActor } from "./fixtures/runtime-auth.js";
+
+const APPROVAL_COMPANY_ID = "company:amperetime";
+const APPROVAL_AGENT_ID = "agent:kol";
+const APPROVAL_FIXTURE_USER_ID = "usr_runtime_fixture";
+
+/**
+ * The native catalog is asynchronous and has no SQLite/synchronous fallback.
+ * Keep every DB-backed assertion on a fresh PostgreSQL clone and create a
+ * real, company-scoped, published Agent eligibility before it reads the
+ * catalog. The test's anonymous CODEX stub remains its original local-only
+ * execution mode; this fixture does not grant an admin bypass or call MCP.
+ */
+async function nativeApprovalFixture(label: string): Promise<string> {
+  await freshTestDatabase();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `lingong-${label}-`));
+  process.env.LINGONG_DATA = tmp;
+  process.env.CODEX_MODE = "stub";
+  await resetConn();
+  await seedAll();
+
+  const scope = await kolAgentScopeContext();
+  if (scope.agent_id !== APPROVAL_AGENT_ID || !scope.company_ids.includes(APPROVAL_COMPANY_ID)) {
+    throw new Error("approval fixture requires the registered KOL Agent company scope");
+  }
+  if (!declaredAgentSubmissionAllowed(scope.agent_id, "real")) {
+    throw new Error("approval fixture requires an Agent with an open published submission gate");
+  }
+  await seedRuntimeTestActor(["business_approval"], true);
+  const eligible = await runtimeAgentCandidates("business_approval", APPROVAL_FIXTURE_USER_ID);
+  if (!eligible.includes(scope.agent_id)) {
+    throw new Error("approval fixture requires a current published Agent binding for its test actor");
+  }
+  return tmp;
+}
+
+async function disposeNativeApprovalFixture(tmp: string): Promise<void> {
+  await resetConn();
+  fs.rmSync(tmp, { recursive: true, force: true });
+  if (process.env.LINGONG_DATA === tmp) delete process.env.LINGONG_DATA;
+}
 
 function cloneOrg(): OrgSnapshot {
   return JSON.parse(JSON.stringify(defaultOrgSnapshot())) as OrgSnapshot;
@@ -263,6 +306,16 @@ describe("expense approval plan · personnel cases", () => {
 });
 
 describe("cited search plan (not TypeScript constants)", () => {
+  let tmp = "";
+
+  beforeEach(async () => {
+    tmp = await nativeApprovalFixture("approval-cited");
+  });
+
+  afterEach(async () => {
+    await disposeNativeApprovalFixture(tmp);
+  });
+
   const searchedUsd = {
     type: "create_approval",
     amount: 50000,
@@ -326,17 +379,19 @@ describe("cited search plan (not TypeScript constants)", () => {
     }, { requester_name: "黎玉燕", amount: 50000, currency: "USD" })).toBeNull();
   });
 
-  it("copies approval-policy.md into the box and asks Codex to web_search", () => {
+  it("copies approval-policy.md into the box and asks Codex to web_search", async () => {
     const box = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-skillbox-"));
     try {
-      writeSkillIntoBox(box, "business_approval");
+      (await writeSkillIntoBox(box, "business_approval"));
       const policy = fs.readFileSync(path.join(box, "approval-policy.md"), "utf8");
       const skill = fs.readFileSync(path.join(box, "SKILL.md"), "utf8");
       expect(policy).toContain("web_search");
       expect(policy).toContain("不要改 TypeScript 常数");
       expect(policy).not.toMatch(/\|\s*USD\s*\|\s*7\.2\s*\|/);
       expect(skill).toContain("web_search");
-      expect(approvalBoxGuardrails().some((line) => line.includes("web_search"))).toBe(true);
+      const guardrails = approvalBoxGuardrails().join("\n");
+      expect(guardrails).toContain("需要汇率时用 Codex 内置网络搜索技能");
+      expect(guardrails).toContain("公开搜索不能替代公司制度");
       expect(sandboxPolicyForSkill("business_approval", box).networkAccess).toBe(true);
       expect(sandboxPolicyForSkill("kol", box).networkAccess).toBe(false);
     } finally {
@@ -376,6 +431,16 @@ describe("worker item sanitization", () => {
 });
 
 describe("Skill aliases route; quote language does not", () => {
+  let tmp = "";
+
+  beforeEach(async () => {
+    tmp = await nativeApprovalFixture("approval-aliases");
+  });
+
+  afterEach(async () => {
+    await disposeNativeApprovalFixture(tmp);
+  });
+
   it.each([
     ["费用审批", "business_approval"],
     ["黎玉燕申请 USD 50,000 广告费", "business_approval"],
@@ -392,15 +457,15 @@ describe("Skill aliases route; quote language does not", () => {
     ["写报价信 金额 680", "email_compose"],
     ["写一份报价邮件 金额 680", "email_compose"],
     ["给@数码老张 写报价确认邮件 金额 500", "email_compose"],
-  ])("%s → %s", (text, type) => {
-    expect(stubResolveTaskIntent({ text }).task_type).toBe(type);
+  ])("%s → %s", async (text, type) => {
+    expect((await stubResolveTaskIntent({ text })).task_type).toBe(type);
   });
 
-  it("task resolver uses the same Skill aliases and does not extract amount in Host", () => {
-    expect(stubResolveTaskIntent({ text: "expense approval 50000 USD" }).task_type).toBe("business_approval");
-    expect(stubResolveTaskIntent({ text: "経費申請" }).task_type).toBe("business_approval");
-    expect(stubResolveTaskIntent({ text: "写报价信 金额 680" }).task_type).toBe("email_compose");
-    expect(stubResolveTaskIntent({ text: "黎玉燕要申请5万美国KOL推广预算" }).entities.amount).toBeUndefined();
+  it("task resolver uses the same Skill aliases and does not extract amount in Host", async () => {
+    expect((await stubResolveTaskIntent({ text: "expense approval 50000 USD" })).task_type).toBe("business_approval");
+    expect((await stubResolveTaskIntent({ text: "経費申請" })).task_type).toBe("business_approval");
+    expect((await stubResolveTaskIntent({ text: "写报价信 金额 680" })).task_type).toBe("email_compose");
+    expect((await stubResolveTaskIntent({ text: "黎玉燕要申请5万美国KOL推广预算" })).entities.amount).toBeUndefined();
   });
 });
 
@@ -437,20 +502,13 @@ describe("expense approval host path", () => {
   }
 
   beforeEach(async () => {
-    await freshTestDatabase();
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-approval-"));
-    process.env.LINGONG_DB = path.join(tmp, "t.db");
-    process.env.LINGONG_DATA = tmp;
-    process.env.CODEX_MODE = "stub";
-    resetConn();
-    seedAll();
+    tmp = await nativeApprovalFixture("approval");
     const { createApp } = await import("../src/app.js");
-    app = createApp();
+    app = await createApp();
   });
 
-  afterEach(() => {
-    resetConn();
-    fs.rmSync(tmp, { recursive: true, force: true });
+  afterEach(async () => {
+    await disposeNativeApprovalFixture(tmp);
   });
 
   it("computes 黎玉燕 5万 on the Host and cites FIN-EXP-003", async () => {
@@ -695,7 +753,7 @@ describe("expense approval host path", () => {
 
     const listed = await request("GET", "/api/approvals");
     expect((listed.body as unknown as { id: string }[]).some((item) => item.id === row.id)).toBe(true);
-    const audits = listAudit("expense.approval.created") as { payload: { approval_id?: string; rule_id?: string } }[];
+    const audits = (await listAudit("expense.approval.created")) as { payload: { approval_id?: string; rule_id?: string } }[];
     expect(audits.some((event) => event.payload.approval_id === row.id && event.payload.rule_id === "FIN-EXP-004")).toBe(true);
   });
 

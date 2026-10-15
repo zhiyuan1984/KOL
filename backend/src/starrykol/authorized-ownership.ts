@@ -15,9 +15,9 @@ const PAGE_SIZE = 100;
 const MAX_PAGES = 40;
 export const FOLLOWING_AUTHORIZATION_TIMEOUT_MS = 10_000;
 
-function bindingFingerprint(employeeId: string): string {
+async function bindingFingerprint(employeeId: string): Promise<string> {
   if (scopedUser()?.id !== employeeId) throw new Error('starry_ownership_identity_mismatch');
-  const scope = currentFollowScope();
+  const scope = await currentFollowScope();
   if (!scope.bound || scope.status !== 'connected' || !scope.owner_verified_at)
     throw new Error('starry_ownership_binding_unverified');
   // Background mailbox reads may re-certify the same identity concurrently.
@@ -48,14 +48,14 @@ function pageRows(data: Json): { total: number; rows: AuthorizedOwnership[] } {
  * No caching: upstream revocation is checked on every employee-list request.
  */
 export async function readAuthorizedOwnershipSnapshot(employeeId: string, options: { timeoutMs?: number } = {}): Promise<AuthorizedOwnershipSnapshot> {
-  const fingerprint = bindingFingerprint(employeeId);
+  const fingerprint = await bindingFingerprint(employeeId);
   const budget = options.timeoutMs ?? FOLLOWING_AUTHORIZATION_TIMEOUT_MS;
   if (!Number.isFinite(budget) || budget <= 0) throw new Error('starry_ownership_authorization_timeout');
   const deadline = performance.now() + budget;
   const readPage = async (pageNo: number): Promise<Json> => {
     const remaining = Math.floor(deadline - performance.now());
     if (remaining <= 0) throw new Error('starry_ownership_authorization_timeout');
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timer: Awaited<ReturnType<typeof setTimeout>> | undefined;
     try {
       // The transport receives the same remaining budget. The outer deadline
       // also bounds connection setup and rejects late responses, even if an
@@ -79,9 +79,9 @@ export async function readAuthorizedOwnershipSnapshot(employeeId: string, option
   let expected: number | null = null;
   let first: AuthorizedOwnership[] = [];
   for (let page = 1; page <= MAX_PAGES; page++) {
-    if (bindingFingerprint(employeeId) !== fingerprint) throw new Error('starry_ownership_binding_changed');
+    if (await bindingFingerprint(employeeId) !== fingerprint) throw new Error('starry_ownership_binding_changed');
     const result = pageRows(await readPage(page));
-    if (bindingFingerprint(employeeId) !== fingerprint) throw new Error('starry_ownership_binding_changed');
+    if (await bindingFingerprint(employeeId) !== fingerprint) throw new Error('starry_ownership_binding_changed');
     if (expected !== null && expected !== result.total) throw new Error('starry_ownership_snapshot_changed_during_pagination');
     expected = result.total;
     if (page === 1) first = result.rows;
@@ -97,7 +97,7 @@ export async function readAuthorizedOwnershipSnapshot(employeeId: string, option
       const anchor = pageRows(await readPage(1));
       if (anchor.total !== expected || JSON.stringify(anchor.rows) !== JSON.stringify(first))
         throw new Error('starry_ownership_snapshot_changed_during_pagination');
-      if (bindingFingerprint(employeeId) !== fingerprint) throw new Error('starry_ownership_binding_changed');
+      if (await bindingFingerprint(employeeId) !== fingerprint) throw new Error('starry_ownership_binding_changed');
       return { rows, total: expected, source_version: new Date().toISOString(), scope: 'current-user-authorized' };
     }
   }

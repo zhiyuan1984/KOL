@@ -60,6 +60,10 @@ function manifestPath(agentId: string): string {
   if (!/^agent:[a-z][a-z0-9-]*$/.test(agentId)) throw new Error(`invalid runtime agent id: ${agentId}`);
   return `agents/${agentId.slice("agent:".length)}/manifest.yaml`;
 }
+function hasShippedAgentManifest(agentId: string): boolean {
+  return /^agent:[a-z][a-z0-9-]*$/.test(agentId)
+    && fs.existsSync(path.join(repoRoot, manifestPath(agentId)));
+}
 function agentManifest(agentId: string): AgentManifest {
   const manifest = readJsonYaml<AgentManifest>(manifestPath(agentId));
   if (manifest.id !== agentId) throw new Error(`runtime agent manifest id mismatch: ${agentId}`);
@@ -137,9 +141,9 @@ function buildScope(agentId: string): RuntimeAgentScope {
 }
 
 /** Scope sent to every Codex CONTEXT; Host remains the authority for decisions. */
-export function runtimeAgentScopeContext(agentId: string): RuntimeAgentScope {
-  if (agentId.startsWith("agent_")) {
-    const agent = managedAgent(agentId);
+export async function runtimeAgentScopeContext(agentId: string): Promise<RuntimeAgentScope> {
+  if (!hasShippedAgentManifest(agentId)) {
+    const agent = (await managedAgent(agentId));
     // Managed agents do not inherit KOL business scope from a static manifest.
     // Resource scope is resolved by each skill at the execution gate.
     return { agent_id: agent.id, agent_version: String(agent.version), status: agent.status,
@@ -155,8 +159,8 @@ export function runtimeAgentScopeContext(agentId: string): RuntimeAgentScope {
 }
 
 /** Backward-compatible KOL business-agent scope helper. */
-export function kolAgentScopeContext(): RuntimeAgentScope {
-  return runtimeAgentScopeContext("agent:kol");
+export async function kolAgentScopeContext(): Promise<RuntimeAgentScope> {
+  return (runtimeAgentScopeContext("agent:kol"));
 }
 
 export function clearContractScopeCache(): void { cached.clear(); }
@@ -186,6 +190,24 @@ export function agentSubmissionAllowed(mode = process.env.CODEX_MODE || "real"):
   if (String(mode).toLowerCase() === "stub") return true;
   if (submissionOverride != null) return submissionOverride;
   return agentPublishState().employee_submission;
+}
+
+/** An explicit asset publish gate is independent of native catalog eligibility.
+ * Managed custom Agents continue to use their mandatory native publication gate;
+ * built-in assets additionally honor their own declared employee submission gate.
+ */
+export function declaredAgentSubmissionAllowed(agentId: string, mode = process.env.CODEX_MODE || "real"): boolean {
+  if (String(mode).toLowerCase() === "stub") return true;
+  // Workspace-managed Agents use agent:<uuid>; legacy managed Agents use
+  // agent_*. Neither is required to ship a static asset manifest. Their native
+  // publication, pinned skills and current personnel bindings remain mandatory.
+  if (!hasShippedAgentManifest(agentId)) return true;
+  const manifest = agentManifest(agentId) as AgentManifest & {
+    publish_gate?: { employee_submission?: boolean; state?: string };
+  };
+  if (!manifest.publish_gate) return true;
+  if (manifest.id === kolAgentManifest().id && submissionOverride != null) return submissionOverride;
+  return manifest.publish_gate.employee_submission === true;
 }
 
 /**

@@ -59,15 +59,15 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   clearTaskRegistryCache();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -78,10 +78,10 @@ async function prepareSkill(skill: ProbeSkill, risk?: "L3") {
   expect(created.status, JSON.stringify(created.body)).toBe(201);
   const id = skill.id;
   if (risk) {
-    ensureRuntimeSchema();
-    setToolPolicy("starrykol", "dangerTool", { enabled: true, risk, access: "write", schema_hash: "a".repeat(64) }, 0);
-    setSkillConnector(id, "starrykol", true, 0);
-    setSkillTool(id, "starrykol", "dangerTool", true, 0);
+    (await ensureRuntimeSchema());
+    (await setToolPolicy("starrykol", "dangerTool", { enabled: true, risk, access: "write", schema_hash: "a".repeat(64) }, 0));
+    (await setSkillConnector(id, "starrykol", true, 0));
+    (await setSkillTool(id, "starrykol", "dangerTool", true, 0));
   }
   const owner = await request("PATCH", `/api/admin/skills/${id}/lifecycle`, { owner: "测试负责人" });
   expect(owner.status, JSON.stringify(owner.body)).toBe(200);
@@ -167,11 +167,8 @@ describe("skill publish gate (P0)", () => {
 
   it("user_skill_grants 废止迁移清单接口", async () => {
     await loginPm();
-    getConn().prepare("INSERT INTO users (id, username, name, password_hash, created_at, updated_at) VALUES (?,?,?,?,?,?)")
-      .run("ghost-user", "ghost", "幽灵用户", "x", "2026-10-10T00:00:00.000Z", "2026-10-10T00:00:00.000Z");
-    getConn()
-      .prepare("INSERT INTO user_skill_grants (user_id, skill_id, created_at) VALUES (?,?,?)")
-      .run("ghost-user", "kb-qa", "2026-10-10T00:00:00.000Z");
+    (await getConn().query("INSERT INTO users (id, username, name, password_hash, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)",["ghost-user","ghost","幽灵用户","x","2026-10-10T00:00:00.000Z","2026-10-10T00:00:00.000Z"]));
+    (await getConn().query("INSERT INTO user_skill_grants (user_id, skill_id, created_at) VALUES ($1,$2,$3)",["ghost-user","kb-qa","2026-10-10T00:00:00.000Z"]));
     const res = await request("GET", "/api/admin/skills/legacy-grants");
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect((res.body as Json).deprecated).toBe(true);

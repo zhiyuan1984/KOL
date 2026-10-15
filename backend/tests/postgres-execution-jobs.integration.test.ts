@@ -66,7 +66,7 @@ describePostgres("native PostgreSQL execution-job repository", () => {
         publisher_id TEXT,
         publisher_lease_until TEXT
       );
-      TRUNCATE execution_outbox, execution_jobs;
+      TRUNCATE execution_jobs CASCADE;
     `);
   });
 
@@ -169,7 +169,7 @@ describePostgres("native PostgreSQL execution-job repository", () => {
     expect(Number(outbox.rows[0]?.count || 0)).toBe(2);
   });
 
-  it("quarantines retired planning job types in PostgreSQL-only mode without loading a legacy handler", async () => {
+  it("routes planning jobs to the native executor in PostgreSQL-only mode and terminally rejects malformed payloads", async () => {
     const previousRuntimeMode = process.env.KOL_RUNTIME_MODE;
     process.env.KOL_RUNTIME_MODE = "postgres-only";
     try {
@@ -182,12 +182,12 @@ describePostgres("native PostgreSQL execution-job repository", () => {
       const claimed = await pgClaimExecutionJobById(String(queued.job.id), "worker-native");
       expect(claimed).not.toBeNull();
       const dispatched = await dispatchClaimedExecutionJob(claimed!);
-      expect(dispatched).toMatchObject({ job_type: "work_plan.run", handled: false, outcome: "needs_takeover", target_id: null });
-      const state = await postgresPool().query<{ status: string; error_code: string; lease_owner: string | null }>(
-        "SELECT status,error_code,lease_owner FROM execution_jobs WHERE id=$1",
+      expect(dispatched).toMatchObject({ job_type: "work_plan.run", handled: true, outcome: "failed", target_id: null });
+      const state = await postgresPool().query<{ status: string; error_code: string; error_summary: string; lease_owner: string | null }>(
+        "SELECT status,error_code,error_summary,lease_owner FROM execution_jobs WHERE id=$1",
         [queued.job.id],
       );
-      expect(state.rows[0]).toEqual({ status: "uncertain", error_code: "needs_takeover", lease_owner: null });
+      expect(state.rows[0]).toEqual({ status: "failed", error_code: "execution_handler_error", error_summary: "invalid planning execution job payload", lease_owner: null });
     } finally {
       if (previousRuntimeMode == null) delete process.env.KOL_RUNTIME_MODE;
       else process.env.KOL_RUNTIME_MODE = previousRuntimeMode;

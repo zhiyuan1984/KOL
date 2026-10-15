@@ -9,11 +9,11 @@ const NOW = "2026-10-09T12:00:00.000Z";
 
 beforeEach(async () => {
   await freshTestDatabase();
-  resetConn();
+  (await resetConn());
 });
 
 afterEach(async () => {
-  resetConn();
+  (await resetConn());
   await closePostgresPool();
 });
 
@@ -58,47 +58,47 @@ describe("mail sync PostgreSQL regressions", () => {
       ],
     );
 
-    const stale = recordEffectiveCorrespondence({
+    const stale = (await recordEffectiveCorrespondence({
       followId: "follow-mail-clock",
       direction: "inbound",
       gatewaySuccess: true,
       kind: "human",
       occurredAt: "2026-10-08T12:00:00.000Z",
-    });
-    const missing = recordEffectiveCorrespondence({
+    }));
+    const missing = (await recordEffectiveCorrespondence({
       followId: "follow-mail-clock",
       direction: "inbound",
       gatewaySuccess: true,
       kind: "human",
-    });
-    const invalid = recordEffectiveCorrespondence({
+    }));
+    const invalid = (await recordEffectiveCorrespondence({
       followId: "follow-mail-clock",
       direction: "inbound",
       gatewaySuccess: true,
       kind: "human",
       occurredAt: "not-a-timestamp",
-    });
-    const newerLocalSend = recordEffectiveCorrespondence({
+    }));
+    const newerLocalSend = (await recordEffectiveCorrespondence({
       followId: "follow-mail-clock",
       direction: "outbound",
       gatewaySuccess: true,
       kind: "human",
       occurredAt: "2026-10-10T12:00:00.000Z",
-    });
+    }));
 
     expect(stale).toMatchObject({ renewed: false, effective: true, reason: "out_of_order" });
     expect(missing).toMatchObject({ renewed: false, effective: true, reason: "occurred_at_missing" });
     expect(invalid).toMatchObject({ renewed: false, effective: true, reason: "occurred_at_invalid" });
     expect(newerLocalSend).toMatchObject({ renewed: true, effective: true, reason: "human" });
 
-    const row = await pool.query<{ last_effective_mail_at: string; release_due_at: string; data_version: string }>(
+    const row = await pool.query<{ last_effective_mail_at: string; release_due_at: string; data_version: number }>(
       "SELECT last_effective_mail_at,release_due_at,data_version FROM kol_follow_index WHERE id=$1",
       ["follow-mail-clock"],
     );
     expect(row.rows[0]).toEqual({
       last_effective_mail_at: "2026-10-10T12:00:00.000Z",
       release_due_at: "2026-10-24T12:00:00.000Z",
-      data_version: "8",
+      data_version: 8,
     });
   });
 });

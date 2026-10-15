@@ -1,9 +1,9 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { readNativePersonMemory } from "../postgres/mail-memory-repository.js";
 import { authDisabled, scopedUser } from "../auth.js";
 import { DEMO_USER } from "../config.js";
 import { HttpFail } from "../host/errors.js";
 import { normalizeEmail } from "../host/identity.js";
-import { postgresPool } from "../postgres/pool.js";
 import type { Json, Row } from "../types.js";
 import type { QueryConfig, QueryResult } from "pg";
 
@@ -143,7 +143,7 @@ async function readQuery<T extends Row = Row>(textSql: string, values: readonly 
     values: [...values],
     query_timeout: READ_QUERY_TIMEOUT_MS,
   };
-  return await postgresPool().query<T>(config);
+  return postgresConnection().query<T>(config);
 }
 
 function text(value: unknown): string {
@@ -347,20 +347,6 @@ function parseOnDemandMemory(value: unknown): OnDemandMemory | null {
   };
 }
 
-function parsePersonDigest(value: unknown): PersonDigest | null {
-  const raw = rawObject(value);
-  if (!Object.keys(raw).length) return null;
-  return {
-    text: text(raw.text),
-    source: text(raw.source),
-    mail_count: number(raw.mail_count),
-    fingerprint: text(raw.fingerprint),
-    ...(text(raw.generated_at) ? { generated_at: text(raw.generated_at) } : {}),
-    ...(text(raw.error) ? { error: text(raw.error) } : {}),
-    ...(text(raw.failed_at) ? { failed_at: text(raw.failed_at) } : {}),
-  };
-}
-
 export async function readMailboxBox(rawMailbox: unknown): Promise<{ bindings: MailboxBinding[]; box: MailBoxStatus }> {
   const { bindings, binding } = await selectedMailbox(rawMailbox);
   const mapped = bindings.map(rowBinding);
@@ -500,7 +486,8 @@ export async function readMailboxPerson(rawMailbox: unknown, rawPeer: unknown): 
   const row = await readNativePersonMemory(mailbox, peer);
   const digest = row ? {
     text: String(row.digest_text || ""), source: String(row.digest_source || ""),
-    generated_at: row.generated_at ? String(row.generated_at) : undefined,
+    generated_at: row.generated_at instanceof Date ? row.generated_at.toISOString()
+      : row.generated_at ? String(row.generated_at) : undefined,
   } : null;
   return {
     mailbox,

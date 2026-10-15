@@ -10,30 +10,27 @@ import { createAgentBinding, syncUserOrganization } from "../../src/runtime/orga
  * 使用资格闸门要求 Agent 已发布（CONST-05 / ADR-2026-10-03）；测试夹具按固定 id 落一条
  * published 的 managed_agents 行，幂等。
  */
-export function seedPublishedAgent(id: string, name = "测试 Agent"): void {
-  ensureManagedAgents();
-  getConn().prepare(`INSERT INTO managed_agents(id,name,description,status,version,created_at,updated_at)
-    VALUES(?,?,'','published',1,?,?) ON CONFLICT (id) DO NOTHING`).run(id, name, nowIso(), nowIso());
+export async function seedPublishedAgent(id: string, name = "测试 Agent"): Promise<void> {
+  (await ensureManagedAgents());
+  (await getConn().query("INSERT INTO managed_agents(id,name,description,status,version,created_at,updated_at)\n    VALUES($1,$2,'','published',1,$3,$4) ON CONFLICT (id) DO NOTHING",[id,name,nowIso(),nowIso()]));
 }
 
 /** Authenticated local test session; never enables a runtime permission bypass. */
-export function seedRuntimeTestActor(skills: string[], qualifyAgent = false): string {
+export async function seedRuntimeTestActor(skills: string[], qualifyAgent = false): Promise<string> {
   const userId = "usr_runtime_fixture";
   const token = "local-runtime-fixture-cookie";
   const now = nowIso();
-  getConn().prepare(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-    VALUES(?,?,?,?,?,?,?,?,?,?)`).run(userId, userId, "Local runtime test admin", "not-a-login-password", '["admin","employee"]', '["LT"]', "", 1, now, now);
-  getConn().prepare("INSERT INTO auth_sessions(id_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)")
-    .run(tokenDigest(token), userId, new Date(Date.now() + 60_000).toISOString(), now);
+  (await getConn().query("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",[userId,userId,"Local runtime test admin","not-a-login-password",'["admin","employee"]','["LT"]',"",1,now,now]));
+  (await getConn().query("INSERT INTO auth_sessions(id_hash,user_id,expires_at,created_at) VALUES($1,$2,$3,$4)",[tokenDigest(token),userId,new Date(Date.now() + 60_000).toISOString(),now]));
   for (const skill of skills) {
-    const current = getAgentSkills(kolAgentScopeContext().agent_id).find((row) => row.skill_id === skill);
-    if (!current) setAgentSkill(kolAgentScopeContext().agent_id, skill, true, 0);
-    else if (!current.enabled) setAgentSkill(kolAgentScopeContext().agent_id, skill, true, Number(current.version));
+    const current = (await getAgentSkills((await kolAgentScopeContext()).agent_id)).find((row) => row.skill_id === skill);
+    if (!current) (await setAgentSkill((await kolAgentScopeContext()).agent_id, skill, true, 0));
+    else if (!current.enabled) (await setAgentSkill((await kolAgentScopeContext()).agent_id, skill, true, Number(current.version)));
   }
   if (qualifyAgent) {
-    const personRef = syncUserOrganization(userId,"org:lt_team");
-    createAgentBinding({agent_id: kolAgentScopeContext().agent_id,target_type: "person",target_id: personRef,
-      company_id: "company:amperetime",source: "test"});
+    const personRef = (await syncUserOrganization(userId,"org:lt_team"));
+    (await createAgentBinding({agent_id: (await kolAgentScopeContext()).agent_id,target_type: "person",target_id: personRef,
+      company_id: "company:amperetime",source: "test"}));
   }
   return `lingong_session=${token}`;
 }

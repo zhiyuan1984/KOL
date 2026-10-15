@@ -1,21 +1,39 @@
 /**
- * Mail memory increment job: zero-model read path.
- * Triggered by sync completion and by the `mail_memory_increment` cron job.
- * Scans local mail items/threads, fills missing/outdated translations,
- * per-message summaries and conversation/person digests, and writes back
- * memory columns only. Never sends mail, never writes formal stage.
+ * Mail memory increment job: source-backed local-memory enrichment only.
+ * The cron path never sends mail or updates a formal stage. Model calls happen
+ * outside database transactions; each accepted source-version write and its
+ * durable run checkpoint commit on the same PostgreSQL transaction client.
  */
-import crypto from "node:crypto";
-import { audit, getConn, nowIso } from "../db.js";
-import { postgresQuery } from "../postgres/pool.js";
-import { createNativeMemoryRun, finishNativeMemoryRun, listNativeMemoryItems, listNativeMemoryThreads, listNativePersonItems, listNativePersonKeys, listNativeThreadItems, mailBodyFingerprint, readNativePersonMemory, writeNativeItemMemoryIfFresh, writeNativePersonMemory, writeNativeThreadDigest } from "../postgres/mail-memory-repository.js";
-import type { Json, Row } from "../types.js";
+import { postgresQuery, postgresTransaction } from "../postgres/pool.js";
+import { safeEmployeeId } from "./starry-bind.js";
+import { acquireMailMemoryIncrementLock } from "./mail-memory-run-lock.js";
+import { trackBackgroundWork } from "../background-work.js";
 import {
-  itemsForConversation,
-  markItemMemoryPending,
-  persistItemMemory,
-  persistThreadDigest,
-} from "./mail-memory.js";
+  checkpointNativeMemoryRun,
+  createNativeMemoryRun,
+  findNativeMailItem,
+  findNativeMailThread,
+  finishNativeMemoryRun,
+  finishNativeMemoryRunWithAudit,
+  listNativeConversationItems,
+  listNativeMemoryItems,
+  listNativeMemoryThreads,
+  listNativePersonItems,
+  listNativePersonKeys,
+  listNativeThreadItems,
+  mailBodyFingerprint,
+  mailMemorySourceFingerprint,
+  markNativeMailMemoryPending,
+  readNativeOnDemandMemory,
+  readNativePersonMemory,
+  writeNativeItemMemoryIfFresh,
+  writeNativeMailMemoryAudit,
+  writeNativeOnDemandMemory,
+  writeNativePersonMemory,
+  writeNativeThreadDigest,
+  type NativeOnDemandMemory,
+} from "../postgres/mail-memory-repository.js";
+import type { Json, Row } from "../types.js";
 import {
   analyzeMailBody,
   generateMailConversationDigest,
@@ -33,41 +51,55 @@ export type MailMemoryStats = {
   digested: number;
   persons: number;
   errors: number;
+  /** 已创建的 PostgreSQL 原生运行；锁竞争在创建前返回，故保持 undefined。 */
+  native_run_id?: string;
+  /** Any accepted local-memory/attempt write, including body_analysis or pending state. */
+  persisted?: number;
+  body_analyzed?: number;
+  source_changed?: number;
+  skipped?: number;
+  provider_failed?: boolean;
+  completion_scope?: "bounded_increment_batch" | "budget_exhausted" | "provider_failed" | "skipped_lock_contended";
+  remaining_work?: boolean | "unknown";
+  budget_exhausted?: boolean;
   error?: string;
 };
 
 const inflight = new Map<string, Promise<MailMemoryStats>>();
+type OnDemandMemory = NativeOnDemandMemory;
+const nowIso = (): string => new Date().toISOString();
+const EMPTY_STATS = (): MailMemoryStats => ({
+  scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 0,
+  persisted: 0, body_analyzed: 0, source_changed: 0, skipped: 0,
+});
 
-type OnDemandMemory = {
-  status: "未开始" | "已完成";
-  mailbox: string;
-  subject: string;
-  conversation_id: string;
-  message_id?: string;
-  text: string;
-  fingerprint: string;
-  completed_at?: string;
-  error?: string;
-};
+/** Soft wall-clock budget. It is checked before work starts, never used to abort an in-flight model request. */
+function incrementBudgetMs(): number {
+  const configured = Number(process.env.MAIL_MEMORY_INCREMENT_BUDGET_MS || 240_000);
+  return Number.isFinite(configured) ? Math.max(0, Math.floor(configured)) : 240_000;
+}
+
+async function onDemandActorId(): Promise<Awaited<string>> {
+  const actorId = String((await safeEmployeeId()) || "").trim();
+  if (!actorId) throw new Error("mail_memory_actor_required");
+  return actorId;
+}
 
 function onDemandKey(kind: "summary" | "translation", mailbox: string, conversationId: string, messageId = ""): string {
   return `mail_${kind}_memory:${mailbox}:${conversationId}:${messageId}`;
 }
 
-export function readOnDemandMemory(key: string): OnDemandMemory | null {
-  const row = getConn().prepare("SELECT value FROM app_state WHERE key=?").get(key) as { value?: string } | undefined;
-  if (!row?.value) return null;
-  try { return JSON.parse(row.value) as OnDemandMemory; } catch { return null; }
+export async function readOnDemandMemory(key: string): Promise<OnDemandMemory | null> {
+  return readNativeOnDemandMemory((await onDemandActorId()), key);
 }
 
-export function writeOnDemandMemory(key: string, value: OnDemandMemory): void {
-  getConn().prepare("INSERT OR REPLACE INTO app_state (key,value) VALUES (?,?)").run(key, JSON.stringify(value));
+export async function writeOnDemandMemory(key: string, value: OnDemandMemory): Promise<void> {
+  await writeNativeOnDemandMemory((await onDemandActorId()), key, value);
 }
 
-function onDemandFingerprint(rows: Row[]): string {
-  return crypto.createHash("sha256").update(rows.map((row) => [row.id, row.occurred_at, row.body_text].join("\n")).join("\n---\n")).digest("hex").slice(0, 32);
-}
+function onDemandFingerprint(rows: Row[]): string { return mailMemorySourceFingerprint(rows); }
 
+/** Clean text is model input only; CAS always retains the stored canonical bytes. */
 function mailBodyOf(row: Row): string {
   const direct = [row.body_text, row.body, row.text, row.content, row.snippet]
     .map((value) => typeof value === "string" ? value.trim() : "")
@@ -77,287 +109,286 @@ function mailBodyOf(row: Row): string {
   return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 }
 
-function bodyFingerprint(body: string): string {
-  return mailBodyFingerprint(body);
+function canonicalMailBodyOf(row: Row): string {
+  const bodyText = typeof row.body_text === "string" ? row.body_text : "";
+  if (bodyText.trim()) return bodyText;
+  const direct = [row.body, row.text, row.content, row.snippet]
+    .find((value): value is string => typeof value === "string" && Boolean(value.trim()));
+  return direct || "";
 }
 
-function isRemoteSummary(source: string): boolean {
-  return ["codex_memory", "luna", "openai", "starry_mcp"].includes(String(source || ""));
-}
-
-function isRemoteDigest(source: string): boolean {
-  return ["codex_memory", "luna"].includes(String(source || ""));
-}
+function bodyFingerprint(body: string): string { return mailBodyFingerprint(body); }
+function isRemoteSummary(source: string): boolean { return ["codex_memory", "luna", "openai", "starry_mcp"].includes(String(source || "")); }
+function isRemoteDigest(source: string): boolean { return ["codex_memory", "luna"].includes(String(source || "")); }
+function isTrustedTranslation(source: string): boolean { return ["codex_memory", "luna", "starry_mcp"].includes(String(source || "")); }
 
 function itemTranslationNeeded(row: Row): boolean {
-  const body = String(row.body_text || "").trim();
-  if (!body) return false;
-  const hasTranslation = Boolean(String(row.translation_zh || "").trim());
-  const fp = bodyFingerprint(body);
-  return !hasTranslation || String(row.memory_fingerprint || "") !== fp;
+  const body = String(row.body_text ?? "");
+  if (!body.trim()) return false;
+  const hasTranslation = Boolean(String(row.translation_zh || "").trim()) && isTrustedTranslation(String(row.translation_source || ""));
+  return !hasTranslation || String(row.memory_fingerprint || "") !== bodyFingerprint(body);
 }
 
 function itemSummaryNeeded(row: Row): boolean {
-  const body = String(row.body_text || "").trim();
-  if (!body) return false;
-  const hasSummary = Boolean(String(row.summary || row.summary_zh || "").trim())
-    && isRemoteSummary(String(row.summary_source || ""));
-  const fp = bodyFingerprint(body);
-  return !hasSummary || String(row.memory_fingerprint || "") !== fp;
+  const body = String(row.body_text ?? "");
+  if (!body.trim()) return false;
+  const hasSummary = Boolean(String(row.summary || row.summary_zh || "").trim()) && isRemoteSummary(String(row.summary_source || ""));
+  return !hasSummary || String(row.memory_fingerprint || "") !== bodyFingerprint(body);
 }
 
-function threadFingerprint(rows: Row[]): string {
-  return rows
-    .map((r) => [
-      String(r.id || ""),
-      String(r.occurred_at || ""),
-      String(r.body_text || "").length,
-    ].join(":"))
-    .join("|");
+function threadFingerprint(rows: Row[]): string { return mailMemorySourceFingerprint(rows); }
+
+export async function readPersonDigest(mailbox: string, peerEmail: string): Promise<ThreadDigest | null> {
+  const row = await readNativePersonMemory(mailbox, peerEmail);
+  if (!row) return null;
+  return {
+    text: String(row.digest_text || ""), source: String(row.digest_source || ""), mail_count: Number(row.mail_count || 0), fingerprint: String(row.digest_fingerprint || ""),
+    ...(row.generated_at ? { generated_at: String(row.generated_at) } : {}), ...(row.error ? { error: String(row.error) } : {}),
+  };
 }
 
-function personDigestKey(mailbox: string, peerEmail: string): string {
-  return `mail_person_digest:${mailbox}:${peerEmail}`;
-}
-
-export function readPersonDigest(mailbox: string, peerEmail: string): ThreadDigest | null {
-  const raw = getConn()
-    .prepare("SELECT value FROM app_state WHERE key=?")
-    .get(personDigestKey(mailbox, peerEmail)) as { value: string } | undefined;
-  if (!raw?.value) return null;
-  try {
-    const parsed = JSON.parse(raw.value) as ThreadDigest;
-    if (!parsed || typeof parsed !== "object") return null;
-    return {
-      text: String(parsed.text || ""),
-      source: String(parsed.source || ""),
-      mail_count: Number(parsed.mail_count || 0),
-      fingerprint: String(parsed.fingerprint || ""),
-      ...(parsed.generated_at ? { generated_at: String(parsed.generated_at) } : {}),
-      ...(parsed.error ? { error: String(parsed.error) } : {}),
-      ...(parsed.failed_at ? { failed_at: String(parsed.failed_at) } : {}),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function writePersonDigest(mailbox: string, peerEmail: string, digest: ThreadDigest): void {
-  getConn()
-    .prepare("INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)")
-    .run(personDigestKey(mailbox, peerEmail), JSON.stringify(digest));
-}
-
-async function digestWithRemote(rows: Row[]): Promise<{ text?: string; source?: string; error?: string }> {
+/** Cron's digest phases deliberately use only the real Codex app-server helper. */
+async function digestWithRemote(rows: Row[]): Promise<{ text?: string; source?: "codex_memory"; error?: string }> {
   if (!remoteMailAnalysisEnabled() || !rows.length) return { error: "disabled" };
-  // Reuse the single-message summarizer for a block of bodies: it returns one
-  // summary per row. For a conversation/person digest we synthesize from them.
   const summaries = await summarizeWithCodexAppServer(rows);
-  if (summaries && summaries.some(Boolean)) {
-    const text = summaries.filter(Boolean).join("；");
-    return { text, source: "codex_memory" };
-  }
+  if (summaries && summaries.some(Boolean)) return { text: summaries.filter(Boolean).join("；"), source: "codex_memory" };
   return { error: "unavailable" };
 }
 
-async function ensureItemMemory(row: Row): Promise<{ translated: boolean; summarized: boolean; error: boolean }> {
-  const body = String(row.body_text || "").trim();
-  const fp = bodyFingerprint(body);
+type ItemOutcome = {
+  translationZh?: string; translationSource?: string; summary?: string; summaryZh?: string; summarySource?: string; source: string; error?: string;
+  translated: boolean; summarized: boolean; bodyAnalyzed: boolean; providerUnavailable: boolean; budgetExhausted: boolean;
+};
+
+function sourceLineage(...sources: Array<string | undefined>): string {
+  const unique = [...new Set(sources.map((source) => String(source || "").trim()).filter(Boolean))];
+  return unique.join("+") || "analysis_failed";
+}
+
+/** Does model I/O only; its result is persisted later in a SQL-only transaction. */
+async function prepareItemMemory(row: Row, budgetExceeded: () => boolean): Promise<ItemOutcome> {
+  const body = String(row.body_text ?? "");
   const needTranslation = itemTranslationNeeded(row);
   const needSummary = itemSummaryNeeded(row);
+  let translationZh: string | undefined;
+  let translationSource: string | undefined;
+  let summary: string | undefined;
+  let summarySource: string | undefined;
+  let error = "";
   let translated = false;
   let summarized = false;
-  let error = false;
-  const updates: Parameters<typeof persistItemMemory>[1] = {
-    fingerprint: fp,
-    generated_at: nowIso(),
-    attempts: Number(row.memory_attempts || 0) + 1,
-  };
+  let bodyAnalyzed = false;
+  let budgetExhausted = false;
 
   if (needTranslation) {
     try {
       const result = await translateMailBodyZh(body);
-      if (result) {
-        updates.translation_zh = result.text;
-        updates.translation_source = result.source;
-        translated = true;
-      } else {
-        updates.translation_source = "pending";
-        error = true;
-      }
+      if (result) { translationZh = result.text; translationSource = result.source; translated = true; }
+      else { translationSource = "pending"; error = "translation_provider_unavailable"; }
     } catch (err) {
-      updates.translation_source = "pending";
-      updates.error = err instanceof Error ? err.message : String(err);
-      error = true;
+      translationSource = "pending";
+      error = err instanceof Error ? err.message : String(err);
     }
   }
 
   if (needSummary) {
-    try {
-      const summaries = await summarizeWithCodexAppServer([{
-        id: row.id,
-        body,
-        subject: row.subject,
-        direction: row.direction,
-      }]);
-      const text = summaries?.[0]?.trim();
-      if (text) {
-        updates.summary = text;
-        updates.summary_zh = text;
-        updates.summary_source = "codex_memory";
-        summarized = true;
-      } else {
-        const fallback = analyzeMailBody({ body, direction: row.direction });
-        updates.summary = fallback;
-        updates.summary_zh = fallback;
-        updates.summary_source = "body_analysis";
-        error = true;
+    if (budgetExceeded()) {
+      budgetExhausted = true;
+    } else {
+      try {
+        const summaries = await summarizeWithCodexAppServer([{ id: row.id, body, subject: row.subject, direction: row.direction }]);
+        const summaryText = summaries?.[0]?.trim();
+        if (summaryText) { summary = summaryText; summarySource = "codex_memory"; summarized = true; }
+        else {
+          summary = analyzeMailBody({ body, direction: row.direction });
+          summarySource = "body_analysis";
+          bodyAnalyzed = Boolean(summary);
+          error = error || "summary_provider_unavailable";
+        }
+      } catch (err) {
+        summary = analyzeMailBody({ body, direction: row.direction });
+        summarySource = "body_analysis";
+        bodyAnalyzed = Boolean(summary);
+        error = error || (err instanceof Error ? err.message : String(err));
       }
-    } catch (err) {
-      const fallback = analyzeMailBody({ body, direction: row.direction });
-      updates.summary = fallback;
-      updates.summary_zh = fallback;
-      updates.summary_source = "body_analysis";
-      updates.error = err instanceof Error ? err.message : String(err);
-      error = true;
     }
   }
 
-  if (error && !translated && !summarized) {
-    updates.source = "analysis_failed";
-  } else if (needTranslation || needSummary) {
-    updates.source = translated || summarized ? "codex_memory" : String(row.memory_source || "");
-  }
-
-  await writeNativeItemMemoryIfFresh({ itemId: String(row.id), body, translationZh: updates.translation_zh, translationSource: updates.translation_source, summary: updates.summary, summaryZh: updates.summary_zh, summarySource: updates.summary_source, source: updates.source, error: updates.error || null });
-  return { translated, summarized, error };
+  const modelSucceeded = translated || summarized;
+  return {
+    translationZh, translationSource, summary, summaryZh: summary, summarySource,
+    source: sourceLineage(translationSource, summarySource), error: error || undefined,
+    translated, summarized, bodyAnalyzed, providerUnavailable: Boolean(error) && !modelSucceeded,
+    budgetExhausted,
+  };
 }
 
-async function ensureItemTranslation(row: Row): Promise<{ translated: boolean; error: boolean }> {
-  const body = String(row.body_text || "").trim();
-  if (!body) return { translated: false, error: true };
-  const updates: Parameters<typeof persistItemMemory>[1] = {
-    fingerprint: bodyFingerprint(body),
-    generated_at: nowIso(),
-    attempts: Number(row.memory_attempts || 0) + 1,
-  };
-  try {
-    const result = await translateMailBodyZh(body);
-    if (!result) {
-      updates.translation_source = "pending";
-      updates.source = "analysis_failed";
-      persistItemMemory(String(row.id), updates);
-      return { translated: false, error: true };
-    }
-    updates.translation_zh = result.text;
-    updates.translation_source = result.source;
-    updates.source = result.source;
-    persistItemMemory(String(row.id), updates);
-    return { translated: true, error: false };
-  } catch (err) {
-    updates.translation_source = "pending";
-    updates.source = "analysis_failed";
-    updates.error = err instanceof Error ? err.message : String(err);
-    persistItemMemory(String(row.id), updates);
-    return { translated: false, error: true };
-  }
-}
-
-async function ensureThreadDigest(thread: Row): Promise<boolean> {
-  const conversationId = String(thread.conversation_id || "");
-  const mailbox = String(thread.mailbox || "");
-  if (!conversationId) return false;
-  const items = (await listNativeThreadItems(String(thread.id))).map((item) => ({
-    ...item,
-    body: String(item.body_text || item.body || item.snippet || ""),
-    snippet: String(item.snippet || item.body_text || ""),
-  }));
-  if (!items.some((item) => String(item.body || "").trim())) return false;
-  const stored: ThreadDigest = {
-    text: String(thread.digest_text || ""),
-    source: String(thread.digest_source || ""),
-    mail_count: Number(thread.digest_mail_count || 0),
-    fingerprint: String(thread.digest_fingerprint || ""),
-    ...(thread.digest_error ? { error: String(thread.digest_error) } : {}),
-    ...(thread.digest_failed_at ? { failed_at: String(thread.digest_failed_at) } : {}),
-  };
-  const fingerprint = threadFingerprint(items);
-  const trusted = stored.fingerprint === fingerprint && isRemoteDigest(stored.source) ? stored.text : "";
-  if (trusted) return false;
-  const remote = await digestWithRemote(items);
-  const digest: ThreadDigest = remote.text
-    ? {
-      text: remote.text,
-      source: remote.source || "codex_memory",
-      mail_count: items.filter((item) => String(item.body || "").trim()).length,
-      fingerprint,
-    }
-    : {
-      text: threadDigestOf(items, stored).text,
-      source: "analysis_failed",
-      mail_count: items.filter((item) => String(item.body || "").trim()).length,
-      fingerprint,
-      error: remote.error || "unavailable",
-      failed_at: nowIso(),
+async function persistItemOutcome(runId: string, row: Row, body: string, outcome: ItemOutcome, stats: MailMemoryStats): Promise<{ persisted: boolean; sourceChanged: boolean }> {
+  const before = { ...stats };
+  const result = await postgresTransaction(async () => {
+    const applied = await writeNativeItemMemoryIfFresh({
+      itemId: String(row.id), body, translationZh: outcome.translationZh, translationSource: outcome.translationSource,
+      summary: outcome.summary, summaryZh: outcome.summaryZh, summarySource: outcome.summarySource, source: outcome.source, error: outcome.error || null,
+    });
+    if (!applied) return { applied: false, next: before };
+    const next: MailMemoryStats = {
+      ...before,
+      translated: before.translated + (outcome.translated ? 1 : 0), summarized: before.summarized + (outcome.summarized ? 1 : 0),
+      errors: before.errors + (outcome.error ? 1 : 0), persisted: (before.persisted || 0) + 1,
+      body_analyzed: (before.body_analyzed || 0) + (outcome.bodyAnalyzed ? 1 : 0),
     };
-  await writeNativeThreadDigest(String(thread.id), { text: digest.text, source: digest.source, fingerprint: digest.fingerprint, error: digest.error, failedAt: digest.failed_at, mailCount: digest.mail_count });
-  return remote.text ? true : false;
+    await checkpointNativeMemoryRun(runId, next);
+    return { applied: true, next };
+  });
+  if (result.applied) Object.assign(stats, result.next);
+  else {
+    stats.source_changed = (stats.source_changed || 0) + 1;
+    if (outcome.error) stats.errors += 1;
+  }
+  return { persisted: result.applied, sourceChanged: !result.applied };
 }
 
-async function ensurePersonDigest(mailbox: string, peerEmail: string): Promise<boolean> {
-  const items = await listNativePersonItems(mailbox, peerEmail);
-  const bodies = items.map((item) => ({ ...item, body: String(item.body_text || "").trim() })).filter((item) => item.body);
-  if (!bodies.length) return false;
-  const storedRow = await readNativePersonMemory(mailbox, peerEmail);
-  const stored: ThreadDigest | null = storedRow ? { text: String(storedRow.digest_text || ""), source: String(storedRow.digest_source || ""), mail_count: Number(storedRow.mail_count || 0), fingerprint: String(storedRow.digest_fingerprint || ""), ...(storedRow.error ? { error: String(storedRow.error) } : {}), ...(storedRow.generated_at ? { generated_at: String(storedRow.generated_at) } : {}) } : null;
-  const fingerprint = threadFingerprint(bodies);
-  if (stored && stored.fingerprint === fingerprint && isRemoteDigest(stored.source)) return false;
-  const remote = await digestWithRemote(bodies);
-  const digest: ThreadDigest = remote.text
-    ? { text: remote.text, source: remote.source || "codex_memory", mail_count: bodies.length, fingerprint, generated_at: nowIso() }
-    : { text: threadDigestOf(bodies, stored).text, source: "analysis_failed", mail_count: bodies.length, fingerprint, generated_at: nowIso(), error: remote.error || "unavailable", failed_at: nowIso() };
-  await writeNativePersonMemory({ id: `pmm_${Buffer.from(`${mailbox}:${peerEmail}`).toString("base64url")}`, mailbox, peerEmail, text: digest.text, source: digest.source, fingerprint: digest.fingerprint, mailCount: digest.mail_count, generatedAt: digest.generated_at, error: digest.error || null });
-  return remote.text ? true : false;
+type DigestOutcome = { persisted: boolean; generated: boolean; bodyAnalyzed: boolean; providerUnavailable: boolean };
+
+async function persistThreadDigestOutcome(runId: string, thread: Row, sourceRows: Row[], digest: ThreadDigest, generated: boolean, providerUnavailable: boolean, stats: MailMemoryStats): Promise<DigestOutcome> {
+  const before = { ...stats };
+  const result = await postgresTransaction(async (client) => {
+    // No model/network call is made in this transaction. Re-read the complete
+    // source on this physical client before accepting its derived digest.
+    const current = await listNativeThreadItems(String(thread.id), client);
+    if (threadFingerprint(current) !== threadFingerprint(sourceRows)) return { applied: false, next: before };
+    const applied = await writeNativeThreadDigest(String(thread.id), { text: digest.text, source: digest.source, fingerprint: digest.fingerprint, error: digest.error, failedAt: digest.failed_at, mailCount: digest.mail_count }, client);
+    if (!applied) return { applied: false, next: before };
+    const next: MailMemoryStats = {
+      ...before, digested: before.digested + (generated ? 1 : 0), errors: before.errors + (generated ? 0 : 1),
+      persisted: (before.persisted || 0) + 1, body_analyzed: (before.body_analyzed || 0) + (generated ? 0 : 1),
+    };
+    await checkpointNativeMemoryRun(runId, next, client);
+    return { applied: true, next };
+  });
+  if (result.applied) Object.assign(stats, result.next);
+  else { stats.source_changed = (stats.source_changed || 0) + 1; if (!generated) stats.errors += 1; }
+  return { persisted: result.applied, generated: generated && result.applied, bodyAnalyzed: !generated && result.applied, providerUnavailable };
 }
-export function markPendingMailMemory(mailbox?: string): void {
+
+async function ensureThreadDigest(thread: Row, runId: string, stats: MailMemoryStats): Promise<DigestOutcome | null> {
+  const sourceRows = await listNativeThreadItems(String(thread.id));
+  const items = sourceRows.map((item) => ({ ...item, body: String(item.body_text || item.body || item.snippet || ""), snippet: String(item.snippet || item.body_text || "") }));
+  if (!items.some((item) => String(item.body || "").trim())) return null;
+  const stored: ThreadDigest = { text: String(thread.digest_text || ""), source: String(thread.digest_source || ""), mail_count: Number(thread.digest_mail_count || 0), fingerprint: String(thread.digest_fingerprint || ""), ...(thread.digest_error ? { error: String(thread.digest_error) } : {}), ...(thread.digest_failed_at ? { failed_at: String(thread.digest_failed_at) } : {}) };
+  const fingerprint = threadFingerprint(sourceRows);
+  if (stored.fingerprint === fingerprint && isRemoteDigest(stored.source) && stored.text) return null;
+  const remote = await digestWithRemote(items);
+  const generated = Boolean(remote.text);
+  const digest: ThreadDigest = generated
+    ? { text: remote.text!, source: "codex_memory", mail_count: items.filter((item) => String(item.body || "").trim()).length, fingerprint }
+    : { text: threadDigestOf(items, stored).text, source: "analysis_failed", mail_count: items.filter((item) => String(item.body || "").trim()).length, fingerprint, error: remote.error || "unavailable", failed_at: nowIso() };
+  return persistThreadDigestOutcome(runId, thread, sourceRows, digest, generated, !generated, stats);
+}
+
+async function ensurePersonDigest(mailbox: string, peerEmail: string, runId: string, stats: MailMemoryStats): Promise<DigestOutcome | null> {
+  const sourceRows = await listNativePersonItems(mailbox, peerEmail);
+  const bodies = sourceRows.map((item) => ({ ...item, body: String(item.body_text || "") })).filter((item) => item.body.trim());
+  if (!bodies.length) return null;
+  const storedRow = await readNativePersonMemory(mailbox, peerEmail);
+  const stored: ThreadDigest | null = storedRow ? { text: String(storedRow.digest_text || ""), source: String(storedRow.digest_source || ""), mail_count: Number(storedRow.mail_count || 0), fingerprint: String(storedRow.digest_fingerprint || ""), ...(storedRow.error ? { error: String(storedRow.error) } : {}) } : null;
+  const fingerprint = threadFingerprint(sourceRows);
+  if (stored && stored.fingerprint === fingerprint && isRemoteDigest(stored.source) && stored.text) return null;
+  const remote = await digestWithRemote(bodies);
+  const generated = Boolean(remote.text);
+  const digest: ThreadDigest = generated
+    ? { text: remote.text!, source: "codex_memory", mail_count: bodies.length, fingerprint, generated_at: nowIso() }
+    : { text: threadDigestOf(bodies, stored).text, source: "analysis_failed", mail_count: bodies.length, fingerprint, generated_at: nowIso(), error: remote.error || "unavailable", failed_at: nowIso() };
+  const before = { ...stats };
+  const result = await postgresTransaction(async (client) => {
+    // The peer selection and every source member are rechecked in this SQL-only
+    // transaction; SERIALIZABLE retry therefore repeats no model I/O.
+    const current = await listNativePersonItems(mailbox, peerEmail, client);
+    if (threadFingerprint(current) !== threadFingerprint(sourceRows)) return { applied: false, next: before };
+    await writeNativePersonMemory({ id: `pmm_${Buffer.from(`${mailbox}:${peerEmail}`).toString("base64url")}`, mailbox, peerEmail, text: digest.text, source: digest.source, fingerprint: digest.fingerprint, mailCount: digest.mail_count, generatedAt: digest.generated_at, error: digest.error || null }, client);
+    const next: MailMemoryStats = {
+      ...before, persons: before.persons + (generated ? 1 : 0), errors: before.errors + (generated ? 0 : 1),
+      persisted: (before.persisted || 0) + 1, body_analyzed: (before.body_analyzed || 0) + (generated ? 0 : 1),
+    };
+    await checkpointNativeMemoryRun(runId, next, client);
+    return { applied: true, next };
+  });
+  if (result.applied) Object.assign(stats, result.next);
+  else { stats.source_changed = (stats.source_changed || 0) + 1; if (!generated) stats.errors += 1; }
+  return { persisted: result.applied, generated: generated && result.applied, bodyAnalyzed: !generated && result.applied, providerUnavailable: !generated };
+}
+export async function markPendingMailMemory(mailbox?: string): Promise<void> {
   if (!remoteMailAnalysisEnabled()) return;
-  const boxClause = mailbox ? "AND IFNULL(t.mailbox,'')=?" : "";
-  const args = mailbox ? [mailbox] : [];
-  const db = getConn();
-  const items = db.prepare(
-    `SELECT i.id FROM kol_mail_items i
-     JOIN kol_mail_threads t ON t.id = i.thread_id
-     WHERE IFNULL(i.body_text,'') != '' ${boxClause}
-       AND (i.translation_zh IS NULL OR i.translation_zh = '')
-       AND IFNULL(i.memory_source,'') != 'pending'`,
-  ).all(...args) as { id: string }[];
-  for (const item of items) markItemMemoryPending(item.id);
+  await markNativeMailMemoryPending(mailbox);
 }
 
 export async function runMailMemoryIncrement(mailbox?: string): Promise<MailMemoryStats> {
-  const stats: MailMemoryStats = { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 0 };
-  if (!remoteMailAnalysisEnabled()) return stats;
-  const runId = await createNativeMemoryRun(mailbox || "*");
+  const stats = EMPTY_STATS();
+  const lock = await acquireMailMemoryIncrementLock();
+  if (!lock) {
+    return { ...stats, skipped: 1, completion_scope: "skipped_lock_contended", remaining_work: "unknown" };
+  }
+  let runId = "";
   try {
-    const items = await listNativeMemoryItems({ mailbox, limit: 5000 });
-    for (const row of items) { stats.scanned += 1; const result = await ensureItemMemory(row); if (result.translated) stats.translated += 1; if (result.summarized) stats.summarized += 1; if (result.error) stats.errors += 1; }
-    const threads = await listNativeMemoryThreads(mailbox);
-    for (const thread of threads) { try { if (await ensureThreadDigest(thread)) stats.digested += 1; } catch (err) { stats.errors += 1; audit("host", "mail_memory.thread_digest_failed", { thread_id: thread.id, error: err instanceof Error ? err.message : String(err) }); } }
-    const peers = await listNativePersonKeys(mailbox);
-    for (const peer of peers) { try { if (await ensurePersonDigest(peer.mailbox, peer.peer_email)) stats.persons += 1; } catch (err) { stats.errors += 1; audit("host", "mail_memory.person_digest_failed", { mailbox: peer.mailbox, peer_email: peer.peer_email, error: err instanceof Error ? err.message : String(err) }); } }
-    await finishNativeMemoryRun(runId, { ...stats, status: stats.errors ? "failed" : "succeeded" });
+    runId = await createNativeMemoryRun(mailbox || "*");
+    stats.native_run_id = runId;
+    if (!remoteMailAnalysisEnabled()) {
+      stats.errors = 1; stats.provider_failed = true; stats.error = "mail_memory_provider_disabled";
+      stats.completion_scope = "provider_failed"; stats.remaining_work = true;
+      await finishNativeMemoryRunWithAudit(runId, { ...stats, status: "failed" }, "mail_memory.increment", { mailbox: mailbox || "*", repository: "postgresql_native", ...stats });
+      return stats;
+    }
+    const startedAt = Date.now();
+    const budgetExceeded = (): boolean => Date.now() - startedAt >= incrementBudgetMs();
+    let stop = false;
+    const items = await listNativeMemoryItems({ mailbox, limit: 5000, pendingOnly: true });
+    for (const row of items) {
+      if (budgetExceeded()) { stats.budget_exhausted = true; stop = true; break; }
+      stats.scanned += 1;
+      const body = String(row.body_text ?? "");
+      const outcome = await prepareItemMemory(row, budgetExceeded);
+      await persistItemOutcome(runId, row, body, outcome, stats);
+      if (outcome.budgetExhausted) { stats.budget_exhausted = true; stop = true; break; }
+      if (outcome.providerUnavailable) { stats.provider_failed = true; stats.error = "mail_memory_provider_unavailable"; stop = true; break; }
+    }
+    if (!stop) {
+      for (const thread of await listNativeMemoryThreads(mailbox)) {
+        if (budgetExceeded()) { stats.budget_exhausted = true; stop = true; break; }
+        const outcome = await ensureThreadDigest(thread, runId, stats);
+        if (outcome?.providerUnavailable) { stats.provider_failed = true; stats.error = "mail_memory_provider_unavailable"; stop = true; break; }
+      }
+    }
+    if (!stop) {
+      for (const peer of await listNativePersonKeys(mailbox)) {
+        if (budgetExceeded()) { stats.budget_exhausted = true; stop = true; break; }
+        const outcome = await ensurePersonDigest(peer.mailbox, peer.peer_email, runId, stats);
+        if (outcome?.providerUnavailable) { stats.provider_failed = true; stats.error = "mail_memory_provider_unavailable"; stop = true; break; }
+      }
+    }
+    const pendingItems = await listNativeMemoryItems({ mailbox, limit: 1, pendingOnly: true });
+    stats.remaining_work = Boolean(stats.provider_failed || stats.budget_exhausted || pendingItems.length || stats.source_changed);
+    stats.completion_scope = stats.provider_failed ? "provider_failed" : stats.budget_exhausted ? "budget_exhausted" : "bounded_increment_batch";
+    await finishNativeMemoryRunWithAudit(runId, { ...stats, status: stats.errors ? "failed" : "succeeded" }, "mail_memory.increment", {
+      mailbox: mailbox || "*", repository: "postgresql_native", ...stats,
+    });
+    return stats;
   } catch (err) {
     stats.errors += 1; stats.error = err instanceof Error ? err.message : String(err);
-    await finishNativeMemoryRun(runId, { ...stats, status: "failed", error: stats.error });
+    if (runId) {
+      // The atomic finish+audit failed or an earlier DB operation failed. Mark
+      // the owned run failed without claiming the increment audit was written.
+      try { await finishNativeMemoryRun(runId, { ...stats, status: "failed", error: stats.error }); } catch { /* preserve original failure */ }
+    }
     throw err;
+  } finally {
+    await lock.release();
   }
-  audit("host", "mail_memory.increment", { mailbox: mailbox || "*", repository: "postgresql_native", ...stats });
-  return stats;
 }
-export function triggerMailMemoryIncrement(mailbox?: string): void {
+
+export async function triggerMailMemoryIncrement(mailbox?: string): Promise<Awaited<void>> {
   const key = mailbox || "*";
   if (inflight.has(key)) return;
-  const promise = runMailMemoryIncrement(mailbox)
+  const promise = trackBackgroundWork(runMailMemoryIncrement(mailbox)
     .catch(async (err) => {
       // This is detached background work. A second database failure while
       // reporting the first must not reject an unobserved promise or stop the
@@ -376,109 +407,132 @@ export function triggerMailMemoryIncrement(mailbox?: string): void {
       }
       return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1 };
     })
-    .finally(() => inflight.delete(key));
+    .finally(() => inflight.delete(key)), "mail.memory.increment");
   inflight.set(key, promise);
 }
 
+/** Failure receipt and audit are one SQL-only transaction on the captured actor context. */
+async function persistOnDemandFailure(input: { actorId: string; memoryKey: string; value: OnDemandMemory; eventType: string; payload: Json }): Promise<void> {
+  await postgresTransaction(async (client) => {
+    await writeNativeOnDemandMemory(input.actorId, input.memoryKey, input.value, client);
+    await writeNativeMailMemoryAudit(input.eventType, input.payload, client);
+  });
+}
+
 /** Execute the employee-facing mail_summary Skill for one selected conversation. */
-export function triggerMailSummarySkill(mailbox: string, conversationId: string): Promise<MailMemoryStats> {
-  const key = `skill:mail_summary:${mailbox}:${conversationId}`;
+export async function triggerMailSummarySkill(mailbox: string, conversationId: string): Promise<MailMemoryStats> {
+  const actorId = await onDemandActorId();
+  const key = `skill:mail_summary:${actorId}:${mailbox}:${conversationId}`;
   const existing = inflight.get(key);
   if (existing) return existing;
+  const memoryKey = onDemandKey("summary", mailbox, conversationId);
   const promise = (async (): Promise<MailMemoryStats> => {
-    const thread = getConn().prepare("SELECT * FROM kol_mail_threads WHERE conversation_id=? AND mailbox=? LIMIT 1")
-      .get(conversationId, mailbox) as Row | undefined;
-    if (!thread) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: "未找到对应的邮件主题或会话已失效" };
-    const items = itemsForConversation(conversationId, mailbox) as Row[];
-    const rows = items.map((item): Row => ({ ...item, body_text: mailBodyOf(item) })).filter((item) => item.body_text);
-    if (!rows.length) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: "选中的邮件主题没有可用正文（已检查 body_text、body、text、content、snippet 和 body_html）" };
-    const fingerprint = onDemandFingerprint(rows);
-    const memoryKey = onDemandKey("summary", mailbox, conversationId);
-    const previous = readOnDemandMemory(memoryKey);
-    if (previous?.status === "已完成" && previous.fingerprint === fingerprint) {
-      return { scanned: rows.length, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 0 };
-    }
-    const result = await generateMailConversationDigest(rows.map((row) => ({
-      ...row,
-      body: row.body_text || "",
-      existing_digest: previous?.text || "",
-    })));
-    const text = String(result.text || "").trim();
-    if (!text) throw new Error(`Codex/Luna 摘要链路未返回结果：${result.error || "unavailable"}`);
-    const completedAt = nowIso();
-    persistThreadDigest(String(thread.id), {
-      text, source: result.source || "codex_memory", mail_count: rows.length, fingerprint, generated_at: completedAt,
-    });
-    writeOnDemandMemory(memoryKey, {
-      status: "已完成", mailbox, subject: String(thread.subject || ""), conversation_id: conversationId,
-      text, fingerprint, completed_at: completedAt,
-    });
-    return { scanned: rows.length, translated: 0, summarized: 1, digested: 1, persons: 0, errors: 0 };
-  })()
-    .catch((err) => {
-      const thread = getConn().prepare("SELECT subject FROM kol_mail_threads WHERE conversation_id=? AND mailbox=? LIMIT 1")
-        .get(conversationId, mailbox) as Row | undefined;
-      writeOnDemandMemory(onDemandKey("summary", mailbox, conversationId), {
-        status: "未开始", mailbox, subject: String(thread?.subject || ""), conversation_id: conversationId,
-        text: "", fingerprint: "", error: err instanceof Error ? err.message : String(err),
+    let subject = "";
+    try {
+      const thread = await findNativeMailThread(mailbox, conversationId);
+      if (!thread) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: "未找到对应的邮件主题或会话已失效" };
+      subject = String(thread.subject || "");
+      const sourceRows = (await listNativeConversationItems(conversationId, mailbox)).filter((item) => Boolean(mailBodyOf(item)));
+      if (!sourceRows.length) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: "选中的邮件主题没有可用正文（已检查 body_text、body、text、content、snippet 和 body_html）" };
+      const fingerprint = onDemandFingerprint(sourceRows);
+      const previous = await readNativeOnDemandMemory(actorId, memoryKey);
+      if (previous?.status === "已完成" && previous.fingerprint === fingerprint) {
+        return { scanned: sourceRows.length, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 0 };
+      }
+      // Keep the canonical stored body out of the cleaned model text so the raw
+      // body bytes remain available for the later CAS.
+      const modelRows = sourceRows.map((row): Row => ({ ...row, body: mailBodyOf(row), existing_digest: previous?.text || "" }));
+      const result = await generateMailConversationDigest(modelRows);
+      const text = String(result.text || "").trim();
+      if (!text) throw new Error(`Codex/Luna 摘要链路未返回结果：${result.error || "unavailable"}`);
+      const completedAt = nowIso();
+      const persisted = await postgresTransaction(async (client) => {
+        const current = (await listNativeConversationItems(conversationId, mailbox, client)).filter((item) => Boolean(mailBodyOf(item)));
+        if (onDemandFingerprint(current) !== fingerprint) return false;
+        const applied = await writeNativeThreadDigest(String(thread.id), { text, source: result.source || "codex_memory", mailCount: sourceRows.length, fingerprint }, client);
+        if (!applied) return false;
+        await writeNativeOnDemandMemory(actorId, memoryKey, {
+          status: "已完成", mailbox, subject, conversation_id: conversationId, text, fingerprint, completed_at: completedAt,
+        }, client);
+        return true;
       });
-      audit("host", "mail_skill.summary_failed", { mailbox, conversation_id: conversationId, error: err instanceof Error ? err.message : String(err) });
-      return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: err instanceof Error ? err.message : String(err) };
-    })
-    .finally(() => inflight.delete(key));
+      if (!persisted) throw new Error("mail_memory_source_changed");
+      return { scanned: sourceRows.length, translated: 0, summarized: 1, digested: 1, persons: 0, errors: 0 };
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      // A failure must never leave an actor-specific completion without its audit.
+      try {
+        await persistOnDemandFailure({
+          actorId, memoryKey,
+          value: { status: "未开始", mailbox, subject, conversation_id: conversationId, text: "", fingerprint: "", error },
+          eventType: "mail_skill.summary_failed", payload: { mailbox, conversation_id: conversationId, error },
+        });
+      } catch {
+        // The failed atomic receipt leaves neither cache nor audit durable.
+      }
+      return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error };
+    }
+  })().finally(() => inflight.delete(key));
   inflight.set(key, promise);
   return promise;
 }
 
 /** Execute the employee-facing mail_translate Skill for one selected message. */
-export function triggerMailTranslateSkill(mailbox: string, messageId: string): Promise<MailMemoryStats> {
-  const key = `skill:mail_translate:${mailbox}:${messageId}`;
+export async function triggerMailTranslateSkill(mailbox: string, messageId: string): Promise<MailMemoryStats> {
+  const actorId = await onDemandActorId();
+  const key = `skill:mail_translate:${actorId}:${mailbox}:${messageId}`;
   const existing = inflight.get(key);
   if (existing) return existing;
   const promise = (async (): Promise<MailMemoryStats> => {
-    const row = getConn().prepare(
-      `SELECT i.* FROM kol_mail_items i JOIN kol_mail_threads t ON t.id=i.thread_id
-       WHERE (i.id=? OR i.provider_message_id=?) AND IFNULL(t.mailbox,'')=? LIMIT 1`,
-    ).get(messageId, messageId, mailbox) as Row | undefined;
-    const body = row ? mailBodyOf(row) : "";
-    if (!row) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: "未找到选中的邮件，可能是邮件 ID 已变化" };
-    if (!body) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: "选中的邮件没有可用正文（已检查 body_text、body、text、content、snippet 和 body_html）" };
-    const thread = getConn().prepare("SELECT subject, conversation_id FROM kol_mail_threads WHERE id=? LIMIT 1")
-      .get(row.thread_id) as Row | undefined;
-    const conversationId = String(row.conversation_id || thread?.conversation_id || "");
-    const memoryKey = onDemandKey("translation", mailbox, conversationId, String(row.id));
-    const fingerprint = bodyFingerprint(body);
-    const previous = readOnDemandMemory(memoryKey);
-    if (previous?.status === "已完成" && previous.fingerprint === fingerprint) {
-      return { scanned: 1, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 0 };
-    }
-    const result = await translateMailBodyZhWithCodexLuna(body);
-    const text = String(result?.text || "").trim();
-    if (!text) throw new Error("Codex/Luna 翻译链路未返回可用译文");
-    const completedAt = nowIso();
-    persistItemMemory(String(row.id), {
-      translation_zh: text, translation_source: result?.source || "codex_memory", fingerprint,
-      generated_at: completedAt, source: result?.source || "codex_memory", attempts: Number(row.memory_attempts || 0) + 1,
-    });
-    writeOnDemandMemory(memoryKey, {
-      status: "已完成", mailbox, subject: String(row.subject || thread?.subject || ""),
-      conversation_id: conversationId, message_id: String(row.id), text, fingerprint, completed_at: completedAt,
-    });
-    return { scanned: 1, translated: 1, summarized: 0, digested: 0, persons: 0, errors: 0 };
-  })()
-    .catch((err) => {
-      const row = getConn().prepare(
-        `SELECT i.subject, i.conversation_id, i.thread_id FROM kol_mail_items i JOIN kol_mail_threads t ON t.id=i.thread_id
-         WHERE (i.id=? OR i.provider_message_id=?) AND IFNULL(t.mailbox,'')=? LIMIT 1`,
-      ).get(messageId, messageId, mailbox) as Row | undefined;
-      writeOnDemandMemory(onDemandKey("translation", mailbox, String(row?.conversation_id || ""), String(row?.id || messageId)), {
-        status: "未开始", mailbox, subject: String(row?.subject || ""), conversation_id: String(row?.conversation_id || ""),
-        message_id: String(row?.id || messageId), text: "", fingerprint: "", error: err instanceof Error ? err.message : String(err),
+    let memoryKey = onDemandKey("translation", mailbox, "", messageId);
+    let subject = "";
+    let conversationId = "";
+    try {
+      const row = await findNativeMailItem(mailbox, messageId);
+      const body = row ? mailBodyOf(row) : "";
+      const canonicalBody = row ? canonicalMailBodyOf(row) : "";
+      if (!row) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: "未找到选中的邮件，可能是邮件 ID 已变化" };
+      if (!body || !canonicalBody) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: "选中的邮件没有可用正文（已检查 body_text、body、text、content、snippet 和 body_html）" };
+      const thread = row.thread_id ? await findNativeMailThread(mailbox, String(row.thread_id)) : undefined;
+      conversationId = String(row.conversation_id || thread?.conversation_id || "");
+      subject = String(row.subject || thread?.subject || "");
+      memoryKey = onDemandKey("translation", mailbox, conversationId, String(row.id));
+      const fingerprint = onDemandFingerprint([row]);
+      const previous = await readNativeOnDemandMemory(actorId, memoryKey);
+      if (previous?.status === "已完成" && previous.fingerprint === fingerprint) {
+        return { scanned: 1, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 0 };
+      }
+      const result = await translateMailBodyZhWithCodexLuna(body);
+      const text = String(result?.text || "").trim();
+      if (!text) throw new Error("Codex/Luna 翻译链路未返回可用译文");
+      const completedAt = nowIso();
+      const persisted = await postgresTransaction(async (client) => {
+        const current = await findNativeMailItem(mailbox, String(row.id), client);
+        if (!current || onDemandFingerprint([current]) !== fingerprint) return false;
+        // The write CAS receives exact body_text bytes, never mailBodyOf(...).trim().
+        const applied = await writeNativeItemMemoryIfFresh({ itemId: String(row.id), body: canonicalBody, translationZh: text, translationSource: result?.source || "codex_memory", source: result?.source || "codex_memory" }, client);
+        if (!applied) return false;
+        await writeNativeOnDemandMemory(actorId, memoryKey, {
+          status: "已完成", mailbox, subject, conversation_id: conversationId, message_id: String(row.id), text, fingerprint, completed_at: completedAt,
+        }, client);
+        return true;
       });
-      audit("host", "mail_skill.translate_failed", { mailbox, message_id: messageId, error: err instanceof Error ? err.message : String(err) });
-      return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: err instanceof Error ? err.message : String(err) };
-    })
-    .finally(() => inflight.delete(key));
+      if (!persisted) throw new Error("mail_memory_source_changed");
+      return { scanned: 1, translated: 1, summarized: 0, digested: 0, persons: 0, errors: 0 };
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      try {
+        await persistOnDemandFailure({
+          actorId, memoryKey,
+          value: { status: "未开始", mailbox, subject, conversation_id: conversationId, message_id: messageId, text: "", fingerprint: "", error },
+          eventType: "mail_skill.translate_failed", payload: { mailbox, message_id: messageId, error },
+        });
+      } catch {
+        // The failed atomic receipt leaves neither cache nor audit durable.
+      }
+      return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error };
+    }
+  })().finally(() => inflight.delete(key));
   inflight.set(key, promise);
   return promise;
 }

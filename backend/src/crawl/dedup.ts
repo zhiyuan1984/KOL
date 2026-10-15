@@ -14,7 +14,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
-import { postgresPool } from "../postgres/pool.js";
+import { currentTransactionClient, postgresTransaction } from "../postgres/pool.js";
 import type { Json } from "../types.js";
 
 export const DEFAULT_DEDUP_WINDOW_DAYS = 30;
@@ -150,33 +150,36 @@ export async function recordPoolSightings(
   client: PoolClient,
   sightings: DedupSighting[],
 ): Promise<void> {
+  type SightingRow = { id:string; platform:string; platform_creator_id:string; normalized_creator_id:string;
+    handle:string|null; display_name:string|null; profile_snapshot:Json; first_seen_at:string; last_seen_at:string; seen_count:number };
+  const grouped = new Map<string,SightingRow>();
   for (const sighting of sightings) {
-    const key = normalizeCreatorKey(sighting.platform, sighting.platform_creator_id);
+    const key = normalizeCreatorKey(sighting.platform,sighting.platform_creator_id);
     if (!isUsableCreatorKey(key)) continue;
-    const platform = key.split(":")[0];
-    const normalizedId = key.slice(key.indexOf(":") + 1);
     const now = new Date().toISOString();
-    await client.query(
-      `INSERT INTO kol_creator_pool
-         (id, platform, platform_creator_id, normalized_creator_id, handle, display_name, profile_snapshot, first_seen_at, last_seen_at, seen_count)
-       VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$8,1)
-       ON CONFLICT (platform, normalized_creator_id) DO UPDATE SET
-         handle = COALESCE(EXCLUDED.handle, kol_creator_pool.handle),
-         display_name = COALESCE(EXCLUDED.display_name, kol_creator_pool.display_name),
-         profile_snapshot = EXCLUDED.profile_snapshot,
-         last_seen_at = EXCLUDED.last_seen_at,
-         seen_count = kol_creator_pool.seen_count + 1`,
-      [
-        `pool_${randomUUID()}`,
-        platform,
-        String(sighting.platform_creator_id).trim(),
-        normalizedId,
-        sighting.handle?.trim() || null,
-        sighting.display_name?.trim() || null,
-        JSON.stringify(sighting.profile_snapshot ?? {}),
-        now,
-      ],
-    );
+    const handle=sighting.handle?.trim()||null, name=sighting.display_name?.trim()||null;
+    const existing=grouped.get(key);
+    if(existing) {
+      existing.seen_count+=1;
+      existing.handle=handle??existing.handle; existing.display_name=name??existing.display_name;
+      existing.profile_snapshot=sighting.profile_snapshot??{}; existing.last_seen_at=now;
+    } else grouped.set(key,{
+      id:`pool_${randomUUID()}`,platform:key.split(":")[0],platform_creator_id:String(sighting.platform_creator_id).trim(),
+      normalized_creator_id:key.slice(key.indexOf(":")+1),handle,display_name:name,
+      profile_snapshot:sighting.profile_snapshot??{},first_seen_at:now,last_seen_at:now,seen_count:1,
+    });
+  }
+  const values=[...grouped.values()];
+  for(let offset=0;offset<values.length;offset+=250) {
+    await client.query(`INSERT INTO kol_creator_pool
+      (id,platform,platform_creator_id,normalized_creator_id,handle,display_name,profile_snapshot,first_seen_at,last_seen_at,seen_count)
+      SELECT id,platform,platform_creator_id,normalized_creator_id,handle,display_name,profile_snapshot,first_seen_at,last_seen_at,seen_count
+      FROM jsonb_to_recordset($1::jsonb) AS r(id text,platform text,platform_creator_id text,normalized_creator_id text,
+        handle text,display_name text,profile_snapshot jsonb,first_seen_at timestamptz,last_seen_at timestamptz,seen_count integer)
+      ON CONFLICT(platform,normalized_creator_id) DO UPDATE SET
+        handle=COALESCE(EXCLUDED.handle,kol_creator_pool.handle),display_name=COALESCE(EXCLUDED.display_name,kol_creator_pool.display_name),
+        profile_snapshot=EXCLUDED.profile_snapshot,last_seen_at=EXCLUDED.last_seen_at,seen_count=kol_creator_pool.seen_count+EXCLUDED.seen_count`,
+      [JSON.stringify(values.slice(offset,offset+250))]);
   }
 }
 
@@ -281,8 +284,11 @@ export async function dedupeSightings(
   windowDays: number = DEFAULT_DEDUP_WINDOW_DAYS,
   client?: PoolClient,
 ): Promise<{ outcomes: DedupOutcome[]; batch_duplicates: number }> {
-  const release = !client;
-  const owned = client || (await postgresPool().connect());
+  // Matching and every write batch share one owned SERIALIZABLE transaction.
+  // A caller-supplied client remains owned by the caller's transaction.
+  const owned = client || currentTransactionClient();
+  if (!owned) return postgresTransaction(owned => dedupeSightings(sightings,windowDays,owned),{isolation:"SERIALIZABLE"});
+  const release = false;
   try {
     const { unique, duplicates } = dedupeBatch(sightings, (sighting) =>
       normalizeCreatorKey(sighting.platform, sighting.platform_creator_id),

@@ -15,21 +15,21 @@ beforeEach(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-admin-audit-"));
   process.env.LINGONG_DB = path.join(tmp, "audit.db");
   process.env.LINGONG_DATA = tmp;
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
 describe("admin audit reader", () => {
   it("returns a bounded, descending, filterable audit page", async () => {
-    audit("admin:a", "execution_job.retry_requested", { execution_job_id: "job_a" });
-    audit("admin:b", "ticket.complete", { ticket_id: "tkt_b" });
+    (await audit("admin:a", "execution_job.retry_requested", { execution_job_id: "job_a" }));
+    (await audit("admin:b", "ticket.complete", { ticket_id: "tkt_b" }));
     const first = await app.request("/api/admin/audit/events?limit=1&event_type=ticket.complete");
     expect(first.status).toBe(200);
     const page = await first.json() as { items: Array<{ id: number; event_type: string; actor: string }>; next_cursor: number | null; source_refs: Array<{ type: string }> };
@@ -43,7 +43,7 @@ describe("admin audit reader", () => {
   });
 
   it("returns a preview marker instead of loading a large audit payload", async () => {
-    audit("admin:large", "runtime.large_receipt", { receipt: "x".repeat(AUDIT_PAYLOAD_PREVIEW_CHARS + 512) });
+    (await audit("admin:large", "runtime.large_receipt", { receipt: "x".repeat(AUDIT_PAYLOAD_PREVIEW_CHARS + 512) }));
     const response = await app.request("/api/admin/audit/events?event_type=runtime.large_receipt");
     expect(response.status).toBe(200);
     const body = await response.json() as { items: Array<{ payload: Record<string, unknown> }> };

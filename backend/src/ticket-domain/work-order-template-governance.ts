@@ -1,3 +1,5 @@
+import type { PoolClient } from "pg";
+import { postgresConnection } from "../postgres/pool.js";
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
@@ -157,7 +159,7 @@ function validatePublication(row: TemplateRow): void {
   }
 }
 
-async function receipt(client: Parameters<typeof postgresTransaction>[0] extends (client: infer T) => Promise<unknown> ? T : never, key: string) {
+async function receipt(client: PoolClient, key: string) {
   return client.query<{ template_id: string; actor_ref: string; command: string; response_json: unknown }>(
     "SELECT template_id,actor_ref,command,response_json FROM work_order_template_command_receipts WHERE idempotency_key=$1 FOR UPDATE",
     [key],
@@ -202,7 +204,7 @@ export async function createWorkOrderTemplateDraft(actorId: string, raw: WorkOrd
   }, { isolation: "SERIALIZABLE" });
 }
 
-async function templateForUpdate(client: Parameters<typeof postgresTransaction>[0] extends (client: infer T) => Promise<unknown> ? T : never, templateId: string): Promise<TemplateRow> {
+async function templateForUpdate(client: PoolClient, templateId: string): Promise<TemplateRow> {
   const result = await client.query<TemplateRow>("SELECT * FROM work_order_templates WHERE id=$1 FOR UPDATE", [templateId]);
   if (!result.rows[0]) throw new HttpFail(404, { code: "work_order_template_not_found" });
   return result.rows[0];
@@ -288,7 +290,7 @@ export async function disableWorkOrderTemplate(actorId: string, templateId: stri
 
 export async function listWorkOrderTemplates(limit = 100, status?: string) {
   const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
-  const rows = await postgresPool().query<TemplateRow>(
+  const rows = await postgresConnection().query<TemplateRow>(
     `SELECT * FROM work_order_templates
       WHERE ($1::text IS NULL OR status=$1)
       ORDER BY template_code,version DESC LIMIT $2`,

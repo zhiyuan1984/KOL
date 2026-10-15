@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { APPROVAL_KIND_LABEL } from "../src/gateway/wecom.js";
 import { fulfillExpenseApproval } from "../src/host/approval-fulfill.js";
 import { closePostgresPool, postgresPool } from "../src/postgres/pool.js";
-import { ONTOLOGY_CHANGE_SCOPES, ontologyRegistryBaseline } from "../src/routers/ontology.js";
+import { assertOntologyChangeAllowed, ONTOLOGY_CHANGE_SCOPES, ontologyRegistryBaseline } from "../src/routers/ontology.js";
 
 const backend = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const root = path.resolve(backend, "..");
@@ -127,7 +127,7 @@ describe.skipIf(!isolatedPostgres)("ontology release gate (isolated PostgreSQL)"
     else process.env.DATABASE_URL = oldDatabaseUrl;
   });
 
-  it("records the authorized first baseline without claiming CEO approval, then rejects reuse until one matching consumed approval exists", async () => {
+  it("records a factual bootstrap without claiming CEO approval, warns for an unapproved release, and records only an exactly matched consumed approval", async () => {
     const bootstrap = runGate("--base", "HEAD", "--record");
     expect(bootstrap.status, bootstrap.stderr).toBe(0);
     expect(bootstrap.body).toMatchObject({ status: "pass", mode: "bootstrap_install", receipt: { bootstrap: true, approval_not_claimed: true, ledger_recorded: true } });
@@ -137,31 +137,100 @@ describe.skipIf(!isolatedPostgres)("ontology release gate (isolated PostgreSQL)"
 
     const eventCatalog = path.join(worktree, "config/event-catalog.yaml");
     fs.appendFileSync(eventCatalog, "\n");
-    const blocked = runGate("--base", "HEAD");
-    expect(blocked.status, blocked.stderr).toBe(1);
-    expect(blocked.body.code).toBe("ontology_change_approval_required");
-    const firstBlocked = (blocked.body.blocked_scopes as Array<Record<string, string>>)[0];
-    expect(firstBlocked.scope).toBe("events");
+    const warned = runGate("--base", "HEAD");
+    expect(warned.status, warned.stderr).toBe(0);
+    expect(warned.body).toMatchObject({
+      status: "pass",
+      receipt: { bootstrap: false, approval_not_claimed: true, ledger_recorded: false },
+      approval_authority_unavailable: false,
+      approved_scopes: [],
+    });
+    const firstWarning = (warned.body.unapproved_scopes as Array<Record<string, string>>)[0];
+    expect(firstWarning).toMatchObject({ scope: "events" });
+    expect(firstWarning.required_base_version).toMatch(/^events:v\d+@(git:[a-f0-9]{40}|sha256:[a-f0-9]{64})$/);
+    expect(firstWarning.target_digest).toMatch(/^sha256:[a-f0-9]{64}$/);
 
     const now = "2032-01-01T00:00:00.000Z";
-    await postgresPool().query(
-      `INSERT INTO approvals
-       (id,draft_id,brand,amount_usd,status,chain,current_index,uses_left,fingerprint,need_manual_band,wecom_card_id,created_at,chain_id,kind,payload,title,submitted_by,version,updated_at)
-       VALUES ($1,'','LT',0,'consumed','[]',0,0,'ontology-gate-test',0,$2,$3,$2,'ontology_change',$4,'gate test','test',1,$3)`,
-      [
-        `appr_${randomUUID()}`, `card_${randomUUID()}`, now,
-        JSON.stringify({ scope: "events", base_version: firstBlocked.required_base_version, target_digest: firstBlocked.target_digest }),
-      ],
+    const insertConsumedApproval = async (payload: Record<string, string>, fingerprint: string) => {
+      const id = `appr_${randomUUID()}`;
+      await postgresPool().query(
+        `INSERT INTO approvals
+         (id,draft_id,brand,amount_usd,status,chain,current_index,uses_left,fingerprint,need_manual_band,wecom_card_id,created_at,chain_id,kind,payload,title,submitted_by,version,updated_at)
+         VALUES ($1,'','LT',0,'consumed','[]',0,0,$2,0,$3,$4,$3,'ontology_change',$5,'gate test','test',1,$4)`,
+        [id, fingerprint, `card_${randomUUID()}`, now, JSON.stringify(payload)],
+      );
+      return id;
+    };
+
+    // A consumed record is still not a permit when either the scope or target
+    // content hash differs. This mirrors the admin-side guard; the deployment
+    // tool may warn, but it must not falsely claim that these records approved it.
+    await insertConsumedApproval({
+      scope: "objects",
+      base_version: firstWarning.required_base_version,
+      target_digest: firstWarning.target_digest,
+    }, "ontology-gate-scope-mismatch");
+    await insertConsumedApproval({
+      scope: "events",
+      base_version: firstWarning.required_base_version,
+      target_digest: `sha256:${"0".repeat(64)}`,
+    }, "ontology-gate-digest-mismatch");
+    await expect(assertOntologyChangeAllowed("events", firstWarning.required_base_version, firstWarning.target_digest)).rejects.toMatchObject({
+      status: 403,
+      detail: { code: "ontology_change_approval_required" },
+    });
+
+    const approvalId = await insertConsumedApproval({
+      scope: "events",
+      base_version: firstWarning.required_base_version,
+      target_digest: firstWarning.target_digest,
+    }, "ontology-gate-exact-match");
+    const approvalFact = await postgresPool().query<{ id: string; status: string; uses_left: number; version: number; payload: string }>(
+      "SELECT id, status, uses_left, version, payload FROM approvals WHERE id = $1",
+      [approvalId],
     );
+    expect(approvalFact.rows).toEqual([expect.objectContaining({
+      id: approvalId,
+      status: "consumed",
+      uses_left: 0,
+      version: 1,
+    })]);
+    expect(JSON.parse(approvalFact.rows[0].payload)).toEqual({
+      scope: "events",
+      base_version: firstWarning.required_base_version,
+      target_digest: firstWarning.target_digest,
+    });
+    await expect(assertOntologyChangeAllowed("events", firstWarning.required_base_version, firstWarning.target_digest)).resolves.toBeUndefined();
+
     const approved = runGate("--base", "HEAD");
     expect(approved.status, approved.stderr).toBe(0);
-    expect(approved.body).toMatchObject({ status: "pass", receipt: { bootstrap: false, approval_not_claimed: false } });
+    expect(approved.body).toMatchObject({
+      status: "pass",
+      receipt: { bootstrap: false, approval_not_claimed: false, ledger_recorded: false },
+      unapproved_scopes: [],
+      approved_scopes: [{
+        scope: "events",
+        approval_id: approvalId,
+        base_version: firstWarning.required_base_version,
+        target_digest: firstWarning.target_digest,
+      }],
+    });
 
-    fs.appendFileSync(eventCatalog, " ");
-    const changedAgain = runGate("--base", "HEAD");
-    expect(changedAgain.status, changedAgain.stderr).toBe(1);
-    expect(changedAgain.body.code).toBe("ontology_change_approval_required");
-    const secondBlocked = (changedAgain.body.blocked_scopes as Array<Record<string, string>>)[0];
-    expect(secondBlocked.target_digest).not.toBe(firstBlocked.target_digest);
+    const recorded = runGate("--base", "HEAD", "--record");
+    expect(recorded.status, recorded.stderr).toBe(0);
+    expect(recorded.body).toMatchObject({
+      status: "pass",
+      receipt: { bootstrap: false, approval_not_claimed: false, ledger_recorded: true },
+      approved_scopes: [{ scope: "events", approval_id: approvalId, target_digest: firstWarning.target_digest }],
+    });
+    const eventLedger = await postgresPool().query<{ scope: string; content_digest: string; approval_id: string | null; bootstrap: boolean }>(
+      "SELECT scope, content_digest, approval_id, bootstrap FROM ontology_release_ledger WHERE scope = 'events' ORDER BY deployed_at DESC, id DESC LIMIT 1",
+    );
+    expect(eventLedger.rows).toEqual([{
+      scope: "events",
+      content_digest: firstWarning.target_digest,
+      approval_id: approvalId,
+      bootstrap: false,
+    }]);
   });
 });

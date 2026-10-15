@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import type { PoolClient } from "pg";
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
@@ -107,6 +108,6 @@ export async function setWorkOrderAutomationRelease(actorId: string, templateId:
 }
 
 export async function listWorkOrderAutomationReleases() {
-  const rows = await postgresPool().query<ReleaseRow>("SELECT * FROM work_order_automation_releases ORDER BY updated_at DESC,template_id");
+  const rows = await postgresConnection().query<ReleaseRow>("SELECT * FROM work_order_automation_releases ORDER BY updated_at DESC,template_id");
   return { releases: rows.rows.map(releasePublic) };
 }

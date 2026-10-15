@@ -19,23 +19,23 @@ const saved: Record<string,string|undefined> = {};
 beforeEach(async()=>{
   for (const key of ["CODEX_MODE","AUTH_MODE","CODEX_BIN","LINGONG_DATA","FAKE_CODEX_MODE","FAKE_CODEX_DELAY","FAKE_CODEX_THREAD_START"]) saved[key]=process.env[key];
   await freshTestDatabase();
-  resetConn();
+  (await resetConn());
   tmp=fs.mkdtempSync(path.join(os.tmpdir(),"tcw-p3-harness-"));
   process.env.LINGONG_DATA=tmp;
   process.env.AUTH_MODE="enabled"; process.env.CODEX_MODE="real";
   process.env.CODEX_BIN=path.resolve("tests/fixtures/fake-codex.mjs");
   process.env.FAKE_CODEX_MODE="task-collaboration-evidence";process.env.FAKE_CODEX_DELAY="500";
   process.env.FAKE_CODEX_THREAD_START=path.join(tmp,"thread.json");
-  seed(); seedPublishedAgent("agent:kol"); seedRuntimeTestActor(["kol_analyze"],true);
-  const user=mapUser(getConn().prepare("SELECT * FROM users WHERE id='usr_runtime_fixture'").get() as Row);
+  (await seed()); (await seedPublishedAgent("agent:kol")); (await seedRuntimeTestActor(["kol_analyze"],true));
+  const user=(await mapUser((await getConn().query("SELECT * FROM users WHERE id='usr_runtime_fixture'",[])).rows[0] as Row));
   await syncWorkbenchTicketPrincipal(user);
   taskId=(await createTaskRootPostgres(user.id,{title:"Native dependency analysis",goal:"Explain actual blockers",idempotency_key:"worker-task-create"})).task_id;
   sessionId=(await openTaskCollaborationSession(user.id,taskId)).id;
 });
 afterEach(()=>{for(const [key,value] of Object.entries(saved)) {if(value===undefined) delete process.env[key];else process.env[key]=value;} });
-function execute() {
-  const user=mapUser(getConn().prepare("SELECT * FROM users WHERE id='usr_runtime_fixture'").get() as Row);
-  return withScopedUser(user,()=>Promise.resolve(runWorker(sessionId,"kol_analyze","Explain the bound task")));
+async function execute() {
+  const user=(await mapUser((await getConn().query("SELECT * FROM users WHERE id='usr_runtime_fixture'",[])).rows[0] as Row));
+  return withScopedUser(user,async ()=>(Promise.resolve((await runWorker(sessionId,"kol_analyze","Explain the bound task")))));
 }
 describe("fixed native Task evidence in the existing app-server protocol",()=>{
   it("passes actual Task evidence to one turn with no mounted tools or formal task writes",async()=>{

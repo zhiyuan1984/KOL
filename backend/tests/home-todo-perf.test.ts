@@ -7,14 +7,16 @@ import { getConn, resetConn } from "../src/db.js";
 import { isOpenWorkItem } from "../src/host/home-board.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
-import { resetStarryHomeLibrarySync } from "../src/starrykol/library-sync.js";
-import { resetFollowedMailSync } from "../src/starrykol/mail-sync.js";
+import { ensureStarryHomeLibrary, resetStarryHomeLibrarySync, starryLibraryStatus } from "../src/starrykol/library-sync.js";
+import { followedMailStatus, resetFollowedMailSync, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import type { Json } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let app: Hono;
+let releaseRemote: (() => void) | undefined;
+let homeSyncStarted = false;
 
 async function request(method: string, url: string, body?: unknown) {
   const response = await app.request(url, {
@@ -27,26 +29,36 @@ async function request(method: string, url: string, body?: unknown) {
 }
 
 beforeEach(async () => {
-  await freshTestDatabase();
+  await freshTestDatabase({ reclaimPrevious: true });
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-todo-perf-"));
-  process.env.LINGONG_DB = path.join(tmp, "todo.db");
+  // This suite exercises the actual PostgreSQL authority store; never select a
+  // retired SQLite-shaped path while seeding the disposable native clone.
+  delete process.env.LINGONG_DB;
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
+  releaseRemote = undefined;
+  homeSyncStarted = false;
+  (await resetConn());
   resetStarryHomeLibrarySync();
   resetFollowedMailSync();
-  seedAll();
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
+  app = (await createApp());
+  (await seedWorkbenchFixtures());
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // A board response is index-first, not a completed remote hydration receipt.
+  // Release the local test double and drain the real registered work before
+  // closing its native pool so no post-teardown task reconnects to this clone.
+  releaseRemote?.();
+  if (homeSyncStarted) await Promise.all([ensureStarryHomeLibrary(), waitForBackgroundSync()]);
   setStarryKolClientFactory();
   resetStarryHomeLibrarySync();
   resetFollowedMailSync();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
+  delete process.env.LINGONG_DB;
 });
 
 describe("GET /api/tasks?view=open", () => {
@@ -109,17 +121,17 @@ describe("GET /api/tasks?view=open", () => {
       },
       async close() { /* noop */ },
     }));
-    const before = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const before = (await getConn().query("SELECT COUNT(*) AS c FROM sessions",[])).rows[0] as { c: number };
     const listed = await request("GET", "/api/tasks?view=todo");
     expect(listed.status).toBe(200);
-    const after = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const after = (await getConn().query("SELECT COUNT(*) AS c FROM sessions",[])).rows[0] as { c: number };
     expect(after.c).toBe(before.c);
     expect(calls).toEqual([]);
   });
 });
 
 describe("GET /api/home/board local-first", () => {
-  it("returns 200 from local projection without waiting for remote sync", async () => {
+  it("returns 200 from local projection without waiting for remote sync, then persists the completed refresh", async () => {
     let resolveHang: (() => void) | undefined;
     const hang = new Promise<void>((resolve) => {
       resolveHang = resolve;
@@ -129,9 +141,10 @@ describe("GET /api/home/board local-first", () => {
         await hang;
         return { data: { list: [] } };
       },
-      async close() { /* noop */ },
-    }));
+        async close() { /* noop */ },
+      }));
     const started = Date.now();
+    homeSyncStarted = true;
     const board = await request("GET", "/api/home/board");
     const elapsed = Date.now() - started;
     expect(board.status).toBe(200);
@@ -155,15 +168,33 @@ describe("GET /api/home/board local-first", () => {
     ]);
     expect(todo.every((row) => row.history == null && row.input == null && row.entities == null)).toBe(true);
     expect((workbench.summary as Json).open).toBe(open.length);
-    resolveHang?.();
+    releaseRemote = resolveHang;
+    releaseRemote?.();
+    releaseRemote = undefined;
+
+    // The first board payload is only the committed local projection. Once the
+    // same registered work has settled, verify the source receipts and audits
+    // were actually persisted rather than treating the 200 as full hydration.
+    await Promise.all([ensureStarryHomeLibrary(), waitForBackgroundSync()]);
+    const [library, mail] = await Promise.all([starryLibraryStatus(), followedMailStatus()]);
+    expect(library).toMatchObject({ ok: true, source: "starry", tool: "listAllKolProfiles" });
+    expect(library.synced_at).toBeTruthy();
+    expect(mail).toMatchObject({ ok: true, source: "starry", tool: "pageEmailConversations" });
+    expect(mail.synced_at).toBeTruthy();
+    const auditRows = (await getConn().query<{ event_type: string }>(
+      "SELECT event_type FROM audit_events WHERE event_type=$1",
+      ["starrykol.library_sync"],
+    )).rows;
+    expect(auditRows.map((row) => row.event_type)).toContain("starrykol.library_sync");
   });
 
   it("refresh=1 still returns local-first and does not insert sessions", async () => {
-    const before = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const before = (await getConn().query("SELECT COUNT(*) AS c FROM sessions",[])).rows[0] as { c: number };
+    homeSyncStarted = true;
     const board = await request("GET", "/api/home/board?refresh=1");
     expect(board.status).toBe(200);
     expect(board.body.sync).toMatchObject({ deferred: true, refresh: true });
-    const after = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const after = (await getConn().query("SELECT COUNT(*) AS c FROM sessions",[])).rows[0] as { c: number };
     expect(after.c).toBe(before.c);
   });
 });

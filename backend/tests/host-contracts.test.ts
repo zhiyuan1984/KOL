@@ -10,16 +10,20 @@ import { seedAll, seedIfEmpty } from "../src/seed.js";
 import { createAgentBinding } from "../src/runtime/organization-tree.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { workerCannotSend } from "../src/worker/common.js";
-import { SKILL_CATALOG } from "../src/host/skills-catalog.js";
+import { skillCatalog } from "../src/host/skills-catalog.js";
 import { isStarryKolTask, setEmailMcpClientFactory } from "../src/starrykol/service.js";
 import { toLegacyStarryStage } from "../src/stages.js";
 import { isKolClawTask } from "../src/kolclaw/service.js";
 import { profileFor } from "../src/profiles.js";
 import { emailCardPayload, persistDraft } from "../src/host/api.js";
 import { emailMcpResultCard } from "../src/starrykol/service.js";
+import { subscribeSession } from "../src/host/session-events.js";
 import { classify } from "../src/host/intent.js";
+import { taskDefinition } from "../src/tasks/registry.js";
 import { ensureStarryHomeLibrary } from "../src/starrykol/library-sync.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
+import { setAgentSkill } from "../src/runtime/store.js";
 import { withTicketPrincipal } from "../src/ticket-domain/auth.js";
 
 type Json = Record<string, unknown>;
@@ -64,8 +68,8 @@ async function ask(
   return [String(ses.id), await r.json()];
 }
 
-function draftOn(sid: string, extra: Json = {}) {
-  return persistDraft(sid, {
+async function draftOn(sid: string, extra: Json = {}) {
+  return (await persistDraft(sid, {
     skill: "email_compose",
     template_id: "stage_mail.followup",
     from: BRAND_MAILBOXES.LT,
@@ -77,7 +81,7 @@ function draftOn(sid: string, extra: Json = {}) {
     official_stage: "INITIAL_CONTACT",
     collaboration_id: "col_xiaomei",
     ...extra,
-  });
+  }));
 }
 
 beforeEach(async () => {
@@ -86,38 +90,34 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
+  app = (await createApp());
+  (await seedWorkbenchFixtures());
 });
 
-afterEach(() => {
+afterEach(async () => {
   setEmailMcpClientFactory();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
 describe("host contracts", () => {
   it("PATCH draft subject and body refresh the email card and compose result", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const draft = draftOn(sid, { subject: "发货通知", body: "old interest body" });
-    const card = emailCardPayload(draft);
-    const result = emailMcpResultCard("email_compose", {
+    const draft = (await draftOn(sid, { subject: "发货通知", body: "old interest body" }));
+    const card = (await emailCardPayload(draft));
+    const result = (await emailMcpResultCard("email_compose", {
       mailboxEmail: draft.from_addr,
       from: draft.from_addr,
       to: draft.to_addr,
       subject: draft.subject,
       body: draft.body_en,
-    });
+    }));
     const now = new Date().toISOString();
-    getConn().prepare(
-      "INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES (?,?,?,?,?,?)",
-    ).run("msg_draft_1", sid, "assistant", "email_card", JSON.stringify(card), now);
-    getConn().prepare(
-      "INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES (?,?,?,?,?,?)",
-    ).run("msg_result_1", sid, "assistant", "task_result_card", JSON.stringify({
+    (await getConn().query("INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES ($1,$2,$3,$4,$5,$6)",["msg_draft_1",sid,"assistant","email_card",JSON.stringify(card),now]));
+    (await getConn().query("INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES ($1,$2,$3,$4,$5,$6)",["msg_result_1",sid,"assistant","task_result_card",JSON.stringify({
       ...result,
       skill: "email_compose",
       starrykol_data: {
@@ -126,7 +126,7 @@ describe("host contracts", () => {
         subject: draft.subject,
         body: draft.body_en,
       },
-    }), now);
+    }),now]));
     const patched = await request("PATCH", `/api/drafts/${draft.id}`, {
       subject: "Re: KOL合作",
       body_en: "Hi, thrilled to hear about your interest.",
@@ -144,7 +144,7 @@ describe("host contracts", () => {
 
   it("send does not call stage", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const draft = draftOn(sid);
+    const draft = (await draftOn(sid));
     const sent = await confirmAndSendDraft(request, String(draft.id), {});
     expect(sent.status, await sent.text()).toBe(200);
     const sj = await sent.json();
@@ -184,11 +184,7 @@ describe("host contracts", () => {
   });
 
   it("confirm-stage writes official stage and remote changeLifecycleStage", async () => {
-    getConn().prepare("UPDATE collaborations SET kol_uid=?, last_lifecycle_id=? WHERE id=?").run(
-      "KOLXIAOMEI",
-      "16",
-      "col_xiaomei",
-    );
+    (await getConn().query("UPDATE collaborations SET kol_uid=$1, last_lifecycle_id=$2 WHERE id=$3",["KOLXIAOMEI","16","col_xiaomei"]));
     const [sid, data] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
     const card = (data.messages as Json[]).find((m) => m.kind === "confirm_stage_card")!;
     const target = ((card.payload as Json).targets as Json[])[0].code;
@@ -206,20 +202,14 @@ describe("host contracts", () => {
       updated: true,
       cooperationStageCode: toLegacyStarryStage(String(target)),
     });
-    const col = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'").get() as Json;
+    const col = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'",[])).rows[0] as Json;
     expect(col.stage_code).toBe(target);
-    const stored = getConn().prepare(
-      "SELECT payload FROM messages WHERE session_id=? AND kind='confirm_stage_card'",
-    ).all(sid) as { payload: string }[];
+    const stored = (await getConn().query("SELECT payload FROM messages WHERE session_id=$1 AND kind='confirm_stage_card'",[sid])).rows as { payload: string }[];
     expect(stored.some((row) => Boolean((JSON.parse(row.payload) as Json).resolved))).toBe(true);
   });
 
   it("human skip keeps kind/reason locally and walks Starry with adjacent native hops", async () => {
-    getConn().prepare("UPDATE collaborations SET kol_uid=?, last_lifecycle_id=? WHERE id=?").run(
-      "KOLXIAOMEI",
-      "320",
-      "col_xiaomei",
-    );
+    (await getConn().query("UPDATE collaborations SET kol_uid=$1, last_lifecycle_id=$2 WHERE id=$3",["KOLXIAOMEI","320","col_xiaomei"]));
     const [sid, data] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
     const recorded: { name: string; args: Json }[] = [];
     setEmailMcpClientFactory(() => ({
@@ -269,30 +259,26 @@ describe("host contracts", () => {
         && Object.keys(payload).sort().join(",") === "reason,toStageCode";
     })).toBe(true);
     expect(JSON.stringify(writes.map((row) => row.args))).not.toMatch(/cooperationStageCode|targetStageCode|"stageCode"|skip/i);
-    const hopAudits = listAudit("host.confirm_stage.mcp") as Json[];
+    const hopAudits = (await listAudit("host.confirm_stage.mcp")) as Json[];
     expect(hopAudits.filter((row) => (row.payload as Json).native).map((row) => (row.payload as Json).native)).toEqual([
       "INTEREST_CONFIRMED",
       "COOPERATION_EVALUATION",
       "QUOTE_PENDING",
       "BUSINESS_NEGOTIATION",
     ]);
-    const col = getConn().prepare(
-      "SELECT stage_code, last_skip_kind, last_skip_reason, last_skipped_stages FROM collaborations WHERE id='col_xiaomei'",
-    ).get() as Json;
+    const col = (await getConn().query("SELECT stage_code, last_skip_kind, last_skip_reason, last_skipped_stages FROM collaborations WHERE id='col_xiaomei'",[])).rows[0] as Json;
     expect(col.stage_code).toBe("NEGOTIATING");
     expect(col.last_skip_kind).toBe("skip");
     expect(col.last_skip_reason).toBe("报价已口头同意，直接商务谈判");
     expect(JSON.parse(String(col.last_skipped_stages))).toEqual(["INTERESTED", "EVALUATING", "QUOTE_PENDING"]);
-    const stored = getConn().prepare(
-      "SELECT payload FROM messages WHERE session_id=? AND kind='confirm_stage_card'",
-    ).all(sid) as { payload: string }[];
+    const stored = (await getConn().query("SELECT payload FROM messages WHERE session_id=$1 AND kind='confirm_stage_card'",[sid])).rows as { payload: string }[];
     expect(stored.some((row) => {
       const payload = JSON.parse(row.payload) as Json;
       return payload.resolved
         && payload.skip_kind === "skip"
         && payload.skip_reason === "报价已口头同意，直接商务谈判";
     })).toBe(true);
-    const audits = listAudit("host.confirm_stage") as Json[];
+    const audits = (await listAudit("host.confirm_stage")) as Json[];
     expect(audits.some((row) => {
       const payload = row.payload as Json;
       return payload.to_stage === "NEGOTIATING"
@@ -315,13 +301,11 @@ describe("host contracts", () => {
     const body = await r.json();
     expect(body.rejected).toBe(true);
     expect(body.stage_changed).toBe(false);
-    const col = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'").get() as Json;
+    const col = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'",[])).rows[0] as Json;
     expect(col.stage_code).toBe("INITIAL_CONTACT");
     const afterWorkers = ((await (await request("GET", "/api/workers")).json()) as unknown as Json[]).length;
     expect(afterWorkers).toBe(beforeWorkers);
-    const stored = getConn().prepare(
-      "SELECT payload FROM messages WHERE session_id=? AND kind='confirm_stage_card'",
-    ).all(sid) as { payload: string }[];
+    const stored = (await getConn().query("SELECT payload FROM messages WHERE session_id=$1 AND kind='confirm_stage_card'",[sid])).rows as { payload: string }[];
     expect(stored.some((row) => Boolean((JSON.parse(row.payload) as Json).rejected))).toBe(true);
   });
 
@@ -332,7 +316,7 @@ describe("host contracts", () => {
     expect((data.worker as Json)?.skill).toBe("confirm_stage");
     expect(data.draft ?? null).toBeNull();
     expect((data.messages as Json[]).map((m) => m.kind)).not.toContain("email_card");
-    const col = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'").get() as Json;
+    const col = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'",[])).rows[0] as Json;
     expect(col.stage_code).toBe("INITIAL_CONTACT");
   });
 
@@ -353,9 +337,9 @@ describe("host contracts", () => {
   });
 
   it("terminal states have no outgoing transitions", async () => {
-    tx((c) => {
-      c.prepare("UPDATE collaborations SET stage_code='COMPLETED' WHERE id='col_trip'").run();
-    });
+    (await tx(async (c) => {
+      (await c.query("UPDATE collaborations SET stage_code='COMPLETED' WHERE id='col_trip'",[]));
+    }));
     const r = await request("POST", "/api/collaborations/col_trip/confirm-stage", {
       stage_code: "INITIAL_CONTACT",
       expected_version: 0,
@@ -399,12 +383,10 @@ describe("host contracts", () => {
     // PostgreSQL 桥接把数值列以字符串返回（同 34bd84a 口径），按数值归一后比较。
     expect(Number(rows[0].data_version_before)).toBe(0);
     expect(Number(rows[0].data_version_after)).toBe(1);
-    expect(() =>
-      getConn().prepare("UPDATE stage_transitions SET reason_code = 'MUTATED' WHERE id = ?").run(rows[0].id),
-    ).toThrow(/immutable/);
-    expect(() =>
-      getConn().prepare("DELETE FROM stage_transitions WHERE id = ?").run(rows[0].id),
-    ).toThrow(/immutable/);
+    (await expect((async () =>
+      (getConn().query("UPDATE stage_transitions SET reason_code = 'MUTATED' WHERE id = $1",[rows[0].id])))()).rejects.toThrow(/immutable/));
+    (await expect((async () =>
+      (getConn().query("DELETE FROM stage_transitions WHERE id = $1",[rows[0].id])))()).rejects.toThrow(/immutable/));
   });
 
   it("gated content review queues work approval and writes after agree", async () => {
@@ -420,22 +402,39 @@ describe("host contracts", () => {
     expect(body.approval_id).toBeTruthy();
     expect(body.kind).toBe("content");
     expect(body.stage_code).toBe("CONTENT_PLANNING");
-    const held = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_mum'").get() as Json;
+    const held = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_mum'",[])).rows[0] as Json;
     expect(held.stage_code).toBe("CONTENT_PLANNING");
-    const decided = await request("POST", `/api/approvals/${body.approval_id}/decide`, {
-      decision: "approve",
-      expected_version: 0,
-      idempotency_key: `host-content-${body.approval_id}`,
+
+    const opened = await request("POST", "/api/sessions", { collaboration_id: "col_mum" });
+    expect(opened.status, await opened.text()).toBe(200);
+    const journeyEvents: Json[] = [];
+    const unsubscribe = subscribeSession(String((await opened.json()).id), (event) => {
+      if (event.type === "journey" && event.journey) journeyEvents.push(event.journey);
     });
-    expect(decided.status, await decided.text()).toBe(200);
-    const after = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_mum'").get() as Json;
-    expect(after.stage_code).toBe("CONTENT_REVIEW");
+    try {
+      const decided = await request("POST", `/api/approvals/${body.approval_id}/decide`, {
+        decision: "approve",
+        expected_version: 0,
+        idempotency_key: `host-content-${body.approval_id}`,
+      });
+      expect(decided.status, await decided.text()).toBe(200);
+      const after = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_mum'",[])).rows[0] as Json;
+      expect(after.stage_code).toBe("CONTENT_REVIEW");
+      // Approval response may return only after the official-stage projection has
+      // completed and notified the collaboration session; it must not outlive DB teardown.
+      expect(journeyEvents).toContainEqual(expect.objectContaining({
+        collaboration_id: "col_mum",
+        stage_code: "CONTENT_REVIEW",
+      }));
+    } finally {
+      unsubscribe();
+    }
   });
 
   it("plan-pending stage confirm queues approval and writes after agree", async () => {
-    tx((c) => {
-      c.prepare("UPDATE collaborations SET stage_code='NEGOTIATING', stage_version=0 WHERE id='col_laozhang'").run();
-    });
+    (await tx(async (c) => {
+      (await c.query("UPDATE collaborations SET stage_code='NEGOTIATING', stage_version=0 WHERE id='col_laozhang'",[]));
+    }));
     const queued = await request("POST", "/api/collaborations/col_laozhang/confirm-stage", {
       stage_code: "PLAN_PENDING",
       expected_version: 0,
@@ -445,7 +444,7 @@ describe("host contracts", () => {
     expect(body.waiting_approval).toBe(true);
     expect(body.stage_code).toBe("NEGOTIATING");
     expect(body.kind).toBe("stage");
-    const held = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_laozhang'").get() as Json;
+    const held = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_laozhang'",[])).rows[0] as Json;
     expect(held.stage_code).toBe("NEGOTIATING");
     const decided = await request("POST", `/api/approvals/${body.approval_id}/decide`, {
       decision: "approve",
@@ -453,12 +452,12 @@ describe("host contracts", () => {
       idempotency_key: `host-stage-${body.approval_id}`,
     });
     expect(decided.status, await decided.text()).toBe(200);
-    const after = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_laozhang'").get() as Json;
+    const after = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_laozhang'",[])).rows[0] as Json;
     expect(after.stage_code).toBe("PLAN_PENDING");
   });
 
   it("POST /api/approvals initiates expense only and leaves confirm_stage unchanged", async () => {
-    const stageBefore = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_laozhang'").get() as Json;
+    const stageBefore = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_laozhang'",[])).rows[0] as Json;
     const created = await request("POST", "/api/approvals", {
       kind: "expense",
       amount: 5000,
@@ -479,16 +478,16 @@ describe("host contracts", () => {
     expect(rejected.status).toBe(400);
     expect((await rejected.json()).detail).toMatchObject({ code: "unsupported_kind" });
 
-    const stageAfter = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_laozhang'").get() as Json;
+    const stageAfter = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_laozhang'",[])).rows[0] as Json;
     expect(stageAfter.stage_code).toBe(stageBefore.stage_code);
-    const audits = listAudit("expense.approval.created") as { payload: { approval_id?: string } }[];
+    const audits = (await listAudit("expense.approval.created")) as { payload: { approval_id?: string } }[];
     expect(audits.some((event) => event.payload.approval_id === row.id)).toBe(true);
   });
 
   it("allows an evidence-backed jump and still blocks unfinished priors", async () => {
-    tx((c) => {
-      c.prepare("UPDATE collaborations SET stage_code='INITIAL_CONTACT', stage_version=0 WHERE id='col_xiaomei'").run();
-    });
+    (await tx(async (c) => {
+      (await c.query("UPDATE collaborations SET stage_code='INITIAL_CONTACT', stage_version=0 WHERE id='col_xiaomei'",[]));
+    }));
     const jumped = await request("POST", "/api/collaborations/col_xiaomei/confirm-stage", {
       stage_code: "EVALUATING",
       expected_version: 0,
@@ -497,9 +496,9 @@ describe("host contracts", () => {
     });
     expect(jumped.status, await jumped.text()).toBe(200);
     expect((await jumped.json()).stage_code).toBe("EVALUATING");
-    tx((c) => {
-      c.prepare("UPDATE collaborations SET stage_code='INITIAL_CONTACT', stage_version=0 WHERE id='col_xiaomei'").run();
-    });
+    (await tx(async (c) => {
+      (await c.query("UPDATE collaborations SET stage_code='INITIAL_CONTACT', stage_version=0 WHERE id='col_xiaomei'",[]));
+    }));
     const blocked = await request("POST", "/api/collaborations/col_xiaomei/confirm-stage", {
       stage_code: "PUBLISHED",
       expected_version: 0,
@@ -533,14 +532,20 @@ describe("host contracts", () => {
     const runner = fs.readFileSync(path.join(import.meta.dirname, "../src/worker/runner.ts"), "utf8");
     expect(runner).toMatch(/codexMode\(\) === "stub"/);
     expect(runner).not.toMatch(/isEmailMcpTask\(skill\) && skill !== "email_compose"/);
-    expect(runner).toContain("deriveChildThread");
+    // The current worker starts one fresh, capability-scoped thread per run; it
+    // intentionally no longer forks an opaque child thread from a prior turn.
+    expect(runner).not.toContain("deriveChildThread");
+    expect(runner).toContain("fresh capability set");
+    expect(runner).toContain("fresh_runtime: true");
+    expect(runner).toContain('method: "thread/start"');
+    expect(runner).toContain('method: "turn/start"');
     expect(runner).not.toContain("starry.sendConversation");
   });
 
   it("from options authorized only", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const draft = draftOn(sid);
-    const card = (await import("../src/host/api.js")).emailCardPayload(draft);
+    const draft = (await draftOn(sid));
+    const card = (await (await import("../src/host/api.js")).emailCardPayload(draft));
     const opts = (card.allowed_from_mailboxes as Json[]) || [];
     expect(opts.length).toBeGreaterThan(0);
     expect(opts.every((o) => o.authorized)).toBe(true);
@@ -550,7 +555,7 @@ describe("host contracts", () => {
 
   it("send exam permission template persistent", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const did = draftOn(sid).id;
+    const did = (await draftOn(sid)).id;
     await request("POST", "/api/me/persona", { persona: "exam_blocked" });
     const r = await confirmAndSendDraft(request, String(did), {});
     expect(r.status).toBe(403);
@@ -584,22 +589,23 @@ describe("host contracts", () => {
     expect(admin.available_modes).toEqual(["employee", "admin"]);
   });
 
-  it("restart restores the normal operator after an exam-block demo", async () => {
+  it("bootstrap does not bypass an existing exam block", async () => {
     await request("POST", "/api/me/persona", { persona: "exam_blocked" });
     expect(((await (await request("GET", "/api/me")).json()) as Json).exam_passed).toBe(false);
-    seedIfEmpty();
+    // PostgreSQL bootstrap is idempotent and must not overwrite an existing
+    // identity or turn an exam-blocked operator into an eligible one.
+    (await seedIfEmpty());
     const me = await (await request("GET", "/api/me")).json();
-    expect((me as Json).exam_passed).toBe(true);
-    expect(me.handle).toBe(DEMO_ADMIN.handle);
+    expect((me as Json).exam_passed).toBe(false);
   });
 
   it("one-click translation returns the model-produced internal Chinese draft", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const did = String(draftOn(sid).id);
+    const did = String((await draftOn(sid)).id);
     const translated = await request("POST", "/api/actions/mail.translate-draft", { draft_id: did });
     expect(translated.status).toBe(200);
     const body = await translated.json();
-    const english = String(draftOn(sid).body_en || "");
+    const english = String((await draftOn(sid)).body_en || "");
     expect(String(body.zh)).toMatch(/[\u4e00-\u9fff]/);
     expect(String(body.zh)).not.toBe(english);
     expect(String(body.zh)).not.toContain(`【内部中文译稿 · 不会进入 SMTP】\n${english}`.trim());
@@ -608,7 +614,7 @@ describe("host contracts", () => {
 
   it("maps a Starry operator mailbox onto the authorized From dropdown and still translates", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const draft = persistDraft(sid, {
+    const draft = (await persistDraft(sid, {
       skill: "email_compose",
       from: "larry.zhao@amperetime.com",
       to: "xiaomei.beauty@example.com",
@@ -617,10 +623,10 @@ describe("host contracts", () => {
       official_stage: "INITIAL_CONTACT",
       collaboration_id: "col_xiaomei",
       brand: "RO",
-    });
+    }));
     expect(String(draft.from_addr)).toBe("larry.zhao@amperetime.com");
     expect(String(draft.body_zh_internal)).toMatch(/[\u4e00-\u9fff]/);
-    const card = emailCardPayload(draft);
+    const card = (await emailCardPayload(draft));
     const opts = (card.allowed_from_mailboxes as Json[]) || [];
     expect(card.from).toBe("larry.zhao@amperetime.com");
     expect(card.send_from).toBe(BRAND_MAILBOXES.RO);
@@ -640,7 +646,7 @@ describe("host contracts", () => {
 
   it("generates an internal Chinese draft when the cache is empty", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const draft = persistDraft(sid, {
+    const draft = (await persistDraft(sid, {
       skill: "email_compose",
       template_id: "stage_mail.followup",
       from: BRAND_MAILBOXES.LT,
@@ -650,14 +656,14 @@ describe("host contracts", () => {
       body_zh_internal: " ",
       official_stage: "INITIAL_CONTACT",
       collaboration_id: "col_xiaomei",
-    });
-    getConn().prepare("UPDATE drafts SET body_zh_internal='' WHERE id=?").run(String(draft.id));
+    }));
+    (await getConn().query("UPDATE drafts SET body_zh_internal='' WHERE id=$1",[String(draft.id)]));
     const translated = await request("POST", "/api/actions/mail.translate-draft", { draft_id: draft.id });
     expect(translated.status).toBe(200);
     const body = await translated.json();
     expect(String(body.zh)).toMatch(/[\u4e00-\u9fff]/);
     expect(String(body.zh)).not.toContain("Just a follow-up");
-    expect(String((getConn().prepare("SELECT body_zh_internal FROM drafts WHERE id=?").get(String(draft.id)) as { body_zh_internal: string }).body_zh_internal)).toMatch(/[\u4e00-\u9fff]/);
+    expect(String(((await getConn().query("SELECT body_zh_internal FROM drafts WHERE id=$1",[String(draft.id)])).rows[0] as { body_zh_internal: string }).body_zh_internal)).toMatch(/[\u4e00-\u9fff]/);
   });
 
   it("go rejected on messages", async () => {
@@ -676,13 +682,13 @@ describe("host contracts", () => {
   it("home exposes every catalog task as ask and Skill-backed", async () => {
     const home = await (await request("GET", "/api/home")).json();
     const recs = home.recs as Json[];
-    expect(recs).toHaveLength(SKILL_CATALOG.length);
-    expect(new Set(recs.map((rec) => rec.intent))).toEqual(new Set(SKILL_CATALOG.map((skill) => skill.id)));
+    expect(recs).toHaveLength((await skillCatalog()).length);
+    expect(new Set(recs.map((rec) => rec.intent))).toEqual(new Set((await skillCatalog()).map((skill) => skill.id)));
     expect(recs.every((rec) => rec.act === "ask" && rec.intent === rec.id)).toBe(true);
     expect(recs.every((rec) => rec.category && rec.group && rec.profile)).toBe(true);
     expect(recs.some((rec) => rec.act === "go")).toBe(false);
     for (const rec of recs) {
-      const intent = classify(String(rec.prompt), String(rec.intent));
+      const intent = (await classify(String(rec.prompt), String(rec.intent)));
       expect(intent.skill, String(rec.id)).toBe(rec.id);
       expect(intent.needs_worker, String(rec.id)).toBe(true);
     }
@@ -716,11 +722,11 @@ describe("host contracts", () => {
     expect((workbench.insights as Json[]).every((row) => row.source === "ai" && !row.promoted_at)).toBe(true);
   });
 
-  it("every catalog skill has a file and explicit profile", () => {
-    for (const skill of SKILL_CATALOG) {
+  it("every catalog skill has a file and explicit profile", async () => {
+    for (const skill of (await skillCatalog())) {
       const skillPath = path.join(import.meta.dirname, `../skills/${skill.id}/SKILL.md`);
       expect(fs.existsSync(skillPath), skill.id).toBe(true);
-      expect(profileFor(skill.id).id, skill.id).toBe(skill.profile);
+      expect((await profileFor(skill.id)).id, skill.id).toBe(skill.profile);
       const md = fs.readFileSync(skillPath, "utf8");
       expect(md, skill.id).toContain("## 禁止事项");
       expect(md, skill.id).toContain("## 是否发信");
@@ -747,13 +753,17 @@ describe("host contracts", () => {
     for (const rec of recs) {
       const [, data] = await ask(String(rec.prompt), String(rec.intent));
       const messages = data.messages as Json[];
-      // P2.1：confirm_stage / stage_sop 声明了 context.requires=[collaboration, stage]。首页推荐不带
-      // 合作对象，按设计不再起箱，只出结构化缺口卡（带合作对象的路径见 ask(..., "confirm_stage", "col_xiaomei")）。
-      if (rec.id === "confirm_stage" || rec.id === "stage_sop") {
-        expect(data.worker ?? null, `${rec.id}: no turn without declared context`).toBeNull();
+      // The Home recommendation has no object selection. Every published Skill
+      // that declares required context must therefore stop before worker/MCP
+      // execution and return a structured supplement card. This derives the
+      // assertion from the actual manifest rather than maintaining a stale list.
+      const definition = await taskDefinition(String(rec.id));
+      const requiredContext = definition?.context?.requires || [];
+      if (requiredContext.length) {
+        expect(data.worker ?? null, `${rec.id}: no turn without ${requiredContext.join(", ")} context`).toBeNull();
         expect(messages.some((message) => message.kind === "supplement_card"), `${rec.id}: context gap card`).toBe(true);
         expect(messages.some((message) => ["confirm_stage_card", "task_result_card"].includes(String(message.kind))),
-          `${rec.id}: no result without context`).toBe(false);
+          `${rec.id}: no result without required context`).toBe(false);
         continue;
       }
       if (rec.id === "deal_memory") {
@@ -826,7 +836,7 @@ describe("host contracts", () => {
     const cron = await withTicketPrincipal({
       id: "test-admin", username: "test-admin", name: "Test Admin", email: null,
       roles: ["admin"], active: true,
-    }, () => request("POST", "/api/cron/risk-scan"));
+    }, async () => (request("POST", "/api/cron/risk-scan")));
     expect(cron.status, await cron.text()).toBe(200);
     const cronBody = await cron.json() as Json;
     expect(cronBody.run_id).toBeTruthy();
@@ -895,10 +905,16 @@ describe("host contracts", () => {
     expect(pj.summary).toBe("测试改过的达人发现摘要");
     const beforePublish = (await (await request("GET", "/api/skills")).json()) as unknown as Json[];
     expect(beforePublish.find((s) => s.id === "creator_discovery")?.summary).not.toBe("测试改过的达人发现摘要");
-    for (const stage of ["testing", "published"]) {
-      const moved = await request("POST", "/api/admin/skills/creator_discovery/stage", { stage });
-      expect(moved.status, await moved.text()).toBe(200);
-    }
+    const testing = await request("POST", "/api/admin/skills/creator_discovery/stage", { stage: "testing" });
+    expect(testing.status, await testing.text()).toBe(200);
+    // A draft may be tested, but it cannot be published without the responsible owner.
+    const blockedPublish = await request("POST", "/api/admin/skills/creator_discovery/stage", { stage: "published" });
+    expect(blockedPublish.status, await blockedPublish.text()).toBe(400);
+    expect(String(((await blockedPublish.json()).detail as Json).code)).toBe("skill_owner_required");
+    const owner = await request("PATCH", "/api/admin/skills/creator_discovery/lifecycle", { owner: "技能合同测试负责人" });
+    expect(owner.status, await owner.text()).toBe(200);
+    const published = await request("POST", "/api/admin/skills/creator_discovery/stage", { stage: "published" });
+    expect(published.status, await published.text()).toBe(200);
     const skills = (await (await request("GET", "/api/skills")).json()) as unknown as Json[];
     const discovery = skills.find((s) => s.id === "creator_discovery");
     expect(discovery?.summary).toBe("测试改过的达人发现摘要");
@@ -960,14 +976,19 @@ describe("host contracts", () => {
       const denied = await request("POST", `/api/sessions/${ses.id}/messages`, {
         text: "搜索 YouTube 露营达人", act: "ask", intent: "creator_discovery",
       }, employeeCookie);
-      expect(denied.status).toBe(400);
+      expect(denied.status).toBe(403);
+      expect((await denied.json()).detail).toMatchObject({ code: "runtime_agent_not_usable" });
 
-      // 资格来自 Agent 绑定：账号挂到组织人员，Agent 绑定到该人员所在的三级组。
-      getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(employeeId, "person:ye_guanwang");
-      createAgentBinding({
-        agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
+      // 资格来自真实的已发布 Agent：合成员工先挂到权威组织人员，
+      // Agent 挂载技能并绑定其所在三级组；不使用废止的逐人技能授权。
+      const agentId = "agent:host-contract-eligibility";
+      await seedPublishedAgent(agentId, "Host 合同资格测试 Agent");
+      await setAgentSkill(agentId, "creator_discovery", true, 0);
+      (await getConn().query("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2",[employeeId,"person:ye_guanwang"]));
+      (await createAgentBinding({
+        agent_id: agentId, target_type: "organization_unit", target_id: "org:lt_team",
         company_id: "company:amperetime", source: "test",
-      });
+      }));
       const granted = (await (await request("GET", "/api/skills", undefined, employeeCookie)).json()) as unknown as Json[];
       expect(granted.find((s) => s.id === "creator_discovery")).toBeTruthy();
     } finally {

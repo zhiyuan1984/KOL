@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { Hono } from "hono";
 import { scopedUser } from "../auth.js";
 import { HttpFail } from "../host/errors.js";
@@ -43,7 +44,7 @@ export function operationJobsRouter(scopes: Record<string, (payload: Record<stri
   operationJobs.post("/jobs/:id/cancel", async (c) => {
     const job = await authorizedJob(c.req.param("id"));
     // Low-risk read jobs stop cooperatively. Already-indexed facts are retained.
-    await postgresPool().query(
+    await postgresConnection().query(
       `UPDATE execution_jobs SET status='cancelled', terminal_at=$1,updated_at=$1,
          lease_until=NULL,lease_owner=NULL,error_code='cancelled_by_actor',
          error_summary='已取消后续同步；已读取的数据保留，正在执行的请求将在检查点停止'

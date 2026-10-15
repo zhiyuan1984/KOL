@@ -1,12 +1,13 @@
+import { postgresConnection } from "../postgres/pool.js";
 import fs from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { requireAdmin, scopedUser } from "../auth.js";
 import { dataDir } from "../config.js";
-import { getConn } from "../db.js";
-import { reviewContextForActor } from "../approval/review-access.js";
-import { ReviewService, type ReviewContext } from "../approval/review-service.js";
+import type { ReviewContext } from "../approval/review-context.js";
+import { postgresReviewContext } from "../approval/review-postgres-access.js";
+import { PostgresReviewService } from "../approval/review-postgres-service.js";
 import { reviewIntake } from "../approval/review-rollout.js";
 import { postgresPool, postgresQuery, postgresTransaction } from "../postgres/pool.js";
 import { HttpFail } from "../host/errors.js";
@@ -14,25 +15,27 @@ import { registerExecutionHandler } from "../execution-jobs/handlers.js";
 import type { ClaimedExecutionJob } from "../execution-jobs/contracts.js";
 import type { ReviewCommand } from "../../../shared/review.js";
 import { ensureOrganizationTree } from "../runtime/organization-tree.js";
-import { queryDocuments, validateDocumentFile } from "../host/knowledge-documents.js";
+import { validateDocumentFile } from "../host/knowledge-documents.js";
+import { originalDocumentPage } from "./document-pages.js";
+import { bridgeMode, chatModel, runBridge } from "../knowledge-bridge.js";
 
 type Row = Record<string, any>;
 const fail = (code: string, message: string, status = 409): never => { throw new HttpFail(status, { code, message }); };
 const digest = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
 const decode = (value: unknown): Row => typeof value === "string" ? JSON.parse(value) : (value || {}) as Row;
 const stamp = () => new Date().toISOString();
-const publicationAudit=(client:PoolClient,actor:string,event:string,payload:Row)=>
-  client.query("INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)",[stamp(),actor,event,JSON.stringify(payload)]);
+const publicationAudit=async (client:PoolClient,actor:string,event:string,payload:Row)=>
+  (await client.query("INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)",[stamp(),actor,event,JSON.stringify(payload)]));
 
 /** Reuse the existing authority for organization/roles, never invent reviewers. */
-export function publicationContext(company?: string): ReviewContext {
+export async function publicationContext(company?: string): Promise<ReviewContext> {
   const user = scopedUser();
   if (!user) fail("authentication_required", "请登录", 401);
-  ensureOrganizationTree();
-  return reviewContextForActor(getConn(), user!.id, company);
+  (await ensureOrganizationTree());
+  return postgresTransaction(async client => (postgresReviewContext(client, user!.id, company)));
 }
 async function document(id: string, tenant: string, client?: PoolClient) {
-  const rows = await (client || postgresPool()).query(
+  const rows = await (client || postgresConnection()).query(
     `SELECT d.*,b.status AS base_status,b.name AS base_name,k.tenant AS bound_tenant,
       l.root_id,l.version AS document_version,l.expected_active_id,
       (SELECT jsonb_build_object('revision',s.revision,'explanation',s.explanation,'state',s.state,'scope',s.scope,'fingerprint',s.fingerprint) FROM knowledge_document_scopes s WHERE s.document_id=d.id) AS knowledge_scope
@@ -42,6 +45,135 @@ async function document(id: string, tenant: string, client?: PoolClient) {
   const row = rows.rows[0];
   if (!row || (row.bound_tenant && row.bound_tenant !== tenant)) fail("knowledge_document_unavailable", "资料不存在或不在当前组织范围", 404);
   return row;
+}
+
+/**
+ * Approval trial retrieval deliberately lives in this native module instead of
+ * delegating to the historical synchronous document store.  The first snapshot
+ * freezes the exact reviewed material; the second transaction re-checks the
+ * participant, material and source version before recording the read receipt.
+ */
+/**
+ * The native publication service persists a different snapshot contract from the
+ * historical request store. Validate its own identifiers and frozen material
+ * before reusing the engine-file checksum verifier; this is deliberately not a
+ * permissive adapter for legacy request rows.
+ */
+function verifyNativePublicationTrialSnapshot(snapshot: Row, doc: Row) {
+  const engine = decode(snapshot.engine);
+  const frozenArtifacts = decode(snapshot.artifacts);
+  const currentArtifacts = decode(doc.artifacts);
+  const engineId = String(frozenArtifacts.index?.doc_id || "");
+  const currentEngineId = String(currentArtifacts.index?.doc_id || "");
+  const version = Number(doc.document_version || 1);
+  const expectedActiveId = doc.expected_active_id == null ? null : String(doc.expected_active_id);
+  const source = path.isAbsolute(String(doc.source_path))
+    ? String(doc.source_path)
+    : path.join(dataDir(), String(doc.source_path));
+  if (
+    typeof snapshot.documentId !== "string" || snapshot.documentId !== String(doc.id) ||
+    String(snapshot.baseId || "") !== String(doc.base_id) ||
+    snapshot.title !== doc.title || snapshot.filename !== doc.filename ||
+    snapshot.updatedAt !== doc.updated_at || snapshot.artifacts !== doc.artifacts ||
+    !/^[a-f0-9]{64}$/.test(String(snapshot.sourceHash || "")) ||
+    engine.document_id !== doc.id || engine.base_id !== doc.base_id ||
+    engine.updated_at !== snapshot.updatedAt || engine.artifacts !== doc.artifacts ||
+    engine.title !== doc.title || engine.source_path !== doc.source_path ||
+    !Number.isInteger(Number(engine.document_version)) || Number(engine.document_version) !== version ||
+    engine.root_id !== (doc.root_id || doc.id) ||
+    (engine.expected_active_id == null ? null : String(engine.expected_active_id)) !== expectedActiveId ||
+    !Array.isArray(engine.files) || !engineId || engineId !== currentEngineId
+  ) fail("knowledge_material_changed", "审批冻结材料或索引版本已变化，需要重新申请");
+  if (!fs.existsSync(source) || digest(fs.readFileSync(source)) !== snapshot.sourceHash)
+    fail("knowledge_material_changed", "原件已变化，需要重新申请");
+  if (engine.files.some((file: unknown) => !file || typeof file !== "object" ||
+    typeof (file as Row).path !== "string" || !/^[a-f0-9]{64}$/.test(String((file as Row).hash || ""))))
+    fail("knowledge_material_changed", "审批冻结索引不完整，需要重新申请");
+  verifySnapshot(engine, doc);
+  return { engineId, frozenIndex: frozenArtifacts.index as Row | undefined };
+}
+
+async function publicationTrialSnapshot(instanceId: string, ctx: ReviewContext) {
+  return postgresTransaction(async client => publicationTrialSnapshotInClient(instanceId, ctx, client));
+}
+
+async function nativePublicationTrial(instanceId: string, query: string, ctx: ReviewContext) {
+  const prompt = String(query || "").trim();
+  if (!prompt || prompt.length > 2000) fail("knowledge_query_required", "请输入试算问题，最多2000字", 422);
+  const initial = await publicationTrialSnapshot(instanceId, ctx);
+  const outcome = await runBridge({
+    cmd: "ask",
+    args: ["--library", initial.library, "--question", prompt, "--chat-model", chatModel(), "--citations", "--doc-id", initial.engineId],
+    timeoutMs: 10 * 60_000,
+  });
+  if (!outcome.ok) {
+    const status = outcome.code === "knowledge_ask_failed" ? 502 : 503;
+    fail(String(outcome.code || "knowledge_ask_failed"), String(outcome.message || "试算失败"), status);
+  }
+  const rawCitations = Array.isArray(outcome.citations) ? outcome.citations as Row[] : [];
+  if (!rawCitations.length) fail("knowledge_missing_citations", "引擎未返回可验证引用，请重试或检查原文", 502);
+  const citations = rawCitations.map(item => {
+    const page = Number(item.page || 0);
+    if (String(item.doc_id || "") !== initial.engineId || !Number.isInteger(page) || page < 1)
+      fail("knowledge_invalid_citation", "检索引用不属于本次资料范围", 502);
+    const normalize = decode(initial.doc.artifacts).normalize as Row | undefined;
+    return {
+      document: String(item.document || ""), engine_doc_id: initial.engineId,
+      page: originalDocumentPage(normalize, page), document_id: String(initial.doc.id), title: String(initial.doc.title),
+    };
+  });
+  await postgresTransaction(async client => {
+    const current = await publicationTrialSnapshotInClient(instanceId, ctx, client);
+    if (current.doc.updated_at !== initial.doc.updated_at || current.engineId !== initial.engineId)
+      fail("knowledge_document_changed", "资料已变更，请重新查询");
+    await publicationAudit(client, ctx.actor, "knowledge.review.trial", {
+      instance_id: instanceId, document_id: current.doc.id, base_id: current.doc.base_id, include_pending: true,
+      engine: { mode: bridgeMode(), model: chatModel() },
+    });
+  });
+  return {
+    answer: String(outcome.answer || ""), citations, usage: outcome.usage || null,
+    engine: { mode: bridgeMode(), model: chatModel() },
+    scope: { base_id: String(initial.doc.base_id), include_pending: true,
+      documents: [{ id: String(initial.doc.id), title: String(initial.doc.title), status: String(initial.doc.status) }] },
+  };
+}
+
+/**
+ * Load one native document application and prove the caller is still a current
+ * participant. This deliberately has no fallback to knowledge_publication_requests:
+ * native submissions only persist knowledge_publication_applications.
+ */
+async function nativePublicationReviewSnapshotInClient(instanceId: string, ctx: ReviewContext, client: PoolClient) {
+  const application = (await client.query(`SELECT p.snapshot,p.document_id,p.status,p.error,p.receipt
+    FROM knowledge_publication_applications p
+    WHERE p.tenant=$1 AND p.instance_id=$2 AND p.document_id IS NOT NULL FOR SHARE`,
+    [ctx.tenant, instanceId])).rows[0];
+  if (!application) fail("knowledge_review_unavailable", "资料不存在或不可见", 404);
+  const participant = (await client.query(`SELECT 1 FROM review_participants
+    WHERE tenant=$1 AND instance_id=$2 AND user_id=$3 FOR KEY SHARE`,
+    [ctx.tenant, instanceId, ctx.actor])).rows[0];
+  if (!participant) fail("knowledge_review_forbidden", "仅当前组织的流程参与人可查看审批资料", 403);
+
+  const snapshot = decode(application.snapshot);
+  const doc = await document(String(application.document_id), ctx.tenant, client);
+  const frozen = verifyNativePublicationTrialSnapshot(snapshot, doc);
+  if (!['pending_review', 'published'].includes(String(doc.status)))
+    fail("knowledge_document_missing", "待审资料不存在", 404);
+  const base = (await client.query("SELECT kind,status FROM knowledge_bases WHERE id=$1 FOR SHARE", [doc.base_id])).rows[0];
+  if (!base) fail("knowledge_base_missing", "知识库不存在", 400);
+  if (base.status !== "active") fail("knowledge_base_archived", "知识库已归档");
+  if (base.kind !== "unstructured") fail("knowledge_base_not_unstructured", "只有非结构化库支持资料检索", 400);
+  return { application, snapshot, doc, frozen };
+}
+
+async function publicationTrialSnapshotInClient(instanceId: string, ctx: ReviewContext, client: PoolClient) {
+  const access = await nativePublicationReviewSnapshotInClient(instanceId, ctx, client);
+  const configuredLibrary = typeof access.frozen.frozenIndex?.library === "string" ? access.frozen.frozenIndex.library : "";
+  const library = configuredLibrary
+    ? (path.isAbsolute(configuredLibrary) ? configuredLibrary : path.join(dataDir(), configuredLibrary))
+    : path.join(dataDir(), "knowledge", "bases", String(access.doc.base_id), "library");
+  return { snapshot: access.snapshot, doc: access.doc, engineId: access.frozen.engineId, library };
 }
 
 /** Verify actual files; a completed job or zero-valued metadata is not enough. */
@@ -170,7 +302,7 @@ async function publicationCommand(id: string, note: string, ctx: ReviewContext, 
 export async function checkPublication(id:string,note:string,ctx:ReviewContext,extraValues:unknown={}) {
   try {
     const {command}=await publicationCommand(id,note,ctx,extraValues);
-    const summary=new ReviewService(getConn(),ctx).preview(command);
+    const summary=await postgresTransaction(async client => (await new PostgresReviewService(client,ctx).preview(command)));
     return {allowed:true,reason:"",reviewers:summary.reviewers || []};
   } catch(error) {
     if(!(error instanceof HttpFail)) throw error;
@@ -180,11 +312,14 @@ export async function checkPublication(id:string,note:string,ctx:ReviewContext,e
 }
 export async function preparePublication(id:string,note:string,ctx:ReviewContext,extraValues:unknown={}) {
   const {command,doc,snapshot,token,binding,values}=await publicationCommand(id,note,ctx,extraValues);
-  // Existing review service owns confirmation/organization parsing. The native
-  // trigger performs the atomic object association inside its submit transaction.
-  const prepared = new ReviewService(getConn(),ctx).prepare(command);
-  await postgresQuery(`INSERT INTO knowledge_publication_requests(id,tenant,document_id,actor,template_id,template_version,binding_version,snapshot,review_values,expires_at,created_at)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[token,ctx.tenant,id,ctx.actor,binding.template_id,binding.published_version,binding.version,JSON.stringify(snapshot),JSON.stringify(values),prepared.expiresAt,stamp()]);
+  // Confirmation token and frozen publication request commit together.  The generic
+  // command trigger consumes this request in its own PostgreSQL command transaction.
+  const prepared = await postgresTransaction(async client => {
+    const result = await new PostgresReviewService(client,ctx).prepare(command);
+    await client.query(`INSERT INTO knowledge_publication_requests(id,tenant,document_id,actor,template_id,template_version,binding_version,snapshot,review_values,expires_at,created_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[token,ctx.tenant,id,ctx.actor,binding.template_id,binding.published_version,binding.version,JSON.stringify(snapshot),JSON.stringify(values),result.expiresAt,stamp()]);
+    return result;
+  });
   return {...prepared,command,material:{title:doc.title,base_name:doc.base_name,pages:snapshot.pages,version:snapshot.document_version},
     summary:{...prepared.summary,consequence:"审批通过后将自动发布此版本，供获准使用该知识库的技能检索；不会自动重跑原咨询任务。"}};
 }
@@ -208,29 +343,42 @@ export async function guardKnowledgeReview(command: ReviewCommand, ctx: ReviewCo
 }
 
 export async function knowledgeReviewMaterial(instanceId: string,ctx: ReviewContext) {
-  const req = (await postgresQuery(`SELECT r.snapshot,r.document_id,p.publication_status,p.error,p.receipt
-    FROM knowledge_publication_requests r JOIN review_participants m ON m.tenant=r.tenant AND m.instance_id=r.instance_id
-    LEFT JOIN knowledge_publications p ON p.tenant=r.tenant AND p.instance_id=r.instance_id
-    WHERE r.tenant=$1 AND r.instance_id=$2 AND m.user_id=$3`,[ctx.tenant,instanceId,ctx.actor]))[0];
-  if (!req) fail("knowledge_review_unavailable", "资料不存在或不可见",404);
-  const snapshot = decode(req.snapshot);
-  verifySnapshot(snapshot,await document(req.document_id,ctx.tenant));
-  const normalize = decode(snapshot.artifacts).normalize;
-  const previewPath = /\.pptx$/i.test(snapshot.source_path) ? normalize?.preview_path || normalize?.normalized_path : snapshot.source_path;
-  if (!previewPath) fail("knowledge_artifact_missing", "PPTX 转换预览缺失");
-  return {title:snapshot.title,base_id:snapshot.base_id,pages:snapshot.pages,version:snapshot.document_version,
-    publication_status:req.publication_status || "unpublished",error:req.error,receipt:req.receipt,source_path:previewPath,document_id:req.document_id,
-    knowledge_scope:snapshot.knowledge_scope || null,
-    management_url:ctx.admin ? `/admin/knowledge?document=${encodeURIComponent(req.document_id)}&reviewCompany=${encodeURIComponent(ctx.tenant)}` : null};
+  return postgresTransaction(async client => {
+    const access = await nativePublicationReviewSnapshotInClient(instanceId, ctx, client);
+    const engine = decode(access.snapshot.engine);
+    const artifacts = decode(access.snapshot.artifacts);
+    const pages = Number(engine.pages);
+    if (!Number.isInteger(pages) || pages < 1)
+      fail("knowledge_material_changed", "审批冻结材料页码无效，需要重新申请");
+    const previewPath = /\.pptx$/i.test(String(access.snapshot.filename || ""))
+      ? artifacts.normalize?.preview_path || artifacts.normalize?.normalized_path
+      : access.doc.source_path;
+    if (typeof previewPath !== "string" || !previewPath)
+      fail("knowledge_artifact_missing", "PPTX 转换预览缺失");
+    // source_path is transport-only and stripped by the router; neither it nor
+    // snapshot hashes/artifact locations are exposed in the metadata DTO.
+    return {
+      title: String(access.snapshot.title),
+      filename: String(access.snapshot.filename),
+      base_id: String(access.snapshot.baseId),
+      pages,
+      version: Number(engine.document_version),
+      publication_status: String(access.application.status),
+      error: access.application.error || null,
+      receipt: access.application.receipt ? decode(access.application.receipt) : null,
+      source_path: previewPath,
+      file_mime: "application/pdf",
+      document_id: String(access.application.document_id),
+      knowledge_scope: access.snapshot.knowledgeScope || engine.knowledge_scope || null,
+      management_url: ctx.admin ? `/admin/knowledge?document=${encodeURIComponent(String(access.application.document_id))}&reviewCompany=${encodeURIComponent(ctx.tenant)}` : null,
+    };
+  });
 }
 
 export async function knowledgeReviewTrial(instanceId:string,query:string,ctx:ReviewContext) {
-  if(typeof query!=="string" || !query.trim() || query.length>2000) fail("knowledge_query_required","请输入试算问题，最多2000字",422);
-  const material=await knowledgeReviewMaterial(instanceId,ctx);
-  const result=await queryDocuments({query,base_id:material.base_id,doc_ids:[material.document_id],include_pending:true},ctx.actor);
-  await knowledgeReviewMaterial(instanceId,reviewContextForActor(getConn(),ctx.actor,ctx.tenant));
-  return {...result,citations:Array.isArray(result.citations) ? result.citations.map((citation:Row)=>({...citation,
-    source_url:`/api/approvals/v2/instances/${encodeURIComponent(instanceId)}/knowledge/file?company=${encodeURIComponent(ctx.tenant)}#page=${citation.page}`})):[],
+  const result = await nativePublicationTrial(instanceId, query, ctx);
+  return {...result,citations:result.citations.map((citation:Row)=>({...citation,
+    source_url:`/api/approvals/v2/instances/${encodeURIComponent(instanceId)}/knowledge-source?company=${encodeURIComponent(ctx.tenant)}#page=${citation.page}`})),
     scope:"本次审批版本试算，未发布内容不进入员工问答"};
 }
 
@@ -238,9 +386,9 @@ export async function publishApprovedKnowledge(job: ClaimedExecutionJob, checkpo
   const payload = decode(job.payload_json);
   try {
     await checkpoint();
-    const current = reviewContextForActor(getConn(),String(job.actor_ref),String(job.tenant_ref));
-    if (!current.admin) fail("knowledge_publication_authority_revoked", "发起人的知识治理资格已失效",403);
     return await postgresTransaction(async client => {
+      const current = await postgresReviewContext(client,String(job.actor_ref),String(job.tenant_ref));
+      if (!current.admin) fail("knowledge_publication_authority_revoked", "发起人的知识治理资格已失效",403);
       const row = (await client.query(`SELECT p.*,r.snapshot FROM knowledge_publications p JOIN knowledge_publication_requests r ON r.id=p.request_id
         WHERE p.document_id=$1 AND p.tenant=$2 AND p.instance_id=$3 AND p.request_id=$4 FOR UPDATE OF p`,[payload.document_id,job.tenant_ref,payload.instance_id,payload.request_id])).rows[0];
       if (!row || row.review_status !== "approved") fail("knowledge_approval_invalid", "批准记录不匹配");

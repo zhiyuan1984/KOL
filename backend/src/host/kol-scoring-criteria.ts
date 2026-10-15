@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 /**
  * Jev 评分的「评分口径」：员工在 AI 发现里设定的目标条件（平台 / 地区 / 方向 / 关键词 / 粉丝与均播门槛 / 期望人数）。
  *
@@ -5,7 +6,7 @@
  * 「有方向 / 有地区」当成资料完整度。这里把口径收成一个受控对象，随评分一起提交给模型，并写进
  * 评分回执与卡片 tooltip（口径不同的两次评分不该看起来一样）。
  */
-import { getConn, type SqliteConn } from "../db.js";
+import { postgresPool } from "../postgres/pool.js";
 import {
   DEFAULT_DISCOVERY_THRESHOLDS,
   DISCOVERY_PLATFORMS,
@@ -113,13 +114,21 @@ function safeJson(value: string): Json {
  * 员工最近一次 AI 发现请求的条件：这是他自己声明过的目标，属于他自己写下的意图，不是推断。
  * 没有记录就返回 null——此时按公开资料的通用口径评分，并在回执里说明。
  */
-export function latestDiscoveryCriteria(employeeId: string, db: SqliteConn = getConn()): KolScoringCriteria | null {
+export async function latestDiscoveryCriteria(employeeId: string): Promise<KolScoringCriteria | null> {
+  if (!employeeId) return null;
   let row: Row | undefined;
   try {
-    row = db.prepare(
-      "SELECT * FROM discovery_requests WHERE owner_user_id=? ORDER BY created_at DESC LIMIT 1",
-    ).get(employeeId) as Row | undefined;
+    const result = await postgresConnection().query<Row>(
+      `SELECT platforms,keywords,filters,brand
+         FROM discovery_requests
+        WHERE owner_user_id=$1
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1`,
+      [employeeId],
+    );
+    row = result.rows[0];
   } catch {
+    // No scoring context is safer than inventing a target profile if the source is unavailable.
     return null;
   }
   if (!row) return null;

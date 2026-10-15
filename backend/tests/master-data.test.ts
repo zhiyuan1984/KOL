@@ -5,24 +5,24 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 let app: Hono;
 
 beforeEach(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-master-data-"));
-  process.env.LINGONG_DB = path.join(tmp, "md.db");
   process.env.LINGONG_DATA = tmp;
   process.env.AUTH_MODE = "disabled";
-  resetConn();
-  seedAll();
+  await freshTestDatabase();
+  await seedAll();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = await createApp();
 });
 
-afterEach(() => {
+afterEach(async () => {
   process.env.AUTH_MODE = "disabled";
-  resetConn();
+  await resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 

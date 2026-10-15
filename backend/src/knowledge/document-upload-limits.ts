@@ -10,7 +10,7 @@ export function documentMaxBytes(): number {
 }
 
 /** Bound received bytes before parseBody()/arrayBuffer(), including chunked requests. */
-export const documentUploadBodyLimit: ReturnType<typeof bodyLimit> = async (c, next) => {
+export const documentUploadBodyLimit: Awaited<ReturnType<typeof bodyLimit>> = async (c, next) => {
   const maxBytes = documentMaxBytes();
   return bodyLimit({
     maxSize: maxBytes + MULTIPART_OVERHEAD_BYTES,

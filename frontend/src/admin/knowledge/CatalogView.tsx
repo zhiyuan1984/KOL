@@ -209,7 +209,9 @@ export default function CatalogView({ notify, fail }: KbFeed) {
       {nodes.map(node => node.children.length ? (
         <Collapse key={node.key} className="kbplanning-accordion" ghost size="small" collapsible="icon" destroyOnHidden
           expandIcon={({ isActive }) => <span><span className="sr-only">{isActive ? "收起" : "展开"}{node.title}</span><RightOutlined rotate={isActive ? 90 : 0} aria-hidden="true" /></span>}
-          activeKey={(query.trim() ? searchExpandedKeys : expandedKeys).includes(node.key) ? [node.key] : []}
+          // Each Collapse owns one panel. A stable scalar prevents controlled
+          // layout-state synchronization from chasing fresh array identities.
+          activeKey={(query.trim() ? searchExpandedKeys : expandedKeys).includes(node.key) ? node.key : ""}
           onChange={keys => (query.trim() ? setSearchExpandedKeys : setExpandedKeys)(current => keys.length ? [...new Set([...current, node.key])] : current.filter(key => key !== node.key))}
           items={[{ key: node.key, label: nodeTitle(node), children: renderTree(node.children, `${node.title}的子节点`) }]}
         />

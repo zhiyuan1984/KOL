@@ -7,6 +7,8 @@ import { getConn, resetConn } from "../src/db.js";
 import { createAgentBinding } from "../src/runtime/organization-tree.js";
 import { importOrganizationAccounts } from "../src/runtime/org-account-import.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
+import { setAgentSkill } from "../src/runtime/store.js";
 
 let tmp = "";
 let app: Hono;
@@ -56,9 +58,9 @@ beforeEach(async () => {
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "real";
   process.env.AUTH_MODE = "enabled";
-  resetConn();
+  (await resetConn());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const initial = await call("GET", "/api/auth/status", undefined, "");
   expect(initial.json).toMatchObject({ setup_required: true, authenticated: false });
   const setup = await call("POST", "/api/auth/setup", {
@@ -71,8 +73,8 @@ beforeEach(async () => {
   adminCookie = setup.cookie;
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
   process.env.CODEX_MODE = "stub";
@@ -106,10 +108,10 @@ describe("production account and enterprise controls", () => {
     const employee = await createEmployee("pool-reader");
     const cookie = await employeeLogin("pool-reader");
     expect((await call("GET", "/api/home/pool", undefined, cookie)).response.status).toBe(200);
-    getConn().prepare("UPDATE users SET active=0 WHERE id=?").run(employee.id);
+    (await getConn().query("UPDATE users SET active=0 WHERE id=$1",[employee.id]));
     expect((await call("GET", "/api/home/pool", undefined, cookie)).response.status).toBe(401);
-    getConn().prepare("UPDATE users SET active=1 WHERE id=?").run(employee.id);
-    getConn().prepare("UPDATE auth_sessions SET expires_at=? WHERE user_id=?").run("2000-01-01T00:00:00.000Z", employee.id);
+    (await getConn().query("UPDATE users SET active=1 WHERE id=$1",[employee.id]));
+    (await getConn().query("UPDATE auth_sessions SET expires_at=$1 WHERE user_id=$2",["2000-01-01T00:00:00.000Z",employee.id]));
     expect((await call("GET", "/api/home/pool", undefined, cookie)).response.status).toBe(401);
     const renewed = await employeeLogin("pool-reader");
     await call("POST", "/api/auth/logout", {}, renewed);
@@ -137,31 +139,44 @@ describe("production account and enterprise controls", () => {
   });
 
   it("enforces admin authorization and Agent-derived skill availability", async () => {
-    // Use the CI stub mode so this test reaches the employee skill PEP
-    // without starting a real Codex turn. Publication no longer 409s.
+    // Stub execution is deterministic, but this remains a real employee
+    // submission: keep authentication enabled so Agent eligibility is checked.
+    const previousAuthMode = process.env.AUTH_MODE;
+    process.env.AUTH_MODE = "enabled";
     process.env.CODEX_MODE = "stub";
-    const employee = await createEmployee();
-    const cookie = await employeeLogin();
-    expect((await call("GET", "/api/admin/users", undefined, cookie)).response.status).toBe(403);
-    const session = await call("POST", "/api/sessions", { title: "gated" }, cookie);
-    const denied = await call("POST", `/api/sessions/${session.json.id}/messages`, {
-      text: "写合作邮件",
-      intent: "email_compose",
-    }, cookie);
-    // 资格锚点是 Agent（ADR-2026-10-03）：未绑定的账号在提交时就被拒绝。
-    expect(denied.response.status).toBe(400);
-    expect(denied.json.detail).toBe("未授权该技能");
-    // 逐人技能授权已退役（410），直接授权不再让技能可见或可执行。
-    const retiredGrant = await call("PUT", `/api/admin/users/${employee.id}/skills/email_compose`, {});
-    expect(retiredGrant.response.status).toBe(410);
-    expect(await (await call("GET", "/api/skills", undefined, cookie)).json).toEqual([]);
-    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(String(employee.id), "person:ye_guanwang");
-    createAgentBinding({
-      agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
-      company_id: "company:amperetime", source: "test",
-    });
-    const skills = await call("GET", "/api/skills", undefined, cookie);
-    expect((skills.json as unknown as { id: string }[]).map((skill) => skill.id)).toContain("email_compose");
+    try {
+      const employee = await createEmployee();
+      const cookie = await employeeLogin();
+      expect((await call("GET", "/api/admin/users", undefined, cookie)).response.status).toBe(403);
+      const session = await call("POST", "/api/sessions", { title: "gated" }, cookie);
+      const denied = await call("POST", `/api/sessions/${session.json.id}/messages`, {
+        text: "写合作邮件",
+        intent: "email_compose",
+      }, cookie);
+      // 资格锚点是 Agent（ADR-2026-10-03）：未绑定的账号在提交时就被拒绝.
+      expect(denied.response.status).toBe(403);
+      expect(denied.json.detail).toMatchObject({ code: "runtime_agent_not_usable" });
+      // 逐人技能授权已退役（410），直接授权不再让技能可见或可执行。
+      const retiredGrant = await call("PUT", `/api/admin/users/${employee.id}/skills/email_compose`, {});
+      expect(retiredGrant.response.status).toBe(410);
+      expect(await (await call("GET", "/api/skills", undefined, cookie)).json).toEqual([]);
+      // Create the complete native runtime eligibility chain: a real synthetic
+      // employee is linked to the authority tree and uses a published Agent
+      // with an explicitly mounted skill through an organization-unit binding.
+      const agentId = "agent:enterprise-auth-eligibility";
+      await seedPublishedAgent(agentId, "企业鉴权测试 Agent");
+      await setAgentSkill(agentId, "email_compose", true, 0);
+      await getConn().query("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", [String(employee.id), "person:ye_guanwang"]);
+      await createAgentBinding({
+        agent_id: agentId, target_type: "organization_unit", target_id: "org:lt_team",
+        company_id: "company:amperetime", source: "test",
+      });
+      const skills = await call("GET", "/api/skills", undefined, cookie);
+      expect((skills.json as unknown as { id: string }[]).map((skill) => skill.id)).toContain("email_compose");
+    } finally {
+      if (previousAuthMode === undefined) delete process.env.AUTH_MODE;
+      else process.env.AUTH_MODE = previousAuthMode;
+    }
   });
 
   it("stores preferences and versioned Markdown memory", async () => {
@@ -218,7 +233,7 @@ describe("production account and enterprise controls", () => {
     expect((await call("GET", `/api/shared/${token}`, undefined, "")).response.status).toBe(404);
 
     const expiring = await call("POST", `/api/sessions/${session.json.id}/share`, { expires_in_seconds: 60 });
-    getConn().prepare("UPDATE session_shares SET expires_at='2000-01-01T00:00:00.000Z' WHERE id=?").run(expiring.json.id);
+    (await getConn().query("UPDATE session_shares SET expires_at='2000-01-01T00:00:00.000Z' WHERE id=$1",[expiring.json.id]));
     expect((await call("GET", `/api/shared/${expiring.json.token}`, undefined, "")).response.status).toBe(404);
   });
 
@@ -250,20 +265,19 @@ describe("production account and enterprise controls", () => {
   it("replaces employee skill and approval grants without per-person connector grants", async () => {
     const employee = await createEmployee("grantee");
     const now = new Date().toISOString();
-    getConn().prepare("UPDATE connectors SET enabled=1, status='configured' WHERE id IN ('starrykol','claw')").run();
+    (await getConn().query("UPDATE connectors SET enabled=1, status='configured' WHERE id IN ('starrykol','claw')",[]));
     for (const [id, label] of [["starrykol", "Starry KOL"], ["claw", "Claw"], ["enterprise_mail", "Enterprise Mail"], ["wecom", "WeCom"]]) {
-      getConn().prepare(
-        "INSERT OR IGNORE INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES (?,?,?,?,?,?)",
-      ).run(id, label, 1, "configured", null, now);
+      (await getConn().query("INSERT INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING",[id,label,1,"configured",null,now]));
     }
     const retired = await call("PUT", `/api/admin/users/${employee.id}/skills`, { skills: ["email_compose", "creator_discovery"] });
     // 逐人技能授权退役（ADR-2026-10-03）：直接授权端点 410，不再写入 user_skill_grants；
     // 人员资格改由 Agent 绑定决定，历史授权行只作核对、不再放行。
     expect(retired.response.status).toBe(410);
     for (const [id, access] of [["starrykol", "read"], ["claw", "read"], ["enterprise_mail", "write"], ["wecom", "read"]]) {
-      getConn().prepare(
-        "INSERT OR REPLACE INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES (?,?,?,?)",
-      ).run(employee.id, id, access, now);
+      await getConn().query(
+        "INSERT INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id,connector_id) DO UPDATE SET access=EXCLUDED.access,created_at=EXCLUDED.created_at",
+        [employee.id, id, access, now],
+      );
     }
     await call("PUT", `/api/admin/users/${employee.id}/approval-roles`, { roles: ["lead"] });
     const detail = await call("GET", `/api/admin/users/${employee.id}`);
@@ -289,16 +303,8 @@ describe("production account and enterprise controls", () => {
   it("returns employee binding detail and the runtime-backed tool list for admin governance", async () => {
     const employee = await createEmployee("directory-user");
     const now = new Date().toISOString();
-    getConn().prepare(
-      `INSERT INTO user_starry_bindings
-        (user_id,mailbox_email,is_default,mailbox_id,owner_name,bearer_token,status,updated_at)
-       VALUES (?,?,?,?,?,?,?,?)`,
-    ).run(employee.id, "directory@amperetime.com", 1, "mailbox_directory", "Directory User", "secret-bearer", "connected", now);
-    getConn().prepare(
-      `INSERT INTO kol_follow_index
-        (id,company_id,kol_uid,scope_brand,employee_id,status,claimed_at,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
-    ).run("follow_directory", "company:amperetime", "kol_directory", "LT", employee.id, "active", now, now, now);
+    (await getConn().query("INSERT INTO user_starry_bindings\n        (user_id,mailbox_email,is_default,mailbox_id,owner_name,bearer_token,status,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",[employee.id,"directory@amperetime.com",1,"mailbox_directory","Directory User","secret-bearer","connected",now]));
+    (await getConn().query("INSERT INTO kol_follow_index\n        (id,company_id,kol_uid,scope_brand,employee_id,status,claimed_at,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",["follow_directory","company:amperetime","kol_directory","LT",employee.id,"active",now,now,now]));
 
     const directory = await call("GET", "/api/admin/users");
     const listed = (directory.json as unknown as Array<Record<string, unknown>>).find((row) => row.id === employee.id);
@@ -355,7 +361,7 @@ describe("production account and enterprise controls", () => {
   });
 
   it("returns 王想 in the admin employee directory after confirmed organization account import", async () => {
-    importOrganizationAccounts(true);
+    (await importOrganizationAccounts(true));
     const directory = await call("GET", "/api/admin/users");
     expect(directory.response.status).toBe(200);
     const employee = (directory.json as unknown as Array<Record<string, unknown>>).find((row) => row.id === "usr_org_wang_xiang");
@@ -379,12 +385,11 @@ describe("production account and enterprise controls", () => {
     expect(me.json.avatar_url).toBeNull();
     const db = getConn();
     try {
-      db.prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?")
-        .run(adminId, "person:ye_guanwang");
+      (await db.query("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2",[adminId,"person:ye_guanwang"]));
       const linked = await call("GET", "/api/me");
       expect(linked.json.avatar_url).toBe("/avatars/employees/ye_guanwang.png");
     } finally {
-      db.prepare("UPDATE organization_people SET user_id = NULL WHERE person_ref = ?").run("person:ye_guanwang");
+      (await db.query("UPDATE organization_people SET user_id = NULL WHERE person_ref = $1",["person:ye_guanwang"]));
     }
   });
 

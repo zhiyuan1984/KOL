@@ -1,7 +1,12 @@
 import { defineConfig } from "vitest/config";
+import { fileURLToPath } from "node:url";
 
 export default defineConfig({
   cacheDir: process.env.VITE_CACHE_DIR || ".vite-cache",
+  // DOM tests use Vite's web transform and must be allowed to load the sibling
+  // frontend files explicitly listed below. Keep the allowlist inside this repo;
+  // Vite's default deny rules for .env, certificates and keys remain intact.
+  server: { fs: { allow: [fileURLToPath(new URL("..", import.meta.url))] } },
   test: {
     environment: "node",
     include: [

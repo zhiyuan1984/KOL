@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import type { PoolClient } from "pg";
 import { nid } from "../ids.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
@@ -65,7 +66,7 @@ const CRON_JOB_READ_COLUMNS = `job.*,
        (SELECT result.receipt_json FROM cron_runs result WHERE result.job_id=job.id AND result.status IN ('succeeded','failed','skipped','needs_takeover') ORDER BY result.finished_at DESC NULLS LAST,result.created_at DESC LIMIT 1) AS last_result_receipt_json,
        (SELECT result.error_summary FROM cron_runs result WHERE result.job_id=job.id AND result.status IN ('succeeded','failed','skipped','needs_takeover') ORDER BY result.finished_at DESC NULLS LAST,result.created_at DESC LIMIT 1) AS last_result_error_summary`;
 
-async function insertCronDispatch(client: PoolClient, job: Row, run: Row, now: string): Promise<void> {
+async function insertCronDispatch(client: PoolClient, job: Row, run: Row, now: string, scheduleDispatch?: Json): Promise<void> {
   const jobId = nid("job");
   const idempotencyKey = `cron-run:${String(run.id)}`;
   const inserted = await client.query<Row>(
@@ -86,7 +87,7 @@ async function insertCronDispatch(client: PoolClient, job: Row, run: Row, now: s
       idempotencyKey,
       JSON.stringify({ scope: json(job.scope_json), condition: json(job.condition_json) }),
       now,
-      JSON.stringify({ cron_run_id: String(run.id), cron_job_id: String(job.id) }),
+      JSON.stringify({ cron_run_id: String(run.id), cron_job_id: String(job.id), ...(scheduleDispatch ? { schedule_dispatch: scheduleDispatch } : {}) }),
     ],
   );
   const execution = inserted.rows[0] as Row | undefined;
@@ -100,7 +101,7 @@ async function insertCronDispatch(client: PoolClient, job: Row, run: Row, now: s
       nid("obx"),
       String(execution.id),
       String(run.id),
-      JSON.stringify({ cron_job_id: String(job.id), trigger: String(run.trigger), scheduled_for: String(run.scheduled_for) }),
+      JSON.stringify({ cron_job_id: String(job.id), trigger: String(run.trigger), scheduled_for: String(run.scheduled_for), ...(scheduleDispatch ? { schedule_dispatch: scheduleDispatch } : {}) }),
       `execution-job:${idempotencyKey}:queued`,
       now,
     ],
@@ -123,19 +124,9 @@ export async function pgEnsureSystemCronJobs(from = new Date()): Promise<void> {
           JSON.stringify(DEFAULT_RETRY), JSON.stringify(DEFAULT_TAKEOVER), next, now],
       );
     }
-    // 三项已通过受控兼容桥接接入：回填既有库状态，使历史 disabled
-    // 作业不会继续静默停摆；业务副作用仍由各 handler 的白名单合同限制。
-    for (const key of ["ownership-release", "mail-memory-increment"] as const) {
-      const seed = SYSTEM_JOBS.find((item) => item.job_key === key);
-      if (!seed) continue;
-      const next = nextRunAt(seed.cron_expr, "Asia/Shanghai", from).toISOString();
-      await client.query(
-        `UPDATE cron_jobs SET status='published', next_run_at=COALESCE(next_run_at,$2),
-                condition_json=$3, updated_at=$4
-           WHERE id=$1 AND status='disabled'`,
-        [seed.id, next, JSON.stringify(seed.condition), now],
-      );
-    }
+    // Historical activation was handled during the approved native cutover.
+    // Runtime bootstrap must not republish a task an administrator disabled.
+    // Existing status, schedule, scope and conditions remain authoritative.
 
     // 既有库回填：discovery-search 的旧条件（含 enabled:false / not_enabled_no_live_crawler
     // 门禁）原地升级为 system_template 结构；已配置的模板一律保留，状态列不动。
@@ -157,7 +148,7 @@ export async function pgEnsureSystemCronJobs(from = new Date()): Promise<void> {
 }
 
 export async function pgCronJobById(id: string): Promise<Row | undefined> {
-  const result = await postgresPool().query<Row>(
+  const result = await postgresConnection().query<Row>(
     `SELECT ${CRON_JOB_READ_COLUMNS} FROM cron_jobs job WHERE job.id=$1 OR job.job_key=$1`,
     [id],
   );
@@ -165,7 +156,7 @@ export async function pgCronJobById(id: string): Promise<Row | undefined> {
 }
 
 export async function pgListCronJobs(): Promise<Row[]> {
-  const result = await postgresPool().query<Row>(
+  const result = await postgresConnection().query<Row>(
     `SELECT ${CRON_JOB_READ_COLUMNS} FROM cron_jobs job ORDER BY job.title`,
   );
   return result.rows as Row[];
@@ -173,7 +164,7 @@ export async function pgListCronJobs(): Promise<Row[]> {
 
 export async function pgListCronRuns(jobId: string, limit = 50): Promise<Row[]> {
   const bounded = Math.min(Math.max(1, Math.floor(limit)), 200);
-  const result = await postgresPool().query<Row>(
+  const result = await postgresConnection().query<Row>(
     "SELECT * FROM cron_runs WHERE job_id=$1 ORDER BY created_at DESC LIMIT $2",
     [jobId, bounded],
   );
@@ -181,7 +172,7 @@ export async function pgListCronRuns(jobId: string, limit = 50): Promise<Row[]> 
 }
 
 export async function pgCronRunById(id: string): Promise<Row | undefined> {
-  const result = await postgresPool().query<Row>("SELECT * FROM cron_runs WHERE id=$1", [id]);
+  const result = await postgresConnection().query<Row>("SELECT * FROM cron_runs WHERE id=$1", [id]);
   return result.rows[0] ? normalizedRun(result.rows[0] as Row) : undefined;
 }
 
@@ -203,7 +194,7 @@ export async function pgCreateCronJob(input: {
   next_run_at: string | null;
 }): Promise<Row> {
   const now = stamp();
-  const result = await postgresPool().query<Row>(
+  const result = await postgresConnection().query<Row>(
     `INSERT INTO cron_jobs
      (id,job_key,title,owner_account_id,execute_as,capability_expert_id,handler_key,scope_json,condition_json,
       cron_expr,timezone,status,retry_policy_json,takeover_policy_json,published_rev,next_run_at,last_run_at,last_terminal_status,created_at,updated_at)
@@ -226,7 +217,7 @@ export async function pgUpdateCronJob(id: string, input: {
   published_rev: number;
   next_run_at: string | null;
 }): Promise<Row | undefined> {
-  const result = await postgresPool().query<Row>(
+  const result = await postgresConnection().query<Row>(
     `UPDATE cron_jobs
         SET title=$1,scope_json=$2,condition_json=$3,cron_expr=$4,timezone=$5,status=$6,published_rev=$7,next_run_at=$8,updated_at=$9
       WHERE id=$10
@@ -267,8 +258,16 @@ function takeoverMinutes(job: Row): number {
   return Number.isFinite(value) && value > 0 ? value : 30;
 }
 
-export async function pgTickCronDue(now = new Date()): Promise<{ claimed: string[]; stale: boolean }> {
-  await pgEnsureSystemCronJobs(now);
+export type CronMissedRunPolicy = "replay" | "coalesce";
+
+/** Only enqueues durable runs. The default preserves the existing API contract. */
+export async function pgTickCronDue(now = new Date(), options: {
+  missed_run_policy?: CronMissedRunPolicy;
+  ensure_system_jobs?: boolean;
+} = {}): Promise<{ claimed: string[]; stale: boolean }> {
+  const policy = options.missed_run_policy || "replay";
+  if (policy !== "replay" && policy !== "coalesce") throw new Error("Invalid Cron missed-run policy");
+  if (options.ensure_system_jobs !== false) await pgEnsureSystemCronJobs(now);
   const current = stamp(now);
   return postgresTransaction(async (client) => {
     const staleRuns = await client.query<Row>(
@@ -277,14 +276,17 @@ export async function pgTickCronDue(now = new Date()): Promise<{ claimed: string
        WHERE run.status='running'
        FOR UPDATE SKIP LOCKED`,
     );
+    let staleMarked = 0;
     for (const run of staleRuns.rows as Row[]) {
       const startedAt = Date.parse(String(run.started_at || run.created_at || ""));
       if (!Number.isFinite(startedAt) || now.getTime() - startedAt < takeoverMinutes(run) * 60_000) continue;
-      await client.query(
+      const updated = await client.query(
         `UPDATE cron_runs SET status='needs_takeover',finished_at=$1,error_code='stale_run',
           error_summary='运行超时，等待接管',receipt_json=$2 WHERE id=$3 AND status='running'`,
-        [current, JSON.stringify({ handler_key: run.handler_key, side_effect: "none", created_session: false, reason: "stale_run" }), run.id],
+        [current, JSON.stringify({ handler_key: run.handler_key, side_effect: "unknown", created_session: null,
+          session_id: run.session_id || null, reason: "stale_run", reconciliation_required: true }), run.id],
       );
+      staleMarked += updated.rowCount || 0;
       await client.query(
         "UPDATE cron_jobs SET last_terminal_status='needs_takeover',last_run_at=$1,updated_at=$1 WHERE id=$2",
         [current, run.cron_job_id],
@@ -307,18 +309,22 @@ export async function pgTickCronDue(now = new Date()): Promise<{ claimed: string
         [runId, String(job.id), scheduledFor, current],
       );
       const run = inserted.rows[0] as Row | undefined;
-      const next = nextFor(job, new Date(scheduledFor));
+      const advanceFrom = policy === "coalesce" ? now : new Date(scheduledFor);
+      const next = nextFor(job, advanceFrom);
       await client.query("UPDATE cron_jobs SET next_run_at=$1,updated_at=$2 WHERE id=$3", [next, current, job.id]);
       if (!run) continue;
-      await insertCronDispatch(client, job, run, current);
+      await insertCronDispatch(client, job, run, current, {
+        missed_run_policy: policy, first_due_at: scheduledFor,
+        observed_at: current, advance_from: advanceFrom.toISOString(), next_run_at: next,
+      });
       claimed.push(String(run.id));
     }
-    return { claimed, stale: staleRuns.rows.length > 0 };
+    return { claimed, stale: staleMarked > 0 };
   }, { isolation: "SERIALIZABLE" });
 }
 
 export async function pgStartCronRun(runId: string, now = new Date()): Promise<{ run: Row | undefined; started: boolean }> {
-  const result = await postgresPool().query<Row>(
+  const result = await postgresConnection().query<Row>(
     `UPDATE cron_runs SET status='running',started_at=COALESCE(started_at,$1)
       WHERE id=$2 AND status='queued' RETURNING *`,
     [stamp(now), runId],
@@ -360,15 +366,15 @@ export async function pgSchedulingAdminReadModel(limit: number, status?: string)
   const asOf = stamp();
   const staleAfterMs = Math.max(5_000, Number(process.env.EXECUTION_WORKER_STALE_MS || 45_000));
   const [jobs, statusCounts, outboxCounts, stalePublishing, workerRows, backlog, ruleRows] = await Promise.all([
-    pgListExecutionJobs({ status, limit }),
-    postgresPool().query<{ status: string; count: string }>("SELECT status,COUNT(*) AS count FROM execution_jobs GROUP BY status ORDER BY status"),
-    postgresPool().query<{ status: string; count: string }>("SELECT status,COUNT(*) AS count FROM execution_outbox GROUP BY status ORDER BY status"),
-    postgresPool().query<{ count: string; oldest_updated_at: string | null }>(
+    (await pgListExecutionJobs({ status, limit })),
+    (await postgresConnection().query<{ status: string; count: string }>("SELECT status,COUNT(*) AS count FROM execution_jobs GROUP BY status ORDER BY status")),
+    (await postgresConnection().query<{ status: string; count: string }>("SELECT status,COUNT(*) AS count FROM execution_outbox GROUP BY status ORDER BY status")),
+    (await postgresConnection().query<{ count: string; oldest_updated_at: string | null }>(
       "SELECT COUNT(*) AS count,MIN(updated_at) AS oldest_updated_at FROM execution_outbox WHERE status='publishing' AND publisher_lease_until IS NOT NULL AND publisher_lease_until<=$1", [asOf],
-    ),
-    postgresPool().query<Row>("SELECT worker_id,worker_kind,status,details_json,started_at,heartbeat_at,stopped_at FROM execution_worker_heartbeats ORDER BY heartbeat_at DESC LIMIT 100"),
-    postgresPool().query<{ count: string; oldest_created_at: string | null }>("SELECT COUNT(*) AS count,MIN(created_at) AS oldest_created_at FROM execution_jobs WHERE status IN ('queued','retrying')"),
-    postgresPool().query<Row>("SELECT id,version,rule_type,title,status,scope_json,definition_json,created_by,published_by,created_at,published_at,updated_at FROM scheduling_rules ORDER BY CASE status WHEN 'published' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END,updated_at DESC LIMIT 100"),
+    )),
+    (await postgresConnection().query<Row>("SELECT worker_id,worker_kind,status,details_json,started_at,heartbeat_at,stopped_at FROM execution_worker_heartbeats ORDER BY heartbeat_at DESC LIMIT 100")),
+    (await postgresConnection().query<{ count: string; oldest_created_at: string | null }>("SELECT COUNT(*) AS count,MIN(created_at) AS oldest_created_at FROM execution_jobs WHERE status IN ('queued','retrying')")),
+    (await postgresConnection().query<Row>("SELECT id,version,rule_type,title,status,scope_json,definition_json,created_by,published_by,created_at,published_at,updated_at FROM scheduling_rules ORDER BY CASE status WHEN 'published' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END,updated_at DESC LIMIT 100")),
   ]);
   const workers = workerRows.rows.map((row) => {
     const heartbeat = Date.parse(String(row.heartbeat_at));

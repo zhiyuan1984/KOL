@@ -141,7 +141,8 @@ export async function adminDocument(
   ).rows[0];
   const ownerIds=ctx.people.map(p=>p.id);
   const authorizedOwners=(await db.query("SELECT id,username FROM users WHERE id=ANY($1::text[])",[ownerIds])).rows.flatMap(r=>[r.id,r.username]);
-  if (!doc || !authorizedOwners.includes(doc.created_by))
+  if (!doc) fail(404, "资料不存在");
+  if (!authorizedOwners.includes(doc.created_by))
     fail(403, "资料来源缺少当前组织授权依据");
   const legacy=(await db.query("SELECT b.tenant FROM knowledge_documents d JOIN knowledge_publication_bindings b ON b.base_id=d.base_id WHERE d.id=$1",[id])).rows[0];
   if(legacy && legacy.tenant!==ctx.tenant) fail(403,"资料已绑定其他组织的知识库范围");

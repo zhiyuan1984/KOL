@@ -7,27 +7,38 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { resetConn } from "../src/db.js";
+import { getConn, resetConn } from "../src/db.js";
+import { mapUser, withScopedUser, type AppUser } from "../src/auth.js";
+import { DEMO_USER } from "../src/config.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { installKnowledgePublicationFixture, publishKnowledgeEntry } from "./support/knowledge-publication-fixture.js";
 
 type Json = Record<string, unknown>;
 
 let tmp: string;
 let app: Hono;
+let admin: AppUser;
+
+async function persistedAdmin(): Promise<AppUser> {
+  const row = (await getConn().query("SELECT * FROM users WHERE id=$1", [DEMO_USER.id])).rows[0] as Record<string, unknown> | undefined;
+  if (!row) throw new Error("missing test admin");
+  return mapUser(row);
+}
 
 async function request(
   method: string,
   url: string,
   body?: unknown,
+  actor: AppUser | undefined = admin,
 ): Promise<{ status: number; json: () => Promise<Json>; text: () => Promise<string> }> {
   const init: RequestInit = { method, headers: {} };
   if (body !== undefined) {
     (init.headers as Record<string, string>)["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
-  const res = await app.request(url, init);
+  const res = actor ? await withScopedUser(actor, () => app.request(url, init)) : await app.request(url, init);
   const text = await res.text();
   return {
     status: res.status,
@@ -42,15 +53,17 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "q.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
+  app = (await createApp());
+  (await seedWorkbenchFixtures());
+  await installKnowledgePublicationFixture();
+  admin = await persistedAdmin();
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -82,9 +95,8 @@ describe("public pool question templates", () => {
     const before = await (await request("GET", "/api/knowledge/question-templates")).json() as unknown as Json[];
     expect(before.map((row) => row.knowledge_id)).not.toContain(created.id);
 
-    const approved = await (await request("POST", `/api/admin/knowledge/${created.id}/approve`, {
-      expected_version: created.current_version,
-    })).json();
+    await publishKnowledgeEntry(String(created.id));
+    const approved = await (await request("GET", `/api/knowledge/${created.id}`)).json();
     expect(approved.status).toBe("published");
 
     const after = await (await request("GET", "/api/knowledge/question-templates")).json() as unknown as Json[];
@@ -103,8 +115,9 @@ describe("public pool question templates", () => {
       kind: "question_template",
       base_id: "kbase_legacy",
       tags: "pool-question:not-a-slot",
-      status: "published",
+      status: "draft",
     })).json();
+    await publishKnowledgeEntry(String(bogus.id));
     const again = await (await request("GET", "/api/knowledge/question-templates")).json() as unknown as Json[];
     expect(again.map((row) => row.knowledge_id)).not.toContain(bogus.id);
   });

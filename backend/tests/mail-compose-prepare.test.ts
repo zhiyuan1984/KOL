@@ -7,17 +7,16 @@ import { BRAND_MAILBOXES, DEMO_USER, PERSONAS, type Persona } from "../src/confi
 import { getConn, resetConn } from "../src/db.js";
 import { enforceSend } from "../src/host/pep.js";
 import {
-  approveKnowledge,
   archiveKnowledge,
   assertMailTemplateSnapshotApplicable,
   cite,
   createKnowledge,
   editKnowledge,
-  knowledgeRow,
 } from "../src/host/knowledge.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { publishKnowledgeEntry } from "./support/knowledge-publication-fixture.js";
 
 type Json = Record<string, unknown>;
 type Reply = { status: number; body: Json; text: string };
@@ -33,25 +32,12 @@ async function request(method: string, url: string, body?: unknown): Promise<Rep
   return { status: response.status, text, body: text ? JSON.parse(text) as Json : {} };
 }
 
-function removeSeededMailTemplates(): void {
-  const conn = getConn();
-  const ids = (conn.prepare("SELECT id FROM knowledge WHERE kind='mail_template'").all() as Array<{ id: string }>)
-    .map((row) => row.id);
-  for (const id of ids) {
-    conn.prepare("DELETE FROM knowledge_deprecations WHERE knowledge_id=?").run(id);
-    conn.prepare("DELETE FROM knowledge_citations WHERE knowledge_id=?").run(id);
-    conn.prepare("DELETE FROM knowledge_versions WHERE knowledge_id=?").run(id);
-    conn.prepare("DELETE FROM knowledge WHERE id=?").run(id);
-  }
+/** 发布必须经过真实的独立审批；该夹具不会绕过数据库发布守卫。 */
+async function approveCurrentVersion(id: string): Promise<void> {
+  await publishKnowledgeEntry(id);
 }
 
-// approveKnowledge 现在强制带 expected_version（kb 的乐观并发契约），
-// 直接调用的测试助手按当前版本号审核即可。
-function approveCurrentVersion(id: string): void {
-  approveKnowledge(id, Number(knowledgeRow(id).current_version || 1));
-}
-
-function addPublishedTemplate(input: {
+async function addPublishedTemplate(input: {
   id: string;
   title?: string;
   brand?: string;
@@ -59,8 +45,9 @@ function addPublishedTemplate(input: {
   subject?: string;
   body?: string;
   placeholders?: string[];
-}): void {
-  createKnowledge({
+  cited?: boolean;
+}): Promise<void> {
+  await createKnowledge({
     id: input.id,
     title: input.title || input.id,
     body: "template source",
@@ -74,8 +61,8 @@ function addPublishedTemplate(input: {
     stage_codes: input.stages || ["INITIAL_CONTACT"],
     status: "draft",
   });
-  approveCurrentVersion(input.id);
-  cite(input.id);
+  await approveCurrentVersion(input.id);
+  if (input.cited !== false) await cite(input.id);
 }
 
 async function prepare(input: Json = {}): Promise<Reply> {
@@ -130,29 +117,28 @@ beforeEach(async () => {
   process.env.LINGONG_DATA = tmp;
   process.env.LG_DATA_DIR = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
-  removeSeededMailTemplates();
+  app = (await createApp());
+  (await seedWorkbenchFixtures());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
 describe("POST /api/actions/mail.prepare", () => {
   it("is read-only and returns exactly one authoritative published template", async () => {
-    addPublishedTemplate({ id: "mail_one" });
+    (await addPublishedTemplate({ id: "mail_one" }));
     const conn = getConn();
     const before = {
-      drafts: Number((conn.prepare("SELECT COUNT(*) AS n FROM drafts").get() as { n: number }).n),
-      messages: Number((conn.prepare("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n),
-      workItems: Number((conn.prepare("SELECT COUNT(*) AS n FROM tickets").get() as { n: number }).n),
-      runs: Number((conn.prepare("SELECT COUNT(*) AS n FROM task_runs").get() as { n: number }).n),
-      stage: String((conn.prepare("SELECT stage_code FROM collaborations WHERE id=?").get("col_xiaomei") as { stage_code: string }).stage_code),
+      drafts: Number(((await conn.query("SELECT COUNT(*) AS n FROM drafts",[])).rows[0] as { n: number }).n),
+      messages: Number(((await conn.query("SELECT COUNT(*) AS n FROM messages",[])).rows[0] as { n: number }).n),
+      workItems: Number(((await conn.query("SELECT COUNT(*) AS n FROM tickets",[])).rows[0] as { n: number }).n),
+      runs: Number(((await conn.query("SELECT COUNT(*) AS n FROM task_runs",[])).rows[0] as { n: number }).n),
+      stage: String(((await conn.query("SELECT stage_code FROM collaborations WHERE id=$1",["col_xiaomei"])).rows[0] as { stage_code: string }).stage_code),
     };
 
     const response = await prepare();
@@ -173,19 +159,19 @@ describe("POST /api/actions/mail.prepare", () => {
     expect(String(response.body.context_version || "")).not.toBe("");
 
     const after = {
-      drafts: Number((conn.prepare("SELECT COUNT(*) AS n FROM drafts").get() as { n: number }).n),
-      messages: Number((conn.prepare("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n),
-      workItems: Number((conn.prepare("SELECT COUNT(*) AS n FROM tickets").get() as { n: number }).n),
-      runs: Number((conn.prepare("SELECT COUNT(*) AS n FROM task_runs").get() as { n: number }).n),
-      stage: String((conn.prepare("SELECT stage_code FROM collaborations WHERE id=?").get("col_xiaomei") as { stage_code: string }).stage_code),
+      drafts: Number(((await conn.query("SELECT COUNT(*) AS n FROM drafts",[])).rows[0] as { n: number }).n),
+      messages: Number(((await conn.query("SELECT COUNT(*) AS n FROM messages",[])).rows[0] as { n: number }).n),
+      workItems: Number(((await conn.query("SELECT COUNT(*) AS n FROM tickets",[])).rows[0] as { n: number }).n),
+      runs: Number(((await conn.query("SELECT COUNT(*) AS n FROM task_runs",[])).rows[0] as { n: number }).n),
+      stage: String(((await conn.query("SELECT stage_code FROM collaborations WHERE id=$1",["col_xiaomei"])).rows[0] as { stage_code: string }).stage_code),
     };
     expect(after).toEqual(before);
   });
 
   it("uses the session-bound collaboration and rejects a conflicting request scope", async () => {
-    addPublishedTemplate({ id: "mail_one" });
+    (await addPublishedTemplate({ id: "mail_one" }));
     const sid = await newSession();
-    getConn().prepare("UPDATE sessions SET collaboration_id=? WHERE id=?").run("col_xiaomei", sid);
+    (await getConn().query("UPDATE sessions SET collaboration_id=$1 WHERE id=$2",["col_xiaomei",sid]));
 
     const response = await request("POST", "/api/actions/mail.prepare", {
       skill_id: "email_compose",
@@ -197,7 +183,7 @@ describe("POST /api/actions/mail.prepare", () => {
   });
 
   it("requires a single scoped collaboration rather than guessing across object refs", async () => {
-    addPublishedTemplate({ id: "mail_one" });
+    (await addPublishedTemplate({ id: "mail_one" }));
     const response = await request("POST", "/api/actions/mail.prepare", {
       skill_id: "email_compose",
       object_refs: [
@@ -213,8 +199,8 @@ describe("POST /api/actions/mail.prepare", () => {
   });
 
   it("returns all tied applicable candidates rather than selecting an arbitrary template", async () => {
-    addPublishedTemplate({ id: "mail_a", title: "A" });
-    addPublishedTemplate({ id: "mail_b", title: "B" });
+    (await addPublishedTemplate({ id: "mail_a", title: "A" }));
+    (await addPublishedTemplate({ id: "mail_b", title: "B" }));
 
     const response = await prepare();
     expect(response.status).toBe(200);
@@ -235,15 +221,15 @@ describe("POST /api/actions/mail.prepare", () => {
   });
 
   it("uses only the published snapshot and keeps an unpublished edit out of editor prefill", async () => {
-    addPublishedTemplate({
+    (await addPublishedTemplate({
       id: "mail_snapshot",
       subject: "Published subject",
       body: "Published body for [红人].",
-    });
-    editKnowledge("mail_snapshot", {
+    }));
+    (await editKnowledge("mail_snapshot", {
       subject: "UNPUBLISHED NEW SUBJECT",
       body_en: "UNPUBLISHED NEW BODY must never leak.",
-    });
+    }));
 
     const response = await prepare({ knowledge_id: "mail_snapshot" });
     expect(response.status, response.text).toBe(200);
@@ -256,48 +242,44 @@ describe("POST /api/actions/mail.prepare", () => {
     expect(editor.body).toBe("Published body for 小美妆日记.");
     expect(JSON.stringify(response.body)).not.toContain("UNPUBLISHED NEW");
 
-    const pinned = assertMailTemplateSnapshotApplicable({
+    const pinned = (await assertMailTemplateSnapshotApplicable({
       knowledgeId: "mail_snapshot",
       version: 1,
       skillId: "email_compose",
       stageCode: "INITIAL_CONTACT",
       brand: "LT",
-    });
+    }));
     expect(pinned.version).toBe(1);
     expect(pinned.body_en).toBe("Published body for [红人].");
   });
 
   it("does not offer disabled, archived, hidden, or uncited templates", async () => {
-    const scenarios: Array<{ id: string; disable: () => void; code: string }> = [
+    const scenarios: Array<{ id: string; cited?: boolean; disable?: () => Promise<void>; code: string }> = [
       {
         id: "mail_disabled",
-        disable: () => getConn().prepare("UPDATE knowledge SET in_market=0 WHERE id=?").run("mail_disabled"),
+        disable: async () => { await getConn().query("UPDATE knowledge SET in_market=0 WHERE id=$1",["mail_disabled"]); },
         code: "knowledge_disabled",
       },
       {
         id: "mail_archived",
-        disable: () => { archiveKnowledge("mail_archived"); },
+        disable: async () => { (await archiveKnowledge("mail_archived")); },
         code: "knowledge_unapproved",
       },
       {
         id: "mail_hidden",
-        disable: () => getConn().prepare(
-          "INSERT INTO knowledge_deprecations (user_id,knowledge_id,reason,reason_note,deprecated_at) VALUES (?,?,?,?,?)",
-        ).run(DEMO_USER.id, "mail_hidden", "outdated", "hidden in test", new Date().toISOString()),
+        disable: async () => { await getConn().query("INSERT INTO knowledge_deprecations (user_id,knowledge_id,reason,reason_note,deprecated_at) VALUES ($1,$2,$3,$4,$5)",[DEMO_USER.id,"mail_hidden","outdated","hidden in test",new Date().toISOString()]); },
         code: "knowledge_deprecated",
       },
       {
         id: "mail_uncited",
-        disable: () => getConn().prepare("DELETE FROM knowledge_citations WHERE user_id=? AND knowledge_id=?")
-          .run(DEMO_USER.id, "mail_uncited"),
+        cited: false,
         code: "knowledge_uncited",
       },
     ];
 
-    for (const scenario of scenarios) {
-      removeSeededMailTemplates();
-      addPublishedTemplate({ id: scenario.id });
-      scenario.disable();
+  for (const scenario of scenarios) {
+    await addPublishedTemplate({ id: scenario.id, cited: scenario.cited });
+    if (scenario.disable) await scenario.disable();
       const response = await prepare({ knowledge_id: scenario.id });
       expect(response.status, `${scenario.id}: ${response.text}`).toBe(403);
       expect(detailCode(response)).toBe(scenario.code);
@@ -305,12 +287,12 @@ describe("POST /api/actions/mail.prepare", () => {
   });
 
   it("rejects a pinned compose draft when authoritative stage or brand applicability has been revoked", async () => {
-    addPublishedTemplate({ id: "mail_scoped" });
+    (await addPublishedTemplate({ id: "mail_scoped" }));
     const prepared = await prepare({ knowledge_id: "mail_scoped" });
     const contextVersion = String(prepared.body.context_version);
     expect(prepared.body.status).toBe("ready");
 
-    getConn().prepare("UPDATE collaborations SET stage_code='QUOTE_PENDING' WHERE id='col_xiaomei'").run();
+    (await getConn().query("UPDATE collaborations SET stage_code='QUOTE_PENDING' WHERE id='col_xiaomei'",[]));
     const staleStage = await submitEditedDraft({
       knowledgeId: "mail_scoped",
       knowledgeVersion: 1,
@@ -319,7 +301,7 @@ describe("POST /api/actions/mail.prepare", () => {
     expect(staleStage.status, staleStage.text).toBe(403);
     expect(detailCode(staleStage)).toBe("knowledge_stage");
 
-    getConn().prepare("UPDATE collaborations SET stage_code='INITIAL_CONTACT', brand='RO' WHERE id='col_xiaomei'").run();
+    (await getConn().query("UPDATE collaborations SET stage_code='INITIAL_CONTACT', brand='RO' WHERE id='col_xiaomei'",[]));
     const staleBrand = await submitEditedDraft({
       knowledgeId: "mail_scoped",
       knowledgeVersion: 1,
@@ -330,16 +312,16 @@ describe("POST /api/actions/mail.prepare", () => {
   });
 
   it("rejects an unpublished/stale template version rather than accepting a current draft revision", async () => {
-    addPublishedTemplate({ id: "mail_version" });
-    editKnowledge("mail_version", { body_en: "Revision two is not yet published." });
+    (await addPublishedTemplate({ id: "mail_version" }));
+    (await editKnowledge("mail_version", { body_en: "Revision two is not yet published." }));
     const response = await submitEditedDraft({ knowledgeId: "mail_version", knowledgeVersion: 2 });
     expect(response.status, response.text).toBe(403);
     expect(detailCode(response)).toBe("knowledge_publish_pending");
   });
 
   it("preserves employee-authored subject/body through the stub harness without sending", async () => {
-    addPublishedTemplate({ id: "mail_authored" });
-    editKnowledge("mail_authored", { body_en: "A later unpublished edit." });
+    (await addPublishedTemplate({ id: "mail_authored" }));
+    (await editKnowledge("mail_authored", { body_en: "A later unpublished edit." }));
     const prepared = await prepare({ knowledge_id: "mail_authored" });
     expect(prepared.body.status).toBe("ready");
 
@@ -357,8 +339,7 @@ describe("POST /api/actions/mail.prepare", () => {
       subject: "Employee's final subject",
       body_en: "Employee's exact final body. Do not regenerate it.",
     });
-    const stored = getConn().prepare("SELECT subject,body_en,status,extra FROM drafts WHERE id=?")
-      .get(String(draft.id)) as { subject: string; body_en: string; status: string; extra: string };
+    const stored = (await getConn().query("SELECT subject,body_en,status,extra FROM drafts WHERE id=$1",[String(draft.id)])).rows[0] as { subject: string; body_en: string; status: string; extra: string };
     expect(stored.subject).toBe("Employee's final subject");
     expect(stored.body_en).toBe("Employee's exact final body. Do not regenerate it.");
     expect(stored.status).not.toBe("sent");
@@ -399,7 +380,7 @@ describe("POST /api/actions/mail.prepare", () => {
 
 describe("mail compose edge invariants", () => {
   it("shows the incomplete published template for editing rather than hiding the body", async () => {
-    addPublishedTemplate({ id: "mail_incomplete", body: "Hello [红人], the budget is [金额USD].", placeholders: ["[红人]", "[金额USD]"] });
+    (await addPublishedTemplate({ id: "mail_incomplete", body: "Hello [红人], the budget is [金额USD].", placeholders: ["[红人]", "[金额USD]"] }));
     const response = await prepare();
     expect(response.body.status).toBe("needs_fields");
     expect((response.body.editor as Json).body).toContain("[金额USD]");
@@ -407,19 +388,19 @@ describe("mail compose edge invariants", () => {
   });
 
   it("rejects a stale address context before starting the worker", async () => {
-    addPublishedTemplate({ id: "mail_context" });
+    (await addPublishedTemplate({ id: "mail_context" }));
     const prepared = await prepare();
-    getConn().prepare("UPDATE collaborations SET email='changed@example.com' WHERE id='col_xiaomei'").run();
+    (await getConn().query("UPDATE collaborations SET email='changed@example.com' WHERE id='col_xiaomei'",[]));
     const reply = await submitEditedDraft({ knowledgeId: "mail_context", knowledgeVersion: 1, contextVersion: String(prepared.body.context_version) });
     expect(reply.status).toBe(409);
     expect(detailCode(reply)).toBe("compose_context_stale");
   });
 
   it("pins an already prepared published version when a newer one is approved", async () => {
-    addPublishedTemplate({ id: "mail_pinned" });
+    (await addPublishedTemplate({ id: "mail_pinned" }));
     const prepared = await prepare();
-    editKnowledge("mail_pinned", { body_en: "The newly published version must not silently replace this draft." });
-    approveCurrentVersion("mail_pinned");
+    (await editKnowledge("mail_pinned", { body_en: "The newly published version must not silently replace this draft." }));
+    (await approveCurrentVersion("mail_pinned"));
     const response = await submitEditedDraft({ knowledgeId: "mail_pinned", knowledgeVersion: 1, contextVersion: String(prepared.body.context_version) });
     expect(response.status, response.text).toBe(200);
     expect((response.body.draft as Json).extra).toMatchObject({ knowledge_version: 1 });
@@ -427,15 +408,15 @@ describe("mail compose edge invariants", () => {
   });
 
   it("never accepts a nonexistent source draft as revision authority", async () => {
-    addPublishedTemplate({ id: "mail_source" });
+    (await addPublishedTemplate({ id: "mail_source" }));
     const reply = await submitEditedDraft({ knowledgeId: "mail_source", knowledgeVersion: 1, sourceDraftId: "does-not-exist" });
     expect(reply.status).toBe(404);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: unknown }).n)).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM starry_sends",[])).rows[0] as { n: unknown }).n)).toBe(0);
   });
 
   it("keeps the legacy knowledge picker on the approved snapshot too", async () => {
-    addPublishedTemplate({ id: "mail_picker_snapshot", body: "Approved picker body." });
-    editKnowledge("mail_picker_snapshot", { body_en: "UNPUBLISHED picker body must not appear." });
+    (await addPublishedTemplate({ id: "mail_picker_snapshot", body: "Approved picker body." }));
+    (await editKnowledge("mail_picker_snapshot", { body_en: "UNPUBLISHED picker body must not appear." }));
     const rows = await request("GET", "/api/knowledge/composer");
     expect(JSON.stringify(rows.body)).toContain("Approved picker body.");
     expect(JSON.stringify(rows.body)).not.toContain("UNPUBLISHED picker body");
@@ -446,9 +427,9 @@ describe("mail compose edge invariants", () => {
     process.env.CODEX_MODE = "appserver";
     try {
       const { assertMailGatewayReady } = await import("../src/host/mail-send-confirmation.js");
-      expect(() => assertMailGatewayReady({ from_addr: "kol.lt@litime.example" })).toThrow("示例地址不能用于真实外发");
-      expect(() => assertMailGatewayReady({ from_addr: "sender@brand.com", cc: "reviewer@brand.com" })).toThrow("抄送契约");
-      expect(() => assertMailGatewayReady({ from_addr: "sender@brand.com", to_addr: "one@brand.com,two@brand.com" })).toThrow("单个收件人");
+      await expect((async () => (assertMailGatewayReady({ from_addr: "kol.lt@litime.example" })))()).rejects.toThrow("示例地址不能用于真实外发");
+      await expect((async () => (assertMailGatewayReady({ from_addr: "sender@brand.com", cc: "reviewer@brand.com" })))()).rejects.toThrow("抄送契约");
+      await expect((async () => (assertMailGatewayReady({ from_addr: "sender@brand.com", to_addr: "one@brand.com,two@brand.com" })))()).rejects.toThrow("单个收件人");
     } finally {
       if (previous === undefined) delete process.env.CODEX_MODE;
       else process.env.CODEX_MODE = previous;
@@ -460,31 +441,23 @@ describe("未指定发件箱时的默认发件箱", () => {
   const MOUNTED = "mailer.lt@litime.com";
 
   /** 员工自己挂载的 Starry 邮箱 + mailbox_owners 登记的品牌范围。 */
-  function bindMountedMailbox(email: string, brand: string): void {
+  async function bindMountedMailbox(email: string, brand: string): Promise<Awaited<void>> {
     const conn = getConn();
     const now = new Date().toISOString();
-    conn.prepare(
-      `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      DEMO_USER.id, DEMO_USER.handle, DEMO_USER.name, "x",
-      JSON.stringify(["employee", "admin"]), JSON.stringify(["LT", "RO", "PQ"]), DEMO_USER.site, 1, now, now,
+    (await conn.query("INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING",[DEMO_USER.id,DEMO_USER.handle,DEMO_USER.name,"x",JSON.stringify(["employee", "admin"]),JSON.stringify(["LT", "RO", "PQ"]),DEMO_USER.site,1,now,now]));
+    (await conn.query("DELETE FROM user_starry_bindings WHERE user_id=$1",[DEMO_USER.id]));
+    (await conn.query("INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, status, updated_at)\n       VALUES ($1,$2,1,'connected',$3)",[DEMO_USER.id,email,now]));
+    await conn.query(
+      `INSERT INTO mailbox_owners (email, brand, owner_name, account_type, status)
+       VALUES ($1,$2,$3,$4,'active')
+       ON CONFLICT (email) DO UPDATE SET brand=EXCLUDED.brand, owner_name=EXCLUDED.owner_name,
+         account_type=EXCLUDED.account_type, status=EXCLUDED.status`,
+      [email, brand, DEMO_USER.name, "personal"],
     );
-    conn.prepare("DELETE FROM user_starry_bindings WHERE user_id=?").run(DEMO_USER.id);
-    conn.prepare(
-      `INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, status, updated_at)
-       VALUES (?,?,1,'connected',?)`,
-    ).run(DEMO_USER.id, email, now);
-    conn.prepare(
-      `INSERT OR REPLACE INTO mailbox_owners (email, brand, owner_name, account_type, status)
-       VALUES (?,?,?,?,'active')`,
-    ).run(email, brand, DEMO_USER.name, "personal");
   }
 
-  function draftRow(from: string): Record<string, unknown> {
-    const col = getConn()
-      .prepare("SELECT email, stage_code FROM collaborations WHERE id='col_xiaomei'")
-      .get() as { email: string; stage_code: string };
+  async function draftRow(from: string): Promise<Awaited<Record<string, unknown>>> {
+    const col = (await getConn().query("SELECT email, stage_code FROM collaborations WHERE id='col_xiaomei'",[])).rows[0] as { email: string; stage_code: string };
     return {
       id: "dft_default_sender",
       session_id: "ses_default_sender",
@@ -503,8 +476,8 @@ describe("未指定发件箱时的默认发件箱", () => {
   }
 
   it("defaults the sender to the current user's mounted mailbox", async () => {
-    addPublishedTemplate({ id: "mail_default_sender", brand: "LT" });
-    bindMountedMailbox(MOUNTED, "LT");
+    (await addPublishedTemplate({ id: "mail_default_sender", brand: "LT" }));
+    (await bindMountedMailbox(MOUNTED, "LT"));
     const response = await prepare();
     expect(response.status, response.text).toBe(200);
     expect(String((response.body.editor as Json).from)).toBe(MOUNTED);
@@ -512,24 +485,27 @@ describe("未指定发件箱时的默认发件箱", () => {
   });
 
   it("keeps the brand mailbox fallback when the user has no mounted mailbox", async () => {
-    addPublishedTemplate({ id: "mail_no_binding", brand: "LT" });
+    (await addPublishedTemplate({ id: "mail_no_binding", brand: "LT" }));
     const response = await prepare();
     expect(response.status, response.text).toBe(200);
     expect(String((response.body.editor as Json).from)).toBe(BRAND_MAILBOXES.LT);
   });
 
-  it("sends from the mounted mailbox once it is inside the brand scope", () => {
-    bindMountedMailbox(MOUNTED, "LT");
-    expect(() => enforceSend(draftRow(MOUNTED) as never, DEMO_USER)).not.toThrow();
+  it("sends from the mounted mailbox once it is inside the brand scope", async () => {
+    (await bindMountedMailbox(MOUNTED, "LT"));
+    const draft = await draftRow(MOUNTED);
+    await expect(enforceSend(draft as never, DEMO_USER)).resolves.toMatchObject({
+      from_addr: MOUNTED, brand: "LT", keep_stage: true,
+    });
   });
 
-  it("still refuses an address that is neither a brand mailbox nor the user's own", () => {
-    expect(() => enforceSend(draftRow("stranger@litime.com") as never, DEMO_USER)).toThrow(/From 必须是品牌邮箱/);
+  it("still refuses an address that is neither a brand mailbox nor the user's own", async () => {
+    (await expect((async () => (enforceSend((await draftRow("stranger@litime.com")) as never, DEMO_USER)))()).rejects.toThrow(/From 必须是品牌邮箱/));
   });
 
-  it("refuses the mounted mailbox outside the user's brand scope", () => {
-    bindMountedMailbox(MOUNTED, "LT");
+  it("refuses the mounted mailbox outside the user's brand scope", async () => {
+    (await bindMountedMailbox(MOUNTED, "LT"));
     const restricted: Persona = { ...PERSONAS.permission_blocked };
-    expect(() => enforceSend(draftRow(MOUNTED) as never, restricted)).toThrow(/From 必须是品牌邮箱/);
+    (await expect((async () => (enforceSend((await draftRow(MOUNTED)) as never, restricted)))()).rejects.toThrow(/From 必须是品牌邮箱/));
   });
 });
