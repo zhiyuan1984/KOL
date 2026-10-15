@@ -11,6 +11,7 @@ export default function SkillTemplateContext({
   className = "",
   showOptionalInputs = true,
   flat = false,
+  readOnly = false,
 }: {
   template: SkillTemplate;
   className?: string;
@@ -19,6 +20,8 @@ export default function SkillTemplateContext({
   /** Flat layout: no nested card border/background, no internal scroll.
    *  AI发现 中栏事件流还要求全文默认展开：使用边界与异常与恢复不用折叠块。 */
   flat?: boolean;
+  /** Visible capability label for surfaces that present a non-editable template. */
+  readOnly?: boolean;
 }) {
   const optionalInputs = template.inputs.filter((field) => !field.required);
   const outputTitle = String(template.output?.title || template.output?.type || "任务结果").trim();
@@ -30,10 +33,10 @@ export default function SkillTemplateContext({
       data-skill-template-context={template.id}
       data-skill-template-version={template.version}
       data-skill-template-flat={flat ? "true" : undefined}
-      aria-label={`${template.title}技能交互模板`}
+      aria-label={`${template.title}技能交互模板${readOnly ? "（只读）" : ""}`}
     >
       <header className="skill-template-context-head">
-        <span className="skill-template-context-kicker">{flat ? "技能交互模板" : "技能说明"}</span>
+        <span className="skill-template-context-kicker">{flat ? `技能交互模板${readOnly ? " · 只读" : ""}` : "技能说明"}</span>
         <strong>{template.title}</strong>
       </header>
       <div className="skill-template-context-grid">

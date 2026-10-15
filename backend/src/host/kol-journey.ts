@@ -185,6 +185,7 @@ const mailSyncJobs = new Map<string, Promise<number>>();
 const mailSyncAt = new Map<string, number>();
 const mailSyncFailed = new Set<string>();
 const mailDigestRefreshTimers = new Map<string, Awaited<ReturnType<typeof setTimeout>>>();
+const mailDigestRefreshJobs = new Set<Promise<void>>();
 const MAIL_SYNC_COALESCE_MS = 20_000;
 
 export function isMailSyncing(collaborationId: string): boolean {
@@ -197,6 +198,21 @@ export function resetKolMailSync(): void {
   mailSyncFailed.clear();
   for (const timer of mailDigestRefreshTimers.values()) clearTimeout(timer);
   mailDigestRefreshTimers.clear();
+}
+
+/** Cancel work that has not begun and await work that already has a database
+ * lease before a caller shuts down its authority store. Legacy reset callers
+ * remain synchronous, so the graceful boundary is exported separately. */
+export async function waitForKolJourneyBackground(): Promise<void> {
+  for (const timer of mailDigestRefreshTimers.values()) clearTimeout(timer);
+  mailDigestRefreshTimers.clear();
+  while (mailDigestRefreshJobs.size || mailAnalysisJobs.size || mailSyncJobs.size) {
+    await Promise.allSettled([
+      ...mailDigestRefreshJobs,
+      ...mailAnalysisJobs.values(),
+      ...mailSyncJobs.values(),
+    ]);
+  }
 }
 
 onConnReset(() => {
@@ -225,7 +241,13 @@ function scheduleMailDigestRefresh(collaborationId: string, sessionId: string): 
   if (prev) clearTimeout(prev);
   const timer = setTimeout(() => {
     if (mailDigestRefreshTimers.get(collaborationId) === timer) mailDigestRefreshTimers.delete(collaborationId);
-    void refreshMailDigestAfterChange(collaborationId, sessionId, { retryFailed: true });
+    // A refresh is best-effort projection work. Its failure is already
+    // represented by the retained digest state; it must not become an
+    // unhandled rejection after a caller has closed its connection.
+    const work = refreshMailDigestAfterChange(collaborationId, sessionId, { retryFailed: true })
+      .catch(() => undefined)
+      .finally(() => mailDigestRefreshJobs.delete(work));
+    mailDigestRefreshJobs.add(work);
   }, 0);
   mailDigestRefreshTimers.set(collaborationId, timer);
 }
@@ -252,6 +274,7 @@ export async function journeyPayloadWithMailMemory(
       const sessions = (await getConn().query("SELECT id FROM sessions WHERE collaboration_id=$1",[colId])).rows as { id: string }[];
       for (const session of sessions) publishSession(session.id, { type: "journey", journey: next });
     })
+    .catch(() => undefined)
     .finally(async () => {
       if ((mailAnalysisJobs.get(colId)) === work) mailAnalysisJobs.delete(colId);
     }));
@@ -537,7 +560,7 @@ export async function syncKolSessionMail(
     .then((added) => {
       mailSyncAt.set(key, Date.now());
       mailSyncFailed.delete(key);
-      void refreshMailDigestAfterChange(collaborationId, sessionId, { retryFailed: true });
+      void refreshMailDigestAfterChange(collaborationId, sessionId, { retryFailed: true }).catch(() => undefined);
       return added;
     })
     .catch(() => {

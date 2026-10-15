@@ -4,12 +4,14 @@ import path from "node:path";
 import type { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, nowIso, resetConn } from "../src/db.js";
-import { createAgentBinding, revokeAgentBinding } from "../src/runtime/organization-tree.js";
+import { createAgentBinding, revokeAgentBinding, syncUserOrganization } from "../src/runtime/organization-tree.js";
+import { getAgentSkills, setAgentSkill } from "../src/runtime/store.js";
 import { failInterruptedTaskRuns } from "../src/host/task-run-recovery.js";
 import { markSessionRunning, publicQueue, resetRunControl } from "../src/host/run-control.js";
 import { seedAll } from "../src/seed.js";
 import type { Json } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
 
 let tmp: string;
 let app: Hono;
@@ -30,6 +32,12 @@ async function request(method: string, url: string, body?: unknown, cookie = "")
 }
 
 type TaskEventRow = { event_type: string; label: string; status: string; safe_summary: string | null };
+
+async function enableAgentSkill(agentId: string, skillId: string): Promise<void> {
+  const current = (await getAgentSkills(agentId)).find((row) => row.skill_id === skillId);
+  if (!current) await setAgentSkill(agentId, skillId, true, 0);
+  else if (!current.enabled) await setAgentSkill(agentId, skillId, true, Number(current.version));
+}
 
 async function createAndQueueTask(cookie = "") {
   const created = await request("POST", "/api/tasks", { task_type: "risk_scan", title: "扫描风险" }, cookie);
@@ -140,11 +148,13 @@ describe("task run lifecycle honesty", () => {
       expect(login.status, login.text).toBe(200);
       const cookie = login.cookie;
       // 先绑定 Agent，任务才能创建并排队；随后的 ask 才代表「有资格之后被撤权」。
+      await seedPublishedAgent("agent:kol");
+      await enableAgentSkill("agent:kol", "risk_scan");
       const binding = (await createAgentBinding({
         agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
         company_id: "company:amperetime", source: "test",
       }));
-      (await getConn().query("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", [String(employee.body.id), "person:ye_guanwang"]));
+      await syncUserOrganization(String(employee.body.id), "org:lt_team");
       const { taskId, sessionId, runId, pending } = await createAndQueueTask(cookie);
       // 撤掉 Agent 绑定：ask 必须在任何执行之前被拒绝。
       (await revokeAgentBinding(binding.id));

@@ -66,7 +66,10 @@ describePostgres("native PostgreSQL execution-job repository", () => {
         publisher_id TEXT,
         publisher_lease_until TEXT
       );
-      TRUNCATE execution_outbox, execution_jobs;
+      -- The native manifest adds dependent formal job facts.  This fixture owns
+      -- its isolated suite database, so clear the current graph rather than
+      -- assuming execution_jobs has no foreign-key dependants.
+      TRUNCATE execution_outbox, execution_jobs CASCADE;
     `);
   });
 

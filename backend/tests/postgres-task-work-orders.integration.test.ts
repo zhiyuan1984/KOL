@@ -176,6 +176,13 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
        VALUES ('woa-dashboard-collab','wo-dashboard-collab',$1,'collaborator','active',$2)`,
       [actor.id, other.id],
     );
+    // Both roots have active work already; make that explicit so the dashboard
+    // KPI exercises its formal in-progress predicate rather than treating an
+    // initial open/queued root as started work.
+    await postgresPool().query(
+      "UPDATE tickets SET status='in_progress',updated_at=now()::text WHERE id=ANY($1::text[])",
+      [[task.task_id, otherTask.task_id]],
+    );
 
     const dashboard = await taskWorkOrderDashboard(actor.id, false, { limit: 1 });
     expect(dashboard).toMatchObject({

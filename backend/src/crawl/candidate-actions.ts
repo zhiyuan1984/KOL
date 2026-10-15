@@ -166,7 +166,7 @@ async function reconcileUncertainImport(client: PoolClient, input: {
     );
   } catch (error) {
     // 独立落审计，外层业务事务回滚时仍保留核对失败原因。
-    await postgresConnection().query("INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)",
+    await postgresPool().query("INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)",
       [new Date().toISOString(), actorId, "host.import_creator.reconcile_failed", JSON.stringify({
         action_id: actionId, candidate_id: candidateId, error_detail: sanitizeSecret(error), retried_import: false,
       })]);
@@ -187,7 +187,7 @@ async function reconcileUncertainImport(client: PoolClient, input: {
   try {
     await adoptImportedUid(client, row, kolUid, actorId);
   } catch (error) {
-    await postgresConnection().query("INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)",
+    await postgresPool().query("INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)",
       [new Date().toISOString(), actorId, "host.import_creator.reconcile_failed", JSON.stringify({
         action_id: actionId, candidate_id: candidateId, error_detail: sanitizeSecret(error), retried_import: false,
       })]);

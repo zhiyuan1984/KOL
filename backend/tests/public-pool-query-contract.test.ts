@@ -6,7 +6,11 @@ const { postgresQuery, healthQuery, attachLeadAssessments } = vi.hoisted(() => (
   attachLeadAssessments: vi.fn(async (rows: unknown[]) => rows),
 }));
 
-vi.mock("../src/postgres/pool.js", () => ({ postgresQuery, postgresPool: () => ({ query: healthQuery }) }));
+vi.mock("../src/postgres/pool.js", () => ({
+  postgresQuery,
+  postgresPool: () => ({ query: healthQuery }),
+  postgresConnection: () => ({ query: healthQuery }),
+}));
 vi.mock("../src/ticket-domain/kol-lead-scoring.js", () => ({ attachLeadAssessments }));
 
 import { parsePoolPageOptions, readPublicPoolPage } from "../src/postgres/public-pool.js";

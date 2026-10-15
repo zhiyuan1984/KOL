@@ -8,7 +8,8 @@ import { seedAll } from "../src/seed.js";
 import { mapUser, withScopedUser } from "../src/auth.js";
 import { createManagedAgent, updateManagedAgent } from "../src/runtime/managed-agents.js";
 import { setAgentSkill } from "../src/runtime/store.js";
-import { createAgentBinding, revokeAgentBinding } from "../src/runtime/organization-tree.js";
+import { createAgentBinding, revokeAgentBinding, syncUserOrganization } from "../src/runtime/organization-tree.js";
+import { pgVisibleSkillIdsForUser } from "../src/postgres/auth-pg.js";
 import { clearTaskRegistryCache, requireTaskDefinition, taskDefinitions } from "../src/tasks/registry.js";
 import { skillTemplate } from "../src/tasks/skill-template.js";
 import { resolveTaskIntent } from "../src/tasks/resolver.js";
@@ -153,7 +154,7 @@ describe("one Skill / one knowledge interaction template", () => {
     process.env.AUTH_MODE = "enabled";
     const now = new Date().toISOString();
     (await getConn().query("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",["template-user","template-user","Template user","no-login",'["employee"]','[]',"",1,now,now]));
-    const user = (await mapUser((await getConn().query("SELECT * FROM users WHERE id=$1",["template-user"])).rows[0] as Json));
+    let user = (await mapUser((await getConn().query("SELECT * FROM users WHERE id=$1",["template-user"])).rows[0] as Json));
     const scoped = async (url: string) => (await withScopedUser(user, async () => (knowledge.request(url))));
     expect(await (await scoped("/knowledge/skill-templates")).json()).toEqual([]);
     // 旧的逐人技能授权表不再放行：写入后该技能依然不可见。
@@ -164,20 +165,26 @@ describe("one Skill / one knowledge interaction template", () => {
     const agent = (await createManagedAgent({ name: "模板测试 Agent" }));
     (await updateManagedAgent(agent.id, { status: "published", expected_version: 1 }));
     (await setAgentSkill(agent.id, skillId, true, 0));
-    (await getConn().query("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2",[user.id,"person:ye_guanwang"]));
+    // Establish this account's own current person and primary membership through
+    // the same native projection used by production employee administration.
+    await syncUserOrganization(user.id, "org:lt_team");
     const binding = (await createAgentBinding({
       agent_id: agent.id, target_type: "organization_unit", target_id: "org:lt_team",
       company_id: "company:amperetime", source: "test",
     }));
+    // The bare router below does not run authMiddleware, so supply the same
+    // PostgreSQL authority snapshot a real request receives after login.
+    user = { ...user, authority_skills: await pgVisibleSkillIdsForUser(user.id, new Date().toISOString()) };
     expect((await (await scoped("/knowledge/skill-templates")).json() as Json[]).map((item) => item.skill_id)).toEqual([skillId]);
     (await revokeAgentBinding(binding.id));
+    const revokedUser = { ...user, authority_skills: await pgVisibleSkillIdsForUser(user.id, new Date().toISOString()) };
     // Bare router uses Hono's default 500 response for thrown HttpFail; invoke
     // through a wrapper that preserves the status, as createApp normally does.
     const { Hono } = await import("hono");
     const deniedApp = new Hono();
     deniedApp.onError((error: any, c) => c.json({ error: error.message }, error.status || 500));
     deniedApp.route("/", knowledge);
-    expect((await withScopedUser(user, async () => (deniedApp.request(`/knowledge/skill-templates/${skillId}`)))).status).toBe(403);
+    expect((await withScopedUser(revokedUser, async () => (deniedApp.request(`/knowledge/skill-templates/${skillId}`)))).status).toBe(403);
   });
 });
 

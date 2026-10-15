@@ -7,13 +7,11 @@ import { BRAND_MAILBOXES, DEMO_USER, PERSONAS, type Persona } from "../src/confi
 import { getConn, resetConn } from "../src/db.js";
 import { enforceSend } from "../src/host/pep.js";
 import {
-  approveKnowledge,
   archiveKnowledge,
   assertMailTemplateSnapshotApplicable,
   cite,
   createKnowledge,
   editKnowledge,
-  knowledgeRow,
 } from "../src/host/knowledge.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
@@ -33,22 +31,16 @@ async function request(method: string, url: string, body?: unknown): Promise<Rep
   return { status: response.status, text, body: text ? JSON.parse(text) as Json : {} };
 }
 
-async function removeSeededMailTemplates(): Promise<Awaited<void>> {
+/**
+ * Every case owns a fresh PostgreSQL database.  Retire seed templates through
+ * their retained-history lifecycle instead of deleting knowledge/version rows
+ * or disabling the preservation trigger.
+ */
+async function archiveSeededMailTemplates(): Promise<Awaited<void>> {
   const conn = getConn();
   const ids = ((await conn.query("SELECT id FROM knowledge WHERE kind='mail_template'",[])).rows as Array<{ id: string }>)
     .map((row) => row.id);
-  for (const id of ids) {
-    (await conn.query("DELETE FROM knowledge_deprecations WHERE knowledge_id=$1",[id]));
-    (await conn.query("DELETE FROM knowledge_citations WHERE knowledge_id=$1",[id]));
-    (await conn.query("DELETE FROM knowledge_versions WHERE knowledge_id=$1",[id]));
-    (await conn.query("DELETE FROM knowledge WHERE id=$1",[id]));
-  }
-}
-
-// approveKnowledge 现在强制带 expected_version（kb 的乐观并发契约），
-// 直接调用的测试助手按当前版本号审核即可。
-async function approveCurrentVersion(id: string): Promise<Awaited<void>> {
-  (await approveKnowledge(id, Number((await knowledgeRow(id)).current_version || 1)));
+  for (const id of ids) (await archiveKnowledge(id));
 }
 
 async function addPublishedTemplate(input: {
@@ -72,9 +64,10 @@ async function addPublishedTemplate(input: {
     body_en: input.body || "Original body for [红人].",
     placeholders: input.placeholders || ["[红人]"],
     stage_codes: input.stages || ["INITIAL_CONTACT"],
-    status: "draft",
+    // A fixture starts as a valid immutable published snapshot. It does not
+    // invoke the retired synchronous approve API or alter publication history.
+    status: "published",
   }));
-  (await approveCurrentVersion(input.id));
   (await cite(input.id));
 }
 
@@ -135,7 +128,7 @@ beforeEach(async () => {
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
   (await seedWorkbenchFixtures());
-  (await removeSeededMailTemplates());
+  (await archiveSeededMailTemplates());
 });
 
 afterEach(async () => {
@@ -292,9 +285,9 @@ describe("POST /api/actions/mail.prepare", () => {
     ];
 
     for (const scenario of scenarios) {
-      (await removeSeededMailTemplates());
+      (await archiveSeededMailTemplates());
       (await addPublishedTemplate({ id: scenario.id }));
-      scenario.disable();
+      await scenario.disable();
       const response = await prepare({ knowledge_id: scenario.id });
       expect(response.status, `${scenario.id}: ${response.text}`).toBe(403);
       expect(detailCode(response)).toBe(scenario.code);
@@ -415,7 +408,6 @@ describe("mail compose edge invariants", () => {
     (await addPublishedTemplate({ id: "mail_pinned" }));
     const prepared = await prepare();
     (await editKnowledge("mail_pinned", { body_en: "The newly published version must not silently replace this draft." }));
-    (await approveCurrentVersion("mail_pinned"));
     const response = await submitEditedDraft({ knowledgeId: "mail_pinned", knowledgeVersion: 1, contextVersion: String(prepared.body.context_version) });
     expect(response.status, response.text).toBe(200);
     expect((response.body.draft as Json).extra).toMatchObject({ knowledge_version: 1 });

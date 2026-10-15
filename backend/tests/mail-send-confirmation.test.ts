@@ -10,7 +10,8 @@ import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { persistDraft, getDraft } from "../src/host/api.js";
 import { mailSendAction, claimMailSend, assertDraftEditable, validateMailSend } from "../src/host/mail-send-confirmation.js";
-import { mapUser, withScopedUser } from "../src/auth.js";
+import { mapUser, withScopedUser, type AppUser } from "../src/auth.js";
+import { pgApprovalRoles, pgConnectorPermissions, pgVisibleSkillIdsForUser } from "../src/postgres/auth-pg.js";
 import { seedPublishedAgent, seedRuntimeTestActor } from "./fixtures/runtime-auth.js";
 import { listAgentBindings, revokeAgentBinding } from "../src/runtime/organization-tree.js";
 import { getSkillConnectors, setSkillConnector, setConnectorConfig } from "../src/runtime/store.js";
@@ -34,6 +35,18 @@ async function request(method: string, url: string, body?: unknown) {
 
 async function confirmation() {
   return { request_id: randomUUID(), confirmation_version: (await mailSendAction((await getDraft(draftId)))).action.confirmation_version! };
+}
+
+/** Match request middleware: derive current authority from native PG facts, never fixture-grant it. */
+async function currentActor(): Promise<AppUser> {
+  const actor = await mapUser((await getConn().query("SELECT * FROM users WHERE id='usr_runtime_fixture'", [])).rows[0] as Row);
+  const now = new Date().toISOString();
+  const [authority_skills, authority_connectors, authority_approval_roles] = await Promise.all([
+    pgVisibleSkillIdsForUser(actor.id, now),
+    pgConnectorPermissions(actor.id),
+    pgApprovalRoles(actor.id, now),
+  ]);
+  return { ...actor, authority_skills, authority_connectors, authority_approval_roles };
 }
 
 beforeEach(async () => {
@@ -67,27 +80,31 @@ describe("human-confirmed mail send boundary", () => {
     process.env.AUTH_MODE = "enabled";
     (await seedPublishedAgent("agent:kol"));
     (await seedRuntimeTestActor(["email_compose"],true));
-    const actor = (await mapUser((await getConn().query("SELECT * FROM users WHERE id='usr_runtime_fixture'", [])).rows[0] as Row));
     (await getConn().query("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('starrykol','Test mail resource',1,'configured','2026-10-05') ON CONFLICT(id) DO UPDATE SET enabled=1", []));
     const binding = (await getSkillConnectors("email_compose")).find(row => row.connector_id === "starrykol");
     const enabled = (await setSkillConnector("email_compose","starrykol",true,Number(binding?.version || 0)));
     (await setConnectorConfig("starrykol",{protocol: "mcp",url: "https://api.example.test/mcp",headers_secret_refs: {"X-MCP-API-KEY": "isolated-mail-secret"}},0));
+    const actor = await currentActor();
     (await getConn().query("DELETE FROM user_connector_grants WHERE user_id=$1", [actor.id]));
+    expect(actor.authority_skills).toContain("email_compose");
+    expect(actor.authority_connectors?.starrykol).toBeUndefined();
     await withScopedUser(actor, async () => expect((async () => (await validateMailSend((await getDraft(draftId)))))()).resolves.not.toBeInstanceOf(Error));
     const actorBinding = (await listAgentBindings("agent:kol")).find(row => row.source === "test");
     expect(actorBinding).toBeTruthy();
     (await revokeAgentBinding(actorBinding!.id));
-    await withScopedUser(actor, async () => expect((async () => (await validateMailSend((await getDraft(draftId)))))()).rejects.toThrow(/runtime_agent_not_usable/));
+    const revokedActor = await currentActor();
+    expect(revokedActor.authority_skills).not.toContain("email_compose");
+    await withScopedUser(revokedActor, async () => expect((async () => (await validateMailSend((await getDraft(draftId)))))()).rejects.toThrow(/agent_not_usable|runtime_agent_not_usable/));
   });
   it("rejects administrator send when the current skill resource binding is revoked", async () => {
     process.env.AUTH_MODE = "enabled";
     (await seedPublishedAgent("agent:kol"));
     (await seedRuntimeTestActor(["email_compose"],true));
-    const actor = (await mapUser((await getConn().query("SELECT * FROM users WHERE id='usr_runtime_fixture'", [])).rows[0] as Row));
     (await getConn().query("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('starrykol','Test mail resource',1,'configured','2026-10-05') ON CONFLICT(id) DO UPDATE SET enabled=1", []));
     const binding = (await getSkillConnectors("email_compose")).find(row => row.connector_id === "starrykol");
     const enabled = (await setSkillConnector("email_compose","starrykol",true,Number(binding?.version || 0)));
     (await setConnectorConfig("starrykol",{protocol: "mcp",url: "https://api.example.test/mcp",headers_secret_refs: {"X-MCP-API-KEY": "isolated-mail-secret"}},0));
+    const actor = await currentActor();
     await withScopedUser(actor, async () => expect((async () => (await validateMailSend((await getDraft(draftId)))))()).resolves.not.toBeInstanceOf(Error));
     (await setSkillConnector("email_compose","starrykol",false,Number(enabled.version)));
     await withScopedUser(actor, async () => expect((async () => (await validateMailSend((await getDraft(draftId)))))()).rejects.toThrow(/runtime_connector_unbound/));

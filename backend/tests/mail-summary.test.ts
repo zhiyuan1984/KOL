@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import { analyzeMailBody, analyzeThreadDigest, digestMailBody, ensureCodexThreadDigest, mailHistoryRows, mailMemoryLines, mailSummaryOf, needsRemoteThreadDigest, readThreadDigest, stickyFailReady } from "../src/host/mail-summary.js";
-import { ingestKolMail, journeyPayload } from "../src/host/kol-journey.js";
+import { ingestKolMail, journeyPayload, waitForKolJourneyBackground } from "../src/host/kol-journey.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { codexRecognizeThreadConfig, setIntentLlmFetch } from "../src/tasks/openai-intent.js";
@@ -30,6 +30,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await waitForKolJourneyBackground();
   setIntentLlmFetch();
   delete process.env.INTENT_LLM_MODE;
   delete process.env.OPENAI_API_KEY;

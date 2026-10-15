@@ -19,11 +19,10 @@ import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { freshTestDatabase } from "./support/pg.js";
 import {
-  approveKnowledge,
   cite,
   createKnowledge,
-  knowledgeRow,
 } from "../src/host/knowledge.js";
+import { writeNativePersonMemory } from "../src/postgres/mail-memory-repository.js";
 
 type Json = Record<string, unknown>;
 
@@ -73,7 +72,15 @@ async function insertThread(input: {
 }
 
 async function writePersonDigest(mailbox: string, peerEmail: string, text: string, mailCount: number): Promise<Awaited<void>> {
-  (await getConn().query("INSERT INTO app_state (key, value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",[`mail_person_digest:${mailbox}:${peerEmail}`,JSON.stringify({ text, source: "memory", mail_count: mailCount, fingerprint: "fp1" })]));
+  await writeNativePersonMemory({
+    id: `person-memory:${mailbox}:${peerEmail}`,
+    mailbox,
+    peerEmail,
+    text,
+    source: "memory",
+    fingerprint: "fp1",
+    mailCount,
+  });
 }
 
 async function insertCollab(input: { id: string; handle: string; email: string; brand?: string; stage?: string }): Promise<Awaited<void>> {
@@ -93,9 +100,10 @@ async function addPublishedTemplate(input: { id: string; brand?: string; stages?
     body_en: "Body for [红人].",
     placeholders: ["[红人]"],
     stage_codes: input.stages || ["INITIAL_CONTACT"],
-    status: "draft",
+    // This is a fixture snapshot, not a call to the retired synchronous
+    // approval route. The normal resolver sees its immutable published version.
+    status: "published",
   }));
-  (await approveKnowledge(input.id, Number((await knowledgeRow(input.id)).current_version || 1)));
   (await cite(input.id));
 }
 

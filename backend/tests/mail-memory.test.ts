@@ -165,6 +165,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await waitForBackgroundSync();
   await closePostgresPool();
   setStarryKolClientFactory();
   setIntentLlmFetch();

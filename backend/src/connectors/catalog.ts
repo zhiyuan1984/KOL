@@ -1,4 +1,5 @@
 import { HttpFail } from "../host/errors.js";
+import { currentTransactionClient, postgresTransaction, requiredPostgresUrl } from "../postgres/pool.js";
 
 /**
  * Built-in managed MCP templates shipped with the product. They seed a new
@@ -20,6 +21,9 @@ export const BUILTIN_CONNECTORS = {
 
 export type BuiltinConnectorId = keyof typeof BUILTIN_CONNECTORS;
 
+let initializedFor: string | null = null;
+let initializing: Promise<void> | null = null;
+
 const CONNECTOR_ID = /^[a-z][a-z0-9_-]{2,63}$/;
 
 export function isBuiltinConnectorId(value: string): value is BuiltinConnectorId {
@@ -36,6 +40,32 @@ export function requireManagedConnector(value: string): string {
 
 export function builtinConnectorIds(): BuiltinConnectorId[] {
   return Object.keys(BUILTIN_CONNECTORS) as BuiltinConnectorId[];
+}
+
+/**
+ * Materialize shipped connector templates into the native organization catalog.
+ * This only adds missing rows: it never enables a connector, creates credentials,
+ * changes an administrator's status choice, or grants a person access.
+ */
+export async function ensureManagedConnectorCatalog(): Promise<void> {
+  const database = requiredPostgresUrl();
+  if (initializedFor === database) return;
+  const initialize = () => postgresTransaction(async (client) => {
+    const updatedAt = new Date().toISOString();
+    for (const id of builtinConnectorIds()) {
+      await client.query(
+        `INSERT INTO connectors(id,label,enabled,status,updated_at)
+         VALUES($1,$2,0,'draft',$3) ON CONFLICT(id) DO NOTHING`,
+        [id, BUILTIN_CONNECTORS[id].label, updatedAt],
+      );
+    }
+  }, { isolation: "SERIALIZABLE" });
+  // Nested bootstrap is part of the caller's transaction and must not make a
+  // process-wide ready claim before that caller commits.
+  if (currentTransactionClient()) { await initialize(); return; }
+  if (!initializing) initializing = initialize().then(() => { initializedFor = database; })
+    .finally(() => { initializing = null; });
+  await initializing;
 }
 
 /** Migration boundary: managed templates can require vault-only connections. */

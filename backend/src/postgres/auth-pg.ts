@@ -7,19 +7,23 @@ export async function pgFindUserForLogin(raw: string): Promise<Row | undefined> 
   if (!ident) return undefined;
   const account = normalizeAccount(ident);
   const email = ident.includes("@") ? normalizeEmail(ident) : "";
+  const phone = looksLikePhone(ident) ? normalizePhone(ident) : "";
   const rows = await postgresQuery<Row>(
     `SELECT * FROM users WHERE active=1 AND (
       username=$1 OR lower(coalesce(email,''))=$2 OR lower(trim(name))=lower($3)
       OR ($4 <> '' AND phone IS NOT NULL AND trim(phone) <> '')
     ) ORDER BY CASE WHEN username=$1 THEN 0 ELSE 1 END, id`,
-    [email || account, email, ident, looksLikePhone(ident) ? "phone" : ""],
+    [account, email, ident, phone],
   );
-  const phone = looksLikePhone(ident) ? normalizePhone(ident) : "";
   const candidates = rows.filter((row) => !phone || normalizePhone(String(row.phone || "")) === phone);
   if (isDemoAdminIdentifier(ident)) {
     return candidates.find((row) => String(row.username) === "lingong" || normalizeEmail(String(row.email || "")) === normalizeEmail("qiyouhuang@163.com")) || candidates[0];
   }
-  if (email || account) return candidates.find((row) => String(row.username) === (email || account)) || candidates.find((row) => normalizeEmail(String(row.email || "")) === email) || (candidates.length === 1 ? candidates[0] : undefined);
+  // A normalized account is an explicit identifier; a display-name fallback
+  // remains valid only when exactly one active account has that display name.
+  if (email || phone || account) return candidates.find((row) => String(row.username) === account)
+    || (email ? candidates.find((row) => normalizeEmail(String(row.email || "")) === email) : undefined)
+    || (candidates.length === 1 ? candidates[0] : undefined);
   return candidates.length === 1 ? candidates[0] : undefined;
 }
 

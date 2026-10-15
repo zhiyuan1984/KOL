@@ -17,7 +17,7 @@ export default function DiscoverySkillEvent({ template, compact = false }: { tem
     >
       <details className="discovery-skill-details" open={!compact}>
         <summary>采集线索技能说明</summary>
-        <SkillTemplateContext template={template} flat showOptionalInputs={false} className="discovery-skill-context" />
+        <SkillTemplateContext template={template} flat readOnly showOptionalInputs={false} className="discovery-skill-context" />
       </details>
     </section>
   );

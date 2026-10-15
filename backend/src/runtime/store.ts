@@ -1,4 +1,4 @@
-import { assertConnectorCredentialStorage } from "../connectors/catalog.js";
+import { assertConnectorCredentialStorage, ensureManagedConnectorCatalog } from "../connectors/catalog.js";
 import { runtimeAgentBindingManifest } from "../contract-scope.js";
 import { HttpFail } from "../host/errors.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
@@ -122,6 +122,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
   const database = requiredPostgresUrl();
   if (schemaReady && schemaReadyDatabase === database) return schemaReady;
   const initialize = async () => {
+    await ensureManagedConnectorCatalog();
     await bootstrapWorkspacePlanner();
     await bootstrapAgentManifestBindings("agent:kol");
     await bootstrapPlatformSync();

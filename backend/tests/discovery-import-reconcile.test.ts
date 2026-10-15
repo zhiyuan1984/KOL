@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../src/db.js", () => ({ audit: vi.fn() }));
+const { auditQuery } = vi.hoisted(() => ({ auditQuery: vi.fn() }));
+
 vi.mock("../src/config.js", () => ({ codexMode: () => "stub", liveRemoteSideEffectsEnabled: () => false }));
 vi.mock("../src/starrykol/connection.js", () => ({ starryKolMcpConfigured: () => true }));
 vi.mock("../src/starrykol/service.js", () => ({ callStarryKolTool: vi.fn() }));
 vi.mock("../src/gateway/discovery-harness.js", () => ({ rejectDiscoveryHarnessTool: vi.fn() }));
+vi.mock("../src/postgres/pool.js", () => ({
+  postgresConnection: () => ({ query: auditQuery }),
+  postgresPool: () => ({ query: auditQuery }),
+}));
 
-import { audit } from "../src/db.js";
 import { callStarryKolTool } from "../src/starrykol/service.js";
 import { importKolProfilesFromCrawlerConfirmed, lookupImportedKolUid } from "../src/gateway/import-creator.js";
 import { buildCrawlerImportFile } from "../src/discovery-import.js";
@@ -44,8 +48,9 @@ describe("uncertain import reconciliation", () => {
     const file = buildCrawlerImportFile([{ profile_url: "https://youtube.com/channel/stable-channel", kol_name: "Camping", platform_dict: "YOUTUBE", account: "stable-channel" }]);
     await expect(importKolProfilesFromCrawlerConfirmed({ file, sourceBatch: "test", creatorExternalId: "youtube:stable-channel", actor: "test" }))
       .rejects.toMatchObject({ detail: { code: "import_creator_failed" } });
-    expect(audit).toHaveBeenCalledWith("test", "host.import_creator.failed", expect.objectContaining({
-      error_detail: "remote import rejected token=*** [url]",
-    }));
+    const [sql, parameters] = auditQuery.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain("INSERT INTO audit_events");
+    expect(parameters.slice(1, 3)).toEqual(["test", "host.import_creator.failed"]);
+    expect(JSON.parse(String(parameters[3]))).toMatchObject({ error_detail: "remote import rejected token=*** [url]" });
   });
 });

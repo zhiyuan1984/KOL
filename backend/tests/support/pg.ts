@@ -9,7 +9,7 @@ import fs from "node:fs";
  */
 import { Client } from "pg";
 import { resetConn } from "../../src/db.js";
-import { closePostgresPool } from "../../src/postgres/pool.js";
+import { closePostgresPool, postgresPool } from "../../src/postgres/pool.js";
 
 const ADMIN_URL = String(process.env.TEST_DATABASE_URL || "").trim();
 const TEMPLATE = String(process.env.TEST_DB_TEMPLATE || "lingong_template").trim();
@@ -27,6 +27,89 @@ function urlWithDatabase(name: string): string {
 function ident(name: string): string {
   if (!/^[a-z_][a-z0-9_]*$/.test(name)) throw new Error(`unsafe database identifier: ${name}`);
   return name;
+}
+
+export type NativeTestManifestReceipt = {
+  database: string;
+  migration_count: number;
+};
+
+/**
+ * Apply the complete native test manifest to the currently selected isolated
+ * database.  The formal migration ledger remains authoritative; these
+ * registered schema modules and additive SQL assets are included because they
+ * are part of the native application schema but are not all ledger entries.
+ */
+export async function applyNativePostgresTestManifest(): Promise<NativeTestManifestReceipt> {
+  const client = await postgresPool().connect();
+  try {
+    const { applyPostgresMigrations } = await import("../../src/postgres/migrations.js");
+    await applyPostgresMigrations(client);
+
+    const { runtimeActionSchema, crawlQueueStateMigration } = await import("../../src/runtime/action-schema.js");
+    await client.query(runtimeActionSchema);
+    for (const statement of crawlQueueStateMigration) await client.query(statement);
+    const { crawlResultSchema } = await import("../../src/crawl/result-schema.js");
+    await client.query(crawlResultSchema);
+    const { replyContextSchema } = await import("../../src/mail/reply-context-schema.js");
+    await client.query(replyContextSchema);
+    const { collaborationSchema } = await import("../../src/ticket-domain/collaboration-schema.js");
+    await client.query(collaborationSchema);
+    const { workOrderAdoptionSchema } = await import("../../src/ticket-domain/work-order-adoption-schema.js");
+    await client.query(workOrderAdoptionSchema);
+    const { taskCollaborationSessionSchema } = await import("../../src/ticket-domain/task-collaboration-session.js");
+    await client.query(taskCollaborationSessionSchema);
+    const { candidateActionsSchema } = await import("../../src/crawl/candidate-actions-schema.js");
+    await client.query(candidateActionsSchema);
+    const { candidateAssessmentSchema } = await import("../../src/crawl/assessment-schema.js");
+    await client.query(candidateAssessmentSchema);
+    const { runtimeActionEventSchema } = await import("../../src/runtime/action-event-schema.js");
+    await client.query(runtimeActionEventSchema);
+
+    for (const filename of [
+      "032_review_postgres.sql",
+      "033_credential_native_default.sql",
+      "042_organization_native_postgres.sql",
+      "043_mail_send_native.sql",
+      "047_mail_send_reply_stale.sql",
+      "044_mail_memory_native_cache.sql",
+      "045_skill_presentation_overlays.sql",
+    ]) {
+      await client.query(fs.readFileSync(fileURLToPath(new URL(`../../migrations/${filename}`, import.meta.url)), "utf8"));
+    }
+
+    const requiredRelations = [
+      "task_root_command_receipts",
+      "ticket_account_organization_bindings",
+      "workbench_principal_binding_events",
+      "scheduling_rule_command_receipts",
+      "ticket_command_receipts",
+    ];
+    const { rows } = await client.query<{ relation: string; exists: boolean }>(
+      `SELECT relation, to_regclass('public.' || relation) IS NOT NULL AS exists
+         FROM unnest($1::text[]) AS relation`,
+      [requiredRelations],
+    );
+    const missing = rows.filter((row) => !row.exists).map((row) => row.relation);
+    const skill = await client.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM information_schema.columns
+          WHERE table_schema='public' AND table_name='tickets' AND column_name='skill'
+       ) AS exists`,
+    );
+    if (missing.length || !skill.rows[0]?.exists) {
+      throw new Error(`native test manifest is incomplete: ${[...missing, ...(!skill.rows[0]?.exists ? ["tickets.skill"] : [])].join(", ")}`);
+    }
+    const receipt = await client.query<{ database: string; migration_count: string }>(
+      "SELECT current_database() AS database, (SELECT count(*)::text FROM app_schema_migrations) AS migration_count",
+    );
+    return {
+      database: receipt.rows[0]!.database,
+      migration_count: Number(receipt.rows[0]!.migration_count),
+    };
+  } finally {
+    client.release();
+  }
 }
 
 /** 建一个全新测试库并把 DATABASE_URL 指向它，返回库名。 */
@@ -49,36 +132,9 @@ export async function freshTestDatabase(options: { empty?: boolean; reclaimPrevi
   await closePostgresPool();
   process.env.DATABASE_URL = urlWithDatabase(name);
   await resetConn();
-  const { postgresPool } = await import("../../src/postgres/pool.js");
   // A shared historical template is a starting snapshot, not schema authority.
-  // Apply the complete checksum-protected manifest only to this owned clone.
   // Empty and historical clones must expose the same current formal schema.
-  const { applyPostgresMigrations } = await import("../../src/postgres/migrations.js");
-  const client = await postgresPool().connect();
-  try { await applyPostgresMigrations(client); } finally { client.release(); }
-  const { runtimeActionSchema, crawlQueueStateMigration } = await import("../../src/runtime/action-schema.js");
-  await postgresPool().query(runtimeActionSchema);
-  for (const statement of crawlQueueStateMigration) await postgresPool().query(statement);
-  const { crawlResultSchema } = await import("../../src/crawl/result-schema.js");
-  await postgresPool().query(crawlResultSchema);
-  const { replyContextSchema } = await import("../../src/mail/reply-context-schema.js");
-  await postgresPool().query(replyContextSchema);
-  const { collaborationSchema } = await import("../../src/ticket-domain/collaboration-schema.js");
-  await postgresPool().query(collaborationSchema);
-  const { workOrderAdoptionSchema } = await import("../../src/ticket-domain/work-order-adoption-schema.js");
-  await postgresPool().query(workOrderAdoptionSchema);
-  const { taskCollaborationSessionSchema } = await import("../../src/ticket-domain/task-collaboration-session.js");
-  await postgresPool().query(taskCollaborationSessionSchema);
-  const { candidateActionsSchema } = await import("../../src/crawl/candidate-actions-schema.js");
-  await postgresPool().query(candidateActionsSchema);
-  const { candidateAssessmentSchema } = await import("../../src/crawl/assessment-schema.js");
-  await postgresPool().query(candidateAssessmentSchema);
-  const { runtimeActionEventSchema } = await import("../../src/runtime/action-event-schema.js");
-  await postgresPool().query(runtimeActionEventSchema);
-  // Formal domain extensions are executed only against this newly created test DB.
-  for (const filename of ["032_review_postgres.sql", "033_credential_native_default.sql", "042_organization_native_postgres.sql", "043_mail_send_native.sql", "044_mail_memory_native_cache.sql", "045_skill_presentation_overlays.sql"]) {
-    await postgresPool().query(fs.readFileSync(fileURLToPath(new URL(`../../migrations/${filename}`, import.meta.url)), "utf8"));
-  }
+  await applyNativePostgresTestManifest();
   return name;
 }
 
@@ -98,6 +154,10 @@ export async function dropTestDatabases(): Promise<void> {
       let failure: unknown;
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
+          await admin.query(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1 AND pid <> pg_backend_pid()",
+            [name],
+          );
           await admin.query(`DROP DATABASE IF EXISTS ${ident(name)}`);
           failure = undefined;
           break;

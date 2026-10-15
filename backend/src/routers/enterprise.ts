@@ -488,7 +488,10 @@ if (body.password !== undefined) { const { pgRevokeUserSessions } = await import
     if (validUnit || (siteChanged && !site)) await pgSyncOrganizationMembership(uid, site || null, nowIso());
   }
   await pgAudit(admin.id, "admin.user.update", { user_id: uid, fields: sets.map((s) => s.split("=")[0]) }, nowIso());
-  return c.json({ ...(await pgUserById(uid)), password_hash: undefined });
+  // Return the same authoritative organization projection as the employee
+  // detail route. `users.site` is presentation input, never evidence that an
+  // active membership was removed or replaced.
+  return c.json({ ...(await pgEnterpriseAccount(uid)), password_hash: undefined });
 });
 
 enterprise.delete("/admin/users/:uid", async (c) => {

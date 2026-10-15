@@ -16,7 +16,7 @@ import {
 } from "../host/mail-memory.js";
 import { letterSummaryRecord, remoteMailAnalysisEnabled, threadDigestOf, type ThreadDigest } from "../host/mail-summary.js";
 import { translateMailBodyZh } from "./translate-zh.js";
-import { markPendingMailMemory, triggerMailMemoryIncrement } from "../host/mail-memory-job.js";
+import { markPendingMailMemory, triggerMailMemoryIncrement, waitForMailMemoryBackground } from "../host/mail-memory-job.js";
 import { recordEffectiveCorrespondence, recordFollowedMailMemory } from "../host/kol-memory.js";
 import { boundMailboxEmail, currentFollowScope, matchesFollowedMailbox, safeEmployeeId } from "../host/starry-bind.js";
 import { nid } from "../ids.js";
@@ -369,6 +369,7 @@ export async function waitForBackgroundSync(): Promise<void> {
   // task as their last step, so it is only observable after they resolve.
   await Promise.all([...inflight.values()]);
   if (backgroundSyncTask) await backgroundSyncTask;
+  await waitForMailMemoryBackground();
 }
 
 export async function startFollowedMailSync(force = false, mailbox = ""): Promise<FollowedMailSync> {
@@ -1281,7 +1282,10 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
       await persistStatus(completed);
       return completed;
     } else {
-      (await scheduleBackgroundSync(detailCandidates, mailbox, collabs, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize));
+      // Registration is intentionally synchronous, while hydration is not: the
+      // committed index above is the foreground receipt. Awaiting this promise
+      // turns a delayed body read into a deadlock for selected-first callers.
+      scheduleBackgroundSync(detailCandidates, mailbox, collabs, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize);
     }
     return partial;
   } catch (error) {

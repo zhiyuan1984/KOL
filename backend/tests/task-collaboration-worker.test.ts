@@ -17,7 +17,7 @@ import { runWorker } from "../src/worker/runner.js";
 let taskId: string, sessionId: string, tmp: string;
 const saved: Record<string,string|undefined> = {};
 beforeEach(async()=>{
-  for (const key of ["CODEX_MODE","AUTH_MODE","CODEX_BIN","LINGONG_DATA","FAKE_CODEX_MODE","FAKE_CODEX_DELAY","FAKE_CODEX_THREAD_START"]) saved[key]=process.env[key];
+  for (const key of ["CODEX_MODE","AUTH_MODE","CODEX_BIN","LINGONG_DATA","FAKE_CODEX_MODE","FAKE_CODEX_DELAY","FAKE_CODEX_THREAD_START","FAKE_CODEX_TASK_EVIDENCE"]) saved[key]=process.env[key];
   await freshTestDatabase();
   (await resetConn());
   tmp=fs.mkdtempSync(path.join(os.tmpdir(),"tcw-p3-harness-"));
@@ -26,6 +26,7 @@ beforeEach(async()=>{
   process.env.CODEX_BIN=path.resolve("tests/fixtures/fake-codex.mjs");
   process.env.FAKE_CODEX_MODE="task-collaboration-evidence";process.env.FAKE_CODEX_DELAY="500";
   process.env.FAKE_CODEX_THREAD_START=path.join(tmp,"thread.json");
+  process.env.FAKE_CODEX_TASK_EVIDENCE=path.join(tmp,"task-evidence.json");
   (await seed()); (await seedPublishedAgent("agent:kol")); (await seedRuntimeTestActor(["kol_analyze"],true));
   const user=(await mapUser((await getConn().query("SELECT * FROM users WHERE id='usr_runtime_fixture'",[])).rows[0] as Row));
   await syncWorkbenchTicketPrincipal(user);
@@ -36,6 +37,12 @@ afterEach(()=>{for(const [key,value] of Object.entries(saved)) {if(value===undef
 async function execute() {
   const user=(await mapUser((await getConn().query("SELECT * FROM users WHERE id='usr_runtime_fixture'",[])).rows[0] as Row));
   return withScopedUser(user,async ()=>(Promise.resolve((await runWorker(sessionId,"kol_analyze","Explain the bound task")))));
+}
+async function waitForTaskEvidence() {
+  const evidencePath=String(process.env.FAKE_CODEX_TASK_EVIDENCE || "");
+  for(let i=0;i<100&&!fs.existsSync(evidencePath);i++) await new Promise(resolve=>setTimeout(resolve,20));
+  expect(fs.existsSync(evidencePath)).toBe(true);
+  return JSON.parse(fs.readFileSync(evidencePath,"utf8")) as { task?: { id?: string }; version?: string };
 }
 describe("fixed native Task evidence in the existing app-server protocol",()=>{
   it("passes actual Task evidence to one turn with no mounted tools or formal task writes",async()=>{
@@ -50,16 +57,16 @@ describe("fixed native Task evidence in the existing app-server protocol",()=>{
     expect((await postgresPool().query("SELECT status FROM tickets WHERE id=$1",[taskId])).rows[0].status).toBe("open");
   });
   it("marks changed source basis as stale and suppresses a result after Task revocation",async()=>{
-    const run=(await execute());
-    // The protocol fixture writes this only after thread/start: evidence was
-    // already captured, and the delayed turn has not completed yet.
-    for(let i=0;i<100&&!fs.existsSync(path.join(tmp,"thread.json"));i++) await new Promise(resolve=>setTimeout(resolve,20));
-    expect(fs.existsSync(path.join(tmp,"thread.json"))).toBe(true);
+    const run=execute();
+    const snapshot=await waitForTaskEvidence();
+    expect(snapshot.task?.id).toBe(taskId);
+    expect(snapshot.version).toBeTruthy();
     await postgresPool().query("UPDATE tickets SET data_version=data_version+1 WHERE id=$1",[taskId]);
     expect((await run).items[0].task_context_stale).toBe(true);
-    fs.unlinkSync(path.join(tmp,"thread.json"));
-    const revoked=(await execute());
-    for(let i=0;i<100&&!fs.existsSync(path.join(tmp,"thread.json"));i++) await new Promise(resolve=>setTimeout(resolve,20));
+    fs.unlinkSync(String(process.env.FAKE_CODEX_TASK_EVIDENCE));
+    const revoked=execute();
+    const revokedSnapshot=await waitForTaskEvidence();
+    expect(revokedSnapshot.task?.id).toBe(taskId);
     await postgresPool().query("UPDATE ticket_accounts SET active=false WHERE id='usr_runtime_fixture'");
     await expect(revoked).rejects.toThrow("任务访问权限已变化");
   });

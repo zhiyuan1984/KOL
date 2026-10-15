@@ -7,7 +7,7 @@ import { getConn, resetConn } from "../src/db.js";
 import { postgresPool } from "../src/postgres/pool.js";
 import { mapUser, withScopedUser, type AppUser } from "../src/auth.js";
 import { setAgentSkill, setSkillConnector, setConnectorConfig, setSkillTool, setToolPolicy } from "../src/runtime/store.js";
-import { createAgentBinding } from "../src/runtime/organization-tree.js";
+import { createAgentBinding, syncUserOrganization, visibleSkillIdsForUser } from "../src/runtime/organization-tree.js";
 import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
 import { configureCrawlerFixture } from "./helpers/crawler-vault.js";
 import { runtimeCandidateCommand, runtimeCandidateViews } from "../src/crawl/candidate-actions.js";
@@ -37,13 +37,8 @@ async function command(id: number, verb: string, snapshot: unknown, confirmed = 
 }
 beforeEach(async () => {
   await freshTestDatabase();
-  // 旧模板可能早于线索/公海品牌迁移；只在独立测试库补齐真实 schema。
-  const schema = fs.readFileSync(new URL("../scripts/apply-postgres-schema.ts", import.meta.url), "utf8");
-  const leadCreate = schema.match(/`(CREATE TABLE IF NOT EXISTS kol_leads \([\s\S]*?\n    \))`/);
-  if (!leadCreate) throw new Error("kol_leads schema not found");
-  await postgresPool().query(leadCreate[1]);
-  await postgresPool().query(fs.readFileSync(new URL("../migrations/029_discovery_dedup_score.sql", import.meta.url), "utf8"));
-  await postgresPool().query(fs.readFileSync(new URL("../migrations/030_pool_brand_visibility.sql", import.meta.url), "utf8"));
+  // freshTestDatabase provisions a dedicated database and applies the complete
+  // checksum-protected native migration manifest plus candidate action schema.
   temp = fs.mkdtempSync(path.join(os.tmpdir(), "discovery-candidate-actions-"));
   process.env.LINGONG_DATA = temp; process.env.AUTH_MODE = "enabled"; process.env.NODE_ENV = "test";
   (await resetConn());
@@ -51,13 +46,16 @@ beforeEach(async () => {
   for (const skill of ["crawler_collect", "creator_discovery"]) (await setAgentSkill("agent:discovery-test", skill, true, 0));
   (await seedPublishedAgent("agent:discovery-test"));
   (await createAgentBinding({ agent_id: "agent:discovery-test", target_type: "organization_unit", target_id: "org:lt_team", company_id: COMPANY, source: "test" }));
-  const people = (await db.query("SELECT person_ref FROM organization_memberships WHERE org_unit_id='org:lt_team' AND status='active' ORDER BY person_ref LIMIT 2",[])).rows as { person_ref: string }[];
-  expect(people.length).toBe(2);
   for (let i = 0; i < 2; i++) {
     (await db.query("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n      VALUES($1,$2,$3,'test-password','[\"employee\"]','[\"LT\"]','',1,'now','now')",[`employee-${i}`,`employee-${i}`,`employee-${i}`]));
-    (await db.query("UPDATE organization_people SET user_id=$1 WHERE person_ref=$2",[`employee-${i}`,people[i].person_ref]));
+    (await db.query("INSERT INTO ticket_accounts(id,username,name,password_hash,roles,active,identity_provider,created_at,updated_at)\n      VALUES($1,$2,$3,'workbench-session-only','[\"employee\"]',true,'workbench_session',now(),now())",[`employee-${i}`,`employee-${i}`,`employee-${i}`]));
+    (await syncUserOrganization(`employee-${i}`, "org:lt_team"));
   }
-  users = (await Promise.all([0, 1].map(async i => (mapUser((await db.query("SELECT * FROM users WHERE id=$1",[`employee-${i}`])).rows[0] as never)))));
+  users = (await Promise.all([0, 1].map(async i => {
+    const actor = await mapUser((await db.query("SELECT * FROM users WHERE id=$1",[`employee-${i}`])).rows[0] as never);
+    return { ...actor, authority_skills: await visibleSkillIdsForUser(actor.id) };
+  })));
+  expect(users.every((actor) => actor.authority_skills?.includes("creator_discovery"))).toBe(true);
   const credential = (await configureCrawlerFixture("http://crawler.example.test/mcp"));
   (await setSkillConnector("crawler_collect", "claw", true, 0));
   (await db.query("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('starrykol','Starry',1,'configured','now')\n    ON CONFLICT(id) DO UPDATE SET label=EXCLUDED.label,enabled=EXCLUDED.enabled,status=EXCLUDED.status,updated_at=EXCLUDED.updated_at",[]));
@@ -79,7 +77,7 @@ afterEach(async () => { setKolJevFetch(); delete process.env.OPENROUTER_API_KEY;
 it("atomically assigns one employee, hides other employees, and does not repeat a successful import", async () => {
   vi.mocked(importKolProfilesFromCrawlerConfirmed).mockResolvedValue({ kol_uid: "KOLCLAIM001" });
   const versions = await Promise.all([(await version(0)), (await version(1))]);
-  const results = await Promise.allSettled([(await command(0, "follow", versions[0])), (await command(1, "follow", versions[1]))]);
+  const results = await Promise.allSettled([command(0, "follow", versions[0]), command(1, "follow", versions[1])]);
   expect(results.filter(r => r.status === "fulfilled")).toHaveLength(1);
   const winner = results[0].status === "fulfilled" ? 0 : 1, loser = 1 - winner;
   expect(await command(winner, "follow", versions[winner])).toMatchObject({ ok: true, reused: true });

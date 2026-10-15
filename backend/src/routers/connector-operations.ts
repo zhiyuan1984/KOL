@@ -59,16 +59,23 @@ export function createConnectorOperationsRouter(inspect:Inspector=inspectConnect
         await writeProbeAudit(client,actor.id,"runtime.connector.probed",{connector_id:id,version:before.version,status:"failed",probe_kind:kind,tool_count:count,duration_ms:duration,code},checkedAt);
       },{isolation:"SERIALIZABLE"});
     }else{
-      registration=await postgresTransaction(async client=>{
-        const current=await lockProbeBasis(client,id,before.version);
-        const registered=kind==="mcp_tools_list"?await registerDiscoveredToolPolicies(id,tools,client):undefined;
+      try {
+        registration=await postgresTransaction(async client=>{
+          const current=await lockProbeBasis(client,id,before.version);
+          const registered=kind==="mcp_tools_list"?await registerDiscoveredToolPolicies(id,tools,client):undefined;
+          duration=Date.now()-started;
+          await client.query(`INSERT INTO runtime_connector_probes(connector_id,config_version,actor_id,checked_at,status,probe_kind,tool_count,duration_ms,error_code) VALUES($1,$2,$3,$4,'succeeded',$5,$6,$7,NULL)`,[id,before.version,actor.id,checkedAt,kind,count,duration]);
+          await client.query("UPDATE connectors SET enabled=$1,status='verified',last_verified_at=$2,last_error=NULL,updated_at=$2 WHERE id=$3",[Number(current.enabled)===1?1:0,checkedAt,id]);
+          if(registered)await writeProbeAudit(client,actor.id,"runtime.tool_catalog.registered",{connector_id:id,config_version:before.version,...registered},checkedAt);
+          await writeProbeAudit(client,actor.id,"runtime.connector.probed",{connector_id:id,version:before.version,status:"succeeded",probe_kind:kind,tool_count:count,duration_ms:duration,code:null},checkedAt);
+          return registered;
+        },{isolation:"SERIALIZABLE"});
+      } catch (error) {
+        const detail = error instanceof HttpFail && error.detail && typeof error.detail === "object" ? error.detail as Json : undefined;
+        if (detail?.code !== "runtime_binding_changed") throw error;
         duration=Date.now()-started;
-        await client.query(`INSERT INTO runtime_connector_probes(connector_id,config_version,actor_id,checked_at,status,probe_kind,tool_count,duration_ms,error_code) VALUES($1,$2,$3,$4,'succeeded',$5,$6,$7,NULL)`,[id,before.version,actor.id,checkedAt,kind,count,duration]);
-        await client.query("UPDATE connectors SET enabled=$1,status='verified',last_verified_at=$2,last_error=NULL,updated_at=$2 WHERE id=$3",[Number(current.enabled)===1?1:0,checkedAt,id]);
-        if(registered)await writeProbeAudit(client,actor.id,"runtime.tool_catalog.registered",{connector_id:id,config_version:before.version,...registered},checkedAt);
-        await writeProbeAudit(client,actor.id,"runtime.connector.probed",{connector_id:id,version:before.version,status:"succeeded",probe_kind:kind,tool_count:count,duration_ms:duration,code:null},checkedAt);
-        return registered;
-      },{isolation:"SERIALIZABLE"});
+        return c.json({connector_id:id,config_version:before.version,actor_id:actor.id,checked_at:checkedAt,status:"failed",probe_kind:kind,tool_count:count,duration_ms:duration,error_code:"runtime_binding_changed",live_verified:false,notice:"配置在目录核验期间已变化，未采用旧结果。"},409);
+      }
     }
     const status=code?"failed":"succeeded";
     return c.json({connector_id:id,config_version:before.version,actor_id:actor.id,checked_at:checkedAt,status,probe_kind:kind,tool_count:count,duration_ms:duration,error_code:code,live_verified:!code&&kind!=="http_definition",notice:kind==="http_definition"?"仅校验 HTTP 动作定义，未调用外部业务接口。":"仅验证该身份的 MCP 工具目录，不代表业务动作或其他账号可用。"},code?502:200);

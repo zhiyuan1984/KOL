@@ -6,7 +6,7 @@
  * memory columns only. Never sends mail, never writes formal stage.
  */
 import crypto from "node:crypto";
-import { postgresQuery } from "../postgres/pool.js";
+import * as postgresPoolModule from "../postgres/pool.js";
 import { safeEmployeeId } from "./starry-bind.js";
 import {
   createNativeMemoryRun,
@@ -348,7 +348,7 @@ export async function triggerMailMemoryIncrement(mailbox?: string): Promise<Awai
       // API process. Use the asynchronous pool so audit waits do not freeze
       // employee requests on the synchronous connection.
       try {
-        await postgresQuery(
+        await postgresPoolModule.postgresQuery(
           "INSERT INTO audit_events (ts,actor,event_type,payload) VALUES ($1,$2,$3,$4)",
           [nowIso(), "host", "mail_memory.increment_failed", JSON.stringify({
             mailbox: mailbox || "*",
@@ -457,4 +457,10 @@ export async function triggerMailTranslateSkill(mailbox: string, messageId: stri
 
 export function pendingMailMemoryIncrement(mailbox?: string): boolean {
   return inflight.has(mailbox || "*");
+}
+
+/** Detached mail-memory work never rejects outward, but test and process
+ * shutdown paths still need a deterministic point at which it has settled. */
+export async function waitForMailMemoryBackground(): Promise<void> {
+  while (inflight.size) await Promise.allSettled([...inflight.values()]);
 }
