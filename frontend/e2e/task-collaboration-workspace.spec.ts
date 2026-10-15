@@ -37,7 +37,9 @@ test("opens the original Task workspace, restores after reload, and returns to t
   await page.reload();
   await expect(page.getByRole("region",{name:"当前业务任务"})).toContainText("绑定原任务");
   expect(control.posts()).toBe(0);
-  await page.locator('a[href="/tasks?businessTask=workspace-task"]').click();
+  const returnToTask = page.locator('.session-workspace-header [data-session-back-link]');
+  await expect(returnToTask).toHaveAttribute("href", "/tasks?businessTask=workspace-task");
+  await returnToTask.click();
   await expect(page).toHaveURL(/\/tasks\?businessTask=workspace-task$/);
   await expect(page.getByRole("dialog",{name:"AI 标准工单任务详情"})).toContainText("绑定原任务");
 });

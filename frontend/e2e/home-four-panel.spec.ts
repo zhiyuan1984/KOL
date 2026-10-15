@@ -138,7 +138,7 @@ async function stubHomeTodos(page: Page, todos: Array<Record<string, unknown>>) 
 async function todoRowLayout(card: ReturnType<Page["locator"]>) {
   return card.evaluate((el) => {
     const title = el.querySelector(".task-board-title") as HTMLElement | null;
-    const status = el.querySelector(".task-board-chip[data-board-status]") as HTMLElement | null;
+    const status = el.querySelector(".task-board-cell-status .task-board-row-state") as HTMLElement | null;
     const act = el.querySelector("[data-today-todo-act]") as HTMLElement | null;
     const pane = el.closest("[data-todo-list]") as HTMLElement | null;
     if (!title || !status || !act) {
@@ -195,7 +195,7 @@ test("home todo rows live in the task rail without横向滚动", async ({ page }
   const follow = page.locator("[data-today-todo]").filter({ hasText: "跟进 Outdoor Gear Lab 样品签收" });
   await expect(follow).toBeVisible();
   await expect(follow.locator("[data-today-todo-act]")).toBeVisible();
-  await expect(follow.locator("[data-board-status]")).toHaveText("未开始");
+  await expect(follow.locator(".task-board-cell-status .task-board-row-state")).toHaveText("待处理");
   await expect(follow.locator("[data-today-todo-act]")).toHaveText("打开");
 
   // 待办任务表现在住在与今日任务同一个工作台右栏里：仍是「标题在左、动作在右」的行，
@@ -340,21 +340,21 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
       mail: read(el.querySelector("[data-open-original-mail]")),
     };
   });
-  // 三级字号阶梯（docs/DESIGN.md §字号阶梯用途）：一级/二级 = --ds-font-body(14)，
-  // 三级 = --ds-font-sm(13)。列表行内容不再借分区标题档 --ds-font-section。
-  expect(type.name!.size).toBe(14);
-  expect(type.name!.weight).toBeGreaterThanOrEqual(600);
+  // 三级字号阶梯：对象行主体使用 --ds-font-sm(13)，辅助说明使用
+  // --ds-font-xs(12)；它们不借用分区标题档。
+  expect(type.name!.size).toBe(13);
+  expect(type.name!.weight).toBeGreaterThanOrEqual(500);
   expect(["rgb(26, 26, 26)", "rgb(0, 0, 0)"]).toContain(type.name!.color);
   if (type.stage) {
-    expect(type.stage.size).toBe(13);
+    expect(type.stage.size).toBe(12);
     expect(type.stage.weight).toBeLessThan(type.name!.weight);
   }
-  // 头像 = 图标砖：--kol-avatar-size，不再是大圆形。
-  expect([type.avatar!.w, type.avatar!.h]).toEqual([28, 28]);
+  // 头像 = --control-h-sm 图标砖，不再是大圆形。
+  expect([type.avatar!.w, type.avatar!.h]).toEqual([24, 24]);
   if (type.kicker) expect(type.kicker.size).toBe(13);
-  if (type.fact) expect(type.fact.size).toBe(14);
-  if (type.ai) expect(type.ai.size).toBe(14);
-  if (type.why) expect(type.why.size).toBe(13);
+  if (type.fact) expect(type.fact.size).toBe(13);
+  if (type.ai) expect(type.ai.size).toBe(13);
+  if (type.why) expect(type.why.size).toBe(12);
   expect(type.detail!.size).toBe(13);
   expect(["rgb(107, 107, 107)", "rgb(102, 102, 102)"]).toContain(type.detail!.color);
   if (type.mail) expect(type.mail.size).toBe(13);

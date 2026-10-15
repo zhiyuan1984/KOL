@@ -7,7 +7,10 @@ export async function stubHomeFollowing(page: Page, kols: Array<Record<string, u
     source_kind: typeof kol.source_kind === "string" && kol.source_kind ? kol.source_kind : "kol_follow_index",
     status: "active",
   }));
-  await page.route("**/api/home/following", async (route) => {
+  // The authoritative membership read carries a scope query. Match the
+  // pathname plus optional query so this remains a legal server-bound
+  // collaboration fixture instead of falling through to a live empty read.
+  await page.route(/\/api\/home\/following(?:\?.*)?$/, async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     await route.fulfill({
       json: {

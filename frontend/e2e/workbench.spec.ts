@@ -153,6 +153,12 @@ async function expectNoHomeChrome(page: Page) {
   await expect(page.locator("[data-home-chrome-brand], [data-brand-lockup='home']")).toHaveCount(0);
 }
 
+/** Native TaskBoard places the stable state code on the row and exposes its readable status on the cell. */
+async function expectNativeTaskState(row: Locator, state: string, label: string) {
+  await expect(row).toHaveAttribute("data-board-status", state);
+  await expect(row.locator(`[aria-label="任务状态：${label}"]`)).toHaveText(label);
+}
+
 async function expectEmployeeShell(page: Page) {
   const sidebar = page.locator(".sidebar");
   await expect(sidebar.locator('[data-brand-lockup="sidebar"] .brand-logo')).toHaveAttribute("src", "/brand/litime-logo.png");
@@ -1708,18 +1714,17 @@ test("home open work items list every state and never show 已入队", async ({ 
   // 进行中/等审批/失败的行按今日/待办拆分归今日面板，待办面板只留两条未开始行。
   const waiting = page.locator("[data-today-todo]").filter({ hasText: "写报价信" });
   await expect(waiting).toBeVisible();
-  await expect(waiting.locator("[data-board-status]")).toHaveText("未开始");
+  await expectNativeTaskState(waiting, "running", "待确认");
   await expect(waiting.locator("[data-today-todo-act]")).toHaveText("打开");
   await expect(waiting).not.toContainText("等待中");
   // 原 waiting/queued 分桶容器为 0 的断言：等待中/已入队不再是行状态标签，改为文案断言。
   await expect(page.locator("[data-todo-list]")).not.toContainText("等待中");
   await expect(page.locator('[data-today-todo="tsk_queued_follow"]')).toBeVisible();
-  await expect(page.locator('[data-today-todo="tsk_queued_follow"] [data-board-status]')).toHaveText("未开始");
+  await expectNativeTaskState(page.locator('[data-today-todo="tsk_queued_follow"]'), "pending", "待处理");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("已入队");
   await expect(page.locator("[data-today-summary], [data-home-stats]")).toHaveCount(0);
   await expect(page.locator("[data-home-pane=\"todo\"]")).not.toContainText("等待中");
   await expect(page.locator("[data-home-pane=\"todo\"]")).not.toContainText("已入队");
-  await expect(page.locator("[data-home-pane=\"todo\"]")).not.toContainText("待处理");
 });
 
 test("home todo lists all later items without folding or 已入队 copy", async ({ page }) => {
@@ -1744,8 +1749,9 @@ test("home todo lists all later items without folding or 已入队 copy", async 
   await openHomeTodo(page);
   // 待办清单不折叠前五项，完整 9 行直接可见。
   await expect(page.locator("[data-today-todo]")).toHaveCount(9);
-  // 原 waiting/later 分桶计数与 [data-todo-md]「后续」文案：分桶容器移除，改断言 9 行全部是「未开始」chip 且无「等待中」文案。
-  await expect(page.locator('[data-today-todo] [data-board-status="not_started"]')).toHaveCount(9);
+  // 原 waiting/later 分桶计数与 [data-todo-md]「后续」文案：分桶容器移除，9 行保留为待确认状态且无「等待中」文案。
+  await expect(page.locator('[data-today-todo][data-board-status="running"]')).toHaveCount(9);
+  await expect(page.locator('[data-today-todo] [aria-label="任务状态：待确认"]')).toHaveCount(9);
   await expect(page.locator("[data-todo-list]")).not.toContainText("等待中");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("已入队");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("待处理");
@@ -1808,10 +1814,8 @@ test("home does not keep polling GET /api/tasks for 结果待确认 only", async
   await page.goto("/");
   await openHomeTodo(page);
   await expect(page.locator("[data-home]")).toHaveAttribute("data-home-task-poll", "idle");
-  // 原 data-todo-status「后续」桶属性移除；waiting 且无到期时间的行派生状态为「未开始」。
-  await expect(
-    page.locator("[data-today-todo]").filter({ hasText: "写报价信" }).locator("[data-board-status]"),
-  ).toHaveText("未开始");
+  // 原 data-todo-status「后续」桶属性移除；waiting 且无到期时间仍是可读的待确认状态。
+  await expectNativeTaskState(page.locator("[data-today-todo]").filter({ hasText: "写报价信" }), "running", "待确认");
   const afterLoad = taskGets;
   expect(afterLoad).toBeGreaterThanOrEqual(1);
   await page.waitForTimeout(4500);
@@ -1861,13 +1865,17 @@ test("home today pane lists today items and 我的待办 still opens the KOL ses
   await expect(page.locator("[data-insight-card], [data-recommended-task]")).toHaveCount(0);
   await openHomeTodo(page);
   await expect(page.locator("[data-recommended-tasks]")).toHaveCount(0);
-  // 今日/待办拆分后，今天到期/高风险/重要的行归今日面板；待办面板只留今日范围之外的行。
-  await expect(page.locator('[data-today-todo="tsk_home_laozhang_quote"]')).toHaveCount(0);
-  await expect(page.locator('[data-today-todo="tsk_home_trip_stage"]')).toHaveCount(0);
+  // 当前服务端投影把失败的阶段复核与待确认报价保留在待办；不再复活已退役的画像任务行。
+  const todoRows = page.locator('[data-home-pane="todo"] [data-today-todo]');
+  await expect(todoRows).toHaveCount(2);
+  const tripStage = page.locator('[data-today-todo="tsk_home_trip_stage"]');
+  const quoteConfirmation = page.locator('[data-today-todo="tsk_home_laozhang_quote"]');
+  await expect(tripStage).toBeVisible();
+  await expect(quoteConfirmation).toBeVisible();
+  await expectNativeTaskState(tripStage, "failed", "失败");
+  await expectNativeTaskState(quoteConfirmation, "running", "待确认");
   await expect(page.locator('[data-today-todo="tsk_home_xiaomei_lost"]')).toHaveCount(0);
-  await expect(page.locator("[data-today-todo]")).toHaveCount(1);
-  await expect(page.locator('[data-today-todo="tsk_home_outdoor_profile"]')).toBeVisible();
-  await expect(page.locator('[data-today-todo="tsk_home_outdoor_profile"] [data-board-status]')).toHaveText("未开始");
+  await expect(page.locator('[data-today-todo="tsk_home_outdoor_profile"]')).toHaveCount(0);
   await expect(page.locator("[data-today-summary], [data-home-stats]")).toHaveCount(0);
   // 原 waiting 分桶容器为 0 的断言：「等待中」不再是行状态标签，改为文案断言。
   await expect(page.locator("[data-todo-list]")).not.toContainText("等待中");
@@ -1881,9 +1889,19 @@ test("home today pane lists today items and 我的待办 still opens the KOL ses
   await expect(page.locator("[data-today-list]")).toBeVisible();
   await expect(page.locator("[data-recommended-task], [data-insight-card]")).toHaveCount(0);
   await openHomeTodo(page);
-  await page.locator('[data-today-todo="tsk_home_outdoor_profile"]').locator("[data-today-todo-act]").click();
+  const openingPosts: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST") openingPosts.push(new URL(request.url()).pathname);
+  });
+  await quoteConfirmation.locator("[data-today-todo-act]").click();
   await expect(page).toHaveURL(/tab=todo|\?$|\/$/);
   await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
+  const detail = page.locator('[data-task-detail-rail="tsk_home_laozhang_quote"]');
+  await expect(detail).toBeVisible();
+  await expect(detail).toContainText("给@数码老张 写报价确认邮件");
+  await expect(detail.locator("[data-task-detail-history]")).toContainText("写报价信");
+  expect(openingPosts).toEqual([]);
+  await expect(page).not.toHaveURL(/\/s\//);
 });
 
 test("ingested inbound mail appears in the KOL session and can confirm 有兴趣", async ({ page, request }) => {

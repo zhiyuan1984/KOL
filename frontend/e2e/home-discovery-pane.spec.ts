@@ -15,6 +15,12 @@ const BANNED_BATCH_PATH = /\/api\/home\/discovery\/batches/;
 
 const DISCOVERY_TASK_ID = "tsk_disc_e2e";
 const DISCOVERY_SESSION_ID = "ses_disc_e2e";
+
+/** The current semantic middle column; do not couple this spec to retired scope markers. */
+function discoveryCenter(page: Page) {
+  return page.locator('[data-home-pane="discovery"] > .scope-workspace-center');
+}
+
 /** 提交响应里的首轮 pending 回合：由本页接管运行（POST /api/sessions/:id/messages）。 */
 const DISCOVERY_PENDING = {
   text: "【发现任务】\n平台：YouTube\n地区：全球英文",
@@ -28,7 +34,7 @@ const DISCOVERY_PENDING = {
 async function openDiscovery(page: Page, { expectCard = true } = {}) {
   await page.goto("/?tab=discovery");
   // 中栏/右栏由工作台骨架撑起（结果容器在右栏，零高时不能当可见性锚点）。
-  await expect(page.locator('[data-home-pane="discovery"] [data-scope-ai-workspace]')).toBeVisible();
+  await expect(discoveryCenter(page)).toBeVisible();
   // 条件卡是中栏事件流的第三个事件，提交后原位转只读，不再消失。
   if (expectCard) await expect(page.locator("[data-discovery-search-card]")).toBeVisible();
 }
@@ -592,7 +598,7 @@ test("idle discovery keeps a fixed native Agent center and full brief above the 
   const workspace = page.locator('[data-home-pane="discovery"]');
   await expect(workspace).toHaveClass(/is-result-idle/);
   const rail = workspace.locator('[data-scope-task-rail]');
-  const center = workspace.locator('[data-scope-ai-workspace]');
+  const center = discoveryCenter(page);
   // DESIGN §27.2：AI发现使用固定 Agent 中栏，右栏吃剩余空间；820 上限仅属于
   // 其他 Home 模式，不能把当前原生会话视觉回退为旧的通用结果栏。
   const initialCenterWidth = Math.round((await center.boundingBox())!.width);
@@ -1088,7 +1094,13 @@ test("submit posts the workspace endpoint, streams the run trail, and ingests to
   await expect(page.locator("[data-discovery-panel]")).not.toContainText(BANNED_FOLLOW);
   await expect(page.locator("[data-discovery-panel]")).not.toContainText("发送邮件");
   await expect(page.locator("[data-coach-next], [data-next-step-card]")).toHaveCount(0);
-  await expect(page.locator("[data-discovery-next-plan]")).toContainText("核对线索后选择入库对象");
+  // 下一步计划是当前权威中栏的只读协作信息：全页只有一份，既不进入结果栏，
+  // 也不进入固定 composer dock。
+  const nextPlan = discoveryCenter(page).locator("[data-discovery-next-plan]");
+  await expect(page.locator("[data-discovery-next-plan]")).toHaveCount(1);
+  await expect(nextPlan).toContainText("核对线索后选择入库对象");
+  await expect(page.locator("[data-scope-task-rail] [data-discovery-next-plan]")).toHaveCount(0);
+  await expect(page.locator('[data-home-pane="discovery"] .home-composer-dock [data-discovery-next-plan]')).toHaveCount(0);
   // 最终结果到达后，右栏不重复显示阶段标题；中栏 ⑥ 是完成事实，
   // 右栏仍必须保留同一任务的远程回执与结果读取状态，不能靠候选推断完成。
   await expect(trail.locator("[data-discovery-run-title]")).toHaveText("已完成");
@@ -1169,9 +1181,12 @@ test("after submit the condition card stays read-only in place and 修改条件 
   await expect(page.locator('[data-discovery-event="run"]')).toHaveCount(0);
   // 结果容器只在右栏；下一步计划属于中栏的人机交互。
   await expect(page.locator("[data-scope-task-rail] [data-discovery-panel]")).toHaveCount(1);
-  await expect(page.locator("[data-scope-ai-workspace] [data-discovery-panel]")).toHaveCount(0);
-  await expect(page.locator("[data-scope-ai-workspace] [data-discovery-next-plan]")).toHaveCount(1);
+  await expect(discoveryCenter(page).locator("[data-discovery-panel]")).toHaveCount(0);
+  // 待确认时不能提前显示下一步计划；terminal read-only plan placement is covered
+  // above. In either state it must never be duplicated into the rail or dock.
+  await expect(page.locator("[data-discovery-next-plan]")).toHaveCount(0);
   await expect(page.locator("[data-scope-task-rail] [data-discovery-next-plan]")).toHaveCount(0);
+  await expect(page.locator('[data-home-pane="discovery"] .home-composer-dock [data-discovery-next-plan]')).toHaveCount(0);
 
   // 恢复入口在条件卡块头上：点「修改条件」原位回到编辑，不会自动重跑。
   // 先做一次命中检测（trial），避免流内新事件导致的布局移动把这次点击点空。
@@ -1486,6 +1501,11 @@ test("a confirm the server refused reads 未开始 in ⑥ instead of 进行中",
   await expect(confirm).toContainText("未执行");
   await expect(confirm.locator("[data-discovery-start-reason]")).toContainText("本次启动未执行");
   await expect(confirm.locator("[data-discovery-start-retry]")).toBeEnabled();
+  // 网关在确认前拒绝：权威结果栏必须写「未开始」，不能借用「已停止」暗示
+  // 曾经启动过采集。
+  const resultStatus = page.locator('[data-scope-task-rail] [data-discovery-run-status]');
+  await expect(resultStatus).toContainText("未开始");
+  await expect(resultStatus).not.toContainText("已停止");
 
   // 没有获 Host 接受的开始动作，⑥不能出现，更不能写进行中/已结束或给停止入口。
   await expect(page.locator('[data-discovery-event="run"]')).toHaveCount(0);

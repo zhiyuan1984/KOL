@@ -311,7 +311,7 @@ test("the previous version folds to one row and the row keeps no duplicate prior
   // The live row has one formal workflow state and one separate due-state;
   // counting every data-state node would conflate deadline with priority.
   await expect(row.locator(".task-board-cell-status .task-board-row-state[data-state]")).toHaveCount(1);
-  await expect(row.locator(".task-board-cell-due [data-due-state]")).toHaveCount(1);
+  await expect(row.locator(".task-board-cell-due time.task-board-row-state[data-state]")).toHaveCount(1);
   await expect(row.locator(".task-board-source-note")).toHaveCount(0);
   await expect(page.locator(".task-board-table thead")).not.toContainText("来源");
   await expect(page.locator(".task-board-check, .task-board-cell-check")).toHaveCount(0);

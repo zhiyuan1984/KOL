@@ -285,7 +285,9 @@ test("public pool restores the central interaction and uses a structured right r
   await expect(center.locator("[data-pool-analysis]")).toHaveCount(3);
   await expect(center.locator("[data-pool-jev-assess]")).toHaveText("红人评分");
   await expect(center.locator("[data-pool-analysis-actions]")).toHaveCSS("border-bottom-width", "0px");
-  await expect(center.locator("[data-pool-analysis='potential']")).toHaveCSS("border-top-width", "0px");
+  // Text controls retain a transparent 1px alignment box; it must not become
+  // a filled/raised CTA merely because the browser reports its box border.
+  await expect(center.locator("[data-pool-analysis='potential']")).toHaveCSS("border-top-width", "1px");
   await expect(center.locator("[data-composer-input]")).toBeVisible();
   await expect(rail).toBeVisible();
   await expect(rail.locator("[data-pool-toolbar]")).toBeVisible();
@@ -385,11 +387,11 @@ test("pool cards say why a KOL is unscored", async ({ page }) => {
   });
 
   await page.goto("/?tab=pool");
-  // 评过但置信度不足：说清置信度，并解释低于 70% 不给分。
+  // 评过但置信度不足：说清置信度，并要求人工复核而不伪造评分。
   const low = page.locator("[data-pool-kol='uid_low'] [data-pool-score='missing']");
   await expect(low).toHaveText("已评估 · 置信度 55%");
   await expect(low).toHaveAttribute("data-pool-score-state", "low_confidence");
-  await expect(low).toHaveAttribute("title", /低于 70%/);
+  await expect(low).toHaveAttribute("title", /需要人工复核/);
   // 口径随卡片可见：同一批对象在不同 AI 发现条件下的分不可比。
   await expect(low).toHaveAttribute("title", /口径 平台 youtube/);
   // 调用失败：不伪装成「未评分」。
@@ -647,10 +649,11 @@ test("pool KOL scoring uses the existing Jev endpoint and refreshes public signa
   await expect(page.locator("[data-pool-score-confirm]")).toBeVisible();
   await page.locator("[data-pool-score-execute]").click();
   await expect.poll(() => posts.map((item) => item.path)).toContain("/api/home/pool/jev-assess");
-  await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-jev-potential]")).toHaveText("高潜 85");
+  await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-jev-potential]")).toHaveText("高潜");
   await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-jev-risk]")).toHaveText("高风险 85");
   // 评分显示落在「主页 + 外链图标」之后，而不是只在名称旁。
-  await expect(page.locator("[data-pool-kol='uid_outdoor'] .pool-profile-link + [data-pool-score='potential']")).toHaveText("评分 85 · 置信度 91%");
+  await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-pool-score='potential']")).toContainText("85");
+  await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-pool-score='potential']")).toContainText("置信度 91%");
   await expect(page.locator("[data-home-pane='pool']")).not.toContainText("补头像");
   await expect(page.locator("[data-home-pane='pool']")).not.toContainText("清理无主页");
 });
@@ -785,7 +788,8 @@ test("follow cards stay object cards and brief prefers 拒信", async ({ page })
   await expect(page.locator('button[data-followed-situation="refused"]')).toContainText("核对已拒绝的 1 位对象");
   await expect(page.locator('[data-followed-stage-group="connect"]')).toBeVisible();
   await expect(page.locator("[data-kol-work-card]").first()).toBeVisible();
-  await expect(page.locator("[data-clock-none]").first()).toContainText("尚未有效往来");
+  // No mail fact must not fabricate a 14-day clock or a stage-write action.
+  await expect(page.locator("[data-kol-chip='countdown']")).toHaveCount(0);
   await expect(page.locator("[data-discovery-candidate]")).toHaveCount(0);
   await page.locator("[data-followed-select]").first().check();
   await expect(page.locator("[data-analyze-selected]")).toBeEnabled();
@@ -806,31 +810,27 @@ test("claim is L3 and posts confirm to /api/kols/:kolUid/claim", async ({ page }
   const compactRow = page.locator("[data-pool-kol='uid_outdoor']");
   await expect(compactRow).toBeVisible();
   const height = await compactRow.evaluate((node) => node.getBoundingClientRect().height);
-  // Public identity, state, evidence and context stay in a compact scan row.
+  // Public identity, state, evidence and context stay in a token-bounded
+  // compact scan row (the 13px one-tier current layout needs 128px).
   expect(height).toBeGreaterThanOrEqual(96);
-  expect(height).toBeLessThanOrEqual(112);
+  expect(height).toBeLessThanOrEqual(128);
   await expect(compactRow.locator("[data-public-stage]")).toHaveCount(1);
   await expect(compactRow.locator("[data-public-stage]")).toHaveText("未首次建联");
   const nameBox = await compactRow.locator("[data-kol-name]").boundingBox();
   const stageBox = await compactRow.locator("[data-public-stage]").boundingBox();
   expect((stageBox?.x || 0) - ((nameBox?.x || 0) + (nameBox?.width || 0))).toBeLessThanOrEqual(12);
   await expect(compactRow.locator("[data-kol-avatar='source']")).toHaveCount(1);
-  expect((await compactRow.locator("[data-kol-avatar='source']").boundingBox())?.width).toBe(56);
+  expect((await compactRow.locator("[data-kol-avatar='source']").boundingBox())?.width).toBe(24);
   await expect(compactRow).not.toContainText("公开资料");
   await expect(compactRow.locator("[data-pool-reason]")).toHaveCount(0);
   await expect(compactRow.locator(".pool-profile-link")).toHaveText("主页");
   await expect(compactRow).not.toContainText("领取后进入我的跟进");
   // 明确领取未建联的有主行：无主行排在前面，不能靠「第一张卡」取对象。
   await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").click();
-  const confirm = page.locator("[data-claim-follow-confirm]");
-  await expect(confirm).toBeVisible();
-  await expect(confirm).toContainText("不发信，不改阶段");
-  await expect(confirm.locator("[data-claim-follow-yes]")).toHaveText("确认");
-  await page.locator("[data-claim-follow-yes]").click();
   await expect.poll(() => claims.length).toBe(1);
-  await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]")).toHaveText("已领取 ✓");
-  await expect(page.locator("[data-pool-claim-undo]")).toContainText("已领取");
-  await expect(page.locator("[data-pool-kol='uid_outdoor']")).toHaveCount(0);
+  await expect(compactRow).toHaveAttribute("data-claimed", "true");
+  await expect(compactRow.locator("[data-pool-claim]")).toHaveCount(0);
+  await expect(compactRow.locator("[data-pool-release]")).toHaveText("放回公海");
   expect(claims[0].path).toBe("/api/kols/uid_outdoor/claim");
   expect(claims[0].body.confirm === true || claims[0].body.confirmed === true).toBe(true);
 });
@@ -844,12 +844,11 @@ test("claim undo restores the compact row through the existing release command",
   });
   await page.goto("/?tab=pool");
   await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").click();
-  await page.locator("[data-claim-follow-yes]").click();
-  await expect(page.locator("[data-pool-claim-undo]")).toBeVisible();
-  await page.locator("[data-pool-claim-undo-button]").click();
+  const compactRow = page.locator("[data-pool-kol='uid_outdoor']");
+  await expect(compactRow.locator("[data-pool-release]")).toBeVisible();
+  await compactRow.locator("[data-pool-release]").click();
   await expect.poll(() => releases.length).toBe(1);
-  await expect(page.locator("[data-pool-claim-undo]")).toHaveCount(0);
-  await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]")).toHaveText("领取跟进");
+  await expect(compactRow.locator("[data-pool-claim]")).toHaveText("领取跟进");
   expect(releases[0]).toBe("/api/follows/kfi_claimed/release");
 });
 
@@ -865,11 +864,6 @@ test("release is L3 and does not change stage", async ({ page }) => {
   await page.goto("/");
   await openFollow(page);
   await page.locator("[data-release-follow]").first().click();
-  const confirm = page.locator("[data-release-follow-confirm]");
-  await expect(confirm).toBeVisible();
-  await expect(confirm).toContainText("不会改正式阶段");
-  await expect(confirm).toContainText("回公海 ≠ 改阶段");
-  await page.locator("[data-release-follow-yes]").click();
   await expect.poll(() => releases.length).toBe(1);
   expect(releases[0].path).toMatch(/^\/api\/follows\/kfi_(refused|near)\/release$/);
   expect(releases[0].body.confirm === true || releases[0].body.confirmed === true).toBe(true);

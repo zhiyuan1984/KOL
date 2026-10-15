@@ -94,6 +94,10 @@ test("deduplicates cursor replay and clears the entire task cache when access is
   control.revoke();
   await page.clock.fastForward(15_100);
   await expect(page.getByRole("dialog", { name: "AI 标准工单任务详情" })).toHaveCount(0);
-  await expect(page.getByRole("alert")).toContainText("已清除缓存内容");
+  // Scope the revocation alert to the collaboration context: the task report also
+  // has independent operational alerts. The old version/event/link must be gone.
+  await expect(context.getByRole("alert")).toContainText("当前不可访问");
+  await expect(context).not.toContainText("版本 2");
+  await expect(context.getByText("审批变化", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "审批详情" })).toHaveCount(0);
 });

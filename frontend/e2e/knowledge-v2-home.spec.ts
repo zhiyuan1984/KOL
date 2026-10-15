@@ -179,8 +179,9 @@ test.describe("知识库 v2 主页（员工端）", () => {
     const first = page.locator("[data-knowledge]").first();
     const id = await first.getAttribute("data-knowledge");
     expect(id).toBeTruthy();
-    const favorite = page.locator(`[data-kb-row-favorite='${id}']`);
-    await first.hover();
+    await first.click();
+    const favorite = page.locator(`[data-kb-favorite='${id}']`);
+    await expect(favorite).toBeVisible();
     const wasFavorite = await favorite.getAttribute("aria-pressed") === "true";
     if (wasFavorite) await favorite.click();
     await expect(favorite).toHaveAttribute("aria-pressed", "false");

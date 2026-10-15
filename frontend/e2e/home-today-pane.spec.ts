@@ -295,14 +295,13 @@ test("today pane shows today-scheduled work items including unpromoted source=ai
   // 今日行集合：高优先 ∪ 今天起始/到期 ∪ 逾期 ∪ 进行中 ∪ 审批 ∪ 高风险 —— 共 7 行，完整列表直接可见。
   await expect(page.locator("[data-today-list]")).toHaveAttribute("data-list-total", "7");
   await expect(page.locator("[data-today-todo]")).toHaveCount(7);
-  // 状态文案是展示状态（后端 display_status_label 优先，缺省按日期/状态推导）：
-  // 失败 / 延期 / 临期 / 进行中 —— 不再是旧分桶词（高风险/已逾期/今天到期）。
+  // 任务状态与截止事实分列：失败 / 逾期 / 今天到期 / 进行中，不能再用旧分桶词覆盖它们。
   await expect(page.locator('[data-today-todo="tsk_high"]')).toContainText("失败");
   await expect(page.locator('[data-today-todo="tsk_high"] [data-risk-level]')).toHaveText("R3");
   await expect(page.locator('[data-today-todo="tsk_ai_failed"]')).toContainText("失败");
-  await expect(page.locator('[data-today-todo="tsk_overdue"]')).toContainText("延期");
-  await expect(page.locator('[data-today-todo="tsk_ai_overdue"]')).toContainText("延期");
-  await expect(page.locator('[data-today-todo="tsk_due"]')).toContainText("临期");
+  await expect(page.locator('[data-today-todo="tsk_overdue"]')).toContainText("逾期");
+  await expect(page.locator('[data-today-todo="tsk_ai_overdue"]')).toContainText("逾期");
+  await expect(page.locator('[data-today-todo="tsk_due"]')).toContainText("今天到期");
   await expect(page.locator('[data-today-todo="tsk_run"]')).toContainText("进行中");
   await expect(page.locator('[data-today-todo="tsk_approval"]')).toContainText("审批中");
   await expect(page.locator('[data-today-todo="tsk_queued"], [data-today-todo="tsk_open"], [data-today-todo="tsk_ai_open"]')).toHaveCount(0);

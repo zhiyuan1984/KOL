@@ -299,6 +299,10 @@ describe("followed KOL unread mail sync", () => {
 
   it("matches inbound by handle suffix and keeps the conversation body", async () => {
     (await getConn().query("UPDATE collaborations SET handle=$1, email=$2, kol_uid=$3 WHERE id='col_xiaomei'",["灵工连通测试-qiyou1984","","KOLQIYOU1984"]));
+    let signalBodyRequest!: () => void;
+    const bodyRequestStarted = new Promise<void>((resolve) => { signalBodyRequest = resolve; });
+    let releaseBodyRequest!: () => void;
+    const bodyRequestReleased = new Promise<void>((resolve) => { releaseBodyRequest = resolve; });
     setStarryKolClientFactory(() => ({
       async callTool(name: string) {
         calls.push(name);
@@ -319,6 +323,11 @@ describe("followed KOL unread mail sync", () => {
           };
         }
         if (name === "getEmailConversation") {
+          // The foreground receipt commits only the index. Hold the remote body
+          // so this test proves both lifecycle phases rather than depending on
+          // the scheduler completing hydration before the next local read.
+          signalBodyRequest();
+          await bodyRequestReleased;
           return {
             data: {
               id: 320,
@@ -340,7 +349,28 @@ describe("followed KOL unread mail sync", () => {
     }));
     const first = await request("GET", "/api/home/board?refresh=1");
     expect(first.status).toBe(200);
-    await ensureFollowedMailSync(false);
+    const foreground = await ensureFollowedMailSync(false);
+    expect(foreground).toMatchObject({ ok: true, conversations: 1, body_pending: 1, body_completed: 0 });
+    await bodyRequestStarted;
+
+    // The persisted shell is readable while its body is still pending. This
+    // covers the non-blocking home refresh contract without weakening the body
+    // assertion below.
+    try {
+      const indexedBoard = await request("GET", "/api/home/board");
+      expect(indexedBoard.status).toBe(200);
+      const indexedXiaomei = (indexedBoard.body.kols as Json[]).find((row) => row.id === "col_xiaomei");
+      const indexedThread = (indexedXiaomei?.mail_threads as Json[] | undefined)?.[0];
+      expect(indexedThread).toMatchObject({
+        conversation_id: "320",
+        last_from: "qiyou1984@gmail.com",
+        last_from_name: "黄启友",
+        last_snippet: "",
+      });
+    } finally {
+      releaseBodyRequest();
+    }
+    await waitForBackgroundSync();
     const board = await request("GET", "/api/home/board");
     expect(board.status).toBe(200);
     const xiaomei = (board.body.kols as Json[]).find((row) => row.id === "col_xiaomei");

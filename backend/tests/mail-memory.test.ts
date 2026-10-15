@@ -57,7 +57,7 @@ async function bindLarry(): Promise<void> {
   (await saveStarryBinding(DEMO_USER.id, { mailbox_email: "larry.zhao@amperetime.com", bearer: "test-only-token" }));
 }
 
-function stubStarry(extraConversations: Json[] = []): void {
+function stubStarry(extraConversations: Json[] = [], beforeDetail?: () => Promise<void>): void {
   setStarryKolClientFactory(() => ({
     async callTool(name: string, args: Json = {}) {
       calls.push(name);
@@ -96,6 +96,7 @@ function stubStarry(extraConversations: Json[] = []): void {
         return { zh: "【内部中文译稿】这是一封测试邮件的中文翻译。" };
       }
       if (name === "getEmailConversation") {
+        await beforeDetail?.();
         const id = String(args.conversationId || args.id || "3901");
         if (id === "8801") {
           return {
@@ -406,36 +407,63 @@ describe("mailbox memory P0", () => {
   });
 
   it("exposes bindings/total_unread, starred toggle, mark-read, and translation fields", async () => {
+    let signalBodyRequest!: () => void;
+    const bodyRequestStarted = new Promise<void>((resolve) => { signalBodyRequest = resolve; });
+    let releaseBodyRequest!: () => void;
+    const bodyRequestReleased = new Promise<void>((resolve) => { releaseBodyRequest = resolve; });
+    stubStarry([], async () => {
+      signalBodyRequest();
+      await bodyRequestReleased;
+    });
     (await bindLarry());
-    await ensureFollowedMailSync(true);
+    const foreground = await ensureFollowedMailSync(true);
+    expect(foreground).toMatchObject({ ok: true, conversations: 1, body_pending: 1, body_completed: 0 });
+    await bodyRequestStarted;
 
-    const box = await request("GET", "/api/queries/mail.box");
-    expect(box.status).toBe(200);
-    const bindings = box.body.bindings as Json[];
-    expect(Array.isArray(bindings)).toBe(true);
-    expect(bindings[0]).toMatchObject({ mailbox: "larry.zhao@amperetime.com", bound: true });
-    expect(typeof box.body.total_unread).toBe("number");
-    expect(Number(box.body.total_unread)).toBeGreaterThan(0);
+    // Body hydration is deliberately background work. While it is held, the
+    // committed index must still expose binding, unread and thread-shell facts
+    // without fabricating a body or a translation state.
+    let thread: Json | undefined;
+    try {
+      const box = await request("GET", "/api/queries/mail.box");
+      expect(box.status).toBe(200);
+      const bindings = box.body.bindings as Json[];
+      expect(Array.isArray(bindings)).toBe(true);
+      expect(bindings[0]).toMatchObject({ mailbox: "larry.zhao@amperetime.com", bound: true });
+      expect(typeof box.body.total_unread).toBe("number");
+      expect(Number(box.body.total_unread)).toBeGreaterThan(0);
 
-    const listed = await request("GET", "/api/queries/mail.conversations");
-    const thread = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "3901");
-    expect(thread?.starred).toBe(false);
+      const listed = await request("GET", "/api/queries/mail.conversations");
+      thread = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "3901");
+      expect(thread?.starred).toBe(false);
 
-    const starred = await request("POST", "/api/actions/mail.star", { id: thread?.id, starred: true });
-    expect(starred.status).toBe(200);
-    expect((starred.body.conversation as Json).starred).toBe(true);
-    const listedAgain = await request("GET", "/api/queries/mail.conversations");
-    expect((listedAgain.body.conversations as Json[]).find((row) => row.conversation_id === "3901")?.starred).toBe(true);
+      const shell = await request("GET", `/api/queries/mail.conversation?id=${thread?.id}`);
+      expect(shell).toMatchObject({ status: 200 });
+      expect(shell.body).toMatchObject({ body_status: "not_synced", body_available_count: 0, body_missing_count: 0, messages: [] });
+
+      const starred = await request("POST", "/api/actions/mail.star", { id: thread?.id, starred: true });
+      expect(starred.status).toBe(200);
+      expect((starred.body.conversation as Json).starred).toBe(true);
+      const listedAgain = await request("GET", "/api/queries/mail.conversations");
+      expect((listedAgain.body.conversations as Json[]).find((row) => row.conversation_id === "3901")?.starred).toBe(true);
+    } finally {
+      releaseBodyRequest();
+    }
+    await waitForBackgroundSync();
 
     const opened = await request("GET", `/api/queries/mail.conversation?id=${thread?.id}`);
     const firstMessage = (opened.body.messages as Json[])[0];
+    expect(opened.body).toMatchObject({ body_status: "ready", body_available_count: 3, body_missing_count: 0 });
     expect(firstMessage).toHaveProperty("translation_zh");
     expect(firstMessage).toHaveProperty("translation_source");
     expect(firstMessage?.translation_zh).toBeNull();
     expect(firstMessage?.translation_source).toBe("pending");
+    expect(firstMessage?.translation_status).toBe("pending");
 
     // Per-mail read flag: the mail page labels every row 已读/未读 from this field.
     const openedMessages = opened.body.messages as Json[];
+    expect(openedMessages).toHaveLength(3);
+    expect(openedMessages.filter((row) => Boolean(row.body_text)).every((row) => row.translation_source === "pending")).toBe(true);
     expect(openedMessages.every((row) => typeof row.unread === "boolean")).toBe(true);
     expect(openedMessages.some((row) => row.unread === true)).toBe(true);
     expect(openedMessages.find((row) => row.direction === "outbound")?.unread).toBe(false);

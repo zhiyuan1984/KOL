@@ -16,8 +16,22 @@ async function openFollowed(page: Page) {
 async function stubDraftActionSnapshot(page: Page, draftId: string, subject = "Collaboration with LiTime") {
   await page.route(`**/api/queries/mail.draft-actions?draft_id=${encodeURIComponent(draftId)}`, route => route.fulfill({
     json: {
-      action: { state: "ready", draft_id: draftId, version: 1 },
-      snapshot: { id: draftId, status: "draft", subject, body: "Hi, we would love to collaborate.", from: "brand@litime.com", to: "kol@example.com", version: 1 },
+      draft_id: draftId,
+      action: {
+        action_id: "mail.send",
+        label: "确认发送",
+        risk_level: "L3",
+        state: "ready",
+        allowed: true,
+        enabled: true,
+        confirmation_version: `draft-send-${draftId}-v1`,
+        selection_required: false,
+        selection_ready: true,
+        confirmation_required: true,
+        approval_state: "not_required",
+        receipt_id: null,
+      },
+      snapshot: { from: "brand@litime.com", to: "kol@example.com", cc: "", subject, body: "Hi, we would love to collaborate." },
     },
   }));
 }
@@ -246,15 +260,20 @@ test("KolMailCard treats auto_advanced as a suggestion, not a written stage", as
     },
   }));
   await page.goto("/s/auto-adv");
-  const mail = page.locator("[data-session-stream-pane] [data-kind='kol-mail-card']");
+  // Native sessions keep mail evidence and its derived suggestion in the result rail;
+  // the center stream keeps only a concise, non-actionable pointer.
+  const mailWorkbench = page.locator("[data-workbench] [data-mail-decision-workbench]");
+  await expect(mailWorkbench).toBeVisible();
+  const mail = mailWorkbench.locator("[data-kind='kol-mail-card']");
   await expect(mail).toBeVisible();
   await expect(mail).not.toContainText("已按事实进入");
-  await expect(page.locator("[data-stage-suggestion] [data-mail-current-stage]")).toContainText("已发货");
-  await expect(page.locator("[data-stage-suggestion] [data-mail-suggest][data-auto-advanced='suggest']")).toContainText("阶段确认卡");
+  await expect(page.locator("[data-session-stream-pane] [data-kind='kol-mail-card']")).toHaveCount(0);
+  await expect(mailWorkbench.locator("[data-stage-suggestion] [data-mail-current-stage]")).toContainText("已发货");
+  await expect(mailWorkbench.locator("[data-stage-suggestion] [data-mail-suggest][data-auto-advanced='suggest']")).toContainText("阶段确认卡");
   await expect(mail).not.toContainText("已按事实进入");
   await expect(mail.locator("[data-mail-confirm]")).toHaveCount(0);
   await expect(mail.locator("[data-mail-stage-select]")).toHaveCount(0);
-  const confirm = page.locator("[data-session-stream-pane] [data-kind='confirm-stage-card']");
+  const confirm = page.locator("[data-workbench] [data-kind='confirm-stage-card']");
   await expect(confirm).toBeVisible();
   await expect(confirm.locator("[data-confirm-stage]")).toBeVisible();
   await saveScreenshot(page, "chat_auto_advanced_as_suggestion.png");

@@ -55,15 +55,15 @@ async function ensureProductBase(request: APIRequestContext): Promise<ProductBas
 
 test.beforeAll(async () => { await prepareNativeKnowledgeAdmin(); });
 
-test.beforeEach(async ({ request }) => {
-  // 使用系统已有的产品经理账号建立授权，再选择 E2E persona；不把 401/403/409 视作可忽略错误。
-  const login = await request.post("/api/login", { data: { username: "jeffrey", password: "123456789" } });
-  expect(login.ok(), `初始化产品经理授权失败：${login.status()} ${await login.text()}`).toBeTruthy();
-  const persona = await request.post("/api/me/persona", { data: { persona: "sriphy" } });
-  expect(persona.ok(), `初始化测试 persona 失败：${persona.status()} ${await persona.text()}`).toBeTruthy();
+test.beforeEach(async ({ page }) => {
+  // 所有管理请求都继承全局登录建立的真实同一 principal；不再通过 persona 端点提升身份。
+  const status = await page.request.get("/api/auth/status");
+  expect(status.ok(), `读取当前认证状态失败：${status.status()} ${await status.text()}`).toBeTruthy();
+  await expect.poll(async () => (await page.request.get("/api/auth/status")).json()).toMatchObject({ authenticated: true });
 });
 
-test("PDF 草稿可见并独立解析", async ({ page, request }) => {
+test("PDF 草稿可见并独立解析", async ({ page }) => {
+  const request = page.request;
   const suffix = Date.now().toString();
   const base = await ensureProductBase(request);
   await page.goto("/admin/knowledge?stage=create");
@@ -90,7 +90,8 @@ test("PDF 草稿可见并独立解析", async ({ page, request }) => {
   await expect(page.locator("[data-knowledge-right]")).toContainText("待审批");
 });
 
-test("文档问答技能可绑定非结构化库", async ({ page, request }) => {
+test("文档问答技能可绑定非结构化库", async ({ page }) => {
+  const request = page.request;
   const suffix=Date.now().toString();
   const base=await ensureProductBase(request);
   const skillId = `product_test_${suffix}`;

@@ -22,10 +22,10 @@ async function expandKnowledgeList(page: Page): Promise<void> {
   while (await more.count()) await more.click();
 }
 
-test.beforeEach(async ({ request }) => {
+test.beforeEach(async ({ page }) => {
   // 种子库跨运行保留（其它用例会重建协作与隐藏知识），先回到工作台基线再断言。
+  const request = page.request;
   await request.post("/api/demo/reset", { data: { workbench: true } });
-  await request.post("/api/me/persona", { data: { persona: "sriphy" } });
   for (const id of ["kb_mail_kol", "kb_mail_followup", "kb_mail_ship"]) {
     await request.delete(`/api/knowledge/${id}/deprecate`);
   }
@@ -104,7 +104,8 @@ test("行内只露品牌值；阶段中文标签在右栏；无适用范围写�
   await expect(kb.locator("[data-kb-filter='brand']")).toBeVisible();
 });
 
-test("草稿卡显示「模板：{标题} v{n}」引用芯片", async ({ page, request }) => {
+test("草稿卡显示「模板：{标题} v{n}」引用芯片", async ({ page }) => {
+  const request = page.request;
   await request.post("/api/knowledge/kb_mail_followup/cite", { data: {} });
   const ses = await request.post("/api/collaborations/col_xiaomei/session")
     .then((r) => r.json() as Promise<{ id: string }>);

@@ -25,7 +25,7 @@ test("pool pages preserve global counts and selected analysis scope, and search 
   });
   await page.goto("/?tab=pool");
   await expect(page.locator("[data-pool-card]")).toHaveCount(50);
-  await expect(page.locator("[data-pool-count]")).toHaveText("公海共 101 位");
+  await expect(page.locator("[data-pool-count]")).toHaveText("共 101 位 · 第 1 / 3 页");
   await page.locator("[data-pool-select='page_0']").check();
   await page.locator("[data-pool-next]").click();
   await expect(page.locator("[data-pool-kol='page_50']")).toBeVisible();
@@ -37,7 +37,7 @@ test("pool pages preserve global counts and selected analysis scope, and search 
   await page.locator("[data-pool-search]").fill("分页红人100");
   await expect(page.locator("[data-pool-kol='page_100']")).toBeVisible();
   await expect(page.locator("[data-pool-card]")).toHaveCount(1);
-  await expect(page.locator("[data-pool-count]")).toHaveText("公海共 101 位 · 当前筛选 1 位");
+  await expect(page.locator("[data-pool-count]")).toHaveText("共 1 位 · 第 1 / 1 页");
   await expect.poll(() => offsets).toEqual([0, 50, 100, 0]);
 });
 

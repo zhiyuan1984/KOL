@@ -1,4 +1,6 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import { expect, test, type APIRequestContext, type APIResponse, type Page } from "@playwright/test";
+import { knowledgeReviewDefinition } from "../../shared/review";
 import { prepareNativeKnowledgeAdmin } from "./fixtures/native-knowledge-admin";
 
 /**
@@ -18,7 +20,6 @@ import { prepareNativeKnowledgeAdmin } from "./fixtures/native-knowledge-admin";
  */
 
 const MISSING_COPY = "问题模板未在管理端知识库发布，该入口暂不可用。";
-const SEED_ID = "kb_q_pool_score";
 const E2E_TITLE = "E2E 样例 · 公海评分提问模板";
 const E2E_BODY = "请按公开资料给这些 KOL 打潜力与风险两个分（0-100），说明口径、依据与置信度，并列出资料缺口。";
 
@@ -112,47 +113,118 @@ async function createDraftViaAdmin(page: Page, request: APIRequestContext): Prom
   return String(hits[0].id);
 }
 
-/** 管理端详情页「审批发布」（L3 确认框）。 */
-async function approveViaAdmin(page: Page, id: string) {
-  await page.goto(`/admin/knowledge/entries/${id}`);
-  await expect(page.locator("[data-admin-kb-view='entry']")).toBeVisible();
-  await page.locator("[data-admin-kb-approve]").click();
-  await expect(page.locator("[data-admin-confirm='knowledge-publish']")).toBeVisible();
-  await page.locator("[data-admin-confirm-ok]").click();
-  await expect(page.locator("[data-admin-receipt]")).toContainText("已审批发布");
+async function responseJson<T>(response: APIResponse, message: string): Promise<T> {
+  expect(response.ok(), `${message}：${response.status()} ${await response.text()}`).toBeTruthy();
+  return response.json() as Promise<T>;
 }
 
-/** 让 score 槽位只剩「本次要发布的那一条」，避免同槽位多条已发布模板互相覆盖。 */
-async function archiveSeedScore(request: APIRequestContext) {
-  const response = await request.post(`/api/admin/knowledge/${SEED_ID}/archive`);
-  expect(response.ok(), `归档种子 ${SEED_ID} 失败：${response.status()}`).toBeTruthy();
+/** Binds the review node to the browser's actual authenticated principal, not a display persona. */
+async function currentPrincipalTemplate(request: APIRequestContext): Promise<{ id: string; version: number }> {
+  const status = await responseJson<{ authenticated: boolean; account: { id: string } | null }>(
+    await request.get("/api/auth/status"), "读取当前认证 principal 失败",
+  );
+  expect(status.authenticated).toBeTruthy();
+  expect(status.account?.id).toBeTruthy();
+  const principalId = status.account!.id;
+  const templates = await responseJson<Array<{
+    id: string; version: number; publishedVersion?: number | null;
+    definition?: { name?: string; subjectType?: string; nodes?: Array<{ type?: string; assignee?: { kind?: string; userIds?: string[] } }> };
+  }>>(
+    await request.get("/api/admin/approval-types/v2/templates"), "读取知识发布流程失败",
+  );
+  const existing = templates.find((template) =>
+    template.publishedVersion
+    && template.definition?.name === "E2E 知识条目独立发布审批"
+    && template.definition.subjectType === "knowledge_publication"
+    && template.definition.nodes?.some((node) => node.type === "review" && node.assignee?.kind === "named" && node.assignee.userIds?.includes(principalId)),
+  );
+  if (existing) return { id: existing.id, version: Number(existing.publishedVersion) };
+
+  const definition = knowledgeReviewDefinition();
+  definition.name = "E2E 知识条目独立发布审批";
+  const reviewer = definition.nodes.find((node) => node.type === "review");
+  if (!reviewer) throw new Error("知识发布流程必须包含独立人工审批节点");
+  reviewer.assignee = { kind: "named", userIds: [principalId] };
+  const created = await responseJson<{ id: string; version: number }>(
+    await request.post("/api/admin/approval-types/v2/templates", { data: { definition, creationKey: randomUUID() } }),
+    "创建当前 principal 的知识发布流程失败",
+  );
+  const publish = { action: "publish" as const, templateId: created.id, expectedVersion: created.version };
+  const confirmed = await responseJson<{ confirmationId: string }>(
+    await request.post("/api/approvals/v2/prepare", { data: publish }), "准备流程发布确认失败",
+  );
+  await responseJson(
+    await request.post("/api/approvals/v2/commands", { data: { command: publish, confirmationId: confirmed.confirmationId, idempotencyKey: randomUUID() } }),
+    "确认发布知识流程失败",
+  );
+  return { id: created.id, version: created.version };
+}
+
+/** Submission, human approval, and worker publication remain separate confirmed actions. */
+async function approveViaAdmin(request: APIRequestContext, id: string): Promise<void> {
+  const template = await currentPrincipalTemplate(request);
+  const command = { templateId: template.id, templateVersion: template.version, values: {}, releaseNote: "E2E 验证独立提交、审批与发布链路" };
+  const prepared = await responseJson<{ confirmationId: string }>(
+    await request.post(`/api/admin/knowledge/entries/${id}/publication-v2/prepare`, { data: command }),
+    "准备知识条目提交确认失败",
+  );
+  const submitted = await responseJson<{ instanceId: string; status: string }>(
+    await request.post(`/api/admin/knowledge/entries/${id}/publication-v2/submit`, { data: { command, confirmationId: prepared.confirmationId, idempotencyKey: randomUUID() } }),
+    "确认提交知识条目审批失败",
+  );
+  expect(submitted.status).toBe("submitted");
+
+  const review = await responseJson<{ id: string; version: number; status: string; allowedActions: string[] }>(
+    await request.get(`/api/approvals/v2/instances/${submitted.instanceId}`), "读取真实审批实例失败",
+  );
+  expect(review.id).toBe(submitted.instanceId);
+  expect(review.status).toBe("reviewing");
+  expect(review.allowedActions).toContain("approve");
+  const decision = { action: "approve" as const, instanceId: review.id, expectedVersion: review.version, reason: "E2E 已核对条目内容、范围与预填负例。" };
+  const decisionConfirmation = await responseJson<{ confirmationId: string }>(
+    await request.post("/api/approvals/v2/prepare", { data: decision }), "准备真实审批确认失败",
+  );
+  await responseJson(
+    await request.post("/api/approvals/v2/commands", { data: { command: decision, confirmationId: decisionConfirmation.confirmationId, idempotencyKey: randomUUID() } }),
+    "确认真实审批失败",
+  );
+  await expect.poll(async () => {
+    const state = await responseJson<{ publication: { status: string; reviewStatus: string } | null }>(
+      await request.get(`/api/admin/knowledge/entries/${id}/publication-v2`), "读取独立发布状态失败",
+    );
+    return `${state.publication?.reviewStatus}:${state.publication?.status}`;
+  }, { timeout: 15000, message: "审批通过后应由独立发布作业完成，而非把审批伪装为发布" }).toBe("approved:published");
 }
 
 test.beforeAll(async () => { await prepareNativeKnowledgeAdmin(); });
 
-test.beforeEach(async ({ page, request }) => {
+test.beforeEach(async ({ page }) => {
+  const request = page.request;
   await request.post("/api/demo/reset", { data: { workbench: true } });
-  await request.post("/api/me/persona", { data: { persona: "sriphy" } });
   await cleanupE2eRows(request);
   await stubPool(page);
 });
 
-test.afterEach(async ({ request }) => {
+test.afterEach(async ({ page }) => {
+  const request = page.request;
   // 先归档本用例刚发布的知识，再复位种子（被归档的 kb_q_pool_score 变回已发布），保持套件可重复运行。
   await cleanupE2eRows(request).catch(() => undefined);
   await request.post("/api/demo/reset", { data: { workbench: true } }).catch(() => undefined);
 });
 
 test("归档槽位模板后，公海入口禁用并如实提示", async ({ page }) => {
-  await page.goto("/admin/knowledge/bases/kbase_legacy");
-  await expect(page.locator("[data-admin-kb-base-meta]")).toBeVisible();
-  await page.locator("[data-admin-kb-filter='kind']").selectOption("question_template");
-  const seedRow = page.locator(`[data-admin-knowledge-id='${SEED_ID}']`);
-  await expect(seedRow).toBeVisible();
-  await seedRow.locator(`[data-kb-archive='${SEED_ID}']`).click();
+  const request = page.request;
+  const id = await createDraftViaAdmin(page, request);
+  await approveViaAdmin(request, id);
+
+  // 只归档本 principal 刚通过独立发布链发布的条目；不把当前组织无权访问的旧 fixture 当作可归档资产。
+  await page.goto(`/admin/knowledge/entries/${id}`);
+  const archive = page.locator(`[data-kb-archive='${id}']`);
+  await expect(archive).toBeEnabled();
+  await archive.click();
   await expect(page.locator("[data-admin-confirm='knowledge-archive']")).toBeVisible();
   await page.locator("[data-admin-confirm-ok]").click();
-  await expect(page.locator("[data-admin-receipt]")).toContainText("已归档");
+  await expect(archive).toBeDisabled();
 
   await page.goto("/?tab=pool");
   await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
@@ -165,7 +237,8 @@ test("归档槽位模板后，公海入口禁用并如实提示", async ({ page 
   await expect(riskEntry).not.toHaveAttribute("title", MISSING_COPY);
 });
 
-test("草稿未审批用户端不可见；发布后入口恢复并预填模板正文，点击不执行", async ({ page, request }) => {
+test("草稿未审批用户端不可见；发布后入口恢复并预填模板正文，点击不执行", async ({ page }) => {
+  const request = page.request;
   const jevPosts: string[] = [];
   page.on("request", (item) => {
     if (item.method() === "POST" && new URL(item.url()).pathname === "/api/home/pool/jev-assess") {
@@ -173,7 +246,6 @@ test("草稿未审批用户端不可见；发布后入口恢复并预填模板�
     }
   });
 
-  await archiveSeedScore(request);
   const id = await createDraftViaAdmin(page, request);
 
   // 草稿还没审批：用户端该入口照旧禁用。
@@ -182,7 +254,7 @@ test("草稿未审批用户端不可见；发布后入口恢复并预填模板�
   await expect(scoreEntry).toBeDisabled();
   await expect(scoreEntry).toHaveAttribute("title", MISSING_COPY);
 
-  await approveViaAdmin(page, id);
+  await approveViaAdmin(request, id);
 
   await page.goto("/?tab=pool");
   await expect(scoreEntry).toBeEnabled();
@@ -197,10 +269,10 @@ test("草稿未审批用户端不可见；发布后入口恢复并预填模板�
   expect(jevPosts, "点击只预填草稿，不得直接调用评分接口").toEqual([]);
 });
 
-test("员工知识库能看到这条已发布的问题模板", async ({ page, request }) => {
-  await archiveSeedScore(request);
+test("员工知识库能看到这条已发布的问题模板", async ({ page }) => {
+  const request = page.request;
   const id = await createDraftViaAdmin(page, request);
-  await approveViaAdmin(page, id);
+  await approveViaAdmin(request, id);
 
   await page.goto("/kb");
   const kb = page.locator("[data-kb-page='mine']");

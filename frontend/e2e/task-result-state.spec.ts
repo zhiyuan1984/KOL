@@ -55,11 +55,16 @@ for (const [agent, ready, label, tone, glyph] of [
     await expect(trace).toContainText("失败");
     await expect(trace).toContainText("已中断");
     await expect(trace).not.toContainText("正在处理这项工作");
-    // 结果卡在中栏时间流里完整出现；右栏只列目录，点击定位到那张卡。
+    // Current native sessions keep a concise pointer in the stream and the full
+    // result in the rail; the pointer must still give an explicit reveal action.
     const card = page.locator('[data-session-stream-pane] [data-stream-entry="result"]');
-    await expect(card).toContainText("未检索到可引用的产品资料");
-    await expect(workbench.locator('[data-result-entry="result"]')).toContainText("产品咨询");
-    await workbench.locator('[data-result-entry="result"]').click();
-    await expect(card).toBeInViewport();
+    await expect(card).toHaveAttribute("data-kind", "task-result-pointer");
+    await expect(card).toContainText("产品规格资料仍为草稿，尚未提交审批。");
+    const reveal = card.getByRole("button", { name: "查看成果" });
+    await expect(reveal).toBeVisible();
+    await reveal.click();
+    const fullResult = workbench.locator('[data-result-message="result"] [data-kind="task-result-card"]');
+    await expect(fullResult).toContainText("未检索到可引用的产品资料");
+    await expect(fullResult).toBeInViewport();
   });
 }

@@ -115,10 +115,20 @@ async function ensurePublishedKnowledgeTemplate(request: APIRequestContext): Pro
 test("上传 PDF → 待审 → 发布（L3 回执）→ 库详情试算返回答案与页级引用", async ({ page, request }) => {
   // Keep the legacy coverage sequence, but route every visual action through
   // the current creation stage, document rail and publication-v2 form.
-  expect((await request.post("/api/me/persona", { data: { persona: "sriphy" } })).ok()).toBeTruthy();
-  const baseId = await ensureBase(request);
-  await ensurePublishedKnowledgeTemplate(request);
-  await cleanupStaleDocs(request, baseId);
+  // Native auth has no persona-elevation endpoint. In that explicit config,
+  // page.request shares the legitimate HttpOnly login established by global
+  // setup; the legacy disabled-auth run retains its existing persona fixture.
+  const api = process.env.E2E_AUTH_MODE === "enabled" ? page.request : request;
+  if (process.env.E2E_AUTH_MODE === "enabled") {
+    const status = await api.get("/api/auth/status");
+    expect(status.ok(), await status.text()).toBeTruthy();
+    expect(await status.json()).toMatchObject({ authenticated: true, account: { username: "sriphy" } });
+  } else {
+    expect((await api.post("/api/me/persona", { data: { persona: "sriphy" } })).ok()).toBeTruthy();
+  }
+  const baseId = await ensureBase(api);
+  await ensurePublishedKnowledgeTemplate(api);
+  await cleanupStaleDocs(api, baseId);
   const title = `e2e-doc-${Date.now()}`;
   const fileName = `${title}.pdf`;
 
@@ -126,6 +136,10 @@ test("上传 PDF → 待审 → 发布（L3 回执）→ 库详情试算返回�
   await openStage(page, "/admin/knowledge?stage=create", "create");
   await page.locator("[data-kbv-upload]").click();
   const upload = page.locator("[data-kbv-upload-dialog]");
+  // The current inline surface keeps fields in this region while its shared
+  // action bar is rendered by WorkspaceActions outside the region. Keep the
+  // original negative assertion against the same semantic submit control.
+  const uploadSubmit = page.locator("[data-kbv-upload-submit]");
   await expect(upload).toBeVisible();
   await upload.locator("[data-kbv-upload-pick]").setInputFiles({
     name: fileName,
@@ -133,14 +147,14 @@ test("上传 PDF → 待审 → 发布（L3 回执）→ 库详情试算返回�
     buffer: Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\nE2E stub fixture\n%%EOF\n", "utf8"),
   });
   await expect(upload.locator("[data-kbv-upload-queue]")).toContainText(fileName);
-  await expect(upload.locator("[data-kbv-upload-submit]")).toBeDisabled();
+  await expect(uploadSubmit).toBeDisabled();
   await upload.locator(`[data-kbv-upload-scope] [data-kb-scope-base='${baseId}']`).click();
-  await expect(upload.locator("[data-kbv-upload-submit]")).toBeEnabled();
-  await upload.locator("[data-kbv-upload-submit]").click();
+  await expect(uploadSubmit).toBeEnabled();
+  await uploadSubmit.click();
   await expect(page.locator("[data-admin-receipt]")).toContainText("资料已上传");
 
   // 2) 真实进度推进到待审（以服务端状态为准）
-  const doc = await waitDocumentStatus(request, baseId, title, "pending_review");
+  const doc = await waitDocumentStatus(api, baseId, title, "pending_review");
   const docId = String(doc.id);
 
   // 3) 原位 processing/detail：先核对服务端生成的范围，才允许进入审批。
@@ -179,6 +193,6 @@ test("上传 PDF → 待审 → 发布（L3 回执）→ 库详情试算返回�
   await expect(material.getByRole("link", { name: /原文第\d+页/ })).toHaveCount(1);
 
   // 6) 归档收尾：不再参与检索，留给下次运行干净环境。
-  const archived = await request.post(`/api/admin/knowledge/documents/${docId}/archive`);
+  const archived = await api.post(`/api/admin/knowledge/documents/${docId}/archive`);
   expect(archived.ok(), await archived.text()).toBeTruthy();
 });
