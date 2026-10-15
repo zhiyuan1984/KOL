@@ -339,6 +339,191 @@ ontology.get("/admin/ontology/change-approvals/latest", (c) => {
   })();
 });
 
+export type OntologyDiffChange = {
+  section: string;
+  change_kind: "added" | "removed" | "changed";
+  key: string;
+  label: string;
+  fields?: Array<{ field: string; from: string; to: string }>;
+  from?: string;
+  to?: string;
+};
+
+function shortValue(value: unknown, limit = 120): string {
+  const text = value === null || value === undefined ? "" : typeof value === "string" ? value : JSON.stringify(value) ?? "";
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+function entryKey(entry: Record<string, unknown>): string | null {
+  for (const k of ["code", "id", "key"]) {
+    const v = entry[k];
+    if (typeof v === "string" && v) return v;
+  }
+  return null;
+}
+
+function entryLabel(entry: Record<string, unknown>, key: string): string {
+  for (const k of ["name", "label", "title"]) {
+    const v = entry[k];
+    if (typeof v === "string" && v) return v;
+  }
+  return key;
+}
+
+function isRecordArray(value: unknown): value is Array<Record<string, unknown>> {
+  return Array.isArray(value) && value.length > 0 && value.every((v) => !!v && typeof v === "object" && !Array.isArray(v));
+}
+
+/**
+ * 通用注册表 diff：按顶层 key 分组；对象数组按 code/id 建索引做新增/删除/字段变更；
+ * 标量数组按集合比较；其余值整体比较。只做展示，不参与审批判定（审批仍以 target_digest 为准）。
+ */
+export function diffRegistries(base: unknown, target: unknown, maxItems = 200): { changes: OntologyDiffChange[]; truncated: boolean } {
+  const baseRec = (base && typeof base === "object" && !Array.isArray(base) ? base : {}) as Record<string, unknown>;
+  const targetRec = (target && typeof target === "object" && !Array.isArray(target) ? target : {}) as Record<string, unknown>;
+  const changes: OntologyDiffChange[] = [];
+  const keys = new Set([...Object.keys(baseRec), ...Object.keys(targetRec)]);
+  for (const section of keys) {
+    const b = baseRec[section];
+    const t = targetRec[section];
+    if (JSON.stringify(b) === JSON.stringify(t)) continue;
+    if (isRecordArray(b) || isRecordArray(t)) {
+      const bList = isRecordArray(b) ? b : [];
+      const tList = isRecordArray(t) ? t : [];
+      const bByKey = new Map(bList.map((e) => [entryKey(e) ?? JSON.stringify(e), e]));
+      const tByKey = new Map(tList.map((e) => [entryKey(e) ?? JSON.stringify(e), e]));
+      for (const [k, entry] of tByKey) {
+        if (!bByKey.has(k)) {
+          changes.push({ section, change_kind: "added", key: k, label: entryLabel(entry, k) });
+        }
+      }
+      for (const [k, entry] of bByKey) {
+        if (!tByKey.has(k)) {
+          changes.push({ section, change_kind: "removed", key: k, label: entryLabel(entry, k) });
+        }
+      }
+      for (const [k, tEntry] of tByKey) {
+        const bEntry = bByKey.get(k);
+        if (!bEntry) continue;
+        const fields: Array<{ field: string; from: string; to: string }> = [];
+        for (const f of new Set([...Object.keys(bEntry), ...Object.keys(tEntry)])) {
+          if (JSON.stringify(bEntry[f]) !== JSON.stringify(tEntry[f])) {
+            fields.push({ field: f, from: shortValue(bEntry[f]), to: shortValue(tEntry[f]) });
+          }
+        }
+        if (fields.length > 0) {
+          changes.push({ section, change_kind: "changed", key: k, label: entryLabel(tEntry, k), fields });
+        }
+      }
+    } else if (Array.isArray(b) || Array.isArray(t)) {
+      const bSet = new Set((Array.isArray(b) ? b : []).map((v) => JSON.stringify(v)));
+      const tSet = new Set((Array.isArray(t) ? t : []).map((v) => JSON.stringify(v)));
+      for (const v of tSet) if (!bSet.has(v)) changes.push({ section, change_kind: "added", key: shortValue(JSON.parse(v)), label: shortValue(JSON.parse(v)) });
+      for (const v of bSet) if (!tSet.has(v)) changes.push({ section, change_kind: "removed", key: shortValue(JSON.parse(v)), label: shortValue(JSON.parse(v)) });
+    } else {
+      changes.push({ section, change_kind: "changed", key: section, label: section, from: shortValue(b), to: shortValue(t) });
+    }
+    if (changes.length >= maxItems) return { changes: changes.slice(0, maxItems), truncated: true };
+  }
+  return { changes, truncated: false };
+}
+
+function readRegistryContent(scope: OntologyChangeScope): Buffer {
+  return fs.readFileSync(path.join(repoRoot, SCOPE_CONFIG_FILE[scope]));
+}
+
+function parseRegistryJson(content: Buffer, scope: OntologyChangeScope): unknown {
+  try {
+    return JSON.parse(content.toString("utf8").replace(/^\uFEFF/, "")) as unknown;
+  } catch {
+    throw new HttpFail(503, {
+      code: "ontology_registry_unreadable",
+      message: `无法解析「${SCOPE_LABEL[scope]}」注册表；diff 未返回伪造数据。`,
+    });
+  }
+}
+
+/**
+ * 审批 diff（只读预览）：基线 = 当前服务器文件内容（与审批创建时的 base 一致），
+ * 目标 = change_ref 指向的引用内容；不传 ref 时对比 HEAD 与工作区（未提交改动预览，不可发起审批）。
+ * 返回可读的变更清单，发起人勾选确认后提交，target_digest 仍由后端按引用计算。
+ */
+ontology.get("/admin/ontology/diff", (c) => {
+  requireAdmin();
+  const scope = parseScope(c.req.query("scope"));
+  const changeRef = String(c.req.query("change_ref") || "").trim();
+  const base = ontologyRegistryBaseline(scope);
+  let baseContent: Buffer;
+  let targetContent: Buffer;
+  let targetLabel: string;
+  let targetDigest: string | null = null;
+  if (!changeRef) {
+    const head = gitCommit("HEAD");
+    const committed = head ? configAtCommit(head, SCOPE_CONFIG_FILE[scope]) : null;
+    if (!committed) {
+      throw new HttpFail(503, { code: "ontology_diff_no_head", message: "无法读取 HEAD 提交的注册表，diff 未返回。" });
+    }
+    baseContent = committed;
+    targetContent = readRegistryContent(scope);
+    targetLabel = "未提交的工作区改动（仅预览）";
+  } else {
+    const commit = gitCommit(changeRef);
+    const content = commit ? configAtCommit(commit, SCOPE_CONFIG_FILE[scope]) : null;
+    if (!commit || !content) {
+      throw new HttpFail(400, {
+        code: "ontology_diff_ref_unavailable",
+        message: "change_ref 必须解析为本仓库中可读取该 registry 文件的 Git commit。",
+      });
+    }
+    baseContent = readRegistryContent(scope);
+    targetContent = content;
+    targetLabel = changeRef;
+    targetDigest = digestContent(content);
+  }
+  const { changes, truncated } = diffRegistries(parseRegistryJson(baseContent, scope), parseRegistryJson(targetContent, scope));
+  return c.json({
+    scope,
+    scope_label: SCOPE_LABEL[scope],
+    base_version: base.base_version,
+    base_label: "当前服务器文件内容",
+    target_label: targetLabel,
+    target_digest: targetDigest,
+    approvable: !!changeRef,
+    changes,
+    truncated,
+  });
+});
+
+/** 可审批引用候选（只读）：本地分支 + 最近 touching 该文件的提交，供下拉选择，不用手输 ref。 */
+ontology.get("/admin/ontology/refs", (c) => {
+  requireAdmin();
+  const scope = parseScope(c.req.query("scope"));
+  const refs: Array<{ ref: string; kind: "branch" | "commit"; subject: string; date: string }> = [];
+  try {
+    const branches = execFileSync("git", ["branch", "--format=%(refname:short)%00%(committerdate:iso)%00%(subject)"], {
+      cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+    });
+    for (const line of branches.split("\n")) {
+      const [ref, date, subject] = line.split("\x00");
+      if (ref) refs.push({ ref, kind: "branch", subject: subject || "", date: date || "" });
+    }
+  } catch {
+    // 分支读取失败不阻断：提交列表仍可返回。
+  }
+  try {
+    const commits = execFileSync("git", ["log", "--format=%H%x00%cI%x00%s", "-15", "--", SCOPE_CONFIG_FILE[scope]], {
+      cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+    });
+    for (const line of commits.split("\n")) {
+      const [ref, date, subject] = line.split("\x00");
+      if (ref) refs.push({ ref, kind: "commit", subject: subject || "", date: date || "" });
+    }
+  } catch {
+    // 提交读取失败不阻断：分支列表仍可返回。
+  }
+  return c.json({ scope, scope_label: SCOPE_LABEL[scope], refs });
+});
+
 /** 管理端只读浏览：数据来自运行中的四份 registry，不提供任何绕过审批的写入口。 */
 ontology.get("/admin/ontology/registries", (c) => {
   requireAdmin();

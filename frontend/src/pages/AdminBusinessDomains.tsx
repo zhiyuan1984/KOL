@@ -1,15 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Card, Empty, Input, Spin, Table, Tabs, Tag } from "antd";
+import { Alert, Button, Card, Collapse, Empty, Input, Modal, Spin, Table, Tag, message } from "antd";
 
 /**
- * 管理端 · 本体六构件业务域地图（2026-10-12）。
- * 企业级业务本体 Track A 的产品化：每个业务域按六构件呈现——
- * 对象 / 属性 / 关系 / 事件 / 规则 / 动作（口径：docs/ontop/本体六构件-定义与实例.md）。
+ * 管理端 · 本体业务域地图（2026-10-12，Phase 2 域统一视图）。
+ * 每个域一页：确认区 + 六构件分组（对象 / 属性 / 关系 / 事件 / 规则 / 动作），
+ * 不再按构件切 Tabs——用户一次看完一个域，不用在六个 Tabs 间拼图。
  * 全部数据来自 GET /api/admin/business-domains（真实注册表组装），空白如实标注。
+ * 域确认是轻量标记（绑定展示内容 digest），不是审批；变更仍走 ontology_change 审批。
  */
 
 type ComponentItem = Record<string, string | number>;
 type ComponentBlock = { items: ComponentItem[]; total: number; truncated?: boolean; missing?: string[] };
+type Confirmation = {
+  confirmed_by: string;
+  confirmed_by_name: string;
+  confirmed_at: string;
+  map_digest: string;
+  note: string;
+  current: boolean;
+};
 type DomainView = {
   code: string;
   name: string;
@@ -18,6 +27,7 @@ type DomainView = {
   pilot: boolean;
   description: string;
   master_data_kinds: string[];
+  confirmation: Confirmation | null;
   components: {
     objects: ComponentBlock;
     properties: ComponentBlock;
@@ -28,9 +38,15 @@ type DomainView = {
   };
 };
 type Relation = { from: string; from_name: string; to: string; to_name: string; label: string; kind: string };
-type OntologyMap = { version: number; generated_at: string; domains: DomainView[]; relations: Relation[] };
+type OntologyMap = {
+  version: number;
+  generated_at: string;
+  domains: DomainView[];
+  relations: Relation[];
+  confirmation_unavailable?: boolean;
+};
 
-const COMPONENT_TABS = [
+const COMPONENT_SECTIONS = [
   { key: "objects", label: "对象" },
   { key: "properties", label: "属性" },
   { key: "relations", label: "关系" },
@@ -39,7 +55,7 @@ const COMPONENT_TABS = [
   { key: "actions", label: "动作" },
 ] as const;
 
-/** 域在 SVG 中的固定布局（紧凑，v1 固定坐标）。 */
+/** 域在 SVG 中的固定布局（紧凑，v1 固定坐标；仅展示，不作选择器）。 */
 const DOMAIN_POS: Record<string, { x: number; y: number }> = {
   hr: { x: 390, y: 10 },
   brand: { x: 40, y: 170 },
@@ -67,21 +83,30 @@ function edgePath(from: string, to: string): string {
   const sx = ax + (dx / len) * (CARD_W / 2 + 4);
   const sy = ay + (dy / len) * (CARD_H / 2 + 4);
   const ex = bx - (dx / len) * (CARD_W / 2 + 10);
-  const ey = by - (dy / len) * (CARD_H / 2 + 10);
+  const ey = by - (dy / len) * (CARD_W / 2 + 10);
   const mx = (sx + ex) / 2;
   return `M${sx},${sy} Q${mx},${(sy + ey) / 2} ${ex},${ey}`;
 }
 
 const RISK_COLOR: Record<string, string> = { R1: "green", R2: "orange", R3: "red" };
 
+function rowMatches(row: ComponentItem, q: string): boolean {
+  if (!q) return true;
+  return Object.values(row).some((v) =>
+    String(Array.isArray(v) ? v.join("、") : v ?? "").toLowerCase().includes(q),
+  );
+}
+
 export default function AdminBusinessDomains() {
   const [data, setData] = useState<OntologyMap | null>(null);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<string>("brand");
-  const [tab, setTab] = useState<string>("objects");
   const [query, setQuery] = useState("");
+  const [note, setNote] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [manualKeys, setManualKeys] = useState<string[]>(["objects"]);
 
-  useEffect(() => {
+  const load = () => {
     fetch("/api/admin/business-domains", { credentials: "include" })
       .then(async (r) => {
         if (!r.ok) throw new Error(`加载失败（${r.status}）`);
@@ -89,41 +114,68 @@ export default function AdminBusinessDomains() {
       })
       .then(setData)
       .catch((e) => setError(e.message));
+  };
+
+  useEffect(() => {
+    load();
   }, []);
 
   const domain = useMemo(() => data?.domains.find((d) => d.code === selected) ?? null, [data, selected]);
+  const q = query.trim().toLowerCase();
+
+  // 搜索时展开所有有匹配的分组；无搜索时用用户手动展开的分组。
+  const openKeys = useMemo(() => {
+    if (!domain) return manualKeys;
+    if (!q) return manualKeys;
+    return COMPONENT_SECTIONS.filter((s) => {
+      const block = domain.components[s.key];
+      return block && block.items.some((row) => rowMatches(row, q));
+    }).map((s) => s.key);
+  }, [domain, q, manualKeys]);
 
   if (error) return <Alert type="error" message={error} style={{ margin: 16 }} />;
   if (!data) return <Spin style={{ margin: 32 }} />;
 
-  const comp = domain?.components?.[tab as keyof DomainView["components"]] as ComponentBlock | undefined;
+  const confirmation = domain?.confirmation ?? null;
+  const confirmationUnavailable = !!data.confirmation_unavailable;
 
-  // 表格搜索：全字段匹配（大小写不敏感）。切换域/Tab 时保留搜索词。
-  const filteredItems = useMemo(() => {
-    if (!comp) return [];
-    const q = query.trim().toLowerCase();
-    if (!q) return comp.items;
-    return comp.items.filter((row) =>
-      Object.values(row).some((v) => String(Array.isArray(v) ? v.join("、") : v ?? "").toLowerCase().includes(q)),
-    );
-  }, [comp, query]);
-
-  const columns = useMemo(() => {
-    if (!comp || comp.items.length === 0) return [];
-    const keys = Object.keys(comp.items[0]);
-    return keys.map((k) => ({
-      title: columnTitle(k),
-      dataIndex: k,
-      key: k,
-      render: (v: unknown, row: ComponentItem) => renderCell(k, v, row),
-    }));
-  }, [comp, tab]);
+  const confirmDomain = () => {
+    if (!domain || confirming) return;
+    Modal.confirm({
+      title: `确认「${domain.name}」域地图？`,
+      content: `确认当前展示的域地图内容正确。确认绑定当前内容，注册表变化后确认即过期，需重新确认。确认不是审批；变更仍需走本体变更审批。${note.trim() ? `备注：${note.trim()}` : ""}`,
+      okText: "确认",
+      cancelText: "取消",
+      onOk: async () => {
+        setConfirming(true);
+        try {
+          const r = await fetch(`/api/admin/business-domains/${domain.code}/confirm`, {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ note: note.trim() }),
+          });
+          if (!r.ok) {
+            const body = await r.json().catch(() => ({}));
+            throw new Error(body.message || `确认失败（${r.status}）`);
+          }
+          message.success(`「${domain.name}」已确认`);
+          setNote("");
+          load();
+        } catch (e) {
+          message.error(e instanceof Error ? e.message : "确认失败");
+        } finally {
+          setConfirming(false);
+        }
+      },
+    });
+  };
 
   return (
     <div style={{ padding: 16, maxWidth: 1280 }}>
       <h2 style={{ marginBottom: 4 }}>业务域地图</h2>
       <p style={{ color: "#666", marginBottom: 12 }}>
-        企业级业务本体 · 每个域按六构件呈现（对象 / 属性 / 关系 / 事件 / 规则 / 动作）。数据来自真实注册表，空白如实标注。
+        企业级业务本体 · 每个域一页：确认区 + 六构件分组（对象 / 属性 / 关系 / 事件 / 规则 / 动作）。数据来自真实注册表，空白如实标注。
       </p>
 
       {/* 域选择（唯一选择器） */}
@@ -157,12 +209,23 @@ export default function AdminBusinessDomains() {
               {d.pilot && <Tag color="orange" style={{ marginLeft: 6, fontSize: 10 }}>试点</Tag>}
             </div>
             <div style={{ fontSize: 11, color: "#888" }}>{d.owner}{d.owner_title ? ` · ${d.owner_title}` : ""}</div>
+            <div style={{ fontSize: 11, marginTop: 2 }}>
+              {d.confirmation ? (
+                d.confirmation.current ? (
+                  <Tag color="green">已确认</Tag>
+                ) : (
+                  <Tag color="orange">待更新</Tag>
+                )
+              ) : (
+                <Tag>未确认</Tag>
+              )}
+            </div>
           </Card>
         ))}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {/* 域间关系图（全宽） */}
+        {/* 域间关系图（全宽，仅展示） */}
         <Card title="域间关系" size="small" bodyStyle={{ padding: 8 }}>
           <svg viewBox={SVG_VIEWBOX} style={{ width: "100%", height: "auto", maxHeight: 480 }}>
             <defs>
@@ -221,17 +284,28 @@ export default function AdminBusinessDomains() {
           <div style={{ fontSize: 11, color: "#888", padding: "4px 8px" }}>
             <span style={{ color: "#1890ff" }}>—</span> 业务关系
             <span style={{ color: "#999", marginLeft: 12 }}>┄</span> 主数据供给
-            <span style={{ marginLeft: 12 }}>上方域卡片切换下方六构件视图</span>
+            <span style={{ marginLeft: 12 }}>上方域卡片切换下方域视图</span>
           </div>
         </Card>
 
-        {/* 六构件（全宽；Tabs 为唯一切换器） */}
-        <Card
-          title={`${domain?.name ?? ""} · 六构件`}
-          size="small"
-          bodyStyle={{ padding: 8 }}
-        >
-          {domain && (
+        {/* 域统一视图 */}
+        {domain && (
+          <Card
+            title={`${domain.name} · 域视图`}
+            size="small"
+            bodyStyle={{ padding: 8 }}
+            extra={
+              <Input
+                size="small"
+                allowClear
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="搜索本域全部内容（编码/名称/说明）"
+                aria-label="搜索本域全部内容"
+                style={{ width: 240 }}
+              />
+            }
+          >
             <div style={{ fontSize: 12, color: "#666", marginBottom: 8 }}>
               域主：{domain.owner}{domain.owner_title ? `（${domain.owner_title}）` : ""} · {domain.description}
               {domain.master_data_kinds.length > 0 && (
@@ -240,43 +314,79 @@ export default function AdminBusinessDomains() {
                 </span>
               )}
             </div>
-          )}
-          <Tabs
-            activeKey={tab}
-            onChange={setTab}
-            size="small"
-            tabBarExtraContent={
-              <Input
-                size="small"
-                allowClear
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="搜索当前列表（编码/名称/说明）"
-                aria-label="搜索当前六构件列表"
-                style={{ width: 220 }}
+
+            {/* 确认区 */}
+            {confirmationUnavailable ? (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 8 }}
+                message="确认状态暂时不可读（确认表不可用），页面内容仍可浏览；确认按钮不可用。"
               />
-            }
-            items={COMPONENT_TABS.map((t) => {
-              const block = domain?.components?.[t.key as keyof DomainView["components"]] as ComponentBlock | undefined;
-              return {
-                key: t.key,
-                label: `${t.label}（${block?.total ?? 0}）`,
-                children: renderComponentTab(t.key, block),
-              };
-            })}
-          />
-        </Card>
+            ) : confirmation ? (
+              <Alert
+                type={confirmation.current ? "success" : "warning"}
+                showIcon
+                style={{ marginBottom: 8 }}
+                message={
+                  confirmation.current
+                    ? `已确认 · ${confirmation.confirmed_by_name} · ${new Date(confirmation.confirmed_at).toLocaleString()}${confirmation.note ? ` · 备注：${confirmation.note}` : ""}`
+                    : `待更新 · 上次确认 ${confirmation.confirmed_by_name} · ${new Date(confirmation.confirmed_at).toLocaleString()}（注册表已变化，需重新确认）`
+                }
+                action={
+                  <Button size="small" onClick={confirmDomain} loading={confirming}>
+                    重新确认
+                  </Button>
+                }
+              />
+            ) : (
+              <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+                <Tag>未确认</Tag>
+                <Input
+                  size="small"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="确认备注（可选，如：已核对对象清单）"
+                  style={{ flex: 1 }}
+                />
+                <Button type="primary" size="small" onClick={confirmDomain} loading={confirming}>
+                  确认本域
+                </Button>
+              </div>
+            )}
+
+            {/* 六构件分组（同一页内展开/收起，不再切 Tabs） */}
+            <Collapse
+              activeKey={openKeys}
+              onChange={(keys) => setManualKeys(Array.isArray(keys) ? keys.map(String) : [String(keys)])}
+            >
+              {COMPONENT_SECTIONS.map((s) => {
+                const block = domain.components[s.key];
+                const items = block ? block.items.filter((row) => rowMatches(row, q)) : [];
+                return (
+                  <Collapse.Panel
+                    key={s.key}
+                    header={`${s.label}（${block?.total ?? 0}）${q && items.length !== (block?.total ?? 0) ? ` · 匹配 ${items.length}` : ""}`}
+                  >
+                    {renderSection(s.key, block, items)}
+                  </Collapse.Panel>
+                );
+              })}
+            </Collapse>
+          </Card>
+        )}
       </div>
     </div>
   );
 
-  function renderComponentTab(key: string, block: ComponentBlock | undefined) {
+  function renderSection(key: string, block: ComponentBlock | undefined, items: ComponentItem[]) {
     if (!block || block.total === 0) {
-      return <Empty description={`${COMPONENT_TABS.find((t) => t.key === key)?.label ?? ""}暂无数据（空白如实标注，待建设）`} />;
+      return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={`${COMPONENT_SECTIONS.find((t) => t.key === key)?.label ?? ""}暂无数据（空白如实标注，待建设）`} />;
     }
-    if (filteredItems.length === 0) {
-      return <Empty description={`没有匹配“${query.trim()}”的条目`} />;
+    if (items.length === 0) {
+      return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={`没有匹配“${query.trim()}”的条目`} />;
     }
+    const columns = columnsFor(items);
     return (
       <>
         {block.missing && block.missing.length > 0 && (
@@ -291,13 +401,24 @@ export default function AdminBusinessDomains() {
           size="small"
           rowKey={(_: ComponentItem, idx?: number) => `${key}-${idx}`}
           columns={columns}
-          dataSource={filteredItems}
-          pagination={{ pageSize: 12 }}
+          dataSource={items}
+          pagination={items.length > 12 ? { pageSize: 12 } : false}
         />
         {block.truncated && <div style={{ fontSize: 11, color: "#999" }}>仅显示前 100 条。</div>}
       </>
     );
   }
+}
+
+function columnsFor(items: ComponentItem[]) {
+  if (items.length === 0) return [];
+  const keys = Object.keys(items[0]);
+  return keys.map((k) => ({
+    title: columnTitle(k),
+    dataIndex: k,
+    key: k,
+    render: (v: unknown, row: ComponentItem) => renderCell(k, v, row),
+  }));
 }
 
 function columnTitle(key: string): string {
@@ -316,7 +437,7 @@ function columnTitle(key: string): string {
     target_digest: "目标摘要", change_ref: "变更引用", approval_id: "审批 ID",
   };
   if (map[key]) return map[key];
-  // 兜底：snake_case 转可读中文分隔（不暴露原始 key）。
+  // 兜底：snake_case 转可读分隔（不暴露原始 key）。
   return key.replace(/_/g, " · ");
 }
 
