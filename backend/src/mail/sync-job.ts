@@ -4,6 +4,7 @@ import { HttpFail } from "../host/errors.js";
 import { normalizeEmail } from "../host/identity.js";
 import { nid } from "../ids.js";
 import { postgresPool } from "../postgres/pool.js";
+import { pgDefaultMailboxBinding } from "../postgres/credential-binding-repository.js";
 import { pgEnqueueExecutionJob, pgExecutionJobPayload, pgExecutionJobPublic } from "../execution-jobs/postgres-store.js";
 import type { ClaimedExecutionJob } from "../execution-jobs/contracts.js";
 import { syncFollowedKolMail, type MailSyncAuthorizedScope, type MailSyncProgress } from "../starrykol/mail-sync.js";
@@ -150,8 +151,17 @@ export async function authorizeMailSync(mailbox: string): Promise<MailSyncAuthor
   };
 }
 
+/** An omitted box means the actor's explicitly selected default, never an arbitrary binding. */
+async function requestedOrDefaultMailbox(raw: unknown): Promise<string> {
+  const requested = normalizeEmail(String(raw || ""));
+  if (requested) return requested;
+  const actorId = String(scopedUser()?.id || "").trim();
+  if (!actorId) return "";
+  return normalizeEmail(String((await pgDefaultMailboxBinding(actorId))?.mailbox_email || ""));
+}
+
 export async function startMailSyncJob(input: Json): Promise<Json> {
-  const mailbox = normalizeEmail(String(input.box || ""));
+  const mailbox = await requestedOrDefaultMailbox(input.box);
   const authorization = await authorizeMailSync(mailbox);
   const actor = authorization.actor.id;
   const requestId = String(input.request_id || nid("sync"));

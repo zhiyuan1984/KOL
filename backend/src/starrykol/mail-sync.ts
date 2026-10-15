@@ -263,6 +263,13 @@ export function classifyMailSyncFailure(error: unknown, diagnosticId = syncDiagn
   const raw = error instanceof Error ? error.message : String(error || "");
   const status = remoteStatusOf(error);
   const retryAfterMs = remoteRetryAfterOf(error);
+  if (raw === "mail_conversation_association_mismatch") {
+    return {
+      code: raw,
+      message: "mail_conversation_association_mismatch：会话已关联到另一合作，已保留原归属。",
+      diagnosticId,
+    };
+  }
   if (/relation\s+"?mail_sync_state"?\s+does not exist/i.test(raw)) {
     return {
       code: "mail_sync_storage_unavailable",
@@ -491,6 +498,11 @@ async function persistStatus(result: FollowedMailSync): Promise<void> {
   await mailSyncStateSet((await mailboxStateKey(result.mailbox)), JSON.stringify(result));
 }
 
+/** The provider's conversation ID is only unique within its mailbox. */
+function threadMailboxOf(conv: Json, mailbox: string, col?: Row): string {
+  return mailbox || conversationMailboxOf(conv) || firstString(col?.mailbox_from, col?.owner_mailbox);
+}
+
 async function upsertThread(input: {
   collaborationId?: string | null;
   conversationId: string;
@@ -702,12 +714,12 @@ async function persistConversationIndex(conv: Json, mailbox: string, collabs: Ro
   const conversationId = conversationIdOf(conv);
   if (!conversationId) return undefined;
   const col = matchCollaboration(conv, collabs, mailbox);
+  const threadMailbox = threadMailboxOf(conv, mailbox, col);
   const inbound = inboundOf(conv, col, mailbox);
   const listedUnread = Number(conv.unreadCount ?? conv.unread_count);
   const from = messageFrom(conv);
   const snippet = messageBody(conv);
   const lastAt = messageOccurredAt(conv) || remoteConversationTime(conv);
-  const threadMailbox = mailbox || conversationMailboxOf(conv) || firstString(conv.mailboxEmail, col?.mailbox_from);
   const thread = await upsertThread({
     collaborationId: col ? String(col.id) : null,
     conversationId,
@@ -763,15 +775,16 @@ async function hydrateConversationById(
   await syncCheckpoint();
   const conversationId = conversationIdOf(conv);
   if (!conversationId) return 0;
+  const threadMailbox = threadMailboxOf(conv, mailbox, matchCollaboration(conv, collabs, mailbox));
   let thread = (await postgresConnection().query<Row>(
-    "SELECT * FROM kol_mail_threads WHERE conversation_id=$1 AND mailbox=$2", [conversationId,mailbox],
+    "SELECT * FROM kol_mail_threads WHERE conversation_id=$1 AND mailbox=$2", [conversationId,threadMailbox],
   )).rows[0];
   if (!thread) {
     // Later pages normally arrive indexed already; retain this fallback for a
     // direct hydration request without introducing a second sync path.
     await persistConversationIndex(conv, mailbox, collabs);
     thread = (await postgresConnection().query<Row>(
-      "SELECT * FROM kol_mail_threads WHERE conversation_id=$1 AND mailbox=$2", [conversationId,mailbox],
+      "SELECT * FROM kol_mail_threads WHERE conversation_id=$1 AND mailbox=$2", [conversationId,threadMailbox],
     )).rows[0];
   }
   if (!thread) return 0;
@@ -915,7 +928,7 @@ async function syncRemainingConversations(
     const indexed = await persistConversationIndexes(conversations, mailbox, collabs);
     await updateBindingSyncCursorPg({ userId, mailbox, syncedAt, pageNo, tool: "pageEmailConversations" });
 
-    const pageCandidates = await conversationsNeedingDetail(conversations, mailbox, userId);
+    const pageCandidates = await conversationsNeedingDetail(conversations, mailbox, userId, collabs);
     const progress = currentProgress();
     if (progress) {
       progress.index.phase = "persisted";
@@ -1034,22 +1047,24 @@ function remoteConversationTime(conv: Json): string {
 // Shared by the foreground page and the background page walk: a conversation
 // needs a detail fetch when it is not remembered locally, still unread, or
 // changed remotely after the last thing we remembered about it.
-async function conversationsNeedingDetail(conversations: Json[], mailbox: string, userId: string): Promise<Json[]> {
+async function conversationsNeedingDetail(conversations: Json[], mailbox: string, userId: string, collabs: Row[]): Promise<Json[]> {
   // Batch native reads, scoped by the already authorized mailbox. An identical
   // conversation ID in another mailbox cannot satisfy this source dependency.
   const ids = conversations.map(conversationIdOf).filter(Boolean);
   if (!ids.length) return [];
   const db = postgresPool();
-  const remembered = (await db.query<Row>(`SELECT t.conversation_id,t.last_at,
+  const remembered = (await db.query<Row>(`SELECT t.conversation_id,t.mailbox,t.last_at,
     (NOT EXISTS(SELECT 1 FROM kol_mail_items i WHERE i.thread_id=t.id) OR
      EXISTS(SELECT 1 FROM kol_mail_items i WHERE i.thread_id=t.id AND (i.title IS NULL OR i.body_text IS NULL))) AS needs_backfill
-    FROM kol_mail_threads t WHERE lower(t.mailbox)=lower($1) AND t.conversation_id=ANY($2::text[])`, [mailbox,ids])).rows;
+    FROM kol_mail_threads t WHERE t.conversation_id=ANY($1::text[])
+      AND ($2='' OR lower(t.mailbox)=lower($2))`, [ids,mailbox])).rows;
   const binding = (await db.query<Row>("SELECT sync_cursor_at FROM user_starry_bindings WHERE user_id=$1 AND lower(mailbox_email)=lower($2)", [userId,mailbox])).rows[0];
-  const byId = new Map(remembered.map(row => [String(row.conversation_id),row]));
+  const byMailboxConversation = new Map(remembered.map(row => [`${String(row.mailbox || "").toLowerCase()}\u0000${String(row.conversation_id)}`,row]));
   return conversations.filter(conv => {
     const id = conversationIdOf(conv);
     if (!id) return false;
-    const existing = byId.get(id);
+    const threadMailbox = threadMailboxOf(conv, mailbox, matchCollaboration(conv, collabs, mailbox));
+    const existing = byMailboxConversation.get(`${threadMailbox.toLowerCase()}\u0000${id}`);
     const unread = Number(conv.unreadCount ?? conv.unread_count);
     const rememberedAt = Math.max(timestampMs(existing?.last_at),timestampMs(binding?.sync_cursor_at));
     return !existing || existing.needs_backfill || (Number.isFinite(unread) && unread > 0)
@@ -1184,7 +1199,7 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
     // First commit the whole page's local index. Do not wait for five remote
     // body requests: the UI can immediately browse subject/from/unread shells.
     const indexed = await persistConversationIndexes(conversations, mailbox, collabs);
-    const detailCandidates = await conversationsNeedingDetail(conversations, mailbox, userId);
+    const detailCandidates = await conversationsNeedingDetail(conversations, mailbox, userId, collabs);
     const unread = await unreadCountForMailboxPg(mailbox);
     const progress = currentProgress();
     if (progress) {

@@ -41,7 +41,7 @@ async function bindLarry(): Promise<void> {
 }
 
 beforeEach(async () => {
-  await freshTestDatabase();
+  await freshTestDatabase({ reclaimPrevious: true });
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-mail-sync-"));
   process.env.LINGONG_DB = path.join(tmp, "mail.db");
   process.env.LINGONG_DATA = tmp;
