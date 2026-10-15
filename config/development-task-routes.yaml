@@ -1,0 +1,150 @@
+{
+  "schema_version": "1.0.0",
+  "intent_aliases": {
+    "ui": ["ui", "ux", "界面", "交互", "frontend", "front-end"],
+    "navigation": ["navigation", "导航", "route", "routing", "路由"],
+    "layout": ["layout", "布局", "responsive", "响应式"],
+    "document-preview": ["document", "preview", "文档", "预览", "pdf", "pptx", "原件"],
+    "async-job": ["async", "job", "queue", "worker", "异步", "队列", "后台任务", "等待"],
+    "knowledge-processing": ["knowledge", "知识", "提炼", "processing", "资料加工"],
+    "backend": ["backend", "后端", "api", "接口"],
+    "governance": ["governance", "治理", "contract", "契约"]
+  },
+  "core": {
+    "id": "governed-task-contract",
+    "roles": ["project-manager"],
+    "clauses": ["CONST-08", "CONST-10", "TECH-ARCH-04", "TECH-TEST-01"],
+    "must_read": ["AGENTS.md", "docs/AGENTS.md", "docs/CONSTITUTION.md", "docs/TECHNOLOGY.md"],
+    "skills": ["governed-task-routing"],
+    "required_outputs": [
+      {"id": "task-contract", "fulfillment": "preflight", "owner_roles": ["project-manager"]}
+    ],
+    "checks": [
+      {"id": "route-contract-schema", "type": "machine", "description": "Validate the selected task contract, actual loaded files, and delivery record schema."}
+    ]
+  },
+  "routes": [
+    {
+      "id": "knowledge-processing-experience",
+      "match": {
+        "mode": "any",
+        "intent_any": ["knowledge-processing"],
+        "path_any": ["frontend/src/admin/knowledge/**", "backend/src/knowledge/**"]
+      },
+      "roles": ["ui-ux", "frontend", "backend", "test-manager"],
+      "clauses": ["CONST-04", "CONST-10", "TECH-FE-03", "TECH-BE-04", "TECH-TEST-02", "TECH-TEST-03"],
+      "must_read": ["docs/DESIGN.md", "docs/ia-information-architecture.md"],
+      "skills": ["ux-task-and-state-design", "responsive-page-layout", "antd-component-engineering", "document-fidelity-viewing", "async-job-observability", "ui-evidence-verification"],
+      "required_outputs": [
+        {"id": "state-and-action-map", "fulfillment": "delivery", "owner_roles": ["ui-ux", "backend"]},
+        {"id": "layout-contract", "fulfillment": "delivery", "owner_roles": ["ui-ux", "frontend"]},
+        {"id": "component-selection", "fulfillment": "delivery", "owner_roles": ["architect", "frontend", "ui-ux"]},
+        {"id": "preview-contract", "fulfillment": "delivery", "owner_roles": ["ui-ux", "frontend", "backend"]},
+        {"id": "async-contract", "fulfillment": "delivery", "owner_roles": ["backend", "frontend", "ui-ux"]},
+        {"id": "browser-and-source-evidence", "fulfillment": "delivery", "owner_roles": ["test-manager", "ui-ux"]}
+      ],
+      "checks": [
+        {"id": "knowledge-state-contract-test", "type": "machine", "description": "Run state, API, or component tests that cover the selected knowledge-processing facts."},
+        {"id": "knowledge-browser-and-source-review", "type": "human-browser", "description": "A named reviewer compares representative browser states and source pages; automation only records the supplied evidence."}
+      ]
+    },
+    {
+      "id": "frontend-experience",
+      "match": {
+        "mode": "any",
+        "intent_any": ["ui", "layout"],
+        "path_any": ["frontend/src/**", "frontend/e2e/**"]
+      },
+      "roles": ["ui-ux", "frontend", "test-manager"],
+      "clauses": ["CONST-04", "CONST-10", "TECH-FE-01", "TECH-FE-03", "TECH-TEST-02"],
+      "must_read": ["docs/DESIGN.md", "docs/ia-information-architecture.md"],
+      "skills": ["ux-task-and-state-design", "responsive-page-layout", "antd-component-engineering", "ui-evidence-verification"],
+      "required_outputs": [
+        {"id": "state-and-action-map", "fulfillment": "delivery", "owner_roles": ["ui-ux", "frontend"]},
+        {"id": "layout-contract", "fulfillment": "delivery", "owner_roles": ["ui-ux", "frontend"]},
+        {"id": "component-selection", "fulfillment": "delivery", "owner_roles": ["architect", "frontend", "ui-ux"]},
+        {"id": "browser-and-source-evidence", "fulfillment": "delivery", "owner_roles": ["test-manager", "ui-ux"]}
+      ],
+      "checks": [
+        {"id": "frontend-experience-test", "type": "machine", "description": "Run the affected component, integration, or E2E test with a saved test report."},
+        {"id": "frontend-browser-review", "type": "human-browser", "description": "A named reviewer records a browser review for the applicable viewport and interaction states."}
+      ]
+    },
+    {
+      "id": "navigation-change",
+      "match": {
+        "mode": "any",
+        "intent_any": ["navigation"],
+        "path_any": ["frontend/src/App.tsx", "frontend/src/**/router/**", "frontend/src/**/routes/**"]
+      },
+      "roles": ["ui-ux", "platform-product-manager", "frontend", "test-manager"],
+      "clauses": ["CONST-04", "TECH-FE-03", "TECH-TEST-02"],
+      "must_read": ["docs/ia-information-architecture.md", "docs/DESIGN.md"],
+      "skills": ["information-architecture-navigation", "ui-evidence-verification"],
+      "required_outputs": [
+        {"id": "navigation-contract", "fulfillment": "delivery", "owner_roles": ["ui-ux", "platform-product-manager", "frontend"]},
+        {"id": "browser-and-source-evidence", "fulfillment": "delivery", "owner_roles": ["test-manager", "ui-ux"]}
+      ],
+      "checks": [
+        {"id": "navigation-route-test", "type": "machine", "description": "Run direct-open, refresh, and browser-back coverage for the affected address contract."},
+        {"id": "navigation-browser-review", "type": "human-browser", "description": "A named reviewer checks page responsibility, deep links, and return context in a browser."}
+      ]
+    },
+    {
+      "id": "document-viewing",
+      "match": {
+        "mode": "any",
+        "intent_any": ["document-preview"],
+        "path_any": ["frontend/src/**/Document*.tsx", "frontend/src/**/Preview*.tsx", "backend/src/**/preview/**"]
+      },
+      "roles": ["ui-ux", "frontend", "backend", "test-manager"],
+      "clauses": ["CONST-04", "CONST-10", "TECH-FE-02", "TECH-TEST-02"],
+      "must_read": ["docs/DESIGN.md", "docs/TECHNOLOGY.md"],
+      "skills": ["document-fidelity-viewing", "ui-evidence-verification"],
+      "required_outputs": [
+        {"id": "preview-contract", "fulfillment": "delivery", "owner_roles": ["ui-ux", "frontend", "backend"]},
+        {"id": "browser-and-source-evidence", "fulfillment": "delivery", "owner_roles": ["test-manager", "ui-ux"]}
+      ],
+      "checks": [
+        {"id": "document-preview-test", "type": "machine", "description": "Run affected preview, page-mapping, and error-state tests with a saved report."},
+        {"id": "document-source-compare", "type": "human-browser", "description": "A named reviewer compares representative browser pages to the source document; automation does not judge fidelity."}
+      ]
+    },
+    {
+      "id": "async-job-change",
+      "match": {
+        "mode": "any",
+        "intent_any": ["async-job"],
+        "path_any": ["backend/src/**/*worker*", "backend/src/**/*job*", "backend/src/**/*queue*", "backend/src/**/*outbox*", "frontend/src/**/*Job*.tsx"]
+      },
+      "roles": ["backend", "frontend", "ui-ux", "test-manager"],
+      "clauses": ["CONST-04", "TECH-BE-03", "TECH-BE-04", "TECH-FE-03", "TECH-TEST-02"],
+      "must_read": ["docs/TECHNOLOGY.md", "docs/DESIGN.md"],
+      "skills": ["async-job-observability", "ux-task-and-state-design", "ui-evidence-verification"],
+      "required_outputs": [
+        {"id": "state-and-action-map", "fulfillment": "delivery", "owner_roles": ["ui-ux", "backend", "frontend"]},
+        {"id": "async-contract", "fulfillment": "delivery", "owner_roles": ["backend", "frontend", "ui-ux"]},
+        {"id": "browser-and-source-evidence", "fulfillment": "delivery", "owner_roles": ["test-manager", "ui-ux"]}
+      ],
+      "checks": [
+        {"id": "async-recovery-test", "type": "machine", "description": "Run queued, running, recovery, failure, cancellation, and uncertain-result coverage where applicable."},
+        {"id": "async-browser-review", "type": "human-browser", "description": "A named reviewer checks that waiting, progress, and recovery claims match supplied execution facts."}
+      ]
+    },
+    {
+      "id": "backend-unrelated-change",
+      "match": {
+        "mode": "path",
+        "path_any": ["backend/src/**", "backend/scripts/**"]
+      },
+      "roles": ["backend", "test-manager"],
+      "clauses": ["CONST-04", "TECH-BE-01", "TECH-TEST-01"],
+      "must_read": ["docs/TECHNOLOGY.md"],
+      "skills": [],
+      "required_outputs": [],
+      "checks": [
+        {"id": "backend-affected-test", "type": "machine", "description": "Run the affected deterministic backend validation and retain its report."}
+      ]
+    }
+  ]
+}

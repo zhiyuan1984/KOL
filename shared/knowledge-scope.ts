@@ -10,9 +10,30 @@ export type KnowledgeScope = {
   evidence: ScopeEvidence[];
   coverage: { status: 'complete' | 'partial'; unreadable_pages: number[]; catalog_completeness: 'unknown' };
 };
+export type ScopeJobStatus = 'queued' | 'running' | 'retrying' | 'succeeded' | 'failed' | 'uncertain' | 'cancelled';
+export type ScopeJobProgress = {
+  /** Completed extraction batches, not a worker heartbeat or page count. */
+  done: number;
+  /** `null` means the backend has not yet determined a real batch total. */
+  total: number | null;
+  unit: 'batches';
+  /** Updated only after a batch completes; never substituted with read/heartbeat time. */
+  last_progress_at?: string;
+};
+export type ScopeHandoff = {
+  /** A backend-authorized automatic extraction intent and its durable queue handoff. */
+  status: 'pending' | 'queued' | 'failed' | 'none';
+  requested_at?: string;
+  error?: string;
+};
 export type ScopeDetail = {
   document_id: string; revision: number; explanation: string; state: 'empty' | 'candidate' | 'checked' | 'published';
-  scope: KnowledgeScope | null; fingerprint: string; job: { id: string; status: string; error_summary?: string } | null;
+  scope: KnowledgeScope | null; fingerprint: string;
+  job: {
+    id: string; status: ScopeJobStatus; error_summary?: string; attempts?: number; max_attempts?: number;
+    started_at?: string; terminal_at?: string; progress: ScopeJobProgress;
+  } | null;
+  handoff: ScopeHandoff;
   actions: { edit: boolean; generate: boolean; check: boolean }; frozen: boolean;
 };
 export type KnowledgeManifest = {

@@ -1,0 +1,193 @@
+/* Knowledge processing pilot: all colors, spacing and control sizes come from styles.css tokens. */
+.kbpilot-async,
+.kbpilot-reader {
+  min-width: 0;
+  margin-top: var(--space-3);
+  overflow-wrap: anywhere;
+}
+
+.kbpilot-async {
+  container: knowledge-pilot / inline-size;
+}
+
+.kbpilot-async .ant-alert,
+.kbpilot-reader .ant-alert {
+  border-radius: var(--radius-card);
+  font-size: var(--ds-font-sm);
+}
+
+.kbpilot-async .ant-alert-message,
+.kbpilot-reader .ant-alert-message,
+.kbpilot-reader h3 {
+  font-size: var(--ds-font-sm);
+  font-weight: 600;
+}
+
+.kbpilot-async .ant-alert-description,
+.kbpilot-reader .ant-alert-description {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--ds-font-sm);
+  overflow-wrap: anywhere;
+}
+
+.kbpilot-next {
+  color: var(--text-quiet);
+}
+
+.kbpilot-steps {
+  margin-block: var(--space-3);
+}
+
+.kbpilot-steps .ant-steps-item-title,
+.kbpilot-steps .ant-steps-item-description {
+  font-size: var(--ds-font-xs);
+  overflow-wrap: anywhere;
+}
+
+.kbpilot-progress {
+  display: grid;
+  gap: var(--space-1);
+  margin-block: var(--space-2);
+  font-size: var(--ds-font-xs);
+  color: var(--text-quiet);
+}
+
+.kbpilot-progress .ant-progress {
+  line-height: 1;
+}
+
+.kbpilot-progress-unknown {
+  margin-block: var(--space-2);
+  color: var(--text-quiet);
+  font-size: var(--ds-font-xs);
+}
+
+.kbpilot-recovery {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  margin-block: var(--space-2);
+}
+
+.kbpilot-recovery > span {
+  color: var(--text-quiet);
+  font-size: var(--ds-font-xs);
+}
+
+.kbpilot-history {
+  margin-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.kbpilot-history .ant-collapse-header,
+.kbpilot-reader .ant-tabs-tab-btn {
+  font-size: var(--ds-font-sm);
+}
+
+.kbpilot-history .ant-collapse-content-box {
+  padding-inline: 0;
+}
+
+.kbpilot-history ul {
+  margin: 0;
+  padding-left: var(--space-4);
+  font-size: var(--ds-font-xs);
+}
+
+.kbpilot-history li + li {
+  margin-top: var(--space-1);
+}
+
+.kbpilot-reader {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+}
+
+.kbpilot-reader h3 {
+  margin: 0 0 var(--space-2);
+}
+
+.kbpilot-reader .ant-tabs-nav {
+  margin-bottom: var(--space-2);
+}
+
+.kbpilot-original-preview > p,
+.kbpilot-text-reader > p {
+  margin: 0 0 var(--space-2);
+  color: var(--text-quiet);
+  font-size: var(--ds-font-xs);
+}
+
+.kbpilot-reader-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.kbpilot-reader-frame {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--workspace-result-rail-min);
+  height: var(--dialog-h-max);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+}
+
+.kbpilot-text-reader pre {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-sans, var(--sans));
+  font-size: var(--ds-font-sm);
+  line-height: var(--leading-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+}
+
+@container knowledge-pilot (max-width: 719px) {
+  .kbpilot-steps.ant-steps-horizontal {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+
+  .kbpilot-steps .ant-steps-item {
+    min-width: 0;
+  }
+
+  .kbpilot-steps .ant-steps-item-tail {
+    display: none;
+  }
+
+  .kbpilot-reader-frame {
+    min-height: var(--workspace-result-rail-min);
+  }
+}
+
+@media (pointer: coarse) {
+  .kbpilot-async .ant-btn,
+  .kbpilot-reader .ant-btn,
+  .kbpilot-reader .ant-tabs-tab {
+    min-height: var(--touch-hit-min);
+  }
+}
+
+/* PDF.js renders the actual PDF viewport, not text-extraction coordinates. */
+.kbpilot-pdf { min-width: 0; }
+.kbpilot-pdf-controls { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); margin-block: var(--space-2); }
+.kbw-scope-panel .kbpilot-pdf-controls > label { display: inline-flex; flex-direction: row; width: auto; white-space: nowrap; align-items: center; gap: var(--space-1); font-size: var(--ds-font-xs); }
+.kbpilot-pdf-controls .ant-input-number { width: var(--property-label-w-short); }
+.kbpilot-pdf-canvas { min-width: 0; width: 100%; overflow: auto; border: 1px solid var(--border); box-sizing: border-box; background: var(--bg-subtle); }
+.kbpilot-pdf-canvas canvas { display: block; margin: 0; }
+.kbpilot-pdf-canvas canvas[hidden] { display: none; }

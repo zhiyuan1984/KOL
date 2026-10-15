@@ -68,7 +68,9 @@ test('planning uses mature multi-branch collapse with independent selection and 
   await catalog.getByRole('button', { name: '清空搜索' }).click();
   await expect(page.locator('[data-admin-kb-domain="content"]')).toBeVisible();
   await expect(catalog.locator('.kbplanning-footer [data-admin-kb-create-family]')).toBeVisible();
-  const gap = await catalog.locator('.kbplanning-search').evaluate(node => {
+  // WorkspaceSearchInput intentionally carries the legacy class on both wrapper
+  // and input. Measure the affix wrapper, not an ambiguous two-element locator.
+  const gap = await catalog.locator('.kbplanning-search.ant-input-affix-wrapper').evaluate(node => {
     const icon = node.querySelector('.anticon')!.getBoundingClientRect(), input = node.querySelector('input')!.getBoundingClientRect();
     return input.left - icon.right;
   });

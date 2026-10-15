@@ -110,6 +110,7 @@ describe.skipIf(!configured)(
       );
       await postgresPool().query(await fs.readFile(new URL("../migrations/026_knowledge_workspace.sql",import.meta.url),"utf8"));
       await postgresPool().query(await fs.readFile(new URL('../migrations/027_knowledge_scope.sql',import.meta.url),'utf8'));
+      await postgresPool().query(await fs.readFile(new URL('../migrations/043_20261015_knowledge_scope_async.sql',import.meta.url),'utf8'));
       await postgresPool().query("INSERT INTO knowledge_domains(id,code,name,level,created_at,updated_at) VALUES('domain','domain','产品规格','domain',$1,$1)",[stamp]);
       await postgresPool().query("INSERT INTO knowledge_bases(id,code,name,domain_id,kind,status,created_at,updated_at) VALUES('specs','specs','产品规格','domain','unstructured','active',$1,$1)",[stamp]);
       for (const id of ["admin", "reviewer", "reviewer-two", "outsider"]) {

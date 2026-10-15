@@ -1,0 +1,128 @@
+{
+  "schema_version": "1.0.0",
+  "skills": [
+    {
+      "id": "governed-task-routing",
+      "version": "1.0.0",
+      "skill_file": ".agents/skills/governed-task-routing/SKILL.md",
+      "templates": [
+        ".agents/skills/governed-task-routing/templates/task-contract.json"
+      ],
+      "dependencies": [
+        "AGENTS.md",
+        "docs/CONSTITUTION.md",
+        "config/development-task-routes.yaml",
+        "schemas/development-task.schema.json",
+        "docs/governance/development-component-catalog.md",
+        ".agents/skills/governed-task-routing/references/provenance.md"
+      ]
+    },
+    {
+      "id": "ux-task-and-state-design",
+      "version": "1.0.0",
+      "skill_file": ".agents/skills/ux-task-and-state-design/SKILL.md",
+      "templates": [
+        ".agents/skills/ux-task-and-state-design/templates/state-and-action-map.json"
+      ],
+      "dependencies": [
+        "docs/DESIGN.md",
+        "docs/TECHNOLOGY.md",
+        "docs/ia-information-architecture.md",
+        "docs/governance/development-component-catalog.md",
+        ".agents/skills/ux-task-and-state-design/references/provenance.md"
+      ]
+    },
+    {
+      "id": "information-architecture-navigation",
+      "version": "1.0.0",
+      "skill_file": ".agents/skills/information-architecture-navigation/SKILL.md",
+      "templates": [
+        ".agents/skills/information-architecture-navigation/templates/navigation-contract.json"
+      ],
+      "dependencies": [
+        "docs/ia-information-architecture.md",
+        "docs/DESIGN.md",
+        "docs/TECHNOLOGY.md",
+        "docs/governance/development-component-catalog.md",
+        ".agents/skills/information-architecture-navigation/references/provenance.md"
+      ]
+    },
+    {
+      "id": "responsive-page-layout",
+      "version": "1.0.0",
+      "skill_file": ".agents/skills/responsive-page-layout/SKILL.md",
+      "templates": [
+        ".agents/skills/responsive-page-layout/templates/layout-contract.json"
+      ],
+      "dependencies": [
+        "docs/DESIGN.md",
+        "docs/TECHNOLOGY.md",
+        "frontend/package.json",
+        "docs/governance/development-component-catalog.md",
+        ".agents/skills/responsive-page-layout/references/provenance.md"
+      ]
+    },
+    {
+      "id": "antd-component-engineering",
+      "version": "1.0.0",
+      "skill_file": ".agents/skills/antd-component-engineering/SKILL.md",
+      "templates": [
+        ".agents/skills/antd-component-engineering/templates/component-selection.json"
+      ],
+      "dependencies": [
+        "docs/DESIGN.md",
+        "docs/TECHNOLOGY.md",
+        "frontend/package.json",
+        "frontend/src/styles.css",
+        "docs/governance/development-component-catalog.md",
+        ".agents/skills/antd-component-engineering/references/provenance.md"
+      ]
+    },
+    {
+      "id": "document-fidelity-viewing",
+      "version": "1.0.0",
+      "skill_file": ".agents/skills/document-fidelity-viewing/SKILL.md",
+      "templates": [
+        ".agents/skills/document-fidelity-viewing/templates/preview-contract.json"
+      ],
+      "dependencies": [
+        "docs/DESIGN.md",
+        "docs/TECHNOLOGY.md",
+        "docs/ia-information-architecture.md",
+        "docs/governance/development-component-catalog.md",
+        ".agents/skills/document-fidelity-viewing/references/provenance.md"
+      ]
+    },
+    {
+      "id": "async-job-observability",
+      "version": "1.0.0",
+      "skill_file": ".agents/skills/async-job-observability/SKILL.md",
+      "templates": [
+        ".agents/skills/async-job-observability/templates/async-contract.json"
+      ],
+      "dependencies": [
+        "AGENTS.md",
+        "docs/TECHNOLOGY.md",
+        "docs/DESIGN.md",
+        "docs/governance/development-component-catalog.md",
+        ".agents/skills/async-job-observability/references/provenance.md"
+      ]
+    },
+    {
+      "id": "ui-evidence-verification",
+      "version": "1.0.0",
+      "skill_file": ".agents/skills/ui-evidence-verification/SKILL.md",
+      "templates": [
+        ".agents/skills/ui-evidence-verification/templates/browser-and-source-evidence.json"
+      ],
+      "dependencies": [
+        "docs/CONSTITUTION.md",
+        "docs/TECHNOLOGY.md",
+        "docs/DESIGN.md",
+        "frontend/package.json",
+        "docs/governance/development-component-catalog.md",
+        ".agents/skills/ui-evidence-verification/references/provenance.md"
+      ]
+    }
+  ]
+}
