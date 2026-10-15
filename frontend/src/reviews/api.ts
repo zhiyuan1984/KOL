@@ -50,9 +50,11 @@ export async function reviewApi<T>(
   body?: unknown,
   method = "POST",
   company?: string,
+  signal?: AbortSignal,
 ): Promise<T> {
   const r = await fetch(`/api${path}`, {
     credentials: "same-origin",
+    signal,
     method: body === undefined ? "GET" : method,
     headers: {
       ...(company === undefined ? reviewHeaders() : company ? {"X-Review-Company":company} : {}),

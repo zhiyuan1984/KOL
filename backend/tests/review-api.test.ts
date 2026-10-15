@@ -111,6 +111,59 @@ async function executeReview(actor: string, command: unknown, key: string) {
   return response.json();
 }
 describe("approval optimization boundaries on PostgreSQL", () => {
+  it("merges only visible legacy ontology work with native tasks using an indexed focused read", async () => {
+    const t=await publish();
+    await executeReview("employee", {action:"submit",templateId:t.id,templateVersion:1,title:"混合角标",values:{}}, "badge-mixed-submit");
+    const db=getConn();
+    for(const [id,kind,actor] of [["badge-ontology","ontology_change","reviewer"],["badge-expense","expense","reviewer"],["badge-other","ontology_change","admin"]]){
+      await db.query(`INSERT INTO approvals(id,draft_id,brand,amount_usd,status,chain,current_index,uses_left,fingerprint,need_manual_band,wecom_card_id,created_at,chain_id,kind,payload,title,submitted_by,version,updated_at)
+        VALUES($1,'','LT',0,'pending',$2,0,1,'',0,'','now',$1,$3,'{}',$1,'review-employee',0,'now')`,[id,JSON.stringify([`user:review-${actor}`]),kind]);
+    }
+    await db.query(`INSERT INTO approvals(id,draft_id,brand,amount_usd,status,chain,current_index,uses_left,fingerprint,need_manual_band,wecom_card_id,created_at,chain_id,kind,payload,title,submitted_by,version,updated_at)
+      SELECT 'badge-history-'||n,'','LT',0,'approved','[]',0,0,'',0,'','now','badge-history-'||n,'expense','{}','历史费用','review-employee',0,'now' FROM generate_series(1,5000) n`);
+    await db.query("ANALYZE approvals");
+    expect(await (await req("reviewer","/approvals/v2/badge")).json()).toMatchObject({nativeCount:1,legacyCount:1,count:2});
+    expect(await (await req("admin","/approvals/v2/badge")).json()).toMatchObject({nativeCount:0,legacyCount:1,count:1});
+    expect(await (await req("employee","/approvals/v2/badge")).json()).toMatchObject({nativeCount:0,legacyCount:0,count:0});
+    expect(await (await req("outsider","/approvals/v2/badge")).json()).toMatchObject({count:0});
+    expect((await req("reviewer","/approvals/v2/badge",undefined,{"X-Review-Company":"review-test-b"})).status).toBe(403);
+    const plan=await db.query(`EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) SELECT status,chain,current_index FROM approvals WHERE kind='ontology_change' AND status='pending'`);
+    expect(JSON.stringify(plan.rows)).toContain("approvals_pending_ontology_badge_idx");
+    if(process.env.APPROVAL_BADGE_EVIDENCE_DIR)fs.writeFileSync(path.join(process.env.APPROVAL_BADGE_EVIDENCE_DIR,"legacy-count-plan.json"),JSON.stringify(plan.rows,null,2)+"\n");
+    expect((await db.query("SELECT to_regclass('review_notifications_unread_badge_idx') AS name")).rows[0].name).toBe("review_notifications_unread_badge_idx");
+  });
+  it("counts knowledge tasks separately from unread notifications and keeps identity scoped", async () => {
+    const t = await publish();
+    const receipt = await executeReview("employee", { action: "submit", templateId: t.id, templateVersion: 1, title: "知识角标", values: {} }, "badge-knowledge-submit");
+    await getConn().query("UPDATE review_events SET action='knowledge.submit' WHERE resource_id=$1 AND action='submit'", [receipt.resourceId]);
+    const badge = async () => (await (await req("reviewer", "/approvals/v2/badge")).json());
+    const initial = await badge();
+    expect(initial).toMatchObject({ count: 1, nativeCount: 1, legacyCount: 0, unreadCount: 1, tenant: "review-test-a" });
+    expect((await req("reviewer", "/approvals/v2/badge")).headers.get("Cache-Control")).toBe("no-store");
+    const notifications = await (await req("reviewer", "/approvals/v2/notifications")).json();
+    expect((await req("reviewer", `/approvals/v2/notifications/${notifications[0].id}/read`, {})).status).toBe(200);
+    expect(await badge()).toMatchObject({ count: 1, unreadCount: 0 });
+    expect((await req(undefined, "/approvals/v2/badge")).status).toBe(401);
+    expect((await req("reviewer", "/approvals/v2/badge", undefined, { "X-Review-Company": "review-test-b" })).status).toBe(403);
+    expect(await (await req("outsider", "/approvals/v2/badge")).json()).toMatchObject({ count: 0, unreadCount: 0 });
+    await executeReview("reviewer", { action: "approve", instanceId: receipt.resourceId, expectedVersion: 1, reason: "核对完成" }, "badge-approved");
+    expect(await badge()).toMatchObject({ count: 0, nativeCount: 0 });
+  });
+  it("counts the whole actionable inbox beyond both visible pages and one scan batch", async () => {
+    const t = await publish();
+    const receipt = await executeReview("employee", { action: "submit", templateId: t.id, templateVersion: 1, title: "完整角标", values: {} }, "badge-full-submit");
+    const db = getConn();
+    await db.query(`INSERT INTO review_instances(tenant,id,template_id,template_version,version,requester,status,payload,updated_at)
+      SELECT tenant,id||'-badge-'||n,template_id,template_version,version,requester,status,
+        jsonb_set(payload::jsonb,'{id}',to_jsonb(id||'-badge-'||n))::text,updated_at
+      FROM review_instances CROSS JOIN generate_series(1,205) n WHERE id=$1`, [receipt.resourceId]);
+    await db.query("INSERT INTO review_participants(tenant,instance_id,user_id) SELECT tenant,id,'review-reviewer' FROM review_instances WHERE id LIKE $1", [receipt.resourceId+'-badge-%']);
+    await db.query("INSERT INTO review_events(id,tenant,resource_id,actor,action,version,detail,created_at) SELECT id||'-event',tenant,id,requester,'knowledge.submit',1,'{}',updated_at FROM review_instances WHERE id LIKE $1", [receipt.resourceId+'-badge-%']);
+    expect((await (await req("reviewer", "/approvals/v2/instance-page?filter=todo")).json()).items).toHaveLength(30);
+    expect(await (await req("reviewer", "/approvals/v2/badge")).json()).toMatchObject({ count: 206, nativeCount: 206 });
+    await db.query("UPDATE organization_memberships SET status='ended' WHERE id='review-membership:reviewer'");
+    expect((await req("reviewer", "/approvals/v2/badge")).status).toBe(403);
+  });
   it("counts all scoped unread notifications beyond the visible list and only marks the owner's notice read", async () => {
     const t = await publish();
     const receipt = await executeReview("employee", { action: "submit", templateId: t.id, templateVersion: 1, title: "通知计数", values: {} }, "notification-submit");
