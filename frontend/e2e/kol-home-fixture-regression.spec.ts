@@ -42,7 +42,7 @@ async function fixture(page: Page, { followingStatus = 200 }: { followingStatus?
       }] : followed,
         // The service's canonical authority joins its local follow index with a
         // separately explicit verified Starry binding; complete means no board fallback.
-        authority: "kol_follow_index+verified_starry_binding", verified_starry_binding: true, completeness: "complete",
+        authority: "kol_follow_index+verified_starry_binding", completeness: "complete",
         follow_scope: { required: false, bound: false }, creates_session: false, calls_model: false };
     }
     else if (path === "/api/home/board") json = { kols: followed, follow_scope: { required: false, bound: false }, workbench: {} };

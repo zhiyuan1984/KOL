@@ -1,5 +1,19 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 
+/** The disabled-native test actor and B.active membership use one stable identity. */
+const HOME_FOLLOW_TEST_IDENTITY = {
+  employee_id: "u_sriphy",
+  follow_scope: {
+    required: true,
+    bound: true,
+    mailbox_email: "sriphy@amperetime.com",
+    mailbox_id: "mailbox_sriphy",
+    owner_name: "Sriphy",
+    status: "connected",
+    has_token: true,
+  },
+};
+
 /** Complete B.active server authority. Board-shaped data is accepted only as fixture input, never as a UI fallback. */
 export async function stubHomeFollowing(page: Page, kols: Array<Record<string, unknown>> = []) {
   const activeRows = kols.map((kol) => ({
@@ -19,8 +33,10 @@ export async function stubHomeFollowing(page: Page, kols: Array<Record<string, u
         creates_session: false,
         calls_model: false,
         index: "我的跟进",
+        contract: "B.active+verified_starry_binding",
         authority: "kol_follow_index+verified_starry_binding",
         completeness: "complete",
+        ...HOME_FOLLOW_TEST_IDENTITY,
         kols: activeRows,
       },
     });

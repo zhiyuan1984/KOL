@@ -30,15 +30,23 @@ function same(left, right) {
 const baseline = list("playwright.config.ts");
 const legacy = list("playwright.config.ts", { E2E_NATIVE_AUTH_PARTITION: "1" });
 const native = list("playwright.native-knowledge.config.ts");
-const nativeOriginal = native.filter((row) => row.startsWith("e2e/knowledge-documents.spec.ts ›"));
+const nativeOriginalSpecs = [
+  "knowledge-documents.spec.ts",
+  "knowledge-usage.spec.ts",
+  "knowledge-v2-home.spec.ts",
+  "knowledge-question-template-flow.spec.ts",
+  "product-knowledge.spec.ts",
+];
+const nativeOriginal = native.filter((row) => nativeOriginalSpecs.some((spec) => row.startsWith(`e2e/${spec} ›`)));
 const nativeInfra = native.filter((row) => row.startsWith("e2e/native-knowledge-auth.spec.ts ›"));
+const nativeUnexpected = native.filter((row) => !nativeOriginal.includes(row) && !nativeInfra.includes(row));
 const legacyNativeOverlap = legacy.filter((row) => nativeOriginal.includes(row));
 const union = [...legacy, ...nativeOriginal].sort();
 unique(baseline, "baseline");
 unique(legacy, "legacy partition");
 unique(nativeOriginal, "native original partition");
 unique(union, "partition union");
-if (legacyNativeOverlap.length || !same(baseline, union)) {
+if (nativeUnexpected.length || legacyNativeOverlap.length || !same(baseline, union)) {
   throw new Error(JSON.stringify({
     reason: "native/legacy original collection partition is not exact",
     baselineCount: baseline.length,
@@ -47,6 +55,7 @@ if (legacyNativeOverlap.length || !same(baseline, union)) {
     overlap: legacyNativeOverlap,
     missing: baseline.filter((row) => !union.includes(row)),
     extra: union.filter((row) => !baseline.includes(row)),
+    nativeUnexpected,
   }, null, 2));
 }
 const receipt = {
@@ -58,6 +67,8 @@ const receipt = {
   original_overlap: legacyNativeOverlap,
   original_missing: baseline.filter((row) => !union.includes(row)),
   original_extra: union.filter((row) => !baseline.includes(row)),
+  native_unexpected_cases: nativeUnexpected,
+  native_original_specs: nativeOriginalSpecs,
   native_original_cases_detail: nativeOriginal,
   native_infrastructure_cases_detail: nativeInfra,
 };

@@ -65,8 +65,8 @@ async function workspaceGeometry(page: Page, pane: string) {
       railShell: overflowOf(root.querySelector("[data-scope-task-rail]")),
       rail: overflowOf(root.querySelector("[data-scope-task-rail] .scope-task-rail-scroll")),
       dockBottom: dock ? Math.round(dock.getBoundingClientRect().bottom) : null,
-      viewportBottom: window.innerHeight,
-      pageScrolls: document.documentElement.scrollHeight > window.innerHeight + 1,
+      viewportBottom: document.documentElement.clientHeight,
+      pageScrolls: document.documentElement.scrollHeight > document.documentElement.clientHeight + 1,
     };
   }, pane);
 }

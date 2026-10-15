@@ -5,6 +5,7 @@
  * KNOLEDGE_ENGINE_MODE=stub 时使用 Node 内夹具：全部测试不依赖 Python。
  */
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -106,6 +107,8 @@ export async function runBridge(call: BridgeCall): Promise<BridgeOutcome> {
 
 type StubLibraryEntry = { doc_id: string; name: string; pages: number; path: string };
 
+type StubPage = { page_index: number; text: string };
+
 function stubDelayMs(): number {
   const raw = Number(process.env.KNOWLEDGE_STUB_NORMALIZE_MS || 0);
   return Number.isFinite(raw) && raw > 0 ? raw : 0;
@@ -128,6 +131,48 @@ function writeStubLibrary(library: string, rows: StubLibraryEntry[]): void {
   fs.writeFileSync(stubLibraryPath(library), `${JSON.stringify(rows, null, 2)}\n`);
 }
 
+function stubPagesPath(library: string, docId: string): string {
+  return path.join(library, "docs", docId, "pages.json");
+}
+
+/**
+ * Scope generation consumes the sidecar's canonical page artifact. In stub mode
+ * the normalizer has already produced either an extracted/transcript artifact or
+ * a normalized upload. Keep the exact existing text; never synthesize a summary
+ * or page body merely to make scope confirmation available.
+ */
+function stubPagesFromExistingArtifact(input: string, normalized: Buffer): StubPage[] {
+  const documentDir = path.dirname(input);
+  const extracted = path.join(documentDir, "extracted.md");
+  const transcript = path.join(documentDir, "transcript.md");
+  let text = "";
+  for (const artifact of [extracted, transcript]) {
+    try {
+      text = fs.readFileSync(artifact, "utf8");
+      if (text.trim()) break;
+    } catch {
+      // The normalized upload remains the source-backed fallback below.
+    }
+  }
+  if (!text.trim()) text = normalized.toString("utf8");
+  if (!text.trim()) return [];
+
+  // OCR/PPTX artifacts retain explicit page headings. Preserve each body exactly
+  // and retain a single page for an ordinary normalized upload without headings.
+  const headings = [...text.matchAll(/^##\s*(?:第\s*)?(\d+)\s*页[^\n]*\n?/gm)];
+  if (!headings.length) return [{ page_index: 1, text }];
+  return headings.map((heading, index) => ({
+    page_index: Number(heading[1]),
+    text: text.slice((heading.index || 0) + heading[0].length, headings[index + 1]?.index).trim(),
+  })).filter((page) => Number.isInteger(page.page_index) && page.page_index > 0 && Boolean(page.text));
+}
+
+function writeStubPages(library: string, docId: string, pages: StubPage[]): void {
+  const target = stubPagesPath(library, docId);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, `${JSON.stringify(pages, null, 2)}\n`);
+}
+
 async function runStub(call: BridgeCall): Promise<BridgeOutcome> {
   await new Promise((resolve) => setTimeout(resolve, stubDelayMs()));
   if (call.cmd === "ping") return { ok: true, python: "stub", pageindex: "stub" };
@@ -135,7 +180,14 @@ async function runStub(call: BridgeCall): Promise<BridgeOutcome> {
     const input = argValue(call.args, "--input");
     const library = argValue(call.args, "--library");
     const name = path.basename(input);
-    const bytes = fs.existsSync(input) ? fs.readFileSync(input) : Buffer.alloc(0);
+    if (!input || !fs.existsSync(input)) {
+      return { ok: false, code: "knowledge_index_input_missing", message: "stub：规整原件缺失，不能生成索引正文" };
+    }
+    const bytes = fs.readFileSync(input);
+    const pages = stubPagesFromExistingArtifact(input, bytes);
+    if (!pages.length) {
+      return { ok: false, code: "knowledge_index_source_empty", message: "stub：规整原件没有可读取正文，不能生成索引正文" };
+    }
     if (bytes.includes("STUB_FAIL_INDEX_ONCE")) {
       const marker = path.join(library, `.stub-fail-once-${Buffer.from(name, "utf8").toString("hex")}`);
       if (!fs.existsSync(marker)) {
@@ -146,13 +198,12 @@ async function runStub(call: BridgeCall): Promise<BridgeOutcome> {
     } else if (bytes.includes("STUB_FAIL_INDEX")) {
       return { ok: false, code: "knowledge_index_failed", message: "stub：索引失败（测试标记）" };
     }
-    let hash = 0;
-    for (const ch of `${name}:${Date.now()}:${Math.random()}`) hash = (hash * 31 + ch.charCodeAt(0)) % 0xffffffff;
-    const docId = `pi_stub_${hash.toString(16)}`;
+    const docId = `pi_stub_${createHash("sha256").update(path.resolve(input)).update("\0").update(bytes).digest("hex").slice(0, 24)}`;
     const entries = readStubLibrary(library).filter((entry) => entry.path !== input);
-    entries.push({ doc_id: docId, name, pages: 1, path: input });
+    entries.push({ doc_id: docId, name, pages: pages.length, path: input });
     writeStubLibrary(library, entries);
-    return { ok: true, doc_id: docId, pages: 1, elapsed_ms: 1 };
+    writeStubPages(library, docId, pages);
+    return { ok: true, doc_id: docId, pages: pages.length, elapsed_ms: 1 };
   }
   if (call.cmd === "ask") {
     const library = argValue(call.args, "--library");
@@ -177,6 +228,7 @@ async function runStub(call: BridgeCall): Promise<BridgeOutcome> {
     const library = argValue(call.args, "--library");
     const docId = argValue(call.args, "--doc-id");
     writeStubLibrary(library, readStubLibrary(library).filter((entry) => entry.doc_id !== docId));
+    fs.rmSync(path.join(library, "docs", docId), { recursive: true, force: true });
     return { ok: true };
   }
   return { ok: false, code: "knowledge_index_unavailable", message: `stub 不支持命令 ${call.cmd}` };

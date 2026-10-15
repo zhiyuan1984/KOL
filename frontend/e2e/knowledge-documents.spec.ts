@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { expect, test, type APIRequestContext, type APIResponse, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type APIResponse, type Browser, type Page } from "@playwright/test";
+import { processExecutionJobById } from "../../backend/src/execution-jobs/dispatcher";
 import { knowledgeReviewDefinition } from "../../shared/review";
 import { prepareNativeKnowledgeAdmin } from "./fixtures/native-knowledge-admin";
+import { nativeKnowledgeAuth, reviewerContext } from "./fixtures/native-knowledge-auth";
 
 /**
  * 非结构化资料流水线（P1，stub 引擎专用）：
@@ -85,34 +87,116 @@ async function openStage(page: Page, path: string, stage: string): Promise<void>
   await expect(page.locator("[data-knowledge-right]")).toHaveAttribute("data-kb-active-stage", stage);
 }
 
-/**
- * Create a genuine, published knowledge-publication template through the
- * current review APIs. The named reviewer is the same native test principal
- * established above; this never changes roles, spoofs an operator, or skips
- * the later L3 submission confirmation.
- */
-async function ensurePublishedKnowledgeTemplate(request: APIRequestContext): Promise<void> {
-  const current = await jsonOk<Array<{ id: string; version: number; publishedVersion?: number | null; definition?: { subjectType?: string } }>>(
+type PublicationTemplate = {
+  id: string;
+  version: number;
+  publishedVersion?: number | null;
+  definition?: {
+    name?: string;
+    subjectType?: string;
+    nodes?: Array<{ type?: string; assignee?: { kind?: string; userIds?: string[] } }>;
+  };
+};
+
+function isPublishedIndependentTemplate(template: PublicationTemplate): boolean {
+  const reviewer = template.definition?.nodes?.find((node) => node.type === "review");
+  return Boolean(
+    template.publishedVersion
+      && template.definition?.name === nativeKnowledgeAuth.template.name
+      && template.definition.subjectType === "knowledge_publication"
+      && reviewer?.assignee?.kind === "named"
+      && reviewer.assignee.userIds?.length === 1
+      && reviewer.assignee.userIds[0] === nativeKnowledgeAuth.template.reviewerId,
+  );
+}
+
+/** Creates the same published, independent-reviewer template that native setup validates. */
+async function ensurePublishedKnowledgeTemplate(request: APIRequestContext): Promise<PublicationTemplate> {
+  const current = await jsonOk<PublicationTemplate[]>(
     await request.get("/api/admin/approval-types/v2/templates"),
   );
-  const existing = current.find((template) => template.definition?.subjectType === "knowledge_publication" && template.publishedVersion);
-  if (existing) return;
+  const existing = current.find(isPublishedIndependentTemplate);
+  if (existing) return existing;
 
   const definition = knowledgeReviewDefinition();
   const review = definition.nodes.find((node) => node.type === "review");
   if (!review) throw new Error("知识发布模板必须包含人工审批节点");
-  review.assignee = { kind: "named", userIds: ["sriphy"] };
+  definition.name = nativeKnowledgeAuth.template.name;
+  review.assignee = { kind: "named", userIds: [nativeKnowledgeAuth.template.reviewerId] };
   const created = await jsonOk<{ id: string; version: number }>(await request.post("/api/admin/approval-types/v2/templates", {
-    data: { definition, creationKey: randomUUID() },
+    data: { definition, creationKey: nativeKnowledgeAuth.template.creationKey },
   }));
   const command = { action: "publish", templateId: created.id, expectedVersion: created.version };
   const prepared = await jsonOk<{ confirmationId: string }>(await request.post("/api/approvals/v2/prepare", { data: command }));
   await jsonOk(await request.post("/api/approvals/v2/commands", {
     data: { command, confirmationId: prepared.confirmationId, idempotencyKey: randomUUID() },
   }));
+  return { id: created.id, version: created.version, publishedVersion: created.version, definition };
 }
 
-test("上传 PDF → 待审 → 发布（L3 回执）→ 库详情试算返回答案与页级引用", async ({ page, request }) => {
+type ScopeSnapshot = { state: string; job?: { id?: string } | null };
+
+/** The browser server intentionally has no hidden worker; dispatch the durable queued job once in this isolated test. */
+async function processQueuedScope(request: APIRequestContext, documentId: string): Promise<void> {
+  const pending = await jsonOk<ScopeSnapshot>(await request.get(`/api/admin/knowledge/documents/${documentId}/scope`));
+  expect(pending.state).toBe("empty");
+  const jobId = String(pending.job?.id || "");
+  expect(jobId, "范围作业必须由服务端持久化入队").not.toBe("");
+  expect(await processExecutionJobById(jobId, "wave6-knowledge-admin-scope")).toMatchObject({
+    execution_job_id: jobId,
+    job_type: "knowledge.scope",
+    handled: true,
+    outcome: "processed",
+  });
+  await expect.poll(async () => {
+    const latest = await jsonOk<ScopeSnapshot>(await request.get(`/api/admin/knowledge/documents/${documentId}/scope`));
+    return latest.state;
+  }, { timeout: 15000, message: "范围作业必须从真实页级证据生成 candidate" }).toBe("candidate");
+}
+
+type ReviewDetail = { id: string; requester: string; version: number; allowedActions?: string[] };
+
+async function independentlyApprove(
+  browser: Browser,
+  requester: APIRequestContext,
+  reviewHref: string,
+): Promise<string> {
+  const reviewUrl = new URL(reviewHref, process.env.E2E_BASE || "http://127.0.0.1:8949");
+  const instanceId = reviewUrl.pathname.split("/").filter(Boolean).at(-1) || "";
+  expect(instanceId, "提交回执必须链接到真实审批实例").not.toBe("");
+  const reviewer = await reviewerContext(browser);
+  try {
+    const reviewerPage = await reviewer.newPage();
+    await reviewerPage.goto(reviewUrl.toString());
+    const apiUrl = (path: string) => new URL(path, reviewUrl.origin).toString();
+    const headers = { "X-Review-Company": nativeKnowledgeAuth.company };
+    const identity = await jsonOk<{ authenticated: boolean; account: { id: string }; permissions: { admin?: boolean } }>(
+      await reviewerPage.request.get(apiUrl("/api/auth/status")),
+    );
+    expect(identity).toMatchObject({ authenticated: true, account: { id: nativeKnowledgeAuth.template.reviewerId }, permissions: { admin: false } });
+    const detail = await jsonOk<ReviewDetail>(
+      await reviewerPage.request.get(apiUrl(`/api/approvals/v2/instances/${instanceId}`), { headers }),
+    );
+    expect(detail.requester).toBe("sriphy");
+    expect(detail.allowedActions).toContain("approve");
+    const decision = { action: "approve", instanceId, expectedVersion: detail.version, reason: "已核对原文与冻结版本" };
+    const requesterDenied = await requester.post("/api/approvals/v2/prepare", { headers, data: decision });
+    expect(requesterDenied.status(), "申请人不得审核自己的知识发布").toBe(422);
+    const prepared = await jsonOk<{ confirmationId: string }>(
+      await reviewerPage.request.post(apiUrl("/api/approvals/v2/prepare"), { headers, data: decision }),
+    );
+    const approved = await reviewerPage.request.post(apiUrl("/api/approvals/v2/commands"), {
+      headers,
+      data: { command: decision, confirmationId: prepared.confirmationId, idempotencyKey: randomUUID() },
+    });
+    expect(approved.ok(), await approved.text()).toBeTruthy();
+    return instanceId;
+  } finally {
+    await reviewer.close();
+  }
+}
+
+test("上传 PDF → 待审 → 发布（L3 回执）→ 库详情试算返回答案与页级引用", async ({ page, request, browser }) => {
   // Keep the legacy coverage sequence, but route every visual action through
   // the current creation stage, document rail and publication-v2 form.
   // Native auth has no persona-elevation endpoint. In that explicit config,
@@ -127,7 +211,7 @@ test("上传 PDF → 待审 → 发布（L3 回执）→ 库详情试算返回�
     expect((await api.post("/api/me/persona", { data: { persona: "sriphy" } })).ok()).toBeTruthy();
   }
   const baseId = await ensureBase(api);
-  await ensurePublishedKnowledgeTemplate(api);
+  const template = await ensurePublishedKnowledgeTemplate(api);
   await cleanupStaleDocs(api, baseId);
   const title = `e2e-doc-${Date.now()}`;
   const fileName = `${title}.pdf`;
@@ -156,6 +240,7 @@ test("上传 PDF → 待审 → 发布（L3 回执）→ 库详情试算返回�
   // 2) 真实进度推进到待审（以服务端状态为准）
   const doc = await waitDocumentStatus(api, baseId, title, "pending_review");
   const docId = String(doc.id);
+  await processQueuedScope(api, docId);
 
   // 3) 原位 processing/detail：先核对服务端生成的范围，才允许进入审批。
   await openStage(page, `/admin/knowledge?stage=published&mode=detail&assetType=document&assetId=${docId}`, "published");
@@ -170,8 +255,11 @@ test("上传 PDF → 待审 → 发布（L3 回执）→ 库详情试算返回�
   await page.getByRole("button", { name: "提交审批", exact: true }).click();
   await expect(page.locator("[data-workspace-mode='review']")).toBeVisible();
   const publication = page.getByRole("region", { name: "知识发布审批" });
-  await expect(publication.getByLabel("审批流程")).toHaveValue(/.+/);
-  const submit = publication.locator("[data-kbv-doc-action='submit']");
+  const templatePicker = publication.getByLabel("审批流程");
+  if (process.env.E2E_AUTH_MODE === "enabled") await templatePicker.selectOption(template.id);
+  await expect(templatePicker).toHaveValue(template.id);
+  await publication.getByLabel("发布说明").fill("已核对上传原文、范围与适用对象后提交独立审批");
+  const submit = page.locator("[data-kbv-doc-action='submit']");
   await expect(submit).toBeEnabled();
   await submit.click();
   const confirmation = page.getByRole("dialog", { name: "确认提交知识发布审批" });
@@ -191,6 +279,19 @@ test("上传 PDF → 待审 → 发布（L3 回执）→ 库详情试算返回�
   await material.getByRole("button", { name: "试算", exact: true }).click();
   await expect(material).toContainText("这份资料讲了什么？");
   await expect(material.getByRole("link", { name: /原文第\d+页/ })).toHaveCount(1);
+
+  if (process.env.E2E_AUTH_MODE === "enabled") {
+    const instanceId = await independentlyApprove(browser, api, reviewUrl!);
+    expect(await processExecutionJobById(`knowledge-publish:${nativeKnowledgeAuth.company}:${instanceId}`, "wave6-knowledge-admin-publication")).toMatchObject({
+      job_type: "knowledge.publication",
+      handled: true,
+      outcome: "processed",
+    });
+    await expect.poll(async () => {
+      const detail = await jsonOk<{ document: { status: string } }>(await api.get(`/api/admin/knowledge/documents/${docId}`));
+      return detail.document.status;
+    }, { timeout: 15000, message: "独立批准后的持久发布作业必须真实发布资料" }).toBe("published");
+  }
 
   // 6) 归档收尾：不再参与检索，留给下次运行干净环境。
   const archived = await api.post(`/api/admin/knowledge/documents/${docId}/archive`);

@@ -273,8 +273,16 @@ test("KolMailCard treats auto_advanced as a suggestion, not a written stage", as
   await expect(mail).not.toContainText("已按事实进入");
   await expect(mail.locator("[data-mail-confirm]")).toHaveCount(0);
   await expect(mail.locator("[data-mail-stage-select]")).toHaveCount(0);
-  const confirm = page.locator("[data-workbench] [data-kind='confirm-stage-card']");
+  // The L3 stage control is deliberately in a closed result-rail details panel;
+  // open its normal summary rather than exposing or invoking any stage action.
+  const confirmationDetails = page.locator("[data-workbench] details").filter({ hasText: "正式阶段变更 · 独立确认" });
+  await expect(confirmationDetails).toHaveCount(1);
+  await expect(confirmationDetails).not.toHaveAttribute("open", "");
+  await confirmationDetails.locator("summary").click();
+  await expect(confirmationDetails).toHaveAttribute("open", "");
+  const confirm = confirmationDetails.locator("[data-kind='confirm-stage-card']");
   await expect(confirm).toBeVisible();
+  await expect(confirm).toHaveAttribute("data-risk", "L3");
   await expect(confirm.locator("[data-confirm-stage]")).toBeVisible();
   await saveScreenshot(page, "chat_auto_advanced_as_suggestion.png");
 });

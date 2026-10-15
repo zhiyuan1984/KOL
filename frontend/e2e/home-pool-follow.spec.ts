@@ -291,7 +291,8 @@ test("public pool restores the central interaction and uses a structured right r
   await expect(center.locator("[data-composer-input]")).toBeVisible();
   await expect(rail).toBeVisible();
   await expect(rail.locator("[data-pool-toolbar]")).toBeVisible();
-  await expect(rail.locator("[data-pool-filter='new']")).toHaveText("未首次建联");
+  await expect(rail.locator("[data-pool-filter='new']")).toHaveText("未首次建联1");
+  await expect(rail.locator("[data-pool-filter-count='new']")).toHaveText("1");
   await expect(rail.locator("[data-pool-filter='overdue']")).toHaveText("14天未联系");
   await expect(rail.locator("[data-pool-sort='ingested']")).toBeVisible();
   await expect(rail.locator("[data-pool-sort='followers']")).toBeVisible();
@@ -788,8 +789,13 @@ test("follow cards stay object cards and brief prefers 拒信", async ({ page })
   await expect(page.locator('button[data-followed-situation="refused"]')).toContainText("核对已拒绝的 1 位对象");
   await expect(page.locator('[data-followed-stage-group="connect"]')).toBeVisible();
   await expect(page.locator("[data-kol-work-card]").first()).toBeVisible();
-  // No mail fact must not fabricate a 14-day clock or a stage-write action.
-  await expect(page.locator("[data-kol-chip='countdown']")).toHaveCount(0);
+  // Refused has no mail fact and therefore no clock; the separate near row
+  // keeps the server-authoritative 14-day countdown rather than hiding it.
+  const refused = page.locator('[data-followed-kol="小美妆日记"]');
+  const near = page.locator('[data-followed-kol="旅行充电站"]');
+  await expect(refused.locator("[data-kol-chip='countdown']")).toHaveCount(0);
+  await expect(near.locator("[data-kol-chip='countdown']")).toHaveText("剩 2 天");
+  await expect(near.locator("[data-kol-chip='countdown']")).toHaveAttribute("title", /14 天无有效互动/);
   await expect(page.locator("[data-discovery-candidate]")).toHaveCount(0);
   await page.locator("[data-followed-select]").first().check();
   await expect(page.locator("[data-analyze-selected]")).toBeEnabled();
@@ -823,7 +829,7 @@ test("claim is L3 and posts confirm to /api/kols/:kolUid/claim", async ({ page }
   expect((await compactRow.locator("[data-kol-avatar='source']").boundingBox())?.width).toBe(24);
   await expect(compactRow).not.toContainText("公开资料");
   await expect(compactRow.locator("[data-pool-reason]")).toHaveCount(0);
-  await expect(compactRow.locator(".pool-profile-link")).toHaveText("主页");
+  await expect(compactRow.locator("[data-kol-card-link]")).toHaveText("主页");
   await expect(compactRow).not.toContainText("领取后进入我的跟进");
   // 明确领取未建联的有主行：无主行排在前面，不能靠「第一张卡」取对象。
   await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").click();

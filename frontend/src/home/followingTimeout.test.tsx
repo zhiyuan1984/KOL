@@ -41,3 +41,32 @@ it('unexpected read rejection reaches terminal failure and explicit retry can co
     expect(current!.error).toBe('');
   } finally {await act(async()=>root.unmount());}
 });
+
+it('caller entry effect registered before the hook survives scope reset on mount and actor change', async () => {
+  const div = document.createElement('div');
+  const root = createRoot(div);
+  let current: ReturnType<typeof useFollowedWorkspace>;
+  const ref = { current: null as ReturnType<typeof useFollowedWorkspace> | null };
+  const latestFollowScope = { current: null };
+  const setFollowScope = vi.fn();
+  mocks.load.mockResolvedValue({ items: [], follow_scope: null });
+  function Harness({ actor }: { actor: string }) {
+    // Deliberately reproduce Home.tsx: entry effect is declared before the hook.
+    React.useEffect(() => { void ref.current!.ensureLoaded(); }, [actor]);
+    current = useFollowedWorkspace({ readScopeKey: actor, loadBoard: async () => true, boardKols: () => [],
+      followScope: null, latestFollowScope, setFollowScope, selectedIds: [], todoItems: [],
+      openTask: async () => {}, onFillComposer: () => {}, navigate: () => {}, onError: () => {}, onReleased: async () => {} });
+    ref.current = current;
+    return <span>{current.completeness}</span>;
+  }
+  try {
+    await act(async () => { root.render(<Harness actor="actor-a" />); });
+    expect(current!.completeness).toBe('complete');
+    expect(current!.loading).toBe(false);
+    expect(mocks.load).toHaveBeenCalledTimes(1);
+    await act(async () => { root.render(<Harness actor="actor-b" />); });
+    expect(current!.completeness).toBe('complete');
+    expect(current!.loading).toBe(false);
+    expect(mocks.load).toHaveBeenCalledTimes(2);
+  } finally { await act(async () => root.unmount()); }
+});

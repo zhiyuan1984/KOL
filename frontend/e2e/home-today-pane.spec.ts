@@ -303,7 +303,8 @@ test("today pane shows today-scheduled work items including unpromoted source=ai
   await expect(page.locator('[data-today-todo="tsk_ai_overdue"]')).toContainText("逾期");
   await expect(page.locator('[data-today-todo="tsk_due"]')).toContainText("今天到期");
   await expect(page.locator('[data-today-todo="tsk_run"]')).toContainText("进行中");
-  await expect(page.locator('[data-today-todo="tsk_approval"]')).toContainText("审批中");
+  await expect(page.locator('[data-today-todo="tsk_approval"]')).toHaveAttribute("data-board-status", "approval");
+  await expect(page.locator('[data-today-todo="tsk_approval"]')).toContainText("等审批");
   await expect(page.locator('[data-today-todo="tsk_queued"], [data-today-todo="tsk_open"], [data-today-todo="tsk_ai_open"]')).toHaveCount(0);
   await expect(page.locator('[data-today-todo="tsk_high"] [data-today-todo-act]')).toHaveText("处理");
   await expect(page.locator('[data-today-todo="tsk_approval"] [data-today-todo-act]')).toHaveText("去审批");

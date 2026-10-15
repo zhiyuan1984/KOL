@@ -132,6 +132,9 @@ async function stubHomeTodos(page: Page, todos: Array<Record<string, unknown>>) 
   // The displayed todo rows are owned by the scope result-memory endpoint,
   // not by the retired board projection.
   await page.route(/\/api\/home\/todo-tasks(?:\?.*)?$/, (route) => route.fulfill({ json: { items: todos } }));
+  await page.route(/\/api\/workbench\/tasks(?:\?.*)?$/, (route) => route.fulfill({
+    json: { items: todos, page: { next_cursor: null } },
+  }));
   await page.route(/\/api\/tasks(?:\?.*)?$/, (route) => route.fulfill({ json: todos }));
 }
 
@@ -266,7 +269,8 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
   await expect(card.locator('[data-kol-chip="countdown"]')).toHaveAttribute("title", /14 天无有效互动/);
   await expect(card.locator('[data-kol-chip="mailbox"]')).toHaveCount(0);
   await expect(card.locator("[data-latest-fact]")).toContainText("我对这次合作有兴趣");
-  await expect(card.locator("[data-latest-fact]")).toContainText("邮件 ·");
+  await expect(card.locator("[data-latest-fact]")).toHaveAttribute("data-fact-kind", "inbound");
+  await expect(card.locator("[data-latest-fact]")).toContainText("最近互动 · 邮件摘要");
   await expect(card.locator("[data-latest-fact]")).not.toContainText("From:");
   await expect(card.locator("[data-latest-fact]")).not.toContainText("Reply-To");
   await expect(card.locator("[data-recommended-action]")).toContainText("建议进入「已回复 · 有兴趣」");

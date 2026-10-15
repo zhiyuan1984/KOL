@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { expect, test, type APIRequestContext, type APIResponse, type Page } from "@playwright/test";
-import { knowledgeReviewDefinition } from "../../shared/review";
-import { prepareNativeKnowledgeAdmin } from "./fixtures/native-knowledge-admin";
+import { expect, test, type APIRequestContext, type APIResponse, type Browser, type Page } from "@playwright/test";
+import { nativeKnowledgeAuth, reviewerContext } from "./fixtures/native-knowledge-auth";
+import { nativeKnowledgeReviewer, prepareNativeKnowledgeAdmin } from "./fixtures/native-knowledge-admin";
 
 /**
  * 知识库问题模板：管理端操作 → 用户端可见（真实链路，不 stub 问题模板接口）。
@@ -20,7 +20,10 @@ import { prepareNativeKnowledgeAdmin } from "./fixtures/native-knowledge-admin";
  */
 
 const MISSING_COPY = "问题模板未在管理端知识库发布，该入口暂不可用。";
-const E2E_TITLE = "E2E 样例 · 公海评分提问模板";
+// Run-scoped identity prevents a prior interrupted native publication from
+// colliding with this run while still allowing the cleanup prefix to remove
+// durable historical fixtures through the product's archive path.
+const E2E_TITLE = `E2E 样例 · 公海评分提问模板 · ${randomUUID()}`;
 const E2E_BODY = "请按公开资料给这些 KOL 打潜力与风险两个分（0-100），说明口径、依据与置信度，并列出资料缺口。";
 
 const POOL_ITEM = {
@@ -82,8 +85,15 @@ async function cleanupE2eRows(request: APIRequestContext) {
     const id = String(row.id || "");
     const status = String(row.status || "");
     if (!id || status === "archived") continue;
-    if (status === "draft") await request.delete(`/api/admin/knowledge/${id}`);
-    else await request.post(`/api/admin/knowledge/${id}/archive`);
+    if (status === "draft") {
+      // An interrupted native publication leaves retained approval history on
+      // its draft. Keep the existing hard-delete cleanup for ordinary drafts,
+      // but archive history-bearing drafts rather than bypassing that guard.
+      const deleted = await request.delete(`/api/admin/knowledge/${id}`);
+      if (deleted.ok()) continue;
+    }
+    const archived = await request.post(`/api/admin/knowledge/${id}/archive`);
+    expect(archived.ok(), `清理 E2E 知识 ${id} 失败：${archived.status()} ${await archived.text()}`).toBeTruthy();
   }
 }
 
@@ -118,82 +128,89 @@ async function responseJson<T>(response: APIResponse, message: string): Promise<
   return response.json() as Promise<T>;
 }
 
-/** Binds the review node to the browser's actual authenticated principal, not a display persona. */
-async function currentPrincipalTemplate(request: APIRequestContext): Promise<{ id: string; version: number }> {
-  const status = await responseJson<{ authenticated: boolean; account: { id: string } | null }>(
-    await request.get("/api/auth/status"), "读取当前认证 principal 失败",
-  );
-  expect(status.authenticated).toBeTruthy();
-  expect(status.account?.id).toBeTruthy();
-  const principalId = status.account!.id;
+/**
+ * Uses the v2 template provisioned by native-auth infrastructure. Its reviewer
+ * is a distinct normal-login company member; this consumer never creates a
+ * requester-assigned workflow or substitutes a persona for an authenticated
+ * reviewer context.
+ */
+async function nativePublicationTemplate(request: APIRequestContext): Promise<{ id: string; version: number }> {
   const templates = await responseJson<Array<{
-    id: string; version: number; publishedVersion?: number | null;
+    id: string; publishedVersion?: number | null;
     definition?: { name?: string; subjectType?: string; nodes?: Array<{ type?: string; assignee?: { kind?: string; userIds?: string[] } }> };
   }>>(
-    await request.get("/api/admin/approval-types/v2/templates"), "读取知识发布流程失败",
+    await request.get("/api/admin/approval-types/v2/templates", { headers: { "X-Review-Company": nativeKnowledgeAuth.company } }),
+    "读取已发布的独立评审知识流程失败",
   );
-  const existing = templates.find((template) =>
-    template.publishedVersion
-    && template.definition?.name === "E2E 知识条目独立发布审批"
-    && template.definition.subjectType === "knowledge_publication"
-    && template.definition.nodes?.some((node) => node.type === "review" && node.assignee?.kind === "named" && node.assignee.userIds?.includes(principalId)),
-  );
-  if (existing) return { id: existing.id, version: Number(existing.publishedVersion) };
-
-  const definition = knowledgeReviewDefinition();
-  definition.name = "E2E 知识条目独立发布审批";
-  const reviewer = definition.nodes.find((node) => node.type === "review");
-  if (!reviewer) throw new Error("知识发布流程必须包含独立人工审批节点");
-  reviewer.assignee = { kind: "named", userIds: [principalId] };
-  const created = await responseJson<{ id: string; version: number }>(
-    await request.post("/api/admin/approval-types/v2/templates", { data: { definition, creationKey: randomUUID() } }),
-    "创建当前 principal 的知识发布流程失败",
-  );
-  const publish = { action: "publish" as const, templateId: created.id, expectedVersion: created.version };
-  const confirmed = await responseJson<{ confirmationId: string }>(
-    await request.post("/api/approvals/v2/prepare", { data: publish }), "准备流程发布确认失败",
-  );
-  await responseJson(
-    await request.post("/api/approvals/v2/commands", { data: { command: publish, confirmationId: confirmed.confirmationId, idempotencyKey: randomUUID() } }),
-    "确认发布知识流程失败",
-  );
-  return { id: created.id, version: created.version };
+  const template = templates.find((item) => item.definition?.name === nativeKnowledgeAuth.template.name);
+  const reviewer = template?.definition?.nodes?.find((node) => node.type === "review");
+  expect(template, "原生认证夹具应提供已发布的知识条目 v2 流程").toBeTruthy();
+  expect(template?.publishedVersion, "流程必须使用已发布当前版本").toEqual(expect.any(Number));
+  expect(template?.definition?.subjectType).toBe("knowledge_publication");
+  expect(reviewer?.assignee).toEqual({ kind: "named", userIds: [nativeKnowledgeReviewer.id] });
+  return { id: template!.id, version: Number(template!.publishedVersion) };
 }
 
-/** Submission, human approval, and worker publication remain separate confirmed actions. */
-async function approveViaAdmin(request: APIRequestContext, id: string): Promise<void> {
-  const template = await currentPrincipalTemplate(request);
+/**
+ * The requester submits with its current published template version. It is
+ * explicitly denied self-review; a separate normal-login reviewer performs a
+ * fresh L3 prepare + command with the review instance's current version. The
+ * requester then reads the independently published result rather than calling
+ * a direct-publish endpoint.
+ */
+async function approveViaAdmin(request: APIRequestContext, browser: Browser, id: string): Promise<void> {
+  const headers = { "X-Review-Company": nativeKnowledgeAuth.company };
+  const template = await nativePublicationTemplate(request);
   const command = { templateId: template.id, templateVersion: template.version, values: {}, releaseNote: "E2E 验证独立提交、审批与发布链路" };
   const prepared = await responseJson<{ confirmationId: string }>(
-    await request.post(`/api/admin/knowledge/entries/${id}/publication-v2/prepare`, { data: command }),
+    await request.post(`/api/admin/knowledge/entries/${id}/publication-v2/prepare`, { headers, data: command }),
     "准备知识条目提交确认失败",
   );
   const submitted = await responseJson<{ instanceId: string; status: string }>(
-    await request.post(`/api/admin/knowledge/entries/${id}/publication-v2/submit`, { data: { command, confirmationId: prepared.confirmationId, idempotencyKey: randomUUID() } }),
+    await request.post(`/api/admin/knowledge/entries/${id}/publication-v2/submit`, { headers, data: { command, confirmationId: prepared.confirmationId, idempotencyKey: randomUUID() } }),
     "确认提交知识条目审批失败",
   );
   expect(submitted.status).toBe("submitted");
 
-  const review = await responseJson<{ id: string; version: number; status: string; allowedActions: string[] }>(
-    await request.get(`/api/approvals/v2/instances/${submitted.instanceId}`), "读取真实审批实例失败",
+  const requesterReview = await responseJson<{ id: string; version: number; status: string; allowedActions: string[] }>(
+    await request.get(`/api/approvals/v2/instances/${submitted.instanceId}`, { headers }), "读取请求者审批实例失败",
   );
-  expect(review.id).toBe(submitted.instanceId);
-  expect(review.status).toBe("reviewing");
-  expect(review.allowedActions).toContain("approve");
-  const decision = { action: "approve" as const, instanceId: review.id, expectedVersion: review.version, reason: "E2E 已核对条目内容、范围与预填负例。" };
-  const decisionConfirmation = await responseJson<{ confirmationId: string }>(
-    await request.post("/api/approvals/v2/prepare", { data: decision }), "准备真实审批确认失败",
-  );
-  await responseJson(
-    await request.post("/api/approvals/v2/commands", { data: { command: decision, confirmationId: decisionConfirmation.confirmationId, idempotencyKey: randomUUID() } }),
-    "确认真实审批失败",
-  );
+  expect(requesterReview.status).toBe("reviewing");
+  expect(requesterReview.allowedActions).not.toContain("approve");
+  const selfDecision = { action: "approve" as const, instanceId: requesterReview.id, expectedVersion: requesterReview.version, reason: "请求者不得自审" };
+  const selfPrepared = await request.post("/api/approvals/v2/prepare", { headers, data: selfDecision });
+  expect(selfPrepared.status(), `请求者自审必须被拒绝：${await selfPrepared.text()}`).toBe(403);
+
+  const context = await reviewerContext(browser);
+  try {
+    const reviewer = context.request;
+    const status = await responseJson<{ authenticated: boolean; account: { id: string; username: string } | null }>(
+      await reviewer.get("/api/auth/status"), "读取独立评审人认证状态失败",
+    );
+    expect(status).toMatchObject({ authenticated: true, account: { id: nativeKnowledgeReviewer.id, username: nativeKnowledgeReviewer.username } });
+    const review = await responseJson<{ id: string; version: number; status: string; allowedActions: string[] }>(
+      await reviewer.get(`/api/approvals/v2/instances/${submitted.instanceId}`, { headers }), "读取独立评审实例失败",
+    );
+    expect(review.status).toBe("reviewing");
+    expect(review.allowedActions).toContain("approve");
+    const decision = { action: "approve" as const, instanceId: review.id, expectedVersion: review.version, reason: "独立评审人已核对条目内容、范围与预填负例。" };
+    const decisionConfirmation = await responseJson<{ confirmationId: string }>(
+      await reviewer.post("/api/approvals/v2/prepare", { headers, data: decision }), "准备独立审批确认失败",
+    );
+    await responseJson(
+      await reviewer.post("/api/approvals/v2/commands", { headers, data: { command: decision, confirmationId: decisionConfirmation.confirmationId, idempotencyKey: randomUUID() } }),
+      "确认独立审批失败",
+    );
+  } finally {
+    await context.close();
+  }
+
   await expect.poll(async () => {
     const state = await responseJson<{ publication: { status: string; reviewStatus: string } | null }>(
-      await request.get(`/api/admin/knowledge/entries/${id}/publication-v2`), "读取独立发布状态失败",
+      await request.get(`/api/admin/knowledge/entries/${id}/publication-v2`, { headers }), "读取请求者侧独立发布状态失败",
     );
     return `${state.publication?.reviewStatus}:${state.publication?.status}`;
-  }, { timeout: 15000, message: "审批通过后应由独立发布作业完成，而非把审批伪装为发布" }).toBe("approved:published");
+  }, { timeout: 15000, message: "独立审批后应由发布作业完成，不得把审批伪装为直接发布" }).toBe("approved:published");
 }
 
 test.beforeAll(async () => { await prepareNativeKnowledgeAdmin(); });
@@ -212,10 +229,10 @@ test.afterEach(async ({ page }) => {
   await request.post("/api/demo/reset", { data: { workbench: true } }).catch(() => undefined);
 });
 
-test("归档槽位模板后，公海入口禁用并如实提示", async ({ page }) => {
+test("归档槽位模板后，公海入口禁用并如实提示", async ({ page, browser }) => {
   const request = page.request;
   const id = await createDraftViaAdmin(page, request);
-  await approveViaAdmin(request, id);
+  await approveViaAdmin(request, browser, id);
 
   // 只归档本 principal 刚通过独立发布链发布的条目；不把当前组织无权访问的旧 fixture 当作可归档资产。
   await page.goto(`/admin/knowledge/entries/${id}`);
@@ -237,7 +254,7 @@ test("归档槽位模板后，公海入口禁用并如实提示", async ({ page 
   await expect(riskEntry).not.toHaveAttribute("title", MISSING_COPY);
 });
 
-test("草稿未审批用户端不可见；发布后入口恢复并预填模板正文，点击不执行", async ({ page }) => {
+test("草稿未审批用户端不可见；发布后入口恢复并预填模板正文，点击不执行", async ({ page, browser }) => {
   const request = page.request;
   const jevPosts: string[] = [];
   page.on("request", (item) => {
@@ -254,7 +271,7 @@ test("草稿未审批用户端不可见；发布后入口恢复并预填模板�
   await expect(scoreEntry).toBeDisabled();
   await expect(scoreEntry).toHaveAttribute("title", MISSING_COPY);
 
-  await approveViaAdmin(request, id);
+  await approveViaAdmin(request, browser, id);
 
   await page.goto("/?tab=pool");
   await expect(scoreEntry).toBeEnabled();
@@ -269,10 +286,10 @@ test("草稿未审批用户端不可见；发布后入口恢复并预填模板�
   expect(jevPosts, "点击只预填草稿，不得直接调用评分接口").toEqual([]);
 });
 
-test("员工知识库能看到这条已发布的问题模板", async ({ page }) => {
+test("员工知识库能看到这条已发布的问题模板", async ({ page, browser }) => {
   const request = page.request;
   const id = await createDraftViaAdmin(page, request);
-  await approveViaAdmin(request, id);
+  await approveViaAdmin(request, browser, id);
 
   await page.goto("/kb");
   const kb = page.locator("[data-kb-page='mine']");

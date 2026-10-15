@@ -1458,6 +1458,7 @@ function rejectedBusyAction() {
   return {
     ...runtimeAction("rejected"),
     error_code: "runtime_probe_crawl_busy",
+    can_retry: true,
     execution: { id: "exec_disc_e2e", status: "failed", error_code: "runtime_probe_crawl_busy" },
     progress: {
       state: "rejected",
@@ -1499,18 +1500,20 @@ test("a confirm the server refused reads 未开始 in ⑥ instead of 进行中",
   // ⑤给出服务端结论与原因；服务端明确是「未执行」时不得把它改写成执行失败。
   const confirm = page.locator('[data-discovery-event="confirm"]');
   await expect(confirm).toContainText("未执行");
-  await expect(confirm.locator("[data-discovery-start-reason]")).toContainText("本次启动未执行");
   await expect(confirm.locator("[data-discovery-start-retry]")).toBeEnabled();
+  await expect(confirm.locator("[data-discovery-execution-progress]")).toContainText("本次启动未执行");
   // 网关在确认前拒绝：权威结果栏必须写「未开始」，不能借用「已停止」暗示
   // 曾经启动过采集。
   const resultStatus = page.locator('[data-scope-task-rail] [data-discovery-run-status]');
   await expect(resultStatus).toContainText("未开始");
   await expect(resultStatus).not.toContainText("已停止");
 
-  // 没有获 Host 接受的开始动作，⑥不能出现，更不能写进行中/已结束或给停止入口。
-  await expect(page.locator('[data-discovery-event="run"]')).toHaveCount(0);
-  await expect(page.locator("[data-discovery-flow]")).not.toContainText("进行中");
-  await expect(page.locator("[data-discovery-flow]")).not.toContainText("已结束");
+  // 确认曾抵达网关但服务端拒绝开始：⑥保留可核对的执行记录，却只能是「未开始」。
+  const run = page.locator('[data-discovery-event="run"]');
+  await expect(run).toHaveCount(1);
+  await expect(run.locator("[data-discovery-run-status]")).toContainText("未开始");
+  await expect(run.locator("[data-discovery-run-status]")).not.toContainText("进行中");
+  await expect(run.locator("[data-discovery-run-status]")).not.toContainText("已结束");
 });
 
 test("the newest proposal wins, so 核对后重试 shows a fresh 待确认 card", async ({ page }) => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, type StarryBinding, type Task } from "../api";
 import { storePending } from "../components/ChatBlocks";
 import { rememberJourney } from "../journey";
@@ -126,7 +126,10 @@ export function useFollowedWorkspace(options: {
   const releaseCheckRequired = useRef(new Set<string>());
   const verifiedFollowIds = useRef(new Map<string, string>());
 
-  useEffect(() => {
+  // Home registers its entry-loading passive effect before calling this hook.
+  // Reset the private scope before passive effects can start the new read;
+  // otherwise the later reset invalidates that only read forever.
+  useLayoutEffect(() => {
     readSeq.current += 1;
     reconcileSeq.current += 1;
     verifiedFollowIds.current.clear();

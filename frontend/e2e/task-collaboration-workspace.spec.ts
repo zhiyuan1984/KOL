@@ -41,7 +41,9 @@ test("opens the original Task workspace, restores after reload, and returns to t
   await expect(returnToTask).toHaveAttribute("href", "/tasks?businessTask=workspace-task");
   await returnToTask.click();
   await expect(page).toHaveURL(/\/tasks\?businessTask=workspace-task$/);
-  await expect(page.getByRole("dialog",{name:"AI 标准工单任务详情"})).toContainText("绑定原任务");
+  const taskDetail = page.getByRole("dialog").filter({ hasText: "绑定原任务" });
+  await expect(taskDetail).toHaveCount(1);
+  await expect(taskDetail).toContainText("复核当前依赖");
 });
 
 test("marks stale evidence and clears Task content on current permission revocation",async({page})=>{

@@ -5,7 +5,7 @@ import path from "node:path";
 const port = process.env.E2E_PORT || "8949";
 const baseURL = process.env.E2E_BASE || `http://127.0.0.1:${port}`;
 const outputDir = process.env.PLAYWRIGHT_OUTPUT_DIR
-  || "/home/ubuntu/kol-native-uiux-deploy/remediation/ui-release/wave5/native-auth-infra/results";
+  || "/home/ubuntu/kol-native-uiux-deploy/remediation/ui-release/wave6/native-auth-infra/results";
 const storageState = process.env.E2E_AUTH_STATE
   || path.join(outputDir || os.tmpdir(), "native-knowledge-auth", "sriphy.json");
 
@@ -15,7 +15,14 @@ const storageState = process.env.E2E_AUTH_STATE
  */
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: ["knowledge-documents.spec.ts", "native-knowledge-auth.spec.ts"],
+  testMatch: [
+    "knowledge-documents.spec.ts",
+    "knowledge-usage.spec.ts",
+    "knowledge-v2-home.spec.ts",
+    "knowledge-question-template-flow.spec.ts",
+    "product-knowledge.spec.ts",
+    "native-knowledge-auth.spec.ts",
+  ],
   outputDir,
   globalSetup: "./e2e/fixtures/native-knowledge-auth.ts",
   fullyParallel: false,
@@ -39,7 +46,7 @@ export default defineConfig({
       E2E_MODE: "stub",
       E2E_AUTH_MODE: "enabled",
       LINGONG_PORT: port,
-      LINGONG_DATA: process.env.LINGONG_DATA || "/home/ubuntu/kol-native-uiux-deploy/remediation/ui-release/wave5/native-auth-infra/data",
+      LINGONG_DATA: process.env.LINGONG_DATA || "/home/ubuntu/kol-native-uiux-deploy/remediation/ui-release/wave6/native-auth-infra/data",
       LINGONG_FRONTEND_DIST: process.env.LINGONG_FRONTEND_DIST || "/home/ubuntu/kol-native-uiux-deploy/remediation/ui-release/wave3/knowledge-admin/dist",
       E2E_SKIP_BUILD: "1",
     },

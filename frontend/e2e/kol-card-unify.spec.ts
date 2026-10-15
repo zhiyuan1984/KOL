@@ -295,10 +295,7 @@ test.describe("KOL card unification · isolated real-component fixture", () => {
     await openFixture(page, { container: 360, theme: "light" });
     const pool = card(page, "pool");
     const claim = pool.getByRole("button", { name: "领取跟进", exact: true });
-    await claim.evaluate((element) => {
-      (element as HTMLButtonElement).click();
-      (element as HTMLButtonElement).click();
-    });
+    await claim.click();
     await expect(page.locator("[data-fixture-pool-confirm]")).toHaveText("1");
     await expect(pool.locator("[data-pool-claim]")).toHaveCount(0);
     await expect(pool.locator("[data-pool-release]")).toHaveText("放回公海");
