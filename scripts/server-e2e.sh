@@ -1,36 +1,63 @@
 #!/usr/bin/env bash
-# 服务器端 E2E 运行器（stub + PostgreSQL 测试库）。
-# 用法：./scripts/server-e2e.sh [--rev <sha|ref>] [--no-build] [--no-schema] <spec...>
-#   --rev 默认 github/main；E2E_WORKERS 默认 1（预发机 2 核，稳妥起见）。
-# 前置：本 checkout 的 .env 指向测试库（如 lingong_e2e）；Playwright 浏览器已安装。
-# 说明：测试进程与预发/生产实例相互隔离（独立端口 8876、独立库、CODEX_MODE=stub），
-#       运行结束即退出；不会触碰 lingong.service 或其 frontend/dist。
-set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Isolated stub + native PostgreSQL staging runner. Never touches production.
+# --no-schema remains accepted for compatibility, but each fresh owned DB needs
+# the current schema even when the previous invocation already prepared its DB.
+set -Eeuo pipefail
+ROOT="${LINGONG_E2E_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 cd "$ROOT"
 REV="github/main"
 NOBUILD=0
-NOSCHEMA=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --rev) REV="${2:?缺少 --rev 的值}"; shift 2 ;;
+    --rev) REV="${2:?missing --rev value}"; shift 2 ;;
     --no-build) NOBUILD=1; shift ;;
-    --no-schema) NOSCHEMA=1; shift ;;
+    --no-schema) shift ;;
     *) break ;;
   esac
 done
-[ -f "$ROOT/.env" ] || { echo "缺少 $ROOT/.env（需指向测试库 DATABASE_URL）" >&2; exit 1; }
+[ -f "$ROOT/.env" ] || { echo 'Dedicated staging .env with a local test DATABASE_URL is required' >&2; exit 1; }
+# Serialize the checkout/build/port owner; independent CI runs cannot replace a
+# revision while another browser test is using it. Do not lock the live checkout.
+exec 9>"$ROOT/.git/lingong-e2e.lock"
+flock -n 9 || { echo 'Another staging E2E run owns this checkout' >&2; exit 1; }
+[ -z "$(git status --porcelain --untracked-files=no)" ] || { echo 'Refusing to replace tracked staging edits' >&2; exit 1; }
 git fetch github
-git reset --hard "$REV"
-echo "E2E revision: $(git log --oneline -1)"
-if [ "$NOSCHEMA" = "0" ]; then
-  ./scripts/apply-postgres-schema.sh >/dev/null
-  DB_URL="$(sed -n 's/^DATABASE_URL=//p' "$ROOT/.env" | head -1 | sed 's/^"//; s/"$//')"
-  (cd backend && DATABASE_URL="$DB_URL" npm run db:seed:reference >/dev/null)
-  echo "PostgreSQL schema + 参考数据已对齐"
-fi
+git checkout --detach "$REV"
+echo "E2E revision: $(git rev-parse HEAD)"
 if [ frontend/package-lock.json -nt frontend/node_modules ] 2>/dev/null; then (cd frontend && npm ci --no-audit --no-fund); fi
 if [ backend/package-lock.json -nt backend/node_modules ] 2>/dev/null; then (cd backend && npm ci --no-audit --no-fund); fi
-if [ "$NOBUILD" = "0" ]; then (cd frontend && npm run build); fi
+
+RECORD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/lingong-e2e-owner-XXXXXX")"
+RECORD="$RECORD_DIR/database.json"
+OWNER="$$"
+cleanup() {
+  code=$?
+  trap - EXIT
+  removed=1
+  if [ -f "$RECORD" ]; then
+    if ! node "$ROOT/backend/scripts/e2e-database.mjs" drop "$RECORD" "$OWNER"; then
+      echo 'Owned staging E2E cleanup failed; no forced disconnect or production write performed' >&2
+      code=1
+      removed=0
+      echo "Private owner record retained at $RECORD" >&2
+    fi
+  fi
+  if [ "$removed" = 1 ]; then rm -rf "$RECORD_DIR"; fi
+  exit "$code"
+}
+trap cleanup EXIT
+node "$ROOT/backend/scripts/e2e-database.mjs" create "$RECORD" "$OWNER"
+DATABASE_URL="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).url)' "$RECORD")"
+export DATABASE_URL
+export TEST_DB_PREFIX=lingong_t_server_e2e NODE_ENV=test
+export E2E_MODE=stub CODEX_MODE=stub CLAW_MODE=mock
+export E2E_AUTH_MODE=disabled AUTH_MODE=disabled LIVE_REMOTE_SIDE_EFFECTS=0
+export KNOWLEDGE_ENGINE_MODE=stub
+export RUNTIME_CREDENTIAL_MASTER_KEY="$(printf '%064d' 0)"
+export PLAYWRIGHT_OUTPUT_DIR="${PLAYWRIGHT_OUTPUT_DIR:-$ROOT/artifacts/e2e-$(git rev-parse --short HEAD)-$OWNER}"
+# Always initialize a NEW database; never migrate/reset the configured reference
+# test DB and never clone production facts or credentials.
+(cd backend && npm run db:apply:postgres-schema >/dev/null && npm run db:seed:reference >/dev/null && node_modules/.bin/tsx scripts/prepare-e2e-runtime.ts)
+if [ "$NOBUILD" = 0 ]; then (cd frontend && npm run build); fi
 cd frontend
-exec env E2E_SKIP_BUILD=1 npx playwright test "$@" --workers="${E2E_WORKERS:-1}"
+E2E_SKIP_BUILD=1 npx playwright test "$@" --workers="${E2E_WORKERS:-1}" --retries=0

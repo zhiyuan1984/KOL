@@ -108,6 +108,7 @@ jobs:
           NODE_ENV: test
         run: |
           python3 ../scripts/test-release-verified.py
+          node ../scripts/test-e2e-database.mjs
           npm run eval:kol
           npm run scan:redaction
           npm run rehearse:rollback
@@ -142,9 +143,9 @@ jobs:
           ssh-keyscan -H 47.88.94.205 >> ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ecs-user@47.88.94.205 \
-            "cd ~/kol-e2e && ./scripts/server-e2e.sh --rev '$E2E_REVISION' $E2E_SPECS"
+            "cd ~/kol-e2e && git fetch github '$E2E_REVISION' && git show '$E2E_REVISION:scripts/server-e2e.sh' | LINGONG_E2E_ROOT=\$PWD bash -s -- --rev '$E2E_REVISION' $E2E_SPECS"
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ecs-user@47.88.94.205 \
-            "cd ~/kol-e2e && ./scripts/server-e2e.sh --rev '$E2E_REVISION' --no-build --no-schema --config=playwright.runtime.config.ts"
+            "cd ~/kol-e2e && git show '$E2E_REVISION:scripts/server-e2e.sh' | LINGONG_E2E_ROOT=\$PWD bash -s -- --rev '$E2E_REVISION' --no-build --config=playwright.runtime.config.ts"
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ecs-user@47.88.94.205 \
             "cd ~/kol-e2e/frontend && npm run test:e2e:agents"
 

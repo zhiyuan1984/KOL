@@ -108,25 +108,7 @@ export async function dropTestDatabases(): Promise<void> {
           if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
         }
       }
-      if (failure) {
-        if (process.env.NODE_ENV === "test" && process.env.TEST_PG_CLEANUP_DIAGNOSTICS === "1") {
-          try {
-            const sessions = await admin.query(`SELECT pid,state,application_name,client_addr,client_port,
-              wait_event_type,wait_event,backend_start,state_change,
-              LEFT(regexp_replace(query, $2, $3, 'g'),300) AS query_shape
-              FROM pg_stat_activity WHERE datname=$1`, [name, "'[^']*'", "'?'"]);
-            console.error("TEST_PG_CLEANUP_SESSIONS", process.pid, name, JSON.stringify(sessions.rows));
-            const { execFileSync } = await import("node:child_process");
-            const sockets = execFileSync("ss", ["-ntp"], { encoding: "utf8" }).split("\n")
-              .filter((line) => /:543[23]\b/.test(line));
-            console.error("TEST_PG_CLEANUP_SOCKETS", sockets.join("\n"));
-            console.error("TEST_PG_CLEANUP_PROCESS_IDS", execFileSync("ps", ["-eo", "pid,ppid,comm"], { encoding: "utf8" }));
-          } catch (diagnosticError) {
-            console.error("TEST_PG_CLEANUP_DIAGNOSTIC_UNAVAILABLE", diagnosticError instanceof Error ? diagnosticError.name : "unknown");
-          }
-        }
-        failures.push(failure);
-      }
+      if (failure) failures.push(failure);
     }
     if (failures.length) throw new AggregateError(failures, "test database cleanup failed");
   } finally {
