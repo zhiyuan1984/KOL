@@ -2,8 +2,6 @@ import type { KnowledgeRow } from "./api";
 import { stageLabel } from "./labels";
 import { MAIN_STAGE_TABS } from "./kolStages";
 
-export const KB_FILL_STASH = "kb_fill_composer";
-
 export const HIDE_REASONS = [
   {
     code: "not_helpful",
@@ -104,12 +102,6 @@ export type LockedMailTemplate = {
   body_en?: string;
 };
 
-export type KbFillStash = LockedMailTemplate & {
-  starter?: string;
-  skill_id: string;
-  body?: string;
-};
-
 export function lockedTemplateFromRow(
   row: Pick<KnowledgeRow, "id" | "title"> & Partial<Pick<KnowledgeRow, "subject" | "body_en" | "body">>,
 ): LockedMailTemplate {
@@ -205,42 +197,6 @@ export function composerHoldsTemplateBody(value: string, body?: string): boolean
   const needle = compact(body || "");
   if (!needle) return false;
   return compact(value).includes(needle);
-}
-
-export function stashComposerFill(row: KnowledgeRow) {
-  const payload: KbFillStash = {
-    ...lockedTemplateFromRow(row),
-    body: row.body || "",
-    starter: composerStarter(row),
-    skill_id: row.skill_id || row.intent || "",
-  };
-  try {
-    sessionStorage.setItem(KB_FILL_STASH, JSON.stringify(payload));
-  } catch {
-    /* ignore quota / private mode */
-  }
-  return payload;
-}
-
-export function peekComposerFill(): KbFillStash | null {
-  try {
-    const raw = sessionStorage.getItem(KB_FILL_STASH);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as KbFillStash;
-    if (!parsed?.id) return null;
-    if (!composerFillText(parsed).trim()) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-export function clearComposerFill() {
-  try {
-    sessionStorage.removeItem(KB_FILL_STASH);
-  } catch {
-    /* ignore */
-  }
 }
 
 export function formatKbTime(value?: string) {

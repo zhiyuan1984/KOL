@@ -19,13 +19,11 @@ import {
   type SkillTemplate,
   type RuntimeActionView,
 } from "../api";
-import { ChatThread, clearComposerDraft, clearPending, employeeProcessLabel, takeComposerDraft, takePending, useSessionMessages, type ComposerDraft } from "../components/ChatBlocks";
-import { readSessionWorkDraft, saveSessionWorkDraft } from "../agents/browserState";
+import { ChatThread, clearPending, employeeProcessLabel, takePending, useSessionMessages } from "../components/ChatBlocks";
 import { RuntimeActions } from "../components/RuntimeActions";
 import { ReplyContextPanel } from "../mail/ReplyContextPanel";
 import ComposerDock, { type ComposerSubmit, type ComposerSuggestion, type SkillOption } from "../components/ComposerDock";
-import { peekComposerDraft, takeComposerDraftStash } from "../composer/draft";
-import { readWorkspaceDraft } from "../composer/taskDraft";
+import { clearSessionDraft, readDraft, readSessionWorkDraft, readWorkspaceDraft, saveSessionWorkDraft, takeDraft, takeSessionDraft, type ComposerDraft } from "../composer/draft";
 import { applyAddressesToText } from "../composer/addresses";
 import type { ComposerEntryIntent, ComposerObjectRef } from "../composer/types";
 import Markdown from "../components/Markdown";
@@ -597,8 +595,8 @@ export default function Chat() {
     }
     const fromNav = (location.state as { composerDraft?: ComposerDraft } | null)?.composerDraft;
     const savedWorkDraft = readSessionWorkDraft(account?.id || "", id);
-    const draft = takeComposerDraft(id) || (fromNav?.text ? fromNav : null) || savedWorkDraft;
-    const stashed = peekComposerDraft();
+    const draft = takeSessionDraft(id) || (fromNav?.text ? fromNav : null) || savedWorkDraft;
+    const stashed = readDraft({ page: "home" });
     if (!draft && !stashed) {
       setText("");
       setLockedIntent(null);
@@ -609,7 +607,7 @@ export default function Chat() {
       return;
     }
     if (stashed) {
-      takeComposerDraftStash();
+      takeDraft({ page: "home" });
       setText(stashed.text || draft?.text || "");
       setEntryIntent(stashed.intent || "free");
       setLockedIntent(draft?.intent || null);
@@ -706,7 +704,7 @@ export default function Chat() {
     setLockedKnowledgeId(null);
     setFocusDraft(false);
     setSubmitErr("");
-    clearComposerDraft(id);
+    clearSessionDraft(id);
     saveSessionWorkDraft(account?.id || "", id, { text: "" });
     stopRequestedRef.current = false;
     setPending(true);
@@ -1447,7 +1445,7 @@ export default function Chat() {
               setSkillParamErrors({});
               setSkillParamTouched(new Set());
               mailCompose.clear();
-              if (id) clearComposerDraft(id);
+              if (id) clearSessionDraft(id);
               if (id) saveSessionWorkDraft(account?.id || "", id, { text: "" });
             }}
             onSubmit={send}

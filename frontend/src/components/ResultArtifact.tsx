@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import type { TaskResultCard, TaskResultMetric, TaskResultSection } from "../api";
-import { ResultDraftPreview, storeComposerDraft } from "./ChatBlocks";
+import { ResultDraftPreview } from "./ChatBlocks";
+import { storeSessionDraft } from "../composer/draft";
 import Markdown from "./Markdown";
 import { SuggestedFollowTags } from "./FollowStyleTags";
 import { fieldLabel } from "../labels";
@@ -100,7 +101,7 @@ export function ResultActions({
                 <button
                   type="button"
                   onClick={() => {
-                    storeComposerDraft(sessionId, { text: item.prompt });
+                    storeSessionDraft(sessionId, { text: item.prompt });
                     onPrefill(item.prompt);
                   }}
                 >
