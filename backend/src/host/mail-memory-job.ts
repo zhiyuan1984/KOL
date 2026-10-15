@@ -7,6 +7,7 @@
 import { postgresQuery, postgresTransaction } from "../postgres/pool.js";
 import { safeEmployeeId } from "./starry-bind.js";
 import { acquireMailMemoryIncrementLock } from "./mail-memory-run-lock.js";
+import { trackBackgroundWork } from "../background-work.js";
 import {
   checkpointNativeMemoryRun,
   createNativeMemoryRun,
@@ -387,7 +388,7 @@ export async function runMailMemoryIncrement(mailbox?: string): Promise<MailMemo
 export async function triggerMailMemoryIncrement(mailbox?: string): Promise<Awaited<void>> {
   const key = mailbox || "*";
   if (inflight.has(key)) return;
-  const promise = (runMailMemoryIncrement(mailbox)
+  const promise = trackBackgroundWork(runMailMemoryIncrement(mailbox)
     .catch(async (err) => {
       // This is detached background work. A second database failure while
       // reporting the first must not reject an unobserved promise or stop the
@@ -406,7 +407,7 @@ export async function triggerMailMemoryIncrement(mailbox?: string): Promise<Awai
       }
       return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1 };
     })
-    .finally(() => inflight.delete(key)));
+    .finally(() => inflight.delete(key)), "mail.memory.increment");
   inflight.set(key, promise);
 }
 

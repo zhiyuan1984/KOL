@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { closePostgresPool, postgresPool, postgresTransaction } from "../src/postgres/pool.js";
 
-const originalDatabaseUrl = process.env.DATABASE_URL;
 let connect: ReturnType<typeof vi.spyOn>;
-beforeEach(() => {
-  process.env.DATABASE_URL = "postgresql://test:test@localhost/isolated_mock";
+beforeEach(async () => {
+  await closePostgresPool();
   connect = vi.spyOn(postgresPool(), "connect");
   vi.useFakeTimers();
 });
@@ -12,8 +11,6 @@ afterEach(async () => {
   vi.restoreAllMocks();
   await closePostgresPool();
   vi.useRealTimers();
-  if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-  else process.env.DATABASE_URL = originalDatabaseUrl;
 });
 function client() {
   return { query: vi.fn(async (sql: string) => ({ rows: [], command: sql.split(" ")[0], rowCount: 0 })), release: vi.fn() };

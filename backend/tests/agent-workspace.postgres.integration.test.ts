@@ -22,13 +22,13 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
  const database=`agent_workspace_${randomUUID().replaceAll('-','')}`,agentId="agent:release-test",actor="admin",stamp="2026-10-12T01:00:00.000Z";
  let maintenance:Pool,skillA:string,skillB:string;
  const oldUrl=process.env.DATABASE_URL,oldAuth=process.env.AUTH_MODE;
- const input=(ids=[skillB])=>({name:"修订后的岗位",description:"新的职责",skill_ids:ids,expected_revision:0,expected_version:1});
- const release=async (preparation_id:string,request_id=randomUUID())=>(await publishAgentRelease(actor,agentId,{preparation_id,request_id,confirmed:true}));
- beforeAll(async()=>{
-  maintenance=new Pool({connectionString:testDatabaseUrl});await maintenance.query(`CREATE DATABASE "${database}"`);
-  const url=new URL(testDatabaseUrl!);url.pathname=`/${database}`;process.env.DATABASE_URL=url.toString();
-  await promisify(execFile)(process.execPath,[path.resolve('node_modules/tsx/dist/cli.mjs'),'scripts/apply-postgres-schema.ts'],{cwd:process.cwd(),env:process.env,timeout:120000});
-  const db=await postgresPool().connect();try{const catalog=await agentSkillCatalog(db);const bundled=catalog.filter(value=>value.published&&!value.document_query);[skillA,skillB]=bundled.slice(0,2).map(value=>value.id);expect(skillB).toBeTruthy();}finally{db.release();}
+	 const input=(ids=[skillB])=>({name:"修订后的岗位",description:"新的职责",skill_ids:ids,expected_revision:0,expected_version:1});
+	 const release=async (preparation_id:string,request_id=randomUUID())=>(await publishAgentRelease(actor,agentId,{preparation_id,request_id,confirmed:true}));
+	 beforeAll(async()=>{
+	  maintenance=new Pool({connectionString:testDatabaseUrl});await maintenance.query(`CREATE DATABASE "${database}"`);
+	  const url=new URL(testDatabaseUrl!);url.pathname=`/${database}`;await resetConn();process.env.DATABASE_URL=url.toString();
+	  await promisify(execFile)(process.execPath,[path.resolve('node_modules/tsx/dist/cli.mjs'),'scripts/apply-postgres-schema.ts'],{cwd:process.cwd(),env:process.env,timeout:120000});
+	  const db=await postgresPool().connect();try{const catalog=await agentSkillCatalog(db);const bundled=catalog.filter(value=>value.published&&!value.document_query);[skillA,skillB]=bundled.slice(0,2).map(value=>value.id);expect(skillB).toBeTruthy();}finally{db.release();}
   await postgresPool().query("INSERT INTO users(id,username,name,password_hash,roles,active,created_at,updated_at) VALUES('admin','admin','管理员','unusable','[\"admin\"]',1,$1,$1),('employee','employee','员工','unusable','[\"employee\"]',1,$1,$1)",[stamp]);
   await postgresPool().query("INSERT INTO organization_people(person_ref,user_id,display_name,created_at,updated_at) VALUES('person-admin','admin','管理员',$1,$1),('person-employee','employee','员工',$1,$1)",[stamp]);
   await postgresPool().query("INSERT INTO organization_units(id,company_id,type,level,parent_id,display_name,head_person_ref,created_at,updated_at) VALUES('company','company','company',1,NULL,'测试公司','person-admin',$1,$1),('department','company','department',2,'company','测试部门',NULL,$1,$1)",[stamp]);

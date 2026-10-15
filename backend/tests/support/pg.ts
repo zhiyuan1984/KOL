@@ -1,5 +1,5 @@
-import { fileURLToPath } from "node:url";
 import fs from "node:fs";
+import path from "node:path";
 /**
  * 测试用 PostgreSQL：每个用例从模板库拷一个全新库（文件级拷贝，实测 ~0.2s），跑完统一 DROP。
  *
@@ -76,8 +76,10 @@ export async function freshTestDatabase(options: { empty?: boolean; reclaimPrevi
   const { runtimeActionEventSchema } = await import("../../src/runtime/action-event-schema.js");
   await postgresPool().query(runtimeActionEventSchema);
   // Formal domain extensions are executed only against this newly created test DB.
+  // The test runner's cwd is backend. Vite's web transform rewrites dynamic
+  // new URL(..., import.meta.url) in sibling jsdom tests into browser asset URLs.
   for (const filename of ["032_review_postgres.sql", "033_credential_native_default.sql", "042_organization_native_postgres.sql", "043_mail_send_native.sql", "044_mail_memory_native_cache.sql", "045_skill_presentation_overlays.sql"]) {
-    await postgresPool().query(fs.readFileSync(fileURLToPath(new URL(`../../migrations/${filename}`, import.meta.url)), "utf8"));
+    await postgresPool().query(fs.readFileSync(path.resolve(process.cwd(), "migrations", filename), "utf8"));
   }
   return name;
 }
