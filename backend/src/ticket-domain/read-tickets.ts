@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { HttpFail } from "../host/errors.js";
 import { postgresPool } from "../postgres/pool.js";
 
@@ -155,7 +156,7 @@ export async function listNativeTickets(userId: string, query: Record<string, st
   if (cursor) { params.push(cursor.updated_at, cursor.id); where.push(`(t.updated_at < $${params.length - 1} OR (t.updated_at = $${params.length - 1} AND t.id < $${params.length}))`); }
   params.push(limit + 1);
 
-  const result = await postgresPool().query<TicketRow>(
+  const result = await postgresConnection().query<TicketRow>(
     `SELECT t.id,t.task_id,t.title,t.goal,t.status,t.priority,t.business_category,t.stage_group,t.stage_code,t.due_at,t.no_due_reason,
             t.data_version,t.created_at,t.updated_at,t.owner_user_id,
             pa.assignee_person_ref,pa.assignee_user_id,pa.org_unit_id AS assignee_org_unit_id,
@@ -272,7 +273,7 @@ export async function nativeTicketById(userId: string, ticketId: string) {
 
 export async function nativeTicketTimeline(userId: string, ticketId: string, after: number, limit: number) {
   const ticket = await nativeTicketById(userId, ticketId);
-  const result = await postgresPool().query<{
+  const result = await postgresConnection().query<{
     id: string; sequence: number; event_type: string; event_class: string; label: string; status: string; safe_summary: string | null; time: string;
   }>(
     `SELECT id,sequence,event_type,event_class,label,status,safe_summary,time

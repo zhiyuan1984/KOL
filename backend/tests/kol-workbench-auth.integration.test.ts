@@ -42,7 +42,7 @@ afterEach(async () => {
 describe("KOL workbench session authentication", () => {
   it("serves both real KOL list routes with the existing workbench cookie, including concurrent reads", async () => {
     const responses = await Promise.all(paths.flatMap(url => Array.from({ length: 3 }, async () =>
-      (await app.request(url, { headers: { Cookie: cookie } })),
+      (app.request(url, { headers: { Cookie: cookie } })),
     )));
     for (const response of responses) {
       expect(response.status).toBe(200);

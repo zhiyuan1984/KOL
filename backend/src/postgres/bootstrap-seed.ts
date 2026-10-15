@@ -1,7 +1,7 @@
 import type { DatabaseConnection } from "../db.js";
 import { nowIso } from "../db.js";
 import { HttpFail } from "../host/errors.js";
-import { SKILL_CATALOG } from "../host/skills-catalog.js";
+import { skillCatalog } from "../host/skills-catalog.js";
 import type { Row } from "../types.js";
 const MAIL_SKILLS = ["email_compose"] as const;
 type QuestionTemplateSlot = "potential" | "risk" | "completeness" | "score";
@@ -23,7 +23,7 @@ export async function seedDirectory(db: DatabaseConnection): Promise<void> {
   (await db.query("INSERT INTO memberships (id, user_handle, scope, scope_id) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING", ["mem_lingong_org","lingong","org","org_litime"]));
   const ts = nowIso();
   const ins = "INSERT INTO skill_grants (id, skill_id, scope, scope_id, granted_by, granted_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING";
-  for (const s of SKILL_CATALOG) {
+  for (const s of await skillCatalog()) {
     (await db.query(ins, [`gr_org_${s.id}`,s.id,"org","org_litime","sriphy",ts]));
   }
 }

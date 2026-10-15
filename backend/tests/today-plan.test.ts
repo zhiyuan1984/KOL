@@ -127,7 +127,7 @@ describe("today_plan harness", () => {
     const plannerUser = "user_workspace_planner";
     (await getConn().query("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",[plannerUser,"workspace-planner","工作规划员工","not-for-login",JSON.stringify(["employee"]),"[]","",1,"now","now"]));
     // 人员资格锚点是 Agent（ADR-2026-10-03）：未绑定的账号即使技能是 authenticated 也不放行。
-    await expect((async () => (await assertRuntimeSkill({
+    await expect((async () => (assertRuntimeSkill({
       agentId: "agent:workspace-planner", skillId: "today_plan", userId: plannerUser, runId: "planning-preflight-denied",
     })))()).rejects.toThrow(/runtime_agent_not_usable/);
     (await getConn().query("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2",[plannerUser,"person:ye_guanwang"]));
@@ -135,24 +135,24 @@ describe("today_plan harness", () => {
       agent_id: "agent:workspace-planner", target_type: "organization_unit", target_id: "org:lt_team",
       company_id: "company:amperetime", source: "test",
     }));
-    await expect((async () => (await assertRuntimeSkill({
+    await expect((async () => (assertRuntimeSkill({
       agentId: "agent:workspace-planner", skillId: "today_plan", userId: plannerUser, runId: "planning-preflight",
     })))()).resolves.not.toBeInstanceOf(Error);
     const audit = (await getConn().query("SELECT payload FROM audit_events WHERE event_type='runtime.workspace_planner.migrated'",[])).rows[0] as { payload: string };
     expect(JSON.parse(audit.payload)).toMatchObject({ agent_id: "agent:workspace-planner" });
   });
 
-  it("registers today_plan / todo_plan / today_analyze as read-only callable skills", () => {
+  it("registers today_plan / todo_plan / today_analyze as read-only callable skills", async () => {
     for (const id of ["today_plan", "todo_plan", "today_analyze"] as const) {
-      const definition = taskDefinition(id);
+      const definition = (await taskDefinition(id));
       expect(definition?.id).toBe(id);
       expect(definition?.side_effects).toBe("none");
       expect(definition?.creates_session).toBe(true);
       expect(definition?.auto_ok).toBe(false);
       expect(definition?.required_inputs).toEqual([]);
     }
-    expect(taskDefinition("today_plan")?.output).toBe("today_brief");
-    expect(taskDefinition("todo_plan")?.output).toBe("today_brief");
+    expect((await taskDefinition("today_plan"))?.output).toBe("today_brief");
+    expect((await taskDefinition("todo_plan"))?.output).toBe("today_brief");
   });
 
   describe.each(["today", "todo"] as const)("plan routes (%s)", (scope) => {
@@ -334,7 +334,7 @@ describe("today_plan harness", () => {
   });
 
   it("planning harness mount excludes send/follow tools and skills", async () => {
-    const mount = planningHarnessMount("today_plan");
+    const mount = (await planningHarnessMount("today_plan"));
     expect(mount.tools.join(",")).not.toMatch(/follow|send|confirm-stage|confirm_stage/i);
     expect(mount.skills).toEqual(["today_plan"]);
     expect(mount.forbidden).toEqual(expect.arrayContaining(["follow", "send", "confirm-stage"]));
@@ -348,7 +348,7 @@ describe("today_plan harness", () => {
     const harness = input.planning_harness as { tools?: unknown[]; skills?: unknown[] };
     expect(JSON.stringify(harness.tools || [])).not.toMatch(/follow|send|confirm-stage|confirm_stage/i);
     expect(JSON.stringify(harness.skills || [])).not.toMatch(/follow|send|confirm-stage|confirm_stage/i);
-    expect(taskDefinition("today_plan")?.mcp || []).toEqual([]);
+    expect((await taskDefinition("today_plan"))?.mcp || []).toEqual([]);
   });
 
   it("marks the parent plan failed when planning context setup throws", async () => {

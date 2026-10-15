@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import type { PoolClient } from "pg";
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
@@ -310,7 +311,7 @@ export async function recordVerifiedBusinessEventAndEvaluate(actorId: string, in
 
 export async function listTicketRuleEvaluations(limit = 50): Promise<Json> {
   const bounded = Math.min(Math.max(1, Math.floor(limit)), 200);
-  const rows = await postgresPool().query<Row>(
+  const rows = await postgresConnection().query<Row>(
     `SELECT evaluation.id,evaluation.rule_id,evaluation.rule_version,evaluation.outcome,evaluation.ticket_id,
             evaluation.business_scope,evaluation.details_json,evaluation.evaluated_at,evaluation.evaluated_by,
             rule.title AS rule_title,rule.rule_type,

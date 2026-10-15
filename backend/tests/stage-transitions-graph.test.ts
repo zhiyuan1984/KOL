@@ -137,7 +137,7 @@ describe("hostConfirmStage enforces the graph (no LIVE)", () => {
     expect(jumped.stage_code).toBe("CONTENT_PLANNING");
 
     (await insertCollab("col_graph_auto", "graph-auto", "CONTRACTING"));
-    (await expect((async () => (await hostConfirmStage(
+    (await expect((async () => (hostConfirmStage(
       "graph-auto",
       "CONTENT_PLANNING",
       "col_graph_auto",

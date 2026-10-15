@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { resolveSecretReference } from "../runtime/credentials.js";
 import { Hono } from "hono";
 import { authDisabled, isAdmin, requireConnector, scopedUser } from "../auth.js";
@@ -11,12 +12,12 @@ import type { Json, Row } from "../types.js";
 export const crawlRouter = new Hono();
 function owner(): string { return scopedUser()?.id || (authDisabled() ? DEMO_USER.id : ""); }
 async function task(id: string): Promise<Row> {
-  const row = (await postgresPool().query<Row>("SELECT * FROM tickets WHERE id=$1", [id])).rows[0];
+  const row = (await postgresConnection().query<Row>("SELECT * FROM tickets WHERE id=$1", [id])).rows[0];
   if (!row || (!isAdmin() && String(row.owner_user_id) !== owner())) throw new HttpFail(404, "task not found");
   return row;
 }
 async function jobForTask(taskId: string): Promise<Row> {
-  const row = (await postgresPool().query<Row>("SELECT * FROM crawl_jobs WHERE work_item_id=$1 ORDER BY created_at DESC LIMIT 1", [taskId])).rows[0];
+  const row = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE work_item_id=$1 ORDER BY created_at DESC LIMIT 1", [taskId])).rows[0];
   if (!row) throw new HttpFail(404, { code: "crawl_job_not_found", message: "未找到该采集任务。" });
   return row;
 }
@@ -43,5 +44,5 @@ async function requireCrawlIngest(c: { req: { header: (name: string) => string |
   requireConnector("claw", "write");
 }
 crawlRouter.post("/integrations/mediacrawler/creators", async (c) => { await requireCrawlIngest(c); const body = await c.req.json() as Json; return c.json(await ingestMediacrawler(body), 202); });
-crawlRouter.get("/creators/:platform/:platformId", async (c) => { const row = (await postgresPool().query<Row>("SELECT * FROM claw_creators WHERE platform=$1 AND platform_creator_id=$2", [c.req.param("platform"), c.req.param("platformId")])).rows[0]; if (!row) throw new HttpFail(404, "creator not found"); let payload: Json = {}; try { payload = JSON.parse(String(row.payload || "{}")) as Json; } catch { /* malformed legacy payload projects empty only */ } return c.json({ ...row, payload }); });
-crawlRouter.get("/creators/:platform/:platformId/score", async (c) => { const row = (await postgresPool().query<Row>(`SELECT score,score_details,followers,recent_views,collected_at FROM creator_snapshots WHERE platform=$1 AND platform_creator_id=$2 ORDER BY created_at DESC LIMIT 1`, [c.req.param("platform"), c.req.param("platformId")])).rows[0]; if (!row) throw new HttpFail(404, "creator score not found"); return c.json({ ...row, score_details: JSON.parse(String(row.score_details || "{}")), recent_views: JSON.parse(String(row.recent_views || "[]")) }); });
+crawlRouter.get("/creators/:platform/:platformId", async (c) => { const row = (await postgresConnection().query<Row>("SELECT * FROM claw_creators WHERE platform=$1 AND platform_creator_id=$2", [c.req.param("platform"), c.req.param("platformId")])).rows[0]; if (!row) throw new HttpFail(404, "creator not found"); let payload: Json = {}; try { payload = JSON.parse(String(row.payload || "{}")) as Json; } catch { /* malformed legacy payload projects empty only */ } return c.json({ ...row, payload }); });
+crawlRouter.get("/creators/:platform/:platformId/score", async (c) => { const row = (await postgresConnection().query<Row>(`SELECT score,score_details,followers,recent_views,collected_at FROM creator_snapshots WHERE platform=$1 AND platform_creator_id=$2 ORDER BY created_at DESC LIMIT 1`, [c.req.param("platform"), c.req.param("platformId")])).rows[0]; if (!row) throw new HttpFail(404, "creator score not found"); return c.json({ ...row, score_details: JSON.parse(String(row.score_details || "{}")), recent_views: JSON.parse(String(row.recent_views || "[]")) }); });

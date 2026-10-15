@@ -1,4 +1,4 @@
-import { isSqliteClosedError, isSqliteForeignKeyError, nowIso, tx, type DatabaseConnection } from "./db.js";
+import { isConnectionClosedError, isForeignKeyError, nowIso, tx, type DatabaseConnection } from "./db.js";
 import { nid } from "./ids.js";
 import type { Row } from "./types.js";
 
@@ -78,20 +78,20 @@ export async function appendTaskEventInConn(
   return row;
 }
 
-export function appendTaskEvent(
+export async function appendTaskEvent(
   workItemId: string,
   runId: string | null,
   eventType: string,
   label: string,
   status: string,
   safeSummary?: string,
-): Row | null {
+): Promise<Awaited<Row | null>> {
   try {
-    return tx(async (db) => (await appendTaskEventInConn(db, workItemId, runId, eventType, label, status, safeSummary)));
+    return (await tx(async (db) => (await appendTaskEventInConn(db, workItemId, runId, eventType, label, status, safeSummary))));
   } catch (error) {
     // Fire-and-forget worker follow-up can land after a test reset or after the
     // parent ticket was removed. Never surface that as an unhandled FK error.
-    if (isSqliteForeignKeyError(error) || isSqliteClosedError(error)) return null;
+    if (isForeignKeyError(error) || isConnectionClosedError(error)) return null;
     throw error;
   }
 }
@@ -100,7 +100,7 @@ export function appendTaskEvent(
  * Live process row for harness trace. Lifecycle rows are intentionally never
  * eligible for upsert: corrections must be new lifecycle events, not rewrites.
  */
-export function upsertTaskEvent(
+export async function upsertTaskEvent(
   workItemId: string,
   runId: string | null,
   itemKey: string,
@@ -108,14 +108,14 @@ export function upsertTaskEvent(
   label: string,
   status: string,
   safeSummary?: string,
-): Row | null {
+): Promise<Awaited<Row | null>> {
   const key = String(itemKey || "").trim().slice(0, 120);
   if (!key) return null;
   if (taskEventClass(eventType) !== "run_trace") {
     throw new Error(`task event ${eventType} is not a mutable run trace`);
   }
   try {
-    return tx(async (db) => {
+    return (await tx(async (db) => {
       if (!(await taskEventTarget(db, workItemId, runId))) return null;
       const summary = safeSummary?.slice(0, 1000) || null;
       const existing = (await db.query("SELECT id, sequence, time, created_at, event_class FROM task_events WHERE work_item_id=$1 AND item_key=$2",[workItemId,key])).rows[0] as { id: string; sequence: number; time: string; created_at: string; event_class?: string } | undefined;
@@ -158,9 +158,9 @@ export function upsertTaskEvent(
       };
       (await db.query("INSERT INTO task_events\n         (id,work_item_id,run_id,sequence,event_type,event_class,label,status,safe_summary,item_key,time,created_at)\n         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",[row.id,row.work_item_id,row.run_id,row.sequence,row.event_type,row.event_class,row.label,row.status,row.safe_summary,row.item_key,row.time,row.created_at]));
       return row;
-    });
+    }));
   } catch (error) {
-    if (isSqliteForeignKeyError(error) || isSqliteClosedError(error)) return null;
+    if (isForeignKeyError(error) || isConnectionClosedError(error)) return null;
     throw error;
   }
 }

@@ -55,7 +55,7 @@ const ACTOR_A = actor("label-suggestion-user-a");
 const ACTOR_B = actor("label-suggestion-user-b");
 
 async function within<T>(user: AppUser, fn: () => T | Promise<T>): Promise<T> {
-  return await withScopedUser(user, fn);
+  return withScopedUser(user, fn);
 }
 
 async function responseBody(response: Response): Promise<{ status: number; body: Record<string, unknown> }> {
@@ -142,20 +142,20 @@ function installDefaultApp(): void {
 }
 
 async function ask(user: AppUser, body: Record<string, unknown> = { box: BOX_A, conversation_id: CONVERSATION_A }) {
-  return responseBody(await within(user, async () => (await app.request("/actions/mail.label-suggestions", {
+  return responseBody(await within(user, async () => (app.request("/actions/mail.label-suggestions", {
     method: "POST", body: JSON.stringify(body),
   }))));
 }
 
 async function changeLabel(user: AppUser, body: Record<string, unknown>) {
-  return responseBody(await within(user, async () => (await app.request("/actions/mail.label", {
+  return responseBody(await within(user, async () => (app.request("/actions/mail.label", {
     method: "POST", body: JSON.stringify(body),
   }))));
 }
 
 async function getLabels(user: AppUser, box = BOX_A, conversationId = CONVERSATION_A) {
   const query = new URLSearchParams({ box, conversation_id: conversationId });
-  return responseBody(await within(user, async () => (await app.request(`/queries/mail.labels?${query.toString()}`))));
+  return responseBody(await within(user, async () => (app.request(`/queries/mail.labels?${query.toString()}`))));
 }
 
 async function clearDictionary(): Promise<void> {

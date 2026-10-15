@@ -6,9 +6,9 @@ import type { Json, Row } from "./types.js";
 import { parseTicketLifecycleReceipt, ticketAllowedLifecycleActions, validateTicketLifecycleCommand, type TicketTransitionInput, type TicketTransitionReceipt } from "./ticket-lifecycle-contract.js";
 
 /** Compatibility-only lifecycle implementation. PostgreSQL-only HTTP never imports this module. */
-export function transitionTicketLifecycle(input: TicketTransitionInput): TicketTransitionReceipt {
+export async function transitionTicketLifecycle(input: TicketTransitionInput): Promise<Awaited<TicketTransitionReceipt>> {
   validateTicketLifecycleCommand(input);
-  return tx(async (db) => (await transitionTicketLifecycleInConn(db, input)));
+  return (await tx(async (db) => (await transitionTicketLifecycleInConn(db, input))));
 }
 
 export async function transitionTicketLifecycleInConn(db: DatabaseConnection, input: TicketTransitionInput): Promise<Awaited<TicketTransitionReceipt>> {
@@ -41,7 +41,7 @@ export async function transitionTicketLifecycleInConn(db: DatabaseConnection, in
   const now = nowIso();
   const nextStatus = input.action === "complete" ? "completed" : input.action === "accept" ? "accepted" : input.action === "reopen" ? "pending" : "cancelled";
   const changed = (await db.query("UPDATE tickets SET status=$1, completed_at=CASE WHEN $2='completed' THEN $3 WHEN $4='pending' THEN NULL ELSE completed_at END,\n     updated_at=$5, data_version=data_version+1\n     WHERE id=$6 AND data_version=$7",[nextStatus,nextStatus,now,nextStatus,now,ticket.id,input.expectedVersion]));
-  if (!changed.changes) {
+  if (!(changed.rowCount ?? 0)) {
     throw new HttpFail(409, { code: "version_conflict", message: "工单已更新，请刷新后确认。", refresh: `/api/tickets/${ticket.id}` });
   }
 

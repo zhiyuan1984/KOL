@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { DEMO_ADMIN } from "../config.js";
 import { authDisabled, findUserForLogin, isAdmin } from "../auth.js";
 import { audit } from "../db.js";
@@ -18,7 +19,7 @@ export async function login(username: string, password: string): Promise<{
   if (u.toLowerCase() === "test") throw new HttpFail(401, "账号不存在");
   const nameOk = isDemoAdminIdentifier(u) || (await findUserForLogin(u))?.username === DEMO_ADMIN.handle;
   if (!nameOk || p !== DEMO_ADMIN.password) throw new HttpFail(401, "账号或密码不对");
-  await postgresPool().query(
+  await postgresConnection().query(
     "INSERT INTO app_state (key, value) VALUES ($1, $2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value",
     [AUTH_KEY, DEMO_ADMIN.handle],
   );
@@ -27,12 +28,12 @@ export async function login(username: string, password: string): Promise<{
 }
 
 export async function logout(): Promise<{ ok: true }> {
-  await postgresPool().query("DELETE FROM app_state WHERE key = $1", [AUTH_KEY]);
+  await postgresConnection().query("DELETE FROM app_state WHERE key = $1", [AUTH_KEY]);
   return { ok: true };
 }
 
 export async function authHandle(): Promise<string | null> {
-  const { rows } = await postgresPool().query<{ value: string }>("SELECT value FROM app_state WHERE key = $1", [AUTH_KEY]);
+  const { rows } = await postgresConnection().query<{ value: string }>("SELECT value FROM app_state WHERE key = $1", [AUTH_KEY]);
   return rows[0]?.value || null;
 }
 

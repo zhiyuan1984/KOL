@@ -151,7 +151,7 @@ export function annotateRemoteFailure(error: unknown): unknown {
 
 async function classifiedRemoteCall<T>(pending: Promise<T>): Promise<T> {
   try {
-    return await pending;
+    return pending;
   } catch (error) {
     throw annotateRemoteFailure(error);
   }
@@ -219,7 +219,7 @@ export class RemoteMcpClient {
 
   private async connect(): Promise<void> {
     if (this.closed) throw new Error("remote MCP client is closed");
-    if (!this.connecting) this.connecting = (await this.remoteCall((await this.client.connect(this.transport, { timeout: this.timeoutMs }))));
+    if (!this.connecting) this.connecting = (this.remoteCall((this.client.connect(this.transport, { timeout: this.timeoutMs }))));
     await this.connecting;
   }
 
@@ -232,7 +232,7 @@ export class RemoteMcpClient {
     let cursor: string | undefined;
 
     for (let page = 0; page < MAX_LIST_TOOLS_PAGES; page += 1) {
-      const result = await this.remoteCall((await this.client.listTools(
+      const result = await this.remoteCall((this.client.listTools(
         cursor === undefined ? {} : { cursor },
         { timeout: this.timeoutMs },
       )));
@@ -257,7 +257,7 @@ export class RemoteMcpClient {
   /** Forward an MCP tool result without normalization, including isError and content blocks. */
   async callToolRaw(name: string, args: Json = {}): Promise<Record<string, unknown>> {
     await this.connect();
-    return await this.remoteCall((await this.client.callTool(
+    return await this.remoteCall((this.client.callTool(
       { name, arguments: args },
       undefined,
       { timeout: this.timeoutMs },
@@ -284,7 +284,7 @@ export async function withRemoteMcp<T>(
 ): Promise<T> {
   const client = new RemoteMcpClient(options);
   try {
-    return await operation(client);
+    return operation(client);
   } finally {
     await client.close().catch(() => undefined);
   }

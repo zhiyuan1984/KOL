@@ -465,7 +465,7 @@ async function copyInTransaction(client: PoolClient, input: AccountAccessInput):
  */
 export async function pgCopyAccountAccess(input: AccountAccessInput): Promise<AccountAccessReport> {
   if (!input.apply) return planCopy(undefined, input);
-  return postgresTransaction(async (client) => (await copyInTransaction(client, input)), { isolation: "SERIALIZABLE" });
+  return postgresTransaction(async (client) => (copyInTransaction(client, input)), { isolation: "SERIALIZABLE" });
 }
 
 // Existing enterprise-account repository functions remain native PostgreSQL and

@@ -18,8 +18,8 @@ export const documentToolSchema: Json = {
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 };
 
-export function hasDocumentTool(skillId: string): boolean {
-  return requireTaskDefinition(skillId).mcp.includes(DOCUMENT_TOOL);
+export async function hasDocumentTool(skillId: string): Promise<Awaited<boolean>> {
+  return (await requireTaskDefinition(skillId)).mcp.includes(DOCUMENT_TOOL);
 }
 
 export async function documentDependencies(skillId: string): Promise<Awaited<Row[]>> {
@@ -39,7 +39,7 @@ export async function documentDependencies(skillId: string): Promise<Awaited<Row
 export async function invokeDocumentTool(context: RuntimeContext, args: Json, authorize: () => void): Promise<Json> {
   const check = async () => {
     authorize();
-    if (!hasDocumentTool(context.skillId)) throw new HttpFail(403, { code: "runtime_document_tool_unbound" });
+    if (!(await hasDocumentTool(context.skillId))) throw new HttpFail(403, { code: "runtime_document_tool_unbound" });
     return isKnowledgePreview(context)?[]:(await documentDependencies(context.skillId));
   };
   (await check());

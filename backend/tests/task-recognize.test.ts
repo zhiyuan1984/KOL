@@ -22,7 +22,7 @@ const QQ = "100705721@qq.com";
 const FIRST_TOUCH = `首封建联 发件: ${LARRY} 收件: ${QQ} 主题: LiTime MCP 连通测试`;
 
 async function request(method: string, url: string, body?: unknown) {
-  const response = await withScopedUser(employee, async () => (await app.request(url, {
+  const response = await withScopedUser(employee, async () => (app.request(url, {
     method,
     headers: { "Content-Type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),

@@ -68,15 +68,15 @@ export async function resumeEmployeeAgentSession(id: string, sessionId: string) 
 export async function employeeAgentWorkspace(id: string, sourceSession?: string): Promise<EmployeeAgentWorkspace> {
   const userId = actorId();
   const expert = await employeeExpert(id);
-  const agentId = agentForExpert(id);
+  const agentId = (await agentForExpert(id));
   const routes = await availableAgentRoutes(agentId);
-  const skills = routes.map(route => {
-    const definition = taskDefinition(route.task_type);
+  const skills = (await Promise.all(routes.map(async route => {
+    const definition = (await taskDefinition(route.task_type));
     return { id: route.task_type, name: route.title, summary: definition?.employee_summary || definition?.description || "" };
-  });
+  })));
   const knowledge: EmployeeAgentWorkspace["knowledge"] = [];
   for (const skill of skills) {
-    if (!hasDocumentTool(skill.id)) continue;
+    if (!(await hasDocumentTool(skill.id))) continue;
     const manifest = await runtimeKnowledgeManifest(skill.id, userId);
     knowledge.push({ skill_id: skill.id, skill_name: skill.name, bases: manifest.bases.map(base => ({
       id: base.id, name: base.name, document_count: base.documents.length,

@@ -1,3 +1,4 @@
+import { asyncFlatMap } from "../async-collections.js";
 import { knowledgeTaxonomyMutations } from "./knowledge-taxonomy.js";
 import { publicationLabels } from "../knowledge-publication/service.js";
 import { documentUploadBodyLimit } from "../knowledge/document-upload-limits.js";
@@ -151,9 +152,9 @@ knowledge.get("/approvals/v2/instances/:id/knowledge/file", async c => {
 
 // Skill templates are the knowledge module's read-only projection of published
 // manifests, not mail bodies or another independently editable execution source.
-knowledge.get("/knowledge/skill-templates", (c) => {
+knowledge.get("/knowledge/skill-templates", async (c) => {
   c.header("Cache-Control", "private, no-store");
-  return c.json(taskDefinitions().flatMap(async (definition) => {
+  return c.json((await asyncFlatMap((await taskDefinitions()), async (definition) => {
     if (!definition.employee_visible) return [];
     try {
       requireSkill(definition.id);
@@ -162,11 +163,11 @@ knowledge.get("/knowledge/skill-templates", (c) => {
       if (error instanceof HttpFail && error.status === 403) return [];
       throw error;
     }
-  }));
+  })));
 });
 knowledge.get("/knowledge/skill-templates/:skillId", async (c) => {
   c.header("Cache-Control", "private, no-store");
-  const definition = taskDefinition(c.req.param("skillId"));
+  const definition = (await taskDefinition(c.req.param("skillId")));
   if (!definition || !definition.employee_visible) throw new HttpFail(404, "skill template not found");
   requireSkill(definition.id);
   return c.json((await skillTemplate(definition)));
@@ -288,7 +289,7 @@ knowledge.get("/knowledge/documents/:id/file", async (c) => {
   if (!user) throw new HttpFail(401, "authentication required");
   const skillId = String(c.req.query("skill_id") || "");
   (await assertRuntimeSkill({ agentId: String(c.req.query("agent_id") || ""), skillId, userId: user.id, runId: "document-source" }));
-  if (!hasDocumentTool(skillId)) throw new HttpFail(403, "文档查询技能未启用");
+  if (!(await hasDocumentTool(skillId))) throw new HttpFail(403, "文档查询技能未启用");
   const manifest=await runtimeKnowledgeManifest(skillId,user.id);
   if(!manifest.bases.some(base=>base.documents.some(doc=>doc.id===c.req.param('id')))) throw new HttpFail(403,'资料不在当前技能的有效版本范围内');
   const ref = (await publishedDocumentSourceFile(c.req.param("id"), (await documentDependencies(skillId)).map((base) => String(base.id))));

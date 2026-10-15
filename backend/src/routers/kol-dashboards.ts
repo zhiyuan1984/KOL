@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { Hono } from "hono";
 import { requireTicketPrincipal, ticketIsAdmin } from "../ticket-domain/auth.js";
 import { HttpFail } from "../host/errors.js";
@@ -60,7 +61,7 @@ const EXCEPTION_KIND_LABELS: Record<string, string> = {
 const ACTIVE_COOP_WHERE = "archived_at IS NULL AND coop_stage <> 'exception'";
 
 async function q<T>(text: string, params: unknown[] = []): Promise<T[]> {
-  const r = await postgresPool().query(text, params);
+  const r = await postgresConnection().query(text, params);
   return r.rows as T[];
 }
 

@@ -1271,7 +1271,7 @@ describe("compose never asks first-touch for a conversation id", () => {
     });
     expect(String(followup.body || "")).toContain("Preview");
     calls.length = 0;
-    const sent = await withMailSendAuthority("adapter-first-touch", "adapter-confirmed-first-touch", async () => (await executeEmailMcpTask("email_compose", {
+    const sent = await withMailSendAuthority("adapter-first-touch", "adapter-confirmed-first-touch", async () => (executeEmailMcpTask("email_compose", {
       ...(await extractTaskEntities("确认发送")),
       ...followup,
     })));

@@ -129,7 +129,7 @@ export async function composeRecipientFor(input: {
   user?: Persona | null;
 }): Promise<ComposeRecipient> {
   const user = input.user || null;
-  const owned = (await ownMailboxSet(user || currentUserSafe()));
+  const owned = (await ownMailboxSet(user || (await currentUserSafe())));
   const mailbox = normalizeEmail(String(input.mailbox || ""));
 
   // 第 1 档：口令里写明的地址。写明了但属于本人/系统地址时不静默换人，
@@ -280,9 +280,9 @@ export async function composeRecipientFor(input: {
   };
 }
 
-function currentUserSafe(): Persona | null {
+async function currentUserSafe(): Promise<Awaited<Persona | null>> {
   try {
-    return currentUser();
+    return (await currentUser());
   } catch {
     return null;
   }

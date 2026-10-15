@@ -1,3 +1,4 @@
+import { asyncFilter } from "../async-collections.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { scopedUser } from "../auth.js";
 import { listManagedAgents } from "../runtime/managed-agents.js";
@@ -22,7 +23,7 @@ export async function availableAgentRoutes(agentId?: string): Promise<AgentRoute
     if (agent.status !== "published" || (agentId && agent.id !== agentId)) continue;
     for (const binding of (await getAgentSkills(agent.id))) {
       if (!binding.enabled) continue;
-      const skill = taskDefinition(String(binding.skill_id));
+      const skill = (await taskDefinition(String(binding.skill_id)));
       if (!skill) continue;
       try {
         await assertRuntimeSkill({ agentId: agent.id, skillId: skill.id, userId: user.id, runId: "agent-routing" });
@@ -44,7 +45,7 @@ export async function availableKnowledgeAgentRoutes(agentId?: string): Promise<A
   const routes=await availableAgentRoutes(agentId),user=scopedUser();
   if(!user)return [];
   const manifests=new Map<string,Awaited<ReturnType<typeof runtimeKnowledgeManifest>>>();
-  for(const id of [...new Set(routes.filter(r=>hasDocumentTool(r.task_type)).map(r=>r.task_type))]) {
+  for(const id of [...new Set((await asyncFilter(routes,async r=>(await hasDocumentTool(r.task_type)))).map(r=>r.task_type))]) {
     manifests.set(id,await runtimeKnowledgeManifest(id,user.id));
   }
   return routes.map(route=>{

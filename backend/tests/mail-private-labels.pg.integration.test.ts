@@ -45,7 +45,7 @@ const ACTOR_A = actor("label-user-a");
 const ACTOR_B = actor("label-user-b");
 
 async function within<T>(user: AppUser, fn: () => T | Promise<T>): Promise<T> {
-  return await withScopedUser(user, fn);
+  return withScopedUser(user, fn);
 }
 
 async function responseBody(response: Response): Promise<{ status: number; body: Record<string, unknown> }> {

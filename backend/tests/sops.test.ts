@@ -17,7 +17,7 @@ import { taskDefinitions } from "../src/tasks/registry.js";
 import { collectStageSopItems } from "../src/worker/session-items.js";
 
 describe("15 SOP packs", () => {
-  it("maps one versioned pack per main stage without per-stage skills", () => {
+  it("maps one versioned pack per main stage without per-stage skills", async () => {
     expect(SOP_PACKS).toHaveLength(15);
     expect(MAIN_STAGES).toHaveLength(15);
     expect(SOP_PACKS.map((row) => row.sop_id)).toEqual(MAIN_STAGES.map((row) => row.code));
@@ -25,14 +25,14 @@ describe("15 SOP packs", () => {
       expect(pack.version).toBe(SOP_VERSION);
       expect(pack).not.toHaveProperty("skill_id");
       expect(pack.inputs.length).toBeGreaterThan(0);
-      expect(taskDefinitions().some((row) => row.id === `sop_${pack.stage_code.toLowerCase()}`)).toBe(false);
+      expect((await taskDefinitions()).some((row) => row.id === `sop_${pack.stage_code.toLowerCase()}`)).toBe(false);
     }
   });
 
-  it("retires per-stage SOP skill names and leaves them unbound", () => {
+  it("retires per-stage SOP skill names and leaves them unbound", async () => {
     expect(matchSkillId("初步接触")).toBeNull();
     expect(matchSkillId("初步接触SOP")).toBeNull();
-    expect(taskDefinitions().some((row) => row.id.startsWith("sop_"))).toBe(false);
+    expect((await taskDefinitions()).some((row) => row.id.startsWith("sop_"))).toBe(false);
   });
 });
 
@@ -46,7 +46,7 @@ describe("eight SOP phases", () => {
     }
   });
 
-  it("outputs the eight-phase track and current official SOP", () => {
+  it("outputs the eight-phase track and current official SOP", async () => {
     const view = stageSopView("INITIAL_CONTACT");
     expect(view.phase_label).toBe("建联");
     expect(view.track).toHaveLength(8);
@@ -83,7 +83,7 @@ describe("eight SOP phases", () => {
     expect(isStageSopSkill("stage_sop")).toBe(true);
     expect(matchSkillId("阶段SOP")).toBe("stage_sop");
     expect(matchSkillId("八个阶段")).toBe("stage_sop");
-    expect(taskDefinitions().some((row) => row.id === "stage_sop")).toBe(true);
+    expect((await taskDefinitions()).some((row) => row.id === "stage_sop")).toBe(true);
   });
 });
 

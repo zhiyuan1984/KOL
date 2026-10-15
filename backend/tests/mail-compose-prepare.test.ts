@@ -271,7 +271,7 @@ describe("POST /api/actions/mail.prepare", () => {
     const scenarios: Array<{ id: string; disable: () => void; code: string }> = [
       {
         id: "mail_disabled",
-        disable: async () => (await getConn().query("UPDATE knowledge SET in_market=0 WHERE id=$1",["mail_disabled"])),
+        disable: async () => (getConn().query("UPDATE knowledge SET in_market=0 WHERE id=$1",["mail_disabled"])),
         code: "knowledge_disabled",
       },
       {
@@ -281,12 +281,12 @@ describe("POST /api/actions/mail.prepare", () => {
       },
       {
         id: "mail_hidden",
-        disable: async () => (await getConn().query("INSERT INTO knowledge_deprecations (user_id,knowledge_id,reason,reason_note,deprecated_at) VALUES ($1,$2,$3,$4,$5)",[DEMO_USER.id,"mail_hidden","outdated","hidden in test",new Date().toISOString()])),
+        disable: async () => (getConn().query("INSERT INTO knowledge_deprecations (user_id,knowledge_id,reason,reason_note,deprecated_at) VALUES ($1,$2,$3,$4,$5)",[DEMO_USER.id,"mail_hidden","outdated","hidden in test",new Date().toISOString()])),
         code: "knowledge_deprecated",
       },
       {
         id: "mail_uncited",
-        disable: async () => (await getConn().query("DELETE FROM knowledge_citations WHERE user_id=$1 AND knowledge_id=$2",[DEMO_USER.id,"mail_uncited"])),
+        disable: async () => (getConn().query("DELETE FROM knowledge_citations WHERE user_id=$1 AND knowledge_id=$2",[DEMO_USER.id,"mail_uncited"])),
         code: "knowledge_uncited",
       },
     ];
@@ -442,9 +442,9 @@ describe("mail compose edge invariants", () => {
     process.env.CODEX_MODE = "appserver";
     try {
       const { assertMailGatewayReady } = await import("../src/host/mail-send-confirmation.js");
-      await expect((async () => (await assertMailGatewayReady({ from_addr: "kol.lt@litime.example" })))()).rejects.toThrow("示例地址不能用于真实外发");
-      await expect((async () => (await assertMailGatewayReady({ from_addr: "sender@brand.com", cc: "reviewer@brand.com" })))()).rejects.toThrow("抄送契约");
-      await expect((async () => (await assertMailGatewayReady({ from_addr: "sender@brand.com", to_addr: "one@brand.com,two@brand.com" })))()).rejects.toThrow("单个收件人");
+      await expect((async () => (assertMailGatewayReady({ from_addr: "kol.lt@litime.example" })))()).rejects.toThrow("示例地址不能用于真实外发");
+      await expect((async () => (assertMailGatewayReady({ from_addr: "sender@brand.com", cc: "reviewer@brand.com" })))()).rejects.toThrow("抄送契约");
+      await expect((async () => (assertMailGatewayReady({ from_addr: "sender@brand.com", to_addr: "one@brand.com,two@brand.com" })))()).rejects.toThrow("单个收件人");
     } finally {
       if (previous === undefined) delete process.env.CODEX_MODE;
       else process.env.CODEX_MODE = previous;
@@ -505,16 +505,16 @@ describe("未指定发件箱时的默认发件箱", () => {
 
   it("sends from the mounted mailbox once it is inside the brand scope", async () => {
     (await bindMountedMailbox(MOUNTED, "LT"));
-    expect(async () => (await enforceSend((await draftRow(MOUNTED)) as never, DEMO_USER))).not.toThrow();
+    expect(async () => (enforceSend((await draftRow(MOUNTED)) as never, DEMO_USER))).not.toThrow();
   });
 
   it("still refuses an address that is neither a brand mailbox nor the user's own", async () => {
-    (await expect((async () => (await enforceSend((await draftRow("stranger@litime.com")) as never, DEMO_USER)))()).rejects.toThrow(/From 必须是品牌邮箱/));
+    (await expect((async () => (enforceSend((await draftRow("stranger@litime.com")) as never, DEMO_USER)))()).rejects.toThrow(/From 必须是品牌邮箱/));
   });
 
   it("refuses the mounted mailbox outside the user's brand scope", async () => {
     (await bindMountedMailbox(MOUNTED, "LT"));
     const restricted: Persona = { ...PERSONAS.permission_blocked };
-    (await expect((async () => (await enforceSend((await draftRow(MOUNTED)) as never, restricted)))()).rejects.toThrow(/From 必须是品牌邮箱/));
+    (await expect((async () => (enforceSend((await draftRow(MOUNTED)) as never, restricted)))()).rejects.toThrow(/From 必须是品牌邮箱/));
   });
 });

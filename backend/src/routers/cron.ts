@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { nid } from "../ids.js";
@@ -54,7 +55,7 @@ function cronPublicSummaryForViewer(job: Row, actor: TicketPrincipal): Json {
   return { ...pgCronPublicJobSummary(job), ...cronPublicReadFields(job, actor) };
 }
 
-function validateCondition(handlerKey: string, value: unknown): Json {
+async function validateCondition(handlerKey: string, value: unknown): Promise<Awaited<Json>> {
   const condition = value && typeof value === "object" && !Array.isArray(value) ? value as Json : {};
   if (handlerKey === "discovery-search") {
     return { ...condition, system_template: normalizeSystemTemplate(condition.system_template) };
@@ -64,7 +65,7 @@ function validateCondition(handlerKey: string, value: unknown): Json {
   if (!String(composer.text || "").trim()) throw new HttpFail(400, "请填写任务内容");
   const scope = composer.scope && typeof composer.scope === "object" ? composer.scope as Json : {};
   const skill = String(composer.intent || (Array.isArray(scope.skills) ? scope.skills[0] || "" : ""));
-  const definition = skill ? taskDefinition(skill) : undefined;
+  const definition = skill ? (await taskDefinition(skill)) : undefined;
   if (definition && definition.side_effects === "write") throw new HttpFail(400, "此技能不可无人在场自动执行");
   const schedule = condition.schedule && typeof condition.schedule === "object" ? condition.schedule as ScheduleWindow : {};
   if (!["recurring", "interval", "once"].includes(String(schedule.kind))) throw new HttpFail(400, "请选择周期、间隔或单次");
@@ -140,7 +141,7 @@ cron.post("/cron/jobs", async (c) => {
   assertHandlerGates(handlerKey);
   const cronExpr = String(body.cron_expr || "0 8 * * *");
   const timezone = String(body.timezone || "Asia/Shanghai");
-  const condition = validateCondition(handlerKey, body.condition);
+  const condition = (await validateCondition(handlerKey, body.condition));
   const next = nextFor(cronExpr, timezone, condition);
   if (handlerKey === "ai-task" && !next) throw new HttpFail(400, "生效区间内没有未来执行时间");
   const owner = user.id;
@@ -198,7 +199,7 @@ cron.patch("/cron/jobs/:id", async (c) => {
         system_template: normalizeSystemTemplate(incoming.system_template),
       };
     } else {
-      condition = validateCondition(String(job.handler_key), body.condition);
+      condition = (await validateCondition(String(job.handler_key), body.condition));
     }
     bump = true;
   }
@@ -254,7 +255,7 @@ cron.post("/cron/internal/tick", async (c) => {
 });
 
 async function nativeRiskItems(): Promise<Json[]> {
-  const rows = await postgresPool().query<Row>(
+  const rows = await postgresConnection().query<Row>(
     `SELECT t.id AS ticket_id,t.title,t.status,t.priority,t.due_at,t.business_category,t.stage_code,t.owner_user_id,
             pa.assignee_user_id,pa.assignee_person_ref
        FROM tickets t

@@ -184,15 +184,15 @@ function sanitizeReceipt(item: Json): Json {
   });
 }
 
-function writeOpenPool(input: {
+async function writeOpenPool(input: {
   kol_uid: string;
   candidate: Row;
   source_batch: string;
   platform: string;
   platform_creator_id: string;
-}): Row {
+}): Promise<Awaited<Row>> {
   const payload = parseJson(input.candidate.payload);
-  const profile = ingestFormalProfile({
+  const profile = (await ingestFormalProfile({
     kol_uid: input.kol_uid,
     handle: String(input.candidate.handle || input.candidate.nickname || input.platform_creator_id),
     display_name: String(input.candidate.nickname || input.candidate.handle || input.platform_creator_id),
@@ -208,15 +208,15 @@ function writeOpenPool(input: {
     platform_creator_id: input.platform_creator_id,
     pool_status: "open",
     company_id: memoryCompanyId(),
-  });
+  }));
   if (!profile) {
-    return upsertPublicProfile({
+    return (await upsertPublicProfile({
       kol_uid: input.kol_uid,
       ingest_source: "crawler",
       source_batch: input.source_batch,
       platform_creator_id: input.platform_creator_id,
       pool_status: "open",
-    });
+    }));
   }
   return profile;
 }
@@ -340,13 +340,13 @@ export async function ingestOne(input: {
   });
   const importedUid = String(imported.kol_uid || "");
   const finalUid = importedUid || kolUid;
-  const profile = writeOpenPool({
+  const profile = (await writeOpenPool({
     kol_uid: finalUid,
     candidate: input.candidate,
     source_batch: input.source_batch,
     platform: external.platform,
     platform_creator_id: external.platform_creator_id,
-  });
+  }));
   (await writeReceipt({
     company_id: companyId,
     source_batch: input.source_batch,

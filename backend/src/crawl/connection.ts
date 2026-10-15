@@ -41,12 +41,12 @@ const STATUS_MESSAGE: Record<CollectorStatus, string> = {
 
 type ProbeClient = Pick<RemoteMcpClient, "listTools" | "close">;
 
-let clientFactory: () => ProbeClient | Promise<ProbeClient> = async () => (await createMediaCrawlerClient());
+let clientFactory: () => ProbeClient | Promise<ProbeClient> = async () => (createMediaCrawlerClient());
 let fetchImpl: typeof fetch = fetch;
 let lastProbe: CollectorConnection | null = null;
 
 export function setCollectorProbeClientFactory(factory?: () => ProbeClient | Promise<ProbeClient>): void {
-  clientFactory = factory || (async () => (await createMediaCrawlerClient()));
+  clientFactory = factory || (async () => (createMediaCrawlerClient()));
 }
 
 export function setCollectorProbeFetch(fn?: typeof fetch): void {
@@ -71,7 +71,7 @@ export function probeTimeoutMs(): number {
 }
 
 export async function mediaCrawlerCredentialsPresent(): Promise<boolean> {
-  return (await mediaCrawlerConfigured());
+  return (mediaCrawlerConfigured());
 }
 
 async function snapshot(status: CollectorStatus, extras: Partial<CollectorConnection> = {}): Promise<CollectorConnection> {
@@ -104,10 +104,10 @@ async function snapshot(status: CollectorStatus, extras: Partial<CollectorConnec
 
 export async function getCollectorConnectionSnapshot(): Promise<CollectorConnection> {
   if (!(await mediaCrawlerCredentialsPresent())) {
-    return (await snapshot("not_configured", { credentials_present: false, reachable: false, connected: false }));
+    return (snapshot("not_configured", { credentials_present: false, reachable: false, connected: false }));
   }
   if (lastProbe) return lastProbe;
-  return (await snapshot("unchecked", { credentials_present: true, reachable: null, connected: null, checked_at: null }));
+  return (snapshot("unchecked", { credentials_present: true, reachable: null, connected: null, checked_at: null }));
 }
 
 async function mediaCrawlerUrl(): Promise<string> {
@@ -115,9 +115,9 @@ async function mediaCrawlerUrl(): Promise<string> {
 }
 
 async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timer: Awaited<ReturnType<typeof setTimeout>> | undefined;
   try {
-    return await Promise.race([
+    return Promise.race([
       operation,
       new Promise<T>((_, reject) => {
         timer = setTimeout(() => reject(new Error(`${label} timeout`)), timeoutMs);
@@ -160,7 +160,7 @@ async function httpHostUp(url: string, timeoutMs: number): Promise<boolean> {
 async function mcpInitializeOk(timeoutMs: number): Promise<boolean> {
   const client = (await clientFactory());
   try {
-    const tools = await withTimeout((await client.listTools()), timeoutMs, "collector probe");
+    const tools = await withTimeout((client.listTools()), timeoutMs, "collector probe");
     return Array.isArray(tools);
   } finally {
     await client.close().catch(() => undefined);
@@ -186,7 +186,7 @@ export async function probeMediaCrawlerConnection(): Promise<CollectorConnection
   const timeoutMs = probeTimeoutMs();
   const url = (await mediaCrawlerUrl());
   try {
-    const httpUp = await withTimeout((await httpHostUp(url, timeoutMs)), timeoutMs, "collector http");
+    const httpUp = await withTimeout((httpHostUp(url, timeoutMs)), timeoutMs, "collector http");
     if (!httpUp) {
       warnProbe("http_unreachable");
       lastProbe = (await snapshot("unreachable", { credentials_present: true, reachable: false, connected: false, checked_at: checkedAt }));

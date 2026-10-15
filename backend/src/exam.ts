@@ -46,8 +46,8 @@ async function itemRow(id: string): Promise<Row> {
   return asRow((await getConn().query("SELECT * FROM exam_items WHERE id=$1", [id])).rows[0] as Row | undefined, "exam item not found");
 }
 
-function examActor(): { id: string } {
-  if (authDisabled()) return currentUser();
+async function examActor(): Promise<Awaited<{ id: string }>> {
+  if (authDisabled()) return (await currentUser());
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
   return user;
@@ -498,19 +498,19 @@ examRouter.get("/admin/exam-scores", async (c) => {
   return c.json((await listScores()));
 });
 
-examRouter.get("/exams", async (c) => c.json((await listEmployeeAssignments(examActor().id))));
+examRouter.get("/exams", async (c) => c.json((await listEmployeeAssignments((await examActor()).id))));
 
-examRouter.post("/exams/:id/start", async (c) => c.json((await startAttempt(c.req.param("id"), examActor().id))));
+examRouter.post("/exams/:id/start", async (c) => c.json((await startAttempt(c.req.param("id"), (await examActor()).id))));
 
 examRouter.post("/exams/:id/submit", async (c) => {
-  const user = examActor();
+  const user = (await examActor());
   const body = (await c.req.json().catch(() => ({}))) as Json;
   const result = (await submitAttempt(c.req.param("id"), user.id, body));
   (await audit(user.id, "exam.submit", { assignment_id: c.req.param("id"), passed: result.passed, ignored_client_pass: true }));
   return c.json(result);
 });
 
-examRouter.get("/exams/:id/result", async (c) => c.json((await attemptResult(c.req.param("id"), examActor().id))));
+examRouter.get("/exams/:id/result", async (c) => c.json((await attemptResult(c.req.param("id"), (await examActor()).id))));
 
 export async function examDemoStatus(userId: string, name: string, brands: string[]): Promise<Json> {
   return {

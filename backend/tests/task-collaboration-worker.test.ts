@@ -35,7 +35,7 @@ beforeEach(async()=>{
 afterEach(()=>{for(const [key,value] of Object.entries(saved)) {if(value===undefined) delete process.env[key];else process.env[key]=value;} });
 async function execute() {
   const user=(await mapUser((await getConn().query("SELECT * FROM users WHERE id='usr_runtime_fixture'",[])).rows[0] as Row));
-  return withScopedUser(user,async ()=>(await Promise.resolve((await runWorker(sessionId,"kol_analyze","Explain the bound task")))));
+  return withScopedUser(user,async ()=>(Promise.resolve((await runWorker(sessionId,"kol_analyze","Explain the bound task")))));
 }
 describe("fixed native Task evidence in the existing app-server protocol",()=>{
   it("passes actual Task evidence to one turn with no mounted tools or formal task writes",async()=>{

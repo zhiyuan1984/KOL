@@ -4,7 +4,7 @@ const fs=require('node:fs'),path=require('node:path'),ts=require('typescript');
 const root=process.cwd(),manual=[];
 const cfg=ts.readConfigFile(path.join(root,'tsconfig.json'),ts.sys.readFile);
 const parsed=ts.parseJsonConfigFileContent(cfg.config,ts.sys,root);
-const sourcePaths=parsed.fileNames.filter(x=>/^(src|tests|mcp|scripts)\//.test(path.relative(root,x))&&x.endsWith('.ts'));
+const sourcePaths=ts.createProgram(parsed.fileNames,parsed.options).getSourceFiles().filter(f=>!f.isDeclarationFile&&/^(src|tests|mcp|scripts)\//.test(path.relative(root,f.fileName))).map(f=>f.fileName);
 function apply(text,edits){edits.sort((a,b)=>a.start-b.start||b.end-a.end);let end=-1;const out=[];for(const e of edits)if(e.start>=end){out.push(e);end=e.end;}for(const e of out.reverse())text=text.slice(0,e.start)+e.text+text.slice(e.end);return text;}
 function hasAwait(node){if(ts.isAwaitExpression(node))return true;let found=false;ts.forEachChild(node,n=>{if(!ts.isFunctionLike(n)&&hasAwait(n))found=true;});return found;}
 function unparen(n){while(n&&ts.isParenthesizedExpression(n))n=n.expression;return n;}
@@ -43,11 +43,11 @@ for(let pass=0;pass<7;pass++){
      }else if(isArray&&['sort','reduce','flatMap'].includes(method))warn(n,'async '+method+' requires explicit ordering/accumulator transformation');
     }
     const signature=checker.getResolvedSignature(n);
-    if(signature&&isPromise(checker.getReturnTypeOfSignature(signature))&&!ts.isAwaitExpression(n.parent)&&!inVoid(n)&&!promiseAssertion(n)){
+    if(signature&&isPromise(checker.getReturnTypeOfSignature(signature))&&!ts.isAwaitExpression(n.parent)&&!inVoid(n)&&!promiseAssertion(n)&&!isPromise(checker.getContextualType(n))){
      let parent=n.parent;
      if(ts.isPropertyAccessExpression(parent)&&['then','catch','finally'].includes(parent.name.text)) {ts.forEachChild(n,visit);return;}
      if(ts.isPropertyAccessExpression(n.expression)&&['then','catch','finally'].includes(n.expression.name.text)&&ts.isExpressionStatement(parent)){ts.forEachChild(n,visit);return;}
-     if(ts.isReturnStatement(parent)){ts.forEachChild(n,visit);return;}
+     if(ts.isReturnStatement(parent)){let owner=parent.parent;while(owner&&!ts.isFunctionLike(owner))owner=owner.parent;if(owner&&(owner.modifiers?.some(m=>m.kind===ts.SyntaxKind.AsyncKeyword)||/^Promise\s*</.test(owner.type?.getText(file)||''))){ts.forEachChild(n,visit);return;}}
      edits.push({start:n.getStart(file),end:n.end,text:`(await ${n.getText(file)})`});return;
     }
    }

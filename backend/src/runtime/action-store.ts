@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { randomUUID } from "node:crypto";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
 import { HttpFail } from "../host/errors.js";
@@ -23,7 +24,7 @@ export type RuntimeActionClaim = { claimed: boolean; action: RuntimeAction };
 export async function proposeRuntimeAction(input: {
   context: RuntimeContext; connectorId: string; tool: string; args: Json; snapshot: string; proposalKey: string;
 }): Promise<RuntimeAction> {
-  const { rows } = await postgresPool().query<RuntimeAction>(`INSERT INTO runtime_actions
+  const { rows } = await postgresConnection().query<RuntimeAction>(`INSERT INTO runtime_actions
     (id,actor_id,session_id,context_json,connector_id,tool_name,args_json,snapshot,proposal_key,state)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending')
     ON CONFLICT(proposal_key) DO UPDATE SET proposal_key=EXCLUDED.proposal_key RETURNING *`,
@@ -33,7 +34,7 @@ export async function proposeRuntimeAction(input: {
 }
 
 export async function runtimeAction(id: string, actor: string): Promise<RuntimeAction> {
-  const { rows } = await postgresPool().query<RuntimeAction>("SELECT * FROM runtime_actions WHERE id=$1 AND actor_id=$2", [id, actor]);
+  const { rows } = await postgresConnection().query<RuntimeAction>("SELECT * FROM runtime_actions WHERE id=$1 AND actor_id=$2", [id, actor]);
   if (!rows[0]) throw new HttpFail(404, { code: "runtime_action_not_found" });
   return rows[0];
 }
@@ -113,13 +114,13 @@ export async function waitForRuntimeActionTerminal(id: string, actor: string, ti
 
 /** A locally verified pre-claim rejection must not overwrite another executor's claim. */
 export async function rejectPendingRuntimeAction(id: string, actor: string, snapshot: string, code: string): Promise<boolean> {
-  const result = await postgresPool().query(`UPDATE runtime_actions SET state='rejected',error_code=$4,updated_at=now()
+  const result = await postgresConnection().query(`UPDATE runtime_actions SET state='rejected',error_code=$4,updated_at=now()
     WHERE id=$1 AND actor_id=$2 AND snapshot=$3 AND state='pending' RETURNING id`, [id, actor, snapshot, code]);
   return result.rowCount === 1;
 }
 
 export async function finishRuntimeAction(id: string, state: "succeeded" | "rejected" | "uncertain", receipt: Json | null, code?: string): Promise<boolean> {
-  const result = await postgresPool().query(`UPDATE runtime_actions SET state=$2,receipt_json=$3,error_code=$4,updated_at=now()
+  const result = await postgresConnection().query(`UPDATE runtime_actions SET state=$2,receipt_json=$3,error_code=$4,updated_at=now()
     WHERE id=$1 AND state='dispatching'`, [id, state, receipt ? JSON.stringify(receipt) : null, code || null]);
   return result.rowCount === 1;
 }

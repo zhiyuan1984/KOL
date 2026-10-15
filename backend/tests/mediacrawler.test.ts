@@ -186,18 +186,18 @@ describe("remote Streamable HTTP MCP", () => {
     try { expect((await client.listTools()).map((tool) => tool.name)).toContain("start_crawl"); }
     finally { await client.close(); }
     expect(() => new RemoteMcpClient()).toThrow("MCP URL");
-    await expect((async () => (await setConnectorConfig("claw", { url_env: "MEDIACRAWLER_MCP_URL", bearer_env: "MEDIACRAWLER_MCP_TOKEN" }, 1)))()).rejects.toThrow();
+    await expect((async () => (setConnectorConfig("claw", { url_env: "MEDIACRAWLER_MCP_URL", bearer_env: "MEDIACRAWLER_MCP_TOKEN" }, 1)))()).rejects.toThrow();
   });
 
   it("fails closed for disabled connectors and revoked vault credentials", async () => {
     (await getConn().query("UPDATE connectors SET enabled=0 WHERE id='claw'",[]));
     expect((await mediaCrawlerConfigured())).toBe(false);
-    await expect((async () => (await createMediaCrawlerClient()))()).rejects.toThrow();
+    await expect((async () => (createMediaCrawlerClient()))()).rejects.toThrow();
     (await getConn().query("UPDATE connectors SET enabled=1 WHERE id='claw'",[]));
     const reference = (await getConnectorConfig("claw"))!.config.bearer_secret_ref!;
     (await updateCredentialMetadata(reference, { status: "disabled", expected_version: 1 }));
     expect((await mediaCrawlerConfigured())).toBe(false);
-    await expect((async () => (await createMediaCrawlerClient()))()).rejects.toThrow();
+    await expect((async () => (createMediaCrawlerClient()))()).rejects.toThrow();
   });
 
   it("parses the remote URL and bearer credential from mcp_server.md", () => {

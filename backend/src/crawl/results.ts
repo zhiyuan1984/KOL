@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { HttpFail } from "../host/errors.js";
 import { normalizeMcpContent } from "../mcp/remote.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
@@ -46,10 +47,12 @@ export function candidateView(value: Json, platform: string): Json {
 }
 
 export async function collectCrawlResults(executionJob: ClaimedExecutionJob, checkpoint: () => Promise<void>,
-  createRuntime: (context: RuntimeContext) => SkillExecution | BackgroundToolInvoker | Promise<SkillExecution | BackgroundToolInvoker> = async (context) =>
-    isPlatformPrincipal(context.userId) ? (await backgroundToolRuntime(context)) : new SkillExecution(context)): Promise<Json> {
+  createRuntime?: (context: RuntimeContext) => SkillExecution | BackgroundToolInvoker | Promise<SkillExecution | BackgroundToolInvoker>): Promise<Json> {
+if (createRuntime === undefined) createRuntime = async (context) =>
+    isPlatformPrincipal(context.userId) ? (backgroundToolRuntime(context)) : new SkillExecution(context);
+
   const id = String(pgExecutionJobPayload(executionJob).crawl_id);
-  const job = (await postgresPool().query("SELECT * FROM runtime_crawl_jobs WHERE id=$1", [id])).rows[0];
+  const job = (await postgresConnection().query("SELECT * FROM runtime_crawl_jobs WHERE id=$1", [id])).rows[0];
   if (!job || !["succeeded", "cancelled"].includes(job.state)) return { state: "not_ready" };
   if (job.result_state === "ready") return { state: "ready" };
   const runtime = await createRuntime(job.context_json);
@@ -122,7 +125,7 @@ export async function collectCrawlResults(executionJob: ClaimedExecutionJob, che
     }
     return { state: complete ? "ready" : "partial", count: candidates.length };
   } catch (error) {
-    await postgresPool().query("UPDATE runtime_crawl_jobs SET result_state='failed',result_error=$2,updated_at=now() WHERE id=$1", [id, runtimeErrorCode(error)]);
+    await postgresConnection().query("UPDATE runtime_crawl_jobs SET result_state='failed',result_error=$2,updated_at=now() WHERE id=$1", [id, runtimeErrorCode(error)]);
     throw error;
   } finally { (await runtime.close()); }
 }

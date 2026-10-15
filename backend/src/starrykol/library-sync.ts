@@ -32,12 +32,12 @@ export function resetStarryHomeLibrarySync(): void {
 }
 
 export async function startStarryHomeLibrarySync(): Promise<StarryLibrarySync> {
-  inFlight = (await syncStarryHomeLibrary());
+  inFlight = (syncStarryHomeLibrary());
   return inFlight;
 }
 
 export async function ensureStarryHomeLibrary(): Promise<StarryLibrarySync> {
-  if (!inFlight) inFlight = (await syncStarryHomeLibrary());
+  if (!inFlight) inFlight = (syncStarryHomeLibrary());
   return inFlight;
 }
 

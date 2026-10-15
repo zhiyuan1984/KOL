@@ -102,7 +102,7 @@ export async function validateMailSend(draft: Row): Promise<void> {
   (await assertMailGatewayReady(checked));
 }
 
-export async function mailSendAction(draft: Row): Promise<{ draft_id: string; action: HostRegisteredActionView; snapshot: ReturnType<typeof sendSnapshot> }> {
+export async function mailSendAction(draft: Row): Promise<{ draft_id: string; action: HostRegisteredActionView; snapshot: Awaited<ReturnType<typeof sendSnapshot>> }> {
   const attempt = (await attemptFor(String(draft.id)));
   const extra = extraOf(draft);
   const col = draft.collaboration_id

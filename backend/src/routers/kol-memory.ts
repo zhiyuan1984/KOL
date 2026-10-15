@@ -99,7 +99,7 @@ async function startPoolSync(): Promise<Awaited<boolean>> {
   if (poolSyncFlight) return false;
   const startedAt = nowIso();
   poolSyncReceipt = { status: "running", started_at: startedAt, completed_at: null };
-  poolSyncFlight = (await syncKolProfileIndex()
+  poolSyncFlight = (syncKolProfileIndex()
     .then((result) => {
       poolSyncReceipt = {
         status: result.ok ? "succeeded" : "failed",
@@ -147,7 +147,7 @@ async function startAvatarEnrichment(): Promise<Awaited<boolean>> {
   if (avatarEnrichmentFlight) return false;
   const startedAt = nowIso();
   avatarEnrichmentReceipt = { status: "running", started_at: startedAt, completed_at: null };
-  avatarEnrichmentFlight = (await enrichMissingPublicAvatars()
+  avatarEnrichmentFlight = (enrichMissingPublicAvatars()
     .then((result) => {
       avatarEnrichmentReceipt = {
         status: "succeeded",
@@ -175,7 +175,7 @@ async function startJevAssessment(kolUids: string[] = [], criteria: KolScoringCr
   if (jevAssessmentFlight) return false;
   const startedAt = nowIso();
   jevAssessmentReceipt = { status: "running", started_at: startedAt, completed_at: null };
-  jevAssessmentFlight = (await assessPublicKolsWithJev({ kol_uids: kolUids, criteria })
+  jevAssessmentFlight = (assessPublicKolsWithJev({ kol_uids: kolUids, criteria })
     .then((result) => {
       // 口径必须随回执出现：同一批对象在不同目标条件下的分不可比。
       const criteriaCopy = result.criteria_summary
@@ -387,7 +387,7 @@ kolMemory.post("/home/kol-analyze/enqueue", async (c) => {
       message: "KOL Agent 尚未发布，员工端暂不可提交任务",
     });
   }
-  const definition = taskDefinition(KOL_ANALYZE_TASK_TYPE);
+  const definition = (await taskDefinition(KOL_ANALYZE_TASK_TYPE));
   if (!definition) throw new HttpFail(400, { code: "unknown_task_type", task_type: KOL_ANALYZE_TASK_TYPE });
   const body = await c.req.json().catch(() => ({})) as Json;
   const people = parseAnalyzePeople(body);

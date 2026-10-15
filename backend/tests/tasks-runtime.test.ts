@@ -47,8 +47,8 @@ afterEach(async () => {
 });
 
 describe("manifest task registry", () => {
-  it("loads complete, unique and read-only definitions without the retired per-stage SOPs", () => {
-    const definitions = taskDefinitions();
+  it("loads complete, unique and read-only definitions without the retired per-stage SOPs", async () => {
+    const definitions = (await taskDefinitions());
     expect(definitions.length).toBe(SKILL_CATALOG.length);
     expect(definitions.filter((row) => row.id.startsWith("sop_"))).toHaveLength(0);
     expect(definitions.some((row) => row.id === "stage_sop")).toBe(true);
@@ -64,11 +64,11 @@ describe("manifest task registry", () => {
     }
   });
 
-  it("keeps compatibility catalog and profile mapping derived from manifests", () => {
-    const definitions = taskDefinitions();
+  it("keeps compatibility catalog and profile mapping derived from manifests", async () => {
+    const definitions = (await taskDefinitions());
     expect(SKILL_CATALOG.map((entry) => entry.id).sort()).toEqual(definitions.map((entry) => entry.id).sort());
     for (const definition of definitions) {
-      expect(profileFor(definition.id).id).toBe(definition.profile);
+      expect((await profileFor(definition.id)).id).toBe(definition.profile);
       expect(SKILL_CATALOG.find((entry) => entry.id === definition.id)?.label).toBe(definition.title);
     }
   });
@@ -543,15 +543,15 @@ describe("task CRUD and run flow", () => {
 });
 
 describe("MCP minimization", () => {
-  it("filters exact tools and passes per-task allowlists to servers", () => {
+  it("filters exact tools and passes per-task allowlists to servers", async () => {
     expect(filterTools(STARRY_TOOLS, ["get_collaboration"]).map((tool) => tool.name)).toEqual(["get_collaboration"]);
-    const definition = taskDefinitions().find((item) => item.id === "confirm_stage")!;
+    const definition = (await taskDefinitions()).find((item) => item.id === "confirm_stage")!;
     const specs = mcpServerSpecs(definition.mcp) as Record<string, { args: string[] }>;
     expect(Object.keys(specs)).toEqual(["starry"]);
     expect(specs.starry.args.join(" ")).toContain("get_collaboration");
   });
 
-  it("never exposes Starry process credentials and retains KOL Claw configuration", () => {
+  it("never exposes Starry process credentials and retains KOL Claw configuration", async () => {
     const previous = {
       url: process.env.STARRY_KOL_MCP_URL,
       key: process.env.STARRY_KOL_MCP_API_KEY,
@@ -565,12 +565,12 @@ describe("MCP minimization", () => {
     process.env.KOLCLAW_MCP_URL = "https://kolclaw.example/mcp";
     process.env.KOLCLAW_MCP_TOKEN = "claw-token";
     try {
-      const compose = taskDefinitions().find((item) => item.id === "email_compose")!;
+      const compose = (await taskDefinitions()).find((item) => item.id === "email_compose")!;
       expect(compose.mcp).toContain("starrykol.previewEmailDraft");
       expect(compose.mcp.some((tool) => /send|ingest/.test(tool))).toBe(false);
       const specs = mcpServerSpecs(compose.mcp) as Record<string, Json>;
       expect(specs).not.toHaveProperty("starrykol");
-      const scoring = taskDefinitions().find((item) => item.id === "creator_scoring")!;
+      const scoring = (await taskDefinitions()).find((item) => item.id === "creator_scoring")!;
       const claw = mcpServerSpecs(scoring.mcp) as Record<string, Json>;
       expect(claw.kolclaw).toMatchObject({
         url: "https://kolclaw.example/mcp",

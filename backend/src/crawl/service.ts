@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import type { PoolClient } from "pg";
 import { createMediaCrawlerClient, mediaCrawlerConfigured } from "./managed-connection.js";
 import {
@@ -27,9 +28,9 @@ function calculateCreatorScore(followers: number, recentViews: number[]): Creato
 
 const MODES = new Set(["search", "detail", "creator"]);
 const ACTIVE = new Set(["queued", "crawling", "uploading", "analyzing", "starting", "running", "stopping"]);
-const monitors = new Map<string, ReturnType<typeof setTimeout>>();
+const monitors = new Map<string, Awaited<ReturnType<typeof setTimeout>>>();
 const monitorAttempts = new Map<string, number>();
-let clientFactory: () => Pick<RemoteMcpClient, "callTool" | "close"> | Promise<Pick<RemoteMcpClient, "callTool" | "close">> = async () => (await createMediaCrawlerClient());
+let clientFactory: () => Pick<RemoteMcpClient, "callTool" | "close"> | Promise<Pick<RemoteMcpClient, "callTool" | "close">> = async () => (createMediaCrawlerClient());
 
 /** Discovery (and other hosts) subscribe without importing crawler persistence. */
 export function onCrawlJobSettled(handler: (job: Row) => void | Promise<void>): void {
@@ -40,7 +41,7 @@ function handlers(): Array<(job: Row) => void | Promise<void>> {
   return (onCrawlJobSettled as typeof onCrawlJobSettled & { handlers?: Array<(job: Row) => void | Promise<void>> }).handlers || [];
 }
 async function notifySettled(jobId: string): Promise<void> {
-  const job = (await postgresPool().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [jobId])).rows[0];
+  const job = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [jobId])).rows[0];
   if (!job) return;
   for (const handler of handlers()) {
     try { await handler(job); } catch { /* Subscribers cannot change the durable job outcome. */ }
@@ -51,7 +52,7 @@ function clearMonitors(): void {
   monitors.clear(); monitorAttempts.clear();
 }
 export function setCrawlMcpClientFactory(factory?: () => Pick<RemoteMcpClient, "callTool" | "close"> | Promise<Pick<RemoteMcpClient, "callTool" | "close">>): void {
-  clientFactory = factory || (async () => (await createMediaCrawlerClient()));
+  clientFactory = factory || (async () => (createMediaCrawlerClient()));
 }
 function nowIso(): string { return new Date().toISOString(); }
 function json(value: unknown): Json { return value && typeof value === "object" && !Array.isArray(value) ? value as Json : {}; }
@@ -65,7 +66,7 @@ function isUnique(error: unknown): boolean { return Boolean(error && typeof erro
 
 async function publicJob(row: Row): Promise<Json> {
   const artifact = String(row.status) === "result_ready"
-    ? (await postgresPool().query<{ payload?: string }>(`SELECT payload FROM task_artifacts WHERE work_item_id=$1 AND artifact_type='task_result_card' ORDER BY created_at DESC LIMIT 1`, [row.work_item_id])).rows[0]
+    ? (await postgresConnection().query<{ payload?: string }>(`SELECT payload FROM task_artifacts WHERE work_item_id=$1 AND artifact_type='task_result_card' ORDER BY created_at DESC LIMIT 1`, [row.work_item_id])).rows[0]
     : undefined;
   return { ...row, parameters: parse(row.parameters), error: row.error ? sanitize(row.error) : null, ...(artifact?.payload ? { result: parse(artifact.payload) } : {}) };
 }
@@ -105,7 +106,7 @@ async function remoteCall(name: string, args: Json, jobId?: string): Promise<Jso
 }
 
 export async function startCrawl(input: { ownerUserId: string; workItemId: string; sessionId?: string | null; platform: string; mode: string; parameters: Json; idempotencyKey: string }): Promise<Json> {
-  const migrated = await postgresPool().query("SELECT 1 FROM runtime_bootstrap_migrations WHERE id=$1", ["runtime.crawler-skill.v1"]);
+  const migrated = await postgresConnection().query("SELECT 1 FROM runtime_bootstrap_migrations WHERE id=$1", ["runtime.crawler-skill.v1"]);
   if (migrated.rows[0]) throw new HttpFail(410, { code: "crawler_skill_entry_required", message: "采集已迁移到线索智能体，请在采集线索技能中核对并确认。", next_action: "open_crawler_agent" });
   const url = (await getConnectorConfig("claw"))?.config.url;
   if (!url) return startLegacyCrawl(input);
@@ -115,8 +116,8 @@ async function startLegacyCrawl(input: { ownerUserId: string; workItemId: string
   (await rejectDiscoveryHarnessTool("start_crawl"));
   const platform = input.platform.toLowerCase(); const mode = input.mode.toLowerCase(); validateInput(platform, mode, input.parameters);
   if (!(await mediaCrawlerConfigured())) throw new HttpFail(503, { code: "mediacrawler_not_configured", message: "远程采集服务未配置。", next_action: "请在管理端配置并启用 MediaCrawler 连接器及保险柜凭据。" });
-  const existing = (await postgresPool().query<Row>("SELECT * FROM crawl_jobs WHERE idempotency_key=$1", [input.idempotencyKey])).rows[0];
-  if (existing) return { ...(await publicJob(existing)), duplicate: true };
+  const existing = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE idempotency_key=$1", [input.idempotencyKey])).rows[0];
+  if (existing) return { ...(publicJob(existing)), duplicate: true };
   const id = nid("crawl"); const now = nowIso();
   try {
     await postgresTransaction(async client => {
@@ -130,11 +131,11 @@ async function startLegacyCrawl(input: { ownerUserId: string; workItemId: string
       await eventIn(client, inserted, "queued", "queued", `Queued ${platform} ${mode} crawl`);
     });
   } catch (error) {
-    const replay = (await postgresPool().query<Row>("SELECT * FROM crawl_jobs WHERE idempotency_key=$1", [input.idempotencyKey])).rows[0];
-    if (replay) return { ...(await publicJob(replay)), duplicate: true };
+    const replay = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE idempotency_key=$1", [input.idempotencyKey])).rows[0];
+    if (replay) return { ...(publicJob(replay)), duplicate: true };
     if (isForeignKey(error)) throw new HttpFail(409, { code: "work_item_not_found", message: "采集任务已不存在。" });
     if (isUnique(error)) {
-      const active = (await postgresPool().query<Row>(`SELECT id FROM crawl_jobs WHERE status=ANY($1::text[]) LIMIT 1`, [[...ACTIVE]])).rows[0];
+      const active = (await postgresConnection().query<Row>(`SELECT id FROM crawl_jobs WHERE status=ANY($1::text[]) LIMIT 1`, [[...ACTIVE]])).rows[0];
       if (active) throw new HttpFail(409, { code: "crawl_active", message: CRAWL_ACTIVE_MESSAGE, crawl_job_id: active.id });
     }
     throw error;
@@ -148,7 +149,7 @@ async function startLegacyCrawl(input: { ownerUserId: string; workItemId: string
       const row = (await client.query<Row>("UPDATE crawl_jobs SET remote_task_id=$1,status='crawling',started_at=$2,updated_at=$2,data_version=data_version+1 WHERE id=$3 RETURNING *", [remoteTaskId, nowIso(), id])).rows[0];
       if (row) await eventIn(client, row, "started", "crawling", `Remote crawl started (${remoteTaskId})`, { remote_task_id: remoteTaskId });
     });
-    scheduleMonitor(id); return (await crawlJob(id))!;
+    scheduleMonitor(id); return (crawlJob(id))!;
   } catch (error) {
     await failJob(id, error);
     const source = error instanceof Error ? error.message : error;
@@ -166,18 +167,18 @@ function scheduleMonitor(jobId: string): void {
   const attempt = monitorAttempts.get(jobId) || 0;
   const timer = setTimeout(async () => {
     monitors.delete(jobId); monitorAttempts.set(jobId, attempt + 1);
-    const job = (await postgresPool().query<Row>("SELECT status,started_at,created_at FROM crawl_jobs WHERE id=$1", [jobId])).rows[0];
+    const job = (await postgresConnection().query<Row>("SELECT status,started_at,created_at FROM crawl_jobs WHERE id=$1", [jobId])).rows[0];
     if (!job || !ACTIVE.has(String(job.status))) { monitorAttempts.delete(jobId); return; }
     const since = Date.parse(String(job.started_at || job.created_at || ""));
     if (Number.isFinite(since) && Date.now() - since > monitorMaxMs()) { monitorAttempts.delete(jobId); await failJob(jobId, "远程采集长时间没有结束，已停止监控。"); return; }
     await monitorCrawlJob(jobId).catch(() => undefined);
-    const current = (await postgresPool().query<Row>("SELECT status FROM crawl_jobs WHERE id=$1", [jobId])).rows[0];
+    const current = (await postgresConnection().query<Row>("SELECT status FROM crawl_jobs WHERE id=$1", [jobId])).rows[0];
     if (current && ACTIVE.has(String(current.status))) scheduleMonitor(jobId); else monitorAttempts.delete(jobId);
   }, monitorBackoffMs(attempt));
   timer.unref?.(); monitors.set(jobId, timer);
 }
 export async function monitorCrawlJob(jobId: string): Promise<Json> {
-  const job = (await postgresPool().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [jobId])).rows[0];
+  const job = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [jobId])).rows[0];
   if (!job) throw new HttpFail(404, { code: "crawl_job_not_found", message: "未找到该采集任务。" });
   if (!ACTIVE.has(String(job.status)) || !job.remote_task_id) return publicJob(job);
   try {
@@ -192,7 +193,7 @@ export async function monitorCrawlJob(jobId: string): Promise<Json> {
     try { const logs = await remoteCall("get_crawl_logs", { task_id: String(job.remote_task_id) }, jobId); const data = json(logs.data); const raw = logs.logs || logs.items || data.logs || data.items || []; const lines = (Array.isArray(raw) ? raw : [raw]).slice(-20).map(line => sanitize(typeof line === "object" ? JSON.stringify(line) : line)).filter(Boolean); if (lines.length) await event(jobId, "logs", status || "running", lines.join("\n")); } catch { /* older collector may not expose logs */ }
     if (["idle", "completed", "done"].includes(status) || (["error", "failed"].includes(status) && uploadError)) { try { await completeJob(jobId); } catch (error) { await failJob(jobId, error); } }
     else if (["error", "failed"].includes(status)) await failJob(jobId, remoteError || "remote crawl failed");
-    return (await crawlJob(jobId))!;
+    return (crawlJob(jobId))!;
   } catch (error) { await event(jobId, "monitor_error", "running", persistableEmployeeError(error)); throw error; }
 }
 async function fetchCreators(job: Row): Promise<Json[]> {
@@ -219,28 +220,28 @@ async function ingestCreatorsIn(client: PoolClient, body: Json): Promise<{ accep
   return { accepted, inserted, updated };
 }
 async function completeJob(jobId: string): Promise<void> {
-  let job = (await postgresPool().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [jobId])).rows[0]; if (!job) return;
+  let job = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [jobId])).rows[0]; if (!job) return;
   await postgresTransaction(async client => { const updated = (await client.query<Row>("UPDATE crawl_jobs SET status='analyzing',last_checked_at=$1,updated_at=$1,data_version=data_version+1 WHERE id=$2 RETURNING *", [nowIso(), jobId])).rows[0]; if (updated) await eventIn(client, updated, "analyzing", "analyzing", "Analyzing normalized creator results"); });
-  job = (await postgresPool().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [jobId])).rows[0]; if (!job) return;
+  job = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [jobId])).rows[0]; if (!job) return;
   const creators = await fetchCreators(job); let ingestion: { accepted: number; inserted: number; updated: number };
-  try { ingestion = await postgresTransaction(async client => (await ingestCreatorsIn(client, { creators, platform: job.platform, source: "remote_mcp", task_id: job.remote_task_id, crawl_job_id: jobId, collected_at: nowIso() }))); await event(jobId, "operation", "done", "去重并写入达人库已完成", { operation: "host.ingest_creators", label: "去重并写入达人库", operation_status: "done", accepted: ingestion.accepted }); } catch (error) { await event(jobId, "operation", "failed", "去重并写入达人库未完成", { operation: "host.ingest_creators", label: "去重并写入达人库", operation_status: "failed" }); throw error; }
-  const candidateRows = (await postgresPool().query<Row>(`SELECT c.id,c.platform,c.platform_creator_id,c.name AS nickname,c.followers,c.score,s.recent_views,s.score_details,s.collected_at FROM claw_creators c LEFT JOIN creator_snapshots s ON s.id=(SELECT latest.id FROM creator_snapshots latest WHERE latest.creator_id=c.id ORDER BY latest.created_at DESC LIMIT 1) WHERE c.platform=$1 ORDER BY c.score DESC LIMIT 100`, [job.platform])).rows;
+  try { ingestion = await postgresTransaction(async client => (ingestCreatorsIn(client, { creators, platform: job.platform, source: "remote_mcp", task_id: job.remote_task_id, crawl_job_id: jobId, collected_at: nowIso() }))); await event(jobId, "operation", "done", "去重并写入达人库已完成", { operation: "host.ingest_creators", label: "去重并写入达人库", operation_status: "done", accepted: ingestion.accepted }); } catch (error) { await event(jobId, "operation", "failed", "去重并写入达人库未完成", { operation: "host.ingest_creators", label: "去重并写入达人库", operation_status: "failed" }); throw error; }
+  const candidateRows = (await postgresConnection().query<Row>(`SELECT c.id,c.platform,c.platform_creator_id,c.name AS nickname,c.followers,c.score,s.recent_views,s.score_details,s.collected_at FROM claw_creators c LEFT JOIN creator_snapshots s ON s.id=(SELECT latest.id FROM creator_snapshots latest WHERE latest.creator_id=c.id ORDER BY latest.created_at DESC LIMIT 1) WHERE c.platform=$1 ORDER BY c.score DESC LIMIT 100`, [job.platform])).rows;
   const candidates = candidateRows.map(row => ({ ...row, recent_views: parseArray(row.recent_views), score_details: parse(row.score_details), confidence: Number((parse(row.score_details).sample_confidence as number | undefined) || 0), contact_needed: true })); const payload: Json = { type: "task_result", title: "达人采集结果", summary: `已接收 ${ingestion.accepted} 位候选达人。`, candidates, contact_needed: true, notice: "仅提供平台 ID、昵称与基础评分；未生成或推测邮箱。", recommended_actions: ["复核候选达人", "通过既有渠道补充联系方式后再创建建联任务"], crawl_job_id: jobId }; const now = nowIso();
   await postgresTransaction(async client => { const locked = (await client.query<Row>("SELECT * FROM crawl_jobs WHERE id=$1 FOR UPDATE", [jobId])).rows[0]; if (!locked) return; let messageId: string | null = null; if (locked.session_id) { messageId = nid("msg"); await client.query("INSERT INTO messages (id,session_id,role,kind,payload,created_at) VALUES ($1,$2,'assistant','task_result_card',$3,$4)", [messageId, locked.session_id, JSON.stringify(payload), now]); await client.query("UPDATE sessions SET updated_at=$1 WHERE id=$2", [now, locked.session_id]); } await client.query(`INSERT INTO task_artifacts (id,work_item_id,run_id,artifact_type,message_id,version,payload,created_at) VALUES ($1,$2,NULL,'task_result_card',$3,1,$4,$5)`, [nid("art"), locked.work_item_id, messageId, JSON.stringify(payload), now]); const finished = (await client.query<Row>("UPDATE crawl_jobs SET status='result_ready',upload_error=NULL,completed_at=$1,updated_at=$1,data_version=data_version+1 WHERE id=$2 RETURNING *", [now, jobId])).rows[0]; await client.query("UPDATE tickets SET status='waiting',updated_at=$1,data_version=data_version+1 WHERE id=$2", [now, locked.work_item_id]); await eventIn(client, finished, "result_ready", "result_ready", `Result ready with ${candidates.length} candidates`); });
   await notifySettled(jobId);
 }
 async function failJob(jobId: string, error: unknown): Promise<void> { const safe = persistableEmployeeError(error); const now = nowIso(); await postgresTransaction(async client => { const job = (await client.query<Row>("SELECT * FROM crawl_jobs WHERE id=$1 FOR UPDATE", [jobId])).rows[0]; if (!job) return; const failed = (await client.query<Row>("UPDATE crawl_jobs SET status='error',error=$1,completed_at=$2,updated_at=$2,data_version=data_version+1 WHERE id=$3 RETURNING *", [safe, now, jobId])).rows[0]; await client.query("UPDATE tickets SET status='failed',updated_at=$1,data_version=data_version+1 WHERE id=$2", [now, job.work_item_id]); await eventIn(client, failed, "error", "error", safe); }); await notifySettled(jobId); }
-export async function stopCrawl(jobId: string): Promise<Json> { const job = (await postgresPool().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [jobId])).rows[0]; if (!job) throw new HttpFail(404, { code: "crawl_job_not_found", message: "未找到该采集任务。" }); if (!ACTIVE.has(String(job.status))) return publicJob(job); if (!job.remote_task_id) throw new HttpFail(409, { code: "crawl_job_no_remote_task", message: "采集任务尚未关联远程任务。" }); await postgresPool().query("UPDATE crawl_jobs SET status='stopping',updated_at=$1 WHERE id=$2", [nowIso(), jobId]); try { await remoteCall("stop_crawl", { task_id: String(job.remote_task_id) }, jobId); } catch (error) { await failJob(jobId, error); throw error; } const now = nowIso(); await postgresTransaction(async client => { const stopped = (await client.query<Row>("UPDATE crawl_jobs SET status='stopped',completed_at=$1,updated_at=$1,data_version=data_version+1 WHERE id=$2 RETURNING *", [now, jobId])).rows[0]; await client.query("UPDATE tickets SET status='waiting',updated_at=$1,data_version=data_version+1 WHERE id=$2", [now, job.work_item_id]); await eventIn(client, stopped, "stopped", "stopped", "Crawl stopped"); }); await notifySettled(jobId); return (await crawlJob(jobId))!; }
-export async function retryUpload(jobId: string): Promise<Json> { const job = (await postgresPool().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [jobId])).rows[0]; if (!job?.remote_task_id) throw new HttpFail(409, { code: "crawl_job_no_remote_task", message: "采集任务尚未关联远程任务。" }); const result = await remoteCall("upload_creators", { task_id: job.remote_task_id }, jobId); await postgresPool().query("UPDATE crawl_jobs SET upload_error=NULL,updated_at=$1 WHERE id=$2", [nowIso(), jobId]); await event(jobId, "upload_retried", String(job.status), "Creator upload retried"); return result; }
+export async function stopCrawl(jobId: string): Promise<Json> { const job = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [jobId])).rows[0]; if (!job) throw new HttpFail(404, { code: "crawl_job_not_found", message: "未找到该采集任务。" }); if (!ACTIVE.has(String(job.status))) return publicJob(job); if (!job.remote_task_id) throw new HttpFail(409, { code: "crawl_job_no_remote_task", message: "采集任务尚未关联远程任务。" }); await postgresConnection().query("UPDATE crawl_jobs SET status='stopping',updated_at=$1 WHERE id=$2", [nowIso(), jobId]); try { await remoteCall("stop_crawl", { task_id: String(job.remote_task_id) }, jobId); } catch (error) { await failJob(jobId, error); throw error; } const now = nowIso(); await postgresTransaction(async client => { const stopped = (await client.query<Row>("UPDATE crawl_jobs SET status='stopped',completed_at=$1,updated_at=$1,data_version=data_version+1 WHERE id=$2 RETURNING *", [now, jobId])).rows[0]; await client.query("UPDATE tickets SET status='waiting',updated_at=$1,data_version=data_version+1 WHERE id=$2", [now, job.work_item_id]); await eventIn(client, stopped, "stopped", "stopped", "Crawl stopped"); }); await notifySettled(jobId); return (crawlJob(jobId))!; }
+export async function retryUpload(jobId: string): Promise<Json> { const job = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [jobId])).rows[0]; if (!job?.remote_task_id) throw new HttpFail(409, { code: "crawl_job_no_remote_task", message: "采集任务尚未关联远程任务。" }); const result = await remoteCall("upload_creators", { task_id: job.remote_task_id }, jobId); await postgresConnection().query("UPDATE crawl_jobs SET upload_error=NULL,updated_at=$1 WHERE id=$2", [nowIso(), jobId]); await event(jobId, "upload_retried", String(job.status), "Creator upload retried"); return result; }
 export async function ingestMediacrawler(body: Json): Promise<Json> {
-  const result = await postgresTransaction(async client => (await ingestCreatorsIn(client, body)));
-  await postgresPool().query(
+  const result = await postgresTransaction(async client => (ingestCreatorsIn(client, body)));
+  await postgresConnection().query(
     "INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)",
     [nowIso(), "claw", "claw.ingest.mediacrawler", JSON.stringify({ accepted: result.accepted, inserted: result.inserted, updated: result.updated, source: String(body.source || "mediacrawler").slice(0, 120) })],
   );
   return { ok: true, batch_id: null, accepted: result.accepted, inserted: result.inserted, updated: result.updated };
 }
 export async function clearRemoteHistory(): Promise<Json> { return remoteCall("clear_history", { confirm: true }); }
-export async function restoreActiveCrawlJobs(): Promise<void> { clearMonitors(); const rows = (await postgresPool().query<Row>(`SELECT id,status,remote_task_id FROM crawl_jobs WHERE status=ANY($1::text[])`, [[...ACTIVE]])).rows; for (const row of rows) { if (!row.remote_task_id) await failJob(String(row.id), "Process restarted before remote task id was persisted"); else scheduleMonitor(String(row.id)); } }
-export async function crawlJob(id: string): Promise<Json | null> { const row = (await postgresPool().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [id])).rows[0]; return row ? (await publicJob(row)) : null; }
-export async function crawlEvents(id: string, after = 0): Promise<Json[]> { return (await postgresPool().query<Row>("SELECT * FROM crawl_job_events WHERE crawl_job_id=$1 AND sequence>$2 ORDER BY sequence", [id, after])).rows.map(row => ({ ...row, payload: parse(row.payload) })); }
+export async function restoreActiveCrawlJobs(): Promise<void> { clearMonitors(); const rows = (await postgresConnection().query<Row>(`SELECT id,status,remote_task_id FROM crawl_jobs WHERE status=ANY($1::text[])`, [[...ACTIVE]])).rows; for (const row of rows) { if (!row.remote_task_id) await failJob(String(row.id), "Process restarted before remote task id was persisted"); else scheduleMonitor(String(row.id)); } }
+export async function crawlJob(id: string): Promise<Json | null> { const row = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [id])).rows[0]; return row ? (publicJob(row)) : null; }
+export async function crawlEvents(id: string, after = 0): Promise<Json[]> { return (await postgresConnection().query<Row>("SELECT * FROM crawl_job_events WHERE crawl_job_id=$1 AND sequence>$2 ORDER BY sequence", [id, after])).rows.map(row => ({ ...row, payload: parse(row.payload) })); }

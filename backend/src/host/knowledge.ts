@@ -1,3 +1,4 @@
+import { asyncFlatMap } from "../async-collections.js";
 import { asyncFilter } from "../async-collections.js";
 /**
  * WikiSkill 三层：Raw（系统只写）→ Wiki（管理员抽取/审批）→ Skill + published mail_template。
@@ -197,7 +198,9 @@ export async function createDomain(input: {
   parent_id?: string | null;
   sort?: number | null;
   note?: string;
-}, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
+}, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   const code = String(input.code || "").trim();
   if (!KNOWLEDGE_DOMAIN_CODE_RE.test(code)) throw new HttpFail(400, "code 须为小写字母开头的 a-z0-9_ 编码");
@@ -279,7 +282,9 @@ export async function createBase(input: {
   description?: string;
   settings?: unknown;
   external_ref?: unknown;
-}, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
+}, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   const code = String(input.code || "").trim();
   if (!code) throw new HttpFail(400, "code required");
@@ -371,11 +376,13 @@ async function defaultStructuredBaseId(): Promise<Awaited<string>> {
   return String(row.id);
 }
 
-async function writeVersion(db: ReturnType<typeof getConn>, row: Row, note: string, actor: string): Promise<Awaited<void>> {
+async function writeVersion(db: Awaited<ReturnType<typeof getConn>>, row: Row, note: string, actor: string): Promise<Awaited<void>> {
   (await db.query("INSERT INTO knowledge_versions\n     (id,knowledge_id,version,title,body,subject,body_en,placeholders,stage_codes,skill_id,brand,lang,kind,status,tags,in_market,effective_at,expires_at,base_id,structured,source_body,created_by,created_at,note)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)",[nid("kv"),row.id,row.current_version,row.title,row.body,row.subject ?? "",row.body_en ?? "",row.placeholders ?? "[]",row.stage_codes ?? "[]",row.skill_id ?? "",row.brand ?? "*",row.lang ?? "en",row.kind ?? "policy",row.status ?? "draft",row.tags == null ? "" : String(row.tags),row.in_market == null ? 1 : Number(row.in_market),row.effective_at == null ? null : String(row.effective_at),row.expires_at == null ? null : String(row.expires_at),row.base_id == null ? null : String(row.base_id),row.structured == null ? null : String(row.structured),row.source_body == null ? null : String(row.source_body),actor,nowIso(),note]));
 }
 
-export async function publicKnowledge(row: Row, userId = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function publicKnowledge(row: Row, userId?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (userId === undefined) userId = (await knowledgeActorId());
+
   const cited = row.viewer_cited == null
     ? Boolean((await getConn().query("SELECT 1 FROM knowledge_citations WHERE user_id=$1 AND knowledge_id=$2",[userId,row.id])).rows[0])
     : Boolean(row.viewer_cited);
@@ -478,7 +485,7 @@ async function listed(sql: string, args: unknown[], filter?: (row: Row) => boole
       `SELECT knowledge_id,COUNT(*) AS cite_count FROM knowledge_citations WHERE knowledge_id IN (${placeholders}) GROUP BY knowledge_id`,
     ).all(...ids) as Row[]).map((row) => [String(row.knowledge_id), Number(row.cite_count || 0)]),
   );
-  return (await Promise.all(rows.map((row) => {
+  return (Promise.all(rows.map((row) => {
     const dep = deprecated.get(String(row.id));
     return publicKnowledge({
       ...row,
@@ -510,18 +517,22 @@ export async function listMarket(): Promise<Awaited<Json[]>> {
   return listed(filters.sql, filters.args, filters.filter, true);
 }
 
-export function brandMatched(row: Row, brands = (await actorBrands())): boolean {
+export async function brandMatched(row: Row, brands?: Awaited<ReturnType<typeof actorBrands>>): Promise<Awaited<boolean>> {
+if (brands === undefined) brands = (await actorBrands());
+
   const brand = String(row.brand || "*");
   if (!brand || brand === "*") return true;
   if (!brands.length && authDisabled()) return true;
   return brands.includes(brand);
 }
 
-export async function composerItems(userId = (await knowledgeActorId()), brands = (await actorBrands())): Promise<Awaited<Json[]>> {
+export async function composerItems(userId?: Awaited<ReturnType<typeof knowledgeActorId>>, brands?: Awaited<ReturnType<typeof actorBrands>>): Promise<Awaited<Json[]>> {
+if (userId === undefined) userId = (await knowledgeActorId());
+if (brands === undefined) brands = (await actorBrands());
+
   const rows = (await getConn().query("SELECT k.* FROM knowledge k\n        JOIN knowledge_citations c ON c.knowledge_id=k.id AND c.user_id=$1\n       WHERE k.status='published' AND k.kind='mail_template'\n         AND NOT EXISTS (\n           SELECT 1 FROM knowledge_deprecations d\n            WHERE d.knowledge_id=k.id AND d.user_id=$2\n         )\n       ORDER BY k.title",[userId,userId])).rows as Row[];
   const viewer = (await viewerHandle(userId));
-  return (await asyncFilter(rows,async (row) => brandMatched(row, brands) && (await canSeeKnowledge(row, viewer))))
-    .flatMap(async (row) => {
+  return (await asyncFlatMap((await asyncFilter(rows,async (row) => (await brandMatched(row, brands)) && (await canSeeKnowledge(row, viewer)))), async (row) => {
       try {
         (await assertMailTemplateSnapshotApplicable({ knowledgeId: String(row.id), version: Number(row.published_version || 0), userId, brands }));
         const snapshot = (await publishedSnapshot(row));
@@ -531,7 +542,7 @@ export async function composerItems(userId = (await knowledgeActorId()), brands 
         if (error instanceof HttpFail) return [];
         throw error;
       }
-    });
+    }));
 }
 
 export function composerStarter(row: Row): string {
@@ -558,11 +569,13 @@ function questionTemplateSlot(row: Row): QuestionTemplateSlot | null {
  * 已发布 + 未被本人隐藏 + 品牌与范围可见。缺槽位或未发布的模板不出现，
  * 前端据此禁用入口而不是回落到写死的问题文案（CONST-10）。
  */
-export async function questionTemplates(userId = (await knowledgeActorId()), brands = (await actorBrands())): Promise<Awaited<Json[]>> {
+export async function questionTemplates(userId?: Awaited<ReturnType<typeof knowledgeActorId>>, brands?: Awaited<ReturnType<typeof actorBrands>>): Promise<Awaited<Json[]>> {
+if (userId === undefined) userId = (await knowledgeActorId());
+if (brands === undefined) brands = (await actorBrands());
+
   const rows = (await getConn().query("SELECT k.* FROM knowledge k\n       WHERE k.status='published' AND k.kind='question_template'\n         AND NOT EXISTS (\n           SELECT 1 FROM knowledge_deprecations d\n            WHERE d.knowledge_id=k.id AND d.user_id=$1\n         )\n       ORDER BY k.title",[userId])).rows as Row[];
   const viewer = (await viewerHandle(userId));
-  return (await asyncFilter(rows,async (row) => brandMatched(row, brands) && (await canSeeKnowledge(row, viewer))))
-    .flatMap(async (row) => {
+  return (await asyncFlatMap((await asyncFilter(rows,async (row) => (await brandMatched(row, brands)) && (await canSeeKnowledge(row, viewer)))), async (row) => {
       const slot = questionTemplateSlot(row);
       if (!slot) {
         (await audit("system", "knowledge.question_template.bad_slot", { knowledge_id: String(row.id) }));
@@ -583,10 +596,12 @@ export async function questionTemplates(userId = (await knowledgeActorId()), bra
         if (error instanceof HttpFail) return [];
         throw error;
       }
-    });
+    }));
 }
 
-export async function cite(knowledgeId: string, userId = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function cite(knowledgeId: string, userId?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (userId === undefined) userId = (await knowledgeActorId());
+
   const row = (await knowledgeRow(knowledgeId));
   if (String(row.status) !== "published") throw new HttpFail(403, "未发布知识不能启用");
   (await tx((db) => {
@@ -598,7 +613,9 @@ export async function cite(knowledgeId: string, userId = (await knowledgeActorId
   return publicKnowledge((await knowledgeRow(knowledgeId)), userId);
 }
 
-export async function uncite(knowledgeId: string, userId = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function uncite(knowledgeId: string, userId?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (userId === undefined) userId = (await knowledgeActorId());
+
   (await knowledgeRow(knowledgeId));
   (await tx(async (db) => {
     (await db.query("DELETE FROM knowledge_citations WHERE user_id=$1 AND knowledge_id=$2",[userId,knowledgeId]));
@@ -608,7 +625,9 @@ export async function uncite(knowledgeId: string, userId = (await knowledgeActor
 }
 
 /** 收藏是账号级数据；保存当前已发布版本，用来提示后续发布的新版本。 */
-export async function favorite(knowledgeId: string, userId = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function favorite(knowledgeId: string, userId?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (userId === undefined) userId = (await knowledgeActorId());
+
   const row = (await knowledgeRow(knowledgeId));
   if (String(row.status) !== "published") throw new HttpFail(403, "未发布知识不能收藏");
   const version = Number(row.published_version || row.current_version || 1);
@@ -620,7 +639,9 @@ export async function favorite(knowledgeId: string, userId = (await knowledgeAct
   return publicKnowledge((await knowledgeRow(knowledgeId)), userId);
 }
 
-export async function unfavorite(knowledgeId: string, userId = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function unfavorite(knowledgeId: string, userId?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (userId === undefined) userId = (await knowledgeActorId());
+
   (await knowledgeRow(knowledgeId));
   (await tx(async (db) => {
     (await db.query("DELETE FROM knowledge_favorites WHERE user_id=$1 AND knowledge_id=$2",[userId,knowledgeId]));
@@ -629,7 +650,9 @@ export async function unfavorite(knowledgeId: string, userId = (await knowledgeA
   return publicKnowledge((await knowledgeRow(knowledgeId)), userId);
 }
 
-export async function deprecate(knowledgeId: string, reason: string, note = "", userId = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function deprecate(knowledgeId: string, reason: string, note = "", userId?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (userId === undefined) userId = (await knowledgeActorId());
+
   (await knowledgeRow(knowledgeId));
   reason = mapDeprecateReason(reason);
   (await tx((db) => {
@@ -642,7 +665,9 @@ export async function deprecate(knowledgeId: string, reason: string, note = "", 
   return publicKnowledge((await knowledgeRow(knowledgeId)), userId);
 }
 
-export async function undeprecate(knowledgeId: string, userId = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function undeprecate(knowledgeId: string, userId?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (userId === undefined) userId = (await knowledgeActorId());
+
   (await knowledgeRow(knowledgeId));
   (await tx(async (db) => {
     (await db.query("DELETE FROM knowledge_deprecations WHERE user_id=$1 AND knowledge_id=$2",[userId,knowledgeId]));
@@ -660,22 +685,22 @@ async function employeeVisible(row: Row): Promise<Awaited<boolean>> {
     if (error instanceof HttpFail) return false;
     throw error;
   }
-  return (await canSeeKnowledge(row)) && brandMatched(row);
+  return (await canSeeKnowledge(row)) && (await brandMatched(row));
 }
 
 /**
  * 版本历史是治理视图：管理侧身份（真实会话 roles 含 admin；演示模式按 persona，与前端 viewMode 同口径）
  * 可读任意状态；员工只能读「已发布且对自己可见」的条目，其余按详情路由的 404 口径拒绝。
  */
-function canReadVersionHistory(row: Row): boolean {
+async function canReadVersionHistory(row: Row): Promise<Awaited<boolean>> {
   if (isAdmin()) return true;
-  if (authDisabled() && personaAccess().roles.includes("admin")) return true;
-  return employeeVisible(row);
+  if (authDisabled() && (await personaAccess()).roles.includes("admin")) return true;
+  return (await employeeVisible(row));
 }
 
 export async function listVersions(knowledgeId: string): Promise<Awaited<Json[]>> {
   const row = (await knowledgeRow(knowledgeId));
-  if (!canReadVersionHistory(row)) throw new HttpFail(404, "知识不存在或不可访问");
+  if (!(await canReadVersionHistory(row))) throw new HttpFail(404, "知识不存在或不可访问");
   return (await getConn().query("SELECT * FROM knowledge_versions WHERE knowledge_id=$1 ORDER BY version",[knowledgeId])).rows as Json[];
 }
 
@@ -713,9 +738,9 @@ export async function adminList(opts: KnowledgeAdminListOpts = {}): Promise<Awai
   return limit ? rows.slice(offset, offset + limit) : rows.slice(offset);
 }
 
-export function reviewQueue(): Json[] {
+export async function reviewQueue(): Promise<Awaited<Json[]>> {
   requireAdmin();
-  return listed("SELECT * FROM knowledge WHERE status='pending_review' ORDER BY updated_at DESC", []);
+  return (await listed("SELECT * FROM knowledge WHERE status='pending_review' ORDER BY updated_at DESC", []));
 }
 
 type UpsertInput = {
@@ -744,7 +769,9 @@ function placeholdersJson(value: unknown): string {
   return JSON.stringify(parseJsonArray(value));
 }
 
-export async function createKnowledge(input: UpsertInput, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function createKnowledge(input: UpsertInput, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   const title = String(input.title || "").trim();
   if (!title) throw new HttpFail(400, "title required");
@@ -795,7 +822,9 @@ export async function createKnowledge(input: UpsertInput, actor = (await knowled
   return publicKnowledge((await knowledgeRow(id)), actor);
 }
 
-export async function editKnowledge(id: string, input: Partial<UpsertInput>, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function editKnowledge(id: string, input: Partial<UpsertInput>, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   const prev = (await knowledgeRow(id));
   const now = nowIso();
@@ -846,7 +875,9 @@ export async function editKnowledge(id: string, input: Partial<UpsertInput>, act
   return publicKnowledge((await knowledgeRow(id)), actor);
 }
 
-export async function approveKnowledge(id: string, expectedVersion: number | null = null, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function approveKnowledge(id: string, expectedVersion: number | null = null, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   const row = (await knowledgeRow(id));
   if (String(row.status) === "archived") throw new HttpFail(400, "已归档知识不能直接发布");
@@ -867,7 +898,9 @@ export async function approveKnowledge(id: string, expectedVersion: number | nul
   return publicKnowledge((await knowledgeRow(id)), actor);
 }
 
-export async function archiveKnowledge(id: string, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function archiveKnowledge(id: string, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   (await knowledgeRow(id));
   const now = nowIso();
@@ -892,7 +925,9 @@ export async function sentMailCitesKnowledge(knowledgeId: string): Promise<Await
   });
 }
 
-export async function hardDeleteKnowledge(id: string, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function hardDeleteKnowledge(id: string, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   const row = (await knowledgeRow(id));
   if (String(row.status) === "published" || String(row.status) === "archived") {
@@ -943,8 +978,8 @@ export async function ingestRaw(input: {
   return row;
 }
 
-export function recordFailedSession(meta: Json, sessionId?: string | null, body = ""): Row {
-  return ingestRaw({
+export async function recordFailedSession(meta: Json, sessionId?: string | null, body = ""): Promise<Awaited<Row>> {
+  return (await ingestRaw({
     source: "failed_session",
     filename: String(meta.reason || meta.code || "failed_session"),
     content_type: "application/json",
@@ -952,7 +987,7 @@ export function recordFailedSession(meta: Json, sessionId?: string | null, body 
     uploaded_by: "system",
     session_id: sessionId || null,
     meta,
-  });
+  }));
 }
 
 export async function listRaw(): Promise<Awaited<Json[]>> {
@@ -1020,7 +1055,9 @@ export function extractTextFromUpload(filename: string, mime: string, buf: Buffe
   return "";
 }
 
-export function storeUploadRaw(file: { name: string; type: string; buf: Buffer }, actor = (await knowledgeActorId())): Row {
+export async function storeUploadRaw(file: { name: string; type: string; buf: Buffer }, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Row>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   const original = file.name || "upload.bin";
   const safe = original.replace(/[^\w.\u4e00-\u9fff-]+/g, "_") || "upload.bin";
@@ -1033,7 +1070,7 @@ export function storeUploadRaw(file: { name: string; type: string; buf: Buffer }
   const dest = path.join(dir, `${uploadId}_${safe}`);
   fs.writeFileSync(dest, file.buf);
   const body = extractTextFromUpload(safe, file.type, file.buf, dest);
-  return ingestRaw({
+  return (await ingestRaw({
     source: "upload",
     filename: safe,
     content_type: file.type || "application/octet-stream",
@@ -1041,7 +1078,7 @@ export function storeUploadRaw(file: { name: string; type: string; buf: Buffer }
     path: dest,
     uploaded_by: actor,
     meta: { ext, bytes: file.buf.length },
-  });
+  }));
 }
 
 async function maintainerPendingFromRaw(raw: Row, actor: string): Promise<Awaited<Json>> {
@@ -1087,7 +1124,9 @@ async function maintainerPendingFromRaw(raw: Row, actor: string): Promise<Awaite
   }, actor);
 }
 
-export async function extractFromRaw(rawId: string, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function extractFromRaw(rawId: string, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   const raw = (await getConn().query("SELECT * FROM knowledge_raw WHERE id=$1",[rawId])).rows[0] as Row | undefined;
   if (!raw) throw new HttpFail(404, "raw not found");
@@ -1125,7 +1164,9 @@ export async function proposeEvolve(input: {
   from_brand?: string;
   to_brand?: string;
   proposed_diff?: string;
-}, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
+}, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   const kind = String(input.kind || "skill_patch");
   if (!["skill_patch", "template_patch", "brand_transfer"].includes(kind)) {
@@ -1148,7 +1189,9 @@ function assertSkillMdUntouched(): void {
   /* WikiSkill evolve never writes production SKILL.md. Review only records the decision. */
 }
 
-export async function reviewProposal(id: string, action: "approve" | "reject", rejectReason = "", actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function reviewProposal(id: string, action: "approve" | "reject", rejectReason = "", actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   const row = (await getConn().query("SELECT * FROM knowledge_proposals WHERE id=$1",[id])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(404, "proposal not found");
@@ -1193,13 +1236,15 @@ export async function reviewProposal(id: string, action: "approve" | "reject", r
   return (await getConn().query("SELECT * FROM knowledge_proposals WHERE id=$1",[id])).rows[0] as Json;
 }
 
-export function transferBrand(knowledgeId: string, toBrand: string, actor = (await knowledgeActorId())): Json {
-  return proposeEvolve({
+export async function transferBrand(knowledgeId: string, toBrand: string, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
+  return (await proposeEvolve({
     kind: "brand_transfer",
     knowledge_id: knowledgeId,
     to_brand: toBrand,
     proposed_diff: `transfer brand From whitelist → ${toBrand} ${BRAND_MAILBOXES[toBrand] || ""}`,
-  }, actor);
+  }, actor));
 }
 
 export type UsableTemplate = {
@@ -1232,14 +1277,14 @@ async function effectivePublishedRow(row:Row):Promise<Awaited<Row>> {
   const snapshot=(await publishedSnapshot(row));
   return {...row,...Object.fromEntries(Object.entries(snapshot).filter(([,v])=>v!=null)),id:row.id,current_version:snapshot.version};
 }
-function effectivePublishedRows(rows:Row[]):Row[] {
-  return rows.flatMap(async row=>{try{return [(await effectivePublishedRow(row))];}catch(e){if(e instanceof HttpFail)return [];throw e;}});
+async function effectivePublishedRows(rows:Row[]):Promise<Awaited<Row[]>> {
+  return (await asyncFlatMap(rows, async row=>{try{return [(await effectivePublishedRow(row))];}catch(e){if(e instanceof HttpFail)return [];throw e;}}));
 }
 /** Employee detail always resolves the effective snapshot, including while a newer draft exists. */
 export async function employeeKnowledge(row:Row):Promise<Awaited<Json>> {
   if(row.status!=="published")throw new HttpFail(403,"未发布知识不可使用");
   const effective=(await effectivePublishedRow(row));
-  if(!(await canSeeKnowledge(effective)) || !brandMatched(effective))throw new HttpFail(404,"知识不存在或不可访问");
+  if(!(await canSeeKnowledge(effective)) || !(await brandMatched(effective)))throw new HttpFail(404,"知识不存在或不可访问");
   return publicKnowledge(effective);
 }
 
@@ -1295,7 +1340,7 @@ export async function assertMailTemplateSnapshotApplicable(opts: {
   if (opts.skillId && template.skill_id !== String(opts.skillId)) {
     throw new HttpFail(403, { code: "knowledge_skill", message: "知识模板不适用于当前技能" });
   }
-  if (!brandMatched({ brand: template.brand }, brands)) {
+  if (!(await brandMatched({ brand: template.brand }, brands))) {
     throw new HttpFail(403, { code: "knowledge_brand", message: "知识品牌与当前账号不匹配" });
   }
   const brand = String(opts.brand || "").trim();
@@ -1309,7 +1354,10 @@ export async function assertMailTemplateSnapshotApplicable(opts: {
   return template;
 }
 
-export async function assertUsableKnowledge(knowledgeId: string, userId = (await knowledgeActorId()), brands = (await actorBrands())): Promise<Awaited<UsableTemplate>> {
+export async function assertUsableKnowledge(knowledgeId: string, userId?: Awaited<ReturnType<typeof knowledgeActorId>>, brands?: Awaited<ReturnType<typeof actorBrands>>): Promise<Awaited<UsableTemplate>> {
+if (userId === undefined) userId = (await knowledgeActorId());
+if (brands === undefined) brands = (await actorBrands());
+
   const row = (await getConn().query("SELECT * FROM knowledge WHERE id=$1",[knowledgeId])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(404, { code: "knowledge_missing", message: "知识不存在" });
   if (String(row.status) !== "published") {
@@ -1322,7 +1370,7 @@ export async function assertUsableKnowledge(knowledgeId: string, userId = (await
   if (!cited) throw new HttpFail(403, { code: "knowledge_uncited", message: "未启用知识不能进入会话" });
   const dep = (await getConn().query("SELECT 1 FROM knowledge_deprecations WHERE user_id=$1 AND knowledge_id=$2",[userId,knowledgeId])).rows[0];
   if (dep) throw new HttpFail(403, { code: "knowledge_deprecated", message: "已隐藏知识不能进入会话" });
-  if (!brandMatched(row, brands)) {
+  if (!(await brandMatched(row, brands))) {
     throw new HttpFail(403, { code: "knowledge_brand", message: "知识品牌与当前账号不匹配" });
   }
   // 注入闸门：按键取用的受控条目只允许来自结构化库（非结构化库走检索通道，本批未实现）。
@@ -1380,7 +1428,7 @@ export async function resolveMailTemplate(opts: {
     resolved: pick ? [{ id: String(pick.id), version: Number(pick.current_version || 1) }] : [],
     skipped_count: Math.max(0, staged.length - (pick ? 1 : 0)),
   }));
-  return pick ? (await assertUsableKnowledge(String(pick.id), userId, brands)) : null;
+  return pick ? (assertUsableKnowledge(String(pick.id), userId, brands)) : null;
 }
 
 export async function resolveApplicableMailTemplates(opts: {
@@ -1573,7 +1621,7 @@ async function knowledgeListFilters(opts: KnowledgeListOpts & { inMarket?: boole
   const handle = (await currentUser()).handle;
   const filter = async (row: Row): Promise<Awaited<boolean>> => {
     if (!(await canSeeKnowledge(row, handle))) return false;
-    if (!brandMatched(row)) return false;
+    if (!(await brandMatched(row))) return false;
     if (stage) {
       const codes = parseJsonArray(row.stage_codes);
       if (codes.length && !codes.includes(stage)) return false;
@@ -1608,8 +1656,10 @@ export async function grantsForKnowledge(id: string): Promise<Awaited<{ org: str
 export async function setKnowledgeGrants(
   id: string,
   patch: { org?: string[]; team?: string[]; user?: string[] },
-  actor = (await knowledgeActorId()),
+  actor?: Awaited<ReturnType<typeof knowledgeActorId>>,
 ): Promise<Awaited<{ org: string[]; team: string[]; user: string[] }>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   (await knowledgeRow(id));
   const dir = (await directory());
@@ -1661,7 +1711,9 @@ export async function getKnowledgeVersion(id: string, version: number): Promise<
 }
 
 /** 回滚 = 以历史版本内容生成新草稿版本，历史行不动。 */
-export async function rollbackKnowledge(id: string, version: number, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function rollbackKnowledge(id: string, version: number, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   if (!Number.isFinite(Number(version))) throw new HttpFail(404, "version not found");
   const prev = (await knowledgeRow(id));
@@ -1794,8 +1846,10 @@ export function listBindings(): Json[] {
 
 export async function saveBinding(
   input: { id?: string; skill_id?: string; selector?: unknown; enabled?: boolean | number; note?: string },
-  actor = (await knowledgeActorId()),
+  actor?: Awaited<ReturnType<typeof knowledgeActorId>>,
 ): Promise<Json> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   return tx(async (db) => {
     const id = String(input.id || "").trim();
@@ -1820,7 +1874,9 @@ export async function saveBinding(
   }, { isolation: "SERIALIZABLE" });
 }
 
-export async function deleteBinding(id: string, actor = (await knowledgeActorId()), agentId?: string): Promise<Json> {
+export async function deleteBinding(id: string, actor?: Awaited<ReturnType<typeof knowledgeActorId>>, agentId?: string): Promise<Json> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   return tx(async (db) => {
     const row = (await db.query<Row>("SELECT * FROM knowledge_bindings WHERE id=$1 FOR UPDATE", [id])).rows[0];
@@ -1906,7 +1962,7 @@ export async function resolveForSkill(
     skipped.push(entry);
   };
   const gateReason = async (row: Row): Promise<Awaited<string | null>> => {
-    if (!brandMatched(row, brands) || !(await canSeeKnowledge(row, handle))) return "scope_mismatch";
+    if (!(await brandMatched(row, brands)) || !(await canSeeKnowledge(row, handle))) return "scope_mismatch";
     if (!citedIds.has(String(row.id))) return "not_cited";
     if (deprecatedIds.has(String(row.id))) return "deprecated_by_user";
     if (!structuredBaseIds.has(String(row.base_id || ""))) return "wrong_base_type";
@@ -2042,8 +2098,10 @@ export async function handleFeedback(
   userId: string,
   action: "to_revision" | "archive" | "ignore",
   note = "",
-  actor = (await knowledgeActorId()),
+  actor?: Awaited<ReturnType<typeof knowledgeActorId>>,
 ): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   if (!["to_revision", "archive", "ignore"].includes(action)) {
     throw new HttpFail(400, "action 须为 to_revision / archive / ignore");

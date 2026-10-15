@@ -13,7 +13,7 @@ export async function confirmStarryStage(
   actor = "host",
   transition?: StageTransitionInput,
 ): Promise<Awaited<Json>> {
-  const result = starry.confirmStage(lifecycleId, stageCode, actor, transition);
+  const result = (await starry.confirmStage(lifecycleId, stageCode, actor, transition));
   (await audit("gateway", "gateway.confirm_stage", {
     lifecycle_id: lifecycleId,
     stage_code: stageCode,

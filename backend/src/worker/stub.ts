@@ -56,14 +56,14 @@ function judgmentInput(extra: Json, evidence: Json = {}, current?: string | null
 }
 
 async function writeBox(wid: string, skill: string, prompt: string, extra: Json): Promise<Awaited<string>> {
-  const profile = profileFor(skill);
-  const definition = requireTaskDefinition(skill);
+  const profile = (await profileFor(skill));
+  const definition = (await requireTaskDefinition(skill));
   fs.mkdirSync(boxDir(), { recursive: true });
   const box = path.join(boxDir(), wid);
   fs.mkdirSync(box, { recursive: true });
   (await writeSkillIntoBox(box, skill));
   const planning = extra.mode === "today_plan" || extra.mode === "today_analyze" || extra.mode === "todo_plan" || extra.skip_user_memory === true;
-  const planningMount = planning ? planningHarnessMount(skill) : null;
+  const planningMount = planning ? (await planningHarnessMount(skill)) : null;
   fs.writeFileSync(
     path.join(box, "CONTEXT.md"),
     `# CONTEXT\n\nprofile: ${profile.name}\nskill: ${skill}\nprompt: ${prompt}\nplanning_harness: ${JSON.stringify(planningMount)}\nextra: ${JSON.stringify(workerSafeExtra(extra))}\n`,
@@ -86,19 +86,19 @@ async function writeBox(wid: string, skill: string, prompt: string, extra: Json)
   return box;
 }
 
-function mcp(log: Json[], server: "starry" | "claw", name: string, args: Json = {}): Json {
+async function mcp(log: Json[], server: "starry" | "claw", name: string, args: Json = {}): Promise<Awaited<Json>> {
   log.push({ method: "mcp/tool/call", params: { server, name } });
-  return callMcpTool(server, name, args);
+  return (await callMcpTool(server, name, args));
 }
 
-function collab(log: Json[], handle?: string | null): Json {
-  const row = mcp(log, "starry", "get_collaboration", { handle: handle || "" });
+async function collab(log: Json[], handle?: string | null): Promise<Awaited<Json>> {
+  const row = (await mcp(log, "starry", "get_collaboration", { handle: handle || "" }));
   if (row.found === false) return {};
   return row;
 }
 
-function listOverdue(log: Json[]): Json {
-  const rows = mcp(log, "claw", "list_overdue", {});
+async function listOverdue(log: Json[]): Promise<Awaited<Json>> {
+  const rows = (await mcp(log, "claw", "list_overdue", {}));
   return {
     type: "list_overdue",
     items: rows.items || [],
@@ -114,15 +114,15 @@ const TASK_TITLES: Record<string, string> = {
   risk_scan: "在途风险扫描",
 };
 
-function genericResult(log: Json[], skill: string, col: Json, extra: Json = {}): Json {
+async function genericResult(log: Json[], skill: string, col: Json, extra: Json = {}): Promise<Awaited<Json>> {
   let evidence = col;
   if (["creator_discovery", "creator_profile", "creator_scoring"].includes(skill)) {
-    evidence = mcp(log, "claw", "get_creators", {});
+    evidence = (await mcp(log, "claw", "get_creators", {}));
   } else if (skill === "risk_scan") {
-    evidence = mcp(log, "starry", "list_collaborations", {});
+    evidence = (await mcp(log, "starry", "list_collaborations", {}));
   } else if (!Object.keys(evidence).length) {
     const hinted = String(extra.handle || col.handle || "");
-    evidence = hinted ? collab(log, hinted) : {};
+    evidence = hinted ? (await collab(log, hinted)) : {};
   }
   const handle = String(evidence.handle || col.handle || "当前 KOL 组合");
   const title = TASK_TITLES[skill] || `${skill} 结果`;
@@ -244,8 +244,8 @@ function genericResult(log: Json[], skill: string, col: Json, extra: Json = {}):
   };
 }
 
-function stageProposal(log: Json[], col: Json, extra: Json = {}): Json {
-  const c = Object.keys(col).length ? col : collab(log, String(col.handle || extra.handle || ""));
+async function stageProposal(log: Json[], col: Json, extra: Json = {}): Promise<Awaited<Json>> {
+  const c = Object.keys(col).length ? col : (await collab(log, String(col.handle || extra.handle || "")));
   const current = String(c.stage_code || "INITIAL_CONTACT");
   const entities = extra.entities && typeof extra.entities === "object" ? extra.entities as Json : {};
   const hinted = String(entities.proposed_stage || extra.proposed_stage || "").trim();
@@ -408,13 +408,13 @@ async function produceItems(
   onProgress?: (progress: WorkerProgress) => void,
 ): Promise<Json[]> {
   const handle = extra.handle as string | undefined;
-  const col = handle ? collab(log, handle) : {};
+  const col = handle ? (await collab(log, handle)) : {};
   if (skill === "today_plan" || skill === "todo_plan") {
-    log.push({ method: "planning_harness", params: planningHarnessMount(skill) });
+    log.push({ method: "planning_harness", params: (await planningHarnessMount(skill)) });
     return [stubTodayBrief(extra)];
   }
   if (skill === "today_analyze") {
-    log.push({ method: "planning_harness", params: planningHarnessMount("today_analyze") });
+    log.push({ method: "planning_harness", params: (await planningHarnessMount("today_analyze")) });
     return [{
       type: "task_result",
       title: "今日对象分析",
@@ -428,7 +428,7 @@ async function produceItems(
       recommended_actions: ["打开对象", "需要时人工确认阶段"],
     }];
   }
-  if (skill === "confirm_stage") return [stageProposal(log, col, extra)];
+  if (skill === "confirm_stage") return [(await stageProposal(log, col, extra))];
   if (skill === "deal_memory") return collectDealMemoryItems(col, String(handle || col.handle || ""));
   if (isStageSopSkill(skill)) {
     return collectStageSopItems(String(extra.stage_code || extra.stage || col.stage_code || "INITIAL_CONTACT"), String(handle || col.handle || extra.handle || ""));
@@ -436,7 +436,7 @@ async function produceItems(
   if (isEmailMcpTask(skill) || isKolClawTask(skill)) {
     return completeTurnItems(skill, extra, [], log, onProgress);
   }
-  if (skill === "risk_scan") return [genericResult(log, skill, col, extra), listOverdue(log)];
+  if (skill === "risk_scan") return [(await genericResult(log, skill, col, extra)), (await listOverdue(log))];
   if (skill === "business_approval") {
     return [stubExpenseItem(extra)];
   }
@@ -521,7 +521,7 @@ async function produceItems(
       recommended_actions: candidates.length ? ["ingest", "ignore"] : ["ignore"],
     }];
   }
-  return [genericResult(log, skill, col, extra)];
+  return [(await genericResult(log, skill, col, extra))];
 }
 
 export async function runStub(
@@ -532,7 +532,7 @@ export async function runStub(
   onProgress?: (progress: WorkerProgress) => void,
 ): Promise<WorkerResult> {
   const wid = nid("wrk");
-  const profile = profileFor(skill);
+  const profile = (await profileFor(skill));
   const log: Json[] = [];
   log.push({ method: "initialize", params: { protocol: "codex-app-server", worker_id: wid } });
   log.push({ method: "profile/select", params: { id: profile.id, name: profile.name, harness: profile.harness } });
@@ -543,7 +543,7 @@ export async function runStub(
   log.push({ method: "skills/extraRoots/set", params: { extraRoots: [skillsRoot] } });
   log.push({ method: "skills/config/write", params: { path: skillPath, enabled: true } });
   const planning = extra.mode === "today_plan" || extra.mode === "today_analyze" || extra.mode === "todo_plan" || extra.skip_user_memory === true;
-  const mcpNames = planning ? planningHarnessMount(skill).tools : ["starry", "claw"];
+  const mcpNames = planning ? (await planningHarnessMount(skill)).tools : ["starry", "claw"];
   log.push({ method: "mcp_servers", params: { names: mcpNames } });
   log.push({ method: "thread/start", params: { resume: false, mcp: mcpNames } });
   log.push({ method: "turn/start", params: { prompt, skill } });

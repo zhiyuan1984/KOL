@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -613,7 +614,7 @@ async function recordSuggestionAudit(input: {
   errorCode?: string;
 }): Promise<void> {
   try {
-    await postgresPool().query(
+    await postgresConnection().query(
       `INSERT INTO mail_sync_audit(id,ts,actor,event_type,payload_json)
        VALUES ($1,now(),$2,$3,$4::jsonb)`,
       [
@@ -648,7 +649,7 @@ export function createMailLabelSuggestionOperations(options: { harness?: LabelSu
     const requestedAgentId = optionalAgentId((input as { agent_id?: unknown }).agent_id);
     const runtime = (await selectAuthorizedAgent(actor, requestedAgentId));
     const first = await postgresTransaction(
-      async (client) => (await loadLabelSuggestionEvidence(client, actor, mailbox, conversationId)),
+      async (client) => (loadLabelSuggestionEvidence(client, actor, mailbox, conversationId)),
       { isolation: "REPEATABLE READ" },
     );
 

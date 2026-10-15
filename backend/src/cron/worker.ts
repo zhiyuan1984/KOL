@@ -143,7 +143,7 @@ export async function processCronExecutionJobById(executionJobId: string, worker
 export async function enqueueManualRun(jobId: string, scheduledFor?: string): Promise<{ run_id: string; duplicate: boolean }> {
   await pgEnsureSystemCronJobs();
   try {
-    return await pgEnqueueManualCronRun(jobId, scheduledFor);
+    return pgEnqueueManualCronRun(jobId, scheduledFor);
   } catch (error) {
     if (error instanceof Error && error.message === "cron job not found") throw new HttpFail(404, "cron job not found");
     throw error;

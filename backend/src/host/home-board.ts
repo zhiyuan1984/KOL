@@ -21,8 +21,8 @@ import { PLANNING_TASK_TYPES, PLANNING_TASK_TYPES_SET, TODO_EXCLUDED_TASK_TYPES 
  */
 export type TaskDefinitionIndex = Map<string, TaskDefinition>;
 
-export function taskDefinitionIndex(): TaskDefinitionIndex {
-  return new Map(taskDefinitions().map((definition) => [definition.id, definition]));
+export async function taskDefinitionIndex(): Promise<Awaited<TaskDefinitionIndex>> {
+  return new Map((await taskDefinitions()).map((definition) => [definition.id, definition]));
 }
 
 /** Board list caps: the projection is an overview, not the full archive. */
@@ -549,7 +549,9 @@ export function displayStatusOf(task: {
 /** Recommended-task rows kept on the board; a presentation budget, not a business rule. */
 export const MAX_RECOMMENDED_TASKS = 8;
 
-function recPrompt(intent: string, handle: string, stage = "", definitions = taskDefinitionIndex()): string {
+async function recPrompt(intent: string, handle: string, stage = "", definitions?: TaskDefinitionIndex): Promise<Awaited<string>> {
+if (definitions === undefined) definitions = (await taskDefinitionIndex());
+
   const definition = definitions.get(intent);
   if (intent === "email_compose") {
     return handle
@@ -560,7 +562,9 @@ function recPrompt(intent: string, handle: string, stage = "", definitions = tas
   return handle ? `${title} @${handle}` : title;
 }
 
-function recTitle(intent: string, handle: string, days?: number, stage = "", definitions = taskDefinitionIndex()): string {
+async function recTitle(intent: string, handle: string, days?: number, stage = "", definitions?: TaskDefinitionIndex): Promise<Awaited<string>> {
+if (definitions === undefined) definitions = (await taskDefinitionIndex());
+
   const who = handle ? `@${handle}` : "这位红人";
   const stay = Number(days) > 0 ? `停留 ${days} 天的 ` : "";
   if (intent === "email_compose") return `给${stay}${who} ${stageMailAction(handle, stage).label}`;
@@ -570,7 +574,9 @@ function recTitle(intent: string, handle: string, days?: number, stage = "", def
   return `给 ${who} ${verb}`;
 }
 
-function insightIntent(task: Json, kol?: Json, definitions = taskDefinitionIndex()): string | null {
+async function insightIntent(task: Json, kol?: Json, definitions?: TaskDefinitionIndex): Promise<Awaited<string | null>> {
+if (definitions === undefined) definitions = (await taskDefinitionIndex());
+
   const type = String(task.skill || task.skill_id || task.task_type || "");
   if (definitions.has(type)) return type;
   if (kol?.unbound) return "creator_profile";
@@ -626,7 +632,9 @@ function decorateRecommended(row: Json, index: number): Json {
   };
 }
 
-export function buildRecommendedTasks(tasks: Json[], kols: Json[], definitions = taskDefinitionIndex()): Json[] {
+export async function buildRecommendedTasks(tasks: Json[], kols: Json[], definitions?: TaskDefinitionIndex): Promise<Awaited<Json[]>> {
+if (definitions === undefined) definitions = (await taskDefinitionIndex());
+
   const insights = tasks.filter((task) => (
     isInsightWorkItem(task)
     || (String(task.source || "") === "ai" && Boolean(task.promoted_at) && !isClosedWorkItem(task) && !task.dismissed_at)
@@ -821,7 +829,9 @@ export function followReleaseTimer(lastInteractionAt?: string | null): {
   };
 }
 
-export function buildWorkbench(tasks: Json[], kols: Json[], definitions = taskDefinitionIndex()): Json {
+export async function buildWorkbench(tasks: Json[], kols: Json[], definitions?: TaskDefinitionIndex): Promise<Awaited<Json>> {
+if (definitions === undefined) definitions = (await taskDefinitionIndex());
+
   const open = tasks.filter((task) => isOpenWorkItem(task)).map((task) => ({ ...task } as Json));
   const todo = tasks.filter((task) => isTodoWorkItem(task)).map((task) => ({ ...task, candidate: false } as Json));
   const insights = tasks.filter((task) => isInsightWorkItem(task)).map((task) => ({ ...task, candidate: true } as Json));
@@ -860,7 +870,7 @@ export async function buildHomeBoard(options: { restoreOfficialStages?: boolean 
   const conn = getConn();
   const owner = ownerId();
   const followScope = (await currentFollowScope());
-  const definitions = taskDefinitionIndex();
+  const definitions = (await taskDefinitionIndex());
   const ownershipByUid=new Map(((await conn.query("SELECT o.kol_uid,o.owner_open_id,o.owner_mailbox FROM starry_profile_ownership o\n    JOIN starry_ownership_sync_state health ON health.company_id=o.company_id AND health.state='ready' WHERE o.company_id=$1",[memoryCompanyId()])).rows as Row[])
     .map(row=>[String(row.kol_uid),row]));
   const collabs = ((await conn.query("SELECT * FROM collaborations WHERE kol_uid IS NOT NULL AND trim(kol_uid) != '' ORDER BY display_name",[])).rows as Row[]).filter((row) => {

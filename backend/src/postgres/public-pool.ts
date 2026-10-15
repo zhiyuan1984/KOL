@@ -1,3 +1,4 @@
+import { postgresConnection } from "./pool.js";
 import { HttpFail } from "../host/errors.js";
 import { postgresPool } from "./pool.js";
 import { postgresQuery } from "./pool.js";
@@ -171,7 +172,7 @@ export async function readPublicPoolPage(options: PoolPageOptions, companyId: st
     if (status) library = { ...library, ok: Boolean(status.ok), count: Number(status.count || 0), synced_at: status.synced_at, error: status.error };
   } catch { /* Malformed stored status is not successful synchronization. */ }
   const matched = Number(result.matched);
-  const health=(await postgresPool().query("SELECT state,error,last_success_at,last_attempt_at,last_run_id FROM starry_ownership_sync_state WHERE company_id=$1",[companyId])).rows[0];
+  const health=(await postgresConnection().query("SELECT state,error,last_success_at,last_attempt_at,last_run_id FROM starry_ownership_sync_state WHERE company_id=$1",[companyId])).rows[0];
   // An unrelated Starry snapshot failure cannot make the crawler public pool
   // unavailable, or turn a legitimate search miss into a service failure.
   if(health?.state==='failed' && Number(result.total)===0 && Number(result.ownership_dependent_count)>0)

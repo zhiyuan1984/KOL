@@ -82,9 +82,9 @@ describe("business events ledger", () => {
     expect((await appendBusinessEvent(input, { strict: true })).inserted).toBe(false);
     expect((await eventCount())).toBe(1);
     (await expect((async () =>
-      (await appendBusinessEvent({ ...input, eventType: "nope.not_registered", idempotencyKey: "x" }, { strict: true })))()).rejects.toThrow(/not_registered/));
-    (await expect((async () => (await getConn().query("UPDATE business_events SET payload='{}'",[])))()).rejects.toThrow(/immutable/));
-    (await expect((async () => (await getConn().query("DELETE FROM business_events",[])))()).rejects.toThrow(/immutable/));
+      (appendBusinessEvent({ ...input, eventType: "nope.not_registered", idempotencyKey: "x" }, { strict: true })))()).rejects.toThrow(/not_registered/));
+    (await expect((async () => (getConn().query("UPDATE business_events SET payload='{}'",[])))()).rejects.toThrow(/immutable/));
+    (await expect((async () => (getConn().query("DELETE FROM business_events",[])))()).rejects.toThrow(/immutable/));
   });
 
   it("lists events with filters and clamps limit", async () => {
@@ -151,7 +151,7 @@ describe("business events ledger", () => {
       idempotencyKey: "reset-2",
     }));
     expect((await eventCount())).toBe(1);
-    (await expect((async () => (await getConn().query("DELETE FROM business_events",[])))()).rejects.toThrow(/immutable/));
+    (await expect((async () => (getConn().query("DELETE FROM business_events",[])))()).rejects.toThrow(/immutable/));
   });
 
   it("serves GET /api/events", async () => {

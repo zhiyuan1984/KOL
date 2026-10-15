@@ -207,13 +207,13 @@ it("dequeue cancels a queued job through the operation", async () => {
   const app = new Hono();
   app.route("/api", operationRouter(runtimeActionOperations));
   const owner = (await mapUser((await getConn().query("SELECT * FROM users WHERE id=$1",[context.userId])).rows[0] as Json));
-  const response = await withScopedUser(owner, async () => (await app.request("/api/actions/runtime.crawl.dequeue", {
+  const response = await withScopedUser(owner, async () => (app.request("/api/actions/runtime.crawl.dequeue", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action_id: actionId }),
   })));
   expect(response.status).toBe(200);
   expect(await jobState(actionId)).toMatchObject({ state: "cancelled", error_code: "queue_cancelled_by_user" });
   // 重复取消幂等失败（已非 queued/uncertain）。
-  const again = await withScopedUser(owner, async () => (await app.request("/api/actions/runtime.crawl.dequeue", {
+  const again = await withScopedUser(owner, async () => (app.request("/api/actions/runtime.crawl.dequeue", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action_id: actionId }),
   })));
   expect(again.status).toBe(409);

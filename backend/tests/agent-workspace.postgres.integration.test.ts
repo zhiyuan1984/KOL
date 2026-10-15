@@ -192,26 +192,26 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
  });
  it("does not permit assembly updates through legacy APIs after draft governance starts",async()=>{
   await saveAgentDraft(actor,agentId,input());await expect(assertLegacyAgentWriteAllowed(agentId)).rejects.toMatchObject({status:409});
-  await expect((async ()=>(await setAgentSkill(agentId,skillB,true,0)))()).rejects.toThrow('修订草稿');await expect((async ()=>(await setAgentSkills(agentId,[{skill_id:skillB,enabled:true,expected_version:0}])))()).rejects.toThrow('修订草稿');
+  await expect((async ()=>(setAgentSkill(agentId,skillB,true,0)))()).rejects.toThrow('修订草稿');await expect((async ()=>(setAgentSkills(agentId,[{skill_id:skillB,enabled:true,expected_version:0}])))()).rejects.toThrow('修订草稿');
  });
  it("blocks runtime invocation when a pinned skill has changed",async()=>{
   await saveAgentDraft(actor,agentId,input());const check=await prepareAgentRelease(actor,agentId);await release(check.preparation_id);
-  await expect((async ()=>(await assertRuntimeSkill({agentId,skillId:skillB,userId:actor,runId:'test'})))()).resolves.not.toBeInstanceOf(Error);
+  await expect((async ()=>(assertRuntimeSkill({agentId,skillId:skillB,userId:actor,runId:'test'})))()).resolves.not.toBeInstanceOf(Error);
   await postgresPool().query("INSERT INTO skill_sops(id,summary,body,updated_at) VALUES($1,'changed','changed',$2)",[skillB,stamp]);
-  await expect((async ()=>(await assertRuntimeSkill({agentId,skillId:skillB,userId:actor,runId:'test'})))()).rejects.toThrow('runtime_agent_skill_upgrade_required');
+  await expect((async ()=>(assertRuntimeSkill({agentId,skillId:skillB,userId:actor,runId:'test'})))()).rejects.toThrow('runtime_agent_skill_upgrade_required');
  });
  it("returns real projection data to admins and denies employees",async()=>{
   const app=new Hono().route('/api',agentWorkspaceRouter);app.onError((e,c)=>c.json({message:e.message},(e instanceof HttpFail?e.status:500) as 403));
   const user:AppUser={id:'employee',username:'employee',name:'员工',handle:'employee',roles:['employee'],role:'employee',brands:[],site:'department',manager_user_id:null,active:true,exam_passed:true,exam_todo_count:0,exam_module:''};
-  expect((await withScopedUser(user,async ()=>(await app.request('/api/admin/agents/workspace-v1')))).status).toBe(403);
-  for(const suffix of ['organization-preview-v1','organization-v1'])expect((await withScopedUser(user,async ()=>(await app.request(`/api/admin/agents/${encodeURIComponent(agentId)}/${suffix}`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})))).status).toBe(403);
+  expect((await withScopedUser(user,async ()=>(app.request('/api/admin/agents/workspace-v1')))).status).toBe(403);
+  for(const suffix of ['organization-preview-v1','organization-v1'])expect((await withScopedUser(user,async ()=>(app.request(`/api/admin/agents/${encodeURIComponent(agentId)}/${suffix}`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})))).status).toBe(403);
   expect((await agentWorkspace()).agents.find(value=>value.id===agentId)?.coverage.org_version).toBe(1);
  });
  it("requires a fresh revoke preview after another binding changes and immediately removes qualification",async()=>{
   const app=new Hono().route('/api',adminAgentsRouter);app.onError((e,c)=>c.json({message:e.message},(e instanceof HttpFail?e.status:500) as 409));
   const admin:AppUser={id:actor,username:actor,name:'管理员',handle:actor,roles:['admin'],role:'admin',brands:[],site:'department',manager_user_id:null,active:true,exam_passed:true,exam_todo_count:0,exam_module:''};
   const base=`/api/admin/agents/${encodeURIComponent(agentId)}/bindings/test-binding`;
-  const call=async (method:string,url:string,body?:unknown)=>(await withScopedUser(admin,async ()=>(await app.request(url,{method,headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})}))));
+  const call=async (method:string,url:string,body?:unknown)=>(await withScopedUser(admin,async ()=>(app.request(url,{method,headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})}))));
   const check=await (await call('POST',`${base}/revoke-preview`)).json() as {org_version:number;preview_signature:string};
   await postgresPool().query("UPDATE agent_bindings SET binding_version=binding_version+1 WHERE id='test-binding'");
   expect((await call('DELETE',base,{...check,reason:'test'})).status).toBe(409);expect((await canUseAgent('employee',agentId))).toBe(true);

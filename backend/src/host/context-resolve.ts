@@ -83,7 +83,7 @@ export type StageFact = {
   exception_kind: string | null;
 };
 
-export type StageTracksFact = ReturnType<typeof groupedStageTracks>;
+export type StageTracksFact = Awaited<ReturnType<typeof groupedStageTracks>>;
 export type MailThreadFact = { digest: ThreadDigest | null; memory: string[]; text: string; mail_count: number };
 export type MailTemplateFact = { templates: UsableTemplate[]; choices: UsableTemplate[]; template: UsableTemplate | null };
 export type CreatorFact = { handle: string; display_name: string; kol_uid: string; brand: string; collaboration_id: string };
@@ -604,9 +604,12 @@ export function openContext(input: ContextResolveInput): ContextSession {
   }
 
   async function resolution(
-    requires = input.requires ?? taskDefinition(skillId)?.context?.requires ?? [],
-    prefers = input.prefers ?? taskDefinition(skillId)?.context?.prefers ?? [],
+    requires?: readonly ("message" | "stage" | "collaboration" | "stage_tracks" | "mailbox" | "mail_thread" | "mail_template" | "conversation" | "creator" | "creator_filter" | "risk_scope" | "recipient")[],
+    prefers?: readonly ("message" | "stage" | "collaboration" | "stage_tracks" | "mailbox" | "mail_thread" | "mail_template" | "conversation" | "creator" | "creator_filter" | "risk_scope" | "recipient")[],
   ): Promise<ContextResolution> {
+if (requires === undefined) requires = input.requires ?? (await taskDefinition(skillId))?.context?.requires ?? [];
+if (prefers === undefined) prefers = input.prefers ?? (await taskDefinition(skillId))?.context?.prefers ?? [];
+
     const declared = [...new Set([...requires, ...prefers])];
     const wanted = new Set<TaskContextKey>(declared);
     for (const key of declared) for (const dependency of KEY_DEPENDS[key] || []) wanted.add(dependency);
@@ -708,5 +711,5 @@ export function openContext(input: ContextResolveInput): ContextSession {
 
 /** 统一入口：按声明解析并返回信封（`context.resolve` 的回答体）。 */
 export async function resolveContext(input: ContextResolveInput): Promise<ContextResolution> {
-  return (await openContext(input).resolution(input.requires, input.prefers));
+  return (openContext(input).resolution(input.requires, input.prefers));
 }

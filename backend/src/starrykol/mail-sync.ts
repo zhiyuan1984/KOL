@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { starryKolMcpConfigured } from "../starrykol/connection.js";
 import { audit, getConn, nowIso, onConnReset } from "../db.js";
@@ -311,7 +312,7 @@ async function retryRead<T>(stage: "index" | "body", action: () => Promise<T>): 
   for (let attempt = 0; ; attempt += 1) {
     const started = Date.now();
     try {
-      return await action();
+      return action();
     } catch (error) {
       const failure = classifyMailSyncFailure(error, diagnosticId);
       const delayMs = retryDelayForRead(failure);
@@ -365,8 +366,8 @@ export async function startFollowedMailSync(force = false, mailbox = ""): Promis
   const key = (await mailboxSyncKey(mailbox));
   const existing = (await inflight.get(key));
   if (existing) return existing;
-  const pending = (await syncFollowedKolMail(mailbox).finally(async () => {
-    if ((await inflight.get(key)) === pending) inflight.delete(key);
+  const pending = (syncFollowedKolMail(mailbox).finally(async () => {
+    if ((inflight.get(key)) === pending) inflight.delete(key);
   }));
   inflight.set(key, pending);
   lastStarted.set(key, Date.now());
@@ -382,7 +383,7 @@ export async function ensureFollowedMailSync(force = false, mailbox = ""): Promi
     const cached = await followedMailStatus(mailbox);
     if (cached.synced_at) return cached;
   }
-  return (await startFollowedMailSync(force, mailbox));
+  return (startFollowedMailSync(force, mailbox));
 }
 
 export async function followedMailStatus(mailboxOverride = ""): Promise<FollowedMailSync> {
@@ -508,7 +509,7 @@ async function upsertThread(input: {
   lastReceipt?: string;
 }): Promise<{ id: string; inserted: boolean }> {
   const now = nowIso();
-  const result = await postgresPool().query<{id: string; inserted: boolean}>(
+  const result = await postgresConnection().query<{id: string; inserted: boolean}>(
     `INSERT INTO kol_mail_threads
      (id,collaboration_id,conversation_id,subject,mailbox,last_direction,last_snippet,last_from,last_from_name,
       unread_count,last_at,created_at,updated_at,peer_email,peer_name,last_preview,match_state,last_receipt)
@@ -762,14 +763,14 @@ async function hydrateConversationById(
   await syncCheckpoint();
   const conversationId = conversationIdOf(conv);
   if (!conversationId) return 0;
-  let thread = (await postgresPool().query<Row>(
+  let thread = (await postgresConnection().query<Row>(
     "SELECT * FROM kol_mail_threads WHERE conversation_id=$1 AND mailbox=$2", [conversationId,mailbox],
   )).rows[0];
   if (!thread) {
     // Later pages normally arrive indexed already; retain this fallback for a
     // direct hydration request without introducing a second sync path.
     await persistConversationIndex(conv, mailbox, collabs);
-    thread = (await postgresPool().query<Row>(
+    thread = (await postgresConnection().query<Row>(
       "SELECT * FROM kol_mail_threads WHERE conversation_id=$1 AND mailbox=$2", [conversationId,mailbox],
     )).rows[0];
   }
@@ -1076,12 +1077,12 @@ async function mapLimited<T, R>(values: T[], limit: number, fn: (value: T) => Pr
 async function hydrateRequestedConversationIfNeeded(conversationId: string, mailbox: string): Promise<boolean> {
   const requested = String(conversationId || "").trim();
   if (!requested || !mailbox) return false;
-  const thread = (await postgresPool().query<Row>(
+  const thread = (await postgresConnection().query<Row>(
     "SELECT * FROM kol_mail_threads WHERE conversation_id=$1 AND lower(mailbox)=lower($2) LIMIT 1",
     [requested, mailbox],
   )).rows[0];
   if (!thread) return false;
-  const existing = await postgresPool().query<{ has_body: boolean }>(
+  const existing = await postgresConnection().query<{ has_body: boolean }>(
     "SELECT EXISTS(SELECT 1 FROM kol_mail_items WHERE thread_id=$1 AND COALESCE(body_text,'')<>'') AS has_body",
     [String(thread.id)],
   );
@@ -1108,7 +1109,7 @@ export async function syncFollowedKolMail(mailboxOverride = "", options?: MailSy
     // Durable workers need a real object here: the inner sync resets it to the
     // persisted page pointer and reports the first committed index receipt.
     ...(isDurable ? { progress: blankProgress() } : {}),
-  }, async () => (await syncFollowedKolMailInner(mailboxOverride)));
+  }, async () => (syncFollowedKolMailInner(mailboxOverride)));
 }
 
 async function syncFollowedKolMailInner(mailboxOverride: string): Promise<FollowedMailSync> {

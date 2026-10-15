@@ -66,8 +66,8 @@ describe("capability registry", () => {
   });
 
   it("rejects invalid kind and missing ref_id", async () => {
-    (await expect((async () => (await registerCapability({ kind: "nope", ref_id: "x" })))()).rejects.toThrow());
-    (await expect((async () => (await registerCapability({ kind: "model", ref_id: "  " })))()).rejects.toThrow());
+    (await expect((async () => (registerCapability({ kind: "nope", ref_id: "x" })))()).rejects.toThrow());
+    (await expect((async () => (registerCapability({ kind: "model", ref_id: "  " })))()).rejects.toThrow());
   });
 
   it("updates notes and deprecates", async () => {
@@ -76,7 +76,7 @@ describe("capability registry", () => {
     expect(String(updated.notes)).toBe("效果差");
     expect(String(updated.status)).toBe("deprecated");
     expect((await listCapabilities({ status: "active" })).find((c) => String(c.id) === String(created.id))).toBeUndefined();
-    (await expect((async () => (await updateCapability(String(created.id), { status: "nope" })))()).rejects.toThrow());
+    (await expect((async () => (updateCapability(String(created.id), { status: "nope" })))()).rejects.toThrow());
   });
 
   it("recordCapabilityCall accumulates aggregate stats only", async () => {
@@ -95,7 +95,7 @@ describe("capability registry", () => {
   });
 
   it("recordCapabilityCall never breaks the main flow", () => {
-    expect(async () => (await recordCapabilityCall({ kind: "bogus", ref_id: "", ok: true }))).not.toThrow();
-    expect(async () => (await recordCapabilityCall({ kind: "model", ref_id: "", ok: true }))).not.toThrow();
+    expect(async () => (recordCapabilityCall({ kind: "bogus", ref_id: "", ok: true }))).not.toThrow();
+    expect(async () => (recordCapabilityCall({ kind: "model", ref_id: "", ok: true }))).not.toThrow();
   });
 });

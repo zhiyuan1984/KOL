@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { DEFAULT_COMPANY_ID } from "../host/kol-memory.js";
@@ -80,10 +81,10 @@ export async function scoreDiscoveryCandidate(job: ClaimedExecutionJob, checkpoi
   const values = [company, payload.platform, String(payload.creator_id), payload.assessment_key];
   try {
     await checkpoint();
-    const crawl = (await postgresPool().query("SELECT context_json,actor_id FROM runtime_crawl_jobs WHERE id=$1", [payload.action_id])).rows[0];
+    const crawl = (await postgresConnection().query("SELECT context_json,actor_id FROM runtime_crawl_jobs WHERE id=$1", [payload.action_id])).rows[0];
     if (!crawl || crawl.actor_id !== job.actor_ref) throw new HttpFail(403, { code: "candidate_scope_denied" });
     (await authorizeConnector(crawl.context_json, "claw"));
-    const record = (await postgresPool().query(`SELECT * FROM kol_candidate_assessments
+    const record = (await postgresConnection().query(`SELECT * FROM kol_candidate_assessments
       WHERE company_id=$1 AND platform=$2 AND creator_id=$3 AND assessment_key=$4`, values)).rows[0];
     if (!record || record.state === "scored") return { state: record ? "scored" : "missing", reused: true };
     // Reuse the same ownership filter as UI/model results before sending evidence.
@@ -91,16 +92,16 @@ export async function scoreDiscoveryCandidate(job: ClaimedExecutionJob, checkpoi
     if (!(await runtimeCandidateViews(crawl.context_json, String(payload.action_id), [record.evidence_json])).length) {
       throw new HttpFail(403, { code: "candidate_scope_denied" });
     }
-    await postgresPool().query(`UPDATE kol_candidate_assessments SET state='scoring',updated_at=now()
+    await postgresConnection().query(`UPDATE kol_candidate_assessments SET state='scoring',updated_at=now()
       WHERE company_id=$1 AND platform=$2 AND creator_id=$3 AND assessment_key=$4`, values);
     const result = await assessor(assessmentProfile(record.evidence_json), record.criteria_json);
     await checkpoint();
     (await authorizeConnector(crawl.context_json, "claw"));
-    await postgresPool().query(`UPDATE kol_candidate_assessments SET state='scored',result_json=$5,error_code=NULL,updated_at=now()
+    await postgresConnection().query(`UPDATE kol_candidate_assessments SET state='scored',result_json=$5,error_code=NULL,updated_at=now()
       WHERE company_id=$1 AND platform=$2 AND creator_id=$3 AND assessment_key=$4`, [...values, JSON.stringify(result)]);
     return { state: "scored", creator_id: payload.creator_id, assessed_at: result.assessed_at };
   } catch (error) {
-    await postgresPool().query(`UPDATE kol_candidate_assessments SET state=$5,error_code='assessment_failed',updated_at=now()
+    await postgresConnection().query(`UPDATE kol_candidate_assessments SET state=$5,error_code='assessment_failed',updated_at=now()
       WHERE company_id=$1 AND platform=$2 AND creator_id=$3 AND assessment_key=$4 AND state<>'scored'`,
     [...values, Number(job.attempts) < Number(job.max_attempts) ? "queued" : "failed"]);
     throw new Error("Candidate assessment failed; public evidence and retry state are retained.");
@@ -108,6 +109,6 @@ export async function scoreDiscoveryCandidate(job: ClaimedExecutionJob, checkpoi
 }
 
 export async function retryCandidateAssessment(actionId: string, context: RuntimeContext, row: Json): Promise<void> {
-  await postgresTransaction(async client => (await enqueueCandidateAssessments(actionId, context, [row], client, true)));
+  await postgresTransaction(async client => (enqueueCandidateAssessments(actionId, context, [row], client, true)));
 }
 registerExecutionHandler("discovery.score", scoreDiscoveryCandidate);

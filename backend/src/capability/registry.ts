@@ -179,7 +179,9 @@ export async function registerCapability(input: {
   version?: string | null;
   version_pinned?: string | null;
   notes?: string | null;
-}, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
+}, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   (await ensureBuiltinProfiles());
   const kind = String(input.kind || "");
@@ -208,7 +210,9 @@ export async function updateCapability(id: string, patch: {
   version_pinned?: string | null;
   notes?: string | null;
   status?: string;
-}, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
+}, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   (await ensureBuiltinProfiles());
   const row = (await getConn().query("SELECT * FROM capability_registry WHERE id=$1",[String(id)])).rows[0] as Row | undefined;

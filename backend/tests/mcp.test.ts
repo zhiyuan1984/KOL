@@ -48,10 +48,10 @@ describe("mcp tools (Dify 工具节点)", () => {
   });
 
   it("写工具名被拒绝", async () => {
-    (await expect((async () => (await callMcpTool("starry", "send_mail", {})))()).rejects.toThrow(/Gateway/));
-    (await expect((async () => (await callMcpTool("starry", "confirm_stage", {})))()).rejects.toThrow(/Gateway/));
-    (await expect((async () => (await callMcpTool("claw", "ingest_mediacrawler", {})))()).rejects.toThrow(/Host\/Gateway/));
-    (await expect((async () => (await callMcpTool("claw", "wecom_send", {})))()).rejects.toThrow());
+    (await expect((async () => (callMcpTool("starry", "send_mail", {})))()).rejects.toThrow(/Gateway/));
+    (await expect((async () => (callMcpTool("starry", "confirm_stage", {})))()).rejects.toThrow(/Gateway/));
+    (await expect((async () => (callMcpTool("claw", "ingest_mediacrawler", {})))()).rejects.toThrow(/Host\/Gateway/));
+    (await expect((async () => (callMcpTool("claw", "wecom_send", {})))()).rejects.toThrow());
   });
 
   it("seeded DB 可读", async () => {

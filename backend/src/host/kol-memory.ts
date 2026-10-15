@@ -84,7 +84,9 @@ export async function currentMemoryEmployee(): Promise<Awaited<MemoryEmployee>> 
   throw new HttpFail(401, "authentication required");
 }
 
-export function resolveScopeBrand(requested?: string, employee = (await currentMemoryEmployee())): string {
+export async function resolveScopeBrand(requested?: string, employee?: Awaited<ReturnType<typeof currentMemoryEmployee>>): Promise<Awaited<string>> {
+if (employee === undefined) employee = (await currentMemoryEmployee());
+
   const brand = String(requested || "").trim();
   if (brand) return brand;
   return employee.brands[0] || "LT";
@@ -201,10 +203,10 @@ export async function upsertPublicProfile(input: {
   const existing = (await getProfile(kolUid, companyId, db));
   const id = String(existing?.id || nid("kpi"));
   (await db.query("INSERT INTO kol_profile_index\n     (id,company_id,kol_uid,handle,display_name,platform,homepage_url,avatar_url,followers,avg_plays,\n      engagement,engagement_source,direction,region,style,ingest_source,ingested_at,public_stage,pool_status,\n      idle,source_version,source_batch,platform_creator_id,created_at,updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)\n     ON CONFLICT(company_id, kol_uid) DO UPDATE SET\n       handle=COALESCE(NULLIF(excluded.handle,''), kol_profile_index.handle),\n       display_name=COALESCE(NULLIF(excluded.display_name,''), kol_profile_index.display_name),\n       platform=COALESCE(NULLIF(excluded.platform,''), kol_profile_index.platform),\n       homepage_url=COALESCE(NULLIF(excluded.homepage_url,''), kol_profile_index.homepage_url),\n       avatar_url=COALESCE(NULLIF(excluded.avatar_url,''), kol_profile_index.avatar_url),\n       followers=COALESCE(NULLIF(excluded.followers,''), kol_profile_index.followers),\n       avg_plays=COALESCE(NULLIF(excluded.avg_plays,''), kol_profile_index.avg_plays),\n       engagement=COALESCE(NULLIF(excluded.engagement,''), kol_profile_index.engagement),\n       engagement_source=COALESCE(NULLIF(excluded.engagement_source,''), kol_profile_index.engagement_source),\n       direction=COALESCE(NULLIF(excluded.direction,''), kol_profile_index.direction),\n       region=COALESCE(NULLIF(excluded.region,''), kol_profile_index.region),\n       style=COALESCE(NULLIF(excluded.style,''), kol_profile_index.style),\n       ingest_source=COALESCE(NULLIF(excluded.ingest_source,''), kol_profile_index.ingest_source),\n       ingested_at=COALESCE(kol_profile_index.ingested_at, excluded.ingested_at),\n       public_stage=COALESCE(NULLIF(excluded.public_stage,''), kol_profile_index.public_stage),\n       source_version=COALESCE(excluded.source_version, kol_profile_index.source_version),\n       source_batch=COALESCE(NULLIF(excluded.source_batch,''), kol_profile_index.source_batch),\n       platform_creator_id=COALESCE(NULLIF(excluded.platform_creator_id,''), kol_profile_index.platform_creator_id),\n       updated_at=excluded.updated_at",[id,companyId,kolUid,text(input.handle),text(input.display_name) || text(input.handle),text(input.platform),text(input.homepage_url),text(input.avatar_url),text(input.followers),text(input.avg_plays),text(input.engagement),text(input.engagement_source),text(input.direction),text(input.region),text(input.style),text(input.ingest_source) || "starry",existing?.ingested_at || input.ingested_at || now,text(input.public_stage),text(input.pool_status) || existing?.pool_status || "open",Number(input.idle ?? existing?.idle ?? 0),text(input.source_version),text(input.source_batch),text(input.platform_creator_id),existing?.created_at || now,now]));
-  return (await getProfile(kolUid, companyId, db))!;
+  return (getProfile(kolUid, companyId, db))!;
 }
 
-export function ingestFormalProfile(input: {
+export async function ingestFormalProfile(input: {
   kol_uid: string;
   handle?: string;
   display_name?: string;
@@ -223,14 +225,14 @@ export function ingestFormalProfile(input: {
   source_batch?: string;
   platform_creator_id?: string;
   pool_status?: string;
-}): Row | null {
+}): Promise<Awaited<Row | null>> {
   const kolUid = text(input.kol_uid);
   if (!kolUid) return null;
-  return upsertPublicProfile({
+  return (await upsertPublicProfile({
     ...input,
     ingest_source: input.ingest_source || "ingest",
     ingested_at: nowIso(),
-  });
+  }));
 }
 
 export async function activeFollow(input: {
@@ -294,14 +296,14 @@ export async function deleteProfilesWithoutHomepage(input: {
         actual_count: actual,
       });
     }
-    return Number((await db.query("DELETE FROM kol_profile_index\n        WHERE company_id=$1\n          AND pool_status='open'\n          AND trim(COALESCE(homepage_url,''))=''\n          AND NOT EXISTS (\n            SELECT 1 FROM kol_follow_index f\n             WHERE f.company_id=kol_profile_index.company_id\n               AND f.kol_uid=kol_profile_index.kol_uid\n               AND f.status='active'\n          )",[companyId])).changes || 0);
+    return Number(((await db.query("DELETE FROM kol_profile_index\n        WHERE company_id=$1\n          AND pool_status='open'\n          AND trim(COALESCE(homepage_url,''))=''\n          AND NOT EXISTS (\n            SELECT 1 FROM kol_follow_index f\n             WHERE f.company_id=kol_profile_index.company_id\n               AND f.kol_uid=kol_profile_index.kol_uid\n               AND f.status='active'\n          )",[companyId])).rowCount ?? 0) || 0);
   }));
   (await audit(input.actor || "system", "kol.memory.cleanup_missing_homepage", {
     scope: "public_pool_only",
     expected_count: expected,
     deleted,
   }));
-  return { ok: true, scope: "public_pool_only", deleted, ...(await previewProfilesWithoutHomepage(companyId)) };
+  return { ok: true, scope: "public_pool_only", deleted, ...(previewProfilesWithoutHomepage(companyId)) };
 }
 
 /** 一条 IN 查询最多绑多少个 id：远低于 SQLite 的变量上限，只是给超长名单留安全余量。 */
@@ -509,7 +511,7 @@ export async function claimFollow(input: {
   const actor = input.actor || (await currentMemoryEmployee());
   const companyId = memoryCompanyId();
   const kolUid = text(input.kolUid);
-  const scopeBrand = resolveScopeBrand(input.scopeBrand, actor);
+  const scopeBrand = (await resolveScopeBrand(input.scopeBrand, actor));
   return tx(async (db) => {
     const profile = (await getProfile(kolUid, companyId, db));
     if (!profile) {
@@ -611,7 +613,7 @@ export async function applyFollowRelease(
   const now = nowIso();
   const stageBefore = (await db.query("SELECT stage_code FROM collaborations WHERE kol_uid=$1 LIMIT 1",[follow.kol_uid])).rows[0] as { stage_code?: string } | undefined;
   const changed = (await db.query("UPDATE kol_follow_index\n        SET status='released', released_at=$1, release_reason=$2, updated_at=$3, data_version=data_version+1\n      WHERE id=$4 AND status='active'",[now,reason,now,follow.id]));
-  if (!changed.changes) {
+  if (!(changed.rowCount ?? 0)) {
     return { ok: false, action: "skip", reason: "already_released", follow_id: follow.id };
   }
   (await db.query("UPDATE kol_profile_index\n        SET pool_status='open', idle=1, updated_at=$1\n      WHERE company_id=$2 AND kol_uid=$3",[now,follow.company_id,follow.kol_uid]));
@@ -684,7 +686,7 @@ export async function recordEffectiveCorrespondence(input: {
   }
   const clock = followClock(new Date(occurredAtMs).toISOString());
   const changed = (await db.query("UPDATE kol_follow_index\n        SET last_effective_mail_at=$1, release_due_at=$2, updated_at=$3, data_version=data_version+1\n      WHERE id=$4 AND status='active'\n        AND (last_effective_mail_at IS NULL OR trim(last_effective_mail_at)='' OR last_effective_mail_at<$5)",[clock.last_effective_mail_at,clock.release_due_at,nowIso(),follow.id,clock.last_effective_mail_at]));
-  if (!changed.changes) {
+  if (!(changed.rowCount ?? 0)) {
     return { renewed: false, effective: true, reason: "out_of_order", follow_id: String(follow.id) };
   }
   return { renewed: true, effective: true, reason: "human", follow_id: String(follow.id) };

@@ -45,7 +45,7 @@ async function request(
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
-  const res = await (authDisabled() ? (await withScopedUser(requireAdmin(),async ()=>(await app.request(url,init)))) : (await app.request(url,init)));
+  const res = await (authDisabled() ? (await withScopedUser(requireAdmin(),async ()=>(app.request(url,init)))) : (await app.request(url,init)));
   const text = await res.text();
   return {
     status: res.status,
@@ -95,7 +95,7 @@ async function upload(baseId: string, name: string, bytes: Buffer): Promise<Json
 async function docDetail(id: string): Promise<Json> {
   const res = await request("GET", `/api/admin/knowledge/documents/${id}`);
   expect(res.status).toBe(200);
-  return await res.json();
+  return res.json();
 }
 
 async function waitStatus(id: string, statuses: string[], timeoutMs = 8000): Promise<Json> {
@@ -117,7 +117,7 @@ async function auditCount(eventType: string): Promise<number> {
 async function approveAndPublish(id:string,base:string){
   const context=async (actor="sriphy")=>(await reviewContextForActor(getConn(),actor,"company:amperetime"));
   const definition=knowledgeReviewDefinition();definition.nodes.find(n=>n.type==="review")!.assignee={kind:"named",userIds:["pdf-reviewer"]};
-  const template=(await tx(async db=>(await new ReviewService(db,(await context())).saveTemplate(undefined,undefined,definition))));
+  const template=(await tx(async db=>(new ReviewService(db,(await context())).saveTemplate(undefined,undefined,definition))));
   (await tx(async db=>{const service=new ReviewService(db,(await context())),command={action:"publish" as const,templateId:template.id,expectedVersion:template.version};
     const prepare=(await service.prepare(command));(await service.execute(command,prepare.confirmationId,randomUUID()));}));
   await bindPublication(base,template.id,0,(await context()));
@@ -361,7 +361,7 @@ describe("knowledge documents (P1 pipeline)", () => {
     process.env.KNOWLEDGE_PAGEINDEX_PYTHON = "python3";
     const actual = bridge.runBridge;
     vi.spyOn(bridge, "runBridge").mockImplementation(async call => call.cmd === "index"
-      ? (await Promise.resolve({ ok: true, doc_id: "mixed_test_index", pages: 3 })) : (await actual(call)));
+      ? (Promise.resolve({ ok: true, doc_id: "mixed_test_index", pages: 3 })) : (actual(call)));
     const ocr = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: "Image body: execution targets, OCR verified.\n".repeat(120) } }], usage: { prompt_tokens: 1, completion_tokens: 1 } })));
     setIntentLlmFetch(ocr);
     const base = await createUnstructuredBase();

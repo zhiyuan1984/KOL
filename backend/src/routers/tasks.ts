@@ -113,7 +113,7 @@ function taskInput(body: Json): Json {
   return input;
 }
 
-function resolutionIssueFields(resolution: ReturnType<typeof resolveTaskIntent>): string[] {
+function resolutionIssueFields(resolution: Awaited<ReturnType<typeof resolveTaskIntent>>): string[] {
   return [...new Set([
     ...resolution.missing_fields,
     ...Object.keys(resolution.invalid_fields || {}),
@@ -121,11 +121,11 @@ function resolutionIssueFields(resolution: ReturnType<typeof resolveTaskIntent>)
 }
 
 async function publicWorkItem(row: Row, collab?: Row | null, definitions?: TaskDefinitionIndex, listReads?: {
-  templates: Map<string, ReturnType<typeof skillTemplate>>;
+  templates: Map<string, Awaited<ReturnType<typeof skillTemplate>>>;
   discoveryRuns: Map<string, string>;
   projects: Map<string, Row>;
 }): Promise<Json> {
-  const definition = definitions ? definitions.get(String(row.task_type)) : taskDefinition(String(row.task_type));
+  const definition = definitions ? definitions.get(String(row.task_type)) : (await taskDefinition(String(row.task_type)));
   const input = parseJson(row.input) as Json;
   const templateId = String(row.task_type);
   const fallbackTemplate = async () => {
@@ -405,7 +405,7 @@ async function applyTaskUpdate(item: Row, patch: Json, note?: string): Promise<{
 
 async function createWorkItem(body: Json, source: string): Promise<Json> {
   const explicitType = String(body.task_type || body.definition_id || body.intent || "");
-  const definition = taskDefinition(explicitType);
+  const definition = (await taskDefinition(explicitType));
   if (!definition) throw new HttpFail(400, { code: "unknown_task_type", task_type: explicitType });
   requireSkill(definition.id);
   const input = taskInput(body);
@@ -468,7 +468,7 @@ async function createWorkItem(body: Json, source: string): Promise<Json> {
   });
   await ensureTicketForWorkItem(id);
   return {
-    ...(await publicWorkItem((await ownedWorkItem(id)))),
+    ...(publicWorkItem((await ownedWorkItem(id)))),
     resolution,
   };
 }
@@ -476,12 +476,12 @@ async function createWorkItem(body: Json, source: string): Promise<Json> {
 tasks.get("/task-definitions", async (c) => {
   const user = scopedUser();
   const granted = authDisabled() || isAdmin(user)
-    ? new Set(taskDefinitions().map((definition) => definition.id))
+    ? new Set((await taskDefinitions()).map((definition) => definition.id))
     : new Set(
         ((await pgVisibleSkillIdsForUser(user?.id || "", nowIso())).map((skill_id) => ({ skill_id })))
           .map((row) => String(row.skill_id)),
       );
-  return c.json((await Promise.all(taskDefinitions().map(async (definition) => {
+  return c.json((await Promise.all((await taskDefinitions()).map(async (definition) => {
     const { path: _path, ...publicDefinition } = definition;
     return {
       ...publicDefinition,
@@ -562,7 +562,7 @@ tasks.get("/workbench/tasks", async (c) => {
   }
   const page = rows.slice(0, limit);
   const collabs = (await collabsByIds([...new Set(page.map((row) => String(row.collaboration_id || row.project_id || "")).filter(Boolean))]));
-  const definitions = taskDefinitionIndex();
+  const definitions = (await taskDefinitionIndex());
   const items = await Promise.all(page
     .map(async (row) => {
       const reasons = todayMembershipReasons(row);
@@ -1001,7 +1001,7 @@ tasks.get("/tasks", async (c) => {
   // unchanged data window is served from the 4s in-process cache.
   const cacheKey = `tasks:${owner}:${ownerId()}:${view}:${sort}:${limit}:${cursor ? c.req.query("cursor") : ""}:${queryText}:${from}:${to}:${reportPeriod || ""}:${requestedStatus}:${taskType}:${overdue ?? ""}:${c.req.query("priority") || ""}:${c.req.query("source") || ""}:${c.req.query("profile") || ""}`;
   const payload = await cachedPollAsync(cacheKey, (await tasksEpoch()), async () => {
-    const definitions = taskDefinitionIndex();
+    const definitions = (await taskDefinitionIndex());
     const total = paged || openView
       ? Number((await getConn().query<{c: number}>(`SELECT COUNT(*) AS c FROM tickets ${countWhere}`, countValues)).rows[0]?.c || 0)
       : 0;
@@ -1023,7 +1023,7 @@ tasks.get("/tasks", async (c) => {
       [discoveryIds],
     ) : [];
     const listReads = {
-      templates: new Map<string, ReturnType<typeof skillTemplate>>(),
+      templates: new Map<string, Awaited<ReturnType<typeof skillTemplate>>>(),
       discoveryRuns: new Map(discoveryRows.map((row) => [String(row.work_item_id), String(row.id)])),
       projects: collabById,
     };
@@ -1104,10 +1104,10 @@ tasks.get("/tasks/operations-dashboard", async (c) => {
     const dashboard = buildTaskOperationsDashboard(rows, { period, timezone: "Asia/Shanghai", scope: scoped ? "personal" : "organization" });
     return {
       ...dashboard,
-      task_types: dashboard.task_types.slice(0, 8).map((item) => ({
+      task_types: (await Promise.all(dashboard.task_types.slice(0, 8).map(async (item) => ({
         ...item,
-        title: taskDefinition(item.task_type)?.title || "系统任务",
-      })),
+        title: (await taskDefinition(item.task_type))?.title || "系统任务",
+      })))),
       ...requestMetadata(),
     };
   });
@@ -1312,7 +1312,7 @@ tasks.post("/tasks/from-text", async (c) => {
       task_type: requestedType,
     });
   }
-  const lockedType = requestedType && taskDefinition(requestedType) ? requestedType : undefined;
+  const lockedType = requestedType && (await taskDefinition(requestedType)) ? requestedType : undefined;
   const resolution = await recognizeTaskIntent({
     text,
     agent_id: body.agent_id ? String(body.agent_id) : undefined,
@@ -1350,7 +1350,7 @@ tasks.post("/tasks/from-text", async (c) => {
   // Return a user-selectable handoff so the user can review/fill the registered
   // discovery brief before the existing crawl command starts.
   if (resolution.task_type === "creator_discovery") {
-    const definition = taskDefinition("creator_discovery");
+    const definition = (await taskDefinition("creator_discovery"));
     return c.json({
       resolution,
       task: null,
@@ -1363,7 +1363,7 @@ tasks.post("/tasks/from-text", async (c) => {
       handoff: { kind: "workspace", pane: "discovery", task_type: "creator_discovery" },
     });
   }
-  const declaredDefinition = taskDefinition(String(resolution.task_type || ""));
+  const declaredDefinition = (await taskDefinition(String(resolution.task_type || "")));
   if (body.source === "schedule" && declaredDefinition?.side_effects === "write") {
     throw new HttpFail(409, { code: "schedule_requires_presence", message: "此技能不可无人在场自动执行" });
   }
@@ -1407,7 +1407,7 @@ async function executionView(row: Row) {
   const runs = await postgresQuery<Row>(
     "SELECT id,status FROM task_runs WHERE work_item_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1", [row.id],
   );
-  return taskExecutionView(String(row.status), taskDefinition(String(row.task_type))?.side_effects,
+  return taskExecutionView(String(row.status), (await taskDefinition(String(row.task_type)))?.side_effects,
     runs[0] ? { id: runs[0].id, status: runs[0].status } : null);
 }
 
@@ -1448,7 +1448,7 @@ tasks.post("/tasks/:id/run", async (c) => {
   if (["running", "completed", "cancelled"].includes(String(item.status))) {
     throw new HttpFail(409, `task cannot run from ${item.status}`);
   }
-  const definition = taskDefinition(String(item.task_type));
+  const definition = (await taskDefinition(String(item.task_type)));
   if (!definition) throw new HttpFail(409, "task definition no longer exists");
   requireSkill(definition.id);
   const body = await c.req.json().catch(() => ({})) as Json;

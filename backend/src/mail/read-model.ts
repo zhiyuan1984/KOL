@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { readNativePersonMemory } from "../postgres/mail-memory-repository.js";
 import { authDisabled, scopedUser } from "../auth.js";
 import { DEMO_USER } from "../config.js";
@@ -143,7 +144,7 @@ async function readQuery<T extends Row = Row>(textSql: string, values: readonly 
     values: [...values],
     query_timeout: READ_QUERY_TIMEOUT_MS,
   };
-  return await postgresPool().query<T>(config);
+  return postgresConnection().query<T>(config);
 }
 
 function text(value: unknown): string {

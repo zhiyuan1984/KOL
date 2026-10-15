@@ -530,11 +530,11 @@ describe("home discovery extras", () => {
     expect(crawl.body.detail).toMatchObject({ code: "from_text_forbidden" });
   });
 
-  it("registers discovery skills and entry kinds", () => {
-    expect(taskDefinition("discovery_brief")?.id).toBe("discovery_brief");
-    expect(taskDefinition("discovery_plan")?.id).toBe("discovery_plan");
-    expect(taskDefinition("discovery_brief")?.in_market).toBe(false);
-    expect(taskDefinition("discovery_plan")?.in_market).toBe(false);
+  it("registers discovery skills and entry kinds", async () => {
+    expect((await taskDefinition("discovery_brief"))?.id).toBe("discovery_brief");
+    expect((await taskDefinition("discovery_plan"))?.id).toBe("discovery_plan");
+    expect((await taskDefinition("discovery_brief"))?.in_market).toBe(false);
+    expect((await taskDefinition("discovery_plan"))?.in_market).toBe(false);
     const byId = Object.fromEntries(HOME_ENTRY_REGISTRY.map((row) => [row.id, row]));
     expect(byId["list-discovery-runs"]?.kind).toBe("memory");
     expect(byId["list-discovery-candidates"]?.kind).toBe("memory");
@@ -567,7 +567,7 @@ describe("discovery harness gateway reject", () => {
       "../src/gateway/discovery-harness.js"
     );
     const { HttpFail } = await import("../src/host/errors.js");
-    (await expect((async () => (await runInDiscoveryHarness({ skill: "discovery_brief", session_id: "ses_x" }, async () => {
+    (await expect((async () => (runInDiscoveryHarness({ skill: "discovery_brief", session_id: "ses_x" }, async () => {
       (await rejectDiscoveryHarnessTool("start_crawl"));
     })))()).rejects.toThrow(HttpFail));
     const rows = (await listAudit()).filter((row) => String(row.event_type) === "discovery.harness.tool_rejected");

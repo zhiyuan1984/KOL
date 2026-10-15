@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { scopedUser, requireSkill, isAdmin, mapUser } from "../auth.js";
@@ -142,7 +143,7 @@ async function starryImportCandidate(input: {
     });
     return { kol_uid: String(receipt.kol_uid), reused: false };
   } catch (error) {
-    await postgresPool().query("UPDATE discovery_runtime_imports SET state='uncertain',updated_at=now() WHERE company_id=$1 AND platform=$2 AND creator_id=$3", [company, row.platform, row.id]);
+    await postgresConnection().query("UPDATE discovery_runtime_imports SET state='uncertain',updated_at=now() WHERE company_id=$1 AND platform=$2 AND creator_id=$3", [company, row.platform, row.id]);
     throw error;
   }
 }
@@ -159,13 +160,13 @@ async function reconcileUncertainImport(client: PoolClient, input: {
   let found: string;
   try {
     found = await withTimeout(
-      (await lookupImportedKolUid({ creatorExternalId: creatorExternalId(row.platform, row.id) })),
+      (lookupImportedKolUid({ creatorExternalId: creatorExternalId(row.platform, row.id) })),
       STARRY_RECONCILE_TIMEOUT_MS,
       "pageKolProfiles",
     );
   } catch (error) {
     // 独立落审计，外层业务事务回滚时仍保留核对失败原因。
-    await postgresPool().query("INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)",
+    await postgresConnection().query("INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)",
       [new Date().toISOString(), actorId, "host.import_creator.reconcile_failed", JSON.stringify({
         action_id: actionId, candidate_id: candidateId, error_detail: sanitizeSecret(error), retried_import: false,
       })]);
@@ -186,7 +187,7 @@ async function reconcileUncertainImport(client: PoolClient, input: {
   try {
     await adoptImportedUid(client, row, kolUid, actorId);
   } catch (error) {
-    await postgresPool().query("INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)",
+    await postgresConnection().query("INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)",
       [new Date().toISOString(), actorId, "host.import_creator.reconcile_failed", JSON.stringify({
         action_id: actionId, candidate_id: candidateId, error_detail: sanitizeSecret(error), retried_import: false,
       })]);
@@ -263,7 +264,7 @@ async function currentSnapshot(client: PoolClient, actionId: string, row: Json, 
 export async function runtimeCandidateViews(context: RuntimeContext, actionId: string, candidates: Json[]): Promise<Json[]> {
   (await authorizeConnector(context, "claw"));
   if (scopedUser() && scopedUser()!.id !== context.userId) throw new HttpFail(403, { code: "candidate_scope_denied" });
-  const actorRow = (await postgresPool().query("SELECT * FROM users WHERE id=$1 AND active=1", [context.userId])).rows[0];
+  const actorRow = (await postgresConnection().query("SELECT * FROM users WHERE id=$1 AND active=1", [context.userId])).rows[0];
   if (!actorRow) throw new HttpFail(401, { code: "runtime_identity_unavailable" });
   const actor = (await mapUser(actorRow));
   const client = await postgresPool().connect();
@@ -311,7 +312,7 @@ export async function runtimeCandidateCommand(actionId: string, candidateId: str
   const action = await runtimeAction(actionId, actor.id);
   if (action.tool_name !== "start_crawl") throw new HttpFail(404, { code: "candidate_not_found" });
   (await authorizeConnector(action.context_json, "claw"));
-  const job = (await postgresPool().query("SELECT result_json FROM runtime_crawl_jobs WHERE id=$1 AND actor_id=$2", [actionId, actor.id])).rows[0];
+  const job = (await postgresConnection().query("SELECT result_json FROM runtime_crawl_jobs WHERE id=$1 AND actor_id=$2", [actionId, actor.id])).rows[0];
   const row = job?.result_json?.candidates?.find((item: Json) => String(item.id) === candidateId) as Json | undefined;
   if (!row) throw new HttpFail(404, { code: "candidate_not_found" });
   if (input.snapshot_version !== stamp(row)) throw new HttpFail(409, { code: "candidate_changed", message: "候选资料已更新，请刷新后再操作。" });

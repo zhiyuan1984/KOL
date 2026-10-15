@@ -72,7 +72,7 @@ const PLATFORM_PLANNER_SKILLS = ["today_plan", "todo_plan", "today_analyze"] as 
 let schemaReady: Promise<void> | null = null;
 
 async function bootstrapWorkspacePlanner(): Promise<void> {
-  const definitions = new Map(taskDefinitions().map((definition) => [definition.id, definition]));
+  const definitions = new Map((await taskDefinitions()).map((definition) => [definition.id, definition]));
   for (const skillId of PLATFORM_PLANNER_SKILLS) {
     const definition = definitions.get(skillId);
     if (!definition || definition.runtime_agent_id !== PLATFORM_PLANNER_AGENT || definition.runtime_access !== "authenticated") {
@@ -87,7 +87,7 @@ async function bootstrapWorkspacePlanner(): Promise<void> {
 }
 
 async function bootstrapPlatformSync(): Promise<void> {
-  const definitions = new Map(taskDefinitions().map((definition) => [definition.id, definition]));
+  const definitions = new Map((await taskDefinitions()).map((definition) => [definition.id, definition]));
   for (const skillId of PLATFORM_SYNC_SKILLS) {
     const definition = definitions.get(skillId);
     if (!definition || definition.side_effects !== "none") throw new Error(`invalid platform sync skill: ${skillId}`);
@@ -102,7 +102,7 @@ async function bootstrapPlatformSync(): Promise<void> {
 async function bootstrapAgentManifestBindings(agentId: string): Promise<void> {
   const manifest = runtimeAgentBindingManifest(agentId);
   if (manifest.status !== "production") throw new Error(`runtime agent manifest is not production: ${manifest.id}`);
-  const definitions = new Map(taskDefinitions().map((definition) => [definition.id, definition]));
+  const definitions = new Map((await taskDefinitions()).map((definition) => [definition.id, definition]));
   for (const skillId of manifest.skills) {
     const definition = definitions.get(skillId);
     if (!definition || definition.runtime_agent_id !== manifest.id) throw new Error(`invalid agent skill declaration: ${manifest.id} → ${skillId}`);
@@ -118,7 +118,7 @@ async function bootstrapAgentManifestBindings(agentId: string): Promise<void> {
 /** Schema ownership belongs to formal PostgreSQL migrations; this function only performs reviewed one-way bootstrap rows. */
 export async function ensureRuntimeSchema(): Promise<void> {
   if (schemaReady) return schemaReady;
-  const current = (await (async () => {
+  const current = ((async () => {
     await bootstrapWorkspacePlanner();
     await bootstrapAgentManifestBindings("agent:kol");
     await bootstrapPlatformSync();
@@ -168,8 +168,8 @@ function assertReferenceId(value: unknown, name: string): string {
   return value;
 }
 
-function assertTaskDefinition(skillId: string): void {
-  if (!taskDefinition(skillId)) throw new HttpFail(404, "skill not found");
+async function assertTaskDefinition(skillId: string): Promise<Awaited<void>> {
+  if (!(await taskDefinition(skillId))) throw new HttpFail(404, "skill not found");
 }
 
 function assertKnownKeys(value: Record<string, unknown>, allowed: readonly string[], name: string): void {
@@ -404,7 +404,7 @@ async function versionedUpsert(
 ): Promise<Row> {
   const expected = assertExpectedVersion(expectedVersion);
   try {
-    return await pgRuntimeVersionedUpsert({ table, keys: keyValues, createColumns, createValues, updateColumns, expectedVersion: expected,
+    return pgRuntimeVersionedUpsert({ table, keys: keyValues, createColumns, createValues, updateColumns, expectedVersion: expected,
       check: check as never });
   } catch (error) { versionConflict(error); throw error; }
 }
@@ -417,14 +417,14 @@ export async function getAgentSkills(agentId: string): Promise<Row[]> {
 
 export async function getSkillConnectors(skillId: string): Promise<Row[]> {
   const id = assertIdentifier(skillId, "skill_id");
-  assertTaskDefinition(id);
+  (await assertTaskDefinition(id));
   await ensureRuntimeSchema();
   return pgRuntimeGetSkillConnectors(id);
 }
 
 export async function getSkillTools(skillId: string, connectorId?: string): Promise<Row[]> {
   const skill = assertIdentifier(skillId, "skill_id");
-  assertTaskDefinition(skill);
+  (await assertTaskDefinition(skill));
   const connector = connectorId === undefined ? undefined : assertIdentifier(connectorId, "connector_id");
   await ensureRuntimeSchema();
   return pgRuntimeGetSkillTools(skill, connector);
@@ -434,7 +434,7 @@ export async function getSkillTool(skillId: string, connectorId: string, toolNam
   const skill = assertIdentifier(skillId, "skill_id");
   const connector = assertIdentifier(connectorId, "connector_id");
   const tool = assertIdentifier(toolName, "tool_name", MAX_TOOL_NAME_LENGTH);
-  assertTaskDefinition(skill);
+  (await assertTaskDefinition(skill));
   await ensureRuntimeSchema();
   return pgRuntimeGetSkillTool(skill, connector, tool);
 }
@@ -483,27 +483,27 @@ export async function getConnectorPolicies(id: string): Promise<Row[]> {
 export async function setAgentSkill(agentId: string, skillId: string, enabled: boolean, expectedVersion: number): Promise<Row> {
   const agent = assertIdentifier(agentId, "agent_id");
   const skill = assertIdentifier(skillId, "skill_id");
-  assertTaskDefinition(skill);
+  (await assertTaskDefinition(skill));
   const active = assertBoolean(enabled, "enabled");
   await ensureRuntimeSchema();
-  return (await versionedUpsert("runtime_agent_skills", [agent, skill], ["agent_id", "skill_id", "enabled", "version", "updated_at"],
+  return (versionedUpsert("runtime_agent_skills", [agent, skill], ["agent_id", "skill_id", "enabled", "version", "updated_at"],
     [agent, skill, active ? 1 : 0, 1, nowIso()], ["enabled"], expectedVersion,
     async (client) => (await assertAgentAssemblyMutable(client, agent))));
 }
 
 export async function setAgentSkills(agentId: string, selections: Array<{ skill_id: string; enabled: boolean; expected_version: number }>): Promise<Row[]> {
   const agent = assertIdentifier(agentId, "agent_id");
-  const normalized = selections.map((selection) => {
+  const normalized = (await Promise.all(selections.map(async (selection) => {
     const skill = assertIdentifier(selection.skill_id, "skill_id");
-    assertTaskDefinition(skill);
+    (await assertTaskDefinition(skill));
     if (typeof selection.enabled !== "boolean" || !Number.isInteger(selection.expected_version) || selection.expected_version < 0) {
       throw new HttpFail(400, "每项技能都必须包含 enabled 和有效的 expected_version");
     }
     return { skill, enabled: selection.enabled ? 1 : 0, expectedVersion: selection.expected_version };
-  });
+  })));
   if (new Set(normalized.map((item) => item.skill)).size !== normalized.length) throw new HttpFail(400, "技能列表不能包含重复项");
   await ensureRuntimeSchema();
-  try { return await pgRuntimeSetAgentSkills({ agentId: agent, selections: normalized, now: nowIso() }); }
+  try { return pgRuntimeSetAgentSkills({ agentId: agent, selections: normalized, now: nowIso() }); }
   catch (error) {
     if (error instanceof RuntimeVersionConflict) runtimeConflict("技能配置版本已变化，请刷新后重试");
     if (error instanceof Error && error.message === "runtime_agent_workspace_managed") throw new HttpFail(409, "此 Agent 的装配需保存修订草稿并确认发布");
@@ -514,10 +514,10 @@ export async function setAgentSkills(agentId: string, selections: Array<{ skill_
 export async function setSkillConnector(skillId: string, connectorId: string, enabled: boolean, expectedVersion: number): Promise<Row> {
   const skill = assertIdentifier(skillId, "skill_id");
   const connector = assertIdentifier(connectorId, "connector_id");
-  assertTaskDefinition(skill);
+  (await assertTaskDefinition(skill));
   const active = assertBoolean(enabled, "enabled");
   await ensureRuntimeSchema();
-  return (await versionedUpsert("runtime_skill_connectors", [skill, connector], ["skill_id", "connector_id", "enabled", "version", "updated_at"],
+  return (versionedUpsert("runtime_skill_connectors", [skill, connector], ["skill_id", "connector_id", "enabled", "version", "updated_at"],
     [skill, connector, active ? 1 : 0, 1, nowIso()], ["enabled"], expectedVersion,
     async (client) => { if (!(await client.query("SELECT 1 FROM connectors WHERE id=$1", [connector])).rows[0]) throw new HttpFail(404, "connector not found"); }));
 }
@@ -527,10 +527,10 @@ export async function setSkillTool(skillId: string, connectorId: string, toolNam
   const skill = assertIdentifier(skillId, "skill_id");
   const connector = assertIdentifier(connectorId, "connector_id");
   const tool = assertIdentifier(toolName, "tool_name", MAX_TOOL_NAME_LENGTH);
-  assertTaskDefinition(skill);
+  (await assertTaskDefinition(skill));
   const active = assertBoolean(enabled, "enabled");
   await ensureRuntimeSchema();
-  return (await versionedUpsert("runtime_skill_tools", [skill, connector, tool], ["skill_id", "connector_id", "tool_name", "enabled", "version", "updated_at"],
+  return (versionedUpsert("runtime_skill_tools", [skill, connector, tool], ["skill_id", "connector_id", "tool_name", "enabled", "version", "updated_at"],
     [skill, connector, tool, active ? 1 : 0, 1, nowIso()], ["enabled"], expectedVersion,
     async (client) => {
       if (!(await client.query("SELECT 1 FROM connectors WHERE id=$1", [connector])).rows[0]) throw new HttpFail(404, "connector not found");
@@ -546,7 +546,7 @@ export async function setConnectorConfig(id: string, config: ConnectorConfig, ex
   const validated = validateConnectorConfig(config);
   assertConnectorCredentialStorage(connectorId, validated);
   await ensureRuntimeSchema();
-  return (await versionedUpsert("runtime_connector_config", [connectorId], ["connector_id", "config_json", "version", "updated_at"],
+  return (versionedUpsert("runtime_connector_config", [connectorId], ["connector_id", "config_json", "version", "updated_at"],
     [connectorId, JSON.stringify(validated), 1, nowIso()], ["config_json"], expectedVersion,
     async (client) => { if (!(await client.query("SELECT 1 FROM connectors WHERE id=$1", [connectorId])).rows[0]) throw new HttpFail(404, "connector not found"); }));
 }
@@ -567,7 +567,7 @@ export async function setToolPolicy(
   if (typeof value.schema_hash !== "string" || !SCHEMA_HASH.test(value.schema_hash)) invalid("schema_hash must be exactly 64 hexadecimal characters");
   const schemaHash = value.schema_hash.toLowerCase();
   await ensureRuntimeSchema();
-  return (await versionedUpsert("runtime_tool_policies", [connectorId, toolName], ["connector_id", "tool_name", "enabled", "risk", "access", "schema_hash", "version", "updated_at"],
+  return (versionedUpsert("runtime_tool_policies", [connectorId, toolName], ["connector_id", "tool_name", "enabled", "risk", "access", "schema_hash", "version", "updated_at"],
     [connectorId, toolName, enabled ? 1 : 0, value.risk, value.access, schemaHash, 1, nowIso()], ["enabled", "risk", "access", "schema_hash"], expectedVersion,
     async (client) => { if (!(await client.query("SELECT 1 FROM connectors WHERE id=$1", [connectorId])).rows[0]) throw new HttpFail(404, "connector not found"); }));
 }

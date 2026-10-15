@@ -23,14 +23,14 @@ const original = {
   LINGONG_DB: process.env.LINGONG_DB,
   LINGONG_DATA: process.env.LINGONG_DATA,
 };
-function req(
+async function req(
   actor: string | undefined,
   url: string,
   body?: unknown,
   extra: Record<string, string> = {},
   method?: string,
 ) {
-  return app.request(`http://localhost/api${url}`, {
+  return (await app.request(`http://localhost/api${url}`, {
     method: method || (body === undefined ? "GET" : "POST"),
     headers: {
       ...(actor ? { cookie: `lingong_session=test-${actor}` } : {}),
@@ -38,7 +38,7 @@ function req(
       ...extra,
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+  }));
 }
 beforeEach(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "review-api-"));
@@ -249,7 +249,7 @@ describe("review API with actual session authentication and organization storage
     expect((await req("admin", "/admin/approval-types/v2/templates", { definition: { ...definition, name: "changed" }, creationKey })).status).toBe(409);
     const service = new ReviewService(getConn(), (await reviewContextForActor(getConn(), "review-admin")));
     (await tx(async () => { const command = { action: "publish" as const, templateId: saved.id, expectedVersion: 1 }; const prepared = (await service.prepare(command)); (await service.execute(command, prepared.confirmationId, "review-content-diff-publish")); }));
-    (await tx(async () => (await service.saveTemplate(saved.id, 1, definition))));
+    (await tx(async () => (service.saveTemplate(saved.id, 1, definition))));
     expect((await service.templates(true)).find(t => t.id === saved.id)).toMatchObject({ version: 2, publishedVersion: 1, hasUnpublishedChanges: false });
   });
   it("returns both branch outcomes and complete read-only trial traces including cc and waiting duties", async () => {

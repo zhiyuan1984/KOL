@@ -7,7 +7,7 @@ import path from "node:path";
 import { dataDir, publishedSkillsDir, skillsDir } from "../config.js";
 import { audit, getConn, nowIso } from "../db.js";
 import { HttpFail } from "./errors.js";
-import { SKILL_CATALOG } from "./skills-catalog.js";
+import { skillCatalog } from "./skills-catalog.js";
 import { currentUser } from "./persona.js";
 import { taskDefinition, type TaskDefinition } from "../tasks/registry.js";
 import { skillTemplate } from "../tasks/skill-template.js";
@@ -50,8 +50,8 @@ export function readBundledSkill(id: string): string {
   return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
 }
 
-export function catalogSkill(id: string) {
-  return SKILL_CATALOG.find((s) => s.id === id) || null;
+export async function catalogSkill(id: string) {
+  return (await skillCatalog()).find((s) => s.id === id) || null;
 }
 
 export async function overlayRow(id: string): Promise<Awaited<{ summary: string; body: string; updated_at: string } | null>> {
@@ -60,7 +60,7 @@ export async function overlayRow(id: string): Promise<Awaited<{ summary: string;
 }
 
 export async function effectiveSummary(id: string): Promise<Awaited<string>> {
-  const cat = catalogSkill(id);
+  const cat = await catalogSkill(id);
   const over = (await overlayRow(id));
   return (over?.summary || cat?.summary || cat?.label || id).trim();
 }
@@ -93,7 +93,7 @@ Everything the employee reads (assistant messages, \`task_result\` titles/sectio
 
 /** The worker receives this constrained supplement even when an administrator has an SOP overlay. */
 export async function effectiveRuntimeSkillBody(id: string): Promise<Awaited<string>> {
-  const definition = taskDefinition(id);
+  const definition = (await taskDefinition(id));
   const contract = definition?.interaction ? `
 ## Registered interaction and execution contract
 
@@ -112,7 +112,7 @@ export async function effectiveSkillTemplate(definition: TaskDefinition) {
 }
 
 export async function getSkillSop(id: string): Promise<Awaited<SkillSopRow>> {
-  const cat = catalogSkill(id);
+  const cat = await catalogSkill(id);
   if (!cat) throw new HttpFail(404, "unknown skill");
   const over = (await overlayRow(id));
   return {
@@ -125,7 +125,7 @@ export async function getSkillSop(id: string): Promise<Awaited<SkillSopRow>> {
 }
 
 export async function saveSkillSop(id: string, patch: { summary?: string; body?: string }): Promise<Awaited<SkillSopRow>> {
-  const cat = catalogSkill(id);
+  const cat = await catalogSkill(id);
   if (!cat) throw new HttpFail(404, "unknown skill");
   const cur = (await getSkillSop(id));
   const summary = String(patch.summary ?? cur.summary).trim();
@@ -142,7 +142,7 @@ export async function saveSkillSop(id: string, patch: { summary?: string; body?:
 }
 
 export async function resetSkillSop(id: string): Promise<Awaited<SkillSopRow>> {
-  const cat = catalogSkill(id);
+  const cat = await catalogSkill(id);
   if (!cat) throw new HttpFail(404, "unknown skill");
   (await getConn().query("DELETE FROM skill_sops WHERE id = $1",[id]));
   (await audit((await currentUser()).handle, "skill.sop.reset", { skill: id }));

@@ -52,7 +52,7 @@ const run = async (
   }));
 async function published() {
   const t = (await transaction(async () =>
-    (await service().saveTemplate(undefined, undefined, emptyReviewDefinition())),
+    (service().saveTemplate(undefined, undefined, emptyReviewDefinition())),
   ));
   (await run("admin", { action: "publish", templateId: t.id, expectedVersion: 1 }));
   return t;
@@ -77,8 +77,8 @@ describe("transactional generic review service", () => {
   it("persists placeholders as drafts but rejects them at the confirmed publish boundary", async () => {
     const definition = emptyReviewDefinition();
     definition.nodes[1].name = "新评审节点";
-    const draft = (await transaction(async () => (await service().saveTemplate(undefined, undefined, definition))));
-    (await expect((async () => (await service().prepare({ action: "publish", templateId: draft.id, expectedVersion: 1 })))()).rejects.toThrow("流程校验未通过"));
+    const draft = (await transaction(async () => (service().saveTemplate(undefined, undefined, definition))));
+    (await expect((async () => (service().prepare({ action: "publish", templateId: draft.id, expectedVersion: 1 })))()).rejects.toThrow("流程校验未通过"));
     expect((await service().templates(true)).find(t => t.id === draft.id)?.publishedVersion).toBeNull();
   });
   it("drains existing work while blocking new submissions and preserves original receipts", async () => {
@@ -97,7 +97,7 @@ describe("transactional generic review service", () => {
         };
       const r = (await run("employee", command, "drain-submit"));
       process.env.REVIEW_V2_NEW_REQUESTS = "drain";
-      (await expect((async () => (await service("employee").prepare(command)))()).rejects.toThrow());
+      (await expect((async () => (service("employee").prepare(command)))()).rejects.toThrow());
       expect(
         (await transaction(async () =>
           (await service("employee").execute(command, "consumed", "drain-submit")),
@@ -114,7 +114,7 @@ describe("transactional generic review service", () => {
       );
       process.env.REVIEW_V2_NEW_REQUESTS = "enabled";
       process.env.REVIEW_V2_COMPANIES = "other";
-      (await expect((async () => (await service("employee").prepare(command)))()).rejects.toThrow());
+      (await expect((async () => (service("employee").prepare(command)))()).rejects.toThrow());
       process.env.REVIEW_V2_COMPANIES = "company";
       expect((await service("employee").prepare(command)).confirmationId).toBeTruthy();
     } finally {
@@ -148,9 +148,9 @@ describe("transactional generic review service", () => {
     expect(preview.values).toEqual({ keep: "保留文本" });
     expect(preview.omitted).toHaveLength(2);
     expect(preview.issues.length).toBeGreaterThan(0);
-    (await expect((async () => (await service("reviewer").draftUpgrade(old.id)))()).rejects.toThrow());
-    (await expect((async () => (await service("employee").upgradeDraft(old.id, 99, 2)))()).rejects.toThrow());
-    (await expect((async () => (await service("employee").upgradeDraft(old.id, 1, 1)))()).rejects.toThrow());
+    (await expect((async () => (service("reviewer").draftUpgrade(old.id)))()).rejects.toThrow());
+    (await expect((async () => (service("employee").upgradeDraft(old.id, 99, 2)))()).rejects.toThrow());
+    (await expect((async () => (service("employee").upgradeDraft(old.id, 1, 1)))()).rejects.toThrow());
     const copy = (await service("employee").upgradeDraft(old.id, 1, 2));
     expect(copy.id).not.toBe(old.id);
     expect(
@@ -159,7 +159,7 @@ describe("transactional generic review service", () => {
         .find((d) => d.id === old.id)?.values,
     ).toEqual(old.values);
     expect((await service().publishDiff(t.id)).changes).toEqual([]);
-    (await expect((async () => (await service("employee").publishDiff(t.id)))()).rejects.toThrow());
+    (await expect((async () => (service("employee").publishDiff(t.id)))()).rejects.toThrow());
   });
   it("paginates within current participation and filters title and actionable tasks", async () => {
     for (let n = 0; n < 4; n++) {
@@ -195,7 +195,7 @@ describe("transactional generic review service", () => {
     expect(
       (await service("employee").instancePage({ filter: "mine", q: "内容 3" })).items,
     ).toHaveLength(1);
-    (await expect((async () => (await service().instancePage({ cursor: "invalid" })))()).rejects.toThrow());
+    (await expect((async () => (service().instancePage({ cursor: "invalid" })))()).rejects.toThrow());
   });
   it("freezes attachment bytes and shares them only through scoped review participation", async () => {
     const file = (await service("employee").uploadAttachment(
@@ -215,25 +215,25 @@ describe("transactional generic review service", () => {
       title: "附件评审",
       values: { files: [file.id] },
     };
-    (await expect((async () => (await service("reviewer").prepare(submit)))()).rejects.toThrow());
-    (await expect((async () => (await service("reviewer").attachment(file.id)))()).rejects.toThrow());
+    (await expect((async () => (service("reviewer").prepare(submit)))()).rejects.toThrow());
+    (await expect((async () => (service("reviewer").attachment(file.id)))()).rejects.toThrow());
     const r = (await run("employee", submit));
     expect(
       (await service("reviewer").attachment(file.id, r.resourceId)).content.toString(),
     ).toBe("原稿");
-    (await expect((async () => (await service("extra").attachment(file.id, r.resourceId)))()).rejects.toThrow());
-    (await expect((async () => (await service("employee", "other").attachment(file.id)))()).rejects.toThrow());
+    (await expect((async () => (service("extra").attachment(file.id, r.resourceId)))()).rejects.toThrow());
+    (await expect((async () => (service("employee", "other").attachment(file.id)))()).rejects.toThrow());
     const other = (await service("employee").uploadAttachment(
       "另稿.txt",
       Buffer.from("另稿"),
     ));
     (await expect((async () =>
-      (await service("reviewer").attachment(other.id, r.resourceId)))()).rejects.toThrow());
+      (service("reviewer").attachment(other.id, r.resourceId)))()).rejects.toThrow());
     (await db.query("UPDATE review_attachments SET content_base64=$1 WHERE id=$2",[Buffer.from("篡改").toString("base64"),file.id]));
     (await expect((async () =>
-      (await service("reviewer").attachment(file.id, r.resourceId)))()).rejects.toThrow());
+      (service("reviewer").attachment(file.id, r.resourceId)))()).rejects.toThrow());
     (await expect((async () =>
-      (await service("employee").uploadAttachment(
+      (service("employee").uploadAttachment(
         "big",
         Buffer.alloc(2 * 1024 * 1024 + 1),
       )))()).rejects.toThrow());
@@ -284,7 +284,7 @@ describe("transactional generic review service", () => {
     const old = (await service("employee").prepare(submit));
     const r = (await run("employee", submit));
     (await expect((async () =>
-      (await service("employee").prepare({
+      (service("employee").prepare({
         action: "disable",
         templateId: t.id,
         expectedVersion: 1,
@@ -299,7 +299,7 @@ describe("transactional generic review service", () => {
     const receipt = (await run("admin", disable, "disable-test"));
     expect((await service("employee").templates())).toHaveLength(0);
     expect((await service().templates(true))[0].enabled).toBe(false);
-    (await expect((async () => (await service("employee").prepare(submit)))()).rejects.toThrow());
+    (await expect((async () => (service("employee").prepare(submit)))()).rejects.toThrow());
     (await run("reviewer", {
       action: "approve",
       instanceId: r.resourceId,
@@ -323,7 +323,7 @@ describe("transactional generic review service", () => {
         (await service().execute(disable, "already-used", "disable-test")),
       )),
     ).toEqual(receipt);
-    (await expect((async () => (await service().prepare(disable)))()).rejects.toThrow());
+    (await expect((async () => (service().prepare(disable)))()).rejects.toThrow());
   });
   it("separates copy recipients, consultation and handling from review decisions", async () => {
     const d = emptyReviewDefinition();
@@ -380,14 +380,14 @@ describe("transactional generic review service", () => {
       service("extra").actions((await service("extra").instance(r.resourceId))),
     ).toEqual(["complete"]);
     (await expect((async () =>
-      (await service("extra").prepare({
+      (service("extra").prepare({
         action: "approve",
         instanceId: r.resourceId,
         expectedVersion: 2,
         reason: "越权",
       })))()).rejects.toThrow());
     (await expect((async () =>
-      (await service("extra").prepare({
+      (service("extra").prepare({
         action: "complete",
         instanceId: r.resourceId,
         expectedVersion: 2,
@@ -477,7 +477,7 @@ describe("transactional generic review service", () => {
     const r = (await advanced());
     for (const targetUserId of ["employee", "reviewer", "missing"])
       (await expect((async () =>
-        (await service("reviewer").prepare({
+        (service("reviewer").prepare({
           action: "transfer",
           instanceId: r.resourceId,
           expectedVersion: 1,
@@ -503,7 +503,7 @@ describe("transactional generic review service", () => {
       "awaiting_amendment",
     );
     (await expect((async () =>
-      (await service("employee").prepare({
+      (service("employee").prepare({
         action: "resubmit",
         instanceId: r.resourceId,
         expectedVersion: 3,
@@ -570,7 +570,7 @@ describe("transactional generic review service", () => {
       }));
       if (mode === "sequential")
         (await expect((async () =>
-          (await service("extra").prepare({
+          (service("extra").prepare({
             action: "approve",
             instanceId: r.resourceId,
             expectedVersion: 2,
@@ -610,7 +610,7 @@ describe("transactional generic review service", () => {
     const notices = (await service("reviewer").notifications()) as { id: string }[];
     expect(notices).toHaveLength(1);
     expect((await service("employee").notifications())).toEqual([]);
-    (await expect((async () => (await service("employee").readNotification(notices[0].id)))()).rejects.toThrow());
+    (await expect((async () => (service("employee").readNotification(notices[0].id)))()).rejects.toThrow());
     expect((await service("reviewer").readNotification(notices[0].id)).id).toBe(
       notices[0].id,
     );
@@ -701,20 +701,20 @@ describe("transactional generic review service", () => {
   it("isolates tenants and restricts instances even from administrators", async () => {
     const r = (await submitted());
     expect((await service("employee", "other").instances())).toEqual([]);
-    (await expect((async () => (await service("employee", "other").instance(r.resourceId)))()).rejects.toThrow());
-    (await expect((async () => (await service().instance(r.resourceId)))()).rejects.toThrow());
+    (await expect((async () => (service("employee", "other").instance(r.resourceId)))()).rejects.toThrow());
+    (await expect((async () => (service().instance(r.resourceId)))()).rejects.toThrow());
     expect((await service().instances())).toEqual([]);
   });
   it("requires current admin permission to publish or edit", async () => {
     (await expect((async () =>
-      (await service("employee").saveTemplate(
+      (service("employee").saveTemplate(
         undefined,
         undefined,
         emptyReviewDefinition(),
       )))()).rejects.toThrow());
     const t = (await published());
     (await expect((async () =>
-      (await service("employee").prepare({
+      (service("employee").prepare({
         action: "publish",
         templateId: t.id,
         expectedVersion: 1,
@@ -726,13 +726,13 @@ describe("transactional generic review service", () => {
       t = (await service().templates(true))[0];
     const changed = structuredClone(t.definition);
     changed.name = "新流程";
-    (await transaction(async () => (await service().saveTemplate(t.id, 1, changed))));
+    (await transaction(async () => (service().saveTemplate(t.id, 1, changed))));
     expect((await service("employee").templates())[0].definition.name).not.toBe(
       "新流程",
     );
     expect((await service("employee").instance(i.id)).definition).toEqual(i.definition);
     (await expect((async () =>
-      (await transaction(async () => (await service().saveTemplate(t.id, 1, changed)))))()).rejects.toThrow());
+      (transaction(async () => (await service().saveTemplate(t.id, 1, changed)))))()).rejects.toThrow());
   });
   it("rejects forged or changed confirmation payloads", async () => {
     const t = (await published()),
@@ -743,7 +743,7 @@ describe("transactional generic review service", () => {
         title: "初始",
         values: {},
       };
-    const p = (await transaction(async () => (await service("employee").prepare(command))));
+    const p = (await transaction(async () => (service("employee").prepare(command))));
     (await expect((async () =>
       (await transaction(async () =>
         (await service("employee").execute(
@@ -864,14 +864,14 @@ describe("transactional generic review service", () => {
   it("requires reason and ownership for withdraw", async () => {
     const r = (await submitted());
     (await expect((async () =>
-      (await service("reviewer").prepare({
+      (service("reviewer").prepare({
         action: "withdraw",
         instanceId: r.resourceId,
         expectedVersion: 1,
         reason: "撤回",
       })))()).rejects.toThrow());
     (await expect((async () =>
-      (await service("employee").prepare({
+      (service("employee").prepare({
         action: "withdraw",
         instanceId: r.resourceId,
         expectedVersion: 1,
@@ -912,7 +912,7 @@ describe("transactional generic review service", () => {
   it("applies schema before any mutation, with no amount override", async () => {
     const t = (await published());
     (await expect((async () =>
-      (await service("employee").prepare({
+      (service("employee").prepare({
         action: "submit",
         templateId: t.id,
         templateVersion: 1,

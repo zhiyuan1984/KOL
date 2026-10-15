@@ -336,7 +336,7 @@ export type MailboxBinding = {
 export async function mailboxBindings(): Promise<MailboxBinding[]> {
   const userId = (await safeEmployeeId());
   const rows = userId ? (await starryBindingRows(userId)) : [];
-  return (await Promise.all(rows.map(async (row) => {
+  return (Promise.all(rows.map(async (row) => {
     const mailbox = String(row.mailbox_email || "").trim();
     const owner = mailbox
       ? (await getConn().query("SELECT brand, owner_name FROM mailbox_owners WHERE email=$1",[mailbox])).rows[0] as Row | undefined

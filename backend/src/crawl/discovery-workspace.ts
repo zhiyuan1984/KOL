@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { createHash } from "node:crypto";
 import { scopedUser } from "../auth.js";
 import { HttpFail } from "../host/errors.js";
@@ -41,7 +42,7 @@ export async function createDiscoveryWorkspace(inputBody: unknown): Promise<Json
   if (typeof body.text !== "string" || !body.text.trim() || body.text.length > 20000) return invalid();
   const key = createHash("sha256").update(`${user.id}:${body.request_id}`).digest("hex").slice(0, 32);
   const taskId = `wi_discovery_${key}`, sessionId = `ses_discovery_${key}`, runId = `run_discovery_${key}`;
-  const template = (await effectiveSkillTemplate(requireTaskDefinition("crawler_collect")));
+  const template = (await effectiveSkillTemplate((await requireTaskDefinition("crawler_collect"))));
   const workspace = { kind: "discovery", version: 1, agent_id: agentId, profile: "lead", brief,
     template, template_version: template.version, brief_version: String(body.version || "discovery-brief.v1"),
     return_to: "/?tab=discovery", submitted_text: body.text };
@@ -80,7 +81,7 @@ export async function createDiscoveryWorkspace(inputBody: unknown): Promise<Json
 export async function pendingDiscoveryWorkspace(taskId: string): Promise<Json> {
   const user = scopedUser();
   if (!user?.active) throw new HttpFail(401, { code: "runtime_identity_unavailable" });
-  const row = (await postgresPool().query(`SELECT t.input,r.id AS run_id,r.status,t.status AS task_status,t.session_id
+  const row = (await postgresConnection().query(`SELECT t.input,r.id AS run_id,r.status,t.status AS task_status,t.session_id
     FROM tickets t JOIN task_runs r ON r.work_item_id=t.id
     WHERE t.id=$1 AND t.owner_user_id=$2 ORDER BY r.created_at LIMIT 1`, [taskId, user.id])).rows[0];
   if (!row) throw new HttpFail(404, { code: "discovery_task_not_found" });

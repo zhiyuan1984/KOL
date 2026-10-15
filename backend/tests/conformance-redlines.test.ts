@@ -13,8 +13,8 @@ describe("constitutional redlines", () => {
     expect(resolved.email).toBe("");
   });
 
-  it("parses CRLF Skill frontmatter", () => {
-    expect(taskDefinition("business_approval")?.id).toBe("business_approval");
+  it("parses CRLF Skill frontmatter", async () => {
+    expect((await taskDefinition("business_approval"))?.id).toBe("business_approval");
   });
 
   it("keeps real preview on the app-server path", () => {

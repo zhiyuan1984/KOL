@@ -19,7 +19,7 @@ export async function pgLockMailboxAccount(client: PoolClient, userId: string): 
 }
 export async function pgMailboxRows(userId: string, client?: PoolClient): Promise<Row[]> {
   const sql = "SELECT * FROM user_starry_bindings WHERE user_id=$1 ORDER BY is_default DESC,updated_at ASC,mailbox_email ASC";
-  return client ? (await client.query<Row>(sql, [userId])).rows : (await postgresQuery<Row>(sql, [userId]));
+  return client ? (await client.query<Row>(sql, [userId])).rows : (postgresQuery<Row>(sql, [userId]));
 }
 export async function pgMailboxRow(userId: string, mailbox?: string, client?: PoolClient, lock = false): Promise<Row | undefined> {
   const suffix = lock ? " FOR UPDATE" : "";

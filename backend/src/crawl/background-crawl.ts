@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 /**
  * 后台采集通道：平台主体（system:platform-sync）的专用调用路径。
  *
@@ -98,7 +99,7 @@ export type CrawlConnectorAuth = {
  * 组织级凭据可被平台主体解析；个人账号凭据会如实失败（见 ADR-2026-10-06）。
  */
 export async function assertCrawlConnectorAvailable(): Promise<CrawlConnectorAuth> {
-  const connector = (await postgresPool().query<Row>(
+  const connector = (await postgresConnection().query<Row>(
     "SELECT id,enabled,updated_at FROM connectors WHERE id=$1", ["claw"],
   )).rows[0];
   if (!connector?.enabled) {
@@ -123,7 +124,7 @@ export async function authorizeBackgroundCrawl(context: RuntimeContext): Promise
   if (!isPlatformPrincipal(context.userId) || !isPlatformAgent(context.agentId)) {
     fail("runtime_agent_not_usable");
   }
-  return (await assertCrawlConnectorAvailable());
+  return (assertCrawlConnectorAvailable());
 }
 
 /** 与 SkillExecution 的 {discover, invoke, close} 子集结构兼容的后台执行器。 */

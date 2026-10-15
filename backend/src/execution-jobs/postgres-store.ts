@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import type { PoolClient } from "pg";
 import { nid } from "../ids.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
@@ -55,19 +56,19 @@ async function insertDispatchOutbox(
 }
 
 export async function pgExecutionJobById(id: string): Promise<Row | undefined> {
-  const result = await postgresPool().query<Row>("SELECT * FROM execution_jobs WHERE id=$1", [id]);
+  const result = await postgresConnection().query<Row>("SELECT * FROM execution_jobs WHERE id=$1", [id]);
   return result.rows[0] ? normalizedJob(result.rows[0] as Row) : undefined;
 }
 
 export async function pgListExecutionJobs(filters: { status?: string; limit?: number } = {}): Promise<Row[]> {
   const limit = Math.min(Math.max(1, Math.floor(filters.limit || 50)), 200);
   if (filters.status) {
-    return (await postgresPool().query<Row>(
+    return (await postgresConnection().query<Row>(
       "SELECT * FROM execution_jobs WHERE status=$1 ORDER BY created_at DESC,id DESC LIMIT $2",
       [filters.status, limit],
     )).rows.map((row) => normalizedJob(row as Row));
   }
-  return (await postgresPool().query<Row>(
+  return (await postgresConnection().query<Row>(
     "SELECT * FROM execution_jobs ORDER BY created_at DESC,id DESC LIMIT $1",
     [limit],
   )).rows.map((row) => normalizedJob(row as Row));
@@ -164,8 +165,8 @@ export async function pgEnqueueExecutionJob(input: ExecutionJobInput, options: {
     );
     return { job, created: true };
   };
-  return options.client ? (await enqueue(options.client))
-    : (await postgresTransaction(enqueue, { isolation: options.deduplicate_active ? "READ COMMITTED" : "SERIALIZABLE" }));
+  return options.client ? (enqueue(options.client))
+    : (postgresTransaction(enqueue, { isolation: options.deduplicate_active ? "READ COMMITTED" : "SERIALIZABLE" }));
 }
 
 function claimed(row: Row): ClaimedExecutionJob {
@@ -184,7 +185,7 @@ export async function pgClaimExecutionJobById(
   const now = options.now || new Date();
   const stamp = now.toISOString();
   const leaseUntil = isoAfter(now, normalizedLeaseMs(options.lease_ms));
-  const result = await postgresPool().query<Row>(
+  const result = await postgresConnection().query<Row>(
     `UPDATE execution_jobs
      SET status='running',attempts=attempts+1,lease_until=$1,lease_owner=$2,
          started_at=COALESCE(started_at,$3),updated_at=$3
@@ -214,7 +215,7 @@ export async function pgClaimNextExecutionJob(
   params.push(leaseUntil, workerId);
   const leaseUntilIndex = params.length - 1;
   const workerIndex = params.length;
-  const result = await postgresPool().query<Row>(
+  const result = await postgresConnection().query<Row>(
     `WITH candidate AS (
        SELECT id FROM execution_jobs
        WHERE status IN ('queued','retrying') AND (next_attempt_at IS NULL OR next_attempt_at<=$1)${types}
@@ -239,7 +240,7 @@ export async function pgRenewExecutionJobLease(
   options: { lease_ms?: number; now?: Date } = {},
 ): Promise<boolean> {
   const now = options.now || new Date();
-  const result = await postgresPool().query(
+  const result = await postgresConnection().query(
     `UPDATE execution_jobs SET lease_until=$1,updated_at=$2
      WHERE id=$3 AND status='running' AND lease_owner=$4`,
     [isoAfter(now, normalizedLeaseMs(options.lease_ms)), now.toISOString(), id, workerId],
@@ -249,7 +250,7 @@ export async function pgRenewExecutionJobLease(
 
 export async function pgCompleteExecutionJob(id: string, receipt: Json = {}, now = new Date(), expectedWorker?: string, client?: PoolClient): Promise<Row | undefined> {
   const stamp = now.toISOString();
-  const result = await (client || postgresPool()).query<Row>(
+  const result = await (client || postgresConnection()).query<Row>(
     `UPDATE execution_jobs
      SET status='succeeded',lease_until=NULL,lease_owner=NULL,receipt_json=$1,error_code=NULL,error_summary=NULL,
          terminal_at=$2,updated_at=$2
@@ -308,7 +309,7 @@ export async function pgQuarantineExecutionJob(
   now = new Date(),
 ): Promise<Row | undefined> {
   const stamp = now.toISOString();
-  const result = await postgresPool().query<Row>(
+  const result = await postgresConnection().query<Row>(
     `UPDATE execution_jobs
      SET status='uncertain',lease_until=NULL,lease_owner=NULL,next_attempt_at=NULL,
          error_code=$1,error_summary=$2,terminal_at=$3,updated_at=$3
@@ -408,12 +409,12 @@ export function pgExecutionJobPayload(job: Row): Json {
 
 /** Transactional look-up for callers already holding the aggregate lock. */
 export async function pgExecutionJobByIdempotencyKey(key: string, client?: PoolClient): Promise<Row | undefined> {
-  const result = await (client || postgresPool()).query<Row>("SELECT * FROM execution_jobs WHERE idempotency_key=$1", [key]);
+  const result = await (client || postgresConnection()).query<Row>("SELECT * FROM execution_jobs WHERE idempotency_key=$1", [key]);
   return result.rows[0] ? normalizedJob(result.rows[0]) : undefined;
 }
 /** Records delivery only when the publishing lease belongs to this publisher. */
 export async function pgPublishExecutionOutboxForJob(jobId: string, publisher: string, now = new Date()): Promise<number> {
-  const result = await postgresPool().query(
+  const result = await postgresConnection().query(
     "UPDATE execution_outbox SET status='published',published_at=$1,updated_at=$1,publisher_id=NULL,publisher_lease_until=NULL WHERE job_id=$2 AND status='publishing' AND publisher_id=$3",
     [now.toISOString(), jobId, publisher],
   );

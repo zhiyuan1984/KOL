@@ -21,8 +21,8 @@ export function publicStarryBinding(row?: Row | null): PublicStarryBinding {
     owner_open_id: String(row.owner_open_id || ""), owner_verified_at: row.owner_verified_at ? String(row.owner_verified_at) : null,
     status: String(row.status || "connected") === "expired" ? "expired" : "connected", has_token: Boolean(String(row.bearer_token || "").trim()), updated_at: row.updated_at ? String(row.updated_at) : null };
 }
-export async function starryBindingRows(userId: string): Promise<Row[]> { return userId ? (await pgMailboxRows(userId)) : []; }
-export async function starryBindingRow(userId: string, mailbox?: string): Promise<Row | undefined> { return userId ? (await pgMailboxRow(userId, String(mailbox || "").trim() || undefined)) : undefined; }
+export async function starryBindingRows(userId: string): Promise<Row[]> { return userId ? (pgMailboxRows(userId)) : []; }
+export async function starryBindingRow(userId: string, mailbox?: string): Promise<Row | undefined> { return userId ? (pgMailboxRow(userId, String(mailbox || "").trim() || undefined)) : undefined; }
 export async function safeEmployeeId(): Promise<Awaited<string>> {
   const scoped = scopedUser()?.id; if (scoped) return scoped;
   try { return String((await currentMemoryEmployee()).id || "").trim(); } catch { return ""; }

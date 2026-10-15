@@ -30,16 +30,16 @@ beforeEach(async()=>{
 describe("native Task workspace and fixed harness evidence",()=>{
   it("retries concurrent principal refreshes without duplicate claims events or retaining revoked identity",async()=>{
     const updated = { ...actor, name: "Concurrent updated owner" };
-    await Promise.all(Array.from({length:8},async ()=>(await syncWorkbenchTicketPrincipal(updated))));
+    await Promise.all(Array.from({length:8},async ()=>(syncWorkbenchTicketPrincipal(updated))));
     const db=postgresPool();
     expect((await db.query("SELECT count(*)::int AS n FROM workbench_principal_binding_events WHERE principal_id=$1 AND event_type='claims_refreshed'",[actor.id])).rows[0].n).toBe(1);
-    await Promise.all(Array.from({length:8},async ()=>(await syncWorkbenchTicketPrincipal({...updated,active:false}))));
+    await Promise.all(Array.from({length:8},async ()=>(syncWorkbenchTicketPrincipal({...updated,active:false}))));
     expect((await db.query("SELECT active FROM ticket_accounts WHERE id=$1",[actor.id])).rows[0].active).toBe(false);
     await expect(openTaskCollaborationSession(actor.id,taskId)).rejects.toBeInstanceOf(HttpFail);
     expect((await db.query("SELECT count(*)::int AS n FROM workbench_principal_binding_events WHERE principal_id=$1 AND event_type='deactivated'",[actor.id])).rows[0].n).toBe(1);
   });
   it("concurrent opens recover one session and the original task without starting a model",async()=>{
-    const opened=await Promise.all(Array.from({length:4},async ()=>(await openTaskCollaborationSession(actor.id,taskId))));
+    const opened=await Promise.all(Array.from({length:4},async ()=>(openTaskCollaborationSession(actor.id,taskId))));
     expect(new Set(opened.map(item=>item.id)).size).toBe(1);
     expect(opened.filter(item=>!item.replayed)).toHaveLength(1);
     expect(opened.every(item=>item.task_id===taskId && item.calls_model===false)).toBe(true);
@@ -87,7 +87,7 @@ describe("native Task workspace and fixed harness evidence",()=>{
     app.route("/",host);
     await postgresPool().query("UPDATE tickets SET owner_user_id='workspace-other' WHERE id=$1",[taskId]);
     for (const [path,method] of [[`/sessions/${session.id}`,"GET"],[`/sessions/${session.id}/messages`,"POST"],[`/sessions/${session.id}/events`,"GET"]]) {
-      const response=await withScopedUser(actor,async ()=>(await app.request(path,{method,headers:{"Content-Type":"application/json"},body:method==="POST"?JSON.stringify({text:"do not run",intent:"kol_analyze"}):undefined})));
+      const response=await withScopedUser(actor,async ()=>(app.request(path,{method,headers:{"Content-Type":"application/json"},body:method==="POST"?JSON.stringify({text:"do not run",intent:"kol_analyze"}):undefined})));
       expect(response.status).toBe(404);
     }
     expect((await postgresPool().query("SELECT count(*)::int n FROM messages WHERE session_id=$1",[session.id])).rows[0].n).toBe(0);
@@ -97,13 +97,13 @@ describe("native Task workspace and fixed harness evidence",()=>{
     app.onError((error,c)=>error instanceof HttpFail?c.json({detail:error.detail},error.status as 404):c.json({detail:"unexpected"},500));
     app.route("/",enterprise);app.route("/",host);
     expect(await listTaskCollaborationSessions(actor.id,false)).toHaveLength(1);
-    const shared=await withScopedUser(actor,async ()=>(await app.request(`/sessions/${session.id}/share`,{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"})));
+    const shared=await withScopedUser(actor,async ()=>(app.request(`/sessions/${session.id}/share`,{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"})));
     expect(shared.status).toBe(201);
     const token=(await shared.json()).token;
     await postgresPool().query("UPDATE tickets SET owner_user_id='workspace-other' WHERE id=$1",[taskId]);
     expect(await listTaskCollaborationSessions(actor.id,true)).toHaveLength(0);
     for(const url of [`/sessions/${session.id}/export`,`/shared/${token}`]) {
-      expect((await withScopedUser(actor,async ()=>(await app.request(url)))).status).toBe(404);
+      expect((await withScopedUser(actor,async ()=>(app.request(url)))).status).toBe(404);
     }
   });
   it("rejects other skills and formal session actions; explicit unarchive recovers the same workspace",async()=>{
@@ -111,12 +111,12 @@ describe("native Task workspace and fixed harness evidence",()=>{
     app.onError((error,c)=>error instanceof HttpFail?c.json({detail:error.detail},error.status as 404):c.json({detail:"unexpected"},500));
     app.route("/",enterprise);app.route("/",host);
     for(const suffix of ["confirm-stage","compose-preview","messages"]) {
-      const response=await withScopedUser(actor,async ()=>(await app.request(`/sessions/${session.id}/${suffix}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({intent:"email_compose",text:"do not send"})})));
+      const response=await withScopedUser(actor,async ()=>(app.request(`/sessions/${session.id}/${suffix}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({intent:"email_compose",text:"do not send"})})));
       expect(response.status).toBe(409);
     }
     expect((await postgresPool().query("SELECT count(*)::int n FROM messages WHERE session_id=$1",[session.id])).rows[0].n).toBe(0);
     await postgresPool().query("UPDATE sessions SET archived_at=$2 WHERE id=$1",[session.id,new Date().toISOString()]);
-    const restored=await withScopedUser(actor,async ()=>(await app.request(`/sessions/${session.id}/unarchive`,{method:"POST"})));
+    const restored=await withScopedUser(actor,async ()=>(app.request(`/sessions/${session.id}/unarchive`,{method:"POST"})));
     expect(restored.status).toBe(200);
     expect(await openTaskCollaborationSession(actor.id,taskId)).toMatchObject({id:session.id,replayed:true});
   });

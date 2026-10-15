@@ -3,7 +3,7 @@ import { audit, getConn, nowIso } from "../db.js";
 import { HttpFail } from "./errors.js";
 import { scopedUser, authDisabled, isAdmin } from "../auth.js";
 import { canUseSkill, visibleSkillIdsForUser } from "../runtime/organization-tree.js";
-import { SKILL_CATALOG } from "./skills-catalog.js";
+import { skillCatalog } from "./skills-catalog.js";
 import { currentUser } from "./persona.js";
 
 export type GrantScope = "org" | "team" | "user";
@@ -35,13 +35,13 @@ export async function memberScopeIds(handle: string): Promise<Awaited<{ orgs: st
 
 /** 关闭鉴权的开发/测试态沿用既有放行口径；管理员保持与 requireSkill 一致的直通；其余按 Agent 使用资格派生。 */
 export async function visibleSkillIds(userId?: string): Promise<Set<string>> {
-  if (authDisabled() || isAdmin()) return new Set(SKILL_CATALOG.map((s) => s.id));
+  if (authDisabled() || isAdmin()) return new Set((await skillCatalog()).map((s) => s.id));
   return new Set((await visibleSkillIdsForUser(userId || scopedUser()?.id || null)));
 }
 
 export async function isSkillGranted(skillId: string, userId?: string): Promise<boolean> {
   if (authDisabled() || isAdmin()) return true;
-  return (await canUseSkill(userId || scopedUser()?.id || null, skillId));
+  return (canUseSkill(userId || scopedUser()?.id || null, skillId));
 }
 
 export async function grantsForSkill(skillId: string): Promise<Awaited<{ org: string[]; team: string[]; user: string[] }>> {
@@ -59,7 +59,7 @@ export async function setSkillGrants(
   skillId: string,
   patch: { org?: string[]; team?: string[]; user?: string[] },
 ): Promise<Awaited<{ org: string[]; team: string[]; user: string[] }>> {
-  if (!SKILL_CATALOG.some((s) => s.id === skillId)) throw new HttpFail(404, "unknown skill");
+  if (!(await skillCatalog()).some((s) => s.id === skillId)) throw new HttpFail(404, "unknown skill");
   const dir = (await directory());
   const orgOk = new Set(dir.orgs.map((o) => o.id));
   const teamOk = new Set(dir.teams.map((t) => t.id));

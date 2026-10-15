@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { createHash } from "node:crypto";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
 import type { Json } from "../types.js";
@@ -88,7 +89,7 @@ export async function persistValidatedSkillResult(input: {
 export async function skillResultMemoryStatus(owner: string, skillId: string, runId: string): Promise<string | null> {
   if (!owner || !skillId || !runId) return null;
   await ensureEmployeeMemoriesTable();
-  const { rows } = await postgresPool().query<{ payload: string }>(
+  const { rows } = await postgresConnection().query<{ payload: string }>(
     "SELECT payload FROM employee_memory_items WHERE owner_user_id=$1 AND memory_kind='skill_result' AND item_key=$2",
     [owner, `${skillId}:${runId}`],
   );
@@ -121,12 +122,12 @@ export async function listSkillResultMemories(input: {
   }
   const prefix = `${input.skillId}:`;
   const { rows } = before
-    ? await postgresPool().query<{ id: string; item_key: string; payload: string; created_at: string; updated_at: string }>(
+    ? await postgresConnection().query<{ id: string; item_key: string; payload: string; created_at: string; updated_at: string }>(
       `SELECT id,item_key,payload,created_at,updated_at FROM employee_memory_items
        WHERE owner_user_id=$1 AND memory_kind='skill_result' AND LEFT(item_key,$2)=$3
          AND (updated_at<$4 OR (updated_at=$4 AND id<$5))
        ORDER BY updated_at DESC,id DESC LIMIT $6`, [input.owner, prefix.length, prefix, before.updated_at, before.id, limit + 1])
-    : await postgresPool().query<{ id: string; item_key: string; payload: string; created_at: string; updated_at: string }>(
+    : await postgresConnection().query<{ id: string; item_key: string; payload: string; created_at: string; updated_at: string }>(
       `SELECT id,item_key,payload,created_at,updated_at FROM employee_memory_items
        WHERE owner_user_id=$1 AND memory_kind='skill_result' AND LEFT(item_key,$2)=$3
        ORDER BY updated_at DESC,id DESC LIMIT $4`, [input.owner, prefix.length, prefix, limit + 1]);

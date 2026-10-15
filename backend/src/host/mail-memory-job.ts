@@ -341,7 +341,7 @@ export async function runMailMemoryIncrement(mailbox?: string): Promise<MailMemo
 export async function triggerMailMemoryIncrement(mailbox?: string): Promise<Awaited<void>> {
   const key = mailbox || "*";
   if (inflight.has(key)) return;
-  const promise = (await runMailMemoryIncrement(mailbox)
+  const promise = (runMailMemoryIncrement(mailbox)
     .catch(async (err) => {
       // This is detached background work. A second database failure while
       // reporting the first must not reject an unobserved promise or stop the
@@ -369,7 +369,7 @@ export async function triggerMailSummarySkill(mailbox: string, conversationId: s
   const key = `skill:mail_summary:${mailbox}:${conversationId}`;
   const existing = (await inflight.get(key));
   if (existing) return existing;
-  const promise = (await (async (): Promise<MailMemoryStats> => {
+  const promise = ((async (): Promise<MailMemoryStats> => {
     const thread = await findNativeMailThread(mailbox, conversationId);
     if (!thread) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: "未找到对应的邮件主题或会话已失效" };
     const items = await listNativeConversationItems(conversationId, mailbox);
@@ -417,7 +417,7 @@ export async function triggerMailTranslateSkill(mailbox: string, messageId: stri
   const key = `skill:mail_translate:${mailbox}:${messageId}`;
   const existing = (await inflight.get(key));
   if (existing) return existing;
-  const promise = (await (async (): Promise<MailMemoryStats> => {
+  const promise = ((async (): Promise<MailMemoryStats> => {
     const row = await findNativeMailItem(mailbox, messageId);
     const body = row ? mailBodyOf(row) : "";
     if (!row) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: "未找到选中的邮件，可能是邮件 ID 已变化" };

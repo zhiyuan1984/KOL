@@ -214,7 +214,7 @@ describe(
     }
     it("runs approval trial through native PostgreSQL scope checks and records the review read audit", async () => {
       const { receipt } = await submit();
-      const ctx = await postgresTransaction(async (db) => (await postgresReviewContext(db, "admin", "company")));
+      const ctx = await postgresTransaction(async (db) => (postgresReviewContext(db, "admin", "company")));
       // This is the persisted material shape consumed by the legacy /knowledge
       // approval route: a frozen source fingerprint plus the existing review
       // participant. The test leaves V2 publication behavior intact.
@@ -596,7 +596,7 @@ describe(
       const app = new Hono(); app.route("/api", knowledgePublication);
       app.onError((error, c) => c.json({ detail: error.message }, error instanceof HttpFail ? error.status as 403 | 409 : 500));
       const url = `/api/approvals/v2/instances/${receipt.instanceId}/knowledge-source?company=company`;
-      const request = async (user: string) => (await withScopedUser({ id: user } as AppUser, async () => (await app.request(url))));
+      const request = async (user: string) => (await withScopedUser({ id: user } as AppUser, async () => (app.request(url))));
       const result = await request("reviewer"); expect(result.status).toBe(200);
       expect(result.headers.get("Content-Type")).toBe("application/pdf"); expect(await result.text()).toBe("%PDF frozen slide preview");
       expect((await request("outsider")).status).toBe(403);
@@ -612,7 +612,7 @@ describe(
           error instanceof HttpFail ? (error.status as 401 | 403 | 409) : 500,
         ),
       );
-      const request = (
+      const request = async (
         userId: string | undefined,
         url: string,
         body?: unknown,
@@ -627,10 +627,10 @@ describe(
               body: JSON.stringify(body),
             }
           : undefined;
-        if (!userId) return app.request(url, options);
-        return withScopedUser({ id: userId } as AppUser, async () =>
-          (await app.request(url, options)),
-        );
+        if (!userId) return (await app.request(url, options));
+        return (await withScopedUser({ id: userId } as AppUser, async () =>
+          (app.request(url, options)),
+        ));
       };
       expect(
         (
@@ -648,7 +648,7 @@ describe(
       expect(await authorized.text()).toContain("isolated original");
     expect((await request("outsider", sourceUrl)).status).toBe(403);
     expect((await request("reviewer-two", sourceUrl)).status).toBe(403);
-    const invalid=await withScopedUser({id:"admin"} as AppUser,async ()=>(await app.request(`/api/admin/knowledge/documents/${docId}/publication-v2/prepare`,{method:"POST",headers:{"Content-Type":"application/json"},body:"[invalid"})));
+    const invalid=await withScopedUser({id:"admin"} as AppUser,async ()=>(app.request(`/api/admin/knowledge/documents/${docId}/publication-v2/prepare`,{method:"POST",headers:{"Content-Type":"application/json"},body:"[invalid"})));
     expect(invalid.status).toBe(400);
       await fs.writeFile(source, "%PDF changed");
       expect((await request("reviewer", sourceUrl)).status).toBe(409);

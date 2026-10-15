@@ -123,7 +123,7 @@ describe("durable PostgreSQL mail sync", () => {
     let dispatched: Promise<Awaited<ReturnType<typeof dispatchClaimedExecutionJob>>> | undefined;
     let dispatchedResult: Awaited<ReturnType<typeof dispatchClaimedExecutionJob>> | undefined;
     try {
-      dispatched = (await dispatchClaimedExecutionJob(claimed!));
+      dispatched = (dispatchClaimedExecutionJob(claimed!));
       await bodyStartedPromise;
       expect(reads[0]).toBe("7302");
       const running = await postgresPool().query<{ status: string; receipt_json: { index: Json; body: Json } }>(
@@ -161,7 +161,7 @@ describe("durable PostgreSQL mail sync", () => {
     const app = operationJobsRouter({ "mail.sync": async (payload) => {
       await authorizeMailSync(String(payload.mailbox || ""));
     } });
-    const response = await withScopedUser(actor(), async () => (await app.request(`/jobs/${String(queued.job.id)}`)));
+    const response = await withScopedUser(actor(), async () => (app.request(`/jobs/${String(queued.job.id)}`)));
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       job: { progress: {

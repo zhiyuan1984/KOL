@@ -1,3 +1,4 @@
+import { postgresConnection } from "./postgres/pool.js";
 /**
  * Home AI Discovery harness — crawl job + discovery_brief.
  * Crawl complete writes CreatorCandidate only. Idle does not write Starry.
@@ -762,7 +763,7 @@ async function pumpQueuedHomeRuns(): Promise<Awaited<void>> {
   if ((await tenantCrawlBusy())) return;
   const next = (await getConn().query("SELECT * FROM discovery_runs\n      WHERE kind=$1 AND status='queued' AND crawl_job_id IS NULL\n      ORDER BY created_at LIMIT 1",[HOME_KIND])).rows[0] as Row | undefined;
   if (!next) return;
-  track((await startHomeCrawl(next)));
+  track((startHomeCrawl(next)));
 }
 
 async function hostFilterSnapshots(run: Row, job: Row): Promise<Awaited<{ kept: Row[]; raw: number; dropped: number }>> {
@@ -1071,7 +1072,7 @@ async function onHomeCrawlSettled(job: Row): Promise<void> {
         (await event(String(run.work_item_id || ""), "crawl_progress", "crawling", "采集结果已就绪"));
         const counts = await persistFilteredCandidates(run, job);
         (await event(String(run.work_item_id || ""), "crawl_idle", "ranking", "采集空闲，已写入 CreatorCandidate"));
-        track((await rankHomeDiscoveryRun((await getConn().query("SELECT * FROM discovery_runs WHERE id=$1",[run.id])).rows[0] as Row, counts)));
+        track((rankHomeDiscoveryRun((await getConn().query("SELECT * FROM discovery_runs WHERE id=$1",[run.id])).rows[0] as Row, counts)));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         (await updateRunStatus(String(run.id), "crawl_failed", { error: message, completed: true }));
@@ -1091,7 +1092,7 @@ export async function restoreActiveHomeDiscoveryRuns(): Promise<Awaited<void>> {
   const rows = (await getConn().query("SELECT * FROM discovery_runs WHERE kind=$1 AND status IN ('queued','crawling','ranking')",[HOME_KIND])).rows as Row[];
   for (const row of rows) {
     try {
-      if (String(row.status) === "queued" && !row.crawl_job_id) track((await startHomeCrawl(row)));
+      if (String(row.status) === "queued" && !row.crawl_job_id) track((startHomeCrawl(row)));
       else if (row.crawl_job_id) {
         const job = (await getConn().query("SELECT * FROM crawl_jobs WHERE id=$1",[row.crawl_job_id])).rows[0] as Row | undefined;
         if (job) (await onHomeCrawlSettled(job));
@@ -1129,7 +1130,7 @@ export async function listHomeDiscoveryRuns(query: { limit?: unknown } = {}): Pr
     entry: "memory",
     creates_session: false,
     calls_model: false,
-    runs: (await Promise.all(rows.map(async (row) => (await publicRun(row, RUN_LIST_EVENT_LIMIT))))),
+    runs: (await Promise.all(rows.map(async (row) => (publicRun(row, RUN_LIST_EVENT_LIMIT))))),
     total,
     limit,
     truncated: total > rows.length,
@@ -1218,10 +1219,10 @@ export async function startHomeDiscoveryRun(body: Json): Promise<Json> {
   const owner = ownerId();
   const existing = (await getConn().query("SELECT * FROM discovery_runs\n      WHERE kind=$1 AND owner_user_id=$2 AND status IN ('queued','crawling','ranking')\n      ORDER BY created_at DESC LIMIT 1",[HOME_KIND,owner])).rows[0] as Row | undefined;
   if (existing) {
-    return { ...(await publicRun(existing)), duplicate: true, reused: true };
+    return { ...(publicRun(existing)), duplicate: true, reused: true };
   }
   const spec = (await validateSpec(body));
-  const skill = taskDefinition("creator_discovery");
+  const skill = (await taskDefinition("creator_discovery"));
   const lockedSkillContract = skill ? {
     skill_id: skill.id,
     skill_version: "unversioned",
@@ -1351,7 +1352,7 @@ async function resolveCandidateForAction(
   // 注意：/api/home/discovery/* 不在 formalAuthorityPath 内，ticket principal 中间件不会执行，
   // 这里必须用工作台身份 ownerId()（与 runtime_crawl_jobs.actor_id 同一 id 空间），不能用 requireTicketPrincipal()。
   const actorId = ownerId();
-  const job = await postgresPool().query<{ result_json: unknown }>(
+  const job = await postgresConnection().query<{ result_json: unknown }>(
     `SELECT result_json FROM runtime_crawl_jobs WHERE id=$1 AND actor_id=$2`,
     [actionId, actorId],
   );
@@ -1454,7 +1455,7 @@ export async function followHomeDiscoveryCandidate(id: string, body: Json): Prom
   const key = normalizeCreatorKey(platform, platformCreatorId);
   const handleKey = handle ? normalizeCreatorKey(platform, handle) : null;
   const existingLead = (
-    await postgresPool().query(
+    await postgresConnection().query(
       `SELECT id FROM kol_leads
         WHERE NOT is_archived AND lower(platform)=$1
           AND (lower(account_handle)=$2 OR ($3::text IS NOT NULL AND lower(account_handle)=$3))
@@ -1486,7 +1487,7 @@ export async function followHomeDiscoveryCandidate(id: string, body: Json): Prom
   const leadId = String((created as { lead: { id: string } }).lead.id);
   // Starry 库表更新：upsert 画像（PG kol_profile_index），仍在公海（open），不做排他认领。
   const now = new Date().toISOString();
-  await postgresPool().query(
+  await postgresConnection().query(
     `INSERT INTO kol_profile_index
        (id, company_id, kol_uid, handle, display_name, platform, homepage_url, followers,
         avg_plays, region, ingest_source, pool_status, platform_creator_id, source_batch,

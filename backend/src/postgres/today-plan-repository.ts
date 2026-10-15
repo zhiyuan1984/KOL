@@ -99,7 +99,7 @@ export async function startNativeTodayPlan(input: NativePlanInput): Promise<Nati
       if (current) return { ...current, producer: input.producer };
     }
     const now = stamp(); const sessionId = nid("ses"); const workItemId = nid("tsk"); const runId = nid("run");
-    const identity = planningRuntimeIdentity(input.taskType);
+    const identity = (await planningRuntimeIdentity(input.taskType));
     await client.query(`INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id,expert_version)
       VALUES ($1,$2,$3,$3,$4,0,$5,$6,NULL)`, [sessionId, input.title.slice(0, 200), now, input.taskType, input.owner, identity.session_identity]);
     await client.query(`INSERT INTO tickets (id,owner_user_id,task_type,title,source,status,priority,skill,profile,session_id,input,entities,data_version,created_at,updated_at,kind,channel,requester_type,kind_version)
@@ -172,7 +172,7 @@ async function nativePlanTerminalIn(client: PoolClient, workItemId: string, runI
 }
 
 async function nativePlanTerminal(workItemId: string, runId: string, ok: boolean, reason?: string): Promise<void> {
-  await postgresTransaction(async (client) => (await nativePlanTerminalIn(client, workItemId, runId, ok, reason)));
+  await postgresTransaction(async (client) => (nativePlanTerminalIn(client, workItemId, runId, ok, reason)));
 }
 
 /** PostgreSQL durable executor. The model is authoritative in normal runtime;
@@ -207,7 +207,7 @@ export async function executeNativeClaimedPlanningJob(claimed: ClaimedExecutionJ
     const scope: PlanScope = String(payload.scope) === "todo" ? "todo" : "today";
     const packRaw = payload.pack;
     const pack = packRaw && typeof packRaw === "object" && !Array.isArray(packRaw) ? packRaw as TodayPlanPack : await nativeTodayPlanContext(owner, scope);
-    const extra = planningRunInput(pack, { work_item_id: workItemId, task_run_id: runId, actor_user_id: owner }, scope);
+    const extra = (await planningRunInput(pack, { work_item_id: workItemId, task_run_id: runId, actor_user_id: owner }, scope));
     const result = await Promise.resolve((await runWorker(claimedRun.sessionId, planTaskType(scope), scope === "todo" ? "规划待办工作。只输出 today_brief JSON。" : "规划今天的工作。只输出 today_brief JSON。", extra)));
     const brief = briefFromWorkerItems(result.items);
     const missing = missingDisplayCoverage(brief, pack);

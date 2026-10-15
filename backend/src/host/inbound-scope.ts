@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { authDisabled, isAdmin, scopedUser, type AppUser } from "../auth.js";
 import { postgresPool } from "../postgres/pool.js";
 import type { Row } from "../types.js";
@@ -70,7 +71,7 @@ export function collaborationInScope(row: { brand?: unknown; mailbox_from?: unkn
 }
 
 export async function assertCollaborationInScope(collaborationId: string, user = inboundActor()): Promise<Row> {
-  const row = (await postgresPool().query("SELECT * FROM collaborations WHERE id = $1", [collaborationId])).rows[0] as Row | undefined;
+  const row = (await postgresConnection().query("SELECT * FROM collaborations WHERE id = $1", [collaborationId])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(404, "collaboration not found");
   if (!collaborationInScope(row, user)) throw new HttpFail(403, "超出当前品牌范围");
   return row;
@@ -80,11 +81,11 @@ export async function scopedCollaborationSearch(query: string, user = inboundAct
   const q = `%${query}%`;
   const brands = brandScope(user);
   if (!brands) {
-    return (await postgresPool().query("SELECT id, handle, brand, stage_code, mailbox_from FROM collaborations WHERE handle LIKE $1 OR display_name LIKE $2", [q, q])).rows as Row[];
+    return (await postgresConnection().query("SELECT id, handle, brand, stage_code, mailbox_from FROM collaborations WHERE handle LIKE $1 OR display_name LIKE $2", [q, q])).rows as Row[];
   }
   if (!brands.length) return [];
   const placeholders = brands.map((_, i) => `$${i + 3}`).join(",");
-  return (await postgresPool().query(`SELECT id, handle, brand, stage_code, mailbox_from FROM collaborations
+  return (await postgresConnection().query(`SELECT id, handle, brand, stage_code, mailbox_from FROM collaborations
        WHERE (handle LIKE $1 OR display_name LIKE $2) AND brand IN (${placeholders})`, [q, q, ...brands])).rows as Row[];
 }
 

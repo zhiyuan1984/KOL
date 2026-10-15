@@ -55,7 +55,7 @@ export async function readAuthorizedOwnershipSnapshot(employeeId: string, option
   const readPage = async (pageNo: number): Promise<Json> => {
     const remaining = Math.floor(deadline - performance.now());
     if (remaining <= 0) throw new Error('starry_ownership_authorization_timeout');
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timer: Awaited<ReturnType<typeof setTimeout>> | undefined;
     try {
       // The transport receives the same remaining budget. The outer deadline
       // also bounds connection setup and rejects late responses, even if an

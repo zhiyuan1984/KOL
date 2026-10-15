@@ -109,12 +109,12 @@ export type TodayPlanPack = {
   catalog: SourceItem[];
 };
 
-export function planningHarnessMount(skill = "today_plan"): {
+export async function planningHarnessMount(skill = "today_plan"): Promise<Awaited<{
   tools: string[];
   skills: string[];
   forbidden: string[];
-} {
-  const definition = taskDefinition(skill);
+}>> {
+  const definition = (await taskDefinition(skill));
   const tools = (definition?.mcp || []).filter((tool) => !PLANNING_FORBIDDEN_TOOL.test(tool));
   return {
     tools,
@@ -124,8 +124,8 @@ export function planningHarnessMount(skill = "today_plan"): {
 }
 
 /** Planning is a platform-owned, user-scoped read operation. */
-export function planningRuntimeIdentity(skill: "today_plan" | "todo_plan" | "today_analyze") {
-  const definition = taskDefinition(skill);
+export async function planningRuntimeIdentity(skill: "today_plan" | "todo_plan" | "today_analyze") {
+  const definition = (await taskDefinition(skill));
   if (!definition
     || definition.runtime_agent_id !== WORKSPACE_PLANNER_AGENT
     || definition.runtime_access !== "authenticated"
@@ -511,10 +511,10 @@ export async function packTodayPlanContext(owner = ownerId(), scope: PlanScope =
   };
 }
 
-export function planningRunInput(pack: TodayPlanPack, extra: Json = {}, scope: PlanScope = "today"): Json {
+export async function planningRunInput(pack: TodayPlanPack, extra: Json = {}, scope: PlanScope = "today"): Promise<Awaited<Json>> {
   const taskType = planTaskType(scope);
-  const mount = planningHarnessMount(taskType);
-  const identity = planningRuntimeIdentity(taskType);
+  const mount = (await planningHarnessMount(taskType));
+  const identity = (await planningRuntimeIdentity(taskType));
   const priorityRank = (item: SourceItem): number => {
     const priority = normalizePriority(item.priority);
     const rank = priority === "important_urgent" ? 0 : priority === "important" ? 1 : priority === "urgent" ? 2 : priority === "normal" ? 3 : priority === "low" ? 4 : 5;

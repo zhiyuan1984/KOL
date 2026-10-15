@@ -146,7 +146,7 @@ export async function workOrderCollaborationGate(db: Query, actorId: string, wor
 
 export async function readTaskCollaborationContext(actorId: string, taskId: string, after = 0) {
   if (!Number.isSafeInteger(after) || after < 0) throw new HttpFail(422, { code: "invalid_event_cursor" });
-  return postgresTransaction(async db => (await taskCollaborationContextInTransaction(db,actorId,taskId,after)), { isolation: "REPEATABLE READ" });
+  return postgresTransaction(async db => (taskCollaborationContextInTransaction(db,actorId,taskId,after)), { isolation: "REPEATABLE READ" });
 }
 
 export async function taskCollaborationContextInTransaction(db: Pick<PoolClient,"query">, actorId: string, taskId: string, after = 0) {

@@ -217,14 +217,14 @@ describe("MCP compose with From locked to larry.zhao", () => {
     expect(preview.data).toMatchObject({ sent: false, conversationId: 101 });
 
     calls.length = 0;
-    const sent = await withMailSendAuthority("adapter-LZ-OUT-MCP-02", "confirmed-LZ-OUT-MCP-02", async () => (await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-02")?.entities || {})));
+    const sent = await withMailSendAuthority("adapter-LZ-OUT-MCP-02", "confirmed-LZ-OUT-MCP-02", async () => (executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-02")?.entities || {})));
     expect(calls.map((item) => item.name)).toEqual(["sendEmailNow"]);
     expect(sent.data).toMatchObject({ sent: true, conversationId: 101 });
     expect(JSON.stringify(calls)).not.toContain("henry.wei@amperetime.com");
   });
 
   it("keeps multi-to connectivity mail on larry.zhao", async () => {
-    const sent = await withMailSendAuthority("adapter-LZ-OUT-MCP-04", "confirmed-LZ-OUT-MCP-04", async () => (await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-04")?.entities || {})));
+    const sent = await withMailSendAuthority("adapter-LZ-OUT-MCP-04", "confirmed-LZ-OUT-MCP-04", async () => (executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-04")?.entities || {})));
     expect(JSON.parse(String(calls.find((row) => row.name === "createEmailConversation")?.args.requestJson))).toMatchObject({
       mailboxEmail: LARRY_ZHAO_MAILBOX,
       recipientEmail: "qiyou1984@gmail.com",
@@ -339,7 +339,7 @@ describe("Host PEP stage letters cannot use larry.zhao as From", () => {
 
   it("rejects larry.zhao on the Host From whitelist", async () => {
     const row = fixture.outbound_host.find((item) => item.id === "LZ-OUT-HOST-00")!;
-    (await expect((async () => (await enforceSend({
+    (await expect((async () => (enforceSend({
       from_addr: row.from_requested,
       to_addr: row.to,
       subject: row.subject,
@@ -381,7 +381,7 @@ describe("Host PEP stage letters cannot use larry.zhao as From", () => {
   });
 
   it("requires internal Cc on a <$350 quote and strips Chinese", async () => {
-    (await expect((async () => (await enforceSend({
+    (await expect((async () => (enforceSend({
       from_addr: BRAND_MAILBOXES.LT,
       to_addr: "wendellfishing@gmail.com",
       subject: "LiTime collaboration quote",

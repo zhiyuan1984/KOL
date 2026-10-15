@@ -40,7 +40,7 @@ import { collectCrawlResults } from "../src/crawl/results.js";
 import { discoveryResultContext } from "../src/crawl/context.js";
 import { runtimeHash } from "../src/runtime/execution.js";
 
-registerRuntimeActionGate("catalog_a", "lookup", { validate() {}, execute: async (_context, _args, _id, dispatch) => (await dispatch()) });
+registerRuntimeActionGate("catalog_a", "lookup", { validate() {}, execute: async (_context, _args, _id, dispatch) => (dispatch()) });
 
 let tmp: string;
 let cleanup: Array<() => Promise<unknown>>;
@@ -109,8 +109,8 @@ describe("discovery workspace persistence and result isolation", () => {
       max_followers: 20000, min_avg_plays_10: 100, expect_count: 10 };
     const body = { request_id: "discovery-test-request-001", brief, text: "发现北美露营红人" };
     const [first, replay] = await Promise.all([
-      (await withScopedUser(owner, async () => (await createDiscoveryWorkspace(body)))),
-      (await withScopedUser(owner, async () => (await createDiscoveryWorkspace(body)))),
+      (await withScopedUser(owner, async () => (createDiscoveryWorkspace(body)))),
+      (await withScopedUser(owner, async () => (createDiscoveryWorkspace(body)))),
     ]);
     expect(replay).toMatchObject({ task_id: first.task_id, session_id: first.session_id });
     expect([first.duplicate, replay.duplicate].sort()).toEqual([false, true]);
@@ -118,19 +118,19 @@ describe("discovery workspace persistence and result isolation", () => {
     expect(JSON.parse(row.input)).toMatchObject({ agent_id: context.agentId, discovery_workspace: { brief, agent_id: context.agentId, profile: "lead" } });
     expect(first.pending).toMatchObject({ agent_id: context.agentId });
     expect((await postgresPool().query("SELECT count(*)::int AS n FROM task_runs WHERE work_item_id=$1", [first.task_id])).rows[0].n).toBe(1);
-    expect(await withScopedUser(owner, async () => (await pendingDiscoveryWorkspace(String(first.task_id))))).toMatchObject({ pending: first.pending });
-    await expect(withScopedUser({ ...owner, id: "another-owner" }, async () => (await pendingDiscoveryWorkspace(String(first.task_id)))))
+    expect(await withScopedUser(owner, async () => (pendingDiscoveryWorkspace(String(first.task_id))))).toMatchObject({ pending: first.pending });
+    await expect(withScopedUser({ ...owner, id: "another-owner" }, async () => (pendingDiscoveryWorkspace(String(first.task_id)))))
       .rejects.toMatchObject(denied("discovery_task_not_found"));
     await postgresPool().query("UPDATE task_runs SET status='failed' WHERE work_item_id=$1", [first.task_id]);
     await postgresPool().query("UPDATE tickets SET status='failed' WHERE id=$1", [first.task_id]);
-    expect(await withScopedUser(owner, async () => (await pendingDiscoveryWorkspace(String(first.task_id)))))
+    expect(await withScopedUser(owner, async () => (pendingDiscoveryWorkspace(String(first.task_id)))))
       .toMatchObject({ pending: { agent_id: context.agentId } });
     await postgresPool().query("UPDATE task_runs SET status='running' WHERE work_item_id=$1", [first.task_id]);
-    expect(await withScopedUser(owner, async () => (await pendingDiscoveryWorkspace(String(first.task_id))))).toEqual({ pending: null });
-    await expect(withScopedUser(owner, async () => (await createDiscoveryWorkspace(null)))).rejects.toMatchObject(denied("discovery_brief_invalid"));
-    await expect(withScopedUser(owner, async () => (await createDiscoveryWorkspace({ ...body, brief: { ...brief, region: "eu" } }))))
+    expect(await withScopedUser(owner, async () => (pendingDiscoveryWorkspace(String(first.task_id))))).toEqual({ pending: null });
+    await expect(withScopedUser(owner, async () => (createDiscoveryWorkspace(null)))).rejects.toMatchObject(denied("discovery_brief_invalid"));
+    await expect(withScopedUser(owner, async () => (createDiscoveryWorkspace({ ...body, brief: { ...brief, region: "eu" } }))))
       .rejects.toMatchObject(denied("discovery_request_conflict"));
-    await expect(withScopedUser(owner, async () => (await createDiscoveryWorkspace({ ...body, brief: { ...brief, platforms: ["youtube", "instagram"] } }))))
+    await expect(withScopedUser(owner, async () => (createDiscoveryWorkspace({ ...body, brief: { ...brief, platforms: ["youtube", "instagram"] } }))))
       .rejects.toMatchObject(denied("discovery_brief_invalid"));
   });
 
@@ -304,7 +304,7 @@ describe("governed Skill Runtime", () => {
     expect((await postgresPool().query("SELECT state FROM runtime_crawl_jobs WHERE id=$1", [action.id])).rows[0].state).toBe(remoteError ? "failed" : "succeeded");
     if (remoteError === "timeout") {
       const listSpy = vi.spyOn(RemoteMcpClient.prototype, "listTools").mockResolvedValue([start, status] as Tool[]);
-      const callSpy = vi.spyOn(RemoteMcpClient.prototype, "callToolRaw").mockImplementation(async (name, args) => (await factory().callToolRaw(name, args)));
+      const callSpy = vi.spyOn(RemoteMcpClient.prototype, "callToolRaw").mockImplementation(async (name, args) => (factory().callToolRaw(name, args)));
       expect((await postgresPool().query("SELECT error_code FROM runtime_crawl_jobs WHERE id=$1", [action.id])).rows[0].error_code).toBe("runtime_crawl_timeout");
       const app = new Hono();
       app.route("/api", operationRouter(runtimeActionOperations));
@@ -312,7 +312,7 @@ describe("governed Skill Runtime", () => {
       // 终态出队后第二个任务仍在排队（starter 已派发但尚未跑，无远端调用）；
       // 这里直接取消它，验证超时的第一个任务可重试、重新确认后能直发。
       await postgresPool().query("UPDATE runtime_crawl_jobs SET state='cancelled', error_code='queue_cancelled_by_user' WHERE id=$1", [secondAction.id]);
-      const response = await withScopedUser(owner, async () => (await app.request("/api/actions/runtime.crawl.retry", {
+      const response = await withScopedUser(owner, async () => (app.request("/api/actions/runtime.crawl.retry", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action_id: action.id }),
       })));
       expect(response.status).toBe(200);
@@ -509,7 +509,7 @@ describe("governed Skill Runtime", () => {
     const result = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
     const action = await runtimeAction(String((result.structuredContent as Json).action_id), context.userId);
     expect(calls).toHaveLength(0);
-    const confirmed = await Promise.allSettled([1, 2].map(async () => (await new SkillExecution(context, factory).confirm(action.id, action.snapshot))));
+    const confirmed = await Promise.allSettled([1, 2].map(async () => (new SkillExecution(context, factory).confirm(action.id, action.snapshot))));
     expect(confirmed.every((item) => item.status === "fulfilled")).toBe(true);
     const receipts = confirmed.map((item) => (item as PromiseFulfilledResult<Json>).value);
     expect(receipts[0]).toEqual(receipts[1]);
@@ -650,26 +650,26 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
       const remote = await localRemote(tool(), { "X-MCP-API-KEY": "vault-key", Authorization: "Bearer personal-vault-token" });
       const key = (await createCredential({ type: "organization_secret", secret: "vault-key" }, "admin-a"));
       (await getConn().query("UPDATE connectors SET enabled=1 WHERE id='starrykol'",[]));
-      await expect((async () => (await setConnectorConfig("starrykol", { url: remote.url, headers_env: { "X-Key": "OLD_KEY" } }, 0)))()).rejects.toThrow();
-      await expect((async () => (await setConnectorConfig("starrykol", { url: remote.url, allow_unauthenticated: true }, 0)))()).rejects.toThrow();
+      await expect((async () => (setConnectorConfig("starrykol", { url: remote.url, headers_env: { "X-Key": "OLD_KEY" } }, 0)))()).rejects.toThrow();
+      await expect((async () => (setConnectorConfig("starrykol", { url: remote.url, allow_unauthenticated: true }, 0)))()).rejects.toThrow();
       (await setConnectorConfig("starrykol", { url: remote.url, headers_secret_refs: { "X-MCP-API-KEY": key.id } }, 0));
       (await saveStarryBinding(context.userId, { mailbox_email: "person@example.test", bearer: "personal-vault-token" }));
       const reference = (await boundStarryCredentialId(context.userId));
       expect(reference).toMatch(/^cred_/);
       expect(JSON.stringify((await getConn().query("SELECT * FROM user_starry_bindings",[])).rows)).not.toContain("personal-vault-token");
-      await expect((async () => (await deleteCredential(reference, 1)))()).rejects.toThrow();
+      await expect((async () => (deleteCredential(reference, 1)))()).rejects.toThrow();
       const client = (await createManagedClient("starrykol", context.userId, reference));
       try { expect(await client.callTool("lookup", { query: "fixture" })).toEqual({ creator: "creator-local-42" }); }
       finally { await client.close(); }
       expect(remote.calls).toEqual(["lookup"]);
-      await expect((async () => (await createManagedClient("starrykol", "user-b", reference)))()).rejects.toThrow();
+      await expect((async () => (createManagedClient("starrykol", "user-b", reference)))()).rejects.toThrow();
       (await getConn().query("UPDATE runtime_credentials SET status='disabled' WHERE id=$1",[reference]));
-      await expect((async () => (await createManagedClient("starrykol", context.userId, reference)))()).rejects.toThrow();
+      await expect((async () => (createManagedClient("starrykol", context.userId, reference)))()).rejects.toThrow();
       expect(remote.calls).toHaveLength(1);
       (await getConn().query("UPDATE user_starry_bindings SET bearer_token='legacy-plaintext' WHERE user_id=$1",[context.userId]));
-      await expect((async () => (await boundStarryCredentialId(context.userId)))()).rejects.toThrow();
+      await expect((async () => (boundStarryCredentialId(context.userId)))()).rejects.toThrow();
       (await getConn().query("UPDATE connectors SET enabled=0 WHERE id='starrykol'",[]));
-      await expect((async () => (await createManagedClient("starrykol", context.userId)))()).rejects.toThrow();
+      await expect((async () => (createManagedClient("starrykol", context.userId)))()).rejects.toThrow();
     } finally {
       if (previous === undefined) delete process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
       else process.env.RUNTIME_CREDENTIAL_MASTER_KEY = previous;
@@ -748,7 +748,7 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
     (await getConn().query("INSERT INTO sessions(id,title,created_at,updated_at,thread_ref,owner_user_id) VALUES($1,$2,$3,$4,$5,$6)",["runtime-session","runtime","now","now","stale-old-thread",context.userId]));
     try {
       const user = (await mapUser((await getConn().query("SELECT * FROM users WHERE id=$1",[context.userId])).rows[0] as Json));
-      const result = await withScopedUser(user, async () => (await runCodex("runtime-session", context.skillId, "读取公开画像", {})));
+      const result = await withScopedUser(user, async () => (runCodex("runtime-session", context.skillId, "读取公开画像", {})));
       expect(result.status).toBe("done");
       expect(remote.calls).toEqual(["lookup"]);
       expect(result.contract_log.some((entry) => entry.method === "thread/resume")).toBe(false);
@@ -811,7 +811,7 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
       expect((await getAgentSkills((await kolAgentScopeContext()).agent_id)).some((row) => row.skill_id === "today_plan")).toBe(false);
       expect((await getSkillConnectors("today_plan"))).toEqual([]);
       // 未绑定：平台规划技能也不放行；绑定后才可运行（人员资格锚点是 Agent）。
-      await expect((async () => (await assertRuntimeSkill({
+      await expect((async () => (assertRuntimeSkill({
         agentId: "agent:workspace-planner", skillId: "today_plan", userId: "user-b", runId: "planner-denied",
       })))()).rejects.toThrow(/runtime_agent_not_usable/);
       (await createAgentBinding({
@@ -819,7 +819,7 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
         company_id: COMPANY, source: "test",
       }));
       const user = (await mapUser((await getConn().query("SELECT * FROM users WHERE id=$1",[context.userId])).rows[0] as Json));
-      const result = await withScopedUser(user, async () => (await runCodex(
+      const result = await withScopedUser(user, async () => (runCodex(
         "planner-session",
         "today_plan",
         "规划今天的工作。只输出 today_brief JSON。",

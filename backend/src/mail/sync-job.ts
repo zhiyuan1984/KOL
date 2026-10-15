@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { scopedUser, withScopedUser, type AppUser } from "../auth.js";
 import { HttpFail } from "../host/errors.js";
 import { normalizeEmail } from "../host/identity.js";
@@ -51,7 +52,7 @@ function nativeActor(row: Row): AppUser {
 }
 
 async function activeActor(userId: string): Promise<AppUser> {
-  const row = (await postgresPool().query<Row>("SELECT * FROM users WHERE id=$1 AND active=1", [userId])).rows[0];
+  const row = (await postgresConnection().query<Row>("SELECT * FROM users WHERE id=$1 AND active=1", [userId])).rows[0];
   if (!row) throw new HttpFail(403, { code: "mail_sync_account_unavailable" });
   return nativeActor(row);
 }
@@ -61,7 +62,7 @@ async function activeActor(userId: string): Promise<AppUser> {
  * established explicit bypass. */
 async function actorCanUseMailSkill(actor: AppUser, skillId: string): Promise<boolean> {
   if (actor.roles.includes("admin")) return true;
-  const result = await postgresPool().query<{ permitted: boolean }>(
+  const result = await postgresConnection().query<{ permitted: boolean }>(
     `WITH RECURSIVE unit_tree AS (
        SELECT id AS ancestor_id,id AS descendant_id,company_id FROM organization_units WHERE status='active'
        UNION
@@ -129,7 +130,7 @@ export async function authorizeMailSync(mailbox: string): Promise<MailSyncAuthor
   for (const skill of MAIL_SYNC_SKILLS) {
     if (!await actorCanUseMailSkill(actor, skill)) throw new HttpFail(403, { code: "agent_not_usable", skill_id: skill });
   }
-  const binding = (await postgresPool().query<Row>(
+  const binding = (await postgresConnection().query<Row>(
     `SELECT mailbox_email,owner_name,owner_open_id,owner_verified_at,bearer_token
        FROM user_starry_bindings
       WHERE user_id=$1 AND lower(mailbox_email)=lower($2) AND status='connected'`,
@@ -174,7 +175,7 @@ function receiptProgress(progress: MailSyncProgress): Json {
 
 async function persistMailSyncReceipt(job: ClaimedExecutionJob, checkpoint: () => Promise<void>, receipt: Json): Promise<void> {
   await checkpoint();
-  const updated = await postgresPool().query(
+  const updated = await postgresConnection().query(
     `UPDATE execution_jobs
         SET receipt_json=(COALESCE(NULLIF(receipt_json,'')::jsonb,'{}'::jsonb) || $1::jsonb)::text,updated_at=$2
       WHERE id=$3 AND status='running' AND lease_owner=$4
@@ -225,7 +226,7 @@ export async function executeMailSyncJob(job: ClaimedExecutionJob, checkpoint: (
   let latestProgress: MailSyncProgress | undefined;
   const authorizeCurrent = async () => {
     const actor = await activeActor(String(job.actor_ref));
-    return await withScopedUser(actor, async () => (await authorizeMailSync(mailbox)));
+    return await withScopedUser(actor, async () => (authorizeMailSync(mailbox)));
   };
   const initial = await authorizeCurrent();
   authorization = initial;
@@ -239,7 +240,7 @@ export async function executeMailSyncJob(job: ClaimedExecutionJob, checkpoint: (
   };
   // The binding stays the authorization boundary; it must not replace the
   // verified organization connector Authorization used to read the mailbox.
-  return await withScopedUser(initial.actor, async () => (await withStarryConnectorAuth(async () => {
+  return withScopedUser(initial.actor, async () => (await withStarryConnectorAuth(async () => {
     const onProgress = async (progress: MailSyncProgress) => {
       latestProgress = progress;
       await persistMailSyncReceipt(job, check, {

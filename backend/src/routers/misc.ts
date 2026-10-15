@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { mediaCrawlerConfigured } from "../crawl/managed-connection.js";
 import { employeeSkillPreferences, recordEmployeeSkillView, setEmployeeSkillFavorite } from "../host/employee-skill-preferences.js";
 import { publishKnowledgeConfig } from '../knowledge/skill-generation.js';
@@ -98,14 +99,14 @@ const FUNNEL_ORDER = FUNNEL_STAGES.map((f) => f.id);
  * Host on every 新工作任务 mount.
  */
 type SkillLookup = {
-  defs: Map<string, ReturnType<typeof taskDefinition>>;
-  cats: Map<string, ReturnType<typeof skillCatalog>[number]>;
+  defs: Map<string, Awaited<ReturnType<typeof taskDefinition>>>;
+  cats: Map<string, Awaited<ReturnType<typeof skillCatalog>>[number]>;
   overlays: Map<string, { summary: string; updated_at: string }>;
   origins: Map<string, "official" | "third_party">;
 };
 
 const SKILL_LOOKUP_TTL_MS = 60_000;
-let skillDefinitionCache: { expiresAt: number; defs: SkillLookup["defs"]; cats: SkillLookup["cats"]; source: ReturnType<typeof taskDefinitions> } | null = null;
+let skillDefinitionCache: { expiresAt: number; defs: SkillLookup["defs"]; cats: SkillLookup["cats"]; source: Awaited<ReturnType<typeof taskDefinitions>> } | null = null;
 
 function clearSkillLookupCache(): void {
   skillDefinitionCache = null;
@@ -114,8 +115,8 @@ function clearSkillLookupCache(): void {
 async function skillLookup(): Promise<SkillLookup> {
   const now = Date.now();
   const [originResult, overlayResult] = await Promise.all([
-    (await postgresPool().query<{ skill_id: string; origin: string | null; tags: string | null }>("SELECT skill_id, origin, tags FROM skill_lifecycle")),
-    (await postgresPool().query<{ id: string; summary: string; updated_at: string }>("SELECT id, summary, updated_at FROM skill_sops")),
+    (await postgresConnection().query<{ skill_id: string; origin: string | null; tags: string | null }>("SELECT skill_id, origin, tags FROM skill_lifecycle")),
+    (await postgresConnection().query<{ id: string; summary: string; updated_at: string }>("SELECT id, summary, updated_at FROM skill_sops")),
   ]);
   const origins = new Map<string, "official" | "third_party">();
   for (const row of originResult.rows) {
@@ -123,13 +124,13 @@ async function skillLookup(): Promise<SkillLookup> {
     origins.set(String(row.skill_id), row.origin === "third_party" || (!row.origin && tags.includes("第三方")) ? "third_party" : "official");
   }
   const overlays = new Map(overlayResult.rows.map((row) => [String(row.id), { summary: row.summary, updated_at: row.updated_at }]));
-  if (skillDefinitionCache && skillDefinitionCache.expiresAt > now && skillDefinitionCache.source === taskDefinitions()) {
+  if (skillDefinitionCache && skillDefinitionCache.expiresAt > now && skillDefinitionCache.source === (await taskDefinitions())) {
     return { ...skillDefinitionCache, overlays, origins };
   }
-  const source = taskDefinitions();
-  const defs = new Map<string, ReturnType<typeof taskDefinition>>();
+  const source = (await taskDefinitions());
+  const defs = new Map<string, Awaited<ReturnType<typeof taskDefinition>>>();
   for (const definition of source) defs.set(definition.id, definition);
-  const cats = new Map<string, ReturnType<typeof skillCatalog>[number]>();
+  const cats = new Map<string, Awaited<ReturnType<typeof skillCatalog>>[number]>();
   for (const entry of (await skillCatalog())) cats.set(entry.id, entry);
   skillDefinitionCache = { expiresAt: now + SKILL_LOOKUP_TTL_MS, defs, cats, source };
   return { defs, cats, overlays, origins };
@@ -232,11 +233,11 @@ async function skillMeta(name: string, lookup?: SkillLookup): Promise<Json> {
 }
 
 async function visibleForRequest(): Promise<Set<string>> {
-  return (await visibleSkillIds());
+  return (visibleSkillIds());
 }
 
 async function employeeVisibleSkill(id: string): Promise<boolean> {
-  const { rows } = await postgresPool().query<{ stage: string }>("SELECT stage FROM skill_lifecycle WHERE skill_id=$1", [id]);
+  const { rows } = await postgresConnection().query<{ stage: string }>("SELECT stage FROM skill_lifecycle WHERE skill_id=$1", [id]);
   const lifecycle = rows[0];
   // Legacy bundled skills without lifecycle rows retain their established availability;
   // explicit draft/editing/testing/disabled records stay out of the employee directory.
@@ -247,7 +248,7 @@ async function listedSkills(market: boolean): Promise<Json[]> {
   const vis = (await visibleForRequest());
   const lookup = await skillLookup();
   const visible = await Promise.all([...lookup.cats.values()].map(async (skill) => [skill, await employeeVisibleSkill(skill.id)] as const));
-  return (await Promise.all(visible
+  return (Promise.all(visible
     .filter(([skill, visible]) => visible && (market ? skill.in_market : vis.has(skill.id)))
     .map(([skill]) => skill)
     .sort((a, b) => FUNNEL_ORDER.indexOf(a.funnel) - FUNNEL_ORDER.indexOf(b.funnel) || a.label.localeCompare(b.label, "zh"))
@@ -285,7 +286,7 @@ misc.get("/skills/personal", async (c) => {
 async function skillPersonalActor(skillId: string): Promise<string> {
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
-  if (!taskDefinition(skillId) || !(await employeeVisibleSkill(skillId)) || !(await visibleForRequest()).has(skillId)
+  if (!(await taskDefinition(skillId)) || !(await employeeVisibleSkill(skillId)) || !(await visibleForRequest()).has(skillId)
     || (await skillMeta(skillId)).employee_visible === false) throw new HttpFail(404, "skill not found");
   return user.id;
 }
@@ -323,10 +324,10 @@ misc.get("/skills/:id", async (c) => {
 misc.get("/skills/:id/agents", async (c) => {
   const id = c.req.param("id");
   // 未知技能直接 404；lifecycle 非 published 的技能对员工不可见，404 不泄漏存在性。
-  if (!taskDefinition(id)) throw new HttpFail(404, "skill not found");
+  if (!(await taskDefinition(id))) throw new HttpFail(404, "skill not found");
   if (!(await employeeVisibleSkill(id))) throw new HttpFail(404, "skill not found");
   (await ensureManagedAgents());
-  const { rows } = await postgresPool().query<{ id: string; name: string }>(`
+  const { rows } = await postgresConnection().query<{ id: string; name: string }>(`
     SELECT ma.id AS id, ma.name AS name
     FROM managed_agents ma
     JOIN runtime_agent_skills ras ON ras.agent_id = ma.id
@@ -337,13 +338,13 @@ misc.get("/skills/:id/agents", async (c) => {
   // 只暴露 id 与 name —— 绑定目标、组织树、版本等治理信息不泄漏（使用 ≠ 治理）。
   const privileged = authDisabled() || isAdmin();
   const userId = scopedUser()?.id || null;
-  const allowed = await Promise.all(rows.map(async (row) => privileged || await canUseAgent(userId, row.id)));
+  const allowed = await Promise.all(rows.map(async (row) => privileged || (await canUseAgent(userId, row.id))));
   const agents = rows.filter((_, index) => allowed[index]).map((row) => ({ id: row.id, name: row.name }));
   return c.json({ agents });
 });
 misc.get("/skills/:id/memories", async (c) => {
   const skillId = c.req.param("id");
-  const definition = taskDefinition(skillId);
+  const definition = (await taskDefinition(skillId));
   if (!definition) throw new HttpFail(404, "skill not found");
   requireSkill(skillId);
   c.header("Cache-Control", "private, no-store");
@@ -383,7 +384,7 @@ misc.put("/skills/:id/sop", async (c) => {
 misc.delete("/skills/:id/sop", async (c) => {
   await requirePm();
   const id = c.req.param("id");
-  const definition = taskDefinition(id);
+  const definition = (await taskDefinition(id));
   const summary = String(definition?.employee_summary || definition?.description || "");
   const body = readBundledSkill(id);
   if (isBundledSkill(id)) (await saveSkillDraft(id, { _sop_summary: summary, _sop_body: body }));
@@ -401,7 +402,7 @@ misc.get("/admin/skills", async (c) => {
     funnel: FUNNEL_STAGES,
     meta: { ...(await skillAdminMeta()), stages: SKILL_STAGES, stage_labels: SKILL_STAGE_LABELS },
     skills: (await Promise.all((await skillCatalog()).map(async (s) => ({
-      ...(await skillMeta(s.id)),
+      ...(skillMeta(s.id)),
       grants: (await grantsForSkill(s.id)),
       lifecycle: (await skillLifecycleMeta(s.id)),
     })))),
@@ -420,7 +421,7 @@ misc.get("/admin/skills/:id/draft", async (c) => {
 });
 misc.get("/admin/skills/:id/template", async (c) => {
   await requirePm();
-  const definition = taskDefinition(c.req.param("id"));
+  const definition = (await taskDefinition(c.req.param("id")));
   if (!definition || !definition.employee_visible) throw new HttpFail(404, "skill template not found");
   return c.json(await effectiveSkillTemplate(definition));
 });
@@ -567,7 +568,7 @@ misc.post("/admin/skills/:id/publish-approvals", async (c) => {
   const ceo = roleHolder(org, "gm", placeholder);
   if (!ceo) throw new HttpFail(400, { code: "ceo_not_found", message: "组织架构中未找到 CEO，无法发起发布审批。" });
   const base = meta.current_version || 0;
-  const skillLabel = taskDefinition(id)?.title || id;
+  const skillLabel = (await taskDefinition(id))?.title || id;
   const approval = (await createWorkApproval({
     kind: "skill_publish",
     title: `技能发布审批：${skillLabel}（v${base + 1}）`,
@@ -593,7 +594,7 @@ misc.post("/admin/skills/:id/publish-approvals", async (c) => {
  */
 misc.get("/admin/skills/legacy-grants", async (c) => {
   await requirePm();
-  const { rows } = await postgresPool().query<{ user_id: string; skill_id: string; created_at: string; username: string | null; user_name: string | null }>(
+  const { rows } = await postgresConnection().query<{ user_id: string; skill_id: string; created_at: string; username: string | null; user_name: string | null }>(
     `SELECT g.user_id, g.skill_id, g.created_at, u.username, u.name AS user_name
        FROM user_skill_grants g LEFT JOIN users u ON u.id = g.user_id
        ORDER BY g.created_at DESC`,
@@ -628,7 +629,7 @@ misc.post("/admin/skills/:id/versions", async (c) => {
   const id = c.req.param("id");
   // 发布门禁：负责人必填；R3 无已通过审批单时 403（先行检查，避免草稿被提前应用）。
   (await assertSkillPublishAllowed(id));
-  if ((await postgresPool().query("SELECT 1 FROM skill_knowledge_configs WHERE skill_id=$1", [id])).rowCount) throw new HttpFail(409, "知识技能须通过真实试算和生命周期发布；不能直接发布版本。");
+  if ((await postgresConnection().query("SELECT 1 FROM skill_knowledge_configs WHERE skill_id=$1", [id])).rowCount) throw new HttpFail(409, "知识技能须通过真实试算和生命周期发布；不能直接发布版本。");
   const body = (await c.req.json()) as { description?: string };
   (await applySkillDraft(id));
   clearSkillLookupCache();
@@ -637,7 +638,7 @@ misc.post("/admin/skills/:id/versions", async (c) => {
 misc.post("/admin/skills/:id/versions/rollback", async (c) => {
   await requirePm();
   const id = c.req.param("id");
-  if ((await postgresPool().query("SELECT 1 FROM skill_knowledge_configs WHERE skill_id=$1", [id])).rowCount) throw new HttpFail(409, "请将历史说明复制到待发布草稿，核对知识依赖并重新试算后发布。");
+  if ((await postgresConnection().query("SELECT 1 FROM skill_knowledge_configs WHERE skill_id=$1", [id])).rowCount) throw new HttpFail(409, "请将历史说明复制到待发布草稿，核对知识依赖并重新试算后发布。");
   const body = (await c.req.json()) as { version?: number };
   const result = await rollbackSkillVersion(id, Number(body.version || 0));
   clearSkillLookupCache();
@@ -688,7 +689,7 @@ misc.get("/projects", async (c) => {
   // 列表里给它们留位置等于没列表（同步只灌画像，不造邮件——所以这条口径不会被同步打回）。
   // 需要整库时传 ?include=all（或在菜单里搜索）。
   const includeAll = String(c.req.query("include") || "") === "all";
-  const { rows } = await postgresPool().query<Row>(
+  const { rows } = await postgresConnection().query<Row>(
     `SELECT c.id, c.handle, c.display_name, c.brand, c.platform, c.stage_code
        FROM collaborations c
       WHERE $1 = 1
@@ -710,9 +711,9 @@ misc.get("/files/recent", async (c) => {
   const user = scopedUser();
   const limit = Math.min(Math.max(Number(c.req.query("limit") || 12), 1), 50);
   const { rows } = !authDisabled() && user
-    ? await postgresPool().query<Row>(`SELECT id,name,path,size_bytes,mime_type,created_at,last_used_at
+    ? await postgresConnection().query<Row>(`SELECT id,name,path,size_bytes,mime_type,created_at,last_used_at
            FROM user_uploads WHERE owner_user_id=$1 ORDER BY last_used_at DESC LIMIT $2`, [user.id, limit])
-    : await postgresPool().query<Row>(`SELECT id,name,path,size_bytes,mime_type,created_at,last_used_at
+    : await postgresConnection().query<Row>(`SELECT id,name,path,size_bytes,mime_type,created_at,last_used_at
            FROM user_uploads ORDER BY last_used_at DESC LIMIT $1`, [limit]);
   return c.json(rows.map((row) => ({
     id: row.id,
@@ -742,7 +743,7 @@ misc.post("/attachments", async (c) => {
   if (!fs.existsSync(dest)) throw new HttpFail(500, "failed to store attachment");
   const now = nowIso();
   const mime = (file as File).type || "application/octet-stream";
-  await postgresPool().query(
+  await postgresConnection().query(
     `INSERT INTO user_uploads
      (id,owner_user_id,name,path,size_bytes,mime_type,created_at,last_used_at)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
@@ -780,7 +781,7 @@ misc.patch("/me", async (c) => {
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
   const body = (await c.req.json()) as Record<string, unknown>;
-  const managed = ((await postgresPool().query("SELECT 1 FROM organization_people WHERE user_id=$1 AND status='active'", [user.id])).rowCount ?? 0) > 0;
+  const managed = ((await postgresConnection().query("SELECT 1 FROM organization_people WHERE user_id=$1 AND status='active'", [user.id])).rowCount ?? 0) > 0;
   if (managed) {
     const unchanged = (field: "name" | "email" | "phone") => body[field] === undefined ||
       String(body[field] ?? "").trim() === String(user[field] ?? "").trim();
@@ -795,7 +796,7 @@ misc.patch("/me", async (c) => {
   if (email && !email.includes("@")) throw new HttpFail(400, "请填写有效邮箱");
   const phone = body.phone === undefined ? user.phone : (String(body.phone || "").trim() ? normalizePhone(String(body.phone)) : "");
   if (String(body.phone || "").trim() && !looksLikePhone(String(body.phone))) throw new HttpFail(400, "请填写有效手机号");
-  await postgresPool().query("UPDATE users SET name=$1,email=$2,phone=$3,updated_at=$4 WHERE id=$5", [name, email, phone, nowIso(), user.id]);
+  await postgresConnection().query("UPDATE users SET name=$1,email=$2,phone=$3,updated_at=$4 WHERE id=$5", [name, email, phone, nowIso(), user.id]);
   return c.json({ ...user, name, email, phone, starry_binding: publicStarryBinding(await starryBindingRow(user.id)) });
 });
 
@@ -959,7 +960,7 @@ misc.get("/admin/audit/events", async (c) => {
   }
   const indexed = clauses.map((clause, index) => clause.replace("?", `$${index + 1}`));
   const where = indexed.length ? `WHERE ${indexed.join(" AND ")}` : "";
-  const { rows } = await postgresPool().query<Row>(
+  const { rows } = await postgresConnection().query<Row>(
     `SELECT id,ts,actor,event_type,SUBSTRING(payload FROM 1 FOR $${values.length + 1}) AS payload_preview,length(payload) AS payload_size
        FROM audit_events ${where} ORDER BY id DESC LIMIT $${values.length + 2}`,
     [...values, AUDIT_PAYLOAD_PREVIEW_CHARS, limit + 1],
@@ -979,8 +980,8 @@ misc.get("/admin/audit/events", async (c) => {
 misc.get("/workers", async (c) => {
   const user = scopedUser();
   const { rows } = !authDisabled() && user && !isAdmin(user)
-    ? await postgresPool().query<Row>("SELECT w.* FROM workers w JOIN sessions s ON s.id=w.session_id WHERE s.owner_user_id=$1 ORDER BY w.created_at DESC", [user.id])
-    : await postgresPool().query<Row>("SELECT * FROM workers ORDER BY created_at DESC");
+    ? await postgresConnection().query<Row>("SELECT w.* FROM workers w JOIN sessions s ON s.id=w.session_id WHERE s.owner_user_id=$1 ORDER BY w.created_at DESC", [user.id])
+    : await postgresConnection().query<Row>("SELECT * FROM workers ORDER BY created_at DESC");
   const out = (rows as Row[]).map((r) => ({
     ...r,
     contract_log: JSON.parse(String(r.contract_log)),
@@ -991,8 +992,8 @@ misc.get("/workers", async (c) => {
 misc.get("/stage-transitions", async (c) => {
   const collaborationId = c.req.query("collaboration_id");
   const { rows } = collaborationId
-    ? await postgresPool().query<Row>("SELECT * FROM stage_transitions WHERE collaboration_id = $1 ORDER BY occurred_at, id", [collaborationId])
-    : await postgresPool().query<Row>("SELECT * FROM stage_transitions ORDER BY occurred_at, id");
+    ? await postgresConnection().query<Row>("SELECT * FROM stage_transitions WHERE collaboration_id = $1 ORDER BY occurred_at, id", [collaborationId])
+    : await postgresConnection().query<Row>("SELECT * FROM stage_transitions ORDER BY occurred_at, id");
   return c.json(
     rows.map((row) => ({
       ...row,
@@ -1071,7 +1072,7 @@ misc.get("/home", async (c) => {
   return c.json({
     brand: "灵工 工作",
     h1: "今天有什么工作要处理？",
-    recs: catalog.map((skill) => ({
+    recs: (await Promise.all(catalog.map(async (skill) => ({
       id: skill.id,
       title: skill.label,
       act: "ask",
@@ -1083,8 +1084,8 @@ misc.get("/home", async (c) => {
       category: skill.category,
       group: skill.category,
       profile: skill.profile,
-      description: taskDefinition(skill.id)?.description || "",
+      description: (await taskDefinition(skill.id))?.description || "",
       granted: granted.has(skill.id),
-    })),
+    })))),
   });
 });

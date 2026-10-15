@@ -294,7 +294,7 @@ describe("Email MCP Host orchestration", () => {
     expect((await emailMcpResultCard("email_compose", preview.data)).recommended_actions).toContain("核对预览后回复「确认发送」");
 
     calls.length = 0;
-    const sent = await withMailSendAuthority("adapter-test-draft", "adapter-test-confirmed", async () => (await executeEmailMcpTask("email_compose", {
+    const sent = await withMailSendAuthority("adapter-test-draft", "adapter-test-confirmed", async () => (executeEmailMcpTask("email_compose", {
       conversationId: 101,
       to: "qiyou1984@gmail.com",
       confirm_send: true,

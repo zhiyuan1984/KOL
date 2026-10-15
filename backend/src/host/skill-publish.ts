@@ -294,15 +294,15 @@ async function setMarketFlag(id: string, inMarket: boolean): Promise<Awaited<voi
   (await getConn().query("INSERT INTO skill_flags (id, in_market, updated_at) VALUES ($1,$2,$3) ON CONFLICT(id) DO UPDATE SET in_market=excluded.in_market, updated_at=excluded.updated_at",[id,inMarket ? 1 : 0,nowIso()]));
 }
 
-export function activateSkillForHarness(id: string): string {
+export async function activateSkillForHarness(id: string): Promise<Awaited<string>> {
   clearTaskRegistryCache();
-  if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
-  return writeRuntimeSkill(id);
+  if (!(await catalogSkill(id))) throw new HttpFail(404, "unknown skill");
+  return (await writeRuntimeSkill(id));
 }
 
 export async function createPublishedSkill(input: CreateSkillInput): Promise<Awaited<SkillEntry>> {
   const spec = normalizeCreate(input);
-  if (catalogSkill(spec.id) || isBundledSkill(spec.id)) {
+  if ((await catalogSkill(spec.id)) || isBundledSkill(spec.id)) {
     throw new HttpFail(409, "skill already exists");
   }
   const dir = path.join(publishedSkillsDir(), spec.id);
@@ -310,7 +310,7 @@ export async function createPublishedSkill(input: CreateSkillInput): Promise<Awa
   fs.writeFileSync(path.join(dir, "SKILL.md"), formatSkillMarkdown(spec), "utf8");
   (await getConn().query("INSERT INTO skill_stage_history (id, skill_id, from_stage, to_stage, operator, reason, at) VALUES ($1,$2,$3,$4,$5,$6,$7)",[nid("ssh"),spec.id,null,"draft",(await currentUser()).handle,"created",nowIso()]));
   (await setMarketFlag(spec.id, spec.in_market));
-  const runtimePath = activateSkillForHarness(spec.id);
+  const runtimePath = (await activateSkillForHarness(spec.id));
   (await audit((await currentUser()).handle, "skill.create", {
     skill: spec.id,
     in_market: spec.in_market,
@@ -323,10 +323,10 @@ export async function createPublishedSkill(input: CreateSkillInput): Promise<Awa
 }
 
 export async function setSkillInMarket(id: string, inMarket: boolean): Promise<Awaited<SkillEntry>> {
-  if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
+  if (!(await catalogSkill(id))) throw new HttpFail(404, "unknown skill");
   (await setMarketFlag(id, inMarket));
   clearSkillCatalogCache();
-  activateSkillForHarness(id);
+  (await activateSkillForHarness(id));
   (await audit((await currentUser()).handle, "skill.market", { skill: id, in_market: inMarket }));
   return catalogSkill(id)!;
 }
@@ -339,7 +339,7 @@ export async function updatePublishedSkill(id: string, input: UpdateSkillInput):
     return setSkillInMarket(id, input.in_market);
   }
   if (isBundledSkill(id)) throw new HttpFail(400, "bundled skills cannot rewrite pack; use SOP overlay");
-  const def = taskDefinition(id);
+  const def = (await taskDefinition(id));
   const sop = (await getSkillSop(id));
   const spec = normalizeCreate({
     id,
@@ -375,7 +375,7 @@ export async function updatePublishedSkill(id: string, input: UpdateSkillInput):
   }
   (await setMarketFlag(spec.id, spec.in_market));
   clearSkillCatalogCache();
-  const runtimePath = activateSkillForHarness(spec.id);
+  const runtimePath = (await activateSkillForHarness(spec.id));
   (await audit((await currentUser()).handle, "skill.update", {
     skill: spec.id,
     in_market: spec.in_market,
@@ -388,7 +388,7 @@ export type SkillDraft = { id: string; patch: Record<string, unknown>; updated_a
 const SOP_DRAFT_FIELDS = ["_sop_summary", "_sop_body"] as const;
 
 export async function getSkillDraft(id: string): Promise<Awaited<SkillDraft>> {
-  if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
+  if (!(await catalogSkill(id))) throw new HttpFail(404, "unknown skill");
   const row = (await getConn().query("SELECT payload, updated_at FROM skill_drafts WHERE skill_id=$1",[id])).rows[0] as
     | { payload: string; updated_at: string }
     | undefined;
@@ -397,12 +397,12 @@ export async function getSkillDraft(id: string): Promise<Awaited<SkillDraft>> {
 
 /** Persist candidate edits without changing the catalog, runtime pack, or employee-visible version. */
 export async function saveSkillDraft(id: string, patch: Record<string, unknown>): Promise<Awaited<SkillDraft>> {
-  if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
+  if (!(await catalogSkill(id))) throw new HttpFail(404, "unknown skill");
   const bundled = isBundledSkill(id);
   const allowed = new Set<string>(bundled ? [...SOP_DRAFT_FIELDS, ...PRESENTATION_OVERLAY_FIELDS] : PACK_FIELDS);
   const clean = Object.fromEntries(Object.entries(patch).filter(([key, value]) => allowed.has(key) && value !== undefined));
   if (!Object.keys(clean).length) throw new HttpFail(400, "no editable skill fields supplied");
-  if (bundled) normalizePresentationPatch(id, pickPresentationFields(clean), taskDefinition(id)?.actions);
+  if (bundled) normalizePresentationPatch(id, pickPresentationFields(clean), (await taskDefinition(id))?.actions);
   const previous = (await getSkillDraft(id));
   const payload = { ...previous.patch, ...clean };
   const updatedAt = nowIso();
@@ -425,9 +425,9 @@ export async function applySkillDraft(id: string): Promise<Awaited<{ applied: bo
     }
     const presentation = pickPresentationFields(draft.patch);
     if (Object.keys(presentation).length) {
-      (await savePresentationOverlay(id, normalizePresentationPatch(id, presentation, taskDefinition(id)?.actions)));
+      (await savePresentationOverlay(id, normalizePresentationPatch(id, presentation, (await taskDefinition(id))?.actions)));
       clearSkillCatalogCache();
-      activateSkillForHarness(id);
+      (await activateSkillForHarness(id));
     }
   } else {
     const packPatch = Object.fromEntries(Object.entries(draft.patch).filter(([key]) => !SOP_DRAFT_FIELDS.includes(key as typeof SOP_DRAFT_FIELDS[number])));
@@ -439,7 +439,7 @@ export async function applySkillDraft(id: string): Promise<Awaited<{ applied: bo
 }
 
 export async function deletePublishedSkill(id: string): Promise<Awaited<{ ok: true; id: string }>> {
-  if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
+  if (!(await catalogSkill(id))) throw new HttpFail(404, "unknown skill");
   if (isBundledSkill(id)) throw new HttpFail(400, "bundled skills cannot be deleted");
   (await getConn().query("DELETE FROM skill_sops WHERE id = $1",[id]));
   (await getConn().query("DELETE FROM skill_flags WHERE id = $1",[id]));

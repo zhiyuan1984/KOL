@@ -18,11 +18,11 @@ function parseInstance(value: unknown): ReviewInstance {
   return normalizeTasks(parsed as ReviewInstance);
 }
 
-function notify(client: { query: (sql: string, params?: unknown[]) => Promise<unknown> }, tenant: string, instance: ReviewInstance, userId: string, key: string, message: string, now: string) {
-  return client.query(
+async function notify(client: { query: (sql: string, params?: unknown[]) => Promise<unknown> }, tenant: string, instance: ReviewInstance, userId: string, key: string, message: string, now: string) {
+  return (await client.query(
     "INSERT INTO review_notifications(id,tenant,instance_id,user_id,message,created_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING",
     [stableHash({ tenant, instance: instance.id, user: userId, key }), tenant, instance.id, userId, message, now],
-  );
+  ));
 }
 
 export async function executePostgresReviewTimeout(job: ClaimedExecutionJob): Promise<{ instanceId: string; receipt: Json }> {

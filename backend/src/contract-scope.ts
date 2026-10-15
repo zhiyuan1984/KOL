@@ -156,7 +156,7 @@ export async function runtimeAgentScopeContext(agentId: string): Promise<Runtime
 
 /** Backward-compatible KOL business-agent scope helper. */
 export async function kolAgentScopeContext(): Promise<RuntimeAgentScope> {
-  return (await runtimeAgentScopeContext("agent:kol"));
+  return (runtimeAgentScopeContext("agent:kol"));
 }
 
 export function clearContractScopeCache(): void { cached.clear(); }

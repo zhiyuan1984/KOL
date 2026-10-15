@@ -1,3 +1,4 @@
+import { postgresConnection } from "./postgres/pool.js";
 import fs from "node:fs";
 import path from "node:path";
 import { Hono } from "hono";
@@ -19,7 +20,7 @@ import { pgEnsureSystemCronJobs } from "./cron/postgres-store.js";
  */
 export async function bootstrapPostgresOnlyRuntime(): Promise<void> {
   requiredPostgresUrl();
-  const tables = await postgresPool().query<{ name: string | null }>(
+  const tables = await postgresConnection().query<{ name: string | null }>(
     `SELECT unnest(ARRAY[
       to_regclass('public.tickets')::text,
       to_regclass('public.ticket_accounts')::text,

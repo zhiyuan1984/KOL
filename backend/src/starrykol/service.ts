@@ -1067,8 +1067,8 @@ const TOOL_LABELS: Record<string, string> = {
 };
 
 /** 结果卡片标题：技能 md 的 result_title（缺省为技能名称）。 */
-function title(task: StarryKolTask): string {
-  return declaredResultTitle(task) || task;
+async function title(task: StarryKolTask): Promise<Awaited<string>> {
+  return (await declaredResultTitle(task)) || task;
 }
 
 export async function listStarryMailboxes(opts?: { bearer?: string }): Promise<Json[]> {
@@ -1081,7 +1081,7 @@ export async function listStarryMailboxes(opts?: { bearer?: string }): Promise<J
     // mailbox probe would silently re-enable a broken per-user bearer during
     // an otherwise organization-authenticated mail synchronization.
     return rows(await callScope.run({ ...callScope.getStore(), ...(credential ? { credentialAccountId: credential.id } : {}) },
-      async () => (await call("pageMailboxes", { pageNo: 1, pageSize: 50 }))));
+      async () => (call("pageMailboxes", { pageNo: 1, pageSize: 50 }))));
   } finally { if (credential) await deleteCredential(credential.id, credential.version); }
 }
 
@@ -1318,14 +1318,14 @@ async function pickContactProfile(list: Json[], email: string, opts?: { allowSin
   const exact = list.filter((row) => profileMatchesContact(row, email) && kolUidOf(row));
   if (exact.length === 1) return exact[0];
   if (exact.length > 1) {
-    const allowed = await Promise.all(exact.map(async row => await profileFollowsMailbox(row, opts?.fromAddr)));
+    const allowed = await Promise.all(exact.map(async row => profileFollowsMailbox(row, opts?.fromAddr)));
     const followed = exact.filter((_, index) => allowed[index]);
     return followed[0] || exact[0];
   }
   const masked = list.filter((row) => maskedEmailMatches(profileMaskedContact(row), email) && kolUidOf(row));
   if (masked.length === 1) return masked[0];
   if (masked.length > 1) {
-    const allowed = await Promise.all(masked.map(async row => await profileFollowsMailbox(row, opts?.fromAddr)));
+    const allowed = await Promise.all(masked.map(async row => profileFollowsMailbox(row, opts?.fromAddr)));
     const followed = masked.filter((_, index) => allowed[index]);
     return followed.length === 1 ? followed[0] : undefined;
   }
@@ -2097,7 +2097,7 @@ export async function emailMcpResultCard(task: EmailMcpTask, data: Json): Promis
   ].includes(task);
   return {
     type: "task_result",
-    title: composeSent ? "邮件已发送" : title(task),
+    title: composeSent ? "邮件已发送" : (await title(task)),
     summary: composeSent
       ? "邮件已提交发送。往来已写入会话，发送邮件不会修改阶段。"
       : composeNeeds && task === "email_compose"
@@ -2152,14 +2152,14 @@ export async function emailMcpResultCard(task: EmailMcpTask, data: Json): Promis
       ? (data.recommended_actions as string[])
       : data.needs_input
       ? (needsKolInput ? ["补充达人 UID、负责人或联系邮箱后重试", "查询达人库"] : composeNeedsInputActions(data))
-      : declaredNextActionLabels(task, { hasResults: items.length > 0 || task === "creator_profile" })
+      : (await declaredNextActionLabels(task, { hasResults: items.length > 0 || task === "creator_profile" }))
         ?? (task === "email_conversation_list"
           ? conversationListActions(data, items)
           : task === "creator_contact_decrypt"
             ? ["仅在授权范围内使用联系方式", "查看达人画像"]
           : ["复核结果并选择下一步任务"]),
     skill: task,
-    profile: taskDefinition(task)?.profile || "lead",
+    profile: (await taskDefinition(task))?.profile || "lead",
     starrykol_data: data,
     emailmcp_data: data,
     ...(Array.isArray(data.suggested_follow_tags) ? { suggested_follow_tags: data.suggested_follow_tags } : {}),
@@ -2180,7 +2180,7 @@ export async function executeStarryKolTask(
 }> {
   const operations: Operation[] = [];
   const invoke = async (tool: string, args: Json = {}): Promise<Json> => {
-    const operation: Operation = { name: `starrykol.${tool}`, label: TOOL_LABELS[tool] || title(task), status: "running" };
+    const operation: Operation = { name: `starrykol.${tool}`, label: TOOL_LABELS[tool] || (await title(task)), status: "running" };
     operations.push(operation);
     onOperation?.(operation);
     try {
@@ -2196,7 +2196,7 @@ export async function executeStarryKolTask(
   };
   const invokeOptional = async (tool: string, args: Json = {}): Promise<Json> => {
     try {
-      return await invoke(tool, args);
+      return invoke(tool, args);
     } catch {
       return {};
     }

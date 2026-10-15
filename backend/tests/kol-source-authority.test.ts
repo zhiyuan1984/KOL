@@ -33,14 +33,14 @@ async function seedUser(id: string, username = id, name = id): Promise<void> {
   );
 }
 
-function seedProfile(kolUid: string, extra: {
+async function seedProfile(kolUid: string, extra: {
   handle?: string;
   displayName?: string;
   platform?: string;
   platformCreatorId?: string;
   ingestSource?: string;
 } = {}) {
-  return ingestFormalProfile({
+  return (await ingestFormalProfile({
     kol_uid: kolUid,
     handle: extra.handle || kolUid,
     display_name: extra.displayName || kolUid,
@@ -56,7 +56,7 @@ function seedProfile(kolUid: string, extra: {
     public_stage: "INITIAL_CONTACT",
     ingest_source: extra.ingestSource || "test",
     pool_status: "open",
-  });
+  }));
 }
 
 async function seedStarryCollaboration(input: {
@@ -174,7 +174,7 @@ describe.sequential("KOL source authority (local PostgreSQL)", () => {
     );
 
     for (const kolUid of ["KOL_MATCH", "KOL_SAME_NAME", "KOL_OTHER_ACTIVE", "KOL_MINE_RELEASED"]) {
-      seedProfile(kolUid, { displayName: "Same Name" });
+      (await seedProfile(kolUid, { displayName: "Same Name" }));
       await seedStarryCollaboration({ id: `col-${kolUid}`, kolUid, displayName: "Same Name" });
     }
     await persistStarryOwnership([
@@ -209,7 +209,7 @@ describe.sequential("KOL source authority (local PostgreSQL)", () => {
     await postgresPool().query(`INSERT INTO user_starry_bindings(user_id,mailbox_email,owner_open_id,owner_verified_at,status,updated_at)
       VALUES($1,'scope@verified.test','273',$2,'connected',$2)`, [employee,NOW]);
     for (const uid of ['KOL_LARRY','KOL_OTHER','KOL_REVOKED','KOL_RELEASED']) {
-      seedProfile(uid);
+      (await seedProfile(uid));
       await seedStarryCollaboration({id:`col-${uid}`,kolUid:uid});
     }
     await seedFollow({id:'f-scope-released',kolUid:'KOL_RELEASED',employeeId:employee,status:'released'});
@@ -229,7 +229,7 @@ describe.sequential("KOL source authority (local PostgreSQL)", () => {
   it("keeps an active local discovery follow readable even without any mailbox binding", async () => {
     const actor: FollowActor = { id: "employee-local", name: "Local Employee", brands: ["LT"] };
     await seedUser(actor.id, actor.id, actor.name);
-    seedProfile("KOL_LOCAL_DISCOVERY", { ingestSource: "discovery" });
+    (await seedProfile("KOL_LOCAL_DISCOVERY", { ingestSource: "discovery" }));
     (await claimFollow({ kolUid: "KOL_LOCAL_DISCOVERY", scopeBrand: "LT", confirm: true, actor }));
 
     const following = await readFollowingAuthority(actor.id) as Record<string, unknown>[];
@@ -240,8 +240,8 @@ describe.sequential("KOL source authority (local PostgreSQL)", () => {
   it("hides open profiles with ownership evidence from the public pool until an explicit release", async () => {
     const actor: FollowActor = { id: "employee-release", name: "Release Employee", brands: ["LT"] };
     await seedUser(actor.id, actor.id, actor.name);
-    seedProfile("KOL_OPEN_UNOWNED");
-    seedProfile("KOL_OWNER_EVIDENCE");
+    (await seedProfile("KOL_OPEN_UNOWNED"));
+    (await seedProfile("KOL_OWNER_EVIDENCE"));
     await persistStarryOwnership([
       { kolUid: "KOL_OWNER_EVIDENCE", ownerOpenId: "starry-owner-public" },
     ], COMPANY_ID, "test-pool-v1", true);
@@ -265,7 +265,7 @@ describe.sequential("KOL source authority (local PostgreSQL)", () => {
     await seedUser('employee-legacy');
     await postgresPool().query(`INSERT INTO user_starry_bindings(user_id,mailbox_email,owner_open_id,owner_verified_at,status,updated_at)
       VALUES('employee-legacy','owner@verified.test','real-owner',$1,'connected',$1)`,[NOW]);
-    seedProfile('KOL_LEGACY_BOX');
+    (await seedProfile('KOL_LEGACY_BOX'));
     await seedStarryCollaboration({id:'col-legacy-box',kolUid:'KOL_LEGACY_BOX',ownerMailbox:'owner@verified.test'});
     expect(await readFollowingAuthority('employee-legacy')).toEqual([]);
     await persistStarryOwnership([{kolUid:'KOL_LEGACY_BOX',ownerOpenId:'real-owner'}],COMPANY_ID,'healthy-v1',true);
@@ -282,7 +282,7 @@ describe.sequential("KOL source authority (local PostgreSQL)", () => {
   it("shows 14 crawler public profiles despite failed Starry snapshots and legacy owner names, without exposing private fields", async () => {
     for (let n = 0; n < 14; n++) {
       const kolUid = `KOL_CRAWLER_${n}`;
-      seedProfile(kolUid, { ingestSource: 'crawler' });
+      (await seedProfile(kolUid, { ingestSource: 'crawler' }));
       await seedStarryCollaboration({ id: `col-crawler-${n}`, kolUid, ownerName: 'Legacy Owner' });
     }
     await postgresPool().query(`INSERT INTO starry_ownership_sync_state(company_id,state,source_version,profile_count,error,updated_at)
@@ -307,7 +307,7 @@ describe.sequential("KOL source authority (local PostgreSQL)", () => {
   it("still hides crawler profiles with verified owners, local follows, same-account aliases or same-brand locks", async () => {
     await seedUser('crawler-owner');
     for (const uid of ['KOL_FREE','KOL_REMOTE','KOL_LOCAL','KOL_ALIAS','KOL_LOCKED','KOL_CROSS_COMPANY'])
-      seedProfile(uid,{ingestSource:'crawler'});
+      (await seedProfile(uid,{ingestSource:'crawler'}));
     await postgresPool().query("UPDATE kol_profile_index SET company_id='company:other' WHERE kol_uid='KOL_CROSS_COMPANY'");
     await postgresPool().query("UPDATE kol_profile_index SET platform_creator_id='KOL_LOCAL-creator' WHERE kol_uid='KOL_ALIAS'");
     await seedFollow({id:'crawler-active',kolUid:'KOL_LOCAL',employeeId:'crawler-owner'});
@@ -327,8 +327,8 @@ describe.sequential("KOL source authority (local PostgreSQL)", () => {
   });
 
   it("does not exempt legacy profiles, but a failed Starry snapshot cannot block a valid crawler search miss", async () => {
-    seedProfile('KOL_CRAWLER_MIXED',{ingestSource:'crawler'});
-    seedProfile('KOL_STARRY_UNVERIFIED',{ingestSource:'starry.pageKolProfiles'});
+    (await seedProfile('KOL_CRAWLER_MIXED',{ingestSource:'crawler'}));
+    (await seedProfile('KOL_STARRY_UNVERIFIED',{ingestSource:'starry.pageKolProfiles'}));
     await seedStarryCollaboration({id:'col-starry-unverified',kolUid:'KOL_STARRY_UNVERIFIED',ownerName:'Legacy Owner'});
     await postgresPool().query(`INSERT INTO starry_ownership_sync_state(company_id,state,source_version,profile_count,error,updated_at)
       VALUES($1,'failed','stale-v1',2,'starry_source_uid_conflict',$2)`,[COMPANY_ID,NOW]);
@@ -341,7 +341,7 @@ describe.sequential("KOL source authority (local PostgreSQL)", () => {
 
   it("repairs only the canonical active sriphy identity and leaves the follow relationship, stage, and remote owner intact", async () => {
     await seedUser("sriphy", "sriphy", "Canonical Sriphy");
-    seedProfile("KOL_SRIPHY", { platformCreatorId: "sriphy-creator" });
+    (await seedProfile("KOL_SRIPHY", { platformCreatorId: "sriphy-creator" }));
     await seedStarryCollaboration({
       id: "col-sriphy",
       kolUid: "KOL_SRIPHY",

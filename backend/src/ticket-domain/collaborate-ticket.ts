@@ -54,7 +54,7 @@ function base(raw: CollaboratorTicketInput) {
   return input;
 }
 
-async function lockedTicket(client: PoolClient, input: ReturnType<typeof base>) {
+async function lockedTicket(client: PoolClient, input: Awaited<ReturnType<typeof base>>) {
   const result = await client.query<Row>("SELECT id,owner_user_id,status,data_version FROM tickets WHERE id=$1 FOR UPDATE", [input.ticket_id]);
   const ticket = result.rows[0];
   if (!ticket) throw new HttpFail(404, { code: "ticket_not_found" });
@@ -64,7 +64,7 @@ async function lockedTicket(client: PoolClient, input: ReturnType<typeof base>) 
 }
 
 async function replayOrVersion(
-  client: PoolClient, ticket: Row, input: ReturnType<typeof base>, action: CollaboratorTicketResult["action"],
+  client: PoolClient, ticket: Row, input: Awaited<ReturnType<typeof base>>, action: CollaboratorTicketResult["action"],
 ): Promise<CollaboratorTicketResult | null> {
   const result = await client.query<Row>("SELECT ticket_id,action,result_json FROM ticket_command_receipts WHERE idempotency_key=$1", [input.idempotency_key]);
   const receipt = result.rows[0];
@@ -81,7 +81,7 @@ async function replayOrVersion(
 async function updateTicketAndEvent(
   client: PoolClient,
   ticket: Row,
-  input: ReturnType<typeof base>,
+  input: Awaited<ReturnType<typeof base>>,
   event: { type: string; label: string; summary: string },
 ): Promise<{ version: number; eventId: string; now: string }> {
   const now = new Date().toISOString();

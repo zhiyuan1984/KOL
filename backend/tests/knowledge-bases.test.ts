@@ -327,7 +327,7 @@ describe("knowledge domains and bases (P2)", () => {
 
     await request("POST", `/api/knowledge/${entry.id}/cite`, {});
     // 注入闸门直接拒绝
-    expect(async () => (await assertUsableKnowledge(String(entry.id)))).toThrowError(/结构化/);
+    expect(async () => (assertUsableKnowledge(String(entry.id)))).toThrowError(/结构化/);
 
     await request("POST", "/api/admin/knowledge/bindings", {
       skill_id: "email_compose",

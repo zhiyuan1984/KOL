@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 /**
  * Jev 评分的「评分口径」：员工在 AI 发现里设定的目标条件（平台 / 地区 / 方向 / 关键词 / 粉丝与均播门槛 / 期望人数）。
  *
@@ -117,7 +118,7 @@ export async function latestDiscoveryCriteria(employeeId: string): Promise<KolSc
   if (!employeeId) return null;
   let row: Row | undefined;
   try {
-    const result = await postgresPool().query<Row>(
+    const result = await postgresConnection().query<Row>(
       `SELECT platforms,keywords,filters,brand
          FROM discovery_requests
         WHERE owner_user_id=$1

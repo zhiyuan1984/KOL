@@ -386,6 +386,6 @@ approvals.post("/approvals/:aid/countersign", async (c) => {
   }
 });
 
-function canDecideProjected(approval: Row, user: ReturnType<typeof scopedUser>) {
+function canDecideProjected(approval: Row, user: Awaited<ReturnType<typeof scopedUser>>) {
   return Boolean(projectApproval(approval, user || undefined).can_decide);
 }

@@ -30,7 +30,7 @@ export const runAiTask: CronHandler = async ({ job }): Promise<CronHandlerResult
   if (!text) throw new Error("定时任务提示词为空");
   const scope = composer.scope && typeof composer.scope === "object" ? composer.scope as Json : {};
   const taskType = String(composer.intent || (Array.isArray(scope.skills) ? scope.skills[0] || "" : ""));
-  const definition = taskType ? taskDefinition(taskType) : undefined;
+  const definition = taskType ? (await taskDefinition(taskType)) : undefined;
   if (definition && definition.side_effects === "write") {
     throw new Error("此技能不可无人在场自动执行");
   }
@@ -43,7 +43,7 @@ export const runAiTask: CronHandler = async ({ job }): Promise<CronHandlerResult
     });
     if (!created.task || created.needs_clarification) throw new Error(String(created.clarification || "任务需要补充信息"));
     const task = created.task as Json;
-    const resolved = taskDefinition(String(task.task_type || ""));
+    const resolved = (await taskDefinition(String(task.task_type || "")));
     if (!resolved || resolved.side_effects === "write") throw new Error("此技能不可无人在场自动执行");
     const run = await post(tasks, `/tasks/${encodeURIComponent(String(task.id))}/run`, {});
     const pending = (run.pending_message || run.pending || {}) as Json;

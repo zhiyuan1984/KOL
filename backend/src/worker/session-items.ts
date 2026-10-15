@@ -363,7 +363,7 @@ export async function collectKolClawItems(input: {
     input.onOperation,
   );
   return {
-    items: [{ ...kolClawResultCard(input.task, data), type: "task_result", operations }],
+    items: [{ ...(await kolClawResultCard(input.task, data)), type: "task_result", operations }],
     operations,
   };
 }
@@ -408,21 +408,21 @@ function hasReadSkillOutput(items: Json[]): boolean {
 }
 
 /** 结果卡片标题来自技能 md 的 result_title（缺省为技能名称）。 */
-function readSkillTitle(skill: string): string {
-  return declaredResultTitle(skill) || "任务结果";
+async function readSkillTitle(skill: string): Promise<Awaited<string>> {
+  return (await declaredResultTitle(skill)) || "任务结果";
 }
 
 /** 模型产出的结果卡没给下一步动作时，补上技能 md 声明的 next_actions。 */
-function withDeclaredNextActions(skill: string, items: Json[]): Json[] {
-  return items.map((item) => {
+async function withDeclaredNextActions(skill: string, items: Json[]): Promise<Awaited<Json[]>> {
+  return (await Promise.all(items.map(async (item) => {
     if (item.type !== "task_result" || (Array.isArray(item.recommended_actions) && item.recommended_actions.length)) return item;
     const hasResults = Array.isArray(item.sections) && (item.sections as Json[]).some((section) => Array.isArray(section.items) && section.items.length > 0 || String(section.body || "").trim());
-    const labels = declaredNextActionLabels(String(item.skill || skill), { hasResults });
+    const labels = (await declaredNextActionLabels(String(item.skill || skill), { hasResults }));
     return labels?.length ? { ...item, recommended_actions: labels } : item;
-  });
+  })));
 }
 
-function surfaceReadSkillItems(skill: string, items: Json[]): Json[] {
+async function surfaceReadSkillItems(skill: string, items: Json[]): Promise<Awaited<Json[]>> {
   if (items.some((item) => item.type === "task_result")) return items;
   const texts = items.filter((item) => item.type === "text" || item.type === "note");
   const summary = texts
@@ -439,7 +439,7 @@ function surfaceReadSkillItems(skill: string, items: Json[]): Json[] {
     {
       type: "task_result",
       skill,
-      title: readSkillTitle(skill),
+      title: (await readSkillTitle(skill)),
       summary: body,
       sections: [{ title: "分析结果", body, items: [] }],
       metrics: [],
@@ -521,7 +521,7 @@ async function rebuildStarryCards(skill: EmailMcpTask, items: Json[], extra: Jso
       if (!isComposeResultItem(item) && !starryPayload(item)) return item;
       const data = composePayloadFromItem(item, siblings, composeRouteFacts({ extra }));
       return {
-        ...(await emailMcpResultCard(skill, data)),
+        ...(emailMcpResultCard(skill, data)),
         type: "task_result",
         ...(Array.isArray(item.operations) ? { operations: item.operations } : {}),
       };
@@ -529,7 +529,7 @@ async function rebuildStarryCards(skill: EmailMcpTask, items: Json[], extra: Jso
     const data = starryPayload(item);
     if (!data) return item;
     return {
-      ...(await emailMcpResultCard(skill, data)),
+      ...(emailMcpResultCard(skill, data)),
       type: "task_result",
       ...(Array.isArray(item.operations) ? { operations: item.operations } : {}),
     };
@@ -597,7 +597,7 @@ export async function completeTurnItems(
   if (isEmailMcpTask(skill) && skill === "email_compose" && (
     existing.some(isComposeResultItem) || existing.some((item) => item.type === "create_draft")
   )) {
-    return (await rebuildStarryCards(skill, existing, extra));
+    return (rebuildStarryCards(skill, existing, extra));
   }
   if (isEmailMcpTask(skill) && !hasUsableStarryReadResult(existing)) {
     const hostReadFallback = isStarryKolReadTask(skill);
@@ -655,7 +655,7 @@ export async function completeTurnItems(
     return items;
   }
   if (isEmailMcpTask(skill) && hasStarryResult(existing)) {
-    return (await rebuildStarryCards(skill, existing, extra));
+    return (rebuildStarryCards(skill, existing, extra));
   }
   if (isKolClawTask(skill) && !existing.some((item) => item.skill === skill && item.type === "task_result")) {
     if (codexMode() !== "stub") {

@@ -259,7 +259,7 @@ export async function listDocuments(opts: { base?: string | null; status?: strin
        LEFT JOIN knowledge_bases b ON b.id=d.base_id${where}
       ORDER BY d.updated_at DESC, d.id DESC`,
   ).all(...args) as Row[];
-  return (await Promise.all(rows.map(async (row) => documentView(row, { latestJob: (await latestJobOf(String(row.id))) }))));
+  return (Promise.all(rows.map(async (row) => documentView(row, { latestJob: (await latestJobOf(String(row.id))) }))));
 }
 
 export async function getDocumentDetail(id: string): Promise<Awaited<Json>> {
@@ -325,9 +325,11 @@ export function validateDocumentFile(file: { name: string; buf: Buffer }) {
 export async function uploadDocument(
   file: { name: string; type: string; buf: Buffer },
   baseId: string,
-  actor = (await knowledgeActorId()),
+  actor?: Awaited<ReturnType<typeof knowledgeActorId>>,
   options: { draft?: boolean } = {},
 ): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   const base = (await getConn().query("SELECT * FROM knowledge_bases WHERE id=$1",[String(baseId || "")])).rows[0] as Row | undefined;
   if (!base) throw new HttpFail(400, { code: "knowledge_base_missing", message: "知识库不存在" });
@@ -354,14 +356,16 @@ export async function uploadDocument(
   return { document: documentView((await docRow(id)), { latestJob: (await latestJobOf(id)) }) };
 }
 
-export async function startDocument(id: string, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function startDocument(id: string, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   const doc = (await docRow(id));
   const base = (await getConn().query("SELECT status FROM knowledge_bases WHERE id=$1",[doc.base_id])).rows[0] as Row | undefined;
   if (base?.status !== "active") throw new HttpFail(409, "知识库已归档");
   (await tx(async (db) => {
     const changed = (await db.query("UPDATE knowledge_documents SET status='uploaded',updated_at=$1 WHERE id=$2 AND status='draft'",[nowIso(),id]));
-    if (!changed.changes) throw new HttpFail(409, "只有草稿可以开始解析");
+    if (!(changed.rowCount ?? 0)) throw new HttpFail(409, "只有草稿可以开始解析");
     (await insertQueuedJob(db, id, "normalize", actor));
   }));
   (await audit(actor, "knowledge.document.start", { document_id: id, base_id: doc.base_id }));
@@ -369,7 +373,7 @@ export async function startDocument(id: string, actor = (await knowledgeActorId(
   return { document: documentView((await docRow(id)), { latestJob: (await latestJobOf(id)) }) };
 }
 
-async function insertQueuedJob(db: ReturnType<typeof getConn>, documentId: string, kind: "normalize" | "index", actor: string): Promise<Awaited<Row>> {
+async function insertQueuedJob(db: Awaited<ReturnType<typeof getConn>>, documentId: string, kind: "normalize" | "index", actor: string): Promise<Awaited<Row>> {
   const prior = (await db.query("SELECT MAX(attempt) AS attempt FROM knowledge_document_jobs WHERE document_id=$1 AND kind=$2",[documentId,kind])).rows[0] as { attempt: number | null } | undefined;
   const row: Row = {
     id: nid("kdjob"),
@@ -973,7 +977,9 @@ async function jobCount(documentId: string): Promise<Awaited<number>> {
   return Number(row.n || 0);
 }
 
-export async function retryDocument(id: string, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function retryDocument(id: string, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   const doc = (await docRow(id));
   const status = String(doc.status);
@@ -993,7 +999,9 @@ export async function retryDocument(id: string, actor = (await knowledgeActorId(
   return { document: documentView((await docRow(id)), { latestJob: (await latestJobOf(id)) }) };
 }
 
-export async function cancelDocument(id: string, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function cancelDocument(id: string, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   const doc = (await docRow(id));
   const status = String(doc.status);
@@ -1014,7 +1022,9 @@ export async function cancelDocument(id: string, actor = (await knowledgeActorId
   return { document: documentView((await docRow(id)), { latestJob: (await latestJobOf(id)) }) };
 }
 
-export async function reprocessDocument(id: string, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function reprocessDocument(id: string, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   const doc = (await docRow(id));
   const status = String(doc.status);
@@ -1030,13 +1040,17 @@ export async function reprocessDocument(id: string, actor = (await knowledgeActo
   return { document: documentView((await docRow(id)), { latestJob: (await latestJobOf(id)) }) };
 }
 
-export async function publishDocument(id: string, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function publishDocument(id: string, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   (await docRow(id));
   throw new HttpFail(409, { code: "knowledge_publication_review_required", message: "请从资料详情提交知识发布审批；批准后由发布任务生效。" });
 }
 
-export async function archiveDocument(id: string, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function archiveDocument(id: string, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   const doc = (await docRow(id));
   if (String(doc.status) !== "published") {
@@ -1047,7 +1061,9 @@ export async function archiveDocument(id: string, actor = (await knowledgeActorI
   return { document: documentView((await docRow(id)), { latestJob: (await latestJobOf(id)) }) };
 }
 
-export async function deleteDocument(id: string, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
+export async function deleteDocument(id: string, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
+if (actor === undefined) actor = (await knowledgeActorId());
+
   requireAdmin();
   const doc = (await docRow(id));
   const status = String(doc.status);

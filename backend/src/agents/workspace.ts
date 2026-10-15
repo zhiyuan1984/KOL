@@ -46,7 +46,7 @@ export async function agentSkillCatalog(db: PoolClient): Promise<AgentSkillOptio
   const resources = await rows(db, "SELECT * FROM runtime_skill_connectors ORDER BY skill_id,connector_id");
   const policies = await rows(db, "SELECT * FROM runtime_tool_policies");
   const connectors = new Map((await rows(db, "SELECT connector_id,config_json FROM runtime_connector_config")).map(row => [row.connector_id, json(row.config_json)]));
-  return taskDefinitions().map<AgentSkillOption>(definition => {
+  return (await taskDefinitions()).map<AgentSkillOption>(definition => {
     const release = runtimeHash({ definition, body: fs.readFileSync(definition.path, "utf8"), sop: sops.get(definition.id) });
     const tools = mounts.filter(row => row.skill_id === definition.id);
     const documentQuery = definition.mcp.includes("knowledge.ask_documents") || tools.some(row => row.connector_id === "knowledge");
@@ -127,7 +127,7 @@ export async function agentWorkspaceDetail(id: string) {
         ...skill.resources.filter(row => !row.enabled || !row.configured || !row.tool_count).map(row => `${skill.label} 的资源 ${row.id} 未就绪`),
       ];
     });
-    return { ...await state(db, item, catalog), bindings: bound, coverage, versions, exam_blocked: examBlocked.map(row=>({...row,missing:Number(row.missing)})),
+    return { ...state(db, item, catalog), bindings: bound, coverage, versions, exam_blocked: examBlocked.map(row=>({...row,missing:Number(row.missing)})),
       organization_history:await organizationHistory(db,id),dependency_issues: issues, health_evidence: "configuration_only" as const };
   }, { isolation: "REPEATABLE READ" });
 }

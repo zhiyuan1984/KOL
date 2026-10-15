@@ -22,7 +22,7 @@ import type { ApprovalPolicy, Employee } from "./types.js";
 import { EXPENSE_POLICY } from "./policy.js";
 
 type Ctx = {
-  org: ReturnType<typeof defaultOrgSnapshot>;
+  org: Awaited<ReturnType<typeof defaultOrgSnapshot>>;
   requester: Employee;
   policy: ApprovalPolicy;
   input: PlanInput;

@@ -1,3 +1,4 @@
+import { asyncFind } from "../async-collections.js";
 import { Hono } from "hono";
 import { authDisabled, requireAdmin } from "../auth.js";
 import { audit } from "../db.js";
@@ -263,7 +264,7 @@ skillRuntimeRouter.post("/admin/runtime/connectors/:connectorId/mount-declared",
   const skillIds = declaredSkillIds(body);
   if (skillIds) {
     // 未定义的 id 一律先拒，避免半批写入之后才失败。
-    const unknown = skillIds.find((skillId) => !taskDefinition(skillId));
+    const unknown = (await asyncFind(skillIds,async (skillId) => !(await taskDefinition(skillId))));
     if (unknown) throw new HttpFail(400, { code: "unknown_skill", skill_id: unknown });
   }
   return c.json(await mountDeclaredTools(connectorId, skillIds, admin.id));

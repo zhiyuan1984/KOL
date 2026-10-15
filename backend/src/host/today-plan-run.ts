@@ -74,7 +74,7 @@ export async function startTodayPlan(
     title: "统一工作计划",
     scope: canonicalScope,
     producer,
-    payload: planningRunInput(pack, {}, canonicalScope),
+    payload: (await planningRunInput(pack, {}, canonicalScope)),
     extraPayload: { producer },
     queuedLabel: "工作计划已入队",
     progress: [
@@ -85,7 +85,7 @@ export async function startTodayPlan(
 }
 
 export async function startTodayAnalyze(body: Json, owner: string) {
-  const identity = planningRuntimeIdentity("today_analyze");
+  const identity = (await planningRuntimeIdentity("today_analyze"));
   const objects = Array.isArray(body.objects) ? body.objects : Array.isArray(body.object_ids) ? body.object_ids : [];
   const payload: Json = {
     mode: "today_analyze",
@@ -93,7 +93,7 @@ export async function startTodayAnalyze(body: Json, owner: string) {
     expert_id: identity.session_identity,
     skip_user_memory: true,
     objects,
-    planning_harness: planningHarnessMount("today_analyze"),
+    planning_harness: (await planningHarnessMount("today_analyze")),
   };
   return startNativeTodayPlan({
     owner,

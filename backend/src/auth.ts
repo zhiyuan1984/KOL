@@ -196,7 +196,7 @@ async function sessionUser(c: Context): Promise<AppUser | undefined> {
       WHERE s.id_hash = $1 AND s.expires_at > $2 AND u.active = 1`,
     [hashToken(token), nowIso()],
   );
-  return row ? (await hydrateNativeAuthority((await mapUser(row)))) : undefined;
+  return row ? (hydrateNativeAuthority((await mapUser(row)))) : undefined;
 }
 
 function publicPath(path: string): boolean {
@@ -224,7 +224,7 @@ export const authMiddleware: MiddlewareHandler = async (c, next) => {
   }
   const user = await sessionUser(c);
   if (!user && !publicPath(new URL(c.req.url).pathname)) throw new HttpFail(401, "authentication required");
-  return user ? (await requestUser.run(user, next)) : (await next());
+  return user ? (requestUser.run(user, next)) : (next());
 };
 
 async function userPublic(user: AppUser): Promise<Json> {
@@ -272,7 +272,7 @@ export const authRouter = new Hono();
 
 authRouter.get("/auth/status", async (c) => {
   if (authDisabled()) {
-    const access = personaAccess();
+    const access = (await personaAccess());
     const persona = PERSONAS[(await getPersonaKey())] || PERSONAS.sriphy;
     const demo = {
       ...persona,

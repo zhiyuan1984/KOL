@@ -7,10 +7,12 @@ export async function getPersonaKey(): Promise<Awaited<string>> {
   return row?.value || "sriphy";
 }
 
-export function personaAccess(key = (await getPersonaKey())): {
+export async function personaAccess(key?: Awaited<ReturnType<typeof getPersonaKey>>): Promise<Awaited<{
   roles: string[];
   available_modes: ("employee" | "admin")[];
-} {
+}>> {
+if (key === undefined) key = (await getPersonaKey());
+
   if (key === "employee") return { roles: ["employee"], available_modes: ["employee"] };
   return { roles: ["employee", "admin"], available_modes: ["employee", "admin"] };
 }

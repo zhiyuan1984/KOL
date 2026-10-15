@@ -25,7 +25,7 @@ export async function sendDraft(draftId: string, via = "operator", requestId = "
   let result: Json;
   try {
     if (codexMode() !== "stub") {
-      const remote = await withMailSendAuthority(draftId, requestId, async () => (await executeStarryKolTask("email_compose", {
+      const remote = await withMailSendAuthority(draftId, requestId, async () => (executeStarryKolTask("email_compose", {
         conversationId: Number(conversationId) || undefined,
         mailboxEmail: d.from_addr,
         from: d.from_addr,
@@ -39,7 +39,7 @@ export async function sendDraft(draftId: string, via = "operator", requestId = "
       result = remote.data;
       if (!Boolean(result.sent)) throw new Error("provider_result_unconfirmed");
     } else {
-      result = starry.sendConversation(conversationId, payload);
+      result = (await starry.sendConversation(conversationId, payload));
     }
     // A durable receipt must precede memory refresh or UI notifications.
     const receipt = { ok: true, send: result, request_id: requestId, official_stage: col?.stage_code ?? null, stage_changed: false };

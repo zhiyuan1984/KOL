@@ -54,8 +54,8 @@ function versionsRoot(id: string): string {
   return root;
 }
 
-function requireSkill(id: string): void {
-  if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
+async function requireSkill(id: string): Promise<Awaited<void>> {
+  if (!(await catalogSkill(id))) throw new HttpFail(404, "unknown skill");
 }
 
 async function lifecycleRow(id: string): Promise<Awaited<{ skill_id: string; stage: string; origin: SkillOrigin | null; owner: string | null; business_stage: string | null; tags: string | null; biz_family: string | null; biz_domain: string | null; updated_at: string } | undefined>> {
@@ -75,7 +75,7 @@ async function pendingDeclaredTools(id: string): Promise<Awaited<string[]>> {
   const drafted = (await getSkillDraft(id)).patch.mcp;
   if (Array.isArray(drafted)) return drafted.map(String);
   if (typeof drafted === "string") return drafted.split(/[,，]/).map((tool) => tool.trim()).filter(Boolean);
-  return [...(taskDefinition(id)?.mcp || [])];
+  return [...((await taskDefinition(id))?.mcp || [])];
 }
 
 /**
@@ -440,7 +440,7 @@ export async function rollbackSkillVersion(id: string, version: number): Promise
     fs.rmSync(dir, { recursive: true, force: true });
     fs.cpSync(row.snapshot_path, dir, { recursive: true });
   }
-  activateSkillForHarness(id);
+  (await activateSkillForHarness(id));
   (await audit((await currentUser()).handle, "skill.version.rollback", { skill: id, version }));
   return { version };
 }

@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { starryKolMcpConfigured } from "../starrykol/connection.js";
 /**
  * Gateway：import_creator（ADR-022 / policies/import_creator.yaml）。
@@ -62,16 +63,16 @@ const STARRY_KEYWORD_LOOKUP_MS = 20_000;
 const STARRY_LISTALL_LOOKUP_MS = 60_000;
 
 async function audit(actor: string, eventType: string, payload: Json): Promise<void> {
-  await postgresPool().query(
+  await postgresConnection().query(
     "INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)",
     [new Date().toISOString(), actor === "usr_sriphy" ? "sriphy" : actor, eventType, JSON.stringify(payload)],
   );
 }
 
 export async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timer: Awaited<ReturnType<typeof setTimeout>> | undefined;
   try {
-    return await Promise.race([
+    return Promise.race([
       operation,
       new Promise<T>((_, reject) => {
         timer = setTimeout(() => reject(new Error(`${label} request timed out`)), timeoutMs);
@@ -184,7 +185,7 @@ function pickProfileRow(list: Json[], target: KolLookupTarget): Json | undefined
  */
 async function safeStarryList(tool: string, args: Json, actor: string): Promise<Json> {
   try {
-    return await callStarryKolTool(tool, args);
+    return callStarryKolTool(tool, args);
   } catch (error) {
     await audit(actor, "host.find_existing_kol_uid.failed", {
       tool,
@@ -267,7 +268,7 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
   let lookedUpAfterTimeout = false;
   try {
     data = await withTimeout(
-      (await callStarryKolTool(IMPORT_CREATOR_TOOL, {
+      (callStarryKolTool(IMPORT_CREATOR_TOOL, {
         fileName: input.file.fileName,
         fileBase64: input.file.fileBase64,
       }, { timeoutMs: STARRY_IMPORT_TIMEOUT_MS })),
@@ -287,7 +288,7 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
       });
       try {
         const found = await withTimeout(
-          (await lookupImportedKolUid({
+          (lookupImportedKolUid({
             keyword: input.lookupKeyword,
             creatorExternalId: input.creatorExternalId,
           })),
@@ -439,7 +440,7 @@ export async function addKolProfileConfirmed(input: AddKolProfileInput): Promise
   let data: Json;
   try {
     data = await withTimeout(
-      (await callStarryKolTool(ADD_KOL_PROFILE_TOOL, {
+      (callStarryKolTool(ADD_KOL_PROFILE_TOOL, {
         requestJson: JSON.stringify(body),
       }, { timeoutMs: STARRY_IMPORT_TIMEOUT_MS })),
       STARRY_IMPORT_TIMEOUT_MS,

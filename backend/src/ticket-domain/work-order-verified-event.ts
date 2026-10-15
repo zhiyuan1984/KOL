@@ -74,7 +74,7 @@ export async function recordVerifiedWorkOrderEvent(
   taskId: string,
   raw: Record<string, unknown>,
   options: { isAdmin?: boolean } = {},
-): Promise<{ event: ReturnType<typeof publicEvent> }> {
+): Promise<{ event: Awaited<ReturnType<typeof publicEvent>> }> {
   const event = parse(raw);
   const task = await taskWorkOrderAggregate(actorId, String(taskId || "").trim(), Boolean(options.isAdmin));
   return postgresTransaction(async (client) => {

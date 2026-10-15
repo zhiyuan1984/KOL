@@ -1,3 +1,4 @@
+import { postgresConnection } from "./pool.js";
 import { postgresPool } from './pool.js';
 import { followClock, memoryCompanyId } from '../host/kol-memory.js';
 import { normalizeStage, label } from '../stages.js';
@@ -10,7 +11,7 @@ export async function readFollowingAuthority(employeeId: string, companyId=memor
   if (!authDisabled() && (scopedUser()?.id !== employeeId || authorizedOwnership === undefined))
     throw new Error('starry_ownership_current_authorization_required');
   const indexed:Json[]=await readLocalFollowing(employeeId,companyId);
-  const rows=(await postgresPool().query<Row>(`
+  const rows=(await postgresConnection().query<Row>(`
     SELECT DISTINCT ON (c.kol_uid) c.id,c.kol_uid,c.handle,c.display_name,c.platform,c.brand,
       c.followers,c.avg_views_10,c.engagement_rate,c.audience_geo,c.stage_code,c.days_in_stage,c.owner_name,
       p.homepage_url,p.avatar_url,p.direction,p.style,p.ingest_source,p.ingested_at,
@@ -38,7 +39,7 @@ export async function readFollowingAuthority(employeeId: string, companyId=memor
       ? [companyId,employeeId] : [companyId,employeeId,JSON.stringify(authorizedOwnership)])).rows;
   const seen=new Set(indexed.map(r=>String(r.kol_uid)));
   const ids=rows.filter(r=>!seen.has(String(r.kol_uid))).map(r=>String(r.id));
-  const threads=ids.length?(await postgresPool().query<Row>(`SELECT t.collaboration_id,t.conversation_id,t.subject,t.unread_count,t.last_snippet,t.last_at,t.last_direction
+  const threads=ids.length?(await postgresConnection().query<Row>(`SELECT t.collaboration_id,t.conversation_id,t.subject,t.unread_count,t.last_snippet,t.last_at,t.last_direction
     FROM kol_mail_threads t WHERE t.collaboration_id=ANY($1::text[]) AND EXISTS
       (SELECT 1 FROM user_starry_bindings b WHERE b.user_id=$2 AND b.status='connected'
         AND lower(trim(t.mailbox))=lower(trim(b.mailbox_email))) ORDER BY t.last_at DESC NULLS LAST`,[ids,employeeId])).rows:[];
@@ -56,7 +57,7 @@ export async function readFollowingAuthority(employeeId: string, companyId=memor
 }
 
 async function readLocalFollowing(employeeId:string,companyId:string):Promise<Json[]> {
-  const follows=(await postgresPool().query<Row>(`SELECT f.*,p.id AS profile_id,p.handle,p.display_name,p.platform,p.homepage_url,p.avatar_url,
+  const follows=(await postgresConnection().query<Row>(`SELECT f.*,p.id AS profile_id,p.handle,p.display_name,p.platform,p.homepage_url,p.avatar_url,
     p.followers,p.avg_plays,p.engagement,p.engagement_source,p.direction,p.region,p.style,p.ingest_source,p.ingested_at,
     p.public_stage,p.idle,p.pool_status,p.potential_score,p.potential_probabilities,p.potential_confidence,p.risk_score,p.risk_probabilities,p.risk_confidence,p.assessment_model,p.assessment_version,p.assessed_at,
     p.assessment_criteria,p.assessment_error,c.stage_code,c.days_in_stage
@@ -64,10 +65,10 @@ async function readLocalFollowing(employeeId:string,companyId:string):Promise<Js
     LEFT JOIN collaborations c ON c.id=f.collaboration_id
     WHERE f.company_id=$1 AND f.employee_id=$2 AND f.status='active' ORDER BY f.claimed_at DESC`,[companyId,employeeId])).rows;
   if(!follows.length)return [];
-  const summaries=(await postgresPool().query<Row>(`SELECT follow_id,conversation_id,subject,last_at,effective,key_agreements,0 AS unread_count
+  const summaries=(await postgresConnection().query<Row>(`SELECT follow_id,conversation_id,subject,last_at,effective,key_agreements,0 AS unread_count
     FROM kol_thread_summary WHERE company_id=$1 AND follow_id=ANY($2::text[]) ORDER BY last_at DESC NULLS LAST`,[companyId,follows.map(f=>f.id)])).rows;
   const ids=follows.map(f=>f.collaboration_id).filter(Boolean);
-  const threads=ids.length?(await postgresPool().query<Row>(`SELECT t.collaboration_id,t.conversation_id,t.subject,t.last_snippet,t.last_at,t.unread_count,t.last_direction
+  const threads=ids.length?(await postgresConnection().query<Row>(`SELECT t.collaboration_id,t.conversation_id,t.subject,t.last_snippet,t.last_at,t.unread_count,t.last_direction
     FROM kol_mail_threads t WHERE t.collaboration_id=ANY($1::text[]) AND EXISTS
       (SELECT 1 FROM user_starry_bindings b WHERE b.user_id=$2 AND b.status='connected' AND lower(trim(b.mailbox_email))=lower(trim(t.mailbox)))
     ORDER BY t.last_at DESC NULLS LAST`,[ids,employeeId])).rows:[];

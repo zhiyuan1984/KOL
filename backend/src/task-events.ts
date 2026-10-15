@@ -82,7 +82,7 @@ export async function appendTaskEvent(
   safeSummary?: string,
 ): Promise<Row | null> {
   try {
-    return await postgresTransaction(async (client) => (await appendTaskEventIn(client, workItemId, runId, eventType, label, status, safeSummary)));
+    return postgresTransaction(async (client) => (await appendTaskEventIn(client, workItemId, runId, eventType, label, status, safeSummary)));
   } catch (error) {
     // Follow-up traces may arrive after a task is deliberately removed. This is
     // an expected no-op, never an unhandled PostgreSQL FK exception.
@@ -107,7 +107,7 @@ export async function upsertTaskEvent(
   if (!key) return null;
   if (taskEventClass(eventType) !== "run_trace") throw new Error(`task event ${eventType} is not a mutable run trace`);
   try {
-    return await postgresTransaction(async (client) => {
+    return postgresTransaction(async (client) => {
       if (!(await lockTarget(client, workItemId, runId))) return null;
       const summary = safeSummary?.slice(0, 1000) || null;
       const found = await client.query<Row>(

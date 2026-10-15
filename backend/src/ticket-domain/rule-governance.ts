@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { createHash } from "node:crypto";
 import type { PoolClient } from "pg";
 import { HttpFail } from "../host/errors.js";
@@ -263,11 +264,11 @@ export async function restoreSchedulingRuleDraft(actorId: string, ruleId: string
   const key = idempotencyKey(input.idempotency_key);
   const reasonText = reason(input.reason);
   if (!Number.isInteger(sourceVersion) || sourceVersion < 1) throw new HttpFail(400, { code: "invalid_rule_version" });
-  const sourceResult = await postgresPool().query<RuleRow>("SELECT * FROM scheduling_rules WHERE id=$1 AND version=$2", [ruleId, sourceVersion]);
+  const sourceResult = await postgresConnection().query<RuleRow>("SELECT * FROM scheduling_rules WHERE id=$1 AND version=$2", [ruleId, sourceVersion]);
   const source = sourceResult.rows[0];
   if (!source) throw new HttpFail(404, "scheduling rule not found");
   if (source.status === "draft") throw new HttpFail(409, { code: "draft_restore_not_needed" });
-  const current = await postgresPool().query<{ version: number }>("SELECT MAX(version)::int AS version FROM scheduling_rules WHERE id=$1", [ruleId]);
+  const current = await postgresConnection().query<{ version: number }>("SELECT MAX(version)::int AS version FROM scheduling_rules WHERE id=$1", [ruleId]);
   const publicSource = ruleFrom(source);
   return createSchedulingRuleDraft(actorId, {
     id: ruleId,
@@ -289,7 +290,7 @@ function simulationLimit(value: unknown): number {
   return limit;
 }
 
-async function simulationMatches(client: PoolClient, rule: ReturnType<typeof ruleFrom>, limit: number): Promise<Json[]> {
+async function simulationMatches(client: PoolClient, rule: Awaited<ReturnType<typeof ruleFrom>>, limit: number): Promise<Json[]> {
   const scope = rule.scope as RuleScope;
   const definition = rule.definition as RuleDefinition;
   const conditions = definition.conditions || {};
@@ -442,16 +443,16 @@ export async function schedulingRuleDetail(ruleId: string, version?: number): Pr
   const params: unknown[] = [ruleId];
   const where = ["id=$1"];
   if (version != null) { params.push(version); where.push(`version=$${params.length}`); }
-  const found = await postgresPool().query<RuleRow>(
+  const found = await postgresConnection().query<RuleRow>(
     `SELECT * FROM scheduling_rules WHERE ${where.join(" AND ")} ORDER BY version DESC LIMIT 1`, params,
   );
   if (!found.rows[0]) throw new HttpFail(404, "scheduling rule not found");
   const rule = ruleFrom(found.rows[0]);
   const [simulations, audit] = await Promise.all([
-    (await postgresPool().query<SimulationRow>(
+    (await postgresConnection().query<SimulationRow>(
       "SELECT * FROM scheduling_rule_simulations WHERE rule_id=$1 AND rule_version=$2 ORDER BY created_at DESC LIMIT 20", [rule.id, rule.version],
     )),
-    (await postgresPool().query<Row>(
+    (await postgresConnection().query<Row>(
       "SELECT id,action,actor_account_id,reason,request_json,result_json,created_at FROM scheduling_rule_audit_events WHERE rule_id=$1 AND rule_version=$2 ORDER BY created_at DESC LIMIT 50", [rule.id, rule.version],
     )),
   ]);
@@ -467,7 +468,7 @@ export async function schedulingRuleDetail(ruleId: string, version?: number): Pr
 
 export async function listSchedulingRules(limit = 100): Promise<Json> {
   const bounded = Math.min(Math.max(1, Math.floor(limit)), 200);
-  const rows = await postgresPool().query<RuleRow>(
+  const rows = await postgresConnection().query<RuleRow>(
     `SELECT * FROM scheduling_rules
       ORDER BY CASE status WHEN 'published' THEN 0 WHEN 'draft' THEN 1 WHEN 'disabled' THEN 2 ELSE 3 END,updated_at DESC LIMIT $1`,
     [bounded],

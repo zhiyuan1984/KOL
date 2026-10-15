@@ -14,7 +14,7 @@ const resolveAction: Operation["handle"] = async (c, input) => {
   const body = input as Json;
   const skillId = String(body.skill_id || "").trim();
   if (!skillId) throw new HttpFail(400, { code: "skill_id_required", message: "需要 skill_id" });
-  if (!taskDefinition(skillId)) throw new HttpFail(400, { code: "unknown_task_type", task_type: skillId });
+  if (!(await taskDefinition(skillId))) throw new HttpFail(400, { code: "unknown_task_type", task_type: skillId });
   (await requireTaskAccess(skillId));
   const sessionId = String(body.session_id || "").trim();
   return c.json((await resolveContext({

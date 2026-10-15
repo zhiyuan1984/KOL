@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 /**
  * PG-backed storage helpers for the mail sync pipeline.
  *
@@ -33,14 +34,14 @@ const toTs = (value: unknown): string | null => {
 /* ------------------------------------------------------------------ */
 
 export async function mailSyncStateGet(key: string): Promise<string | undefined> {
-  const r = await postgresPool().query<{ value: string }>(
+  const r = await postgresConnection().query<{ value: string }>(
     "SELECT value FROM mail_sync_state WHERE key=$1", [key],
   );
   return r.rows[0]?.value;
 }
 
 export async function mailSyncStateSet(key: string, value: string): Promise<void> {
-  await postgresPool().query(
+  await postgresConnection().query(
     `INSERT INTO mail_sync_state(key, value, updated_at) VALUES ($1,$2,$3)
      ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`,
     [key, value, nowIso()],
@@ -74,7 +75,7 @@ export type BindingHealth = {
 
 export async function bindingHealthPg(userId: string): Promise<BindingHealth | undefined> {
   if (!userId) return undefined;
-  const r = await postgresPool().query<Row>(
+  const r = await postgresConnection().query<Row>(
     `SELECT synced_at, last_error, last_tool, sync_cursor_at FROM user_starry_bindings
      WHERE user_id=$1 ORDER BY is_default DESC, updated_at ASC, mailbox_email ASC LIMIT 1`,
     [userId],
@@ -147,7 +148,7 @@ export async function updateBindingSyncCursorPg(input: {
 /* ------------------------------------------------------------------ */
 
 export async function listBoundCollaborationsPg(): Promise<Row[]> {
-  const r = await postgresPool().query<Row>(
+  const r = await postgresConnection().query<Row>(
     `SELECT c.*,o.owner_open_id,o.owner_mailbox AS verified_owner_mailbox,(health.state='ready') AS ownership_source_ready FROM collaborations c LEFT JOIN starry_profile_ownership o
       ON o.company_id=$1 AND o.kol_uid=c.kol_uid LEFT JOIN starry_ownership_sync_state health ON health.company_id=o.company_id WHERE c.kol_uid IS NOT NULL AND trim(c.kol_uid) != ''`,[memoryCompanyId()],
   );
@@ -156,7 +157,7 @@ export async function listBoundCollaborationsPg(): Promise<Row[]> {
 
 export async function collaborationByIdPg(id: string): Promise<Row | undefined> {
   if (!id) return undefined;
-  const r = await postgresPool().query<Row>(
+  const r = await postgresConnection().query<Row>(
     "SELECT * FROM collaborations WHERE id=$1", [id],
   );
   return r.rows[0];
@@ -164,7 +165,7 @@ export async function collaborationByIdPg(id: string): Promise<Row | undefined> 
 
 export async function updateCollaborationConversationPg(conversationId: string, collabId: string): Promise<void> {
   if (!conversationId || !collabId) return;
-  await postgresPool().query(
+  await postgresConnection().query(
     "UPDATE collaborations SET conversation_id=$1 WHERE id=$2",
     [conversationId, collabId],
   );
@@ -176,7 +177,7 @@ export async function updateCollaborationConversationPg(conversationId: string, 
 
 export async function storedDigestPg(threadId: string): Promise<ThreadDigest | null> {
   if (!threadId) return null;
-  const r = await postgresPool().query<Row>(
+  const r = await postgresConnection().query<Row>(
     `SELECT digest_text, digest_source, digest_mail_count, digest_fingerprint, digest_error, digest_failed_at
      FROM kol_mail_threads WHERE id=$1`,
     [threadId],
@@ -202,7 +203,7 @@ export async function persistThreadDigestPg(threadId: string, digest: {
   mail_count?: number;
 }): Promise<void> {
   if (!threadId) return;
-  await postgresPool().query(
+  await postgresConnection().query(
     `UPDATE kol_mail_threads
      SET digest_text=$1, digest_source=$2, digest_fingerprint=$3, digest_error=$4,
          digest_failed_at=$5, digest_mail_count=$6
@@ -228,7 +229,7 @@ export async function updateThreadAfterHydratePg(input: {
   fromName: string;
   occurredAt: string;
 }): Promise<void> {
-  await postgresPool().query(
+  await postgresConnection().query(
     `UPDATE kol_mail_threads
      SET subject=$1, last_snippet=$2, last_preview=$3, last_from=$4, last_from_name=$5,
          last_at=$6, updated_at=$7
@@ -246,7 +247,7 @@ export async function updateThreadAfterHydratePg(input: {
 
 export async function markThreadTranslationsPendingPg(threadId: string): Promise<void> {
   if (!threadId) return;
-  await postgresPool().query(
+  await postgresConnection().query(
     `UPDATE kol_mail_items SET translation_source='pending'
      WHERE thread_id=$1 AND translation_zh IS NULL AND COALESCE(body_text,'') != ''
        AND COALESCE(translation_source,'') = ''`,
@@ -260,7 +261,7 @@ export async function ensureThreadItemTranslationsPg(
   analysisEnabled: () => boolean,
 ): Promise<void> {
   if (!threadId) return;
-  const r = await postgresPool().query<{ id: string; body_text: string }>(
+  const r = await postgresConnection().query<{ id: string; body_text: string }>(
     `SELECT id, body_text FROM kol_mail_items
      WHERE thread_id=$1 AND translation_zh IS NULL AND COALESCE(body_text,'') != ''`,
     [threadId],
@@ -274,18 +275,18 @@ export async function ensureThreadItemTranslationsPg(
     try {
       const translated = await translate(row.body_text);
       if (translated) {
-        await postgresPool().query(
+        await postgresConnection().query(
           "UPDATE kol_mail_items SET translation_zh=$1, translation_source=$2 WHERE id=$3",
           [translated.text, translated.source, row.id],
         );
       } else {
-        await postgresPool().query(
+        await postgresConnection().query(
           "UPDATE kol_mail_items SET translation_source='pending' WHERE id=$1 AND translation_zh IS NULL",
           [row.id],
         );
       }
     } catch {
-      await postgresPool().query(
+      await postgresConnection().query(
         "UPDATE kol_mail_items SET translation_source='pending' WHERE id=$1 AND translation_zh IS NULL",
         [row.id],
       );
@@ -299,7 +300,7 @@ export async function ensureThreadItemTranslationsPg(
 
 export async function mailSyncAudit(actor: string, eventType: string, payload: Json): Promise<void> {
   try {
-    await postgresPool().query(
+    await postgresConnection().query(
       "INSERT INTO mail_sync_audit(id, ts, actor, event_type, payload_json) VALUES ($1,$2,$3,$4,$5)",
       [nid("msa"), nowIso(), actor, eventType, JSON.stringify(payload ?? {})],
     );

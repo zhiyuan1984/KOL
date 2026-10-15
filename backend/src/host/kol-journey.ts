@@ -42,8 +42,8 @@ import { stageMailAction, composeFactsFromContext, composeGapHint } from "./comp
 import { publishSession } from "./session-events.js";
 import { FOLLOW_STYLE_PRESETS, readFollowStyleTags } from "../follow-style-tags.js";
 
-function addMsg(sid: string, role: string, kind: string, payload: Json): Json {
-  return insertSessionMessage(sid, role, kind, payload);
+async function addMsg(sid: string, role: string, kind: string, payload: Json): Promise<Awaited<Json>> {
+  return (await insertSessionMessage(sid, role, kind, payload));
 }
 
 export function recommendedCollabActions(col: Row): Json[] {
@@ -64,8 +64,8 @@ export function recommendedCollabActions(col: Row): Json[] {
   return picked.slice(0, 3);
 }
 
-export function mailHistoryForCollaboration(collaborationId: string): Json[] {
-  return mailHistoryRows(collaborationId);
+export async function mailHistoryForCollaboration(collaborationId: string): Promise<Awaited<Json[]>> {
+  return (await mailHistoryRows(collaborationId));
 }
 
 function collabPortrait(col: Row): Json {
@@ -131,7 +131,7 @@ export async function journeyPayload(collaborationId: string | null | undefined)
   (await restoreOfficialCollaborationStage(col));
   const stage = normalizeStage(String(col.stage_code || ""));
   const sop = stageSopView(stage);
-  const mailHistory = mailHistoryForCollaboration(String(col.id));
+  const mailHistory = (await mailHistoryForCollaboration(String(col.id)));
   const digest = threadDigestOf(mailHistory, (await readThreadDigest(String(col.id))));
   const facts = composeFactsFromContext({ stage });
   const gap = composeGapHint(facts, String(col.handle || ""));
@@ -184,7 +184,7 @@ const mailAnalysisJobs = new Map<string, Promise<unknown>>();
 const mailSyncJobs = new Map<string, Promise<number>>();
 const mailSyncAt = new Map<string, number>();
 const mailSyncFailed = new Set<string>();
-const mailDigestRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const mailDigestRefreshTimers = new Map<string, Awaited<ReturnType<typeof setTimeout>>>();
 const MAIL_SYNC_COALESCE_MS = 20_000;
 
 export function isMailSyncing(collaborationId: string): boolean {
@@ -213,7 +213,7 @@ export async function refreshMailDigestAfterChange(
   const journey = await journeyPayloadWithMailMemory(collaborationId, opts);
   if (journey && sessionId) publishSession(sessionId, { type: "journey", journey });
   void ensureCodexThreadDigest(collaborationId, mailHistoryRows(collaborationId), opts)
-    .then(async () => (await journeyPayloadWithMailMemory(collaborationId)))
+    .then(async () => (journeyPayloadWithMailMemory(collaborationId)))
     .then((next) => {
       if (next && sessionId) publishSession(sessionId, { type: "journey", journey: next });
     })
@@ -245,7 +245,7 @@ export async function journeyPayloadWithMailMemory(
   }
   const pending = needsRemoteThreadDigest(history, (await readThreadDigest(colId)), opts);
   if (!pending) return first;
-  const work = (await ensureCodexThreadDigest(colId, history, opts)
+  const work = (ensureCodexThreadDigest(colId, history, opts)
     .then(async () => {
       const next = (await journeyPayload(colId));
       if (!next) return;
@@ -253,7 +253,7 @@ export async function journeyPayloadWithMailMemory(
       for (const session of sessions) publishSession(session.id, { type: "journey", journey: next });
     })
     .finally(async () => {
-      if ((await mailAnalysisJobs.get(colId)) === work) mailAnalysisJobs.delete(colId);
+      if ((mailAnalysisJobs.get(colId)) === work) mailAnalysisJobs.delete(colId);
     }));
   mailAnalysisJobs.set(colId, work);
   return { ...first, mail_analysis_pending: true };
@@ -301,12 +301,12 @@ export async function tryFactAdvance(
     };
   }
   if (sessionId) {
-    addMsg(sessionId, "assistant", "assistant", {
+    (await addMsg(sessionId, "assistant", "assistant", {
       text: `已按事实进入 ${label(suggested)}。发送邮件不会修改阶段；这次写入来自来信/履约证据。`,
       auto_advanced: true,
       from_stage: current,
       to_stage: suggested,
-    });
+    }));
   }
   (await audit("host", "kol.fact_advance", {
     collaboration_id: collaborationId,
@@ -384,12 +384,12 @@ async function upsertConfirmStageCard(
     (await getConn().query("UPDATE sessions SET updated_at=$1 WHERE id=$2",[nowIso(),sessionId]));
     return;
   }
-  addMsg(sessionId, "assistant", "confirm_stage_card", payload);
-  addMsg(sessionId, "system", "sys_msg", {
+  (await addMsg(sessionId, "assistant", "confirm_stage_card", payload));
+  (await addMsg(sessionId, "system", "sys_msg", {
     text: "来信分析只出建议。主流程、分支（含不寄样）和异常都列在确认卡上，由你选定具体正式阶段后再确认；不能用「下一阶段」。发送邮件不会修改阶段。",
     tone: "yellow",
     has_confirm: false,
-  });
+  }));
 }
 
 async function writeKolMailCard(sessionId: string, existingId: string | undefined, payload: Json): Promise<Awaited<void>> {
@@ -398,7 +398,7 @@ async function writeKolMailCard(sessionId: string, existingId: string | undefine
     (await getConn().query("UPDATE sessions SET updated_at=$1 WHERE id=$2",[nowIso(),sessionId]));
     return;
   }
-  addMsg(sessionId, "assistant", "kol_mail_card", payload);
+  (await addMsg(sessionId, "assistant", "kol_mail_card", payload));
 }
 
 async function dropEmptyMailCard(sessionId: string, conversationId: string): Promise<Awaited<void>> {
@@ -533,7 +533,7 @@ export async function syncKolSessionMail(
     const last = mailSyncAt.get(key);
     if (last && Date.now() - last < MAIL_SYNC_COALESCE_MS) return 0;
   }
-  const work = (await pullKolSessionMail(sessionId, collaborationId)
+  const work = (pullKolSessionMail(sessionId, collaborationId)
     .then((added) => {
       mailSyncAt.set(key, Date.now());
       mailSyncFailed.delete(key);
@@ -545,7 +545,7 @@ export async function syncKolSessionMail(
       return 0;
     })
     .finally(async () => {
-      if ((await mailSyncJobs.get(key)) === work) mailSyncJobs.delete(key);
+      if ((mailSyncJobs.get(key)) === work) mailSyncJobs.delete(key);
       (await publishMailSyncJourney(sessionId, collaborationId));
     }));
   mailSyncJobs.set(key, work);
@@ -700,10 +700,10 @@ export async function openKolSession(collaborationId: string): Promise<Awaited<J
   (await tx(async (db) => {
     (await db.query("INSERT INTO sessions (id, title, created_at, updated_at, kind, disabled, owner_user_id, collaboration_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",[sid,title,now,now,"kol",0,owner,collaborationId]));
   }));
-  addMsg(sid, "assistant", "assistant", {
+  (await addMsg(sid, "assistant", "assistant", {
     text: `这是 @${col.handle} 的合作会话。当前阶段：${stageHeadline(String(col.stage_code))}。来信会进这条线；回复和记状态都在这里完成。发送邮件不会修改阶段。`,
     collaboration_id: collaborationId,
-  });
+  }));
   return {
     id: sid,
     title,

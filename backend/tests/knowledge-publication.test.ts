@@ -23,10 +23,10 @@ const ctx=async (actor="sriphy")=>(await reviewContextForActor(getConn(),actor,"
 const command=async (actor:string,c:ReviewCommand,key=randomUUID())=>(await tx(async db=>{
   const s=new ReviewService(db,(await ctx(actor))),p=(await s.prepare(c));return s.execute(c,p.confirmationId,key);
 }));
-async function template(extraFields = [] as ReturnType<typeof knowledgeReviewDefinition>["fields"]){
+async function template(extraFields = [] as Awaited<ReturnType<typeof knowledgeReviewDefinition>>["fields"]){
   const d=knowledgeReviewDefinition();d.nodes.find(n=>n.type==="review")!.assignee={kind:"named",userIds:["knowledge-reviewer"]};
   d.fields.push(...extraFields);
-  const t=(await tx(async db=>(await new ReviewService(db,(await ctx())).saveTemplate(undefined,undefined,d))));
+  const t=(await tx(async db=>(new ReviewService(db,(await ctx())).saveTemplate(undefined,undefined,d))));
   (await command("sriphy",{action:"publish",templateId:t.id,expectedVersion:t.version}));return t;
 }
 async function fixture(draft=false){
@@ -144,7 +144,7 @@ describe("knowledge publication through real review instances and PostgreSQL out
     await expect(queryDocuments({base_id:f.base,query:"产品"},"employee")).rejects.toMatchObject({detail:{message:expect.stringContaining("已解析并建立索引")}});
     await expect(preparePublication(f.id,"发布",ctx())).rejects.toMatchObject({status:409});
     expect((await postgresQuery("SELECT count(*)::int AS n FROM review_instances"))[0].n).toBe(0);
-    (await expect((async ()=>(await publishDocument(f.id)))()).rejects.toThrow());
+    (await expect((async ()=>(publishDocument(f.id)))()).rejects.toThrow());
     await expect(postgresQuery("UPDATE knowledge_documents SET status='published' WHERE id=$1",[f.id])).rejects.toMatchObject({code:"23514"});
     await expect(postgresQuery(`INSERT INTO knowledge_documents(id,base_id,title,filename,media_type,mime,size_bytes,source_path,status,retry_count,created_by,created_at,updated_at)
       SELECT 'forged-published',base_id,title,filename,media_type,mime,size_bytes,source_path,'published',0,created_by,created_at,updated_at FROM knowledge_documents WHERE id=$1`,[f.id])).rejects.toMatchObject({code:"23514"});
@@ -301,7 +301,7 @@ describe("knowledge publication through real review instances and PostgreSQL out
     }
     const results=await Promise.all(instances.map(execute));
     expect(results.map(r=>r?.outcome).sort()).toEqual(["failed","processed"]);
-    const states=await Promise.all(revisions.map(async r=>(await publicationState(r.document_id,(await ctx())))));
+    const states=await Promise.all(revisions.map(async r=>(publicationState(r.document_id,(await ctx())))));
     expect(states.map(s=>s.publication_status).sort()).toEqual(["blocked","published"]);
     expect(states.find(s=>s.publication_status==="blocked")?.error).toContain("生效版本已变化");
     expect((await postgresQuery("SELECT count(*)::int AS n FROM knowledge_documents WHERE base_id=$1 AND status='published'",[f.base]))[0].n).toBe(1);

@@ -96,7 +96,7 @@ adminAgentsRouter.get("/admin/agents", async (c) => {
   requireAdmin();
   const memberships = (await listOrganizationMemberships()).filter((membership) => membership.status === "active");
   return c.json({
-    agents: await Promise.all((await listManagedAgents()).map(async (row) => (await agentView(row.id)))),
+    agents: await Promise.all((await listManagedAgents()).map(async (row) => (agentView(row.id)))),
     units: (await listOrganizationUnits()).filter((unit) => unit.status === "active"),
     people: (await listOrganizationPeople()).filter((person) => person.status === "active").map((person) => {
       const personMemberships = memberships.filter((membership) => membership.person_ref === person.person_ref);
@@ -212,7 +212,7 @@ adminAgentsRouter.post("/admin/agents/:id/knowledge", async (c) => {
   }
   const base = (await listBases()).find((row) => String(row.id) === baseId);
   if (!base) throw new HttpFail(404, "知识库不存在");
-  if (String(base.kind) === "unstructured" && !hasDocumentTool(skillId)) {
+  if (String(base.kind) === "unstructured" && !(await hasDocumentTool(skillId))) {
     throw new HttpFail(409, "请先为该技能启用非结构化文档问答能力");
   }
   const binding = await saveBinding({

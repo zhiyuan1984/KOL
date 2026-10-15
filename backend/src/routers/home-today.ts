@@ -16,7 +16,7 @@ async function startPlan(owner: string, mode: "agent_plan" | "deterministic_orga
     title: "统一工作计划",
     scope: "today",
     producer: mode,
-    payload: planningRunInput(pack, {}, "today"),
+    payload: (await planningRunInput(pack, {}, "today")),
     extraPayload: { producer: mode },
     queuedLabel: "工作计划已入队",
     progress: [
@@ -98,9 +98,9 @@ homeToday.get("/home/today-task-memory", (c) => {
 homeToday.post("/home/today-brief/enqueue", async (c) => {
   const body = await c.req.json().catch(() => ({})) as Json;
   const owner = ownerId();
-  const identity = planningRuntimeIdentity("today_analyze");
+  const identity = (await planningRuntimeIdentity("today_analyze"));
   const objects = Array.isArray(body.objects) ? body.objects : Array.isArray(body.object_ids) ? body.object_ids : [];
-  const payload: Json = { mode: "today_analyze", agent_id: identity.agent_id, expert_id: identity.session_identity, skip_user_memory: true, objects, planning_harness: planningHarnessMount("today_analyze") };
+  const payload: Json = { mode: "today_analyze", agent_id: identity.agent_id, expert_id: identity.session_identity, skip_user_memory: true, objects, planning_harness: (await planningHarnessMount("today_analyze")) };
   const started = await startNativeTodayPlan({
     owner,
     taskType: "today_analyze",

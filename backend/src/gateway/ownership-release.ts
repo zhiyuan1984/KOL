@@ -155,8 +155,8 @@ export async function releaseFollowOwnershipIfEligible(input: {
   return decision;
 }
 
-export function listOwnedCollaborations(db: DatabaseConnection = getConn()): Row[] {
-  return listActiveFollows(db);
+export async function listOwnedCollaborations(db: DatabaseConnection = getConn()): Promise<Awaited<Row[]>> {
+  return (await listActiveFollows(db));
 }
 
 export function ownershipReceiptMeta(): Json {

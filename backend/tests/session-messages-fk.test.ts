@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { databaseEngine, getConn, isSqliteForeignKeyError, resetConn } from "../src/db.js";
+import { databaseEngine, getConn, isForeignKeyError, resetConn } from "../src/db.js";
 import { HttpFail } from "../src/host/errors.js";
 import { ingestKolMail } from "../src/host/kol-journey.js";
 import { insertSessionMessage, isSessionNotFound } from "../src/host/session-messages.js";
@@ -70,7 +70,7 @@ describe("messages.session_id foreign key", () => {
       thrown = error;
     }
     expect(thrown).toBeTruthy();
-    expect(isSqliteForeignKeyError(thrown)).toBe(true);
+    expect(isForeignKeyError(thrown)).toBe(true);
     expect(String(thrown)).toMatch(/foreign key/i);
   });
 
@@ -85,7 +85,7 @@ describe("messages.session_id foreign key", () => {
     }
     expect(thrown).toBeInstanceOf(HttpFail);
     expect(isSessionNotFound(thrown)).toBe(true);
-    expect(isSqliteForeignKeyError(thrown)).toBe(false);
+    expect(isForeignKeyError(thrown)).toBe(false);
     const fail = thrown as HttpFail;
     expect(fail.status).toBe(404);
     expect(fail.detail).toMatchObject({
@@ -140,7 +140,7 @@ describe("messages.session_id foreign key", () => {
     }
     expect(thrown).toBeInstanceOf(HttpFail);
     expect(isSessionNotFound(thrown)).toBe(true);
-    expect(isSqliteForeignKeyError(thrown)).toBe(false);
+    expect(isForeignKeyError(thrown)).toBe(false);
 
     const viaApi = await request("POST", "/api/collaborations/col_xiaomei/ingest-mail", {
       subject: "Re: collab",

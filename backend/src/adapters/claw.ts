@@ -41,7 +41,7 @@ export async function createCreator(body: Json): Promise<Awaited<Json>> {
     (await c.query("INSERT INTO claw_creators\n       (id, handle, name, platform, followers, score, status, outreach_script, payload)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,name=EXCLUDED.name,platform=EXCLUDED.platform,followers=EXCLUDED.followers,score=EXCLUDED.score,status=EXCLUDED.status,outreach_script=EXCLUDED.outreach_script,payload=EXCLUDED.payload",[cid,body.handle ?? null,body.name ?? null,body.platform ?? null,Number(body.followers || 0),Number(body.score || 0),body.status || "discovered",body.outreach_script || "",JSON.stringify(body)]));
   }));
   (await audit("claw", "claw.creator.create", { id: cid }));
-  return (await getCreator(cid)) || {};
+  return ((await getCreator(cid))) || {};
 }
 
 export async function outreachScript(cid: string): Promise<Awaited<Json>> {
@@ -55,7 +55,7 @@ export async function patchStatus(cid: string, body: Json): Promise<Awaited<Json
     (await c.query("UPDATE claw_creators SET status = $1 WHERE id = $2",[body.status,cid]));
   }));
   (await audit("claw", "claw.creator.status", { id: cid, status: body.status }));
-  return (await getCreator(cid)) || {};
+  return ((await getCreator(cid))) || {};
 }
 
 export async function analysis(cid?: string | null): Promise<Awaited<Json>> {

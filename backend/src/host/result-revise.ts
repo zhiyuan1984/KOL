@@ -179,10 +179,10 @@ export function lastUnsentResult(rows: Json[]): LastUnsentResult | null {
   return null;
 }
 
-function leadingSkillId(text: string): string | null {
+async function leadingSkillId(text: string): Promise<Awaited<string | null>> {
   const trimmed = text.trim().replace(/^(请|帮我)/, "");
   let best: { id: string; len: number } | null = null;
-  for (const definition of taskDefinitions()) {
+  for (const definition of (await taskDefinitions())) {
     for (const name of [definition.title, definition.id, ...definition.aliases]) {
       const token = String(name || "").trim();
       if (token.length < 2) continue;
@@ -202,11 +202,11 @@ export async function isResultRevision(
   const raw = String(text || "").trim();
   if (!raw || !last || last.sent) return false;
   if (opts?.boundTask) return false;
-  if (opts?.lockedIntent && taskDefinitions().some((row) => row.id === opts.lockedIntent)) return false;
+  if (opts?.lockedIntent && (await taskDefinitions()).some((row) => row.id === opts.lockedIntent)) return false;
   if (CONFIRM_SEND_RE.test(raw) || ANOTHER_LETTER_RE.test(raw) || RESTART_RE.test(raw)) return false;
   const handle = String((await extractTaskEntities(raw)).handle || "");
   if (handle && last.handle && handle !== last.handle) return false;
-  if (leadingSkillId(raw)) return false;
+  if ((await leadingSkillId(raw))) return false;
   return true;
 }
 

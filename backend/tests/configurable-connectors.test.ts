@@ -89,7 +89,7 @@ describe("configuration-driven HTTP connector", () => {
     expect(remote.calls).toHaveLength(0);
   });
   it("rejects dangerous HTTP paths and unknown OpenAPI forms before an endpoint is called", async () => {
-    await expect((async () => (await setConnectorConfig("http_fixture", {
+    await expect((async () => (setConnectorConfig("http_fixture", {
       protocol: "http", url: "http://127.0.0.1:1234", allow_unauthenticated: true, http_tools: [{
         name: "bad", description: "bad", inputSchema: { type: "object" }, method: "GET", path: "/v1/../secret",
       }],
@@ -112,7 +112,7 @@ describe("configuration-driven HTTP connector", () => {
     } finally { process.env.NODE_ENV = previous; }
   });
   it("keeps an endpoint-less HTTP draft saveable and fails closed at runtime", async () => {
-    await expect((async () => (await setConnectorConfig("http_fixture", { protocol: "http", allow_unauthenticated: true, http_tools: [] }, 0)))()).resolves.not.toBeInstanceOf(Error);
+    await expect((async () => (setConnectorConfig("http_fixture", { protocol: "http", allow_unauthenticated: true, http_tools: [] }, 0)))()).resolves.not.toBeInstanceOf(Error);
     expect(() => validateConnectorConfig({ protocol: "http" })).toThrow("credential reference required unless allow_unauthenticated is true");
     expect(() => validateConnectorConfig({ allow_unauthenticated: true })).toThrow("exactly one of url or url_env is required");
     expect(() => validateConnectorConfig({ protocol: "http", url: "https://api.example.test", url_env: "API_URL", allow_unauthenticated: true }))

@@ -51,12 +51,12 @@ describe("demo cleanup vs immutable lifecycle task events", () => {
     const conn = getConn();
     (await freezeFixtureEvents("tsk_home_xiaomei_mail"));
 
-    expect(async () => (await resetDemoRuntimeState())).not.toThrow();
+    expect(async () => (resetDemoRuntimeState())).not.toThrow();
     expect((await conn.query("SELECT COUNT(*) AS c FROM task_events",[])).rows[0]).toEqual({ c: 0 });
     expect((await conn.query("SELECT COUNT(*) AS c FROM tickets",[])).rows[0]).toEqual({ c: 0 });
 
     (await seedWorkbenchFixtures());
     (await freezeFixtureEvents("tsk_home_xiaomei_mail"));
-    (await expect((async () => (await conn.query("DELETE FROM task_events WHERE work_item_id=$1 AND event_class='lifecycle'",["tsk_home_xiaomei_mail"])))()).rejects.toThrow(/immutable/));
+    (await expect((async () => (conn.query("DELETE FROM task_events WHERE work_item_id=$1 AND event_class='lifecycle'",["tsk_home_xiaomei_mail"])))()).rejects.toThrow(/immutable/));
   });
 });

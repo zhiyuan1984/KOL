@@ -250,7 +250,7 @@ export async function pgCreateAgentBindingInTransaction(client: PoolClient, inpu
 }
 
 export async function pgCreateAgentBinding(input: AgentBindingInput, stamp = new Date().toISOString()): Promise<AgentBindingRow> {
-  return postgresTransaction(async (client) => (await pgCreateAgentBindingInTransaction(client, input, stamp)), { isolation: "SERIALIZABLE" });
+  return postgresTransaction(async (client) => (pgCreateAgentBindingInTransaction(client, input, stamp)), { isolation: "SERIALIZABLE" });
 }
 
 export async function pgRevokeAgentBinding(bindingId: string, reason: string, stamp = new Date().toISOString()): Promise<boolean> {

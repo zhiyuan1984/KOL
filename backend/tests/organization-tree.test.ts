@@ -247,9 +247,9 @@ describe("effective Agent users", () => {
     expect((await revokeAgentBinding(binding.id))).toBe(true);
     expect([...(await effectiveAgentUsers("agent:kol")).person_refs].sort()).toEqual(["person:huang_qiyou", "person:lu_haijun", "person:yan_chen"]);
     expect((await listAgentBindings("agent:kol"))).toHaveLength(2);
-    await expect((async () => (await bind("organization_unit", "org:not_exists")))()).rejects.toThrow(/unknown organization unit/);
-    await expect((async () => (await bind("person", "person:not_exists")))()).rejects.toThrow(/unknown person/);
-    await expect((async () => (await createAgentBinding({ agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team", company_id: "company:other" })))()).rejects.toThrow(/outside the company/);
+    await expect((async () => (bind("organization_unit", "org:not_exists")))()).rejects.toThrow(/unknown organization unit/);
+    await expect((async () => (bind("person", "person:not_exists")))()).rejects.toThrow(/unknown person/);
+    await expect((async () => (createAgentBinding({ agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team", company_id: "company:other" })))()).rejects.toThrow(/outside the company/);
   });
 
   it("人员离开部门（成员关系结束）后不再覆盖，组织版本可递增", async () => {

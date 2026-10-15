@@ -56,7 +56,7 @@ describe("one Skill / one knowledge interaction template", () => {
     const res = await request("GET", "/api/knowledge/skill-templates");
     expect(res.status).toBe(200);
     const templates = res.body as unknown as Json[];
-    const definitions = taskDefinitions().filter((item) => item.employee_visible);
+    const definitions = (await taskDefinitions()).filter((item) => item.employee_visible);
     expect(templates).toHaveLength(definitions.length);
     expect(new Set(templates.map((item) => item.skill_id)).size).toBe(templates.length);
     for (const template of templates) {
@@ -73,7 +73,7 @@ describe("one Skill / one knowledge interaction template", () => {
     const template = (await request("GET", `/api/knowledge/skill-templates/${skillId}`)).body;
     const definitions = (await request("GET", "/api/task-definitions")).body as unknown as Json[];
     expect(definitions.find((item) => item.id === skillId)?.ui_template).toEqual(template);
-    expect(template.inputs).toEqual(requireTaskDefinition(skillId).input_schema);
+    expect(template.inputs).toEqual((await requireTaskDefinition(skillId)).input_schema);
     expect(template.steps).toHaveLength(3);
     expect(template.starter).toBe("达人库查询");
     expect(template.inputs.every((field: Json) => !field.required)).toBe(true);
@@ -81,7 +81,7 @@ describe("one Skill / one knowledge interaction template", () => {
   });
 
   it("returns the authorized todo workspace explanation without making its planner a catalog skill", async () => {
-    const definition = requireTaskDefinition("todo_plan");
+    const definition = (await requireTaskDefinition("todo_plan"));
     expect(definition.employee_visible).toBe(false);
     const definitions = (await request("GET", "/api/task-definitions")).body as unknown as Json[];
     const row = definitions.find(item => item.id === "todo_plan")!;
@@ -100,15 +100,15 @@ describe("one Skill / one knowledge interaction template", () => {
     (await getConn().query("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",["todo-template-denied","todo-template-denied","Template user","no-login",'["employee"]','[]',"",1,now,now]));
     const user = (await mapUser((await getConn().query("SELECT * FROM users WHERE id=$1",["todo-template-denied"])).rows[0] as Json));
     const { tasks } = await import("../src/routers/tasks.js");
-    const response = await withScopedUser(user, async () => (await tasks.request("/task-definitions")));
+    const response = await withScopedUser(user, async () => (tasks.request("/task-definitions")));
     expect(response.status).toBe(200);
     const row = ((await response.json()) as Json[]).find(item => item.id === "todo_plan")!;
     expect(row.granted).toBe(false);
     expect(row).not.toHaveProperty("ui_template");
   });
 
-  it("only puts required user fields into the starter, not optional inputs or purpose", () => {
-    const definition = { ...requireTaskDefinition(skillId), required_inputs: ["handle", "limit"], input_schema: [
+  it("only puts required user fields into the starter, not optional inputs or purpose", async () => {
+    const definition = { ...(await requireTaskDefinition(skillId)), required_inputs: ["handle", "limit"], input_schema: [
       { key: "handle", label: "达人", kind: "text" as const, required: true },
       { key: "keyword", label: "关键词", kind: "text" as const, required: false },
       { key: "limit", label: "数量", kind: "number" as const, required: true, default: 20 },
@@ -116,16 +116,16 @@ describe("one Skill / one knowledge interaction template", () => {
     expect(skillTemplate(definition).starter).toBe("达人库查询\n达人：[达人]");
   });
 
-  it("prefers the SKILL.md hand-written starter over the generated placeholder format", () => {
-    const definition = requireTaskDefinition("confirm_stage");
+  it("prefers the SKILL.md hand-written starter over the generated placeholder format", async () => {
+    const definition = (await requireTaskDefinition("confirm_stage"));
     expect(definition.starter).toBe("提出阶段变更 [红人] 到 [目标阶段]");
     expect(skillTemplate(definition).starter).toBe("提出阶段变更 [红人] 到 [目标阶段]");
   });
 
-  it("does not synthesize an unregistered procedure for legacy skills", () => {
-    const template = skillTemplate({ ...requireTaskDefinition(skillId), interaction: undefined });
+  it("does not synthesize an unregistered procedure for legacy skills", async () => {
+    const template = skillTemplate({ ...(await requireTaskDefinition(skillId)), interaction: undefined });
     expect(template.steps).toEqual([]);
-    expect(template.description).toBe(requireTaskDefinition(skillId).description);
+    expect(template.description).toBe((await requireTaskDefinition(skillId)).description);
   });
 
   it("does not turn a skill template into an editable mail template", async () => {
@@ -136,17 +136,17 @@ describe("one Skill / one knowledge interaction template", () => {
     expect((await request("GET", `/api/knowledge/skill-templates/${skillId}`)).body.title).toBe("达人库查询");
   });
 
-  it("rejects interaction/input drift while loading a published manifest", () => {
+  it("rejects interaction/input drift while loading a published manifest", async () => {
     const root = path.join(tmp, "bad-skills");
     fs.mkdirSync(path.join(root, skillId), { recursive: true });
-    const source = fs.readFileSync(requireTaskDefinition(skillId).path, "utf8");
+    const source = fs.readFileSync((await requireTaskDefinition(skillId)).path, "utf8");
     const file = path.join(root, skillId, "SKILL.md");
     fs.writeFileSync(file, source.replace('required_inputs: []', 'required_inputs: ["keyword"]'));
-    expect(() => taskDefinitions(root)).toThrow(/required_inputs must match/);
+    (await expect((() => taskDefinitions(root))()).rejects.toThrow(/required_inputs must match/));
     fs.writeFileSync(file, source.split("\n").filter((line) => !line.startsWith("input_schema:")).join("\n"));
-    expect(() => taskDefinitions(root)).toThrow(/interaction requires input_schema/);
+    (await expect((() => taskDefinitions(root))()).rejects.toThrow(/interaction requires input_schema/));
     fs.writeFileSync(file, source.replace('"purpose":', '"invented_field":'));
-    expect(() => taskDefinitions(root)).toThrow(/unsupported field/);
+    (await expect((() => taskDefinitions(root))()).rejects.toThrow(/unsupported field/));
   });
 
   it("filters ungranted skills and rechecks detail access after the Agent binding is revoked", async () => {
@@ -154,7 +154,7 @@ describe("one Skill / one knowledge interaction template", () => {
     const now = new Date().toISOString();
     (await getConn().query("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",["template-user","template-user","Template user","no-login",'["employee"]','[]',"",1,now,now]));
     const user = (await mapUser((await getConn().query("SELECT * FROM users WHERE id=$1",["template-user"])).rows[0] as Json));
-    const scoped = async (url: string) => (await withScopedUser(user, async () => (await knowledge.request(url))));
+    const scoped = async (url: string) => (await withScopedUser(user, async () => (knowledge.request(url))));
     expect(await (await scoped("/knowledge/skill-templates")).json()).toEqual([]);
     // 旧的逐人技能授权表不再放行：写入后该技能依然不可见。
     (await getConn().query("INSERT INTO user_skill_grants(user_id,skill_id,created_at) VALUES($1,$2,$3)",[user.id,skillId,now]));
@@ -177,7 +177,7 @@ describe("one Skill / one knowledge interaction template", () => {
     const deniedApp = new Hono();
     deniedApp.onError((error: any, c) => c.json({ error: error.message }, error.status || 500));
     deniedApp.route("/", knowledge);
-    expect((await withScopedUser(user, async () => (await deniedApp.request(`/knowledge/skill-templates/${skillId}`)))).status).toBe(403);
+    expect((await withScopedUser(user, async () => (deniedApp.request(`/knowledge/skill-templates/${skillId}`)))).status).toBe(403);
   });
 });
 
@@ -185,7 +185,7 @@ describe("template parameters are execution parameters", () => {
   it("treats required form placeholders as missing and accepts the actual value", async () => {
     const id = "template_test_required";
     const root = path.join(tmp, "published-skills", id);
-    const original = fs.readFileSync(requireTaskDefinition(skillId).path, "utf8");
+    const original = fs.readFileSync((await requireTaskDefinition(skillId)).path, "utf8");
     fs.mkdirSync(root, { recursive: true });
     fs.writeFileSync(path.join(root, "SKILL.md"), original.replace(`id: ${skillId}`, `id: ${id}`)
       .replace('required_inputs: []', 'required_inputs: ["keyword"]')
@@ -200,7 +200,7 @@ describe("template parameters are execution parameters", () => {
   it("does not run direction recognition again for an explicitly selected template", async () => {
     let classified = false;
     setTaskClassifier(async () => { classified = true; throw new Error("must not classify selected skill"); });
-    const template = (await effectiveSkillTemplate(requireTaskDefinition(skillId)));
+    const template = (await effectiveSkillTemplate((await requireTaskDefinition(skillId))));
     const result = await request("POST", "/api/tasks/from-text", { text: template.starter, intent: skillId,
       skill_template_version: template.version });
     expect(result.status).toBe(201);
@@ -262,7 +262,7 @@ describe("template and runtime version binding", () => {
   it("retains the task snapshot after SOP changes and blocks execution of a different pair", async () => {
     const created = await request("POST", "/api/tasks", { task_type: skillId });
     (await saveSkillSop(skillId, { body: "# SOP revision\n请返回授权范围的结果。" }));
-    const updated = (await effectiveSkillTemplate(requireTaskDefinition(skillId)));
+    const updated = (await effectiveSkillTemplate((await requireTaskDefinition(skillId))));
     expect(updated.version).not.toBe(created.body.skill_template.version);
     const detail = await request("GET", `/api/tasks/${created.body.id}`);
     expect(detail.body.skill_template).toEqual(created.body.skill_template);

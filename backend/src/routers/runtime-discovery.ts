@@ -26,7 +26,7 @@ runtimeDiscoveryRouter.get("/agents/:agentId/capabilities", async (c) => {
     const skillId = String(row.skill_id);
     const context = { agentId, skillId, userId: user.id, runId: "capabilities" };
     try { (await assertRuntimeSkill(context)); } catch { return []; }
-    const skill = taskDefinition(skillId)!;
+    const skill = (await taskDefinition(skillId))!;
     const resources = (await Promise.all((await getSkillConnectors(skillId)).map(async (binding) => {
       try {
         if (!binding.enabled) return { available: false, tool_count: 0, reason: "runtime_connector_unbound" };

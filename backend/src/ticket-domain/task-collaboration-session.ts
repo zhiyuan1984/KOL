@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { nid } from "../ids.js";
 import type { PoolClient } from "pg";
 import { HttpFail } from "../host/errors.js";
@@ -50,13 +51,13 @@ async function authorizeInTransaction(client: PoolClient, actorId: string, sessi
 }
 
 export async function authorizedTaskSession(actorId: string, sessionId: string, allowArchived = false) {
-  if (!(await postgresPool().query("SELECT 1 FROM task_collaboration_sessions WHERE session_id=$1",[sessionId])).rows.length) return null;
-  return postgresTransaction(async client => (await authorizeInTransaction(client,actorId,sessionId,allowArchived)));
+  if (!(await postgresConnection().query("SELECT 1 FROM task_collaboration_sessions WHERE session_id=$1",[sessionId])).rows.length) return null;
+  return postgresTransaction(async client => (authorizeInTransaction(client,actorId,sessionId,allowArchived)));
 }
 
 /** Permission-scoped projection before any private title leaves PostgreSQL. */
 export async function listTaskCollaborationSessions(actorId: string, includeArchived: boolean) {
-  return (await postgresPool().query(`SELECT s.id,s.title,s.archived_at FROM task_collaboration_sessions b
+  return (await postgresConnection().query(`SELECT s.id,s.title,s.archived_at FROM task_collaboration_sessions b
     JOIN sessions s ON s.id=b.session_id AND s.owner_user_id=$1 AND s.deleted_at IS NULL AND s.disabled=0
     JOIN tickets t ON t.id=b.task_id AND t.owner_user_id=$1
     JOIN ticket_accounts a ON a.id=$1 AND a.active=true

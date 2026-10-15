@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import type { PoolClient } from "pg";
 import type { Operation } from "../runtime/operations.js";
 import { traceEventPayload } from "../worker/trace-events.js";
@@ -203,8 +204,11 @@ const progressWrites = new Map<string, Promise<void>>();
 const progressErrors = new Map<string, unknown>();
 function registerProgress(sid: string, sink: (progress: WorkerProgress) => Promise<void>): void {
   progressBySession.set(sid, async (progress) => {
-    const next = (await ((await progressWrites.get(sid)) || (await Promise.resolve())).then(async () => (await sink(progress))));
-    progressWrites.set(sid, (await next.catch((error: unknown) => { if (!progressErrors.has(sid)) progressErrors.set(sid, error); })));
+    const previous = (await progressWrites.get(sid)) || (await Promise.resolve());
+    const next = previous.then(() => sink(progress));
+    progressWrites.set(sid, next.catch((error: unknown) => {
+      if (!progressErrors.has(sid)) progressErrors.set(sid, error);
+    }));
   });
 }
 async function drainProgress(sid: string): Promise<void> {
@@ -220,7 +224,7 @@ const minimalStreamClose = new Map<string, () => Promise<void>>();
 
 /** 只读的上下文解析入口沿用提交侧同一套技能授权：未授权就连上下文也不解析。 */
 export async function requireTaskAccess(skill: string, agentId?: string): Promise<void> {
-  const definition = taskDefinition(skill);
+  const definition = (await taskDefinition(skill));
   if (!definition) throw new HttpFail(400, { code: "unknown_task_type", task_type: skill });
   if (codexMode() !== "stub") {
     (await assertRuntimeSkill({ agentId: agentId || (await runtimeAgentForSkill(skill, scopedUser()?.id || "")), skillId: skill,
@@ -246,7 +250,7 @@ export async function requireTaskAccess(skill: string, agentId?: string): Promis
 
 /** 会话绑定（来源链第 3 级）读的那一行；入口自行校验访问权。 */
 export async function sessionRow(sid: string): Promise<Row> {
-  return { ...(await assertSessionAccess(sid)) };
+  return { ...(assertSessionAccess(sid)) };
 }
 
 type ComposePrepare = {
@@ -483,7 +487,7 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
   let adoptedFromMemory = false;
   if (!row && (recipient.source === "conversation" || recipient.source === "memory") && recipient.to) {
     const scope = nativeInboundVisibleSql(2);
-    const matches = (await postgresPool().query(
+    const matches = (await postgresConnection().query(
       `SELECT * FROM collaborations WHERE lower(email) = lower($1) AND ${scope.sql}`,
     [recipient.to, ...scope.params])).rows as Row[];
     if (matches.length === 1) {
@@ -647,7 +651,7 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
 async function collabDisplay(id: unknown): Promise<string> {
   const cid = String(id || "");
   if (!cid) return "该合作";
-  const row = (await postgresPool().query("SELECT handle, display_name FROM collaborations WHERE id=$1", [cid])).rows[0] as
+  const row = (await postgresConnection().query("SELECT handle, display_name FROM collaborations WHERE id=$1", [cid])).rows[0] as
     | { handle?: string; display_name?: string }
     | undefined;
   const handle = String(row?.handle || "").trim();
@@ -661,7 +665,7 @@ async function collabDisplay(id: unknown): Promise<string> {
  */
 async function sessionAgentDefault(sid: string, skillId: string, userId: string): Promise<string | undefined> {
   if (!userId || !skillId) return undefined;
-  const row = (await postgresPool().query("SELECT payload FROM messages WHERE session_id=$1 AND kind='agent_identity' ORDER BY created_at DESC, id DESC LIMIT 1", [sid])).rows[0] as { payload?: string } | undefined;
+  const row = (await postgresConnection().query("SELECT payload FROM messages WHERE session_id=$1 AND kind='agent_identity' ORDER BY created_at DESC, id DESC LIMIT 1", [sid])).rows[0] as { payload?: string } | undefined;
   let agentId = "";
   try { agentId = String((JSON.parse(String(row?.payload || "{}")) as Json).agent_id || ""); } catch { agentId = ""; }
   if (!agentId) return undefined;
@@ -671,7 +675,7 @@ async function sessionAgentDefault(sid: string, skillId: string, userId: string)
 async function addMsg(sid: string, role: string, kind: string, payload: Json): Promise<Json> {
   if (kind === "process_trace" || kind === "operation_trace") payload = traceEventPayload(null, payload, nowIso());
   if (kind === "me") {
-    const last = (await postgresPool().query("SELECT id, payload, created_at FROM messages WHERE session_id=$1 AND kind='me' ORDER BY created_at DESC, id DESC LIMIT 1", [sid])).rows[0] as { id: string; payload: string; created_at: string } | undefined;
+    const last = (await postgresConnection().query("SELECT id, payload, created_at FROM messages WHERE session_id=$1 AND kind='me' ORDER BY created_at DESC, id DESC LIMIT 1", [sid])).rows[0] as { id: string; payload: string; created_at: string } | undefined;
     if (last) {
       let prev: Json = {};
       try { prev = JSON.parse(String(last.payload || "{}")); } catch { prev = {}; }
@@ -681,7 +685,7 @@ async function addMsg(sid: string, role: string, kind: string, payload: Json): P
       }
     }
   }
-  return (await insertSessionMessage(sid, role, kind, payload));
+  return (insertSessionMessage(sid, role, kind, payload));
 }
 
 /**
@@ -691,7 +695,7 @@ async function addMsg(sid: string, role: string, kind: string, payload: Json): P
 const STREAM_TIMED_KINDS = new Set(["assistant", "job_status"]);
 
 async function updateMsg(mid: string, payload: Json): Promise<void> {
-  const row = (await postgresPool().query("SELECT session_id, role, kind, created_at, payload FROM messages WHERE id=$1", [mid])).rows[0] as
+  const row = (await postgresConnection().query("SELECT session_id, role, kind, created_at, payload FROM messages WHERE id=$1", [mid])).rows[0] as
     | { session_id: string; role: string; kind: string; created_at: string; payload: string }
     | undefined;
   if (row && (row.kind === "process_trace" || row.kind === "operation_trace")) {
@@ -714,7 +718,7 @@ async function updateMsg(mid: string, payload: Json): Promise<void> {
 }
 
 async function messages(sid: string): Promise<Json[]> {
-  const rows = (await postgresPool().query("SELECT * FROM messages WHERE session_id = $1 ORDER BY created_at, id", [sid])).rows as Row[];
+  const rows = (await postgresConnection().query("SELECT * FROM messages WHERE session_id = $1 ORDER BY created_at, id", [sid])).rows as Row[];
   return rows.map((r) => ({ ...r, payload: JSON.parse(String(r.payload)) }));
 }
 
@@ -730,7 +734,7 @@ async function resolveBoundTask(sid: string, body: Json): Promise<BoundTask | nu
     if (body.run_id || body.task_type) throw new HttpFail(400, "work_item_id required for task message");
     return null;
   }
-  const item = (await postgresPool().query("SELECT * FROM tickets WHERE id=$1", [body.work_item_id])).rows[0] as Row | undefined;
+  const item = (await postgresConnection().query("SELECT * FROM tickets WHERE id=$1", [body.work_item_id])).rows[0] as Row | undefined;
   if (!item) throw new HttpFail(404, "task not found");
   const user = scopedUser();
   if (!authDisabled() && (!user || (!isAdmin(user) && String(item.owner_user_id) !== user.id))) {
@@ -738,18 +742,18 @@ async function resolveBoundTask(sid: string, body: Json): Promise<BoundTask | nu
   }
   if (String(item.session_id || "") !== sid) throw new HttpFail(409, "task is linked to a different session");
   const taskType = String(body.task_type || "");
-  if (!taskType || taskType !== String(item.task_type) || !taskDefinition(taskType)) {
+  if (!taskType || taskType !== String(item.task_type) || !(await taskDefinition(taskType))) {
     throw new HttpFail(409, { code: "task_type_mismatch", expected: item.task_type, actual: taskType });
   }
   const run = (body.run_id
-    ? (await postgresPool().query("SELECT * FROM task_runs WHERE id=$1 AND work_item_id=$2 AND session_id=$3", [body.run_id, item.id, sid])).rows[0]
-    : (await postgresPool().query("SELECT * FROM task_runs WHERE work_item_id=$1 AND session_id=$2 AND status='pending' ORDER BY created_at DESC LIMIT 1", [item.id, sid])).rows[0]) as Row | undefined;
+    ? (await postgresConnection().query("SELECT * FROM task_runs WHERE id=$1 AND work_item_id=$2 AND session_id=$3", [body.run_id, item.id, sid])).rows[0]
+    : (await postgresConnection().query("SELECT * FROM task_runs WHERE work_item_id=$1 AND session_id=$2 AND status='pending' ORDER BY created_at DESC LIMIT 1", [item.id, sid])).rows[0]) as Row | undefined;
   if (!run) throw new HttpFail(409, "pending task run not found");
   if (!["pending", "failed"].includes(String(run.status))) throw new HttpFail(409, `task run is ${run.status}`);
   const runInput = JSON.parse(String(run.input || "{}")) as Json;
   const storedTemplate = runInput._skill_template;
   if (isSkillTemplateSnapshot(storedTemplate, taskType)
-    && storedTemplate.version !== (await effectiveSkillTemplate(taskDefinition(taskType)!)).version) {
+    && storedTemplate.version !== (await effectiveSkillTemplate((await taskDefinition(taskType))!)).version) {
     const detail = { code: "skill_template_version_conflict", message: "技能模板在排队期间已更新，请重新选用模板并检查参数后创建任务。" };
     (await postgresTransaction(async (db) => {
       (await db.query("UPDATE task_runs SET status='failed',error=$1,completed_at=$2 WHERE id=$3", [JSON.stringify(detail), nowIso(), run.id]));
@@ -925,7 +929,7 @@ async function finishBoundTask(bound: BoundTask | null, sid: string, result?: Js
     runStatus,
     failed
       ? `未生成结果：${failureReason || "执行未完成"}。可重新执行。`
-      : taskDefinition(bound.taskType)?.side_effects === "none"
+      : (await taskDefinition(bound.taskType))?.side_effects === "none"
         ? "本轮只读查询已结束。结果已生成，可查看资料来源；正式任务仍可验收。"
         : "本轮结果已生成，任务待验收；正式操作仍需单独确认。",
   ));
@@ -933,7 +937,7 @@ async function finishBoundTask(bound: BoundTask | null, sid: string, result?: Js
     work_item_id: bound.workItemId,
     run_id: bound.runId,
   }));
-  const definition = taskDefinition(bound.taskType);
+  const definition = (await taskDefinition(bound.taskType));
   const memoryPolicy = definition?.memory_policy;
   if (
     runStatus === "completed"
@@ -952,7 +956,7 @@ async function finishBoundTask(bound: BoundTask | null, sid: string, result?: Js
       ? ["$result exceeds the memory size limit"]
       : validateTaskResultSchema(definition.result_schema, summary);
     if (!issues.length && !isSafeSkillResultForMemory(summary)) issues.push("$result contains credential-like material");
-    const owner = (await postgresPool().query("SELECT owner_user_id FROM tickets WHERE id=$1", [bound.workItemId])).rows[0] as
+    const owner = (await postgresConnection().query("SELECT owner_user_id FROM tickets WHERE id=$1", [bound.workItemId])).rows[0] as
       | { owner_user_id?: string }
       | undefined;
     if (issues.length || !owner?.owner_user_id || !workerItems.length) {
@@ -1003,11 +1007,11 @@ async function finishBoundTask(bound: BoundTask | null, sid: string, result?: Js
 
 async function autoStartBoundCrawl(bound: BoundTask, sid: string, plan: Json): Promise<void> {
   try {
-    const item = (await postgresPool().query("SELECT owner_user_id FROM tickets WHERE id=$1", [bound.workItemId])).rows[0] as
+    const item = (await postgresConnection().query("SELECT owner_user_id FROM tickets WHERE id=$1", [bound.workItemId])).rows[0] as
       | { owner_user_id: string }
       | undefined;
     if (!item) return;
-    const run = (await postgresPool().query("SELECT id FROM task_runs WHERE id=$1 AND work_item_id=$2", [bound.runId, bound.workItemId])).rows[0];
+    const run = (await postgresConnection().query("SELECT id FROM task_runs WHERE id=$1 AND work_item_id=$2", [bound.runId, bound.workItemId])).rows[0];
     if (!run) return;
     const mode = String(plan.mode || "search");
     const platform = String(plan.platform || "").trim();
@@ -1015,7 +1019,7 @@ async function autoStartBoundCrawl(bound: BoundTask, sid: string, plan: Json): P
       const message = platform
         ? `不支持的采集平台：${platform}。可用平台：${CRAWL_PLATFORMS.join(" / ")}。`
         : "启动采集前需要补充平台。";
-      (await postgresPool().query("UPDATE tickets SET status='needs_clarification',updated_at=$1 WHERE id=$2", [nowIso(), bound.workItemId]));
+      (await postgresConnection().query("UPDATE tickets SET status='needs_clarification',updated_at=$1 WHERE id=$2", [nowIso(), bound.workItemId]));
       (await appendTaskEvent(
         bound.workItemId,
         bound.runId,
@@ -1035,7 +1039,7 @@ async function autoStartBoundCrawl(bound: BoundTask, sid: string, plan: Json): P
     const required = mode === "detail" ? "specified_ids" : mode === "creator" ? "creator_ids" : "keywords";
     const value = plan[required];
     if (!Array.isArray(value) || !value.length) {
-      (await postgresPool().query("UPDATE tickets SET status='needs_clarification',updated_at=$1 WHERE id=$2", [nowIso(), bound.workItemId]));
+      (await postgresConnection().query("UPDATE tickets SET status='needs_clarification',updated_at=$1 WHERE id=$2", [nowIso(), bound.workItemId]));
       (await appendTaskEvent(
         bound.workItemId,
         bound.runId,
@@ -1065,13 +1069,13 @@ async function autoStartBoundCrawl(bound: BoundTask, sid: string, plan: Json): P
         },
         idempotencyKey: `auto:${bound.runId}`,
       });
-      if (!(await postgresPool().query("SELECT id FROM tickets WHERE id=$1", [bound.workItemId])).rows[0]) return;
+      if (!(await postgresConnection().query("SELECT id FROM tickets WHERE id=$1", [bound.workItemId])).rows[0]) return;
       (await addMsg(sid, "assistant", "assistant", {
         text: "远程创作者采集已自动启动，进度会持续更新。",
       }));
     } catch (error) {
       if (isPostgresForeignKeyError(error) || isPostgresClosedError(error) || isSessionNotFound(error)) return;
-      if (!(await postgresPool().query("SELECT id FROM tickets WHERE id=$1", [bound.workItemId])).rows[0]) return;
+      if (!(await postgresConnection().query("SELECT id FROM tickets WHERE id=$1", [bound.workItemId])).rows[0]) return;
       const detail = error instanceof HttpFail && error.detail && typeof error.detail === "object"
         ? error.detail as Json
         : {};
@@ -1080,7 +1084,7 @@ async function autoStartBoundCrawl(bound: BoundTask, sid: string, plan: Json): P
       const nextAction = String(
         detail.next_action || "检查远程 Claw 配置或等待当前采集任务完成后重试。",
       );
-      (await postgresPool().query("UPDATE tickets SET status='failed',updated_at=$1 WHERE id=$2", [nowIso(), bound.workItemId]));
+      (await postgresConnection().query("UPDATE tickets SET status='failed',updated_at=$1 WHERE id=$2", [nowIso(), bound.workItemId]));
       (await appendTaskEvent(bound.workItemId, bound.runId, "crawl.start_failed", "远程采集启动失败", "failed", message));
       (await addMsg(sid, "assistant", "error_card", {
         code: "crawl_start_failed",
@@ -1109,14 +1113,14 @@ async function sessionStatusMap(sids: string[]): Promise<Map<string, SessionStat
   if (!sids.length) return out;
   const placeholders = sids.map((_, i) => `$${i + 1}`).join(",");
   const workerStatus = new Map<string, string>();
-  for (const row of (await postgresPool().query(`SELECT session_id, status FROM workers
+  for (const row of (await postgresConnection().query(`SELECT session_id, status FROM workers
      WHERE session_id IN (${placeholders})
        AND created_at = (SELECT MAX(w2.created_at) FROM workers w2 WHERE w2.session_id = workers.session_id)`, [...sids])).rows as Row[]) {
     const key = String(row.session_id);
     if (!workerStatus.has(key)) workerStatus.set(key, String(row.status));
   }
   const draftStatus = new Map<string, string>();
-  for (const row of (await postgresPool().query(`SELECT session_id, status FROM drafts
+  for (const row of (await postgresConnection().query(`SELECT session_id, status FROM drafts
      WHERE session_id IN (${placeholders})
        AND id = (SELECT MAX(d2.id) FROM drafts d2 WHERE d2.session_id = drafts.session_id)`, [...sids])).rows as Row[]) {
     const key = String(row.session_id);
@@ -1146,7 +1150,7 @@ async function sessionStatusMap(sids: string[]): Promise<Map<string, SessionStat
  * run-control revision that `agent_status` is derived from.
  */
 async function sessionsEpoch(): Promise<string> {
-  const row = (await postgresPool().query(`SELECT (SELECT COUNT(*) FROM sessions) AS session_count,
+  const row = (await postgresConnection().query(`SELECT (SELECT COUNT(*) FROM sessions) AS session_count,
             (SELECT MAX(updated_at) FROM sessions) AS updated_at,
             (SELECT COALESCE(MAX(archived_at), '') FROM sessions) AS archived_at,
             (SELECT COUNT(*) FROM sessions WHERE deleted_at IS NOT NULL) AS deleted,
@@ -1429,14 +1433,14 @@ async function patchDraftFromSnapshot(did: string, snapshot: ResultSnapshot): Pr
     (await db.query(`UPDATE drafts SET from_addr=$1, to_addr=$2, subject=$3, body_en=$4, body_zh_internal=$5,
        amount_usd=$6, extra=$7, currency=$8, fingerprint=$9 WHERE id=$10`, [next.from_addr, next.to_addr, next.subject, next.body_en, next.body_zh_internal, next.amount_usd, JSON.stringify(extra), next.currency, next.fingerprint, did]));
   }));
-  return (await getDraft(did));
+  return (getDraft(did));
 }
 
 async function applyResultRevision(sid: string, me: Json, intent: Intent, text: string): Promise<Json> {
   const last = lastUnsentResult((await messages(sid)).filter((row) => String(row.id) !== String(me.id)));
   if (!last) {
     (await addMsg(sid, "assistant", "assistant", { text: "当前没有可修订的本轮结果。可以说「写合作邮件」或点芯片开新任务。" }));
-    return (await ok(sid, me, intent));
+    return (ok(sid, me, intent));
   }
   const { fields, thread_id } = await collectReviseFields(last.snapshot, text);
   const { next, changed } = mergeReviseFields(last.snapshot, fields);
@@ -1494,7 +1498,7 @@ async function applyResultRevision(sid: string, me: Json, intent: Intent, text: 
     card = stampResultRevise(card, { skill: "email_compose", snapshot: next, thread_id: next.thread_id, changed });
     (await addMsg(sid, "assistant", "task_result_card", card));
     if (draftRow) (await addMsg(sid, "assistant", "email_card", (await emailCardPayload(draftRow))));
-    return (await ok(sid, me, intent, { draft: draftRow }));
+    return (ok(sid, me, intent, { draft: draftRow }));
   }
   const card = stampResultRevise({
     ...last.card,
@@ -1505,16 +1509,16 @@ async function applyResultRevision(sid: string, me: Json, intent: Intent, text: 
     persistent: true,
   }, { skill: last.skill, snapshot: next, thread_id: next.thread_id, changed });
   (await addMsg(sid, "assistant", "task_result_card", card));
-  return (await ok(sid, me, intent));
+  return (ok(sid, me, intent));
 }
 
 async function resolveFollowStyleCollaboration(collaborationId?: string | null, handle?: string | null): Promise<Row> {
   if (collaborationId) {
-    const row = (await postgresPool().query("SELECT * FROM collaborations WHERE id=$1", [collaborationId])).rows[0] as Row | undefined;
+    const row = (await postgresConnection().query("SELECT * FROM collaborations WHERE id=$1", [collaborationId])).rows[0] as Row | undefined;
     if (row) return row;
   }
   if (handle) {
-    const row = (await postgresPool().query("SELECT * FROM collaborations WHERE handle=$1 OR display_name=$2", [handle, handle])).rows[0] as
+    const row = (await postgresConnection().query("SELECT * FROM collaborations WHERE handle=$1 OR display_name=$2", [handle, handle])).rows[0] as
       | Row
       | undefined;
     if (row) return row;
@@ -1620,7 +1624,7 @@ async function preferredDraftBrand(item: Json): Promise<string | null> {
   const direct = String(item.brand || item.brandCode || item.brand_code || "").trim();
   if (direct) return direct;
   if (!item.collaboration_id) return null;
-  const col = (await postgresPool().query("SELECT brand FROM collaborations WHERE id = $1", [String(item.collaboration_id)])).rows[0] as
+  const col = (await postgresConnection().query("SELECT brand FROM collaborations WHERE id = $1", [String(item.collaboration_id)])).rows[0] as
     | { brand?: string }
     | undefined;
   return col?.brand ? String(col.brand) : null;
@@ -1707,7 +1711,7 @@ export async function persistDraft(sid: string, item: Json): Promise<Row> {
         official_stage, approval_id, fingerprint, template_id, sent_at, status, extra, currency
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`, [row.id, row.session_id, row.collaboration_id, row.skill, row.from_addr, row.to_addr, row.cc, row.subject, row.body_en, row.body_zh_internal, row.lang_label, row.amount_usd, row.keep_stage, row.proposed_stage, row.official_stage, row.approval_id, row.fingerprint, row.template_id, row.sent_at, row.status, row.extra, row.currency]));
   }));
-  return (await getDraft(did));
+  return (getDraft(did));
 }
 
 export async function emailCardPayload(d: Row): Promise<Json> {
@@ -1731,7 +1735,7 @@ export async function emailCardPayload(d: Row): Promise<Json> {
   else buttons.push("校验并发送原文");
   let colVer = 0;
   if (d.collaboration_id) {
-    const r = (await postgresPool().query("SELECT stage_version FROM collaborations WHERE id = $1", [d.collaboration_id])).rows[0] as
+    const r = (await postgresConnection().query("SELECT stage_version FROM collaborations WHERE id = $1", [d.collaboration_id])).rows[0] as
       | { stage_version: number }
       | undefined;
     colVer = r ? Number(r.stage_version || 0) : 0;
@@ -1742,7 +1746,7 @@ export async function emailCardPayload(d: Row): Promise<Json> {
   const knowledgeId = String(extra.knowledge_id || "").trim();
   const knowledgeVersion = Number(extra.knowledge_version);
   const knowledgeTitle = knowledgeId
-    ? ((await postgresPool().query("SELECT title FROM knowledge WHERE id=$1", [knowledgeId])).rows[0] as { title?: string } | undefined)?.title
+    ? ((await postgresConnection().query("SELECT title FROM knowledge WHERE id=$1", [knowledgeId])).rows[0] as { title?: string } | undefined)?.title
     : null;
   return {
     knowledge_id: knowledgeId || null,
@@ -1801,7 +1805,7 @@ async function setDraftStatus(did: string, status: string, sendError: string | n
 async function syncEmailCard(did: string): Promise<void> {
   const d = (await getDraft(did));
   const card = (await emailCardPayload(d));
-  const rows = (await postgresPool().query("SELECT id, payload FROM messages WHERE session_id = $1 AND kind = 'email_card'", [d.session_id])).rows as { id: string; payload: string }[];
+  const rows = (await postgresConnection().query("SELECT id, payload FROM messages WHERE session_id = $1 AND kind = 'email_card'", [d.session_id])).rows as { id: string; payload: string }[];
   for (const r of rows) {
     try {
       const payload = JSON.parse(r.payload) as Json;
@@ -1817,7 +1821,7 @@ async function syncEmailCard(did: string): Promise<void> {
 }
 
 async function syncComposeResultCard(d: Row): Promise<void> {
-  const rows = (await postgresPool().query("SELECT id, payload FROM messages WHERE session_id = $1 AND kind = 'task_result_card' ORDER BY created_at DESC", [String(d.session_id)])).rows as { id: string; payload: string }[];
+  const rows = (await postgresConnection().query("SELECT id, payload FROM messages WHERE session_id = $1 AND kind = 'task_result_card' ORDER BY created_at DESC", [String(d.session_id)])).rows as { id: string; payload: string }[];
   for (const r of rows) {
     let payload: Json;
     try {
@@ -1916,7 +1920,7 @@ async function attachMinimalProgress(sid: string): Promise<void> {
 }
 
 async function finishWorkerTrace(sid: string, failed: boolean): Promise<void> {
-  const row = (await postgresPool().query("SELECT id, payload FROM messages WHERE session_id=$1 AND kind='process_trace' ORDER BY created_at DESC, id DESC LIMIT 1", [sid])).rows[0] as { id: string; payload: string } | undefined;
+  const row = (await postgresConnection().query("SELECT id, payload FROM messages WHERE session_id=$1 AND kind='process_trace' ORDER BY created_at DESC, id DESC LIMIT 1", [sid])).rows[0] as { id: string; payload: string } | undefined;
   if (row) {
     let payload: { title?: string; items?: WorkerTraceItem[] } = {};
     try { payload = JSON.parse(String(row.payload || "{}")); } catch { payload = {}; }
@@ -1927,7 +1931,7 @@ async function finishWorkerTrace(sid: string, failed: boolean): Promise<void> {
       summaries: reasoningSummariesOf(items),
     }));
   }
-  const op = (await postgresPool().query("SELECT id, payload FROM messages WHERE session_id=$1 AND kind='operation_trace' ORDER BY created_at DESC, id DESC LIMIT 1", [sid])).rows[0] as { id: string; payload: string } | undefined;
+  const op = (await postgresConnection().query("SELECT id, payload FROM messages WHERE session_id=$1 AND kind='operation_trace' ORDER BY created_at DESC, id DESC LIMIT 1", [sid])).rows[0] as { id: string; payload: string } | undefined;
   if (op) {
     let payload: { title?: string; items?: Json[]; persistent?: boolean } = {};
     try { payload = JSON.parse(String(op.payload || "{}")); } catch { payload = {}; }
@@ -1941,13 +1945,13 @@ async function finishWorkerTrace(sid: string, failed: boolean): Promise<void> {
 }
 
 async function execWorker(sid: string, skill: string, text: string, extra: Json): Promise<WorkerResult> {
-  const definition = taskDefinition(skill);
+  const definition = (await taskDefinition(skill));
   if (!definition) throw new HttpFail(400, { code: "unknown_task_type", task_type: skill });
   (await requireTaskAccess(skill, extra.agent_id ? String(extra.agent_id) : undefined));
   const sec = hostWorkerTimeout();
   const controller = new AbortController();
   attachRunAbort(sid, controller);
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timer: Awaited<ReturnType<typeof setTimeout>> | undefined;
   const ownedSink = !progressBySession.has(sid);
   if (ownedSink) (await attachMinimalProgress(sid));
   try {
@@ -2003,11 +2007,11 @@ async function execWorker(sid: string, skill: string, text: string, extra: Json)
 }
 
 async function unavailableOk(sid: string, me: Json, intent: Intent, e: { asDict(): Json }): Promise<Json> {
-  return (await ok(sid, me, intent, { worker: null, draft: null, error: e.asDict() }));
+  return (ok(sid, me, intent, { worker: null, draft: null, error: e.asDict() }));
 }
 
 async function ensureCompletedWorkerTrace(sid: string, wr: WorkerResult): Promise<void> {
-  const existing = (await postgresPool().query("SELECT id FROM messages WHERE session_id=$1 AND kind='process_trace' LIMIT 1", [sid])).rows[0];
+  const existing = (await postgresConnection().query("SELECT id FROM messages WHERE session_id=$1 AND kind='process_trace' LIMIT 1", [sid])).rows[0];
   if (existing) {
     (await finishWorkerTrace(sid, wr.status === "failed"));
     return;
@@ -2095,7 +2099,7 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
     } else if (item.type === "task_result") {
       if (intent.type === "business_approval" || wr.skill === "business_approval") continue;
       if (Array.isArray(item.operations) && item.operations.length) {
-        const existing = (await postgresPool().query("SELECT id, payload FROM messages WHERE session_id=$1 AND kind='operation_trace' ORDER BY created_at DESC, id DESC LIMIT 1", [sid])).rows[0] as { id: string; payload: string } | undefined;
+        const existing = (await postgresConnection().query("SELECT id, payload FROM messages WHERE session_id=$1 AND kind='operation_trace' ORDER BY created_at DESC, id DESC LIMIT 1", [sid])).rows[0] as { id: string; payload: string } | undefined;
         let live: Json[] = [];
         if (existing) {
           try { live = (JSON.parse(String(existing.payload || "{}")).items as Json[]) || []; } catch { live = []; }
@@ -2177,7 +2181,7 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
           emailmcp_data: composePayload,
         };
         const storedFacts = intent.extras?.compose_facts && typeof intent.extras.compose_facts === "object"
-          ? intent.extras.compose_facts as ReturnType<typeof composeFactsFromRow>
+          ? intent.extras.compose_facts as Awaited<ReturnType<typeof composeFactsFromRow>>
           : composeFactsFromRow(col, {
             raw: intent.raw,
             amount_usd: intent.amount_usd,
@@ -2219,7 +2223,7 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
       if (skipKolAnalyzeApply) continue;
       const cid = String(item.collaboration_id || "");
       const row = cid
-        ? (await postgresPool().query("SELECT * FROM collaborations WHERE id=$1", [cid])).rows[0] as Row | undefined
+        ? (await postgresConnection().query("SELECT * FROM collaborations WHERE id=$1", [cid])).rows[0] as Row | undefined
         : (await resolveCollab(intent)) || undefined;
       if (!row) {
         (await addMsg(sid, "assistant", "supplement_card", {
@@ -2283,12 +2287,12 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
       const href = `/approvals?draft=${encodeURIComponent(saved.draft.id)}&reviewCompany=${encodeURIComponent(saved.company)}&session=${encodeURIComponent(sid)}`;
       (await addMsg(sid, "assistant", "task_result_card", { type: "task_result", artifact_type: "review_draft", review_draft_id: saved.draft.id, review_company: saved.company, source_session_id: sid, title: "审批申请草稿", summary: "R2 草稿已保存，尚未提交。请打开核对材料、审批人和通过后的后果。",
         sections: [{ title: "待补充与核对", items: Array.isArray(proposal.needs) ? proposal.needs.map(String) : [] }], recommended_actions: [{ label: "核对申请草稿", href }], skill: "business_approval", persistent: true }));
-      return (await ok(sid, me, intent, { worker, review_draft: saved.draft }));
+      return (ok(sid, me, intent, { worker, review_draft: saved.draft }));
     }
     if ((intent.extras?.entities as Json | undefined)?.review_draft_only) {
       const result = wr.items.find(row => row.type === "task_result");
       (await addMsg(sid, "assistant", "task_result_card", result || { type: "task_result", title: "申请草稿尚未形成", summary: "未匹配可用的已发布流程。请在审批中心选择流程并补齐材料。", recommended_actions: [{ label: "打开审批中心", href: "/approvals" }] }));
-      return (await ok(sid, me, intent, { worker }));
+      return (ok(sid, me, intent, { worker }));
     }
     const created = wr.items.find((row) => row.type === "create_approval") || {};
     const result = wr.items.find((row) => row.type === "task_result") || {};
@@ -2299,7 +2303,7 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
   if (wr.skill === "creator_lifecycle_kanban" || intent.type === "creator_lifecycle_kanban") {
     (await attachUnboundInbound(sid));
   }
-  return (await ok(sid, me, intent, {
+  return (ok(sid, me, intent, {
     worker: { ...worker, items: wr.items },
     draft: draftRow,
     approval,
@@ -2309,7 +2313,7 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
 }
 
 async function attachUnboundInbound(sid: string): Promise<void> {
-  const rows = (await postgresPool().query("SELECT * FROM inbound WHERE bound = 0 AND COALESCE(deferred, 0) = 0 ORDER BY ts DESC, id DESC", [])).rows as Row[];
+  const rows = (await postgresConnection().query("SELECT * FROM inbound WHERE bound = 0 AND COALESCE(deferred, 0) = 0 ORDER BY ts DESC, id DESC", [])).rows as Row[];
   for (const row of rows) {
     let candidates: { id?: string; handle?: string; score?: number }[] = [];
     try {
@@ -2411,7 +2415,7 @@ async function applyNamedMailGates(
         fields: [{ key: "handle", label: "红人或合作", required: true, value: "" }],
         message: "催大纲需要指定红人或合作。未替换「[红人或合作]」时不会默认代发。本次未起箱。",
       }));
-      return (await ok(sid, me, intent, { worker: null }));
+      return (ok(sid, me, intent, { worker: null }));
     }
     const stage = normalizeStage(String(col?.stage_code || ""));
     if (!templateAllowedForStage("content_nudge.outline", stage)) {
@@ -2421,7 +2425,7 @@ async function applyNamedMailGates(
         next_action: "等红人进入已签收-测试中或内容策划后，再催大纲。",
         persistent: true,
       }));
-      return (await ok(sid, me, intent, { worker: null }));
+      return (ok(sid, me, intent, { worker: null }));
     }
   }
   if (named === "ship" && !composeFacts.tracking) {
@@ -2433,7 +2437,7 @@ async function applyNamedMailGates(
       fields: [{ key: "tracking", label: "运单号", required: true, value: "" }],
       message: "发货通知需要运单号。未填写运单号时不会默认代发。本次未起箱。",
     }));
-    return (await ok(sid, me, intent, { worker: null }));
+    return (ok(sid, me, intent, { worker: null }));
   }
   if (named === "address" && !composeFacts.items.some((item) => /寄样资料未齐/.test(item))) {
     const card = attachComposeLoopCard({
@@ -2443,7 +2447,7 @@ async function applyNamedMailGates(
       recommended_actions: ["联系仓储人工确认出库"],
     }, composeFacts, { handle: String(col?.handle || intent.handle || "") });
     (await addMsg(sid, "assistant", "task_result_card", card));
-    return (await ok(sid, me, intent, { worker: null }));
+    return (ok(sid, me, intent, { worker: null }));
   }
   return null;
 }
@@ -2453,8 +2457,8 @@ async function applyNamedMailGates(
  * `requires` 未满足即不出结果（与 mail.prepare 的 needs_context 同口径），`prefers` 未满足不阻塞。
  */
 export async function workerRunContext(skill: string, extra: Json, text: string): Promise<ContextResolution | null> {
-  if (!taskDefinition(skill)?.context) return null;
-  return (await resolveContext({ skillId: skill, body: extra, text }));
+  if (!(await taskDefinition(skill))?.context) return null;
+  return (resolveContext({ skillId: skill, body: extra, text }));
 }
 
 export async function contextGapResponse(sid: string, me: Json, intent: Intent, gap: ContextResolution): Promise<Json> {
@@ -2483,7 +2487,7 @@ export async function contextGapResponse(sid: string, me: Json, intent: Intent, 
     message: `${missing.map((entry) => `${entry.reason}（${entry.key}）`).join("；")}。本次未起箱。`,
     context_gap: contextGap,
   }));
-  return (await ok(sid, me, intent, { worker: null, context_gap: contextGap }));
+  return (ok(sid, me, intent, { worker: null, context_gap: contextGap }));
 }
 
 const CONNECTOR_GAP_CODE = "runtime_connector_unmounted";
@@ -2493,8 +2497,8 @@ const CONNECTOR_GAP_CODE = "runtime_connector_unmounted";
  * （DESIGN §16）。标题走 error_card 的 `status` 字段（前端 errorTitle 直接用可读文案，
  * 不会把机器码渲染给员工），技能名取登记标题，不出现 MCP、连接器 id、工具别名或技能 id（§15）。
  */
-function connectorGapCopy(skill: string, kind: "unmounted" | "unavailable"): { status: string; message: string; next_action: string } {
-  const title = taskDefinition(skill)?.title || "该技能";
+async function connectorGapCopy(skill: string, kind: "unmounted" | "unavailable"): Promise<Awaited<{ status: string; message: string; next_action: string }>> {
+  const title = (await taskDefinition(skill))?.title || "该技能";
   return kind === "unmounted"
     ? {
         status: "数据连接尚未接通",
@@ -2510,7 +2514,7 @@ function connectorGapCopy(skill: string, kind: "unmounted" | "unavailable"): { s
 
 async function connectorGapResult(sid: string, me: Json, intent: Intent, skill: string,
   input: { code: string; connectorIds: string[]; kind: "unmounted" | "unavailable" }): Promise<Json> {
-  const copy = connectorGapCopy(skill, input.kind);
+  const copy = (await connectorGapCopy(skill, input.kind));
   const connectorGap = { code: input.code, skill_id: skill, connectors: input.connectorIds };
   (await addMsg(sid, "assistant", "error_card", {
     code: input.code,
@@ -2519,7 +2523,7 @@ async function connectorGapResult(sid: string, me: Json, intent: Intent, skill: 
     next_action: copy.next_action,
     persistent: true,
   }));
-  return (await ok(sid, me, intent, {
+  return (ok(sid, me, intent, {
     worker: null,
     connector_gap: connectorGap,
     // 带上 error：绑定任务/运行按失败收尾，不记成已完成（run 与任务都到终态）。
@@ -2545,7 +2549,7 @@ export async function connectorGapResponse(sid: string, me: Json, intent: Intent
       reason: gap.reason,
     }));
   }
-  return (await connectorGapResult(sid, me, intent, skill, {
+  return (connectorGapResult(sid, me, intent, skill, {
     code: CONNECTOR_GAP_CODE,
     connectorIds: gaps.map((gap) => gap.connector_id),
     kind: "unmounted",
@@ -2559,7 +2563,7 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
       : {};
     const amount = expenseFactsFromWorkerItem(entities).amount;
     if (!Number.isFinite(amount) || Number(amount) <= 0) {
-      return (await handleExpenseApproval(sid, me, intent, text));
+      return (handleExpenseApproval(sid, me, intent, text));
     }
   }
   const extracted = (await extractTaskEntities(text));
@@ -2691,7 +2695,7 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
   };
   const skill = String(intent.skill || intent.type || "creator_discovery");
   const context = (await workerRunContext(skill, extra, text));
-  if (context && context.status !== "ready") return (await contextGapResponse(sid, me, intent, context));
+  if (context && context.status !== "ready") return (contextGapResponse(sid, me, intent, context));
   if (context) extra.context_resolution = context;
   const connectorGap = (await connectorGapResponse(sid, me, intent, skill));
   if (connectorGap) return connectorGap;
@@ -2723,7 +2727,7 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
       const draft = (await persistDraft(sid, item));
       (await addMsg(sid, "assistant", "email_card", (await emailCardPayload(draft))));
       (await syncDraftArtifacts(String(draft.id)));
-      return { ...(await ok(sid, me, intent, { worker: mapped.worker, draft, items: mapped.items })), worker: mapped.worker };
+      return { ...(ok(sid, me, intent, { worker: mapped.worker, draft, items: mapped.items })), worker: mapped.worker };
     }
     if (!mapped.draft && mailTemplate && !hasComposeDraftOutput(wr.items)) {
       const compiled = compileMailDraft(mailTemplate, knowledgeFillValues(intent, col));
@@ -2735,18 +2739,18 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
         && compiled.missing.length === 0
         && !unfilledComposeSlots(mailTemplate, knowledgeFillValues(intent, col))
       ) {
-        return { ...(await persistKnowledgeDraft(sid, me, intent, col, mailTemplate)), worker: mapped.worker };
+        return { ...(persistKnowledgeDraft(sid, me, intent, col, mailTemplate)), worker: mapped.worker };
       }
     }
     return mapped;
   } catch (e) {
     if (e instanceof BudgetBlocked) {
-      if (intent.type === "business_approval" && !(intent.extras?.entities as Json | undefined)?.review_draft_only) return (await handleExpenseApproval(sid, me, intent, text));
-      return (await unavailableOk(sid, me, intent, e));
+      if (intent.type === "business_approval" && !(intent.extras?.entities as Json | undefined)?.review_draft_only) return (handleExpenseApproval(sid, me, intent, text));
+      return (unavailableOk(sid, me, intent, e));
     }
     if (e instanceof CodexUnavailable) {
-      if (intent.type === "business_approval" && !(intent.extras?.entities as Json | undefined)?.review_draft_only) return (await handleExpenseApproval(sid, me, intent, text));
-      return (await unavailableOk(sid, me, intent, e));
+      if (intent.type === "business_approval" && !(intent.extras?.entities as Json | undefined)?.review_draft_only) return (handleExpenseApproval(sid, me, intent, text));
+      return (unavailableOk(sid, me, intent, e));
     }
     if (e instanceof HttpFail) {
       const detail = e.detail && typeof e.detail === "object" ? e.detail as Json : {};
@@ -2759,7 +2763,7 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
           connector_id: connectorId || null,
           reason: code,
         }));
-        return (await connectorGapResult(sid, me, intent, skill, {
+        return (connectorGapResult(sid, me, intent, skill, {
           code,
           connectorIds: connectorId ? [connectorId] : [],
           kind: "unavailable",
@@ -2916,7 +2920,7 @@ async function persistKnowledgeDraft(
   };
   const draft = (await persistDraft(sid, item));
   (await addMsg(sid, "assistant", "email_card", (await emailCardPayload(draft))));
-  return (await ok(sid, me, intent, { worker: null, draft }));
+  return (ok(sid, me, intent, { worker: null, draft }));
 }
 
 function isApprovalPathLookup(text: string): boolean {
@@ -2983,7 +2987,7 @@ async function presentExpenseApproval(sid: string, me: Json, intent: Intent, app
     approval_id: approval.id,
     chain_id: approval.chain_id,
   }));
-  return (await ok(sid, me, intent, { worker: null, approval, approval_plan: payload }));
+  return (ok(sid, me, intent, { worker: null, approval, approval_plan: payload }));
 }
 
 async function handleExpenseApproval(
@@ -3019,11 +3023,11 @@ async function handleExpenseApproval(
   if (!Number.isFinite(parsed.amount) || parsed.amount <= 0) {
     if (isApprovalPathLookup(text)) {
       const stored = (await latestExpenseApproval(parsed.requester_name));
-      if (stored) return (await presentExpenseApproval(sid, me, intent, stored, true));
+      if (stored) return (presentExpenseApproval(sid, me, intent, stored, true));
       (await addMsg(sid, "assistant", "assistant", {
         text: "还没有已提交的费用审批。请先说明申请人、金额和币种。",
       }));
-      return (await ok(sid, me, intent, { worker: null }));
+      return (ok(sid, me, intent, { worker: null }));
     }
     (await addMsg(sid, "assistant", "supplement_card", {
       intent: "business_approval",
@@ -3034,7 +3038,7 @@ async function handleExpenseApproval(
       ],
       message: "请补上这次申请的金额和币种，例如 50000 美元。审批人不用填，系统按规则计算。",
     }));
-    return (await ok(sid, me, intent, { worker: null }));
+    return (ok(sid, me, intent, { worker: null }));
   }
   const cited = tryCitedApprovalPlan({ ...entities, ...workerItem }, parsed);
   const requireCitations = source === "worker" && codexMode() !== "stub";
@@ -3048,7 +3052,7 @@ async function handleExpenseApproval(
       ],
       message: "没有查到可引用的现行中间价或费用档。请补上制度公布页，或让我用网络搜索再查一次。审批人不用填。",
     }));
-    return (await ok(sid, me, intent, { worker: null, approval_plan: { blocked: { code: "missing_search_citation" } } }));
+    return (ok(sid, me, intent, { worker: null, approval_plan: { blocked: { code: "missing_search_citation" } } }));
   }
   const plan = cited || calculateApprovalPlan(parsed);
   if (plan.blocked) {
@@ -3057,7 +3061,7 @@ async function handleExpenseApproval(
       message: plan.explanation,
       policy_id: plan.policy_id,
     }));
-    return (await ok(sid, me, intent, { worker: null, approval_plan: plan }));
+    return (ok(sid, me, intent, { worker: null, approval_plan: plan }));
   }
   const approval = (await createWorkApproval({
     kind: "expense",
@@ -3077,7 +3081,7 @@ async function handleExpenseApproval(
       message: plan.explanation || "规则引擎没有算出可执行的审批链。",
       policy_id: plan.policy_id,
     }));
-    return (await ok(sid, me, intent, { worker: null, approval_plan: plan }));
+    return (ok(sid, me, intent, { worker: null, approval_plan: plan }));
   }
   (await audit("host", "expense.approval.created", {
     approval_id: approval.id,
@@ -3085,7 +3089,7 @@ async function handleExpenseApproval(
     rule_id: plan.rule_id,
     requester_id: plan.requester_id,
   }));
-  return (await presentExpenseApproval(sid, me, intent, approval, false));
+  return (presentExpenseApproval(sid, me, intent, approval, false));
 }
 
 async function applyKnowledge(
@@ -3099,7 +3103,7 @@ async function applyKnowledge(
   if (!knowledgeId) return null;
   const template = (await assertUsableKnowledge(knowledgeId));
   if (template.kind !== "mail_template") {
-    return (await runWorkerFlow(sid, me, intent, col, text));
+    return (runWorkerFlow(sid, me, intent, col, text));
   }
   const entities = (await extractTaskEntities(text));
   intent.type = template.skill_id || "email_compose";
@@ -3130,14 +3134,14 @@ async function applyKnowledge(
     && filled.missing.length === 0
     && !unfilledComposeSlots(template, knowledgeFillValues(intent, col))
   ) {
-    return { ...(await persistKnowledgeDraft(sid, me, intent, col, template)), worker: wr.worker };
+    return { ...(persistKnowledgeDraft(sid, me, intent, col, template)), worker: wr.worker };
   }
   return wr;
 }
 
 async function dispatch(sid: string, me: Json, intent: Intent, col: Row | null, text: string): Promise<Json> {
   if (intent.extras?.result_revise) {
-    return (await applyResultRevision(sid, me, intent, text));
+    return (applyResultRevision(sid, me, intent, text));
   }
   if (intent.extras?.knowledge_id) {
     const templated = await applyKnowledge(sid, me, intent, col, text);
@@ -3147,9 +3151,9 @@ async function dispatch(sid: string, me: Json, intent: Intent, col: Row | null, 
     (await addMsg(sid, "assistant", "assistant", {
       text: "可以说「写合作邮件」「记状态」「回复分析」或「发现达人」。",
     }));
-    return (await ok(sid, me, intent));
+    return (ok(sid, me, intent));
   }
-  return (await runWorkerFlow(sid, me, intent, col, text));
+  return (runWorkerFlow(sid, me, intent, col, text));
 }
 
 type HumanSkipRecord = {
@@ -3175,11 +3179,11 @@ function humanSkipRecord(
 
 async function persistHumanSkip(collaborationId: string, skip: HumanSkipRecord | null, clearIfAbsent: boolean): Promise<void> {
   if (skip) {
-    (await postgresPool().query("UPDATE collaborations SET last_skip_kind=$1, last_skip_reason=$2, last_skipped_stages=$3 WHERE id=$4", [skip.skip_kind, skip.skip_reason, JSON.stringify(skip.skipped_stages), collaborationId]));
+    (await postgresConnection().query("UPDATE collaborations SET last_skip_kind=$1, last_skip_reason=$2, last_skipped_stages=$3 WHERE id=$4", [skip.skip_kind, skip.skip_reason, JSON.stringify(skip.skipped_stages), collaborationId]));
     return;
   }
   if (!clearIfAbsent) return;
-  (await postgresPool().query("UPDATE collaborations SET last_skip_kind=NULL, last_skip_reason=NULL, last_skipped_stages=NULL WHERE id=$1", [collaborationId]));
+  (await postgresConnection().query("UPDATE collaborations SET last_skip_kind=NULL, last_skip_reason=NULL, last_skipped_stages=NULL WHERE id=$1", [collaborationId]));
 }
 
 export async function hostConfirmStage(
@@ -3360,7 +3364,7 @@ export async function hostConfirmStage(
     remote_stage_code: toLegacyStarryStage(target),
   }));
   (await syncSessionStageCopy(String(col.id), target, String(metadata.session_id || ""), skip));
-  void import("./kol-journey.js").then(async (mod) => (await mod.publishJourneyForCollaboration(String(col.id))));
+  void import("./kol-journey.js").then(async (mod) => (mod.publishJourneyForCollaboration(String(col.id))));
   return {
     ...result,
     expected_version: ver,
@@ -3385,21 +3389,21 @@ export async function syncSessionStageCopy(
   extraSessionId = "",
   skip: HumanSkipRecord | null = null,
 ): Promise<void> {
-  const col = (await postgresPool().query("SELECT handle, display_name FROM collaborations WHERE id=$1", [collaborationId])).rows[0] as Row | undefined;
+  const col = (await postgresConnection().query("SELECT handle, display_name FROM collaborations WHERE id=$1", [collaborationId])).rows[0] as Row | undefined;
   if (!col) return;
   const official = label(stageCode);
   const headline = stageHeadline(stageCode);
   const title = `${col.display_name || col.handle} · ${official}`;
   const now = nowIso();
-  const sessions = (await postgresPool().query("SELECT id FROM sessions WHERE collaboration_id=$1 AND deleted_at IS NULL AND archived_at IS NULL", [collaborationId])).rows as { id: string }[];
+  const sessions = (await postgresConnection().query("SELECT id FROM sessions WHERE collaboration_id=$1 AND deleted_at IS NULL AND archived_at IS NULL", [collaborationId])).rows as { id: string }[];
   const extra = String(extraSessionId || "").trim();
   if (extra && !sessions.some((session) => session.id === extra)) {
-    (await postgresPool().query("UPDATE sessions SET collaboration_id=$1, title=$2, updated_at=$3 WHERE id=$4", [collaborationId, title, now, extra]));
+    (await postgresConnection().query("UPDATE sessions SET collaboration_id=$1, title=$2, updated_at=$3 WHERE id=$4", [collaborationId, title, now, extra]));
     sessions.push({ id: extra });
   }
   for (const session of sessions) {
-    (await postgresPool().query("UPDATE sessions SET title=$1, updated_at=$2 WHERE id=$3", [title, now, session.id]));
-    const rows = (await postgresPool().query("SELECT id, payload FROM messages WHERE session_id=$1 AND kind='assistant'", [session.id])).rows as { id: string; payload: string }[];
+    (await postgresConnection().query("UPDATE sessions SET title=$1, updated_at=$2 WHERE id=$3", [title, now, session.id]));
+    const rows = (await postgresConnection().query("SELECT id, payload FROM messages WHERE session_id=$1 AND kind='assistant'", [session.id])).rows as { id: string; payload: string }[];
     for (const row of rows) {
       let payload: Json;
       try {
@@ -3412,9 +3416,9 @@ export async function syncSessionStageCopy(
       const next = text.replace(/当前阶段：[^。]+/, `当前阶段：${headline}`);
       if (next === text) continue;
       payload.text = next;
-      (await postgresPool().query("UPDATE messages SET payload=$1 WHERE id=$2", [JSON.stringify(payload), row.id]));
+      (await postgresConnection().query("UPDATE messages SET payload=$1 WHERE id=$2", [JSON.stringify(payload), row.id]));
     }
-    const cards = (await postgresPool().query("SELECT id, payload FROM messages WHERE session_id=$1 AND kind='confirm_stage_card'", [session.id])).rows as { id: string; payload: string }[];
+    const cards = (await postgresConnection().query("SELECT id, payload FROM messages WHERE session_id=$1 AND kind='confirm_stage_card'", [session.id])).rows as { id: string; payload: string }[];
     for (const row of cards) {
       let payload: Json;
       try {
@@ -3431,7 +3435,7 @@ export async function syncSessionStageCopy(
         payload.skip_reason = skip.skip_reason;
         payload.skipped_stages = skip.skipped_stages;
       }
-      (await postgresPool().query("UPDATE messages SET payload=$1 WHERE id=$2", [JSON.stringify(payload), row.id]));
+      (await postgresConnection().query("UPDATE messages SET payload=$1 WHERE id=$2", [JSON.stringify(payload), row.id]));
     }
   }
 }
@@ -3523,7 +3527,7 @@ export async function hostRejectStage(
   const note = String(reason || "").trim();
   if (!note) throw new HttpFail(400, "驳回必须填写备注");
   const sid = String((await sessionRow(sessionId)).id);
-  const cards = (await postgresPool().query("SELECT id, payload FROM messages WHERE session_id=$1 AND kind='confirm_stage_card' ORDER BY created_at DESC", [sid])).rows as { id: string; payload: string }[];
+  const cards = (await postgresConnection().query("SELECT id, payload FROM messages WHERE session_id=$1 AND kind='confirm_stage_card' ORDER BY created_at DESC", [sid])).rows as { id: string; payload: string }[];
   let touched = 0;
   let colId = String(collaborationId || "");
   for (const row of cards) {
@@ -3540,7 +3544,7 @@ export async function hostRejectStage(
     payload.resolved = true;
     payload.locked = true;
     payload.reject_reason = note;
-    (await postgresPool().query("UPDATE messages SET payload=$1 WHERE id=$2", [JSON.stringify(payload), row.id]));
+    (await postgresConnection().query("UPDATE messages SET payload=$1 WHERE id=$2", [JSON.stringify(payload), row.id]));
     touched += 1;
   }
   const msg = (await addMsg(sid, "assistant", "assistant", {
@@ -3548,7 +3552,7 @@ export async function hostRejectStage(
     rejected: true,
   }));
   if (colId) {
-    void import("./kol-journey.js").then(async (mod) => (await mod.publishJourneyForCollaboration(colId)));
+    void import("./kol-journey.js").then(async (mod) => (mod.publishJourneyForCollaboration(colId)));
   }
   (await audit("host", "host.confirm_stage.rejected", { session_id: sid, collaboration_id: colId || null, reason: note }));
   return {
@@ -3578,7 +3582,7 @@ export async function applyConfirmedStageFromApproval(payload: Json, approvalId:
     },
   ));
   if (!result.waiting_approval && result.collaboration_id) {
-    const col = (await postgresPool().query("SELECT * FROM collaborations WHERE id=$1", [String(result.collaboration_id)])).rows[0] as Row | undefined;
+    const col = (await postgresConnection().query("SELECT * FROM collaborations WHERE id=$1", [String(result.collaboration_id)])).rows[0] as Row | undefined;
     if (col) {
       result.mcp_sync = await syncConfirmedStageToMcp(
         col,
@@ -3611,7 +3615,7 @@ host.post("/collaborations/:id/session", async (c) => {
   const opened = (await openKolSession(c.req.param("id")));
   const cid = c.req.param("id");
   void syncKolSessionMail(String(opened.id), cid)
-    .then(async () => (await journeyPayloadWithMailMemory(cid, { retryFailed: true })))
+    .then(async () => (journeyPayloadWithMailMemory(cid, { retryFailed: true })))
     .then((journey) => {
       if (journey) publishSession(String(opened.id), { type: "journey", journey });
     })
@@ -3645,8 +3649,8 @@ host.get("/sessions", async (c) => {
     // order matches the output projection so the two can be read together.
     const select = "SELECT id, title, archived_at, kind, disabled FROM sessions";
     const rows = (!authDisabled() && user && !all
-      ? (await postgresPool().query(`${select} WHERE owner_user_id=$1 AND deleted_at IS NULL${archivedClause} ORDER BY updated_at DESC`, [user.id])).rows
-      : (await postgresPool().query(`${select} WHERE deleted_at IS NULL${archivedClause} ORDER BY updated_at DESC`, [])).rows) as Row[];
+      ? (await postgresConnection().query(`${select} WHERE owner_user_id=$1 AND deleted_at IS NULL${archivedClause} ORDER BY updated_at DESC`, [user.id])).rows
+      : (await postgresConnection().query(`${select} WHERE deleted_at IS NULL${archivedClause} ORDER BY updated_at DESC`, [])).rows) as Row[];
     const visible = rows.filter((r) => {
       const title = String(r.title || "");
       return !(
@@ -3671,7 +3675,7 @@ host.get("/sessions", async (c) => {
 host.get("/sessions/:sid", async (c) => {
   const s = (await sessionRow(c.req.param("sid")));
   if (s.collaboration_id) {
-    const col = (await postgresPool().query("SELECT * FROM collaborations WHERE id=$1", [String(s.collaboration_id)])).rows[0] as Row | undefined;
+    const col = (await postgresConnection().query("SELECT * FROM collaborations WHERE id=$1", [String(s.collaboration_id)])).rows[0] as Row | undefined;
     if (col) {
       const { restoreOfficialCollaborationStage } = await import("../starrykol/library-sync.js");
       (await restoreOfficialCollaborationStage(col));
@@ -3681,7 +3685,7 @@ host.get("/sessions/:sid", async (c) => {
       void syncKolSessionMail(String(s.id), String(s.collaboration_id), {
         force: c.req.query("force") === "1",
       }).catch(() => 0);
-      const stage = (await postgresPool().query("SELECT stage_code FROM collaborations WHERE id=$1", [String(s.collaboration_id)])).rows[0] as Row | undefined;
+      const stage = (await postgresConnection().query("SELECT stage_code FROM collaborations WHERE id=$1", [String(s.collaboration_id)])).rows[0] as Row | undefined;
       (await syncSessionStageCopy(String(s.collaboration_id), normalizeStage(String(stage?.stage_code || col?.stage_code || ""))));
     }
   }
@@ -3761,7 +3765,7 @@ host.patch("/sessions/:sid", async (c) => {
   const body = (await c.req.json()) as Json;
   const title = String(body.title || "").trim();
   if (!title) throw new HttpFail(400, "title required");
-  (await postgresPool().query("UPDATE sessions SET title=$1,updated_at=$2 WHERE id=$3", [title.slice(0, 120), nowIso(), row.id]));
+  (await postgresConnection().query("UPDATE sessions SET title=$1,updated_at=$2 WHERE id=$3", [title.slice(0, 120), nowIso(), row.id]));
   (await audit(scopedUser()?.id || "demo", "session.rename", { session_id: row.id }));
   return c.json({ ...row, title: title.slice(0, 120) });
 });
@@ -3774,7 +3778,7 @@ async function recognizeBoxOrAsk(
   boundTask: BoundTask | null,
 ): Promise<Intent | null> {
   const locked = boundTask?.taskType
-    || (body.intent && taskDefinition(String(body.intent)) ? String(body.intent) : undefined);
+    || (body.intent && (await taskDefinition(String(body.intent))) ? String(body.intent) : undefined);
   const resolution = await recognizeTaskIntent({
     text,
     agent_id: body.agent_id ? String(body.agent_id) : undefined,
@@ -3888,7 +3892,7 @@ host.post("/sessions/:sid/messages", async (c) => {
   const body = (await c.req.json()) as Json;
   // Explicit task selection is authorized before recognition can return a clarification.
   // An unavailable task must not receive an accepted=true early-return receipt.
-  const explicitSkill = typeof body.intent === "string" && taskDefinition(body.intent) ? body.intent : null;
+  const explicitSkill = typeof body.intent === "string" && (await taskDefinition(body.intent)) ? body.intent : null;
   const explicitActor = scopedUser();
   if (explicitSkill && !authDisabled() && explicitActor && !isAdmin(explicitActor)
     && !explicitActor.authority_skills?.includes(explicitSkill)) {
@@ -3906,7 +3910,7 @@ host.post("/sessions/:sid/messages", async (c) => {
   }
   if (session.expert_id) {
     (await employeeExpert(String(session.expert_id)));
-    const agentId = agentForExpert(String(session.expert_id));
+    const agentId = (await agentForExpert(String(session.expert_id)));
     if (body.agent_id && body.agent_id !== agentId) throw new HttpFail(409, "当前会话已绑定其他智能体");
     body.agent_id = agentId;
   }
@@ -3919,7 +3923,7 @@ host.post("/sessions/:sid/messages", async (c) => {
   const attachments = (await sanitizeAttachments(body.attachments));
   const pendingResult = lastUnsentResult((await messages(sid)));
   const lockedIntent = boundTask?.taskType
-    || (body.intent && taskDefinition(String(body.intent)) ? String(body.intent) : undefined);
+    || (body.intent && (await taskDefinition(String(body.intent))) ? String(body.intent) : undefined);
   const me = (await addMsg(sid, "me", "me", { text, grey: true, attachments }));
   if (!workspace && !boundTask && !body.compose_input && /^(?:确认发送(?:原文|邮件)?|发送这封(?:邮件)?|confirm\s+send)[。.!！\s]*$/i.test(text)) {
     (await addMsg(sid, "assistant", "assistant", {
@@ -4025,7 +4029,7 @@ host.post("/sessions/:sid/messages", async (c) => {
       && typeof intent.extras.entities === "object"
       && String((intent.extras.entities as Json).exception_template || "");
     if (!col && exceptionTemplate && codexMode() === "stub" && authDisabled()) {
-      col = (await postgresPool().query("SELECT * FROM collaborations WHERE stage_code IN ('PAUSED','DISPUTED','LOST','REJECTED','CANCELLED') ORDER BY id LIMIT 1", [])).rows[0] as Row | undefined || null;
+      col = (await postgresConnection().query("SELECT * FROM collaborations WHERE stage_code IN ('PAUSED','DISPUTED','LOST','REJECTED','CANCELLED') ORDER BY id LIMIT 1", [])).rows[0] as Row | undefined || null;
     }
     if (col) {
       intent.collaboration_id = String(col.id);
@@ -4119,7 +4123,7 @@ host.post("/sessions/:sid/messages", async (c) => {
 async function dropOwnMe(me: Json): Promise<void> {
   const age = Date.now() - Date.parse(String(me.created_at || ""));
   if (!Number.isFinite(age) || age > 2000) return;
-  (await postgresPool().query("DELETE FROM messages WHERE id=$1", [me.id]));
+  (await postgresConnection().query("DELETE FROM messages WHERE id=$1", [me.id]));
 }
 
 host.post("/sessions/:sid/stop", async (c) => {
@@ -4174,7 +4178,7 @@ export const sendMailDraft: Operation["handle"] = async (c, payload) => {
       }
       const msg = (await addMsg(String(d.session_id), "assistant", "error_card", { ...error.asDict(), draft_id: did, persistent: true }));
       (await audit("host", "host.send.fail", { draft_id: did, status: error.status, called_stage: false }));
-      recordFailedSession({ reason: error.status, code: error.status, draft_id: did, message: error.message }, String(d.session_id));
+      (await recordFailedSession({ reason: error.status, code: error.status, draft_id: did, message: error.message }, String(d.session_id)));
       (await syncEmailCard(did));
       throw new HttpFail(error.http, { ...error.asDict(), toast_success: false, draft: (await emailCardPayload((await getDraft(did)))), message_id: msg.id });
     }
@@ -4210,7 +4214,7 @@ export const sendMailDraft: Operation["handle"] = async (c, payload) => {
   (await syncEmailCard(did));
   const sentExtra = typeof d.extra === "object" && d.extra ? d.extra as Json : {};
   (await audit("host", "host.send", { draft_id: did, request_id: input.request_id, called_stage: false, knowledge_id: sentExtra.knowledge_id || null, knowledge_version: sentExtra.knowledge_version || null }));
-  const col = d.collaboration_id ? (await postgresPool().query("SELECT * FROM collaborations WHERE id=$1", [d.collaboration_id])).rows[0] as Row | undefined : undefined;
+  const col = d.collaboration_id ? (await postgresConnection().query("SELECT * FROM collaborations WHERE id=$1", [d.collaboration_id])).rows[0] as Row | undefined : undefined;
   const stageNow = col?.stage_code as string | undefined;
   const msg = (await addMsg(String(d.session_id), "assistant", "assistant", {
     text: `已发送原文。正式阶段仍是 ${stageNow ? label(stageNow) : "不变"}（发送 ≠ 改阶段）。`,
@@ -4220,7 +4224,7 @@ export const sendMailDraft: Operation["handle"] = async (c, payload) => {
     void rememberOutboundAndRefreshDigest({
       collaborationId: String(col.id), sessionId: String(d.session_id), subject: String(d.subject || ""), body: String(d.body_en || ""),
       from: String(d.from_addr || ""), to: String(d.to_addr || ""), conversationId: String(col.conversation_id || ""), providerMessageId: String(d.id),
-    }).catch(async () => (await audit("host", "host.send.digest_pending", { draft_id: did })));
+    }).catch(async () => (audit("host", "host.send.digest_pending", { draft_id: did })));
   }
   return c.json({ ok: true, status: "sent", result, official_stage: stageNow, stage_changed: false, toast_success: false, message: msg, keep_stage: true });
 };
@@ -4340,7 +4344,7 @@ host.post("/drafts/:did/confirm-stage", async (c) => {
     { ...body, session_id: d.session_id },
   ));
   if (!result.waiting_approval && result.collaboration_id) {
-    const col = (await postgresPool().query("SELECT * FROM collaborations WHERE id=$1", [String(result.collaboration_id)])).rows[0] as Row | undefined;
+    const col = (await postgresConnection().query("SELECT * FROM collaborations WHERE id=$1", [String(result.collaboration_id)])).rows[0] as Row | undefined;
     if (col) {
       result.mcp_sync = await syncConfirmedStageToMcp(
         col,
@@ -4391,7 +4395,7 @@ host.post("/collaborations/:cid/confirm-stage", async (c) => {
     body,
   ));
   if (!result.waiting_approval && result.collaboration_id) {
-    const col = (await postgresPool().query("SELECT * FROM collaborations WHERE id=$1", [String(result.collaboration_id)])).rows[0] as Row | undefined;
+    const col = (await postgresConnection().query("SELECT * FROM collaborations WHERE id=$1", [String(result.collaboration_id)])).rows[0] as Row | undefined;
     if (col) {
       result.mcp_sync = await syncConfirmedStageToMcp(
         col,
@@ -4422,7 +4426,7 @@ host.post("/sessions/:sid/confirm-stage", async (c) => {
     { ...body, session_id: sid },
   ));
   if (!result.waiting_approval && result.collaboration_id) {
-    const col = (await postgresPool().query("SELECT * FROM collaborations WHERE id=$1", [String(result.collaboration_id)])).rows[0] as Row | undefined;
+    const col = (await postgresConnection().query("SELECT * FROM collaborations WHERE id=$1", [String(result.collaboration_id)])).rows[0] as Row | undefined;
     if (col) {
       result.mcp_sync = await syncConfirmedStageToMcp(
         col,
@@ -4449,7 +4453,7 @@ host.post("/sessions/:sid/confirm-stage", async (c) => {
 });
 
 async function inboundRow(iid: string): Promise<Row> {
-  const inbound = (await postgresPool().query("SELECT * FROM inbound WHERE id = $1", [iid])).rows[0] as Row | undefined;
+  const inbound = (await postgresConnection().query("SELECT * FROM inbound WHERE id = $1", [iid])).rows[0] as Row | undefined;
   if (!inbound) throw new HttpFail(404, "Not Found");
   return inbound;
 }
@@ -4484,7 +4488,7 @@ host.get("/inbound", async (c) => {
     where.push(`(ts < $${params.length + 1} OR (ts = $${params.length + 2} AND id < $${params.length + 3}))`);
     params.push(cursor.ts, cursor.ts, cursor.id);
   }
-  const rows = (await postgresPool().query(`SELECT * FROM inbound WHERE ${where.join(" AND ")} ORDER BY ts DESC, id DESC LIMIT $${params.length + 1}`, [...params, limit + 1])).rows as Row[];
+  const rows = (await postgresConnection().query(`SELECT * FROM inbound WHERE ${where.join(" AND ")} ORDER BY ts DESC, id DESC LIMIT $${params.length + 1}`, [...params, limit + 1])).rows as Row[];
   const hasMore = rows.length > limit;
   const items = hasMore ? rows.slice(0, limit) : rows;
   const last = items[items.length - 1];
@@ -4541,7 +4545,7 @@ host.post("/inbound/:iid/create", async (c) => {
         lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue, stage_version, locked)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, [cid, handle, handle, "LT", "inbound", "", "", BRAND_MAILBOXES.LT, `lc_${cid}`, `conv_${cid}`, "INITIAL_CONTACT", 0, "from inbound", 0, 0, 0]));
   }));
-  const inbound = (await postgresPool().query("SELECT * FROM inbound WHERE id = $1", [iid])).rows[0] as Row | undefined;
+  const inbound = (await postgresConnection().query("SELECT * FROM inbound WHERE id = $1", [iid])).rows[0] as Row | undefined;
   if (!inbound) throw new HttpFail(404, "Not Found");
   const sid = inbound.session_id as string | undefined;
   (await postgresTransaction(async (db) => {

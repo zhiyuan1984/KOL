@@ -131,7 +131,7 @@ function unitLevels(units: RegistryUnit[]): Map<string, number> {
   return levels;
 }
 
-async function upsertRegistry(client: Parameters<typeof postgresTransaction>[0] extends (client: infer T) => Promise<unknown> ? T : never, registry: OrgRegistry): Promise<void> {
+async function upsertRegistry(client: PoolClient, registry: OrgRegistry): Promise<void> {
   const company = String((registry.companies || [])[0]?.id || "");
   if (!company) throw new Error("org registry has no company");
   const units = (registry.organization_units || []).filter((unit) => typeof unit?.id === "string");
@@ -212,7 +212,7 @@ async function upsertRegistry(client: Parameters<typeof postgresTransaction>[0] 
 export async function ensureOrganizationTree(): Promise<void> {
   const database = String(process.env.DATABASE_URL || "");
   if (initializedFor === database) return;
-  if (!initialization) initialization = (await postgresTransaction(async (client) => {
+  if (!initialization) initialization = (postgresTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [SEED_KEY]);
     const existing = (await client.query("SELECT 1 FROM app_state WHERE key=$1 FOR UPDATE", [SEED_KEY])).rows[0];
     if (!existing) {
@@ -225,7 +225,7 @@ export async function ensureOrganizationTree(): Promise<void> {
 }
 /** Explicit administrative re-import. This is idempotent and uses the migrated schema; it never issues DDL. */
 export async function reseedOrganizationTreeFromRegistry(): Promise<void> {
-  await postgresTransaction(async (client) => (await upsertRegistry(client, readRegistry())), { isolation: "SERIALIZABLE" });
+  await postgresTransaction(async (client) => (upsertRegistry(client, readRegistry())), { isolation: "SERIALIZABLE" });
 }
 
 export async function listOrganizationUnits(companyId?: string): Promise<OrganizationUnitRow[]> {
@@ -269,7 +269,7 @@ export async function currentOrgVersion(companyId: string): Promise<number> {
 /** Fact versions are incremented in one native transaction under a company advisory lock. */
 export async function bumpOrgVersion(companyId: string, note: string, source = "admin"): Promise<number> {
   await ensureOrganizationTree();
-  return postgresTransaction(async (client) => (await pgBumpOrgVersion(client, companyId, note, source, nowIso())), { isolation: "SERIALIZABLE" });
+  return postgresTransaction(async (client) => (pgBumpOrgVersion(client, companyId, note, source, nowIso())), { isolation: "SERIALIZABLE" });
 }
 
 function ascendants(units: OrganizationUnitRow[], unitId: string): OrganizationUnitRow[] {
@@ -442,7 +442,7 @@ export async function previewAgentBinding(agentId: string, change: AgentBindingC
   return previewAgentBindingFromBasis(
     agentId, change, current, source,
     async (userId) => (await postgresQuery("SELECT 1 FROM users WHERE id=$1", [userId])).length > 0,
-    async (personRef, companyId) => (await simulatePersonFromSite(personRef, companyId)),
+    async (personRef, companyId) => (simulatePersonFromSite(personRef, companyId)),
   );
 }
 
@@ -538,7 +538,7 @@ async function previewBulkFromTransaction(
   return previewAgentBindingFromBasis(
     agentId, change, bindings, coverage,
     async (userId) => (await client.query("SELECT 1 FROM users WHERE id=$1", [userId])).rowCount > 0,
-    async (personRef, companyId) => (await simulatePersonFromSite(personRef, companyId, client)),
+    async (personRef, companyId) => (simulatePersonFromSite(personRef, companyId, client)),
   );
 }
 
@@ -625,7 +625,7 @@ export async function canUseAgent(userId: string | null | undefined, agentId: st
 export async function syncUserOrganization(userId: string, unitId: string | null | undefined): Promise<string> {
   await ensureOrganizationTree();
   await pgSyncOrganizationMembership(userId, unitId || null, nowIso());
-  return (await pgPersonRefForUser(userId)) || `${USER_PERSON_PREFIX}${userId}`;
+  return ((await pgPersonRefForUser(userId))) || `${USER_PERSON_PREFIX}${userId}`;
 }
 export async function canUseSkill(userId: string | null | undefined, skillId: string): Promise<boolean> {
   if (!userId) return false;
@@ -656,3 +656,5 @@ export async function leaderScopeForUser(userId: string | null | undefined): Pro
   if (!memberUserIds.includes(userId)) memberUserIds.push(userId);
   return { isLeader: true, unitIds: [...unitIds], memberUserIds };
 }
+
+export { pgPersonRefForUser as personRefForUser };

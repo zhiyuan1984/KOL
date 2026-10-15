@@ -67,7 +67,7 @@ export function createRunTraceSink(input: { workItemId: string; runId: string | 
   let narrative = "";
   let narrativeStatus = "running";
   let traceDirty = false;
-  let traceHandle: ReturnType<typeof setTimeout> | null = null;
+  let traceHandle: Awaited<ReturnType<typeof setTimeout>> | null = null;
   /** Only changed rows are written: a flush re-walks every item. */
   const written = new Map<string, string>();
   const writeRow = async (

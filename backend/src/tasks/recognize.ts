@@ -133,10 +133,10 @@ export async function recognizeTaskIntent(input: {
   input?: Record<string, unknown>;
 }): Promise<TaskRecognition> {
   if (scopedUser() && !currentAgentRoutes()) {
-    return withAgentRoutes(await availableKnowledgeAgentRoutes(input.agent_id), async () => (await recognizeTaskIntent(input)), input.agent_id);
+    return withAgentRoutes(await availableKnowledgeAgentRoutes(input.agent_id), async () => (recognizeTaskIntent(input)), input.agent_id);
   }
   const text = String(input.text || "").trim();
-  let lockedType = input.task_type && taskDefinition(String(input.task_type))
+  let lockedType = input.task_type && (await taskDefinition(String(input.task_type)))
     ? String(input.task_type)
     : "";
   if (!text && !lockedType) {
@@ -189,7 +189,7 @@ export async function recognizeTaskIntent(input: {
     };
   }
 
-  const taskType = lockedType || (verdict?.task_type && taskDefinition(verdict.task_type) ? verdict.task_type : null);
+  const taskType = lockedType || (verdict?.task_type && (await taskDefinition(verdict.task_type)) ? verdict.task_type : null);
   const routes = currentAgentRoutes();
   const candidates = routes?.filter(route => route.task_type === taskType);
   const selectedId = input.agent_id || verdict?.agent_id;

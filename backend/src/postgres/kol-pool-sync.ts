@@ -1,3 +1,4 @@
+import { postgresConnection } from "./pool.js";
 import { nid } from "../ids.js";
 import { firstString, listOf } from "../starrykol/mail-fields.js";
 import { pageKolProfiles } from "../host/starry-connectors.js";
@@ -38,15 +39,15 @@ function mapProfile(p: Json, version: string): Record<string, unknown> {
 }
 async function mark(runId: string, status: "succeeded" | "failed", fields: { count?: number; pages?: number; error?: string; expected?: number; }): Promise<void> {
   const finished = now();
-  await postgresPool().query(`UPDATE kol_pool_sync_runs SET status=$1,expected_count=COALESCE($2,expected_count),fetched_count=$3,upserted_count=$3,page_count=$4,completed_at=$5,error=$6 WHERE id=$7`,
+  await postgresConnection().query(`UPDATE kol_pool_sync_runs SET status=$1,expected_count=COALESCE($2,expected_count),fetched_count=$3,upserted_count=$3,page_count=$4,completed_at=$5,error=$6 WHERE id=$7`,
     [status, fields.expected ?? null, fields.count ?? 0, fields.pages ?? 0, finished, fields.error?.slice(0, 1000) || null, runId]);
 }
 /** Full snapshot: remote data is collected and validated before any local cache mutation. */
 export async function syncKolProfileIndexPostgres(pageSize = DEFAULT_PAGE_SIZE): Promise<SyncResult> {
   const size = Math.min(MAX_PAGE_SIZE, Math.max(1, Math.floor(pageSize)));
   const runId = nid("kpsr"); const version = now(); const company = companyId();
-  await postgresPool().query(`INSERT INTO kol_pool_sync_runs(id,company_id,status,source_version,started_at,created_at) VALUES($1,$2,running,$3,$3,$3)`, [runId, company, version]);
-  await postgresPool().query(`INSERT INTO starry_ownership_sync_state(company_id,state,source_version,profile_count,error,updated_at,last_attempt_at,last_run_id) VALUES($1,failed,$2,0,NULL,$2,$2,$3) ON CONFLICT(company_id) DO UPDATE SET last_attempt_at=$2,last_run_id=$3`, [company, version, runId]);
+  await postgresConnection().query(`INSERT INTO kol_pool_sync_runs(id,company_id,status,source_version,started_at,created_at) VALUES($1,$2,running,$3,$3,$3)`, [runId, company, version]);
+  await postgresConnection().query(`INSERT INTO starry_ownership_sync_state(company_id,state,source_version,profile_count,error,updated_at,last_attempt_at,last_run_id) VALUES($1,failed,$2,0,NULL,$2,$2,$3) ON CONFLICT(company_id) DO UPDATE SET last_attempt_at=$2,last_run_id=$3`, [company, version, runId]);
   const profiles: Json[] = []; const seen = new Set<string>(); let expected: number | null = null; let pages = 0;
   try {
     for (;;) {
@@ -92,7 +93,7 @@ export async function syncKolProfileIndexPostgres(pageSize = DEFAULT_PAGE_SIZE):
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await mark(runId, "failed", { count: profiles.length, pages, expected: expected ?? undefined, error: message });
-    await postgresPool().query(`UPDATE starry_ownership_sync_state SET state=failed,error=$1,last_attempt_at=$2,last_run_id=$3 WHERE company_id=$4`, [message.slice(0, 1000), now(), runId, company]);
+    await postgresConnection().query(`UPDATE starry_ownership_sync_state SET state=failed,error=$1,last_attempt_at=$2,last_run_id=$3 WHERE company_id=$4`, [message.slice(0, 1000), now(), runId, company]);
     return { ok: false, run_id: runId, count: profiles.length, pages, expected_count: expected ?? 0, error: message };
   }
 }

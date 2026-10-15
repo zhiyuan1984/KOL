@@ -59,8 +59,8 @@ it("does not infer approval from handling when another approval remains", () => 
   i.tasks = [{ nodeId: "old", userId: "reviewer", duty: "review", status: "approved", round: 1 }];
   expect(reviewProgress(i).approval).toBe("pending");
 });
-it("keeps the AI draft output compatible with the real Codex strict schema", () => {
-  const definition = requireTaskDefinition("business_approval");
+it("keeps the AI draft output compatible with the real Codex strict schema", async () => {
+  const definition = (await requireTaskDefinition("business_approval"));
   const schema = withNarrative(skillOutputSchema("business_approval", definition));
   const visit = (value: any) => {
     if (!value || typeof value !== "object") return;

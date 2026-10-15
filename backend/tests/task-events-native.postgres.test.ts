@@ -29,7 +29,7 @@ describe("native PostgreSQL task events", () => {
   it("serializes concurrent appends into gap-free per-ticket sequence facts", async () => {
     const run = await seed("evt-native-main");
     const events = await Promise.all(Array.from({ length: 20 }, async (_, index) =>
-      (await appendTaskEvent("evt-native-main", run, "run.progress", `步骤 ${index}`, "running", `trace-${index}`)),
+      (appendTaskEvent("evt-native-main", run, "run.progress", `步骤 ${index}`, "running", `trace-${index}`)),
     ));
     expect(events.every(Boolean)).toBe(true);
     const rows = await postgresPool().query<{ sequence: number; event_type: string }>(

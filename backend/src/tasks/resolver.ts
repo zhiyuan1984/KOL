@@ -304,12 +304,12 @@ function matchStarryKolIntent(text: string, entities: Record<string, unknown> = 
   return null;
 }
 
-function defaultClarificationAlternatives(text: string): { task_type: string; title: string; confidence: number }[] {
+async function defaultClarificationAlternatives(text: string): Promise<Awaited<{ task_type: string; title: string; confidence: number }[]>> {
   const ids = /(邮件|邮箱|发件|收件|nylas)/i.test(text)
     ? ["email_mailbox_list", "email_conversation_list", "email_compose"]
     : ["creator_lifecycle_kanban", "reply_analysis", "risk_scan"];
-  return ids
-    .map((id) => taskDefinition(id))
+  return (await Promise.all(ids
+    .map((id) => taskDefinition(id))))
     .filter((definition): definition is TaskDefinition => Boolean(definition))
     .map((definition) => ({
       task_type: definition.id,
@@ -318,13 +318,13 @@ function defaultClarificationAlternatives(text: string): { task_type: string; ti
     }));
 }
 
-function lockedResolution(
+async function lockedResolution(
   taskType: string,
   entities: Record<string, unknown>,
   supplied: Record<string, unknown>,
   text = "",
-): TaskResolution {
-  const definition = taskDefinition(taskType);
+): Promise<Awaited<TaskResolution>> {
+  const definition = (await taskDefinition(taskType));
   if (!definition) {
     return {
       task_type: null,
@@ -390,7 +390,7 @@ export async function resolveTaskIntent(input: {
     confidence: 0,
     entities,
     missing_fields: [],
-    alternatives: defaultClarificationAlternatives(text),
+    alternatives: (await defaultClarificationAlternatives(text)),
     needs_clarification: true,
     clarification_kind: "direction",
   };
@@ -410,7 +410,7 @@ export async function stubResolveTaskIntent(input: {
 
   const lower = text.toLowerCase();
   if (/(搜索|查找|寻找|发现).*(达人|KOL|创作者)/i.test(text)) {
-    const definition = taskDefinition("creator_discovery");
+    const definition = (await taskDefinition("creator_discovery"));
     if (definition) {
       return {
         task_type: definition.id,
@@ -425,7 +425,7 @@ export async function stubResolveTaskIntent(input: {
   }
   const emailTask = matchStarryKolIntent(text, entities);
   if (emailTask) {
-    const definition = taskDefinition(emailTask);
+    const definition = (await taskDefinition(emailTask));
     if (definition) {
       const missingFields = missing(definition, entities, supplied, text);
       return {
@@ -439,7 +439,7 @@ export async function stubResolveTaskIntent(input: {
       };
     }
   }
-  const scored = taskDefinitions().flatMap((definition) => {
+  const scored = (await taskDefinitions()).flatMap((definition) => {
     const hit = names(definition).find((name) => lower.includes(name.toLowerCase()));
     if (!hit) return [];
     const confidence = hit === definition.id || hit === definition.title ? 0.98 : 0.92;
@@ -455,7 +455,7 @@ export async function stubResolveTaskIntent(input: {
   if (!best || best.confidence < 0.75) {
     const fallbackAlternatives = alternatives.length
       ? alternatives
-      : defaultClarificationAlternatives(text);
+      : (await defaultClarificationAlternatives(text));
     return {
       task_type: null,
       confidence: best?.confidence || 0,

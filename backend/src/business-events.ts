@@ -103,7 +103,7 @@ export async function appendBusinessEvent(
   const conn = options.conn || getConn();
   const id = nid("evt");
   const result = (await conn.query("INSERT INTO business_events\n     (id,event_type,object_type,object_id,occurred_at,received_at,source,source_version,actor_type,actor_id,action_ref,\n      payload,evidence,receipt,diff,idempotency_key,correlation_id,created_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) ON CONFLICT DO NOTHING",[id,input.eventType,input.objectType,input.objectId,input.occurredAt || nowIso(),input.receivedAt || nowIso(),input.source,input.sourceVersion ?? null,input.actorType,input.actorId ?? null,input.actionRef ?? null,JSON.stringify(input.payload ?? {}),JSON.stringify(input.evidence ?? {}),input.receipt === undefined || input.receipt === null ? null : JSON.stringify(input.receipt),input.diff === undefined || input.diff === null ? null : JSON.stringify(input.diff),input.idempotencyKey ?? null,input.correlationId ?? null,nowIso()]));
-  return { id, inserted: result.changes === 1 };
+  return { id, inserted: (result.rowCount ?? 0) === 1 };
 }
 
 export function listBusinessEvents(filters: {

@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
 import type { PoolClient } from "pg";
 import { HttpFail } from "../host/errors.js";
@@ -38,7 +39,7 @@ export async function withCrawlerInstanceKeyLock<T>(instanceKey: string, run: ()
   const client = await postgresPool().connect();
   try {
     await client.query("SELECT pg_advisory_lock(hashtextextended($1,0))", [`crawler:${instanceKey}`]);
-    return await run();
+    return run();
   } finally {
     await client.query("SELECT pg_advisory_unlock(hashtextextended($1,0))", [`crawler:${instanceKey}`]).catch(() => undefined);
     client.release();
@@ -51,7 +52,7 @@ async function hasActiveRuntimeCrawl(instanceKey: string, client?: PoolClient): 
   const sql = `SELECT id FROM runtime_crawl_jobs WHERE instance_key=$1
     AND state IN ${ACTIVE_RUNTIME_STATES} LIMIT 1`;
   const rows = client ? (await client.query(sql, [instanceKey])).rows
-    : (await postgresPool().query(sql, [instanceKey])).rows;
+    : (await postgresConnection().query(sql, [instanceKey])).rows;
   return rows.length > 0;
 }
 
@@ -75,7 +76,7 @@ const CRAWLER_STARTER_MAX_ATTEMPTS = 3;
 const ACTIVE_RUNTIME_STATES = "('starting','running','stopping','uncertain')";
 
 async function queueDepth(instanceKey: string): Promise<number> {
-  const { rows } = await postgresPool().query<{ n: string }>(
+  const { rows } = await postgresConnection().query<{ n: string }>(
     `SELECT COUNT(*)::int AS n FROM runtime_crawl_jobs WHERE instance_key=$1 AND state='queued'`, [instanceKey]);
   return Number(rows[0]?.n || 0);
 }
@@ -84,7 +85,7 @@ async function queueDepth(instanceKey: string): Promise<number> {
 export async function crawlQueuePosition(instanceKey: string, jobId: string): Promise<number> {
   // 字典序等价写法（避免行构造子比较在部分驱动/模拟库中的兼容问题）：
   // created_at 更早，或同毫秒下 id 更小（id 含时间有序前缀），即排在前面。
-  const { rows } = await postgresPool().query<{ n: string }>(
+  const { rows } = await postgresConnection().query<{ n: string }>(
     `SELECT COUNT(*)::int AS n FROM runtime_crawl_jobs q
      WHERE q.instance_key=$1 AND q.state='queued'
        AND (q.created_at < (SELECT created_at FROM runtime_crawl_jobs WHERE id=$2)
@@ -100,7 +101,7 @@ async function validateStart(context: RuntimeContext, args: Json): Promise<void>
 
 /** 后台默认执行器：平台主体走直调通道，员工走 SkillExecution（与既有测试接缝兼容）。 */
 async function defaultToolRuntime(context: RuntimeContext): Promise<SkillExecution | BackgroundToolInvoker> {
-  return isPlatformPrincipal(context.userId) ? (await backgroundToolRuntime(context)) : new SkillExecution(context);
+  return isPlatformPrincipal(context.userId) ? (backgroundToolRuntime(context)) : new SkillExecution(context);
 }
 
 /**
@@ -141,11 +142,11 @@ export async function enqueueSystemCrawl(input: {
   const crawlJobId = `crawl_cron_${input.cronJobId}_${input.cronRunId}`;
   const context = backgroundCrawlContext(`cron:${input.cronJobId}:${input.cronRunId}`);
   const duplicate = await withCrawlerInstanceKeyLock(instanceKey, async () => {
-    const existing = await postgresPool().query("SELECT id FROM runtime_crawl_jobs WHERE id=$1", [crawlJobId]);
+    const existing = await postgresConnection().query("SELECT id FROM runtime_crawl_jobs WHERE id=$1", [crawlJobId]);
     if (existing.rows.length) return true;
     const depth = await queueDepth(instanceKey);
     if (depth >= CRAWLER_QUEUE_MAX_DEPTH) fail("crawl_queue_full");
-    await postgresPool().query(
+    await postgresConnection().query(
       `INSERT INTO runtime_crawl_jobs (id,instance_key,actor_id,context_json,config_version,args_json,state)
        VALUES ($1,$2,$3,$4,$5,$6,'queued')`,
       [crawlJobId, instanceKey, PLATFORM_PRINCIPAL, JSON.stringify(context), configuration.version, JSON.stringify(args)],
@@ -160,7 +161,7 @@ export async function enqueueSystemCrawl(input: {
 async function ownedTask(context: RuntimeContext, args: Json): Promise<Crawl> {
   (await authorizeConnector(context, "claw"));
   if (typeof args.task_id !== "string" || !args.task_id) fail("runtime_crawl_task_required");
-  const { rows } = await postgresPool().query<Crawl>(`SELECT * FROM runtime_crawl_jobs WHERE actor_id=$1 AND remote_task_id=$2`, [context.userId, args.task_id]);
+  const { rows } = await postgresConnection().query<Crawl>(`SELECT * FROM runtime_crawl_jobs WHERE actor_id=$1 AND remote_task_id=$2`, [context.userId, args.task_id]);
   const job = rows[0];
   if (!job || job.context_json.agentId !== context.agentId) fail("runtime_crawl_scope_denied");
   if (job.instance_key !== runtimeHash((await authorizeConnector(context, "claw")).configuration.config.url)) fail("runtime_crawl_configuration_changed");
@@ -205,7 +206,7 @@ registerRuntimeActionGate("claw", "start_crawl", {
     // 忙时不再拒绝：写入 queued 等待，前序任务到终态后由 drain 自动启动（ADR-2026-09-30 的入队口径）。
     // FIFO：只要有排队在前，新请求一律入队（即使当前无活跃任务），避免插队。
     const queuedReceipt = await withCrawlerInstanceKeyLock(instanceKey, async () => {
-      const legacy = await postgresPool().query(`SELECT id FROM crawl_jobs WHERE status IN
+      const legacy = await postgresConnection().query(`SELECT id FROM crawl_jobs WHERE status IN
         ('queued','crawling','uploading','analyzing','starting','running','stopping') LIMIT 1`);
       const busy = await hasActiveRuntimeCrawl(instanceKey) || legacy.rows.length > 0;
       const depth = await queueDepth(instanceKey);
@@ -221,7 +222,7 @@ registerRuntimeActionGate("claw", "start_crawl", {
         return null;
       }
       if (depth >= CRAWLER_QUEUE_MAX_DEPTH) fail("runtime_probe_crawl_busy");
-      await postgresPool().query(`INSERT INTO runtime_crawl_jobs
+      await postgresConnection().query(`INSERT INTO runtime_crawl_jobs
         (id,instance_key,actor_id,context_json,config_version,args_json,state)
         VALUES ($1,$2,$3,$4,$5,$6,'queued')`,
         [actionId, instanceKey, context.userId, JSON.stringify(context), auth.configuration.version, JSON.stringify(args)]);
@@ -234,11 +235,11 @@ registerRuntimeActionGate("claw", "start_crawl", {
       const receipt = normalizeMcpContent(raw);
       const taskId = String(receipt.task_id || receipt.id || (receipt.data as Json | undefined)?.task_id || "");
       if (raw.isError || receipt.ok === false || !taskId) fail("runtime_crawl_start_uncertain");
-      await postgresPool().query(`UPDATE runtime_crawl_jobs SET remote_task_id=$2,state='running',updated_at=now()
+      await postgresConnection().query(`UPDATE runtime_crawl_jobs SET remote_task_id=$2,state='running',updated_at=now()
         WHERE id=$1 AND state='starting'`, [actionId, taskId]);
       return raw;
     } catch (error) {
-      await postgresPool().query("UPDATE runtime_crawl_jobs SET state='uncertain',error_code='start_outcome_unknown',updated_at=now() WHERE id=$1", [actionId]);
+      await postgresConnection().query("UPDATE runtime_crawl_jobs SET state='uncertain',error_code='start_outcome_unknown',updated_at=now() WHERE id=$1", [actionId]);
       throw error;
     }
   },
@@ -339,7 +340,7 @@ function sanitizeReceipt(value: Json): string {
  *  远端无响应则转 uncertain + 低频对账（T3），不再永久占位。 */
 async function autoStopCrawl(job: Crawl): Promise<Json> {
   if (!job.remote_task_id) {
-    await postgresPool().query(`UPDATE runtime_crawl_jobs SET state='uncertain',error_code='monitor_deadline',
+    await postgresConnection().query(`UPDATE runtime_crawl_jobs SET state='uncertain',error_code='monitor_deadline',
       updated_at=now() WHERE id=$1 AND state IN ${ACTIVE_RUNTIME_STATES}`, [job.id]);
     await enqueueReconcile(job.id, job.actor_id);
     return { state: "uncertain", reason: "monitor_deadline_no_remote_task" };
@@ -356,7 +357,7 @@ async function autoStopCrawl(job: Crawl): Promise<Json> {
     await drainCrawlQueue(job.instance_key);
     return { state: "cancelled", reason: "monitor_auto_stop" };
   } catch {
-    await postgresPool().query(`UPDATE runtime_crawl_jobs SET state='uncertain',error_code='monitor_auto_stop_failed',
+    await postgresConnection().query(`UPDATE runtime_crawl_jobs SET state='uncertain',error_code='monitor_auto_stop_failed',
       updated_at=now() WHERE id=$1 AND state IN ${ACTIVE_RUNTIME_STATES}`, [job.id]);
     await enqueueReconcile(job.id, job.actor_id);
     return { state: "uncertain", reason: "monitor_auto_stop_failed" };
@@ -397,7 +398,7 @@ export async function drainCrawlQueue(instanceKey: string): Promise<void> {
 export async function monitorRuntimeCrawl(executionJob: ClaimedExecutionJob, checkpoint: () => Promise<void>,
   createRuntime: (context: RuntimeContext) => SkillExecution | BackgroundToolInvoker | Promise<SkillExecution | BackgroundToolInvoker> = defaultToolRuntime): Promise<Json> {
   const payload = pgExecutionJobPayload(executionJob);
-  const job = (await postgresPool().query<Crawl>("SELECT * FROM runtime_crawl_jobs WHERE id=$1", [payload.crawl_id])).rows[0];
+  const job = (await postgresConnection().query<Crawl>("SELECT * FROM runtime_crawl_jobs WHERE id=$1", [payload.crawl_id])).rows[0];
   if (!job || !["starting", "running", "stopping"].includes(job.state)) return { state: job?.state || "not_found" };
   const sequence = Number(payload.sequence || 0);
   if (Date.now() - new Date(job.created_at).getTime() > CRAWLER_MONITOR_MAX_MS) {
@@ -405,7 +406,7 @@ export async function monitorRuntimeCrawl(executionJob: ClaimedExecutionJob, che
   }
   if (!job.remote_task_id) {
     if (sequence >= 12) {
-      await postgresPool().query("UPDATE runtime_crawl_jobs SET state='uncertain',error_code='start_outcome_unknown',updated_at=now() WHERE id=$1 AND remote_task_id IS NULL", [job.id]);
+      await postgresConnection().query("UPDATE runtime_crawl_jobs SET state='uncertain',error_code='start_outcome_unknown',updated_at=now() WHERE id=$1 AND remote_task_id IS NULL", [job.id]);
       await enqueueReconcile(job.id, job.actor_id);
     } else await enqueueMonitor(job, sequence + 1);
     return { state: "waiting_for_start_receipt" };
@@ -428,7 +429,7 @@ export async function monitorRuntimeCrawl(executionJob: ClaimedExecutionJob, che
     return { crawl_id: job.id, state: terminal || value || "running" };
   } catch (error) {
     if (Number(executionJob.attempts) >= Number(executionJob.max_attempts)) {
-      await postgresPool().query("UPDATE runtime_crawl_jobs SET state='uncertain',error_code='monitor_requires_takeover',updated_at=now() WHERE id=$1 AND state IN ('starting','running','stopping')", [job.id]);
+      await postgresConnection().query("UPDATE runtime_crawl_jobs SET state='uncertain',error_code='monitor_requires_takeover',updated_at=now() WHERE id=$1 AND state IN ('starting','running','stopping')", [job.id]);
       await enqueueReconcile(job.id, job.actor_id);
     }
     throw error;
@@ -441,7 +442,7 @@ registerExecutionHandler("crawler.monitor", monitorRuntimeCrawl);
 async function starterHandler(executionJob: ClaimedExecutionJob, checkpoint: () => Promise<void>,
   mcpFactory: (options: RemoteMcpOptions) => RuntimeRemote = (options) => new RemoteMcpClient(options)): Promise<Json> {
   const payload = pgExecutionJobPayload(executionJob);
-  const job = (await postgresPool().query<Crawl>("SELECT * FROM runtime_crawl_jobs WHERE id=$1", [payload.crawl_id])).rows[0];
+  const job = (await postgresConnection().query<Crawl>("SELECT * FROM runtime_crawl_jobs WHERE id=$1", [payload.crawl_id])).rows[0];
   if (!job) return { state: "not_found" };
   if (job.state !== "queued") return { state: job.state };
   const context = job.context_json as RuntimeContext;
@@ -456,14 +457,14 @@ async function starterHandler(executionJob: ClaimedExecutionJob, checkpoint: () 
       (await validateStart(context, args));
     }
   } catch {
-    await postgresPool().query(`UPDATE runtime_crawl_jobs SET state='cancelled', error_code='queue_start_rejected',
+    await postgresConnection().query(`UPDATE runtime_crawl_jobs SET state='cancelled', error_code='queue_start_rejected',
       updated_at=now() WHERE id=$1 AND state='queued'`, [job.id]);
     await drainCrawlQueue(job.instance_key);
     return { state: "cancelled", reason: "revalidation_failed" };
   }
   const adopted = await withCrawlerInstanceKeyLock(job.instance_key, async () => {
     if (await hasActiveRuntimeCrawl(job.instance_key)) return false;
-    const changed = await postgresPool().query(
+    const changed = await postgresConnection().query(
       `UPDATE runtime_crawl_jobs SET state='starting', updated_at=now() WHERE id=$1 AND state='queued'`, [job.id]);
     return (changed.rowCount || 0) > 0;
   });
@@ -474,13 +475,13 @@ async function starterHandler(executionJob: ClaimedExecutionJob, checkpoint: () 
     const receipt = await callRemoteCrawlTool(context, "start_crawl", args, mcpFactory);
     const taskId = String(receipt.task_id || receipt.id || (receipt.data as Json | undefined)?.task_id || "");
     if (!taskId) throw new Error("start_crawl returned no task_id");
-    await postgresPool().query(`UPDATE runtime_crawl_jobs SET remote_task_id=$2,state='running',updated_at=now()
+    await postgresConnection().query(`UPDATE runtime_crawl_jobs SET remote_task_id=$2,state='running',updated_at=now()
       WHERE id=$1 AND state='starting'`, [job.id, taskId]);
     return { state: "running", remote_task_id: taskId };
   } catch (error) {
     // 远端启动结果未知时沿用 uncertain 语义（TECH-BE-04：超时但可能已提交时不能盲重试），由 reconcile 对账；
     // 重试的 attempt 会因 state 已非 queued 而直接返回，不会重复派发。用户可手动取消 uncertain 释放占位。
-    await postgresPool().query(`UPDATE runtime_crawl_jobs SET state='uncertain', error_code='start_outcome_unknown',
+    await postgresConnection().query(`UPDATE runtime_crawl_jobs SET state='uncertain', error_code='start_outcome_unknown',
       updated_at=now() WHERE id=$1 AND state='starting'`, [job.id]);
     await enqueueReconcile(job.id, job.actor_id);
     throw error;
@@ -492,11 +493,11 @@ registerExecutionHandler("crawler.starter", starterHandler);
  *  24h 仍不明则判 failed(monitor_abandoned) 并出队，不永久占位。 */
 async function reconcileHandler(executionJob: ClaimedExecutionJob, checkpoint: () => Promise<void>): Promise<Json> {
   const payload = pgExecutionJobPayload(executionJob);
-  const job = (await postgresPool().query<Crawl>("SELECT * FROM runtime_crawl_jobs WHERE id=$1", [payload.crawl_id])).rows[0];
+  const job = (await postgresConnection().query<Crawl>("SELECT * FROM runtime_crawl_jobs WHERE id=$1", [payload.crawl_id])).rows[0];
   if (!job) return { state: "not_found" };
   if (job.state !== "uncertain") return { state: job.state };
   if (Date.now() - new Date(job.created_at).getTime() > CRAWLER_UNCERTAIN_MAX_MS) {
-    await postgresPool().query(`UPDATE runtime_crawl_jobs SET state='failed', error_code='monitor_abandoned',
+    await postgresConnection().query(`UPDATE runtime_crawl_jobs SET state='failed', error_code='monitor_abandoned',
       updated_at=now() WHERE id=$1 AND state='uncertain'`, [job.id]);
     await drainCrawlQueue(job.instance_key);
     return { state: "failed", reason: "monitor_abandoned" };
@@ -504,7 +505,7 @@ async function reconcileHandler(executionJob: ClaimedExecutionJob, checkpoint: (
   if (!job.remote_task_id) {
     // 无远端任务号：无法对账。1h 后直接判失败释放队列（用户可重试）；有任务号的才值得等 24h。
     if (Date.now() - new Date(job.created_at).getTime() > CRAWLER_UNCERTAIN_NO_TASK_MAX_MS) {
-      await postgresPool().query(`UPDATE runtime_crawl_jobs SET state='failed', error_code='monitor_abandoned',
+      await postgresConnection().query(`UPDATE runtime_crawl_jobs SET state='failed', error_code='monitor_abandoned',
         updated_at=now() WHERE id=$1 AND state='uncertain'`, [job.id]);
       await drainCrawlQueue(job.instance_key);
       return { state: "failed", reason: "monitor_abandoned_no_task" };
@@ -554,7 +555,7 @@ async function sweepHandler(executionJob: ClaimedExecutionJob): Promise<Json> {
       [instanceKey, stalledCutoff]);
   });
   await drainCrawlQueue(instanceKey);
-  const pending = await postgresPool().query(`SELECT actor_id FROM runtime_crawl_jobs
+  const pending = await postgresConnection().query(`SELECT actor_id FROM runtime_crawl_jobs
     WHERE instance_key=$1 AND state='queued' LIMIT 1`, [instanceKey]);
   if (pending.rows.length) await ensureSweepScheduled(instanceKey, String(pending.rows[0].actor_id));
   return { state: "swept" };

@@ -11,7 +11,7 @@ export type RuntimeProxy = { spec: Json; close: () => Promise<void> };
 
 /** Protocol-only proxy: no business tool implementation, supplier switch, or reasoning loop. */
 export async function startRuntimeProxy(execution: SkillExecution): Promise<RuntimeProxy> {
-  const toolTimeoutSeconds = hasDocumentTool(execution.context.skillId) ? 660 : 120;
+  const toolTimeoutSeconds = (await hasDocumentTool(execution.context.skillId)) ? 660 : 120;
   const token = randomBytes(32).toString("base64url");
   const expected = Buffer.from(`Bearer ${token}`);
   const active = new Set<{ server: Server; transport: StreamableHTTPServerTransport }>();
@@ -99,7 +99,7 @@ export async function startRuntimeProxy(execution: SkillExecution): Promise<Runt
       if (stopped) return;
       stopped = true;
       execution.close();
-      await Promise.all([...active].map(async ({ server }) => (await server.close().catch(() => undefined))));
+      await Promise.all([...active].map(async ({ server }) => (server.close().catch(() => undefined))));
       active.clear();
       await new Promise<void>((resolve) => { httpServer.close(() => resolve()); httpServer.closeAllConnections(); });
     },

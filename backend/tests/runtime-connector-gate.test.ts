@@ -44,7 +44,7 @@ async function policy(connectorId: string, toolName: string): Promise<void> {
 
 /** 线上口径：声明工具的策略已由管理员放行，只差把技能挂上去。 */
 async function policiesFor(skillId: string, connectorId = "starrykol"): Promise<void> {
-  for (const tool of parseDeclaredMcp(taskDefinition(skillId)?.mcp || [])) {
+  for (const tool of parseDeclaredMcp((await taskDefinition(skillId))?.mcp || [])) {
     if (tool.connector_id === connectorId && !(await getToolPolicy(connectorId, tool.tool_name))) (await policy(connectorId, tool.tool_name));
   }
 }

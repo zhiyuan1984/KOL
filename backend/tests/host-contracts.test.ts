@@ -64,8 +64,8 @@ async function ask(
   return [String(ses.id), await r.json()];
 }
 
-function draftOn(sid: string, extra: Json = {}) {
-  return persistDraft(sid, {
+async function draftOn(sid: string, extra: Json = {}) {
+  return (await persistDraft(sid, {
     skill: "email_compose",
     template_id: "stage_mail.followup",
     from: BRAND_MAILBOXES.LT,
@@ -77,7 +77,7 @@ function draftOn(sid: string, extra: Json = {}) {
     official_stage: "INITIAL_CONTACT",
     collaboration_id: "col_xiaomei",
     ...extra,
-  });
+  }));
 }
 
 beforeEach(async () => {
@@ -380,9 +380,9 @@ describe("host contracts", () => {
     expect(Number(rows[0].data_version_before)).toBe(0);
     expect(Number(rows[0].data_version_after)).toBe(1);
     (await expect((async () =>
-      (await getConn().query("UPDATE stage_transitions SET reason_code = 'MUTATED' WHERE id = $1",[rows[0].id])))()).rejects.toThrow(/immutable/));
+      (getConn().query("UPDATE stage_transitions SET reason_code = 'MUTATED' WHERE id = $1",[rows[0].id])))()).rejects.toThrow(/immutable/));
     (await expect((async () =>
-      (await getConn().query("DELETE FROM stage_transitions WHERE id = $1",[rows[0].id])))()).rejects.toThrow(/immutable/));
+      (getConn().query("DELETE FROM stage_transitions WHERE id = $1",[rows[0].id])))()).rejects.toThrow(/immutable/));
   });
 
   it("gated content review queues work approval and writes after agree", async () => {
@@ -694,11 +694,11 @@ describe("host contracts", () => {
     expect((workbench.insights as Json[]).every((row) => row.source === "ai" && !row.promoted_at)).toBe(true);
   });
 
-  it("every catalog skill has a file and explicit profile", () => {
+  it("every catalog skill has a file and explicit profile", async () => {
     for (const skill of SKILL_CATALOG) {
       const skillPath = path.join(import.meta.dirname, `../skills/${skill.id}/SKILL.md`);
       expect(fs.existsSync(skillPath), skill.id).toBe(true);
-      expect(profileFor(skill.id).id, skill.id).toBe(skill.profile);
+      expect((await profileFor(skill.id)).id, skill.id).toBe(skill.profile);
       const md = fs.readFileSync(skillPath, "utf8");
       expect(md, skill.id).toContain("## 禁止事项");
       expect(md, skill.id).toContain("## 是否发信");
@@ -804,7 +804,7 @@ describe("host contracts", () => {
     const cron = await withTicketPrincipal({
       id: "test-admin", username: "test-admin", name: "Test Admin", email: null,
       roles: ["admin"], active: true,
-    }, async () => (await request("POST", "/api/cron/risk-scan")));
+    }, async () => (request("POST", "/api/cron/risk-scan")));
     expect(cron.status, await cron.text()).toBe(200);
     const cronBody = await cron.json() as Json;
     expect(cronBody.run_id).toBeTruthy();

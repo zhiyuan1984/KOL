@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 /**
  * Explicit handler registry. Cron execution state and read models are
  * PostgreSQL-native. A handler must never quietly reach the legacy SQLite
@@ -63,7 +64,7 @@ function formalTicketScope(viewer?: TicketPrincipal): { where: string; values: s
  * ticket facts; it does not fabricate a collaboration or remote-mail state. */
 async function overdueScan(ctx: CronHandlerContext): Promise<CronHandlerResult> {
   const scope = formalTicketScope(ctx.viewer);
-  const rows = await postgresPool().query<Row>(
+  const rows = await postgresConnection().query<Row>(
     `SELECT t.id,t.title,t.status,t.priority,t.due_at,t.business_category,t.stage_code,t.owner_user_id,
             pa.assignee_user_id,pa.assignee_person_ref
        FROM tickets t
@@ -95,7 +96,7 @@ async function overdueScan(ctx: CronHandlerContext): Promise<CronHandlerResult> 
  * not a claim that remote collaboration or mail data was refreshed. */
 async function dailyTaskSnapshot(ctx: CronHandlerContext): Promise<CronHandlerResult> {
   const scope = formalTicketScope(ctx.viewer);
-  const rows = await postgresPool().query<Row>(
+  const rows = await postgresConnection().query<Row>(
     `SELECT t.id,t.title,t.status,t.priority,t.business_category,t.stage_code,t.due_at,t.updated_at,
             pa.assignee_user_id,pa.assignee_person_ref
        FROM tickets t
@@ -133,7 +134,7 @@ async function dailyTaskSnapshot(ctx: CronHandlerContext): Promise<CronHandlerRe
 async function ownershipRelease(ctx: CronHandlerContext): Promise<CronHandlerResult> {
   if (!process.env.DATABASE_URL?.trim()) {
     const db = getConn();
-    const rows = listOwnedCollaborations(db);
+    const rows = (await listOwnedCollaborations(db));
     const released: Json[] = [];
     const skipped: Json[] = [];
     for (const row of rows) {

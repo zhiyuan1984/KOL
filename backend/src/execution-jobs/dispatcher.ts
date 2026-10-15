@@ -181,7 +181,7 @@ export async function dispatchClaimedExecutionJob(
   }, renewMs);
   timer.unref();
   try {
-    return await dispatchClaimedExecutionJobInner(claimed);
+    return dispatchClaimedExecutionJobInner(claimed);
   } finally {
     clearInterval(timer);
   }

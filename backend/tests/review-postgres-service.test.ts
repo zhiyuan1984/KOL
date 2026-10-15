@@ -16,7 +16,7 @@ const people = [
 ];
 const context = (actor: string): ReviewContext => ({ tenant: "company", actor, admin: actor === "admin", people });
 async function service<T>(actor: string, fn: (s: PostgresReviewService) => Promise<T>) {
-  return postgresTransaction(async (client) => (await fn(new PostgresReviewService(client, context(actor), "2026-10-04T00:00:00.000Z"))));
+  return postgresTransaction(async (client) => (fn(new PostgresReviewService(client, context(actor), "2026-10-04T00:00:00.000Z"))));
 }
 async function run(actor: string, command: ReviewCommand, key: string) {
   return service(actor, async (s) => {
@@ -40,11 +40,11 @@ describe("PostgresReviewService", () => {
     const definition = emptyReviewDefinition();
     definition.nodes[1].timeoutHours = 1;
     definition.nodes[1].operations = { timeout: { action: "remind" } };
-    const template = await service("admin", async (s) => (await s.saveTemplate(undefined, undefined, definition)));
+    const template = await service("admin", async (s) => (s.saveTemplate(undefined, undefined, definition)));
     await run("admin", { action: "publish", templateId: template.id, expectedVersion: 1 }, "native-publish-key");
     const submit: ReviewCommand = { action: "submit", templateId: template.id, templateVersion: 1, title: "原生事务申请", values: {} };
     const receipt = await run("employee", submit, "native-submit-key");
-    expect((await service("employee", async (s) => (await s.instance(receipt.resourceId)))).status).toBe("reviewing");
+    expect((await service("employee", async (s) => (s.instance(receipt.resourceId)))).status).toBe("reviewing");
     expect(await run("employee", submit, "native-submit-key")).toEqual(receipt);
     const [command, jobs] = await Promise.all([
       (await postgresPool().query("SELECT receipt FROM review_commands WHERE tenant=$1 AND actor=$2 AND idempotency_key=$3", ["company", "employee", "native-submit-key"])),
@@ -59,10 +59,10 @@ describe("PostgresReviewService", () => {
     const definition = emptyReviewDefinition();
     definition.nodes[1].timeoutHours = 1;
     definition.nodes[1].operations = { timeout: { action: "remind" } };
-    const template = await service("admin", async (s) => (await s.saveTemplate(undefined, undefined, definition)));
+    const template = await service("admin", async (s) => (s.saveTemplate(undefined, undefined, definition)));
     await run("admin", { action: "publish", templateId: template.id, expectedVersion: 1 }, "rollback-publish-key");
     const submit: ReviewCommand = { action: "submit", templateId: template.id, templateVersion: 1, title: "故障回滚审批", values: {} };
-    const prepared = await service("employee", async (s) => (await s.prepare(submit)));
+    const prepared = await service("employee", async (s) => (s.prepare(submit)));
     const key = "native-forced-rollback-key";
     await postgresPool().query(`
       CREATE OR REPLACE FUNCTION review_fail_command_insert() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -101,10 +101,10 @@ describe("PostgresReviewService", () => {
       "INSERT INTO collaborations(id,handle,display_name,brand,email,mailbox_from,lifecycle_id,conversation_id,stage_code,notes) VALUES($1,$2,$3,$4,$5,$5,$6,$7,$8,$9)",
       ["source-collaboration", "source-handle", "来源对象", "source-brand", "source@example.invalid", "source-lifecycle", "source-conversation", "S01", "冻结前材料"],
     );
-    const source = await postgresTransaction(async (client) => (await collaborationReviewSource(client, "source-employee", "source-collaboration")));
+    const source = await postgresTransaction(async (client) => (collaborationReviewSource(client, "source-employee", "source-collaboration")));
     expect(source.snapshot.notes).toBe("冻结前材料");
-    await expect(postgresTransaction(async (client) => (await collaborationReviewSource(client, "source-outsider", "source-collaboration")))).rejects.toMatchObject({ status: 404 });
+    await expect(postgresTransaction(async (client) => (collaborationReviewSource(client, "source-outsider", "source-collaboration")))).rejects.toMatchObject({ status: 404 });
     await postgresPool().query("UPDATE collaborations SET notes=$1 WHERE id=$2", ["材料已变化", "source-collaboration"]);
-    await expect(postgresTransaction(async (client) => (await checkedReviewSource(client, "source-employee", source)))).rejects.toMatchObject({ status: 409 });
+    await expect(postgresTransaction(async (client) => (checkedReviewSource(client, "source-employee", source)))).rejects.toMatchObject({ status: 409 });
   });
 });

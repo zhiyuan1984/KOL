@@ -46,18 +46,18 @@ describe("技能员工面文案", () => {
       path.join(root, "demo_skill", "SKILL.md"),
       manifest("employee_summary: 按关键词查达人库，只读结果，不改阶段\n"),
     );
-    expect(taskDefinitions(root)[0]?.employee_summary).toBe("按关键词查达人库，只读结果，不改阶段");
+    expect((await taskDefinitions(root))[0]?.employee_summary).toBe("按关键词查达人库，只读结果，不改阶段");
     expect((await skillCatalog(root))[0]?.summary).toBe("按关键词查达人库，只读结果，不改阶段");
   });
 
   it("没填时回落到 description（现状如实保留，便于门禁暴露引擎词）", async () => {
     fs.writeFileSync(path.join(root, "demo_skill", "SKILL.md"), manifest(""));
-    expect(taskDefinitions(root)[0]?.employee_summary).toBeUndefined();
+    expect((await taskDefinitions(root))[0]?.employee_summary).toBeUndefined();
     expect((await skillCatalog(root))[0]?.summary).toContain("task_result");
   });
 
-  it("employee_summary 写成空值时按清单错误报出，不静默采用", () => {
+  it("employee_summary 写成空值时按清单错误报出，不静默采用", async () => {
     fs.writeFileSync(path.join(root, "demo_skill", "SKILL.md"), manifest("employee_summary:   \n"));
-    expect(() => taskDefinitions(root)).toThrow(/employee_summary/);
+    (await expect((() => taskDefinitions(root))()).rejects.toThrow(/employee_summary/));
   });
 });

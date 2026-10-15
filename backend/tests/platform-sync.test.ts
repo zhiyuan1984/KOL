@@ -69,8 +69,8 @@ describe("platform sync Agent", () => {
   });
 
   it("is never usable or bindable by people, and never offered as an employee choice", async () => {
-    await expect((async () => (await assertRuntimeSkill({ agentId: "agent:platform-sync", skillId: "creator_library_all", userId: "admin", runId: "x" })))()).rejects.toThrow();
-    await expect((async () => (await createAgentBinding({
+    await expect((async () => (assertRuntimeSkill({ agentId: "agent:platform-sync", skillId: "creator_library_all", userId: "admin", runId: "x" })))()).rejects.toThrow();
+    await expect((async () => (createAgentBinding({
       agent_id: "agent:platform-sync", target_type: "organization_unit", target_id: "org:research_institute", company_id: "company:amperetime",
     })))()).rejects.toThrow();
     const admin = (await getConn().query("SELECT id FROM users WHERE roles LIKE '%admin%' AND active=1 LIMIT 1",[])).rows[0] as { id?: string } | undefined;

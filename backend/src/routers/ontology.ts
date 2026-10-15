@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -164,7 +165,7 @@ function approvalPayload(value: unknown): OntologyApprovalPayload {
 
 /** PostgreSQL is the approval authority. Invalid payloads never become permits. */
 export async function ontologyChangeApprovals(scope: OntologyChangeScope): Promise<Exclude<OntologyChangeApprovalSummary, null>[]> {
-  const rows = await postgresPool().query<OntologyApprovalRow>(
+  const rows = await postgresConnection().query<OntologyApprovalRow>(
     "SELECT id, status, payload FROM approvals WHERE kind = $1 ORDER BY created_at DESC",
     ["ontology_change"],
   );

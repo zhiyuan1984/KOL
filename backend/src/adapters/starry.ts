@@ -68,7 +68,7 @@ export async function confirmStage(lifecycleId: string, body: Json): Promise<Awa
   const transitionId = nid("trn");
   (await tx(async (c) => {
     const updated = (await c.query("UPDATE collaborations\n         SET stage_code = $1, days_in_stage = 0, stage_version = $2\n         WHERE lifecycle_id = $3 AND stage_version = $4",[code,transition.data_version_after,lifecycleId,transition.data_version_before]));
-    if (updated.changes !== 1) throw new Error("stage version conflict");
+    if ((updated.rowCount ?? 0) !== 1) throw new Error("stage version conflict");
     (await c.query("INSERT INTO starry_stage_writes (lifecycle_id, stage_code, actor, ts) VALUES ($1,$2,$3,$4)",[lifecycleId,code,actor,occurredAt]));
     (await c.query("INSERT INTO stage_transitions\n       (id, collaboration_id, lifecycle_id, from_stage, to_stage, reason_code, evidence,\n        recommender, approver, occurred_at, data_version_before, data_version_after,\n        capability_profile, advancement_mode)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",[transitionId,transition.collaboration_id,lifecycleId,transition.from_stage,transition.to_stage,transition.reason_code,JSON.stringify(transition.evidence),transition.recommender,transition.approver,transition.occurred_at,transition.data_version_before,transition.data_version_after,transition.capability_profile,transition.advancement_mode]));
     (await appendBusinessEvent(

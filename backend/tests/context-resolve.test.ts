@@ -270,15 +270,15 @@ describe("阶段类技能（P2.1）", () => {
     return (await getConn().query("SELECT * FROM collaborations WHERE id = $1",[id])).rows[0] as Json;
   }
 
-  it("两个技能按注册表声明 context，且与 required_inputs 并存", () => {
+  it("两个技能按注册表声明 context，且与 required_inputs 并存", async () => {
     for (const id of ["confirm_stage", "stage_sop"]) {
-      expect(taskDefinition(id)?.context, id).toEqual({
+      expect((await taskDefinition(id))?.context, id).toEqual({
         requires: ["collaboration", "stage"],
         prefers: ["stage_tracks"],
       });
     }
     // context.requires 是系统要解析的事实，required_inputs 是人必须给的值，两者互不替代。
-    expect(taskDefinition("confirm_stage")?.required_inputs).toEqual(["collaboration_id"]);
+    expect((await taskDefinition("confirm_stage"))?.required_inputs).toEqual(["collaboration_id"]);
   });
 
   it("运行箱的合作块补齐阶段版本、推进模式与异常口径", async () => {
@@ -304,7 +304,7 @@ describe("阶段类技能（P2.1）", () => {
   });
 
   it("CONTEXT.md 只注入声明过的键，带 sources 与 context_version，且不重复进 extra", async () => {
-    const definition = requireTaskDefinition("confirm_stage");
+    const definition = (await requireTaskDefinition("confirm_stage"));
     const prompt = "记状态 @小美妆日记";
     const extra = { collaboration_id: "col_xiaomei", handle: "小美妆日记", text: prompt };
     const resolution = (await resolveContext({ skillId: "confirm_stage", body: extra, text: prompt }));
@@ -731,9 +731,9 @@ describe("P1：creator 键（达人技能：profile/decrypt/status/owner/scoring
     expect((await session.creator())).toBeNull();
   });
 
-  it("六个 P1 技能都已声明 context.requires=[creator]", () => {
+  it("六个 P1 技能都已声明 context.requires=[creator]", async () => {
     for (const skillId of ["creator_profile", "creator_contact_decrypt", "creator_status_update", "creator_owner_update", "creator_scoring", "kol_analyze"]) {
-      const def = taskDefinition(skillId);
+      const def = (await taskDefinition(skillId));
       expect(def?.context?.requires, skillId).toContain("creator");
     }
   });

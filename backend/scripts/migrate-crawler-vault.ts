@@ -26,16 +26,16 @@ export async function migrateCrawlerVault(input: { url: string; token: string; a
     const config = validateConnectorConfig({ protocol: "mcp", transport: "streamable-http", url,
       bearer_secret_ref: credential.id, timeout_ms: 30000 });
     assertConnectorCredentialStorage("claw", config);
-    tx((transaction) => {
+    (await tx(async (transaction) => {
       const current = (await transaction.query("SELECT version FROM runtime_connector_config WHERE connector_id='claw'",[])).rows[0] as Row | undefined;
       if (Number(current?.version || 0) !== Number(row?.version || 0)) throw new Error("crawler configuration changed during migration");
       const exists = (await transaction.query("SELECT id FROM connectors WHERE id='claw'",[])).rows[0];
       if (!exists) throw new Error("crawler connector missing");
       (await transaction.query("INSERT INTO runtime_connector_config(connector_id,config_json,version,updated_at)\n        VALUES('claw',$1,$2,$3) ON CONFLICT(connector_id) DO UPDATE SET config_json=excluded.config_json,\n        version=excluded.version,updated_at=excluded.updated_at",[JSON.stringify(config),Number(row?.version || 0) + 1,nowIso()]));
       (await transaction.query("UPDATE connectors SET enabled=0,status='pending_verification',last_error=NULL,updated_at=$1 WHERE id='claw'",[nowIso()]));
-    });
+    }));
   } catch (error) { (await deleteCredential(credential.id, credential.version)); throw error; }
-  audit("deployment", "runtime.crawler.vault_migrated", { connector_id: "claw", version: Number(row?.version || 0) + 1 });
+  (await audit("deployment", "runtime.crawler.vault_migrated", { connector_id: "claw", version: Number(row?.version || 0) + 1 }));
   return { pending: false, migrated: true, version: Number(row?.version || 0) + 1, credential_ref: credential.id };
 }
 

@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { createHash } from "node:crypto";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
 import { nid } from "../ids.js";
@@ -31,7 +32,7 @@ export type StoredMemoryItem = {
 
 /** Schema is owned by the formal PostgreSQL baseline/migrations, never runtime DDL. */
 export async function ensureEmployeeMemoriesTable(): Promise<void> {
-  await postgresPool().query("SELECT 1 FROM employee_memory_items LIMIT 0");
+  await postgresConnection().query("SELECT 1 FROM employee_memory_items LIMIT 0");
 }
 
 function hashPayload(payload: Json): string {
@@ -79,7 +80,7 @@ export async function listMemories(input: {
 }): Promise<StoredMemoryItem[]> {
   await ensureEmployeeMemoriesTable();
   const limit = Math.min(Math.max(Number(input.limit || 200), 1), 500);
-  const { rows } = await postgresPool().query<{
+  const { rows } = await postgresConnection().query<{
     id: string; owner_user_id: string; memory_kind: string; item_key: string; payload: string;
     content_hash: string; revision: number; created_at: string; updated_at: string;
   }>(`SELECT id, owner_user_id, memory_kind, item_key, payload, content_hash, revision, created_at, updated_at

@@ -73,11 +73,11 @@ describe("human-confirmed mail send boundary", () => {
     const enabled = (await setSkillConnector("email_compose","starrykol",true,Number(binding?.version || 0)));
     (await setConnectorConfig("starrykol",{protocol: "mcp",url: "https://api.example.test/mcp",headers_secret_refs: {"X-MCP-API-KEY": "isolated-mail-secret"}},0));
     (await getConn().query("DELETE FROM user_connector_grants WHERE user_id=$1", [actor.id]));
-    await withScopedUser(actor, async () => await expect((async () => (await validateMailSend((await getDraft(draftId)))))()).resolves.not.toBeInstanceOf(Error));
+    await withScopedUser(actor, async () => expect((async () => (await validateMailSend((await getDraft(draftId)))))()).resolves.not.toBeInstanceOf(Error));
     const actorBinding = (await listAgentBindings("agent:kol")).find(row => row.source === "test");
     expect(actorBinding).toBeTruthy();
     (await revokeAgentBinding(actorBinding!.id));
-    await withScopedUser(actor, async () => await expect((async () => (await validateMailSend((await getDraft(draftId)))))()).rejects.toThrow(/runtime_agent_not_usable/));
+    await withScopedUser(actor, async () => expect((async () => (await validateMailSend((await getDraft(draftId)))))()).rejects.toThrow(/runtime_agent_not_usable/));
   });
   it("rejects administrator send when the current skill resource binding is revoked", async () => {
     process.env.AUTH_MODE = "enabled";
@@ -88,9 +88,9 @@ describe("human-confirmed mail send boundary", () => {
     const binding = (await getSkillConnectors("email_compose")).find(row => row.connector_id === "starrykol");
     const enabled = (await setSkillConnector("email_compose","starrykol",true,Number(binding?.version || 0)));
     (await setConnectorConfig("starrykol",{protocol: "mcp",url: "https://api.example.test/mcp",headers_secret_refs: {"X-MCP-API-KEY": "isolated-mail-secret"}},0));
-    await withScopedUser(actor, async () => await expect((async () => (await validateMailSend((await getDraft(draftId)))))()).resolves.not.toBeInstanceOf(Error));
+    await withScopedUser(actor, async () => expect((async () => (await validateMailSend((await getDraft(draftId)))))()).resolves.not.toBeInstanceOf(Error));
     (await setSkillConnector("email_compose","starrykol",false,Number(enabled.version)));
-    await withScopedUser(actor, async () => await expect((async () => (await validateMailSend((await getDraft(draftId)))))()).rejects.toThrow(/runtime_connector_unbound/));
+    await withScopedUser(actor, async () => expect((async () => (await validateMailSend((await getDraft(draftId)))))()).rejects.toThrow(/runtime_connector_unbound/));
   });
   it("preparing a send action is read-only, including an empty recipient binding", async () => {
     (await getConn().query("UPDATE collaborations SET email='' WHERE id='col_xiaomei'", []));
@@ -130,14 +130,14 @@ describe("human-confirmed mail send boundary", () => {
     await expect(claimMailSend(draftId, { ...input, request_id: randomUUID() })).rejects.toThrow(/重复/);
     expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM starry_sends", [])).rows[0] as { n: unknown }).n)).toBe(1);
     expect((await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'", [])).rows[0]).toMatchObject({ stage_code: "INITIAL_CONTACT" });
-    await expect((async () => (await assertDraftEditable((await getDraft(draftId)))))()).rejects.toThrow(/不能修改/);
+    await expect((async () => (assertDraftEditable((await getDraft(draftId)))))()).rejects.toThrow(/不能修改/);
   });
 
   it("locks concurrent sends and edits before contacting the provider", async () => {
     const input = (await confirmation());
     await claimMailSend(draftId, input);
     await expect(claimMailSend(draftId, input)).rejects.toThrow(/重复/);
-    await expect((async () => (await assertDraftEditable((await getDraft(draftId)))))()).rejects.toThrow(/不能修改/);
+    await expect((async () => (assertDraftEditable((await getDraft(draftId)))))()).rejects.toThrow(/不能修改/);
   });
 
   it("retains unknown status on provider errors and forbids blind retries", async () => {

@@ -27,10 +27,10 @@ let ensured: { db: ReturnType<typeof getConn>; verification: Promise<void> } | n
 async function ensureTable(): Promise<void> {
   const db = getConn();
   if (ensured?.db === db) return ensured.verification;
-  const verification = db.query(
+  const verification = (db.query(
     "SELECT skill_id,payload,updated_at FROM skill_presentation_overlays WHERE FALSE",
     [],
-  ).then(() => undefined);
+  ).then(() => undefined));
   ensured = { db, verification };
   try {
     await verification;

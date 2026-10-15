@@ -295,7 +295,7 @@ export async function upsertBudget(input: BudgetUpsertInput): Promise<BudgetRow>
   const enabled = input.enabled === false ? 0 : 1;
   const expectedVersion = input.expectedVersion == null ? null : Number(input.expectedVersion);
 
-  return (await tx(async (conn) => {
+  return (tx(async (conn) => {
     await conn.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [JSON.stringify(["cost-budget",input.scope,scopeRef])]);
     const existing = (await conn.query("SELECT * FROM cost_budgets WHERE scope = $1 AND scope_ref = $2 FOR UPDATE", [input.scope,scopeRef])).rows[0] as BudgetRow | undefined;
     if (existing) {
@@ -382,8 +382,8 @@ export async function costsSummary(month?: string | null): Promise<Json> {
   }));
   const budgets = [
     (await budgetEntry("company", companyScopeRef(), window)),
-    ...await Promise.all((await agentCandidates()).map(async (agentId) => (await budgetEntry("agent", agentId, window)))),
-    ...await Promise.all((await userCandidates()).map(async (userId) => (await budgetEntry("user", userId, window)))),
+    ...await Promise.all((await agentCandidates()).map(async (agentId) => (budgetEntry("agent", agentId, window)))),
+    ...await Promise.all((await userCandidates()).map(async (userId) => (budgetEntry("user", userId, window)))),
   ];
   return {
     month: window.month,

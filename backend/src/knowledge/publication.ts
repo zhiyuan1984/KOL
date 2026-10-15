@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import fs from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -31,10 +32,10 @@ export async function publicationContext(company?: string): Promise<ReviewContex
   const user = scopedUser();
   if (!user) fail("authentication_required", "请登录", 401);
   (await ensureOrganizationTree());
-  return postgresTransaction(async client => (await postgresReviewContext(client, user!.id, company)));
+  return postgresTransaction(async client => (postgresReviewContext(client, user!.id, company)));
 }
 async function document(id: string, tenant: string, client?: PoolClient) {
-  const rows = await (client || postgresPool()).query(
+  const rows = await (client || postgresConnection()).query(
     `SELECT d.*,b.status AS base_status,b.name AS base_name,k.tenant AS bound_tenant,
       l.root_id,l.version AS document_version,l.expected_active_id,
       (SELECT jsonb_build_object('revision',s.revision,'explanation',s.explanation,'state',s.state,'scope',s.scope,'fingerprint',s.fingerprint) FROM knowledge_document_scopes s WHERE s.document_id=d.id) AS knowledge_scope

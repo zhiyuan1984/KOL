@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { HttpFail } from "../host/errors.js";
 import { credentialVaultReady, getCredentialMetadata } from "../runtime/credentials.js";
 import { createManagedClient } from "../runtime/managed-client.js";
@@ -7,7 +8,7 @@ import { postgresPool } from "../postgres/pool.js";
 /** The asynchronous collector uses organization credentials; never a process or personal fallback. */
 export async function mediaCrawlerConfig() {
   const config = (await getConnectorConfig("claw"))?.config;
-  const connector = (await postgresPool().query<{ enabled: number | string }>(
+  const connector = (await postgresConnection().query<{ enabled: number | string }>(
     "SELECT enabled FROM connectors WHERE id=$1", ["claw"],
   )).rows[0];
   const enabled = Number(connector?.enabled || 0) === 1;

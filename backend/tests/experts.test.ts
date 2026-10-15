@@ -53,7 +53,7 @@ async function request(
 ): Promise<{ status: number; json: () => Promise<Json | Json[]>; text: () => Promise<string> }> {
   const init: RequestInit = { method, headers: { "Content-Type": "application/json" } };
   if (body !== undefined) init.body = JSON.stringify(body);
-  const res = await withScopedUser(employee, async () => (await app.request(url, init)));
+  const res = await withScopedUser(employee, async () => (app.request(url, init)));
   const text = await res.text();
   return {
     status: res.status,

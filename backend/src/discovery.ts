@@ -689,7 +689,7 @@ export async function startDiscoveryRun(input: {
   const existing = (await getConn().query("SELECT * FROM discovery_runs WHERE idempotency_key=$1",[idempotencyKey])).rows[0] as
     | Row
     | undefined;
-  if (existing) return { ...(await publicRun(existing)), duplicate: true };
+  if (existing) return { ...(publicRun(existing)), duplicate: true };
 
   const ownerUserId = String(request.owner_user_id);
   const workItemId = await createContainerWorkItem({ ownerUserId, platform, mode, keywords });
@@ -726,7 +726,7 @@ export async function startDiscoveryRun(input: {
     (await refreshRequestStatus(String(request.id)));
     const run = (await getConn().query("SELECT * FROM discovery_runs WHERE id=$1",[runId])).rows[0] as Row;
     if (String(job.status) === "result_ready") (await ingestDiscoveryFromCrawlJob(job as Row));
-    return (await publicRun(run));
+    return (publicRun(run));
   } catch (error) {
     const source = error instanceof HttpFail ? error.detail ?? error : error;
     const mapped = mapEmployeeError(source);
@@ -788,7 +788,7 @@ export async function createDiscoveryRequest(body: Json): Promise<Json> {
     actor: owner,
     source_version: "1",
   }));
-  return (await publicRequest((await requestRow(id))));
+  return (publicRequest((await requestRow(id))));
 }
 
 export async function listDiscoveryRequests(): Promise<Json[]> {
@@ -796,15 +796,15 @@ export async function listDiscoveryRequests(): Promise<Json[]> {
   const rows = adminAll
     ? (await getConn().query("SELECT * FROM discovery_requests ORDER BY updated_at DESC",[])).rows as Row[]
     : (await getConn().query("SELECT * FROM discovery_requests WHERE owner_user_id=$1 ORDER BY updated_at DESC",[ownerId()])).rows as Row[];
-  return await Promise.all(rows.map(publicRequest));
+  return Promise.all(rows.map(publicRequest));
 }
 
 export async function getDiscoveryRequest(id: string): Promise<Json> {
-  return (await publicRequest((await requestRow(id))));
+  return (publicRequest((await requestRow(id))));
 }
 
 export async function getDiscoveryRun(id: string): Promise<Json> {
-  return (await publicRun((await runRow(id))));
+  return (publicRun((await runRow(id))));
 }
 
 export async function listRunCandidates(runId: string, query: {
@@ -876,10 +876,10 @@ export function discoveryPlaceholderKolUid(candidate: Row): string {
   return `disc_${candidate.platform}_${String(candidate.platform_creator_id).replace(/[^A-Za-z0-9._-]/g, "_")}`.slice(0, 80);
 }
 
-function ingestDiscoveryProfile(collaboration: Row, candidate?: Row): void {
+async function ingestDiscoveryProfile(collaboration: Row, candidate?: Row): Promise<Awaited<void>> {
   const kolUid = String(collaboration.kol_uid || "").trim();
   if (!kolUid) return;
-  ingestFormalProfile({
+  (await ingestFormalProfile({
     kol_uid: kolUid,
     handle: String(collaboration.handle || candidate?.handle || ""),
     display_name: String(collaboration.display_name || candidate?.nickname || ""),
@@ -892,12 +892,12 @@ function ingestDiscoveryProfile(collaboration: Row, candidate?: Row): void {
     region: String(collaboration.audience_geo || ""),
     public_stage: String(collaboration.stage_code || ""),
     ingest_source: "discovery",
-  });
+  }));
 }
 
 async function followResult(candidateId: string, collaborationId: string, created: boolean, extra: Json = {}): Promise<Awaited<Json>> {
   const collaboration = (await getConn().query("SELECT * FROM collaborations WHERE id=$1",[collaborationId])).rows[0] as Row;
-  ingestDiscoveryProfile(collaboration);
+  (await ingestDiscoveryProfile(collaboration));
   return {
     ...publicCandidate((await getConn().query("SELECT * FROM creator_candidates WHERE id=$1",[candidateId])).rows[0] as Row),
     collaboration: {
@@ -1029,7 +1029,7 @@ async function loadFollowBatchCandidates(input: Json): Promise<Awaited<Row[]>> {
         max: MAX_FOLLOW_BATCH,
       });
     }
-    return (await Promise.all(ids.map(async (id) => (await candidateRow(id)))));
+    return (Promise.all(ids.map(async (id) => (await candidateRow(id)))));
   }
   const runId = String(input.run_id || input.runId || "").trim();
   if (runId) {

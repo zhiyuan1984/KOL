@@ -41,7 +41,7 @@ describe("human adoption shares the native materialization boundary", () => {
   it("exposes read-only suggestions and routes an explicit employee command through the shared executor", async () => {
     const id = await decision("fixture-http-decision");
     const actor = await syncWorkbenchTicketPrincipal({id:"adopt-actor",username:"adopt-actor",name:"Adoption Owner",roles:["employee"],active:true});
-    const read = await withTicketPrincipal(actor,async ()=>(await tickets.request(`/task-work-orders/${taskId}/suggestions`)));
+    const read = await withTicketPrincipal(actor,async ()=>(tickets.request(`/task-work-orders/${taskId}/suggestions`)));
     expect(read.status).toBe(200);
     const data = await read.json();
     expect(data.calls_model).toBe(false);
@@ -120,7 +120,7 @@ describe("human adoption shares the native materialization boundary", () => {
     for (let i=0;i<3;i++) ids.push((await db.query(`INSERT INTO work_order_decisions(task_id,source_event_id,template_code,template_version,routing_policy_code,decision_mode,outcome,status,input_hash,input_json,confidence,actor_ref,idempotency_key)
       VALUES ($1,'adopt-event','adopt-template',1,'task_owner','shadow','create','recorded','fixture','{}',0.95,'adopt-actor',$2) RETURNING id`,[taskId,`concurrent-decision-${i}`])).rows[0].id);
     const bases = await readWorkOrderSuggestions("adopt-actor",taskId);
-    const results = await Promise.allSettled(ids.map(async (id,index) => (await executeWorkOrderDecision("adopt-actor",id,{idempotency_key:`concurrent-adoption-${index}`},index<2
+    const results = await Promise.allSettled(ids.map(async (id,index) => (executeWorkOrderDecision("adopt-actor",id,{idempotency_key:`concurrent-adoption-${index}`},index<2
       ? {confirmed:true,basis_version:bases.suggestions.find(item=>item.decision_id===id)!.version,action:"create"} : undefined))));
     expect(results.filter(result=>result.status==="fulfilled" && result.value.attempt.status==="created")).toHaveLength(1);
     expect((await db.query("SELECT count(*)::int n FROM work_orders")).rows[0].n).toBe(1);

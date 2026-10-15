@@ -442,7 +442,7 @@ export class CodexAppServer {
     return Boolean(a && typeof a === "object" && typeof (a as Json).type === "string");
   }
 
-  private authHint(local: ReturnType<typeof inspectLocalCodexAuth>, acct: Json): string {
+  private authHint(local: Awaited<ReturnType<typeof inspectLocalCodexAuth>>, acct: Json): string {
     const keySet = Boolean((process.env.OPENAI_API_KEY || process.env.CODEX_API_KEY || "").trim());
     const err = redactSecrets(this.stderr.trim().split("\n").slice(-6).join(" / "));
     return [

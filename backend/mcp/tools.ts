@@ -177,7 +177,7 @@ export async function callStarryTool(name: string, args: Json = {}): Promise<Awa
   if (name === "stage_options") return { options: starry.cooperationStageOptions() };
   if (name === "dictionary_options") return { options: starry.dictionaryOptions(String(args.parentKey || "")) };
   if (name === "get_conversation") {
-    return (await getConversation(String(args.conversation_id || ""))) || { found: false };
+    return ((await getConversation(String(args.conversation_id || "")))) || { found: false };
   }
   if (name === "get_collaboration") {
     const db = getConn();
@@ -284,14 +284,14 @@ export async function callClawTool(name: string, args: Json = {}): Promise<Await
   }
   if (name === "health") return claw.health();
   if (name === "get_creators") {
-    const rows = claw.listCreators();
+    const rows = (await claw.listCreators());
     const filtered = args.platform ? rows.filter((row) => row.platform === args.platform) : rows;
     const page = Math.max(1, Number(args.page || 1));
     const size = Math.max(1, Number(args.page_size || 100));
     return { creators: filtered.slice((page - 1) * size, page * size), has_more: page * size < filtered.length };
   }
-  if (name === "list_creators") return { creators: claw.listCreators() };
-  if (name === "get_creator") return claw.getCreator(String(args.id || "")) || { found: false };
+  if (name === "list_creators") return { creators: (await claw.listCreators()) };
+  if (name === "get_creator") return (await claw.getCreator(String(args.id || ""))) || { found: false };
   if (name === "outreach_script") return claw.outreachScript(String(args.id || "cr_outdoor"));
   if (name === "analysis_creators") return claw.analysisCreators(args.id ? String(args.id) : null);
   if (name === "search_knowledge") {

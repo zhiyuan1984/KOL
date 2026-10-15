@@ -183,7 +183,7 @@ export async function createWorkApproval(input: {
 
 export async function listApprovals(): Promise<Awaited<Row[]>> {
   const ids = (await getConn().query("SELECT id FROM approvals ORDER BY created_at DESC",[])).rows as { id: string }[];
-  return (await Promise.all(ids.map(async (r) => (await getApproval(r.id))))).filter((x): x is Row => Boolean(x));
+  return (await Promise.all(ids.map(async (r) => (getApproval(r.id))))).filter((x): x is Row => Boolean(x));
 }
 
 export async function createReceipt(key: string): Promise<Awaited<Row | null>> {
@@ -191,7 +191,7 @@ export async function createReceipt(key: string): Promise<Awaited<Row | null>> {
   if (!row?.result_json) return null;
   try {
     const parsed = JSON.parse(row.result_json) as { id?: string };
-    return parsed.id ? (await getApproval(String(parsed.id))) : null;
+    return parsed.id ? (getApproval(String(parsed.id))) : null;
   } catch {
     return null;
   }
@@ -273,7 +273,7 @@ export async function decide(
     };
     (await tx(async (c) => {
       const updated = (await c.query("UPDATE approvals SET status = 'rejected', payload = $1, version = $2, updated_at = $3 WHERE id = $4 AND status = 'pending' AND version = $5",[JSON.stringify(nextPayload),nextVersion,now,aid,Number(ap.version || 0)]));
-      if (!updated.changes) staleFail();
+      if (!(updated.rowCount ?? 0)) staleFail();
       (await c.query("UPDATE wecom_cards SET status = 'rejected', body = $1 WHERE approval_id = $2",[approvalNotice(kind, nextPayload, "reject", actorName, undefined, rejectReason),aid]));
       if (ap.draft_id) (await c.query("UPDATE drafts SET status = 'discarded' WHERE id = $1",[ap.draft_id]));
     }));
@@ -288,7 +288,7 @@ export async function decide(
     const expectedActor = actorOf(expected, ap.payload as Json);
     (await tx(async (c) => {
       const updated = (await c.query("UPDATE approvals SET current_index = $1, version = $2, updated_at = $3 WHERE id = $4 AND status = 'pending' AND version = $5",[idx + 1,nextVersion,now,aid,Number(ap.version || 0)]));
-      if (!updated.changes) staleFail();
+      if (!(updated.rowCount ?? 0)) staleFail();
       (await c.query("UPDATE wecom_cards SET status = 'forwarded', body = $1 WHERE approval_id = $2",[approvalNotice(kind, ap.payload as Json, "advance", person.name, expectedActor.name),aid]));
       (await c.query("UPDATE wecom_cards SET assignee = $1, payload = $2, ts = $3 WHERE approval_id = $4",[person.name,JSON.stringify({ approval_id: aid, assignee: person, level: nxt, kind, amount_usd: ap.amount_usd }),now,aid]));
     }));
@@ -300,7 +300,7 @@ export async function decide(
   const fulfilled = await fulfillExpenseApproval(ap);
   (await tx(async (c) => {
     const updated = (await c.query("UPDATE approvals SET status = 'consumed', uses_left = 0, version = $1, updated_at = $2 WHERE id = $3 AND status = 'pending' AND version = $4",[nextVersion,now,aid,Number(ap.version || 0)]));
-    if (!updated.changes) staleFail();
+    if (!(updated.rowCount ?? 0)) staleFail();
     (await c.query("UPDATE wecom_cards SET status = 'sent', body = $1 WHERE approval_id = $2",[approvalNotice(kind, ap.payload as Json, "done", actorOf(expected, ap.payload as Json).name),aid]));
   }));
   (await audit("gateway", "approval.final_fulfill", { approval_id: aid, kind, version: nextVersion }));
@@ -351,7 +351,7 @@ export async function transferApproval(
   };
   (await tx(async (c) => {
     const updated = (await c.query("UPDATE approvals SET chain = $1, payload = $2, version = $3, updated_at = $4 WHERE id = $5 AND status = 'pending' AND version = $6",[JSON.stringify(chain),JSON.stringify(nextPayload),nextVersion,now,aid,Number(ap.version || 0)]));
-    if (!updated.changes) staleFail();
+    if (!(updated.rowCount ?? 0)) staleFail();
   }));
   (await audit("gateway", "approval.transfer", { approval_id: aid, from: expected, to: target, version: nextVersion }));
   return (await getApproval(aid)) as Row;
@@ -412,7 +412,7 @@ export async function countersignApproval(
   };
   (await tx(async (c) => {
     const updated = (await c.query("UPDATE approvals SET chain = $1, payload = $2, version = $3, updated_at = $4 WHERE id = $5 AND status = 'pending' AND version = $6",[JSON.stringify(chain),JSON.stringify(nextPayload),nextVersion,now,aid,Number(ap.version || 0)]));
-    if (!updated.changes) staleFail();
+    if (!(updated.rowCount ?? 0)) staleFail();
   }));
   (await audit("gateway", "approval.countersign", { approval_id: aid, by: expected, target, version: nextVersion }));
   return (await getApproval(aid)) as Row;
@@ -439,7 +439,7 @@ export async function withdrawApproval(
   };
   (await tx(async (c) => {
     const updated = (await c.query("UPDATE approvals SET status = 'withdrawn', payload = $1, version = $2, updated_at = $3 WHERE id = $4 AND status = 'pending' AND version = $5",[JSON.stringify(nextPayload),nextVersion,now,aid,Number(ap.version || 0)]));
-    if (!updated.changes) staleFail();
+    if (!(updated.rowCount ?? 0)) staleFail();
     (await c.query("UPDATE wecom_cards SET status = 'withdrawn' WHERE approval_id = $1",[aid]));
   }));
   (await audit("gateway", "approval.withdraw", { approval_id: aid, version: nextVersion }));
