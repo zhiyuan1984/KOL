@@ -61,6 +61,7 @@ import {
 import { HttpFail } from "./host/errors.js";
 import { normalizeBrandCode } from "./host/pep.js";
 import { persistValidatedSkillResult, skillResultMemoryStatus } from "./host/skill-result-memory.js";
+import { persistableEmployeeError } from "./discovery-errors.js";
 import { createRunTraceSink } from "./host/run-trace.js";
 import { nid } from "./ids.js";
 import { appendTaskEvent } from "./task-events.js";
@@ -736,6 +737,17 @@ async function startHomeCrawl(run: Row): Promise<void> {
       },
       idempotencyKey: String(run.idempotency_key),
     });
+    // A concurrent settlement can re-enter this function through the queued-run
+    // pump before this caller has linked the receipt. `startCrawl` then returns
+    // the same idempotent job; never relabel its terminal error as `crawling`.
+    const jobStatus = String(job.status || "").toLowerCase();
+    if (["error", "failed", "cancelled", "canceled", "stopped"].includes(jobStatus)) {
+      throw new HttpFail(502, {
+        code: "discovery_failed",
+        message: String(job.error || "发现采集启动未完成。"),
+        crawl_job_id: String(job.id || ""),
+      });
+    }
     (await getConn().query("UPDATE discovery_runs\n          SET crawl_job_id=$1, remote_task_id=$2, status='crawling', started_at=COALESCE(started_at,$3),\n              updated_at=$4, data_version=data_version+1\n        WHERE id=$5",[job.id,job.remote_task_id || null,nowIso(),nowIso(),run.id]));
     (await getConn().query("UPDATE tickets SET status='running', completed_at=NULL, updated_at=$1, data_version=data_version+1 WHERE id=$2",[nowIso(),run.work_item_id]));
     (await event(String(run.work_item_id || ""), "crawl_started", "crawling", "发现采集已开始"));
@@ -745,7 +757,18 @@ async function startHomeCrawl(run: Row): Promise<void> {
       (await event(String(run.work_item_id || ""), "discovery.queued", "queued", "发现采集排队中"));
       return;
     }
-    const message = error instanceof Error ? error.message : String(error);
+    const detail = error instanceof HttpFail ? objectOf(error.detail) : {};
+    const crawlJobId = String(detail.crawl_job_id || "").trim();
+    // startCrawl has already persisted this job's terminal error. Attach only a
+    // receipt belonging to this work item; arbitrary HttpFail data cannot link a
+    // different user's crawl receipt to this Home run.
+    if (crawlJobId) {
+      const receipt = (await getConn().query("SELECT id FROM crawl_jobs WHERE id=$1 AND work_item_id=$2",[crawlJobId,run.work_item_id])).rows[0] as { id?: string } | undefined;
+      if (receipt?.id) {
+        (await getConn().query("UPDATE discovery_runs SET crawl_job_id=$1, updated_at=$2, data_version=data_version+1 WHERE id=$3",[receipt.id,nowIso(),run.id]));
+      }
+    }
+    const message = persistableEmployeeError(error instanceof HttpFail ? error.detail : error);
     // Keep the Host's operator next_action with the reason: without it the run
     // reads as an unexplained failure and the missing collector stays invisible.
     const nextAction = error instanceof HttpFail

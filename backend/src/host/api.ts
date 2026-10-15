@@ -222,6 +222,14 @@ async function drainProgress(sid: string): Promise<void> {
 /** 同步执行路径（自管进度）的流式回答收尾：结束时把同一条消息的 streaming 关掉。 */
 const minimalStreamClose = new Map<string, () => Promise<void>>();
 
+function taskConnectorId(id: string): string {
+  // Historical skill manifests use aliases; credentials and native grants use
+  // canonical connector IDs. Normalize before the same authorization checks.
+  if (id === "starry" || id === "emailmcp") return "starrykol";
+  if (id === "claw") return "kolclaw";
+  return id;
+}
+
 /** 只读的上下文解析入口沿用提交侧同一套技能授权：未授权就连上下文也不解析。 */
 export async function requireTaskAccess(skill: string, agentId?: string): Promise<void> {
   const definition = (await taskDefinition(skill));
@@ -238,12 +246,13 @@ export async function requireTaskAccess(skill: string, agentId?: string): Promis
   }
   requireSkill(skill);
   for (const server of new Set(definition.mcp.map((tool) => tool.split(".", 1)[0]))) {
-    if (server === "starry" || server === "claw" || server === "kolclaw" || server === "starrykol" || server === "emailmcp") requireConnector(server === "emailmcp" ? "starrykol" : server, "read");
+    const connectorId = taskConnectorId(server);
+    if (connectorId === "kolclaw" || connectorId === "starrykol") requireConnector(connectorId, "read");
   }
   for (const permission of definition.permissions) {
     const [connector, level] = permission.split(":");
-    const connectorId = connector === "emailmcp" ? "starrykol" : connector;
-    if ((connectorId === "starry" || connectorId === "claw" || connectorId === "kolclaw" || connectorId === "starrykol") && ["read", "write", "admin"].includes(level)) {
+    const connectorId = taskConnectorId(connector);
+    if ((connectorId === "kolclaw" || connectorId === "starrykol") && ["read", "write", "admin"].includes(level)) {
       requireConnector(connectorId, level as "read" | "write" | "admin");
     }
   }
@@ -3893,22 +3902,31 @@ host.post("/sessions/:sid/messages", async (c) => {
   const session = (await sessionRow(sid));
   if (!isSessionRunning(sid)) beginSessionAsk(sid);
   const body = (await c.req.json()) as Json;
+  // Resolve the owner/session/run binding before submit-time authorization so
+  // a refused ask can close only its own validated pending run. This performs
+  // no execution, and forged/foreign task bindings remain hidden by 404.
+  const boundTask = workspace ? null : (await resolveBoundTask(sid, body));
   // Explicit task selection is authorized before recognition can return a clarification.
   // An unavailable task must not receive an accepted=true early-return receipt.
   const explicitSkill = typeof body.intent === "string" && (await taskDefinition(body.intent)) ? body.intent : null;
   const explicitActor = scopedUser();
-  if (explicitSkill && !authDisabled() && explicitActor && !isAdmin(explicitActor)
-    && !explicitActor.authority_skills?.includes(explicitSkill)) {
-    throw new HttpFail(400, "未授权该技能");
-  }
-  // A named real submission must receive its actual Runtime rejection before
-  // capability-filtered recognition can downgrade it into accepted clarification.
-  if (explicitSkill && explicitActor && !authDisabled() && codexMode() !== "stub") {
-    const explicitAgent = String(body.agent_id
-      || (await sessionAgentDefault(sid, explicitSkill, explicitActor.id))
-      || (await runtimeAgentForSkill(explicitSkill, explicitActor.id, { employeeChoice: true })));
-    await assertRuntimeSkill({ agentId: explicitAgent, skillId: explicitSkill,
-      userId: explicitActor.id, runId: "submission", sessionId: sid });
+  try {
+    if (explicitSkill && !authDisabled() && explicitActor && !isAdmin(explicitActor)
+      && !explicitActor.authority_skills?.includes(explicitSkill)) {
+      throw new HttpFail(400, "未授权该技能");
+    }
+    // A named real submission must receive its actual Runtime rejection before
+    // capability-filtered recognition can downgrade it into accepted clarification.
+    if (explicitSkill && explicitActor && !authDisabled() && codexMode() !== "stub") {
+      const explicitAgent = String(body.agent_id
+        || (await sessionAgentDefault(sid, explicitSkill, explicitActor.id))
+        || (await runtimeAgentForSkill(explicitSkill, explicitActor.id, { employeeChoice: true })));
+      await assertRuntimeSkill({ agentId: explicitAgent, skillId: explicitSkill,
+        userId: explicitActor.id, runId: "submission", sessionId: sid });
+    }
+  } catch (error) {
+    await failBoundTask(boundTask, error);
+    throw error;
   }
 
   if (workspace && ((body.intent && body.intent !== "kol_analyze") || body.collaboration_id || body.work_item_id || body.task_id || body.compose_input)) {
@@ -3926,7 +3944,6 @@ host.post("/sessions/:sid/messages", async (c) => {
     if (body.agent_id && body.agent_id !== agentId) throw new HttpFail(409, "当前会话已绑定其他智能体");
     body.agent_id = agentId;
   }
-  const boundTask = workspace ? null : (await resolveBoundTask(sid, body));
   if (boundTask?.agentId) {
     if (body.agent_id && body.agent_id !== boundTask.agentId) throw new HttpFail(409, "任务已绑定其他智能体");
     body.agent_id = boundTask.agentId;
@@ -3985,7 +4002,9 @@ host.post("/sessions/:sid/messages", async (c) => {
   const submittingUser = scopedUser();
   if (!authDisabled() && submittingUser && !isAdmin(submittingUser)
     && (!requestedSkill || !submittingUser.authority_skills?.includes(requestedSkill))) {
-    throw new HttpFail(400, "未授权该技能");
+    const rejection = new HttpFail(400, "未授权该技能");
+    await failBoundTask(boundTask, rejection);
+    throw rejection;
   }
   // Historical unauthenticated stub fixtures do not execute a harness. Real or identified runs always validate the selected pair.
   const unscopedFixture = isTestRuntime() && codexMode() === "stub" && !submittingUser && !body.agent_id;
@@ -4242,7 +4261,7 @@ export const sendMailDraft: Operation["handle"] = async (c, payload) => {
 };
 
 export const translateMailDraft: Operation["handle"] = async (c, input) => {
-  requireConnector("starry", "read");
+  requireConnector("starrykol", "read");
   const did = String(input.draft_id || "");
   const d = (await getDraft(did));
   const cached = String(d.body_zh_internal || "").trim();

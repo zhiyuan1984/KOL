@@ -312,21 +312,31 @@ describe("knowledge governance", () => {
       reason: "scope_mismatch",
     }));
 
-    const draft = await (await request("POST", "/api/admin/knowledge", {
-      title: "未审草稿",
-      body: "draft",
+    const pinnedPublished = await createPublished({
+      title: "可用内容提醒",
+      body: "published pinned",
       kind: "policy",
-      base_id: "kbase_legacy",
-      status: "draft",
-    })).json();
+      skill_id: "content_nudge",
+      brand: "LT",
+      status: "published",
+    });
+    const uncitedPublished = await createPublished({
+      title: "未引用内容提醒",
+      body: "published but uncited",
+      kind: "policy",
+      skill_id: "content_nudge",
+      brand: "LT",
+      status: "published",
+    });
+    await request("POST", `/api/knowledge/${pinnedPublished.id}/cite`, {}, native.employee.cookie);
     await request("POST", "/api/admin/knowledge/bindings", {
       skill_id: "content_nudge",
-      selector: { ids: ["kb_missing", draft.id] },
+      selector: { ids: [pinnedPublished.id, uncitedPublished.id] },
     });
     const pinned = await asNative(native.employee.id, () => resolveForSkill("content_nudge", { userId: native.employee.id, brands: ["LT"] }));
     expect(pinned.bound).toBe(true);
-    expect(pinned.skipped).toContainEqual({ knowledge_id: "kb_missing", reason: "missing" });
-    expect(pinned.skipped).toContainEqual(expect.objectContaining({ knowledge_id: draft.id, reason: "not_published" }));
+    expect(pinned.resolved.map((item) => item.id)).toEqual([pinnedPublished.id]);
+    expect(pinned.skipped).toContainEqual(expect.objectContaining({ knowledge_id: uncitedPublished.id, reason: "not_cited" }));
 
     const order = await (await request("POST", "/api/admin/knowledge/bindings", {
       skill_id: "report_draft",

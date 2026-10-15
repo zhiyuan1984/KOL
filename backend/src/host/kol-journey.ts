@@ -188,6 +188,12 @@ const mailDigestRefreshTimers = new Map<string, Awaited<ReturnType<typeof setTim
 const mailDigestRefreshJobs = new Set<Promise<void>>();
 const MAIL_SYNC_COALESCE_MS = 20_000;
 
+/** Background failures must be observable without logging mail content or credentials. */
+function logMailDigestBackgroundFailure(collaborationId: string, phase: string, error: unknown): void {
+  const kind = error instanceof Error && error.name ? error.name : "unknown";
+  console.error(`[mail-digest-refresh] col=${collaborationId} phase=${phase} error=${kind}`);
+}
+
 export function isMailSyncing(collaborationId: string): boolean {
   return mailSyncJobs.has(collaborationId);
 }
@@ -228,12 +234,15 @@ export async function refreshMailDigestAfterChange(
 ): Promise<void> {
   const journey = await journeyPayloadWithMailMemory(collaborationId, opts);
   if (journey && sessionId) publishSession(sessionId, { type: "journey", journey });
-  void ensureCodexThreadDigest(collaborationId, await mailHistoryRows(collaborationId), opts)
-    .then(async () => (journeyPayloadWithMailMemory(collaborationId)))
-    .then((next) => {
-      if (next && sessionId) publishSession(sessionId, { type: "journey", journey: next });
-    })
-    .catch(() => undefined);
+  // journeyPayloadWithMailMemory owns the only initialization for this
+  // collaboration. Await its tracked work before projecting the terminal
+  // digest; starting a second ensure here races a failed sticky retry and can
+  // submit the same remote digest twice.
+  const initialized = mailAnalysisJobs.get(collaborationId);
+  if (!initialized) return;
+  await initialized;
+  const next = await journeyPayload(collaborationId);
+  if (next && sessionId) publishSession(sessionId, { type: "journey", journey: next });
 }
 
 function scheduleMailDigestRefresh(collaborationId: string, sessionId: string): void {
@@ -245,7 +254,7 @@ function scheduleMailDigestRefresh(collaborationId: string, sessionId: string): 
     // represented by the retained digest state; it must not become an
     // unhandled rejection after a caller has closed its connection.
     const work = refreshMailDigestAfterChange(collaborationId, sessionId, { retryFailed: true })
-      .catch(() => undefined)
+      .catch((error) => logMailDigestBackgroundFailure(collaborationId, "scheduled", error))
       .finally(() => mailDigestRefreshJobs.delete(work));
     mailDigestRefreshJobs.add(work);
   }, 0);
@@ -274,7 +283,7 @@ export async function journeyPayloadWithMailMemory(
       const sessions = (await getConn().query("SELECT id FROM sessions WHERE collaboration_id=$1",[colId])).rows as { id: string }[];
       for (const session of sessions) publishSession(session.id, { type: "journey", journey: next });
     })
-    .catch(() => undefined)
+    .catch((error) => logMailDigestBackgroundFailure(colId, "initialize", error))
     .finally(async () => {
       if ((mailAnalysisJobs.get(colId)) === work) mailAnalysisJobs.delete(colId);
     }));
@@ -560,7 +569,8 @@ export async function syncKolSessionMail(
     .then((added) => {
       mailSyncAt.set(key, Date.now());
       mailSyncFailed.delete(key);
-      void refreshMailDigestAfterChange(collaborationId, sessionId, { retryFailed: true }).catch(() => undefined);
+      void refreshMailDigestAfterChange(collaborationId, sessionId, { retryFailed: true })
+        .catch((error) => logMailDigestBackgroundFailure(collaborationId, "sync", error));
       return added;
     })
     .catch(() => {

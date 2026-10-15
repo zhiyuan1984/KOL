@@ -141,6 +141,11 @@ describe("task run lifecycle honesty", () => {
         brands: ["LT"],
       }, setup.cookie);
       expect(employee.status, employee.text).toBe(201);
+      const outsider = await request("POST", "/api/admin/users", {
+        username: "recovery-observer", name: "Recovery Observer",
+        password: "observer-password", roles: ["employee"], brands: ["LT"],
+      }, setup.cookie);
+      expect(outsider.status, outsider.text).toBe(201);
       const login = await request("POST", "/api/auth/login", {
         username: "recovery-employee",
         password: "employee-password",
@@ -156,6 +161,16 @@ describe("task run lifecycle honesty", () => {
       }));
       await syncUserOrganization(String(employee.body.id), "org:lt_team");
       const { taskId, sessionId, runId, pending } = await createAndQueueTask(cookie);
+      const outsiderLogin = await request("POST", "/api/auth/login", {
+        username: "recovery-observer", password: "observer-password",
+      });
+      expect(outsiderLogin.status, outsiderLogin.text).toBe(200);
+      const beforeForeignAsk = await workItemStatus(taskId);
+      const foreignAsk = await request("POST", `/api/sessions/${sessionId}/messages`, pending, outsiderLogin.cookie);
+      expect(foreignAsk.status, foreignAsk.text).toBe(404);
+      expect(await workItemStatus(taskId)).toBe(beforeForeignAsk);
+      expect((await runRow(runId)).status).toBe("pending");
+      expect((await taskEvents(taskId)).map((row) => row.event_type)).not.toContain("run.failed");
       // 撤掉 Agent 绑定：ask 必须在任何执行之前被拒绝。
       (await revokeAgentBinding(binding.id));
       const posted = await request("POST", `/api/sessions/${sessionId}/messages`, pending, cookie);

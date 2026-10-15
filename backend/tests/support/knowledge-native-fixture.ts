@@ -71,11 +71,11 @@ export async function setupNativeKnowledgeFixture(skills = ["email_compose"]): P
   // runtime policy; every request still hydrates its authority from PostgreSQL.
   await getConn().query(
     "INSERT INTO connectors(id,label,enabled,status,credential_ref,updated_at) VALUES($1,$2,1,$3,$4,$5) ON CONFLICT (id) DO UPDATE SET enabled=1,status=EXCLUDED.status,credential_ref=EXCLUDED.credential_ref,updated_at=EXCLUDED.updated_at",
-    ["starry", "Starry 测试连接器", "configured", "test://native-knowledge", now],
+    ["starrykol", "StarryKOL 测试连接器", "configured", "test://native-knowledge", now],
   );
   await getConn().query(
     "INSERT INTO user_connector_grants(user_id,connector_id,access,created_at) VALUES($1,$2,$3,$4) ON CONFLICT (user_id,connector_id) DO UPDATE SET access=EXCLUDED.access,created_at=EXCLUDED.created_at",
-    ["sriphy", "starry", "write", now],
+    ["sriphy", "starrykol", "write", now],
   );
   // Current review organization facts—not a persona mapping—authorize the
   // management actor and named reviewer for the approval instance.

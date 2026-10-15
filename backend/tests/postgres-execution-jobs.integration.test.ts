@@ -172,28 +172,26 @@ describePostgres("native PostgreSQL execution-job repository", () => {
     expect(Number(outbox.rows[0]?.count || 0)).toBe(2);
   });
 
-  it("quarantines retired planning job types in PostgreSQL-only mode without loading a legacy handler", async () => {
-    const previousRuntimeMode = process.env.KOL_RUNTIME_MODE;
-    process.env.KOL_RUNTIME_MODE = "postgres-only";
-    try {
-      const queued = await pgEnqueueExecutionJob({
-        job_type: "work_plan.run",
-        tenant_ref: "company:test",
-        actor_ref: "system:test",
-        idempotency_key: "native-job-planning-quarantine-0001",
-      });
-      const claimed = await pgClaimExecutionJobById(String(queued.job.id), "worker-native");
-      expect(claimed).not.toBeNull();
-      const dispatched = await dispatchClaimedExecutionJob(claimed!);
-      expect(dispatched).toMatchObject({ job_type: "work_plan.run", handled: false, outcome: "needs_takeover", target_id: null });
-      const state = await postgresPool().query<{ status: string; error_code: string; lease_owner: string | null }>(
-        "SELECT status,error_code,lease_owner FROM execution_jobs WHERE id=$1",
-        [queued.job.id],
-      );
-      expect(state.rows[0]).toEqual({ status: "uncertain", error_code: "needs_takeover", lease_owner: null });
-    } finally {
-      if (previousRuntimeMode == null) delete process.env.KOL_RUNTIME_MODE;
-      else process.env.KOL_RUNTIME_MODE = previousRuntimeMode;
-    }
+  it("fails a malformed native planning payload without reviving a retired handler", async () => {
+    // work_plan.run is now a native PostgreSQL handler. A payload lacking the
+    // durable ticket/run facts is a proven pre-execution rejection, not a
+    // reason to resurrect the retired bridge or report an unearned success.
+    const queued = await pgEnqueueExecutionJob({
+      job_type: "work_plan.run",
+      tenant_ref: "company:test",
+      actor_ref: "system:test",
+      idempotency_key: "native-job-planning-invalid-payload-0001",
+      max_attempts: 1,
+    });
+    const claimed = await pgClaimExecutionJobById(String(queued.job.id), "worker-native");
+    expect(claimed).not.toBeNull();
+    const dispatched = await dispatchClaimedExecutionJob(claimed!);
+    expect(dispatched).toMatchObject({ job_type: "work_plan.run", handled: true, outcome: "failed", target_id: null });
+    const state = await postgresPool().query<{ status: string; error_code: string; error_summary: string; lease_owner: string | null }>(
+      "SELECT status,error_code,error_summary,lease_owner FROM execution_jobs WHERE id=$1",
+      [queued.job.id],
+    );
+    expect(state.rows[0]).toMatchObject({ status: "failed", error_code: "execution_handler_error", lease_owner: null });
+    expect(state.rows[0]?.error_summary).toContain("invalid planning execution job payload");
   });
 });

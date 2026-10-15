@@ -51,7 +51,7 @@ describe("SQLite transition execution jobs", () => {
     expect(outbox).toMatchObject({ status: "pending", event_type: "execution_job.queued" });
   });
 
-  it("claims once, publishes the local handoff, and records a terminal receipt", async () => {
+  it("claims once, leases the local publisher handoff, and records a terminal receipt", async () => {
     const queued = (await enqueueExecutionJob({
       job_type: "cron.run", tenant_ref: "company:amperetime", actor_ref: "system",
       idempotency_key: "cron-run:test-002", payload: { cron_run_id: "crun_test_002" },
@@ -59,7 +59,18 @@ describe("SQLite transition execution jobs", () => {
     const claimed = (await claimNextExecutionJob("test-worker", { job_types: ["cron.run"], now: new Date("2030-10-02T00:00:00.000Z") }));
     expect(claimed?.id).toBe(queued.job.id);
     expect((await claimExecutionJobById(String(queued.job.id), "second-worker"))).toBeNull();
-    expect((await publishExecutionOutboxForJob(String(queued.job.id), "test-worker", new Date("2030-10-02T00:00:01.000Z")))).toBe(1);
+    const publishedAt = new Date("2030-10-02T00:00:01.000Z");
+    const publisherLease = (await getConn().query(
+      `UPDATE execution_outbox
+       SET status='publishing', attempts=attempts+1, publisher_id=$1,
+           publisher_lease_until=$2, updated_at=$3, last_error=NULL
+       WHERE job_id=$4 AND status='pending'
+       RETURNING id,status,publisher_id,publisher_lease_until`,
+      ["test-worker", new Date("2030-10-02T00:01:01.000Z").toISOString(), publishedAt.toISOString(), queued.job.id],
+    )).rows;
+    expect(publisherLease).toHaveLength(1);
+    expect(publisherLease[0]).toMatchObject({ status: "publishing", publisher_id: "test-worker" });
+    expect((await publishExecutionOutboxForJob(String(queued.job.id), "test-worker", publishedAt))).toBe(1);
     const completed = (await completeExecutionJob(String(queued.job.id), { cron_run_id: "crun_test_002", cron_status: "succeeded" }, new Date("2030-10-02T00:00:02.000Z")));
     expect(completed).toMatchObject({ status: "succeeded", lease_until: null });
     expect(((await getConn().query("SELECT status FROM execution_outbox WHERE job_id=$1",[queued.job.id])).rows[0] as { status: string }).status).toBe("published");

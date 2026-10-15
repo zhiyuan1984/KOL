@@ -277,7 +277,9 @@ describe("WikiSkill knowledge", () => {
     const quote = await asAdmin(() => resolveMailTemplate({ skillId: "email_compose", stageCode: "QUOTE_PENDING", userId: native.admin.id, brands: ["LT"] }));
     expect(quote?.id).toBe("kb_mail_quote");
     expect(String(quote?.subject || "")).not.toMatch(/Outline check-in|family camping/);
-    const contentPlanning = await asAdmin(() => resolveMailTemplate({ skillId: "email_compose", stageCode: "CONTENT_PLANNING", userId: native.admin.id, brands: ["LT"] }));
+    const contentPlanningForLt = await asAdmin(() => resolveMailTemplate({ skillId: "email_compose", stageCode: "CONTENT_PLANNING", userId: native.admin.id, brands: ["LT"] }));
+    expect(contentPlanningForLt).toBeNull();
+    const contentPlanning = await asAdmin(() => resolveMailTemplate({ skillId: "email_compose", stageCode: "CONTENT_PLANNING", userId: native.admin.id, brands: ["RO"] }));
     expect(contentPlanning?.id).toBe("kb_mail_nudge");
   });
 

@@ -186,4 +186,32 @@ describe("home discovery submit authorization", () => {
     expect(String(row.status)).toBe("crawl_failed");
     expect(String(row.error || "")).not.toBe("");
   });
+
+  it("links a terminal error receipt when a converted start response includes a failed task id", async () => {
+    setCrawlMcpClientFactory(() => ({
+      async callTool(name: string) {
+        if (name === "start_crawl") {
+          return { task_id: "remote-auth-failed-1", status: "failed", error_message: "collector refused start" };
+        }
+        return {};
+      },
+      async close() {},
+    }));
+
+    const started = await call("POST", "/api/home/discovery/run", RUN_BODY);
+    expect(started.status, JSON.stringify(started.json)).toBe(202);
+    expect(started.json).toMatchObject({ status: "crawl_failed" });
+    const runId = String(started.json.id || "");
+    const receipt = (await getConn().query("SELECT crawl_job_id,status,error FROM discovery_runs WHERE id=$1",[runId])).rows[0] as {
+      crawl_job_id?: string | null; status?: string; error?: string | null;
+    } | undefined;
+    expect(receipt).toMatchObject({ status: "crawl_failed" });
+    expect(String(receipt?.crawl_job_id || "")).toMatch(/^crawl_/);
+    expect(String(receipt?.error || "")).not.toBe("");
+    const crawl = (await getConn().query("SELECT status,error FROM crawl_jobs WHERE id=$1",[receipt?.crawl_job_id])).rows[0] as {
+      status?: string; error?: string | null;
+    } | undefined;
+    expect(crawl).toMatchObject({ status: "error" });
+    expect(String(crawl?.error || "")).not.toBe("");
+  });
 });

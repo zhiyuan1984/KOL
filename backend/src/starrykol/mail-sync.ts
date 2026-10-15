@@ -162,6 +162,21 @@ type MailSyncRuntimeContext = {
 const durableSync = new AsyncLocalStorage<MailSyncRuntimeContext>();
 async function syncCheckpoint(): Promise<void> { await durableSync.getStore()?.checkpoint(); }
 let backgroundSyncTask: Promise<void> | null = null;
+const mailHydrationWriteQueues = new Map<string, Promise<void>>();
+
+/** Remote body reads remain concurrent; serializable local observations for one
+ * mailbox queue in source order so retries cannot starve each other. */
+function queueMailHydrationWrite<T>(mailbox: string, work: () => Promise<T>): Promise<T> {
+  const key = mailbox.toLowerCase() || "*";
+  const previous = mailHydrationWriteQueues.get(key) || Promise.resolve();
+  const queued = previous.catch(() => undefined).then(work);
+  const settled = queued.then(() => undefined, () => undefined);
+  mailHydrationWriteQueues.set(key, settled);
+  void settled.finally(() => {
+    if (mailHydrationWriteQueues.get(key) === settled) mailHydrationWriteQueues.delete(key);
+  });
+  return queued;
+}
 
 function nonNegative(value: unknown): number {
   const number = Number(value);
@@ -368,7 +383,12 @@ export async function waitForBackgroundSync(): Promise<void> {
   // Wait for in-flight foreground syncs first: they register the background
   // task as their last step, so it is only observable after they resolve.
   await Promise.all([...inflight.values()]);
-  if (backgroundSyncTask) await backgroundSyncTask;
+  while (backgroundSyncTask || mailHydrationWriteQueues.size) {
+    await Promise.allSettled([
+      ...(backgroundSyncTask ? [backgroundSyncTask] : []),
+      ...mailHydrationWriteQueues.values(),
+    ]);
+  }
   await waitForMailMemoryBackground();
 }
 
@@ -643,74 +663,76 @@ export async function hydrateMailThread(thread: Row, onRequestStarted?: () => vo
   if (!conversationId) return 0;
   const detail = await readConversation(conversationId, onRequestStarted);
   if (!detail.messages.length) return 0;
-  const col = thread.collaboration_id
-    ? await collaborationByIdPg(String(thread.collaboration_id))
-    : undefined;
   const mailbox = String(thread.mailbox || "");
-  const subject = conversationSubject(
-    { subject: thread.subject },
-    { subject: detail.subject },
-    ...detail.messages,
-  ) || String(thread.subject || "(无主题)");
-  let inserted = 0;
-  for (const message of detail.messages) {
-    if (await rememberItem(String(thread.id), col ? String(col.id) : null, conversationId, message, subject, col, mailbox)) {
-      inserted += 1;
+  return queueMailHydrationWrite(mailbox, async () => {
+    const col = thread.collaboration_id
+      ? await collaborationByIdPg(String(thread.collaboration_id))
+      : undefined;
+    const subject = conversationSubject(
+      { subject: thread.subject },
+      { subject: detail.subject },
+      ...detail.messages,
+    ) || String(thread.subject || "(无主题)");
+    let inserted = 0;
+    for (const message of detail.messages) {
+      if (await rememberItem(String(thread.id), col ? String(col.id) : null, conversationId, message, subject, col, mailbox)) {
+        inserted += 1;
+      }
     }
-  }
-  const latest = detail.messages[detail.messages.length - 1];
-  const snippet = messageBody(latest);
-  const from = messageFrom(latest);
-  // 水合时一并纠正对方：同 persistConversationIndex 规则（收件取发件人，发件取收件人），
-  // 定向补全的老会话不依赖整箱漫游即可修复 peer。
-  const latestInbound = inboundOf(latest, col, mailbox);
-  const latestTo = messageTo(latest);
-  const peer = latestInbound ? from : (latestTo.email ? latestTo : from);
-  await updateThreadAfterHydratePg({
-    threadId: String(thread.id),
-    subject,
-    snippet,
-    preview: mailPreview(snippet),
-    fromEmail: from.email,
-    fromName: from.name,
-    peerEmail: peer.email,
-    peerName: peer.name,
-    occurredAt: String(detail.occurredAt || thread.last_at || ""),
+    const latest = detail.messages[detail.messages.length - 1];
+    const snippet = messageBody(latest);
+    const from = messageFrom(latest);
+    // 水合时一并纠正对方：同 persistConversationIndex 规则（收件取发件人，发件取收件人），
+    // 定向补全的老会话不依赖整箱漫游即可修复 peer。
+    const latestInbound = inboundOf(latest, col, mailbox);
+    const latestTo = messageTo(latest);
+    const peer = latestInbound ? from : (latestTo.email ? latestTo : from);
+    await updateThreadAfterHydratePg({
+      threadId: String(thread.id),
+      subject,
+      snippet,
+      preview: mailPreview(snippet),
+      fromEmail: from.email,
+      fromName: from.name,
+      peerEmail: peer.email,
+      peerName: peer.name,
+      occurredAt: String(detail.occurredAt || thread.last_at || ""),
+    });
+    // The durable PostgreSQL worker keeps its authoritative mail index in PG.
+    // Historical memory projections remain only on the compatibility path.
+    if (col && !nativeRuntime()) {
+      const direction = inboundOf(latest, col, mailbox) ? "inbound" : "outbound";
+      const occurredAt = String(detail.occurredAt || thread.last_at || nowIso());
+      const body = messageBody(latest) || snippet;
+      (await recordFollowedMailMemory({
+        kolUid: String(col.kol_uid || ""),
+        collaborationId: String(col.id),
+        conversationId,
+        subject,
+        summary: mailPreview(snippet),
+        body,
+        direction,
+        occurredAt,
+        gatewaySuccess: true,
+        sourceVersion: `starry.mail:${conversationId}`,
+      }));
+      (await recordEffectiveCorrespondence({
+        kolUid: String(col.kol_uid || ""),
+        collaborationId: String(col.id),
+        scopeBrand: String(col.brand || ""),
+        direction,
+        occurredAt,
+        gatewaySuccess: true,
+        subject,
+        body,
+      }));
+    }
+    await refreshThreadDigest(String(thread.id), conversationId, mailbox);
+    // Body availability and AI-derived content are independent. The existing
+    // explicit translation/summary path owns generation; sync only marks state.
+    await markThreadTranslationsPendingPg(String(thread.id));
+    return inserted;
   });
-  // The durable PostgreSQL worker keeps its authoritative mail index in PG.
-  // Historical memory projections remain only on the compatibility path.
-  if (col && !nativeRuntime()) {
-    const direction = inboundOf(latest, col, mailbox) ? "inbound" : "outbound";
-    const occurredAt = String(detail.occurredAt || thread.last_at || nowIso());
-    const body = messageBody(latest) || snippet;
-    (await recordFollowedMailMemory({
-      kolUid: String(col.kol_uid || ""),
-      collaborationId: String(col.id),
-      conversationId,
-      subject,
-      summary: mailPreview(snippet),
-      body,
-      direction,
-      occurredAt,
-      gatewaySuccess: true,
-      sourceVersion: `starry.mail:${conversationId}`,
-    }));
-    (await recordEffectiveCorrespondence({
-      kolUid: String(col.kol_uid || ""),
-      collaborationId: String(col.id),
-      scopeBrand: String(col.brand || ""),
-      direction,
-      occurredAt,
-      gatewaySuccess: true,
-      subject,
-      body,
-    }));
-  }
-  await refreshThreadDigest(String(thread.id), conversationId, mailbox);
-  // Body availability and AI-derived content are independent. The existing
-  // explicit translation/summary path owns generation; sync only marks state.
-  await markThreadTranslationsPendingPg(String(thread.id));
-  return inserted;
 }
 
 type IndexedConversation = { conversationId: string; inserted: boolean; lastAt: string };
@@ -997,6 +1019,11 @@ function scheduleBackgroundSync(
       await syncRemainingConversations(remaining, mailbox, collabs, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize);
     } catch (error) {
       const failure = classifyMailSyncFailure(error);
+      const errorKind = error instanceof Error && error.name ? error.name : "unknown";
+      const errorCode = typeof (error as { code?: unknown } | undefined)?.code === "string"
+        ? (error as { code: string }).code
+        : "none";
+      console.error(`[mail-sync-background] diagnostic_id=${failure.diagnosticId} code=${failure.code} error_kind=${errorKind} error_code=${errorCode}`);
       const result: FollowedMailSync = {
         ok: false,
         source: "starry",

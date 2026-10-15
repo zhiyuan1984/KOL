@@ -214,7 +214,7 @@ describe("Codex mail memory", () => {
       body: "Hi, I am interested and would love to collaborate.",
       from: "xiaomei.beauty@example.com",
       provider_message_id: "sticky-fail-1",
-    }));
+    }, { deferDigest: true }));
     const failed = await ensureCodexThreadDigest("col_xiaomei");
     expect(failed.source).toBe("analysis_failed");
     expect(failed.error).toBe("HTTP 500");

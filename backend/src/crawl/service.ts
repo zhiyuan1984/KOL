@@ -143,6 +143,17 @@ async function startLegacyCrawl(input: { ownerUserId: string; workItemId: string
   try {
     const values = (value: unknown): string => Array.isArray(value) ? value.map(String).join(",") : String(value || "");
     const result = await remoteCall("start_crawl", { platforms: [platform], crawler_type: mode, ...(mode === "search" ? { keywords: values(input.parameters.keywords) } : {}), ...(mode === "detail" ? { specified_ids: values(input.parameters.specified_ids) } : {}), ...(mode === "creator" ? { creator_ids: values(input.parameters.creator_ids) } : {}) }, id);
+    const remoteStatus = statusOf(result);
+    const nested = json(result.data);
+    // A task id is not a successful start receipt when the collector has already
+    // reported this start as failed. Do not turn a converted MCP error envelope
+    // into an active Home run merely because it includes an id.
+    if (Boolean(result.isError) || ["error", "failed", "cancelled", "canceled", "rejected"].includes(remoteStatus)) {
+      const reason = result.error_message ?? result.error ?? result.message
+        ?? nested.error_message ?? nested.error ?? nested.message
+        ?? `remote start_crawl returned ${remoteStatus || "an error"}`;
+      throw new Error(persistableEmployeeError(reason));
+    }
     const remoteTaskId = String(result.task_id || result.id || json(result.data).task_id || "");
     if (!remoteTaskId) throw new Error("start_crawl returned no task_id");
     await postgresTransaction(async client => {
@@ -154,7 +165,13 @@ async function startLegacyCrawl(input: { ownerUserId: string; workItemId: string
     await failJob(id, error);
     const source = error instanceof Error ? error.message : error;
     console.warn("[discovery.crawl] start_crawl failed", { crawl_job_id: id, code: collectorFailureCode(error instanceof HttpFail ? error.detail ?? error : error), error: sanitizeSecret(error) });
-    throw new HttpFail(502, { code: collectorFailureCode(source), message: persistableEmployeeError(source) });
+    // The durable crawl row is the start receipt. Keep its id on this error so
+    // the Home run can attach the terminal receipt rather than invent `crawling`.
+    throw new HttpFail(502, {
+      code: collectorFailureCode(source),
+      message: persistableEmployeeError(source),
+      crawl_job_id: id,
+    });
   }
 }
 function statusOf(result: Json): string { const nested = json(result.data); return String(result.status || nested.status || result.state || nested.state || "").toLowerCase(); }
