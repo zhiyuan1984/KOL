@@ -5,7 +5,7 @@ import path from "node:path";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { authMiddleware } from "../src/auth.js";
-import { getConn, resetConn, txImmediate } from "../src/db.js";
+import { getConn, resetConn, tx } from "../src/db.js";
 import { ReviewService } from "../src/approval/review-service.js";
 import { reviewContextForActor } from "../src/approval/review-access.js";
 import { processExecutionJobById } from "../src/execution-jobs/dispatcher.js";
@@ -23,14 +23,14 @@ const original = {
   LINGONG_DB: process.env.LINGONG_DB,
   LINGONG_DATA: process.env.LINGONG_DATA,
 };
-function req(
+async function req(
   actor: string | undefined,
   url: string,
   body?: unknown,
   extra: Record<string, string> = {},
   method?: string,
 ) {
-  return app.request(`http://localhost/api${url}`, {
+  return (await app.request(`http://localhost/api${url}`, {
     method: method || (body === undefined ? "GET" : "POST"),
     headers: {
       ...(actor ? { cookie: `lingong_session=test-${actor}` } : {}),
@@ -38,7 +38,7 @@ function req(
       ...extra,
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+  }));
 }
 beforeEach(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "review-api-"));
@@ -49,55 +49,17 @@ beforeEach(async () => {
   });
   if (process.env.TEST_DATABASE_URL || process.env.DATABASE_URL)
     await freshTestDatabase();
-  const db = resetConn();
-  ensureOrganizationTree();
+  await resetConn();
+  const db = getConn();
+  await ensureOrganizationTree();
   for (const company of ["review-test-a", "review-test-b"])
-    db.prepare(
-      "INSERT INTO organization_units(id,company_id,display_name,type,level,head_person_ref,status,org_version,created_at,updated_at) VALUES(?,?,?,?,1,?,'active',1,?,?)",
-    ).run(
-      company,
-      company,
-      company,
-      "department",
-      `review-person:reviewer`,
-      "now",
-      "now",
-    );
+    (await db.query("INSERT INTO organization_units(id,company_id,display_name,type,level,head_person_ref,status,org_version,created_at,updated_at) VALUES($1,$2,$3,$4,1,$5,'active',1,$6,$7)",[company,company,company,"department",`review-person:reviewer`,"now","now"]));
   for (const id of ["admin", "employee", "reviewer", "outsider"]) {
-    db.prepare(
-      "INSERT INTO users(id,username,name,password_hash,roles,brands,active,created_at,updated_at) VALUES(?,?,?,?,?,?,1,?,?)",
-    ).run(
-      `review-${id}`,
-      `review-${id}`,
-      id,
-      "test-unused",
-      JSON.stringify(id === "admin" ? ["admin"] : ["employee"]),
-      "[]",
-      "now",
-      "now",
-    );
-    db.prepare(
-      "INSERT INTO organization_people(person_ref,display_name,user_id,status,created_at,updated_at) VALUES(?,?,?,'active',?,?)",
-    ).run(`review-person:${id}`, id, `review-${id}`, "now", "now");
+    (await db.query("INSERT INTO users(id,username,name,password_hash,roles,brands,active,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,1,$7,$8)",[`review-${id}`,`review-${id}`,id,"test-unused",JSON.stringify(id === "admin" ? ["admin"] : ["employee"]),"[]","now","now"]));
+    (await db.query("INSERT INTO organization_people(person_ref,display_name,user_id,status,created_at,updated_at) VALUES($1,$2,$3,'active',$4,$5)",[`review-person:${id}`,id,`review-${id}`,"now","now"]));
     const company = id === "outsider" ? "review-test-b" : "review-test-a";
-    db.prepare(
-      "INSERT INTO organization_memberships(id,person_ref,company_id,org_unit_id,relation,status,created_at,updated_at) VALUES(?,?,?,?,'primary','active',?,?)",
-    ).run(
-      `review-membership:${id}`,
-      `review-person:${id}`,
-      company,
-      company,
-      "now",
-      "now",
-    );
-    db.prepare(
-      "INSERT INTO auth_sessions(id_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)",
-    ).run(
-      createHash("sha256").update(`test-${id}`).digest("hex"),
-      `review-${id}`,
-      "2099-01-01T00:00:00.000Z",
-      "now",
-    );
+    (await db.query("INSERT INTO organization_memberships(id,person_ref,company_id,org_unit_id,relation,status,created_at,updated_at) VALUES($1,$2,$3,$4,'primary','active',$5,$6)",[`review-membership:${id}`,`review-person:${id}`,company,company,"now","now"]));
+    (await db.query("INSERT INTO auth_sessions(id_hash,user_id,expires_at,created_at) VALUES($1,$2,$3,$4)",[createHash("sha256").update(`test-${id}`).digest("hex"),`review-${id}`,"2099-01-01T00:00:00.000Z","now"]));
   }
   app = new Hono();
   app.use("/api/*", authMiddleware);
@@ -110,8 +72,8 @@ beforeEach(async () => {
     ),
   );
 });
-afterEach(() => {
-  getConn().close();
+afterEach(async () => {
+  await resetConn();
   for (const [key, value] of Object.entries(original))
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
@@ -153,11 +115,10 @@ describe("approval optimization boundaries on PostgreSQL", () => {
     const t = await publish();
     const receipt = await executeReview("employee", { action: "submit", templateId: t.id, templateVersion: 1, title: "通知计数", values: {} }, "notification-submit");
     const db = getConn();
-    txImmediate(() => {
-      for (let n = 0; n < 120; n++) db.prepare("INSERT INTO review_notifications(id,tenant,instance_id,user_id,message,created_at) VALUES(?,?,?,?,?,?)")
-        .run(`notice-${n}`, "review-test-a", receipt.resourceId, "review-reviewer", "核对申请", "2026-10-09T00:00:00Z");
-    });
-    const inbox = async () => (await req("reviewer", "/approvals/v2/notifications/inbox")).json();
+    (await tx(async () => {
+      for (let n = 0; n < 120; n++) (await db.query("INSERT INTO review_notifications(id,tenant,instance_id,user_id,message,created_at) VALUES($1,$2,$3,$4,$5,$6)",[`notice-${n}`,"review-test-a",receipt.resourceId,"review-reviewer","核对申请","2026-10-09T00:00:00Z"]));
+    }));
+    const inbox = async () => (await (await req("reviewer", "/approvals/v2/notifications/inbox")).json());
     const initial = await inbox(); expect(initial.items).toHaveLength(100); expect(initial.unreadCount).toBeGreaterThanOrEqual(120);
     expect((await req(undefined, "/approvals/v2/notifications/inbox")).status).toBe(401);
     expect(await (await req("outsider", "/approvals/v2/notifications/inbox")).json()).toEqual({ items: [], unreadCount: 0 });
@@ -189,17 +150,21 @@ describe("approval optimization boundaries on PostgreSQL", () => {
     const templates = await (await req("employee", "/approvals/v2/templates")).json();
     expect(templates[0].choiceCandidates).toEqual({ review: ["review-reviewer"] });
     const command = { action: "submit", templateId: t.id, templateVersion: 1, title: "选择人员", values: {}, selectedApprovers: { review: ["review-reviewer"] } };
-    const counts = () => ["review_instances", "review_notifications", "review_confirmations"].map(table => getConn().prepare(`SELECT COUNT(*) AS count FROM ${table}`).get());
-    const before = counts();
+    const counts = async () => Promise.all([
+      getConn().query<{ count: number }>("SELECT COUNT(*)::int AS count FROM review_instances"),
+      getConn().query<{ count: number }>("SELECT COUNT(*)::int AS count FROM review_notifications"),
+      getConn().query<{ count: number }>("SELECT COUNT(*)::int AS count FROM review_confirmations"),
+    ]).then((results) => results.map((result) => result.rows[0]?.count ?? 0));
+    const before = await counts();
     const preview = await req("employee", "/approvals/v2/preview", command);
-    expect(preview.status).toBe(200); expect((await preview.json()).trace[1].userIds).toEqual(["review-reviewer"]); expect(counts()).toEqual(before);
+    expect(preview.status).toBe(200); expect((await preview.json()).trace[1].userIds).toEqual(["review-reviewer"]); expect(await counts()).toEqual(before);
     for (const selectedApprovers of [{ review: ["review-outsider"] }, { review: ["review-employee"] }, { start: ["review-reviewer"] }, { review: ["review-reviewer", "review-reviewer"] }])
       expect((await req("employee", "/approvals/v2/preview", { ...command, selectedApprovers })).status).toBe(422);
     const confirm = await (await req("employee", "/approvals/v2/prepare", command)).json();
-    getConn().prepare("UPDATE organization_memberships SET status='ended' WHERE id='review-membership:reviewer'").run();
+    (await getConn().query("UPDATE organization_memberships SET status='ended' WHERE id='review-membership:reviewer'",[]));
     const result = await req("employee", "/approvals/v2/commands", { command, confirmationId: confirm.confirmationId, idempotencyKey: "revoked-selected-reviewer" });
     expect([409, 422]).toContain(result.status);
-    expect(getConn().prepare("SELECT COUNT(*) AS count FROM review_instances").get()).toMatchObject({ count: 0 });
+    expect((await getConn().query("SELECT COUNT(*) AS count FROM review_instances",[])).rows[0]).toMatchObject({ count: 0 });
   });
   it("replays an employee draft create and keeps choices in the immutable old instance", async () => {
     const d = emptyReviewDefinition(); d.nodes[1].assignee = { kind: "requester_choice", candidates: { kind: "manager" } };
@@ -233,30 +198,30 @@ describe("approval optimization boundaries on PostgreSQL", () => {
   it("lets AI save only current-company published drafts with no formal instance", async () => {
     const t = await publish(); const db = getConn();
     const proposal = { template_id: t.id, template_version: 1, title: "AI草稿", values_json: "{}" };
-    const draft = txImmediate(() => saveAssistantReviewDraft(db, "review-employee", proposal, "worker:test-review-draft"));
+    const draft = await saveAssistantReviewDraft("review-employee", proposal, "worker:test-review-draft");
     expect(draft.draft.title).toBe("AI草稿");
-    expect(txImmediate(() => saveAssistantReviewDraft(db, "review-employee", proposal, "worker:test-review-draft")).draft.id).toBe(draft.draft.id);
-    expect(reviewAssistantContext(db, "review-outsider").templates).toEqual([]);
-    expect(() => saveAssistantReviewDraft(db, "review-outsider", proposal, "worker:cross-company")).toThrow();
-    expect(() => saveAssistantReviewDraft(db, "review-employee", { ...proposal, values_json: "[]" }, "worker:bad-values")).toThrow();
-    expect(db.prepare("SELECT COUNT(*) AS count FROM review_instances").get()).toMatchObject({ count: 0 });
+    expect((await saveAssistantReviewDraft("review-employee", proposal, "worker:test-review-draft")).draft.id).toBe(draft.draft.id);
+    expect((await reviewAssistantContext("review-outsider")).templates).toEqual([]);
+    await expect(saveAssistantReviewDraft("review-outsider", proposal, "worker:cross-company")).rejects.toThrow();
+    await expect(saveAssistantReviewDraft("review-employee", { ...proposal, values_json: "[]" }, "worker:bad-values")).rejects.toThrow();
+    expect((await db.query("SELECT COUNT(*) AS count FROM review_instances",[])).rows[0]).toMatchObject({ count: 0 });
     await executeReview("admin", { action: "disable", templateId: t.id, expectedVersion: 1, expectedLifecycleVersion: 0 }, "disable-ai-template");
-    expect(() => saveAssistantReviewDraft(db, "review-employee", proposal, "worker:disabled-template")).toThrow();
+    await expect(saveAssistantReviewDraft("review-employee", proposal, "worker:disabled-template")).rejects.toThrow();
   });
   it("freezes a scoped business source and rejects changed or inaccessible material", async () => {
     const db = getConn();
-    db.prepare("INSERT INTO collaborations(id,handle,display_name,brand,email,mailbox_from,lifecycle_id,conversation_id,stage_code,notes) VALUES(?,?,?,?,?,?,?,?,?,?)").run("review-source", "source-kol", "来源对象", "test-brand", "test@example.com", "test@example.com", "lifecycle", "conversation", "S01", "原始备注");
-    db.prepare("UPDATE users SET brands=? WHERE id='review-employee'").run(JSON.stringify(["test-brand"]));
+    (await db.query("INSERT INTO collaborations(id,handle,display_name,brand,email,mailbox_from,lifecycle_id,conversation_id,stage_code,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",["review-source","source-kol","来源对象","test-brand","test@example.com","test@example.com","lifecycle","conversation","S01","原始备注"]));
+    (await db.query("UPDATE users SET brands=$1 WHERE id='review-employee'",[JSON.stringify(["test-brand"])]));
     const source = await (await req("employee", "/approvals/v2/source/collaboration/review-source")).json();
     expect(source.snapshot.notes).toBe("原始备注");
     expect((await req("outsider", "/approvals/v2/source/collaboration/review-source")).status).toBe(404);
     const t = await publish(); const command = { action: "submit", templateId: t.id, templateVersion: 1, title: "来源申请", values: {}, source };
     const prepared = await (await req("employee", "/approvals/v2/prepare", command)).json();
-    db.prepare("UPDATE collaborations SET notes='新材料' WHERE id='review-source'").run();
+    (await db.query("UPDATE collaborations SET notes='新材料' WHERE id='review-source'",[]));
     expect((await req("employee", "/approvals/v2/commands", { command, confirmationId: prepared.confirmationId, idempotencyKey: "changed-source-submit" })).status).toBe(409);
     const updated = await (await req("employee", "/approvals/v2/source/collaboration/review-source")).json();
     const r = await executeReview("employee", { ...command, source: updated }, "updated-source-submit");
-    db.prepare("UPDATE collaborations SET notes='后续变化' WHERE id='review-source'").run();
+    (await db.query("UPDATE collaborations SET notes='后续变化' WHERE id='review-source'",[]));
     const i = await (await req("reviewer", `/approvals/v2/instances/${r.resourceId}`)).json();
     expect(i.source.snapshot.notes).toBe("新材料"); expect(i.source.version).toBe(updated.version);
   });
@@ -287,10 +252,21 @@ describe("review API with actual session authentication and organization storage
     expect(repeated.id).toBe(saved.id);
     expect(repeated.version).toBe(1);
     expect((await req("admin", "/admin/approval-types/v2/templates", { definition: { ...definition, name: "changed" }, creationKey })).status).toBe(409);
-    const service = new ReviewService(getConn(), reviewContextForActor(getConn(), "review-admin"));
-    txImmediate(() => { const command = { action: "publish" as const, templateId: saved.id, expectedVersion: 1 }; const prepared = service.prepare(command); service.execute(command, prepared.confirmationId, "review-content-diff-publish"); });
-    txImmediate(() => service.saveTemplate(saved.id, 1, definition));
-    expect(service.templates(true).find(t => t.id === saved.id)).toMatchObject({ version: 2, publishedVersion: 1, hasUnpublishedChanges: false });
+    await tx(async (db) => {
+      const service = new ReviewService(db, await reviewContextForActor(db, "review-admin"));
+      const command = { action: "publish" as const, templateId: saved.id, expectedVersion: 1 };
+      const prepared = await service.prepare(command);
+      await service.execute(command, prepared.confirmationId, "review-content-diff-publish");
+    });
+    await tx(async (db) => {
+      const service = new ReviewService(db, await reviewContextForActor(db, "review-admin"));
+      await service.saveTemplate(saved.id, 1, definition);
+    });
+    const template = await tx(async (db) => {
+      const service = new ReviewService(db, await reviewContextForActor(db, "review-admin"));
+      return (await service.templates(true)).find((candidate) => candidate.id === saved.id);
+    });
+    expect(template).toMatchObject({ version: 2, publishedVersion: 1, hasUnpublishedChanges: false });
   });
   it("returns both branch outcomes and complete read-only trial traces including cc and waiting duties", async () => {
     const definition = emptyReviewDefinition();
@@ -301,8 +277,12 @@ describe("review API with actual session authentication and organization storage
       { id: "branch", name: "条件", type: "condition", condition: { field: "content", op: "eq", value: "A" }, next: "review", otherwise: "review" },
       ...(["cc", "consult", "handler"] as const).map((type, index, types) => ({ id: type, name: type, type, next: types[index+1] || "end", assignee: { kind: "named" as const, userIds: ["review-reviewer"] }, mode: "single" as const })),
     );
-    const counts = () => ["review_instances", "review_notifications", "review_events"].map(table => (getConn().prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number }).count);
-    const before = counts();
+    const counts = async () => Promise.all([
+      getConn().query<{ count: number }>("SELECT COUNT(*)::int AS count FROM review_instances"),
+      getConn().query<{ count: number }>("SELECT COUNT(*)::int AS count FROM review_notifications"),
+      getConn().query<{ count: number }>("SELECT COUNT(*)::int AS count FROM review_events"),
+    ]).then((results) => results.map((result) => result.rows[0]?.count ?? 0));
+    const before = await counts();
     for (const [content, branch] of [["A", "matched"], ["B", "otherwise"]]) {
       const response = await req("admin", "/admin/approval-types/v2/simulate", { definition, values: { content }, requester: "review-employee" });
       expect(response.status).toBe(200);
@@ -311,16 +291,16 @@ describe("review API with actual session authentication and organization storage
       expect(result.trace[1]).toMatchObject({ branch, inputs: { content } });
       expect(result.trace[3]).toMatchObject({ userIds: ["review-reviewer"], type: "cc" });
     }
-    expect(counts()).toEqual(before);
+    expect(await counts()).toEqual(before);
   });
   it("supports the real authority shape with no company unit and four organization levels", async () => {
-    department("institute", "review-test-a", 1);
-    department("digital", "institute", 2);
-    department("product", "digital", 3);
-    department("ai", "product", 4);
-    getConn().prepare("UPDATE organization_units SET parent_id=NULL WHERE id='institute'").run();
-    getConn().prepare("DELETE FROM organization_units WHERE id='review-test-a'").run();
-    getConn().prepare("UPDATE organization_memberships SET org_unit_id='ai' WHERE id='review-membership:admin'").run();
+    (await department("institute", "review-test-a", 1));
+    (await department("digital", "institute", 2));
+    (await department("product", "digital", 3));
+    (await department("ai", "product", 4));
+    (await getConn().query("UPDATE organization_units SET parent_id=NULL WHERE id='institute'",[]));
+    (await getConn().query("DELETE FROM organization_units WHERE id='review-test-a'",[]));
+    (await getConn().query("UPDATE organization_memberships SET org_unit_id='ai' WHERE id='review-membership:admin'",[]));
     const response = await req("admin", "/approvals/v2/context");
     expect(response.status).toBe(200);
     const context = await response.json();
@@ -331,19 +311,18 @@ describe("review API with actual session authentication and organization storage
     expect((await req("admin", "/admin/approval-types/v2/templates", {definition})).status).toBe(200);
     expect((await req("outsider", "/approvals/v2/context", undefined, {"X-Review-Company":"review-test-a"})).status).toBe(403);
   });
-  function department(id: string, parent: string, level: number, status = "active") {
-    getConn().prepare("INSERT INTO organization_units(id,company_id,display_name,type,parent_id,level,status,org_version,created_at,updated_at) VALUES(?,?,?,'department',?,?,?,1,'now','now')")
-      .run(id, "review-test-a", id, parent, level, status);
+  async function department(id: string, parent: string, level: number, status = "active") {
+    (await getConn().query("INSERT INTO organization_units(id,company_id,display_name,type,parent_id,level,status,org_version,created_at,updated_at) VALUES($1,$2,$3,'department',$4,$5,$6,1,'now','now')",[id,"review-test-a",id,parent,level,status]));
   }
   it("returns the actual primary organization path and excludes foreign, archived and orphan departments", async () => {
-    department("center", "review-test-a", 2);
-    department("department", "center", 3);
-    department("group", "department", 4);
-    department("archived", "review-test-a", 2, "archived");
-    department("archived-child", "archived", 3);
-    department("orphan", "missing", 2);
-    getConn().prepare("UPDATE organization_memberships SET org_unit_id='group' WHERE id='review-membership:admin'").run();
-    getConn().prepare("INSERT INTO organization_memberships(id,person_ref,company_id,org_unit_id,relation,status,created_at,updated_at) VALUES('collab','review-person:admin','review-test-b','review-test-b','collaborative','active','now','now')").run();
+    (await department("center", "review-test-a", 2));
+    (await department("department", "center", 3));
+    (await department("group", "department", 4));
+    (await department("archived", "review-test-a", 2, "archived"));
+    (await department("archived-child", "archived", 3));
+    (await department("orphan", "missing", 2));
+    (await getConn().query("UPDATE organization_memberships SET org_unit_id='group' WHERE id='review-membership:admin'",[]));
+    (await getConn().query("INSERT INTO organization_memberships(id,person_ref,company_id,org_unit_id,relation,status,created_at,updated_at) VALUES('collab','review-person:admin','review-test-b','review-test-b','collaborative','active','now','now')",[]));
     const response = await req("admin", "/approvals/v2/context");
     expect(response.status).toBe(200);
     const context = await response.json();
@@ -353,13 +332,13 @@ describe("review API with actual session authentication and organization storage
     expect((await req("outsider", "/approvals/v2/context", undefined, { "X-Review-Company": "review-test-a" })).status).toBe(403);
   });
   it("does not guess a primary department when multiple organization memberships are primary", async () => {
-    department("center", "review-test-a", 2);
-    getConn().prepare("INSERT INTO organization_memberships(id,person_ref,company_id,org_unit_id,relation,status,created_at,updated_at) VALUES('primary-extra','review-person:admin','review-test-a','center','primary','active','now','now')").run();
+    (await department("center", "review-test-a", 2));
+    (await getConn().query("INSERT INTO organization_memberships(id,person_ref,company_id,org_unit_id,relation,status,created_at,updated_at) VALUES('primary-extra','review-person:admin','review-test-a','center','primary','active','now','now')",[]));
     const context = await (await req("admin", "/approvals/v2/context")).json();
     expect(context.organization.defaultUnitId).toBeUndefined();
   });
   it("persists draft organization ownership and rejects a foreign or archived organization", async () => {
-    department("center", "review-test-a", 2);
+    (await department("center", "review-test-a", 2));
     const definition = { ...emptyReviewDefinition(), organizationUnitId: "center", name: "" };
     const saved = await req("admin", "/admin/approval-types/v2/templates", { definition });
     expect(saved.status).toBe(200);
@@ -367,18 +346,18 @@ describe("review API with actual session authentication and organization storage
     const rows = await (await req("admin", "/admin/approval-types/v2/templates")).json();
     expect(rows.find((row: { id: string }) => row.id === template.id).definition.organizationUnitId).toBe("center");
     expect((await req("admin", "/admin/approval-types/v2/templates", { definition: { ...definition, organizationUnitId: "review-test-b" } })).status).toBe(422);
-    getConn().prepare("UPDATE organization_units SET status='archived' WHERE id='center'").run();
+    (await getConn().query("UPDATE organization_units SET status='archived' WHERE id='center'",[]));
     expect((await req("admin", "/admin/approval-types/v2/templates", { definition })).status).toBe(422);
   });
   it("rechecks organization status before a confirmed publish and preserves legacy drafts", async () => {
-    department("center", "review-test-a", 2);
+    (await department("center", "review-test-a", 2));
     const definition = { ...emptyReviewDefinition(), organizationUnitId: "center" };
     const template = await (await req("admin", "/admin/approval-types/v2/templates", { definition })).json();
     const command = { action: "publish", templateId: template.id, expectedVersion: template.version };
     const prepared = await req("admin", "/approvals/v2/prepare", command);
     expect(prepared.status).toBe(200);
     const confirmation = await prepared.json();
-    getConn().prepare("UPDATE organization_units SET status='archived' WHERE id='center'").run();
+    (await getConn().query("UPDATE organization_units SET status='archived' WHERE id='center'",[]));
     const check = await req("admin", "/admin/approval-types/v2/validate", { definition });
     expect(check.status).toBe(200);
     expect((await check.json()).issues).toContainEqual(expect.objectContaining({ path: "organizationUnitId", target: expect.objectContaining({ step: "basic", property: "organizationUnitId" }) }));
@@ -434,18 +413,7 @@ describe("review API with actual session authentication and organization storage
   });
 
   it("lists only effective company memberships, defaults to the unique primary company and checks explicit scope", async () => {
-    getConn()
-      .prepare(
-        "INSERT INTO organization_memberships(id,person_ref,company_id,org_unit_id,relation,status,created_at,updated_at) VALUES(?,?,?,?,'collaborative','active',?,?)",
-      )
-      .run(
-        "review-extra-company",
-        "review-person:employee",
-        "review-test-b",
-        "review-test-b",
-        "now",
-        "now",
-      );
+    (await getConn().query("INSERT INTO organization_memberships(id,person_ref,company_id,org_unit_id,relation,status,created_at,updated_at) VALUES($1,$2,$3,$4,'collaborative','active',$5,$6)",["review-extra-company","review-person:employee","review-test-b","review-test-b","now","now"]));
     const companies = await (
       await req("employee", "/approvals/v2/companies")
     ).json();
@@ -542,20 +510,19 @@ describe("review API with actual session authentication and organization storage
       ).status,
     ).toBe(409);
   });
-  function overdue(action: "remind" | "transfer" = "remind") {
-    const now = new Date(Date.now() - 3 * 3600000).toISOString(),
-      db = getConn();
-    const admin = new ReviewService(
-      db,
-      reviewContextForActor(db, "review-admin", "review-test-a"),
-      now,
-    );
-    const employee = new ReviewService(
-      db,
-      reviewContextForActor(db, "review-employee", "review-test-a"),
-      now,
-    );
-    return txImmediate(() => {
+  async function overdue(action: "remind" | "transfer" = "remind") {
+    const now = new Date(Date.now() - 3 * 3600000).toISOString();
+    return tx(async (db) => {
+      const admin = new ReviewService(
+        db,
+        await reviewContextForActor(db, "review-admin", "review-test-a"),
+        now,
+      );
+      const employee = new ReviewService(
+        db,
+        await reviewContextForActor(db, "review-employee", "review-test-a"),
+        now,
+      );
       const d = emptyReviewDefinition();
       d.nodes[1].timeoutHours = 1;
       d.nodes[1].operations = {
@@ -568,13 +535,10 @@ describe("review API with actual session authentication and organization storage
                 deadline: "reset",
               },
       };
-      const t = admin.saveTemplate(undefined, undefined, d),
-        pub = {
-          action: "publish" as const,
-          templateId: t.id,
-          expectedVersion: 1,
-        };
-      admin.execute(pub, admin.prepare(pub).confirmationId, "timeout-publish");
+      const t = await admin.saveTemplate(undefined, undefined, d);
+      const pub = { action: "publish" as const, templateId: t.id, expectedVersion: 1 };
+      const publication = await admin.prepare(pub);
+      await admin.execute(pub, publication.confirmationId, "timeout-publish");
       const submit = {
         action: "submit" as const,
         templateId: t.id,
@@ -582,26 +546,18 @@ describe("review API with actual session authentication and organization storage
         title: "超时验证",
         values: {},
       };
-      const r = employee.execute(
-        submit,
-        employee.prepare(submit).confirmationId,
-        "timeout-submit",
-      );
-      const job = db
-        .prepare(
-          "SELECT id FROM execution_jobs WHERE job_type='review.timeout'",
-        )
-        .get() as { id: string };
-      return { r, job, employee };
+      const prepared = await employee.prepare(submit);
+      const r = await employee.execute(submit, prepared.confirmationId, "timeout-submit");
+      const job = (await db.query<{ id: string }>("SELECT id FROM execution_jobs WHERE job_type=$1", ["review.timeout"])).rows[0];
+      if (!job) throw new Error("review timeout job was not scheduled");
+      return { r, job };
     });
   }
   it("dispatches an overdue reminder with real durable outbox and an atomic receipt", async () => {
-    const { r, job } = overdue();
+    const { r, job } = (await overdue());
     expect(
       (
-        getConn()
-          .prepare("SELECT count(*) AS n FROM execution_outbox WHERE job_id=?")
-          .get(job.id) as { n: number }
+        (await getConn().query("SELECT count(*) AS n FROM execution_outbox WHERE job_id=$1",[job.id])).rows[0] as { n: number }
       ).n,
     ).toBe(1);
     expect(
@@ -625,7 +581,7 @@ describe("review API with actual session authentication and organization storage
     ).toHaveLength(1);
   });
   it("automatically transfers only to the published qualified target", async () => {
-    const { r, job } = overdue("transfer");
+    const { r, job } = (await overdue("transfer"));
     expect(
       (await processExecutionJobById(job.id, "review-test-worker"))?.outcome,
     ).toBe("processed");
@@ -637,31 +593,28 @@ describe("review API with actual session authentication and organization storage
     expect(detail.tasks[1].userId).toBe("review-admin");
   });
   it("ignores an old timeout after withdrawal", async () => {
-    const { r, job, employee } = overdue();
-    txImmediate(() => {
+    const { r, job } = await overdue();
+    await tx(async (db) => {
+      const employee = new ReviewService(
+        db,
+        await reviewContextForActor(db, "review-employee", "review-test-a"),
+      );
       const c = {
         action: "withdraw" as const,
         instanceId: r.resourceId,
         expectedVersion: 1,
         reason: "取消",
       };
-      employee.execute(
-        c,
-        employee.prepare(c).confirmationId,
-        "timeout-withdraw",
-      );
+      const prepared = await employee.prepare(c);
+      await employee.execute(c, prepared.confirmationId, "timeout-withdraw");
     });
     await processExecutionJobById(job.id, "review-test-worker");
-    const result = getConn()
-      .prepare("SELECT receipt_json FROM execution_jobs WHERE id=?")
-      .get(job.id) as { receipt_json: string };
+    const result = (await getConn().query("SELECT receipt_json FROM execution_jobs WHERE id=$1",[job.id])).rows[0] as { receipt_json: string };
     expect(JSON.parse(result.receipt_json).status).toBe("skipped");
   });
   it("records needs-takeover instead of granting a revoked target", async () => {
-    const { r, job } = overdue("transfer");
-    getConn()
-      .prepare("UPDATE users SET active=0 WHERE id=?")
-      .run("review-admin");
+    const { r, job } = (await overdue("transfer"));
+    (await getConn().query("UPDATE users SET active=0 WHERE id=$1",["review-admin"]));
     await processExecutionJobById(job.id, "review-test-worker");
     const detail = await (
       await req("employee", `/approvals/v2/instances/${r.resourceId}`)
@@ -670,19 +623,7 @@ describe("review API with actual session authentication and organization storage
     expect(detail.blockedReason).toContain("超时升级");
   });
   it("does not disclose legacy notification cards outside the viewer's approvals", async () => {
-    getConn()
-      .prepare(
-        "INSERT INTO wecom_cards(id,approval_id,title,body,status,payload,ts) VALUES(?,?,?,?,?,?,?)",
-      )
-      .run(
-        "private-card",
-        "private-approval",
-        "私有审批",
-        "不可泄露的内容",
-        "pending",
-        "{}",
-        "2026-10-04T00:00:00Z",
-      );
+    (await getConn().query("INSERT INTO wecom_cards(id,approval_id,title,body,status,payload,ts) VALUES($1,$2,$3,$4,$5,$6,$7)",["private-card","private-approval","私有审批","不可泄露的内容","pending","{}","2026-10-04T00:00:00Z"]));
     const result = await req("employee", "/wecom/cards");
     expect(result.status).toBe(200);
     expect(await result.json()).toEqual([]);
@@ -708,9 +649,7 @@ describe("review API with actual session authentication and organization storage
         })
       ).status,
     ).toBe(403);
-    getConn()
-      .prepare("UPDATE organization_memberships SET status='ended' WHERE id=?")
-      .run("review-membership:employee");
+    (await getConn().query("UPDATE organization_memberships SET status='ended' WHERE id=$1",["review-membership:employee"]));
     expect((await req("employee", "/approvals/v2/context")).status).toBe(403);
   });
   it("supports an authenticated end-to-end publish, submit and approve", async () => {
@@ -766,9 +705,7 @@ describe("review API with actual session authentication and organization storage
     expect(detail.events).toHaveLength(2);
   });
   it("denies disabled users even with an unexpired session", async () => {
-    getConn()
-      .prepare("UPDATE users SET active=0 WHERE id=?")
-      .run("review-employee");
+    (await getConn().query("UPDATE users SET active=0 WHERE id=$1",["review-employee"]));
     expect((await req("employee", "/approvals/v2/context")).status).toBe(401);
   });
   it("persists only the actor’s drafts and checks versions", async () => {

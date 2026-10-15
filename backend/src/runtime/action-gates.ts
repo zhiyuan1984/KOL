@@ -50,13 +50,13 @@ export function assertRuntimeActionAllowed(connector: string, tool: string): voi
  */
 function genericActionGate(connector: string, tool: string): RuntimeActionGate {
   return {
-    validate(context) {
+    async validate(context) {
       assertRuntimeActionAllowed(connector, tool);
-      authorizeConnector(context, connector);
+      (await authorizeConnector(context, connector));
     },
     async execute(context, _args, _actionId, dispatch) {
       assertRuntimeActionAllowed(connector, tool);
-      authorizeConnector(context, connector);
+      (await authorizeConnector(context, connector));
       return dispatch();
     },
   };

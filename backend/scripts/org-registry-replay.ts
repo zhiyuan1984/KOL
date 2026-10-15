@@ -1,3 +1,4 @@
+import { postgresTransaction, closePostgresPool } from "../src/postgres/pool.js";
 /**
  * 把 `config/org-registry.yaml` 的组织事实重放进运行时表。
  *
@@ -47,47 +48,51 @@ function declared() {
   };
 }
 
-function fingerprint(): string {
-  const units = listOrganizationUnits().map((unit) => `${unit.id}|${unit.display_name}|${unit.parent_id}|${unit.level}|${unit.head_person_ref}`);
-  const people = listOrganizationPeople().map((person) => `${person.person_ref}|${person.display_name}|${person.status}|${person.user_id}|${person.avatar_url}`);
-  const memberships = listOrganizationMemberships().map((row) => `${row.person_ref}|${row.org_unit_id}|${row.relation}|${row.position}|${row.status}`);
-  const scopes = listScopeMemberships().map((row) => `${row.subject_type}|${row.subject_id}|${row.brand_id}|${row.region_id}`);
+async function fingerprint(): Promise<string> {
+  const units = (await listOrganizationUnits()).map((unit) => `${unit.id}|${unit.display_name}|${unit.parent_id}|${unit.level}|${unit.head_person_ref}`);
+  const people = (await listOrganizationPeople()).map((person) => `${person.person_ref}|${person.display_name}|${person.status}|${person.user_id}|${person.avatar_url}`);
+  const memberships = (await listOrganizationMemberships()).map((row) => `${row.person_ref}|${row.org_unit_id}|${row.relation}|${row.position}|${row.status}`);
+  const scopes = (await listScopeMemberships()).map((row) => `${row.subject_type}|${row.subject_id}|${row.brand_id}|${row.region_id}`);
   return JSON.stringify([units.sort(), people.sort(), memberships.sort(), scopes.sort()]);
 }
 
-function snapshot() {
-  const units = listOrganizationUnits();
-  const people = listOrganizationPeople();
+async function snapshot() {
+  const units = (await listOrganizationUnits());
+  const people = (await listOrganizationPeople());
   return {
     units: units.length,
     people: people.filter((person) => person.status !== "left").length,
     with_avatar: people.filter((person) => person.status !== "left" && person.avatar_url).length,
     linked_accounts: people.filter((person) => person.status !== "left" && person.user_id).length,
-    memberships: listOrganizationMemberships().length,
-    scopes: listScopeMemberships().length,
-    org_version: currentOrgVersion(String(units[0]?.company_id || "")),
+    memberships: (await listOrganizationMemberships()).length,
+    scopes: (await listScopeMemberships()).length,
+    org_version: (await currentOrgVersion(String(units[0]?.company_id || ""))),
   };
 }
 
 /** 只读地算出「重放后会变成什么」，不改库。 */
-function preview() {
-  const before = fingerprint();
-  const beforeSnap = snapshot();
-  getConn().exec("BEGIN");
+async function preview() {
+  type Preview = { before: string; beforeSnap: Awaited<ReturnType<typeof snapshot>>; afterSnap: Awaited<ReturnType<typeof snapshot>>; after: string };
+  let plan: Preview | undefined;
+  const rollback = new Error("controlled registry preview rollback");
   try {
-    reseedOrganizationTreeFromRegistry();
-    return { before, beforeSnap, afterSnap: snapshot(), after: fingerprint() };
-  } finally {
-    getConn().exec("ROLLBACK");
-  }
+    await postgresTransaction(async () => {
+      const before = await fingerprint(), beforeSnap = await snapshot();
+      await reseedOrganizationTreeFromRegistry();
+      plan = { before, beforeSnap, afterSnap: await snapshot(), after: await fingerprint() };
+      throw rollback;
+    }, { maxRetries: 0 });
+  } catch (error) { if (error !== rollback) throw error; }
+  if (!plan) throw new Error("registry preview did not produce a result");
+  return plan;
 }
 
 getConn();
 
 const dl = declared();
-const plan = preview();
-const orphans = listOrganizationPeople().filter((person) => !dl.people.has(person.person_ref) && person.status !== "left");
-const orphanMemberships = listOrganizationMemberships().filter((row) => orphans.some((person) => person.person_ref === row.person_ref));
+const plan = (await preview());
+const orphans = (await listOrganizationPeople()).filter((person) => !dl.people.has(person.person_ref) && person.status !== "left");
+const orphanMemberships = (await listOrganizationMemberships()).filter((row) => orphans.some((person) => person.person_ref === row.person_ref));
 const changed = plan.after !== plan.before;
 
 console.log(`库中现状：${JSON.stringify(plan.beforeSnap)}`);
@@ -109,11 +114,11 @@ if (!apply) {
   process.exit(0);
 }
 
-reseedOrganizationTreeFromRegistry();
-const company = String(listOrganizationUnits()[0]?.company_id || "");
+(await reseedOrganizationTreeFromRegistry());
+const company = String((await listOrganizationUnits())[0]?.company_id || "");
 
 if (changed && plan.beforeSnap.org_version > 0) {
-  const next = bumpOrgVersion(company, "重放 config/org-registry.yaml 的组织声明", "cli:org-registry-replay");
+  const next = (await bumpOrgVersion(company, "重放 config/org-registry.yaml 的组织声明", "cli:org-registry-replay"));
   console.log(`组织版本 ${plan.beforeSnap.org_version} → ${next}，旧授权按新版本复核（CONST-05）。`);
 } else if (changed) {
   console.log("库中原本没有组织版本记录（首次回填），不自增版本。");
@@ -122,17 +127,19 @@ if (changed && plan.beforeSnap.org_version > 0) {
 if (orphans.length && retireOrphans) {
   const db = getConn();
   for (const person of orphans) {
-    db.prepare("UPDATE organization_people SET status = 'left', updated_at = ? WHERE person_ref = ?").run(new Date().toISOString(), person.person_ref);
-    db.prepare("UPDATE organization_memberships SET status = 'ended', updated_at = ? WHERE person_ref = ? AND status = 'active'").run(new Date().toISOString(), person.person_ref);
+    (await db.query("UPDATE organization_people SET status = 'left', updated_at = $1 WHERE person_ref = $2",[new Date().toISOString(),person.person_ref]));
+    (await db.query("UPDATE organization_memberships SET status = 'ended', updated_at = $1 WHERE person_ref = $2 AND status = 'active'",[new Date().toISOString(),person.person_ref]));
   }
   console.log(`已标为离职：${orphans.map((person) => person.person_ref).join("、")}`);
 }
 
-audit("cli:org-registry-replay", "org_registry.replayed", {
+(await audit("cli:org-registry-replay", "org_registry.replayed", {
   changed,
   retired_orphans: retireOrphans ? orphans.map((person) => person.person_ref) : [],
   before: plan.beforeSnap,
-  after: snapshot(),
+  after: (await snapshot()),
   source: "config/org-registry.yaml",
-});
+}));
 console.log("已写入：(1) 组织事实 (2) 组织版本（如适用）(3) 孤儿行处置（如适用）(4) 审计事件 org_registry.replayed。");
+
+await closePostgresPool();

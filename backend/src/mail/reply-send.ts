@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { authDisabled, scopedUser } from "../auth.js";
 import { HttpFail } from "../host/errors.js";
 import type { mailSendAction, MailSendConfirmation } from "../host/mail-send-confirmation.js";
@@ -6,10 +7,10 @@ import type { Row } from "../types.js";
 import { readReplyContext } from "./reply-context.js";
 import { replyFingerprint } from "./reply-source.js";
 
-type SendView = ReturnType<typeof mailSendAction>;
+type SendView = Awaited<ReturnType<typeof mailSendAction>>;
 async function contextFor(draft: Row) {
   if (authDisabled() || !draft.collaboration_id) return null;
-  const present = (await postgresPool().query(`SELECT 1 FROM kol_mail_threads t JOIN user_starry_bindings b ON lower(b.mailbox_email)=lower(t.mailbox)
+  const present = (await postgresConnection().query(`SELECT 1 FROM kol_mail_threads t JOIN user_starry_bindings b ON lower(b.mailbox_email)=lower(t.mailbox)
     WHERE t.collaboration_id=$1 AND t.match_state='matched' AND b.user_id=$2 AND b.status='connected' LIMIT 1`, [draft.collaboration_id,scopedUser()?.id])).rowCount;
   if (!present) return null; // first contact has no reply dependency
   return readReplyContext(String(draft.session_id));
@@ -65,7 +66,7 @@ export async function bindReplySend(draft: Row, base: SendView, input: MailSendC
 
 /** Called immediately before provider IO; never turns a known refusal into an unknown send. */
 export async function assertReplySendCurrent(draft: Row, requestId: string): Promise<void> {
-  const basis = (await postgresPool().query<Row>("SELECT * FROM reply_send_basis WHERE request_id=$1 AND draft_id=$2", [requestId,draft.id])).rows[0];
+  const basis = (await postgresConnection().query<Row>("SELECT * FROM reply_send_basis WHERE request_id=$1 AND draft_id=$2", [requestId,draft.id])).rows[0];
   if (!basis) return;
   let current, readable = true;
   try {
@@ -77,7 +78,7 @@ export async function assertReplySendCurrent(draft: Row, requestId: string): Pro
       if ((authorized.messages as unknown[]).length) current = authorized;
     }
   } catch { current = null; readable = false; }
-  const active = (await postgresPool().query("SELECT 1 FROM users WHERE id=$1 AND active=1", [basis.actor_id])).rowCount;
+  const active = (await postgresConnection().query("SELECT 1 FROM users WHERE id=$1 AND active=1", [basis.actor_id])).rowCount;
   if (basis.state === "confirmed" && basis.actor_id === scopedUser()?.id && active && readable
     && ((current?.complete && current.version === basis.context_version)
       || (!current && basis.context_version === "no_reply_mail"))) return;

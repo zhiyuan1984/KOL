@@ -121,7 +121,7 @@ describe.skipIf(!enabled)('taxonomy real PostgreSQL migration and two-connection
     const writer = await state.pool.connect();
     try {
       await writer.query('BEGIN'); await writer.query(insertion, [stamp]);
-      const outcome = deleteCatalogBase('base', confirmation).then(value => ({ value, error: null }), error => ({ value: null, error }));
+      const outcome = (await deleteCatalogBase('base', confirmation).then(value => ({ value, error: null }), error => ({ value: null, error })));
       await waitForMutationLock();
       await writer.query('COMMIT'); expect((await outcome).error).toMatchObject({ status: 409 });
       expect((await state.pool.query("SELECT 1 FROM knowledge_bases WHERE id='base'")).rowCount).toBe(1);
@@ -155,8 +155,8 @@ describe.skipIf(!enabled)('taxonomy real PostgreSQL migration and two-connection
       await writer.query(`INSERT INTO knowledge_bindings(id,skill_id,selector,created_at,updated_at)
         VALUES('binding','test_skill','{"tags":["support"]}',$1,$1)`, [stamp]);
       await writer.query("UPDATE knowledge SET tags='support' WHERE id='entry'");
-      const outcome = editCatalogBase('base', { ...confirmation, expected_version: 1, status: 'archived' })
-        .then(value => ({ value, error: null }), error => ({ value: null, error }));
+      const outcome = (await editCatalogBase('base', { ...confirmation, expected_version: 1, status: 'archived' })
+        .then(value => ({ value, error: null }), error => ({ value: null, error })));
       await waitForMutationLock();
       await writer.query('COMMIT'); expect((await outcome).error).toMatchObject({ status: 409 });
     } finally { await writer.query('ROLLBACK'); writer.release(); }

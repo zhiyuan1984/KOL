@@ -2,7 +2,8 @@
  * Test / e2e workbench rows. Product seed never plants these.
  */
 import { BRAND_MAILBOXES } from "./config.js";
-import { getConn } from "./db.js";
+import { tx } from "./db.js";
+import { assertDisposableTestDatabase } from "./seed.js";
 import { taskDefinition } from "./tasks/registry.js";
 
 function dayAt(offset: number): string {
@@ -12,8 +13,9 @@ function dayAt(offset: number): string {
   return day.toISOString();
 }
 
-export function seedWorkbenchFixtures(): void {
-  const conn = getConn();
+export async function seedWorkbenchFixtures(): Promise<void> {
+  await assertDisposableTestDatabase();
+  await tx(async (conn) => {
   const collabs = [
     {
       id: "col_xiaomei",
@@ -116,38 +118,16 @@ export function seedWorkbenchFixtures(): void {
       locked: 0,
     },
   ];
-  const insCol = conn.prepare(`
-        INSERT OR REPLACE INTO collaborations
-        (id, handle, display_name, brand, platform, followers, email, mailbox_from,
-         lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,
-         stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-  `);
-  // 位置参数：SQLite 的 @name 绑定在 PostgreSQL 上不被支持（翻译层只转 ?）。
+  const insCol = "INSERT INTO collaborations\n        (id, handle, display_name, brand, platform, followers, email, mailbox_from,\n         lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,\n         stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)\n        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,display_name=EXCLUDED.display_name,brand=EXCLUDED.brand,platform=EXCLUDED.platform,followers=EXCLUDED.followers,email=EXCLUDED.email,mailbox_from=EXCLUDED.mailbox_from,lifecycle_id=EXCLUDED.lifecycle_id,conversation_id=EXCLUDED.conversation_id,stage_code=EXCLUDED.stage_code,days_in_stage=EXCLUDED.days_in_stage,notes=EXCLUDED.notes,overdue=EXCLUDED.overdue,stage_version=EXCLUDED.stage_version,recipient_name=EXCLUDED.recipient_name,phone=EXCLUDED.phone,address_line=EXCLUDED.address_line,country=EXCLUDED.country,postal=EXCLUDED.postal,sku=EXCLUDED.sku,qty=EXCLUDED.qty,locked=EXCLUDED.locked";
+  // 原生 PostgreSQL 位置参数；离线迁移后的 fixture 写入。
   for (const c of collabs) {
-    insCol.run(
-      c.id, c.handle, c.display_name, c.brand, c.platform, c.followers, c.email, c.mailbox_from,
-      c.lifecycle_id, c.conversation_id, c.stage_code, c.days_in_stage, c.notes, c.overdue,
-      c.stage_version, c.recipient_name, c.phone, c.address_line, c.country, c.postal, c.sku, c.qty, c.locked,
-    );
+    (await conn.query(insCol, [c.id,c.handle,c.display_name,c.brand,c.platform,c.followers,c.email,c.mailbox_from,c.lifecycle_id,c.conversation_id,c.stage_code,c.days_in_stage,c.notes,c.overdue,c.stage_version,c.recipient_name,c.phone,c.address_line,c.country,c.postal,c.sku,c.qty,c.locked]));
   }
 
-  conn.prepare(
-    `UPDATE collaborations SET owner_name='钟槿年', avg_views_10='1871', engagement_rate='0.037',
-      audience_geo='美国', duplicate_checked=1, group_brand_overlap='未与RO/PQ合作' WHERE id='col_xiaomei'`,
-  ).run();
-  conn.prepare(
-    `UPDATE collaborations SET owner_name='叶观旺', avg_views_10='11000', engagement_rate='0.0955',
-      audience_geo='美国', duplicate_checked=1, group_brand_overlap='可接触RO' WHERE id='col_laozhang'`,
-  ).run();
-  conn.prepare(
-    `UPDATE collaborations SET owner_name='陈冰冰', avg_views_10='6400', engagement_rate='0.052',
-      audience_geo='中国', duplicate_checked=1, group_brand_overlap='RO主责' WHERE id='col_mum'`,
-  ).run();
-  conn.prepare(
-    `UPDATE collaborations SET owner_name='黎玉燕', avg_views_10='2100', engagement_rate='0.028',
-      audience_geo='德国', duplicate_checked=0, group_brand_overlap='PQ主责' WHERE id='col_trip'`,
-  ).run();
+  (await conn.query("UPDATE collaborations SET owner_name='钟槿年', avg_views_10='1871', engagement_rate='0.037',\n      audience_geo='美国', duplicate_checked=1, group_brand_overlap='未与RO/PQ合作' WHERE id='col_xiaomei'", []));
+  (await conn.query("UPDATE collaborations SET owner_name='叶观旺', avg_views_10='11000', engagement_rate='0.0955',\n      audience_geo='美国', duplicate_checked=1, group_brand_overlap='可接触RO' WHERE id='col_laozhang'", []));
+  (await conn.query("UPDATE collaborations SET owner_name='陈冰冰', avg_views_10='6400', engagement_rate='0.052',\n      audience_geo='中国', duplicate_checked=1, group_brand_overlap='RO主责' WHERE id='col_mum'", []));
+  (await conn.query("UPDATE collaborations SET owner_name='黎玉燕', avg_views_10='2100', engagement_rate='0.028',\n      audience_geo='德国', duplicate_checked=0, group_brand_overlap='PQ主责' WHERE id='col_trip'", []));
 
   const creators = [
     {
@@ -195,41 +175,17 @@ export function seedWorkbenchFixtures(): void {
       payload: JSON.stringify({ niche: "vanlife", brand_fit: "LT", unbound: true, email: "vanlife.kit@example.com" }),
     },
   ];
-  const insCr = conn.prepare(`
-        INSERT OR REPLACE INTO claw_creators
-        (id, handle, name, platform, followers, score, status, outreach_script, payload)
-        VALUES (?,?,?,?,?,?,?,?,?)
-  `);
-  // 位置参数：SQLite 的 @name 绑定在 PostgreSQL 上不被支持（翻译层只转 ?）。
+  const insCr = "INSERT INTO claw_creators\n        (id, handle, name, platform, followers, score, status, outreach_script, payload)\n        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,name=EXCLUDED.name,platform=EXCLUDED.platform,followers=EXCLUDED.followers,score=EXCLUDED.score,status=EXCLUDED.status,outreach_script=EXCLUDED.outreach_script,payload=EXCLUDED.payload";
+  // 原生 PostgreSQL 位置参数；离线迁移后的 fixture 写入。
   for (const c of creators) {
-    insCr.run(c.id, c.handle, c.name, c.platform, c.followers, c.score, c.status, c.outreach_script, c.payload);
+    (await conn.query(insCr, [c.id,c.handle,c.name,c.platform,c.followers,c.score,c.status,c.outreach_script,c.payload]));
   }
 
   const candidates = JSON.stringify([
     { id: "col_xiaomei", handle: "小美妆日记", score: 0.42 },
     { id: "cr_outdoor", handle: "户外充电君", score: 0.61, unbound: true },
   ]);
-  conn
-    .prepare(
-      `INSERT OR REPLACE INTO inbound
-      (id, from_addr, from_name, subject, snippet, summary, bound, deferred, collaboration_id, session_id, confidence, candidates, ts)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    )
-    .run(
-      "inb_unbound_1",
-      "vanlife.kit@example.com",
-      "Van Kit",
-      "Re: weekend van power",
-      "Hey LiTime, can you ship the Mini to our garage in Portland?",
-      "询问 Mini 12V 寄往 Portland 车库，未绑定生命周期。",
-      0,
-      0,
-      null,
-      null,
-      "low",
-      candidates,
-      "2026-08-28T09:00:00+00:00",
-    );
+  (await conn.query("INSERT INTO inbound\n      (id, from_addr, from_name, subject, snippet, summary, bound, deferred, collaboration_id, session_id, confidence, candidates, ts)\n      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (id) DO UPDATE SET from_addr=EXCLUDED.from_addr,from_name=EXCLUDED.from_name,subject=EXCLUDED.subject,snippet=EXCLUDED.snippet,summary=EXCLUDED.summary,bound=EXCLUDED.bound,deferred=EXCLUDED.deferred,collaboration_id=EXCLUDED.collaboration_id,session_id=EXCLUDED.session_id,confidence=EXCLUDED.confidence,candidates=EXCLUDED.candidates,ts=EXCLUDED.ts", ["inb_unbound_1","vanlife.kit@example.com","Van Kit","Re: weekend van power","Hey LiTime, can you ship the Mini to our garage in Portland?","询问 Mini 12V 寄往 Portland 车库，未绑定生命周期。",0,0,null,null,"low",candidates,"2026-08-28T09:00:00+00:00"]));
 
   const owner = "sriphy";
   const items: {
@@ -341,30 +297,15 @@ export function seedWorkbenchFixtures(): void {
       ],
     },
   ];
-  const insItem = conn.prepare(
-    `INSERT OR REPLACE INTO tickets
-     (id,owner_user_id,task_type,title,source,status,priority,skill,profile,project_id,
-      collaboration_id,session_id,due_at,promoted_at,dismissed_at,input,entities,data_version,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  );
-  const insEvent = conn.prepare(
-    `INSERT OR REPLACE INTO task_events
-     (id,work_item_id,run_id,sequence,event_type,label,status,safe_summary,time,created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-  );
+  const insItem = "INSERT INTO tickets\n     (id,owner_user_id,task_type,title,source,status,priority,skill,profile,project_id,\n      collaboration_id,session_id,due_at,promoted_at,dismissed_at,input,entities,data_version,created_at,updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) ON CONFLICT (id) DO UPDATE SET owner_user_id=EXCLUDED.owner_user_id,task_type=EXCLUDED.task_type,title=EXCLUDED.title,source=EXCLUDED.source,status=EXCLUDED.status,priority=EXCLUDED.priority,skill=EXCLUDED.skill,profile=EXCLUDED.profile,project_id=EXCLUDED.project_id,collaboration_id=EXCLUDED.collaboration_id,session_id=EXCLUDED.session_id,due_at=EXCLUDED.due_at,promoted_at=EXCLUDED.promoted_at,dismissed_at=EXCLUDED.dismissed_at,input=EXCLUDED.input,entities=EXCLUDED.entities,data_version=EXCLUDED.data_version,created_at=EXCLUDED.created_at,updated_at=EXCLUDED.updated_at";
+  const insEvent = "INSERT INTO task_events\n     (id,work_item_id,run_id,sequence,event_type,label,status,safe_summary,time,created_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO UPDATE SET work_item_id=EXCLUDED.work_item_id,run_id=EXCLUDED.run_id,sequence=EXCLUDED.sequence,event_type=EXCLUDED.event_type,label=EXCLUDED.label,status=EXCLUDED.status,safe_summary=EXCLUDED.safe_summary,time=EXCLUDED.time,created_at=EXCLUDED.created_at";
   for (const item of items) {
-    const profile = taskDefinition(item.type)?.profile || "lead";
-    insItem.run(
-      item.id, owner, item.type, item.title, item.source, item.status, item.priority, item.type,
-      profile, item.collaboration_id, item.collaboration_id, null, item.due_at, item.promoted_at, null,
-      JSON.stringify({ prompt: item.title, collaboration_id: item.collaboration_id }),
-      JSON.stringify({ handle: item.handle }), 1,
-      item.events[0]?.time || "2026-08-28T09:00:00+00:00",
-      item.events[item.events.length - 1]?.time || "2026-08-28T09:00:00+00:00",
-    );
-    conn.prepare("DELETE FROM task_events WHERE work_item_id=?").run(item.id);
-    item.events.forEach((event, index) => {
-      insEvent.run(event.id, item.id, null, index + 1, event.type, event.label, event.status, event.summary, event.time, event.time);
-    });
+    const profile = (await taskDefinition(item.type))?.profile || "lead";
+    (await conn.query(insItem, [item.id,owner,item.type,item.title,item.source,item.status,item.priority,item.type,profile,item.collaboration_id,item.collaboration_id,null,item.due_at,item.promoted_at,null,JSON.stringify({ prompt: item.title, collaboration_id: item.collaboration_id }),JSON.stringify({ handle: item.handle }),1,item.events[0]?.time || "2026-08-28T09:00:00+00:00",item.events[item.events.length - 1]?.time || "2026-08-28T09:00:00+00:00"]));
+    (await conn.query("DELETE FROM task_events WHERE work_item_id=$1", [item.id]));
+    for (const [index, event] of item.events.entries()) {
+      (await conn.query(insEvent, [event.id,item.id,null,index + 1,event.type,event.label,event.status,event.summary,event.time,event.time]));
+    }
   }
+  });
 }

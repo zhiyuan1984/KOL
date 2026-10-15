@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { starryKolMcpConfigured } from "../starrykol/connection.js";
 import { audit, getConn, nowIso, onConnReset } from "../db.js";
@@ -229,8 +230,8 @@ function nativeRuntime(): boolean {
   return Boolean(durableSync.getStore()?.postgresNative);
 }
 
-function syncActorId(): string {
-  return String(durableSync.getStore()?.actorId || safeEmployeeId() || "").trim();
+async function syncActorId(): Promise<Awaited<string>> {
+  return String(durableSync.getStore()?.actorId || (await safeEmployeeId()) || "").trim();
 }
 
 type MailSyncFailure = {
@@ -264,6 +265,13 @@ export function classifyMailSyncFailure(error: unknown, diagnosticId = syncDiagn
   const raw = error instanceof Error ? error.message : String(error || "");
   const status = remoteStatusOf(error);
   const retryAfterMs = remoteRetryAfterOf(error);
+  if (raw === "mail_conversation_association_mismatch") {
+    return {
+      code: raw,
+      message: "mail_conversation_association_mismatch：会话已关联到另一合作，已保留原归属。",
+      diagnosticId,
+    };
+  }
   if (/relation\s+"?mail_sync_state"?\s+does not exist/i.test(raw)) {
     return {
       code: "mail_sync_storage_unavailable",
@@ -341,14 +349,14 @@ onConnReset(() => {
   lastStarted.clear();
 });
 
-function mailboxSyncKey(mailbox = ""): string {
+async function mailboxSyncKey(mailbox = ""): Promise<string> {
   const context = durableSync.getStore();
-  const box = mailbox || context?.authorizedScope?.mailbox_email || boundMailboxEmail() || currentFollowScope().mailbox_email || "*";
-  return `${syncActorId() || "anon"}:${box}`;
+  const box = mailbox || context?.authorizedScope?.mailbox_email || (await boundMailboxEmail()) || (await currentFollowScope()).mailbox_email || "*";
+  return `${(await syncActorId()) || "anon"}:${box}`;
 }
 
-function mailboxStateKey(mailbox = ""): string {
-  return `${MAIL_STATE_KEY}:${mailboxSyncKey(mailbox).toLowerCase()}`;
+async function mailboxStateKey(mailbox = ""): Promise<string> {
+  return `${MAIL_STATE_KEY}:${(await mailboxSyncKey(mailbox)).toLowerCase()}`;
 }
 
 export function resetFollowedMailSync(): void {
@@ -363,13 +371,13 @@ export async function waitForBackgroundSync(): Promise<void> {
   if (backgroundSyncTask) await backgroundSyncTask;
 }
 
-export function startFollowedMailSync(force = false, mailbox = ""): Promise<FollowedMailSync> {
-  const key = mailboxSyncKey(mailbox);
-  const existing = inflight.get(key);
+export async function startFollowedMailSync(force = false, mailbox = ""): Promise<FollowedMailSync> {
+  const key = (await mailboxSyncKey(mailbox));
+  const existing = (await inflight.get(key));
   if (existing) return existing;
-  const pending = syncFollowedKolMail(mailbox).finally(() => {
-    if (inflight.get(key) === pending) inflight.delete(key);
-  });
+  const pending = (syncFollowedKolMail(mailbox).finally(async () => {
+    if ((inflight.get(key)) === pending) inflight.delete(key);
+  }));
   inflight.set(key, pending);
   lastStarted.set(key, Date.now());
   void force;
@@ -377,26 +385,26 @@ export function startFollowedMailSync(force = false, mailbox = ""): Promise<Foll
 }
 
 export async function ensureFollowedMailSync(force = false, mailbox = ""): Promise<FollowedMailSync> {
-  const key = mailboxSyncKey(mailbox);
-  const existing = inflight.get(key);
+  const key = (await mailboxSyncKey(mailbox));
+  const existing = (await inflight.get(key));
   if (existing) return existing;
   if (!force && lastStarted.has(key) && Date.now() - (lastStarted.get(key) || 0) < CACHE_MS) {
     const cached = await followedMailStatus(mailbox);
     if (cached.synced_at) return cached;
   }
-  return startFollowedMailSync(force, mailbox);
+  return (startFollowedMailSync(force, mailbox));
 }
 
 export async function followedMailStatus(mailboxOverride = ""): Promise<FollowedMailSync> {
-  const mailbox = mailboxOverride || boundMailboxEmail() || currentFollowScope().mailbox_email || "";
+  const mailbox = mailboxOverride || (await boundMailboxEmail()) || (await currentFollowScope()).mailbox_email || "";
   let raw: string | undefined;
   let unread = 0;
   let bind: Awaited<ReturnType<typeof bindingHealthPg>>;
   try {
     [raw, unread, bind] = await Promise.all([
-      mailSyncStateGet(mailboxStateKey(mailbox)),
-      unreadCountForMailboxPg(mailbox),
-      safeEmployeeId() ? bindingHealthPg(safeEmployeeId()) : Promise.resolve(undefined),
+      (await mailSyncStateGet((await mailboxStateKey(mailbox)))),
+      (await unreadCountForMailboxPg(mailbox)),
+      (await safeEmployeeId()) ? (await bindingHealthPg((await safeEmployeeId()))) : (await Promise.resolve(undefined)),
     ]);
   } catch (error) {
     const failure = classifyMailSyncFailure(error);
@@ -479,7 +487,7 @@ function isUnread(row: Json): boolean {
 }
 
 async function followedCollaborations(boundMailbox = ""): Promise<Row[]> {
-  const scope = durableSync.getStore()?.authorizedScope || currentFollowScope();
+  const scope = durableSync.getStore()?.authorizedScope || (await currentFollowScope());
   const rows = await listBoundCollaborationsPg();
   return rows.filter((row) => {
     if (!scope.required) return true;
@@ -489,7 +497,12 @@ async function followedCollaborations(boundMailbox = ""): Promise<Row[]> {
 }
 
 async function persistStatus(result: FollowedMailSync): Promise<void> {
-  await mailSyncStateSet(mailboxStateKey(result.mailbox), JSON.stringify(result));
+  await mailSyncStateSet((await mailboxStateKey(result.mailbox)), JSON.stringify(result));
+}
+
+/** The provider's conversation ID is only unique within its mailbox. */
+function threadMailboxOf(conv: Json, mailbox: string, col?: Row): string {
+  return mailbox || conversationMailboxOf(conv) || firstString(col?.mailbox_from, col?.owner_mailbox);
 }
 
 async function upsertThread(input: {
@@ -510,7 +523,7 @@ async function upsertThread(input: {
   lastReceipt?: string;
 }): Promise<{ id: string; inserted: boolean }> {
   const now = nowIso();
-  const result = await postgresPool().query<{id: string; inserted: boolean}>(
+  const result = await postgresConnection().query<{id: string; inserted: boolean}>(
     `INSERT INTO kol_mail_threads
      (id,collaboration_id,conversation_id,subject,mailbox,last_direction,last_snippet,last_from,last_from_name,
       unread_count,last_at,created_at,updated_at,peer_email,peer_name,last_preview,match_state,last_receipt)
@@ -596,39 +609,29 @@ export async function readConversation(
 }
 
 /** Local-only: flag untranslated bodies so the UI can say 翻译生成中… without touching the remote. */
-export function markThreadTranslationsPending(threadId: string): void {
+export async function markThreadTranslationsPending(threadId: string): Promise<Awaited<void>> {
   if (!threadId) return;
-  getConn().prepare(
-    `UPDATE kol_mail_items SET translation_source='pending'
-     WHERE thread_id=? AND translation_zh IS NULL AND IFNULL(body_text,'') != ''
-       AND IFNULL(translation_source,'') = ''`,
-  ).run(threadId);
+  (await getConn().query("UPDATE kol_mail_items SET translation_source='pending'\n     WHERE thread_id=$1 AND translation_zh IS NULL AND COALESCE(body_text,'') != ''\n       AND COALESCE(translation_source,'') = ''",[threadId]));
 }
 
 /** Fill translation_zh for items with bodies; marks 'pending' when no LLM backend is available. */
 export async function ensureThreadItemTranslations(threadId: string): Promise<void> {
-  const pending = getConn().prepare(
-    `SELECT id, body_text FROM kol_mail_items
-     WHERE thread_id=? AND translation_zh IS NULL AND IFNULL(body_text,'') != ''`,
-  ).all(threadId) as { id: string; body_text: string }[];
+  const pending = (await getConn().query("SELECT id, body_text FROM kol_mail_items\n     WHERE thread_id=$1 AND translation_zh IS NULL AND COALESCE(body_text,'') != ''",[threadId])).rows as { id: string; body_text: string }[];
   if (!pending.length) return;
   if (!remoteMailAnalysisEnabled()) {
-    markThreadTranslationsPending(threadId);
+    (await markThreadTranslationsPending(threadId));
     return;
   }
   for (const row of pending) {
     try {
       const translated = await translateMailBodyZh(row.body_text);
       if (translated) {
-        getConn().prepare("UPDATE kol_mail_items SET translation_zh=?, translation_source=? WHERE id=?")
-          .run(translated.text, translated.source, row.id);
+        (await getConn().query("UPDATE kol_mail_items SET translation_zh=$1, translation_source=$2 WHERE id=$3",[translated.text,translated.source,row.id]));
       } else {
-        getConn().prepare("UPDATE kol_mail_items SET translation_source='pending' WHERE id=? AND translation_zh IS NULL")
-          .run(row.id);
+        (await getConn().query("UPDATE kol_mail_items SET translation_source='pending' WHERE id=$1 AND translation_zh IS NULL",[row.id]));
       }
     } catch {
-      getConn().prepare("UPDATE kol_mail_items SET translation_source='pending' WHERE id=? AND translation_zh IS NULL")
-        .run(row.id);
+      (await getConn().query("UPDATE kol_mail_items SET translation_source='pending' WHERE id=$1 AND translation_zh IS NULL",[row.id]));
     }
   }
 }
@@ -679,7 +682,7 @@ export async function hydrateMailThread(thread: Row, onRequestStarted?: () => vo
     const direction = inboundOf(latest, col, mailbox) ? "inbound" : "outbound";
     const occurredAt = String(detail.occurredAt || thread.last_at || nowIso());
     const body = messageBody(latest) || snippet;
-    recordFollowedMailMemory({
+    (await recordFollowedMailMemory({
       kolUid: String(col.kol_uid || ""),
       collaborationId: String(col.id),
       conversationId,
@@ -690,8 +693,8 @@ export async function hydrateMailThread(thread: Row, onRequestStarted?: () => vo
       occurredAt,
       gatewaySuccess: true,
       sourceVersion: `starry.mail:${conversationId}`,
-    });
-    recordEffectiveCorrespondence({
+    }));
+    (await recordEffectiveCorrespondence({
       kolUid: String(col.kol_uid || ""),
       collaborationId: String(col.id),
       scopeBrand: String(col.brand || ""),
@@ -700,7 +703,7 @@ export async function hydrateMailThread(thread: Row, onRequestStarted?: () => vo
       gatewaySuccess: true,
       subject,
       body,
-    });
+    }));
   }
   await refreshThreadDigest(String(thread.id), conversationId, mailbox);
   // Body availability and AI-derived content are independent. The existing
@@ -720,6 +723,7 @@ async function persistConversationIndex(conv: Json, mailbox: string, collabs: Ro
   const conversationId = conversationIdOf(conv);
   if (!conversationId) return undefined;
   const col = matchCollaboration(conv, collabs, mailbox);
+  const threadMailbox = threadMailboxOf(conv, mailbox, col);
   const inbound = inboundOf(conv, col, mailbox);
   const listedUnread = Number(conv.unreadCount ?? conv.unread_count);
   const from = messageFrom(conv);
@@ -728,7 +732,6 @@ async function persistConversationIndex(conv: Json, mailbox: string, collabs: Ro
   const peer = inbound ? from : (() => { const to = messageTo(conv); return to.email ? to : from; })();
   const snippet = messageBody(conv);
   const lastAt = messageOccurredAt(conv) || remoteConversationTime(conv);
-  const threadMailbox = mailbox || conversationMailboxOf(conv) || firstString(conv.mailboxEmail, col?.mailbox_from);
   const thread = await upsertThread({
     collaborationId: col ? String(col.id) : null,
     conversationId,
@@ -784,15 +787,16 @@ async function hydrateConversationById(
   await syncCheckpoint();
   const conversationId = conversationIdOf(conv);
   if (!conversationId) return 0;
-  let thread = (await postgresPool().query<Row>(
-    "SELECT * FROM kol_mail_threads WHERE conversation_id=$1 AND mailbox=$2", [conversationId,mailbox],
+  const threadMailbox = threadMailboxOf(conv, mailbox, matchCollaboration(conv, collabs, mailbox));
+  let thread = (await postgresConnection().query<Row>(
+    "SELECT * FROM kol_mail_threads WHERE conversation_id=$1 AND mailbox=$2", [conversationId,threadMailbox],
   )).rows[0];
   if (!thread) {
     // Later pages normally arrive indexed already; retain this fallback for a
     // direct hydration request without introducing a second sync path.
     await persistConversationIndex(conv, mailbox, collabs);
-    thread = (await postgresPool().query<Row>(
-      "SELECT * FROM kol_mail_threads WHERE conversation_id=$1 AND mailbox=$2", [conversationId,mailbox],
+    thread = (await postgresConnection().query<Row>(
+      "SELECT * FROM kol_mail_threads WHERE conversation_id=$1 AND mailbox=$2", [conversationId,threadMailbox],
     )).rows[0];
   }
   if (!thread) return 0;
@@ -936,7 +940,7 @@ async function syncRemainingConversations(
     const indexed = await persistConversationIndexes(conversations, mailbox, collabs);
     await updateBindingSyncCursorPg({ userId, mailbox, syncedAt, pageNo, tool: "pageEmailConversations" });
 
-    const pageCandidates = await conversationsNeedingDetail(conversations, mailbox, userId);
+    const pageCandidates = await conversationsNeedingDetail(conversations, mailbox, userId, collabs);
     const progress = currentProgress();
     if (progress) {
       progress.index.phase = "persisted";
@@ -987,7 +991,7 @@ function scheduleBackgroundSync(
   firstPageSize = 0,
 ): Promise<void> {
   if (backgroundSyncTask) return backgroundSyncTask;
-  backgroundSyncTask = (async () => {
+  const pending = (async () => {
     try {
       await syncRemainingConversations(remaining, mailbox, collabs, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize);
     } catch (error) {
@@ -1008,7 +1012,7 @@ function scheduleBackgroundSync(
         ...(failure.retryAfterMs !== undefined ? { retry_after_ms: failure.retryAfterMs } : {}),
       };
       try { await persistStatus(result); } catch { /* the primary failure is retained below */ }
-      if (starryKolMcpConfigured()) {
+      if ((await starryKolMcpConfigured())) {
         await updateBindingSyncCursorPg({
           userId,
           mailbox,
@@ -1023,11 +1027,13 @@ function scheduleBackgroundSync(
         http_status: failure.httpStatus ?? null,
         retry_after_ms: failure.retryAfterMs ?? null,
       });
-    } finally {
-      backgroundSyncTask = null;
     }
   })();
-  return backgroundSyncTask;
+  const owned = pending.finally(() => {
+    if (backgroundSyncTask === owned) backgroundSyncTask = null;
+  });
+  backgroundSyncTask = owned;
+  return owned;
 }
 
 function timestampMs(value: unknown): number {
@@ -1053,22 +1059,24 @@ function remoteConversationTime(conv: Json): string {
 // Shared by the foreground page and the background page walk: a conversation
 // needs a detail fetch when it is not remembered locally, still unread, or
 // changed remotely after the last thing we remembered about it.
-async function conversationsNeedingDetail(conversations: Json[], mailbox: string, userId: string): Promise<Json[]> {
+async function conversationsNeedingDetail(conversations: Json[], mailbox: string, userId: string, collabs: Row[]): Promise<Json[]> {
   // Batch native reads, scoped by the already authorized mailbox. An identical
   // conversation ID in another mailbox cannot satisfy this source dependency.
   const ids = conversations.map(conversationIdOf).filter(Boolean);
   if (!ids.length) return [];
   const db = postgresPool();
-  const remembered = (await db.query<Row>(`SELECT t.conversation_id,t.last_at,
+  const remembered = (await db.query<Row>(`SELECT t.conversation_id,t.mailbox,t.last_at,
     (NOT EXISTS(SELECT 1 FROM kol_mail_items i WHERE i.thread_id=t.id) OR
      EXISTS(SELECT 1 FROM kol_mail_items i WHERE i.thread_id=t.id AND (i.title IS NULL OR i.body_text IS NULL))) AS needs_backfill
-    FROM kol_mail_threads t WHERE lower(t.mailbox)=lower($1) AND t.conversation_id=ANY($2::text[])`, [mailbox,ids])).rows;
+    FROM kol_mail_threads t WHERE t.conversation_id=ANY($1::text[])
+      AND ($2='' OR lower(t.mailbox)=lower($2))`, [ids,mailbox])).rows;
   const binding = (await db.query<Row>("SELECT sync_cursor_at FROM user_starry_bindings WHERE user_id=$1 AND lower(mailbox_email)=lower($2)", [userId,mailbox])).rows[0];
-  const byId = new Map(remembered.map(row => [String(row.conversation_id),row]));
+  const byMailboxConversation = new Map(remembered.map(row => [`${String(row.mailbox || "").toLowerCase()}\u0000${String(row.conversation_id)}`,row]));
   return conversations.filter(conv => {
     const id = conversationIdOf(conv);
     if (!id) return false;
-    const existing = byId.get(id);
+    const threadMailbox = threadMailboxOf(conv, mailbox, matchCollaboration(conv, collabs, mailbox));
+    const existing = byMailboxConversation.get(`${threadMailbox.toLowerCase()}\u0000${id}`);
     const unread = Number(conv.unreadCount ?? conv.unread_count);
     const rememberedAt = Math.max(timestampMs(existing?.last_at),timestampMs(binding?.sync_cursor_at));
     return !existing || existing.needs_backfill || (Number.isFinite(unread) && unread > 0)
@@ -1098,12 +1106,12 @@ async function mapLimited<T, R>(values: T[], limit: number, fn: (value: T) => Pr
 async function hydrateRequestedConversationIfNeeded(conversationId: string, mailbox: string): Promise<{ hydrated: boolean; error?: string }> {
   const requested = String(conversationId || "").trim();
   if (!requested || !mailbox) return { hydrated: false };
-  const thread = (await postgresPool().query<Row>(
+  const thread = (await postgresConnection().query<Row>(
     "SELECT * FROM kol_mail_threads WHERE conversation_id=$1 AND lower(mailbox)=lower($2) LIMIT 1",
     [requested, mailbox],
   )).rows[0];
   if (!thread) return { hydrated: false };
-  const existing = await postgresPool().query<{ has_body: boolean }>(
+  const existing = await postgresConnection().query<{ has_body: boolean }>(
     "SELECT EXISTS(SELECT 1 FROM kol_mail_items WHERE thread_id=$1 AND COALESCE(body_text,'')<>'') AS has_body",
     [String(thread.id)],
   );
@@ -1135,15 +1143,15 @@ export async function syncFollowedKolMail(mailboxOverride = "", options?: MailSy
     // Durable workers need a real object here: the inner sync resets it to the
     // persisted page pointer and reports the first committed index receipt.
     ...(isDurable ? { progress: blankProgress() } : {}),
-  }, () => syncFollowedKolMailInner(mailboxOverride));
+  }, async () => (syncFollowedKolMailInner(mailboxOverride)));
 }
 
 async function syncFollowedKolMailInner(mailboxOverride: string): Promise<FollowedMailSync> {
   await syncCheckpoint();
   const syncedAt = nowIso();
   const runtime = durableSync.getStore();
-  const scope = runtime?.authorizedScope || currentFollowScope();
-  const userId = syncActorId();
+  const scope = runtime?.authorizedScope || (await currentFollowScope());
+  const userId = (await syncActorId());
   if (scope.required && scope.bound) {
     // Read-only verification refreshes only a previously selected binding.
     try { await verifyExistingStarryBindings(userId, await listStarryMailboxes()); }
@@ -1156,7 +1164,7 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
       });
     }
   }
-  const mailbox = mailboxOverride || runtime?.authorizedScope?.mailbox_email || boundMailboxEmail() || scope.mailbox_email || "";
+  const mailbox = mailboxOverride || runtime?.authorizedScope?.mailbox_email || (await boundMailboxEmail()) || scope.mailbox_email || "";
   const requestedConversationId = String(runtime?.conversationId || "").trim();
   const collabs = await followedCollaborations(mailbox);
   const startPageNo = userId ? await bindingPageNoPg(userId, mailbox) : 1;
@@ -1212,7 +1220,7 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
     // First commit the whole page's local index. Do not wait for five remote
     // body requests: the UI can immediately browse subject/from/unread shells.
     const indexed = await persistConversationIndexes(conversations, mailbox, collabs);
-    const detailCandidates = await conversationsNeedingDetail(conversations, mailbox, userId);
+    const detailCandidates = await conversationsNeedingDetail(conversations, mailbox, userId, collabs);
     const unread = await unreadCountForMailboxPg(mailbox);
     const progress = currentProgress();
     if (progress) {
@@ -1263,8 +1271,8 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
     });
     await mailSyncAudit("host", "starrykol.followed_mail_sync", partial);
     if (!nativeRuntime()) {
-      markPendingMailMemory(mailbox);
-      if (!durableSync.getStore()?.durable) triggerMailMemoryIncrement(mailbox);
+      await markPendingMailMemory(mailbox);
+      if (!durableSync.getStore()?.durable) (await triggerMailMemoryIncrement(mailbox));
     }
     if (durableSync.getStore()?.durable) {
       await syncRemainingConversations(detailCandidates, mailbox, collabs, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize);
@@ -1273,7 +1281,7 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
       await persistStatus(completed);
       return completed;
     } else {
-      scheduleBackgroundSync(detailCandidates, mailbox, collabs, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize);
+      (await scheduleBackgroundSync(detailCandidates, mailbox, collabs, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize));
     }
     return partial;
   } catch (error) {
@@ -1313,7 +1321,7 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
     try { await persistStatus(result); } catch { /* result is still returned and binding/audit below remain safe */ }
     // A server-wide missing Starry config is not this mailbox's health: the receipt
     // already carries the reason, so the binding keeps its previous last_error.
-    if (starryKolMcpConfigured()) {
+    if ((await starryKolMcpConfigured())) {
       await updateBindingSyncCursorPg({
         userId,
         mailbox,

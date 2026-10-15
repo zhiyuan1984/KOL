@@ -4,7 +4,7 @@
  * Never logs tokens or employee-facing URLs.
  */
 import { createMediaCrawlerClient, mediaCrawlerConfig, mediaCrawlerConfigured } from "./managed-connection.js";
-import { nowIso } from "../db.js";
+const nowIso = (): string => new Date().toISOString();
 import {
   COLLECTOR_CONNECT_MESSAGE,
   COLLECTOR_NOT_CONFIGURED_MESSAGE,
@@ -41,12 +41,12 @@ const STATUS_MESSAGE: Record<CollectorStatus, string> = {
 
 type ProbeClient = Pick<RemoteMcpClient, "listTools" | "close">;
 
-let clientFactory: () => ProbeClient = () => createMediaCrawlerClient();
+let clientFactory: () => ProbeClient | Promise<ProbeClient> = async () => (createMediaCrawlerClient());
 let fetchImpl: typeof fetch = fetch;
 let lastProbe: CollectorConnection | null = null;
 
-export function setCollectorProbeClientFactory(factory?: () => ProbeClient): void {
-  clientFactory = factory || (() => createMediaCrawlerClient());
+export function setCollectorProbeClientFactory(factory?: () => ProbeClient | Promise<ProbeClient>): void {
+  clientFactory = factory || (async () => (createMediaCrawlerClient()));
 }
 
 export function setCollectorProbeFetch(fn?: typeof fetch): void {
@@ -70,12 +70,12 @@ export function probeTimeoutMs(): number {
   return Math.min(Math.max(n, 250), 10_000);
 }
 
-export function mediaCrawlerCredentialsPresent(): boolean {
-  return mediaCrawlerConfigured();
+export async function mediaCrawlerCredentialsPresent(): Promise<boolean> {
+  return (mediaCrawlerConfigured());
 }
 
-function snapshot(status: CollectorStatus, extras: Partial<CollectorConnection> = {}): CollectorConnection {
-  const credentials = extras.credentials_present ?? mediaCrawlerCredentialsPresent();
+async function snapshot(status: CollectorStatus, extras: Partial<CollectorConnection> = {}): Promise<CollectorConnection> {
+  const credentials = extras.credentials_present ?? (await mediaCrawlerCredentialsPresent());
   const checked = extras.checked_at !== undefined ? extras.checked_at : nowIso();
   const reachable = extras.reachable !== undefined
     ? extras.reachable
@@ -102,20 +102,20 @@ function snapshot(status: CollectorStatus, extras: Partial<CollectorConnection> 
   };
 }
 
-export function getCollectorConnectionSnapshot(): CollectorConnection {
-  if (!mediaCrawlerCredentialsPresent()) {
-    return snapshot("not_configured", { credentials_present: false, reachable: false, connected: false });
+export async function getCollectorConnectionSnapshot(): Promise<CollectorConnection> {
+  if (!(await mediaCrawlerCredentialsPresent())) {
+    return (snapshot("not_configured", { credentials_present: false, reachable: false, connected: false }));
   }
   if (lastProbe) return lastProbe;
-  return snapshot("unchecked", { credentials_present: true, reachable: null, connected: null, checked_at: null });
+  return (snapshot("unchecked", { credentials_present: true, reachable: null, connected: null, checked_at: null }));
 }
 
-function mediaCrawlerUrl(): string {
-  return mediaCrawlerConfig().url!;
+async function mediaCrawlerUrl(): Promise<string> {
+  return (await mediaCrawlerConfig()).url!;
 }
 
 async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timer: Awaited<ReturnType<typeof setTimeout>> | undefined;
   try {
     return await Promise.race([
       operation,
@@ -158,9 +158,9 @@ async function httpHostUp(url: string, timeoutMs: number): Promise<boolean> {
 }
 
 async function mcpInitializeOk(timeoutMs: number): Promise<boolean> {
-  const client = clientFactory();
+  const client = (await clientFactory());
   try {
-    const tools = await withTimeout(client.listTools(), timeoutMs, "collector probe");
+    const tools = await withTimeout((client.listTools()), timeoutMs, "collector probe");
     return Array.isArray(tools);
   } finally {
     await client.close().catch(() => undefined);
@@ -173,37 +173,37 @@ function warnProbe(reason: string): void {
 
 export async function probeMediaCrawlerConnection(): Promise<CollectorConnection> {
   const checkedAt = nowIso();
-  if (!mediaCrawlerCredentialsPresent()) {
-    lastProbe = snapshot("not_configured", {
+  if (!(await mediaCrawlerCredentialsPresent())) {
+    lastProbe = (await snapshot("not_configured", {
       credentials_present: false,
       reachable: false,
       connected: false,
       checked_at: checkedAt,
-    });
+    }));
     return lastProbe;
   }
 
   const timeoutMs = probeTimeoutMs();
-  const url = mediaCrawlerUrl();
+  const url = (await mediaCrawlerUrl());
   try {
-    const httpUp = await withTimeout(httpHostUp(url, timeoutMs), timeoutMs, "collector http");
+    const httpUp = await withTimeout((httpHostUp(url, timeoutMs)), timeoutMs, "collector http");
     if (!httpUp) {
       warnProbe("http_unreachable");
-      lastProbe = snapshot("unreachable", { credentials_present: true, reachable: false, connected: false, checked_at: checkedAt });
+      lastProbe = (await snapshot("unreachable", { credentials_present: true, reachable: false, connected: false, checked_at: checkedAt }));
       return lastProbe;
     }
     const connected = await mcpInitializeOk(timeoutMs);
     if (!connected) {
       warnProbe("mcp_initialize_empty");
-      lastProbe = snapshot("unreachable", { credentials_present: true, reachable: true, connected: false, checked_at: checkedAt });
+      lastProbe = (await snapshot("unreachable", { credentials_present: true, reachable: true, connected: false, checked_at: checkedAt }));
       return lastProbe;
     }
-    lastProbe = snapshot("ok", { credentials_present: true, reachable: true, connected: true, checked_at: checkedAt });
+    lastProbe = (await snapshot("ok", { credentials_present: true, reachable: true, connected: true, checked_at: checkedAt }));
     return lastProbe;
   } catch (error) {
     const reason = isConnectionClassError(error) ? "mcp_unreachable" : "probe_failed";
     warnProbe(reason);
-    lastProbe = snapshot("unreachable", { credentials_present: true, reachable: false, connected: false, checked_at: checkedAt });
+    lastProbe = (await snapshot("unreachable", { credentials_present: true, reachable: false, connected: false, checked_at: checkedAt }));
     return lastProbe;
   }
 }

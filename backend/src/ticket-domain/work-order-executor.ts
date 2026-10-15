@@ -69,7 +69,7 @@ export async function executeWorkOrderDecision(
   decisionId: string,
   raw: WorkOrderExecutionInput,
   adoption?: WorkOrderAdoptionInput,
-): Promise<{ attempt: ReturnType<typeof publicAttempt>; work_order: { id: string; status: string; data_version: number; created_at: string } | null; replayed: boolean }> {
+): Promise<{ attempt: Awaited<ReturnType<typeof publicAttempt>>; work_order: { id: string; status: string; data_version: number; created_at: string } | null; replayed: boolean }> {
   const idempotencyKey = required(raw.idempotency_key, "idempotency_key", 240);
   if (idempotencyKey.length < 8) throw new HttpFail(422, { code: "idempotency_key_invalid" });
   const mode = adoption ? "human_adoption" as const : raw.mode === "operator_replay" ? "operator_replay" as const : "automatic" as const;

@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -214,7 +215,7 @@ export async function ensurePostgresOrganizationSeed(): Promise<void> {
 
 export async function postgresOrganizationUnits(): Promise<OrgUnitOption[]> {
   await ensurePostgresOrganizationSeed();
-  const rows = await postgresPool().query<OrgUnitOption>(
+  const rows = await postgresConnection().query<OrgUnitOption>(
     `SELECT id,display_name,type,parent_id,level,head_person_ref,head_display_name
      FROM organization_units WHERE status='active' ORDER BY level,display_name,id`,
   );
@@ -223,7 +224,7 @@ export async function postgresOrganizationUnits(): Promise<OrgUnitOption[]> {
 
 export async function postgresOrganizationPeople(): Promise<OrgPersonOption[]> {
   await ensurePostgresOrganizationSeed();
-  const rows = await postgresPool().query<OrgPersonRow>(
+  const rows = await postgresConnection().query<OrgPersonRow>(
     `SELECT p.person_ref,p.display_name,p.user_id,m.org_unit_id,m.position,p.status
      FROM organization_people p
      LEFT JOIN organization_memberships m
@@ -397,20 +398,20 @@ export async function bindTicketAccountToOrganizationPerson(
 export async function ticketAccountOrganizationBindingOptions() {
   await ensurePostgresOrganizationSeed();
   const [accounts, people] = await Promise.all([
-    postgresPool().query<{ id: string; username: string; name: string; roles: unknown; bound_person_ref: string | null }>(
+    (await postgresConnection().query<{ id: string; username: string; name: string; roles: unknown; bound_person_ref: string | null }>(
       `SELECT a.id,a.username,a.name,a.roles,p.person_ref AS bound_person_ref
          FROM ticket_accounts a
          LEFT JOIN organization_people p ON p.user_id=a.id AND p.status='active'
         WHERE a.active=true AND a.identity_provider='workbench_session'
         ORDER BY a.name,a.username,a.id`,
-    ),
-    postgresPool().query<{ person_ref: string; display_name: string; org_unit_id: string | null; user_id: string | null }>(
+    )),
+    (await postgresConnection().query<{ person_ref: string; display_name: string; org_unit_id: string | null; user_id: string | null }>(
       `SELECT p.person_ref,p.display_name,m.org_unit_id,p.user_id
          FROM organization_people p
          LEFT JOIN organization_memberships m ON m.person_ref=p.person_ref AND m.status='active' AND m.relation='primary'
         WHERE p.status='active'
         ORDER BY p.display_name,p.person_ref`,
-    ),
+    )),
   ]);
   return {
     accounts: accounts.rows.map((row) => ({
@@ -433,21 +434,21 @@ export async function ticketOrganizationQualityReport() {
   await ensurePostgresOrganizationSeed();
   const pool = postgresPool();
   const [state, unitCount, personCount, people, headRows] = await Promise.all([
-    pool.query<{ registry_revision: string; seeded_at: string }>("SELECT registry_revision,seeded_at FROM ticket_org_seed_state WHERE seed_key=$1", [ORG_SEED_KEY]),
-    pool.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM organization_units WHERE status='active'"),
-    pool.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM organization_people WHERE status='active'"),
-    pool.query<{ person_ref: string; display_name: string; user_id: string | null; org_unit_id: string | null }>(
+    (await pool.query<{ registry_revision: string; seeded_at: string }>("SELECT registry_revision,seeded_at FROM ticket_org_seed_state WHERE seed_key=$1", [ORG_SEED_KEY])),
+    (await pool.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM organization_units WHERE status='active'")),
+    (await pool.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM organization_people WHERE status='active'")),
+    (await pool.query<{ person_ref: string; display_name: string; user_id: string | null; org_unit_id: string | null }>(
       `SELECT p.person_ref,p.display_name,p.user_id,m.org_unit_id
        FROM organization_people p
        LEFT JOIN organization_memberships m ON m.person_ref=p.person_ref AND m.status='active' AND m.relation='primary'
        WHERE p.status='active' ORDER BY p.display_name,p.person_ref`,
-    ),
-    pool.query<{ id: string; display_name: string; head_person_ref: string; user_id: string | null }>(
+    )),
+    (await pool.query<{ id: string; display_name: string; head_person_ref: string; user_id: string | null }>(
       `SELECT u.id,u.display_name,u.head_person_ref,p.user_id
        FROM organization_units u
        LEFT JOIN organization_people p ON p.person_ref=u.head_person_ref AND p.status='active'
        WHERE u.status='active' AND u.head_person_ref IS NOT NULL ORDER BY u.level,u.display_name`,
-    ),
+    )),
   ]);
   const issues: TicketOrganizationQualityIssue[] = [];
   for (const person of people.rows) {

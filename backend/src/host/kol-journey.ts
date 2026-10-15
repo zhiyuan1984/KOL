@@ -42,8 +42,8 @@ import { stageMailAction, composeFactsFromContext, composeGapHint } from "./comp
 import { publishSession } from "./session-events.js";
 import { FOLLOW_STYLE_PRESETS, readFollowStyleTags } from "../follow-style-tags.js";
 
-function addMsg(sid: string, role: string, kind: string, payload: Json): Json {
-  return insertSessionMessage(sid, role, kind, payload);
+async function addMsg(sid: string, role: string, kind: string, payload: Json): Promise<Awaited<Json>> {
+  return (await insertSessionMessage(sid, role, kind, payload));
 }
 
 export function recommendedCollabActions(col: Row): Json[] {
@@ -64,8 +64,8 @@ export function recommendedCollabActions(col: Row): Json[] {
   return picked.slice(0, 3);
 }
 
-export function mailHistoryForCollaboration(collaborationId: string): Json[] {
-  return mailHistoryRows(collaborationId);
+export async function mailHistoryForCollaboration(collaborationId: string): Promise<Awaited<Json[]>> {
+  return (await mailHistoryRows(collaborationId));
 }
 
 function collabPortrait(col: Row): Json {
@@ -82,10 +82,10 @@ function collabPortrait(col: Row): Json {
   };
 }
 
-export function publishJourneyForCollaboration(collaborationId: string): Json | null {
-  const next = journeyPayload(collaborationId);
+export async function publishJourneyForCollaboration(collaborationId: string): Promise<Awaited<Json | null>> {
+  const next = (await journeyPayload(collaborationId));
   if (!next) return null;
-  const sessions = getConn().prepare("SELECT id FROM sessions WHERE collaboration_id=?").all(collaborationId) as { id: string }[];
+  const sessions = (await getConn().query("SELECT id FROM sessions WHERE collaboration_id=$1",[collaborationId])).rows as { id: string }[];
   for (const session of sessions) publishSession(session.id, { type: "journey", journey: next });
   return next;
 }
@@ -124,15 +124,15 @@ export function collabActions(col: Row): Json[] {
   return out;
 }
 
-export function journeyPayload(collaborationId: string | null | undefined): Json | null {
+export async function journeyPayload(collaborationId: string | null | undefined): Promise<Awaited<Json | null>> {
   if (!collaborationId) return null;
-  const col = getConn().prepare("SELECT * FROM collaborations WHERE id = ?").get(collaborationId) as Row | undefined;
+  const col = (await getConn().query("SELECT * FROM collaborations WHERE id = $1",[collaborationId])).rows[0] as Row | undefined;
   if (!col) return null;
-  restoreOfficialCollaborationStage(col);
+  (await restoreOfficialCollaborationStage(col));
   const stage = normalizeStage(String(col.stage_code || ""));
   const sop = stageSopView(stage);
-  const mailHistory = mailHistoryForCollaboration(String(col.id));
-  const digest = threadDigestOf(mailHistory, readThreadDigest(String(col.id)));
+  const mailHistory = (await mailHistoryForCollaboration(String(col.id)));
+  const digest = threadDigestOf(mailHistory, (await readThreadDigest(String(col.id))));
   const facts = composeFactsFromContext({ stage });
   const gap = composeGapHint(facts, String(col.handle || ""));
   return {
@@ -184,7 +184,7 @@ const mailAnalysisJobs = new Map<string, Promise<unknown>>();
 const mailSyncJobs = new Map<string, Promise<number>>();
 const mailSyncAt = new Map<string, number>();
 const mailSyncFailed = new Set<string>();
-const mailDigestRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const mailDigestRefreshTimers = new Map<string, Awaited<ReturnType<typeof setTimeout>>>();
 const MAIL_SYNC_COALESCE_MS = 20_000;
 
 export function isMailSyncing(collaborationId: string): boolean {
@@ -212,8 +212,8 @@ export async function refreshMailDigestAfterChange(
 ): Promise<void> {
   const journey = await journeyPayloadWithMailMemory(collaborationId, opts);
   if (journey && sessionId) publishSession(sessionId, { type: "journey", journey });
-  void ensureCodexThreadDigest(collaborationId, mailHistoryRows(collaborationId), opts)
-    .then(() => journeyPayloadWithMailMemory(collaborationId))
+  void ensureCodexThreadDigest(collaborationId, await mailHistoryRows(collaborationId), opts)
+    .then(async () => (journeyPayloadWithMailMemory(collaborationId)))
     .then((next) => {
       if (next && sessionId) publishSession(sessionId, { type: "journey", journey: next });
     })
@@ -234,41 +234,41 @@ export async function journeyPayloadWithMailMemory(
   collaborationId: string | null | undefined,
   opts?: { retryFailed?: boolean },
 ): Promise<Json | null> {
-  const first = journeyPayload(collaborationId);
+  const first = (await journeyPayload(collaborationId));
   if (!first) return null;
   const history = Array.isArray(first.mail_history) ? first.mail_history as Json[] : [];
   if (!history.length) return first;
   const colId = String(first.collaboration_id);
-  const existing = mailAnalysisJobs.get(colId);
+  const existing = (await mailAnalysisJobs.get(colId));
   if (existing) {
     return { ...first, mail_analysis_pending: true };
   }
-  const pending = needsRemoteThreadDigest(history, readThreadDigest(colId), opts);
+  const pending = needsRemoteThreadDigest(history, (await readThreadDigest(colId)), opts);
   if (!pending) return first;
-  const work = ensureCodexThreadDigest(colId, history, opts)
-    .then(() => {
-      const next = journeyPayload(colId);
+  const work = (ensureCodexThreadDigest(colId, history, opts)
+    .then(async () => {
+      const next = (await journeyPayload(colId));
       if (!next) return;
-      const sessions = getConn().prepare("SELECT id FROM sessions WHERE collaboration_id=?").all(colId) as { id: string }[];
+      const sessions = (await getConn().query("SELECT id FROM sessions WHERE collaboration_id=$1",[colId])).rows as { id: string }[];
       for (const session of sessions) publishSession(session.id, { type: "journey", journey: next });
     })
-    .finally(() => {
-      if (mailAnalysisJobs.get(colId) === work) mailAnalysisJobs.delete(colId);
-    });
+    .finally(async () => {
+      if ((mailAnalysisJobs.get(colId)) === work) mailAnalysisJobs.delete(colId);
+    }));
   mailAnalysisJobs.set(colId, work);
   return { ...first, mail_analysis_pending: true };
 }
 
-export function tryFactAdvance(
+export async function tryFactAdvance(
   collaborationId: string,
   judgment: StageJudgment,
   sessionId?: string,
-): Json | null {
+): Promise<Awaited<Json | null>> {
   const suggested = judgment.suggested_stage;
   if (!suggested || !judgment.auto_propose) return null;
   const mode = BY_CODE[suggested]?.advancementMode;
   if (!mode || !FACT_AUTO_MODES.has(mode)) return null;
-  const col = getConn().prepare("SELECT * FROM collaborations WHERE id = ?").get(collaborationId) as Row | undefined;
+  const col = (await getConn().query("SELECT * FROM collaborations WHERE id = $1",[collaborationId])).rows[0] as Row | undefined;
   if (!col) return null;
   const current = normalizeStage(String(col.stage_code || ""));
   if (current === suggested) return null;
@@ -276,7 +276,7 @@ export function tryFactAdvance(
   if (!autoLegalTargets(current).includes(suggested)) return null;
   let result: Json;
   try {
-    result = hostConfirmStage(
+    result = (await hostConfirmStage(
       String(col.handle),
       suggested,
       collaborationId,
@@ -291,7 +291,7 @@ export function tryFactAdvance(
         recommender: "fact_advance",
         session_id: sessionId || null,
       },
-    );
+    ));
   } catch (error) {
     return {
       attempted: true,
@@ -301,19 +301,19 @@ export function tryFactAdvance(
     };
   }
   if (sessionId) {
-    addMsg(sessionId, "assistant", "assistant", {
+    (await addMsg(sessionId, "assistant", "assistant", {
       text: `已按事实进入 ${label(suggested)}。发送邮件不会修改阶段；这次写入来自来信/履约证据。`,
       auto_advanced: true,
       from_stage: current,
       to_stage: suggested,
-    });
+    }));
   }
-  audit("host", "kol.fact_advance", {
+  (await audit("host", "kol.fact_advance", {
     collaboration_id: collaborationId,
     from_stage: current,
     to_stage: suggested,
     session_id: sessionId || null,
-  });
+  }));
   return { ...result, attempted: true, advanced: true, target: suggested };
 }
 
@@ -325,14 +325,12 @@ function parseCard(row: { id: string; payload: string }): { id: string; payload:
   }
 }
 
-function findKolMailCard(
+async function findKolMailCard(
   sessionId: string,
   conversationId?: string,
   providerMessageId?: string,
-): { id: string; payload: Json } | undefined {
-  const rows = getConn()
-    .prepare("SELECT id, payload FROM messages WHERE session_id=? AND kind='kol_mail_card' ORDER BY created_at ASC")
-    .all(sessionId) as { id: string; payload: string }[];
+): Promise<Awaited<{ id: string; payload: Json } | undefined>> {
+  const rows = (await getConn().query("SELECT id, payload FROM messages WHERE session_id=$1 AND kind='kol_mail_card' ORDER BY created_at ASC",[sessionId])).rows as { id: string; payload: string }[];
   const cards = rows.map(parseCard);
   if (providerMessageId) {
     const byMid = cards.find((card) => String(card.payload.provider_message_id || "") === providerMessageId);
@@ -350,13 +348,13 @@ function cardBody(payload: Json): string {
   return String(payload.body || payload.snippet || "").trim();
 }
 
-function upsertConfirmStageCard(
+async function upsertConfirmStageCard(
   sessionId: string,
   col: Row,
   proposed: string,
   reason: string,
   evidence: Json,
-): void {
+): Promise<Awaited<void>> {
   const current = normalizeStage(String(col.stage_code || ""));
   const target = normalizeStage(proposed);
   if (!target || current === target) return;
@@ -379,45 +377,41 @@ function upsertConfirmStageCard(
     persistent: true,
     source: "reply_ingest",
   };
-  const rows = getConn()
-    .prepare("SELECT id, payload FROM messages WHERE session_id=? AND kind='confirm_stage_card' ORDER BY created_at DESC")
-    .all(sessionId) as { id: string; payload: string }[];
+  const rows = (await getConn().query("SELECT id, payload FROM messages WHERE session_id=$1 AND kind='confirm_stage_card' ORDER BY created_at DESC",[sessionId])).rows as { id: string; payload: string }[];
   const existing = rows.map(parseCard).find((row) => String(row.payload.collaboration_id || "") === String(col.id));
   if (existing) {
-    getConn().prepare("UPDATE messages SET payload=? WHERE id=?").run(JSON.stringify(payload), existing.id);
-    getConn().prepare("UPDATE sessions SET updated_at=? WHERE id=?").run(nowIso(), sessionId);
+    (await getConn().query("UPDATE messages SET payload=$1 WHERE id=$2",[JSON.stringify(payload),existing.id]));
+    (await getConn().query("UPDATE sessions SET updated_at=$1 WHERE id=$2",[nowIso(),sessionId]));
     return;
   }
-  addMsg(sessionId, "assistant", "confirm_stage_card", payload);
-  addMsg(sessionId, "system", "sys_msg", {
+  (await addMsg(sessionId, "assistant", "confirm_stage_card", payload));
+  (await addMsg(sessionId, "system", "sys_msg", {
     text: "来信分析只出建议。主流程、分支（含不寄样）和异常都列在确认卡上，由你选定具体正式阶段后再确认；不能用「下一阶段」。发送邮件不会修改阶段。",
     tone: "yellow",
     has_confirm: false,
-  });
+  }));
 }
 
-function writeKolMailCard(sessionId: string, existingId: string | undefined, payload: Json): void {
+async function writeKolMailCard(sessionId: string, existingId: string | undefined, payload: Json): Promise<Awaited<void>> {
   if (existingId) {
-    getConn().prepare("UPDATE messages SET payload=? WHERE id=?").run(JSON.stringify(payload), existingId);
-    getConn().prepare("UPDATE sessions SET updated_at=? WHERE id=?").run(nowIso(), sessionId);
+    (await getConn().query("UPDATE messages SET payload=$1 WHERE id=$2",[JSON.stringify(payload),existingId]));
+    (await getConn().query("UPDATE sessions SET updated_at=$1 WHERE id=$2",[nowIso(),sessionId]));
     return;
   }
-  addMsg(sessionId, "assistant", "kol_mail_card", payload);
+  (await addMsg(sessionId, "assistant", "kol_mail_card", payload));
 }
 
-function dropEmptyMailCard(sessionId: string, conversationId: string): void {
-  const rows = getConn()
-    .prepare("SELECT id, payload FROM messages WHERE session_id=? AND kind='kol_mail_card'")
-    .all(sessionId) as { id: string; payload: string }[];
+async function dropEmptyMailCard(sessionId: string, conversationId: string): Promise<Awaited<void>> {
+  const rows = (await getConn().query("SELECT id, payload FROM messages WHERE session_id=$1 AND kind='kol_mail_card'",[sessionId])).rows as { id: string; payload: string }[];
   for (const row of rows) {
     const card = parseCard(row);
     if (String(card.payload.conversation_id || "") !== conversationId) continue;
     if (cardBody(card.payload)) continue;
-    getConn().prepare("DELETE FROM messages WHERE id=?").run(card.id);
+    (await getConn().query("DELETE FROM messages WHERE id=$1",[card.id]));
   }
 }
 
-export function ingestKolMail(collaborationId: string, input: {
+export async function ingestKolMail(collaborationId: string, input: {
   subject?: string;
   body?: string;
   from?: string;
@@ -430,18 +424,18 @@ export function ingestKolMail(collaborationId: string, input: {
   session_id?: string;
   provider_message_id?: string;
   message_id?: string;
-}, opts?: { deferDigest?: boolean }): Json {
+}, opts?: { deferDigest?: boolean }): Promise<Awaited<Json>> {
   const requested = String(input.session_id || "").trim();
-  if (requested) assertSessionRowExists(requested);
-  const opened = openKolSession(collaborationId);
+  if (requested) (await assertSessionRowExists(requested));
+  const opened = (await openKolSession(collaborationId));
   const sid = requested || String(opened.id);
-  const col = getConn().prepare("SELECT * FROM collaborations WHERE id = ?").get(collaborationId) as Row;
+  const col = (await getConn().query("SELECT * FROM collaborations WHERE id = $1",[collaborationId])).rows[0] as Row;
   if (!col) throw new HttpFail(404, "collaboration not found");
   const subject = String(input.subject || "").trim();
   const body = String(input.body || "").trim();
   const conversationId = String(input.conversation_id || "");
   const providerId = String(input.provider_message_id || input.message_id || "");
-  const existing = findKolMailCard(sid, conversationId, providerId);
+  const existing = (await findKolMailCard(sid, conversationId, providerId));
   const identity = inboundIdentity({
     provider_message_id: providerId,
     collaboration_id: collaborationId,
@@ -449,14 +443,14 @@ export function ingestKolMail(collaborationId: string, input: {
     body,
     conversation_id: conversationId,
   });
-  const seen = mailAlreadySeen(identity) || inboundByIdentity(identity);
+  const seen = (await mailAlreadySeen(identity)) || (await inboundByIdentity(identity));
   if (seen && existing && cardBody(existing.payload) && cardBody(existing.payload) === body) {
-    return { ok: true, duplicate: true, session_id: sid, journey: journeyPayload(collaborationId) };
+    return { ok: true, duplicate: true, session_id: sid, journey: (await journeyPayload(collaborationId)) };
   }
   if (seen && (!existing || cardBody(existing.payload))) {
-    return { ok: true, duplicate: true, session_id: sid, journey: journeyPayload(collaborationId) };
+    return { ok: true, duplicate: true, session_id: sid, journey: (await journeyPayload(collaborationId)) };
   }
-  if (!seen) markMailSeen(identity, sid, collaborationId, nowIso());
+  if (!seen) (await markMailSeen(identity, sid, collaborationId, nowIso()));
   const inbound = String(input.direction || "inbound") !== "outbound";
   const brandBox = inbound
     ? realMailboxEmail(input.mailbox, input.to)
@@ -472,8 +466,8 @@ export function ingestKolMail(collaborationId: string, input: {
   const judgment = inbound
     ? judgeCollaborationStage(judgmentInput)
     : { suggested_stage: null, confidence: "low" as const, evidence_confidence: "low" as const, reason: "", evidence: [], flags: [], auto_propose: false };
-  const advanced = inbound ? tryFactAdvance(collaborationId, judgment, sid) : null;
-  writeKolMailCard(sid, existing?.id, {
+  const advanced = inbound ? (await tryFactAdvance(collaborationId, judgment, sid)) : null;
+  (await writeKolMailCard(sid, existing?.id, {
     collaboration_id: collaborationId,
     handle: col.handle,
     from: inbound ? (kolAddr || input.from || col.email || "") : (brandBox || input.from || ""),
@@ -508,13 +502,13 @@ export function ingestKolMail(collaborationId: string, input: {
     auto_advanced: advanced && advanced.advanced
       ? { to_stage: judgment.suggested_stage, label: judgment.suggested_stage ? label(judgment.suggested_stage) : "" }
       : null,
-  });
+  }));
   if (inbound && judgment.suggested_stage && !(advanced && advanced.advanced)) {
-    upsertConfirmStageCard(sid, col, judgment.suggested_stage, judgment.reason, {
+    (await upsertConfirmStageCard(sid, col, judgment.suggested_stage, judgment.reason, {
       source: "reply_ingest",
       flags: judgment.flags,
       snippets: judgment.evidence,
-    });
+    }));
   }
   if (!opts?.deferDigest) scheduleMailDigestRefresh(collaborationId, sid);
   return {
@@ -523,7 +517,7 @@ export function ingestKolMail(collaborationId: string, input: {
     judgment,
     advanced,
     refreshed: Boolean(existing),
-    journey: journeyPayload(collaborationId),
+    journey: (await journeyPayload(collaborationId)),
   };
 }
 
@@ -533,13 +527,13 @@ export async function syncKolSessionMail(
   opts?: { force?: boolean },
 ): Promise<number> {
   const key = collaborationId;
-  const inflight = mailSyncJobs.get(key);
+  const inflight = (await mailSyncJobs.get(key));
   if (inflight) return inflight;
   if (!opts?.force) {
     const last = mailSyncAt.get(key);
     if (last && Date.now() - last < MAIL_SYNC_COALESCE_MS) return 0;
   }
-  const work = pullKolSessionMail(sessionId, collaborationId)
+  const work = (pullKolSessionMail(sessionId, collaborationId)
     .then((added) => {
       mailSyncAt.set(key, Date.now());
       mailSyncFailed.delete(key);
@@ -550,23 +544,23 @@ export async function syncKolSessionMail(
       mailSyncFailed.add(key);
       return 0;
     })
-    .finally(() => {
-      if (mailSyncJobs.get(key) === work) mailSyncJobs.delete(key);
-      publishMailSyncJourney(sessionId, collaborationId);
-    });
+    .finally(async () => {
+      if ((mailSyncJobs.get(key)) === work) mailSyncJobs.delete(key);
+      (await publishMailSyncJourney(sessionId, collaborationId));
+    }));
   mailSyncJobs.set(key, work);
-  publishMailSyncJourney(sessionId, collaborationId);
+  (await publishMailSyncJourney(sessionId, collaborationId));
   return work;
 }
 
-function publishMailSyncJourney(sessionId: string, collaborationId: string): void {
-  const journey = journeyPayload(collaborationId);
+async function publishMailSyncJourney(sessionId: string, collaborationId: string): Promise<Awaited<void>> {
+  const journey = (await journeyPayload(collaborationId));
   if (!journey) return;
   publishSession(sessionId, { type: "journey", journey });
 }
 
 async function pullKolSessionMail(sessionId: string, collaborationId: string): Promise<number> {
-  const col = getConn().prepare("SELECT * FROM collaborations WHERE id = ?").get(collaborationId) as Row | undefined;
+  const col = (await getConn().query("SELECT * FROM collaborations WHERE id = $1",[collaborationId])).rows[0] as Row | undefined;
   if (!col) return 0;
   const ctx = {
     kolEmail: String(col.email || ""),
@@ -582,9 +576,7 @@ async function pullKolSessionMail(sessionId: string, collaborationId: string): P
     }, "host");
     const list = listOf(data);
     const seenIds = new Set(list.map((row) => conversationIdOf(row)).filter(Boolean));
-    const extraIds = (getConn()
-      .prepare("SELECT payload FROM messages WHERE session_id=? AND kind='kol_mail_card'")
-      .all(sessionId) as { payload: string }[])
+    const extraIds = ((await getConn().query("SELECT payload FROM messages WHERE session_id=$1 AND kind='kol_mail_card'",[sessionId])).rows as { payload: string }[])
       .map((row) => {
         try {
           return String((JSON.parse(row.payload) as Json).conversation_id || "");
@@ -605,7 +597,7 @@ async function pullKolSessionMail(sessionId: string, collaborationId: string): P
       const detail = conversationId ? await readConversation(conversationId) : { messages: [], subject: "", occurredAt: "" };
       const messages = detail.messages.length ? detail.messages : [row];
       if (!messages.length) {
-        if (conversationId) dropEmptyMailCard(sessionId, conversationId);
+        if (conversationId) (await dropEmptyMailCard(sessionId, conversationId));
         continue;
       }
       for (const message of messages) {
@@ -639,8 +631,8 @@ async function pullKolSessionMail(sessionId: string, collaborationId: string): P
         ? realMailboxEmail(sender.email, ctx.kolEmail)
         : realMailboxEmail(recipient.email, message.to, row.recipientEmail, ctx.kolEmail);
       const providerId = firstString(message.messageId, message.message_id, message.id, row.lastMessageId);
-      const before = findKolMailCard(sessionId, conversationId, providerId);
-      const result = ingestKolMail(collaborationId, {
+      const before = (await findKolMailCard(sessionId, conversationId, providerId));
+      const result = (await ingestKolMail(collaborationId, {
         subject,
         body,
         from: inbound ? (sender.email || ctx.kolEmail) : (sender.email || brandBox),
@@ -652,18 +644,18 @@ async function pullKolSessionMail(sessionId: string, collaborationId: string): P
         conversation_id: conversationId,
         session_id: sessionId,
         provider_message_id: providerId,
-      }, { deferDigest: true });
+      }, { deferDigest: true }));
       if (!result.duplicate) {
         added += 1;
-        publishMailSyncJourney(sessionId, collaborationId);
+        (await publishMailSyncJourney(sessionId, collaborationId));
       }
       else if (result.refreshed || (before && !cardBody(before.payload) && body)) {
         added += 1;
-        publishMailSyncJourney(sessionId, collaborationId);
+        (await publishMailSyncJourney(sessionId, collaborationId));
       }
     }
     const { markCollaborationMailRead } = await import("../starrykol/mail-sync.js");
-    markCollaborationMailRead(collaborationId);
+    (await markCollaborationMailRead(collaborationId));
     return added;
   } catch {
     mailSyncFailed.add(collaborationId);
@@ -671,58 +663,52 @@ async function pullKolSessionMail(sessionId: string, collaborationId: string): P
   }
 }
 
-export function resetKolJourneyThreads(): void {
+export async function resetKolJourneyThreads(): Promise<Awaited<void>> {
   resetKolMailSync();
-  tx((db) => {
-    const rows = db.prepare("SELECT id FROM sessions WHERE collaboration_id IS NOT NULL").all() as { id: string }[];
+  (await tx(async (db) => {
+    const rows = (await db.query("SELECT id FROM sessions WHERE collaboration_id IS NOT NULL",[])).rows as { id: string }[];
     for (const row of rows) {
-      db.prepare("DELETE FROM messages WHERE session_id=?").run(row.id);
-      db.prepare("DELETE FROM drafts WHERE session_id=?").run(row.id);
+      (await db.query("DELETE FROM messages WHERE session_id=$1",[row.id]));
+      (await db.query("DELETE FROM drafts WHERE session_id=$1",[row.id]));
     }
-    db.prepare("DELETE FROM kol_mail_seen").run();
-    db.prepare("DELETE FROM sessions WHERE collaboration_id IS NOT NULL").run();
-  });
+    (await db.query("DELETE FROM kol_mail_seen",[]));
+    (await db.query("DELETE FROM sessions WHERE collaboration_id IS NOT NULL",[]));
+  }));
 }
 
-export function openKolSession(collaborationId: string): Json {
-  const col = getConn().prepare("SELECT * FROM collaborations WHERE id = ?").get(collaborationId) as Row | undefined;
+export async function openKolSession(collaborationId: string): Promise<Awaited<Json>> {
+  const col = (await getConn().query("SELECT * FROM collaborations WHERE id = $1",[collaborationId])).rows[0] as Row | undefined;
   if (!col) throw new HttpFail(404, "collaboration not found");
   const owner = scopedUser()?.id || null;
   const existing = (owner
-    ? getConn().prepare(
-        "SELECT * FROM sessions WHERE collaboration_id=? AND deleted_at IS NULL AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 1",
-      ).get(collaborationId)
-    : getConn().prepare(
-        "SELECT * FROM sessions WHERE collaboration_id=? AND deleted_at IS NULL AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 1",
-      ).get(collaborationId)) as Row | undefined;
+    ? (await getConn().query("SELECT * FROM sessions WHERE collaboration_id=$1 AND deleted_at IS NULL AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 1",[collaborationId])).rows[0]
+    : (await getConn().query("SELECT * FROM sessions WHERE collaboration_id=$1 AND deleted_at IS NULL AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 1",[collaborationId])).rows[0]) as Row | undefined;
   if (existing) {
-    syncSessionStageCopy(collaborationId, normalizeStage(String(col.stage_code)));
-    const refreshed = getConn().prepare("SELECT title FROM sessions WHERE id=?").get(existing.id) as { title?: string } | undefined;
+    (await syncSessionStageCopy(collaborationId, normalizeStage(String(col.stage_code))));
+    const refreshed = (await getConn().query("SELECT title FROM sessions WHERE id=$1",[existing.id])).rows[0] as { title?: string } | undefined;
     return {
       id: existing.id,
       title: refreshed?.title || existing.title,
       created: false,
       collaboration_id: collaborationId,
-      journey: journeyPayload(collaborationId),
+      journey: (await journeyPayload(collaborationId)),
     };
   }
   const sid = nid("ses");
   const now = nowIso();
   const title = `${col.display_name || col.handle} · ${label(String(col.stage_code))}`;
-  tx((db) => {
-    db.prepare(
-      "INSERT INTO sessions (id, title, created_at, updated_at, kind, disabled, owner_user_id, collaboration_id) VALUES (?,?,?,?,?,?,?,?)",
-    ).run(sid, title, now, now, "kol", 0, owner, collaborationId);
-  });
-  addMsg(sid, "assistant", "assistant", {
+  (await tx(async (db) => {
+    (await db.query("INSERT INTO sessions (id, title, created_at, updated_at, kind, disabled, owner_user_id, collaboration_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",[sid,title,now,now,"kol",0,owner,collaborationId]));
+  }));
+  (await addMsg(sid, "assistant", "assistant", {
     text: `这是 @${col.handle} 的合作会话。当前阶段：${stageHeadline(String(col.stage_code))}。来信会进这条线；回复和记状态都在这里完成。发送邮件不会修改阶段。`,
     collaboration_id: collaborationId,
-  });
+  }));
   return {
     id: sid,
     title,
     created: true,
     collaboration_id: collaborationId,
-    journey: journeyPayload(collaborationId),
+    journey: (await journeyPayload(collaborationId)),
   };
 }

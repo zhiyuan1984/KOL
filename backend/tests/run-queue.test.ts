@@ -38,17 +38,17 @@ describe("session run queue and stop", () => {
     process.env.LINGONG_DB = path.join(tmp, "t.db");
     process.env.LINGONG_DATA = tmp;
     process.env.CODEX_MODE = "stub";
-    resetConn();
+    (await resetConn());
     resetRunControl();
-    seedAll();
+    (await seedAll());
     const { createApp } = await import("../src/app.js");
-    app = createApp();
-    seedWorkbenchFixtures();
+    app = (await createApp());
+    (await seedWorkbenchFixtures());
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     resetRunControl();
-    resetConn();
+    (await resetConn());
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 

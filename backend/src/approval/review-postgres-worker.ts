@@ -18,11 +18,11 @@ function parseInstance(value: unknown): ReviewInstance {
   return normalizeTasks(parsed as ReviewInstance);
 }
 
-function notify(client: { query: (sql: string, params?: unknown[]) => Promise<unknown> }, tenant: string, instance: ReviewInstance, userId: string, key: string, message: string, now: string) {
-  return client.query(
+async function notify(client: { query: (sql: string, params?: unknown[]) => Promise<unknown> }, tenant: string, instance: ReviewInstance, userId: string, key: string, message: string, now: string) {
+  return (await client.query(
     "INSERT INTO review_notifications(id,tenant,instance_id,user_id,message,created_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING",
     [stableHash({ tenant, instance: instance.id, user: userId, key }), tenant, instance.id, userId, message, now],
-  );
+  ));
 }
 
 export async function executePostgresReviewTimeout(job: ClaimedExecutionJob): Promise<{ instanceId: string; receipt: Json }> {
@@ -35,6 +35,11 @@ export async function executePostgresReviewTimeout(job: ClaimedExecutionJob): Pr
   if (!instanceId || !taskId || !dueAt || !tenant || !actor) throw new Error("review timeout payload is incomplete");
 
   const receipt = await postgresTransaction(async (client) => {
+    const finish = async (receipt: Json): Promise<Json> => {
+      const completed = await pgCompleteExecutionJob(String(job.id), receipt, new Date(), job.worker_id, client);
+      if (!completed) throw new Error("超时作业完成 CAS 失败");
+      return receipt;
+    };
     const lease = (await client.query(
       "SELECT id FROM execution_jobs WHERE id=$1 AND status='running' AND lease_owner=$2 AND lease_until>$3 FOR UPDATE",
       [job.id, job.worker_id, new Date().toISOString()],
@@ -45,7 +50,7 @@ export async function executePostgresReviewTimeout(job: ClaimedExecutionJob): Pr
       "SELECT receipt FROM review_timer_receipts WHERE tenant=$1 AND task_id=$2 AND due_at=$3",
       [tenant, taskId, dueAt],
     )).rows[0];
-    if (previous) return previous.receipt;
+    if (previous) return finish(previous.receipt);
 
     const row = (await client.query<Row>(
       "SELECT payload,version,status,requester FROM review_instances WHERE tenant=$1 AND id=$2 FOR UPDATE",
@@ -56,11 +61,11 @@ export async function executePostgresReviewTimeout(job: ClaimedExecutionJob): Pr
     const task = instance.tasks.find((item) => item.id === taskId);
     if (instance.requester !== actor) throw new Error("超时作业身份不匹配");
     if (instance.status !== "reviewing" || !task || task.status !== "pending" || task.round !== instance.round || task.dueAt !== dueAt || dueAt > new Date().toISOString()) {
-      return { status: "skipped", reason: "任务或期限已变化" };
+      return finish({ status: "skipped", reason: "任务或期限已变化" });
     }
     const node = instance.definition.nodes.find((item) => item.id === task.nodeId);
     const policy = node?.operations?.timeout;
-    if (!node || !policy) return { status: "skipped", reason: "没有已发布超时策略" };
+    if (!node || !policy) return finish({ status: "skipped", reason: "没有已发布超时策略" });
 
     let status: "reminded" | "transferred" | "needs_takeover" = "reminded";
     if (policy.action === "transfer") {
@@ -99,10 +104,11 @@ export async function executePostgresReviewTimeout(job: ClaimedExecutionJob): Pr
     const previousVersion = Number(row.version);
     instance.version = previousVersion + 1;
     instance.updatedAt = now;
-    await client.query(
+    const updated = await client.query(
       "UPDATE review_instances SET version=$1,payload=$2,updated_at=$3,status=$4 WHERE tenant=$5 AND id=$6 AND version=$7",
       [instance.version, JSON.stringify(instance), now, instance.status, tenant, instance.id, previousVersion],
     );
+    if (updated.rowCount !== 1) throw new Error("超时评审版本冲突");
     await client.query(
       "INSERT INTO review_events(id,tenant,resource_id,actor,action,version,detail,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
       [randomUUID(), tenant, instance.id, actor, `timeout.${status}`, instance.version, JSON.stringify({ taskId, dueAt, policyVersion: instance.templateVersion }), now],
@@ -112,8 +118,7 @@ export async function executePostgresReviewTimeout(job: ClaimedExecutionJob): Pr
       "INSERT INTO review_timer_receipts(tenant,task_id,due_at,receipt) VALUES($1,$2,$3,$4)",
       [tenant, taskId, dueAt, JSON.stringify(finalReceipt)],
     );
-    return finalReceipt;
+    return finish(finalReceipt);
   });
-  await pgCompleteExecutionJob(String(job.id), receipt, new Date(), job.worker_id);
   return { instanceId, receipt };
 }

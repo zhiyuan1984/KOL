@@ -32,13 +32,13 @@ async function post(body: unknown) {
   return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 }
 
-function count(sql: string, ...params: unknown[]): number {
-  return Number((getConn().prepare(`SELECT COUNT(*) AS n ${sql}`).get(...params) as { n: number }).n);
+async function count(sql: string, ...params: unknown[]): Promise<number> {
+  return Number((await getConn().query(`SELECT COUNT(*) AS n ${sql}`, params)).rows[0].n);
 }
 
 /** Imported records only; the platform seeds two built-in connectors on open. */
-function importedIds(): string[] {
-  return (getConn().prepare("SELECT id FROM connectors WHERE id NOT IN (?,?) ORDER BY id").all(...BUILTINS) as Array<{ id: string }>)
+async function importedIds(): Promise<Awaited<string[]>> {
+  return ((await getConn().query("SELECT id FROM connectors WHERE id NOT IN ($1,$2) ORDER BY id",[...BUILTINS])).rows as Array<{ id: string }>)
     .map((row) => row.id);
 }
 
@@ -62,12 +62,12 @@ beforeEach(async () => {
     NODE_ENV: "test",
     RUNTIME_CREDENTIAL_MASTER_KEY: Buffer.alloc(32, 7).toString("base64"),
   });
-  resetConn();
+  (await resetConn());
   app = testApp();
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   for (const key of ["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "NODE_ENV", "RUNTIME_CREDENTIAL_MASTER_KEY"]) {
     delete process.env[key];
@@ -91,10 +91,9 @@ describe("connector JSON import", () => {
     expect(String(stdio?.reason)).toContain("stdio");
     const broken = servers.find((server) => server.label === "Broken Url");
     expect(broken?.valid).toBe(false);
-    expect(importedIds()).toEqual([]);
-    // PostgreSQL creates the table from its baseline; SQLite creates it lazily.
-    if (databaseEngine() === "postgres") expect(count("FROM runtime_credentials")).toBe(0);
-    else expect(count("FROM sqlite_master WHERE type='table' AND name='runtime_credentials'")).toBe(0);
+    expect((await importedIds())).toEqual([]);
+    // Native baseline creates an empty vault before any preview.
+    expect(await count("FROM runtime_credentials")).toBe(0);
   });
 
   it("imports on confirm: pending verification, transports, vaulted secrets and references", async () => {
@@ -104,38 +103,37 @@ describe("connector JSON import", () => {
     expect((body.created as unknown[]).length).toBe(3);
     expect((body.skipped as unknown[]).length).toBe(2);
 
-    const rows = getConn().prepare("SELECT id,enabled,status FROM connectors WHERE id NOT IN (?,?) ORDER BY id")
-      .all(...BUILTINS) as Array<Record<string, unknown>>;
+    const rows = (await getConn().query("SELECT id,enabled,status FROM connectors WHERE id NOT IN ($1,$2) ORDER BY id",[...BUILTINS])).rows as Array<Record<string, unknown>>;
     expect(rows.map((row) => row.id)).toEqual(["alpha-server", "beta-sse", "gamma-ref"]);
     expect(rows.every((row) => Number(row.enabled) === 0 && String(row.status) === "pending_verification")).toBe(true);
 
-    const alphaConfig = JSON.parse(String((getConn().prepare("SELECT config_json FROM runtime_connector_config WHERE connector_id='alpha-server'").get() as { config_json: string }).config_json));
+    const alphaConfig = JSON.parse(String(((await getConn().query("SELECT config_json FROM runtime_connector_config WHERE connector_id='alpha-server'",[])).rows[0] as { config_json: string }).config_json));
     expect(alphaConfig.transport).toBe("streamable-http");
     expect(alphaConfig.allow_unauthenticated).toBe(false);
     const alphaRef = alphaConfig.headers_secret_refs["X-API-Key"] as string;
     expect(alphaRef).toMatch(/^cred_/);
     expect(alphaRef).not.toBe("alpha-secret-value");
 
-    const betaConfig = JSON.parse(String((getConn().prepare("SELECT config_json FROM runtime_connector_config WHERE connector_id='beta-sse'").get() as { config_json: string }).config_json));
+    const betaConfig = JSON.parse(String(((await getConn().query("SELECT config_json FROM runtime_connector_config WHERE connector_id='beta-sse'",[])).rows[0] as { config_json: string }).config_json));
     expect(betaConfig.transport).toBe("sse");
     expect(betaConfig.allow_unauthenticated).toBe(true);
     expect(betaConfig.headers_secret_refs).toBeUndefined();
 
-    const gammaConfig = JSON.parse(String((getConn().prepare("SELECT config_json FROM runtime_connector_config WHERE connector_id='gamma-ref'").get() as { config_json: string }).config_json));
+    const gammaConfig = JSON.parse(String(((await getConn().query("SELECT config_json FROM runtime_connector_config WHERE connector_id='gamma-ref'",[])).rows[0] as { config_json: string }).config_json));
     expect(gammaConfig.headers_secret_refs["X-API-Key"]).toBe(CRED_REF);
 
-    expect(count("FROM runtime_credentials")).toBe(1);
-    const credential = getConn().prepare("SELECT label,purpose FROM runtime_credentials").get() as Record<string, unknown>;
+    expect(await count("FROM runtime_credentials")).toBe(1);
+    const credential = (await getConn().query("SELECT label,purpose FROM runtime_credentials",[])).rows[0] as Record<string, unknown>;
     expect(String(credential.label)).toBe("Alpha Server · X-API-Key");
     expect(String(credential.purpose)).toContain("JSON 导入");
 
-    const event = getConn().prepare("SELECT actor,payload FROM audit_events WHERE event_type='admin.connector.import_mcp'").get() as Record<string, unknown> | undefined;
+    const event = (await getConn().query("SELECT actor,payload FROM audit_events WHERE event_type='admin.connector.import_mcp'",[])).rows[0] as Record<string, unknown> | undefined;
     expect(event).toBeTruthy();
     expect(String(event?.payload)).toContain("alpha-server");
   });
 
   it("reports id conflicts in preview and skips them on confirm", async () => {
-    getConn().prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('alpha-server','Existing',0,'draft','now')").run();
+    (await getConn().query("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('alpha-server','Existing',0,'draft','now')",[]));
     const payload = { mcpServers: { "Alpha Server": { url: "https://mcp.alpha.example/mcp", headers: { "X-API-Key": "v" } } } };
     const preview = await post({ json: JSON.stringify(payload), dry_run: true });
     const server = (preview.body.servers as Array<Record<string, unknown>>)[0];
@@ -145,8 +143,8 @@ describe("connector JSON import", () => {
     const confirm = await post({ json: JSON.stringify(payload) });
     expect((confirm.body.created as unknown[]).length).toBe(0);
     expect((confirm.body.skipped as Array<Record<string, unknown>>)[0]?.reason).toBeTruthy();
-    expect(importedIds()).toEqual(["alpha-server"]);
-    expect(String((getConn().prepare("SELECT label FROM connectors WHERE id='alpha-server'").get() as { label: string }).label)).toBe("Existing");
+    expect((await importedIds())).toEqual(["alpha-server"]);
+    expect(String(((await getConn().query("SELECT label FROM connectors WHERE id='alpha-server'",[])).rows[0] as { label: string }).label)).toBe("Existing");
   });
 
   it("deduplicates duplicate ids within one import payload", async () => {
@@ -184,6 +182,6 @@ describe("connector JSON import", () => {
     const confirm = await post({ json: JSON.stringify(payload) });
     expect((confirm.body.created as unknown[]).length).toBe(0);
     expect((confirm.body.skipped as unknown[]).length).toBe(1);
-    expect(importedIds()).toEqual([]);
+    expect((await importedIds())).toEqual([]);
   });
 });

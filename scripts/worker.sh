@@ -32,6 +32,7 @@ load_dotenv() {
 
 [ -f "$ROOT/.env" ] || { echo "缺少 $ROOT/.env" >&2; exit 1; }
 load_dotenv "$ROOT/.env"
+[ -n "${DATABASE_URL:-}" ] || { echo "DATABASE_URL is required for PostgreSQL workers" >&2; exit 1; }
 export LINGONG_DATA="${LINGONG_DATA:-$ROOT/data}"
 
 case "${1:-}" in

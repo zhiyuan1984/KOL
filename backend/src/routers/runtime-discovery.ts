@@ -17,30 +17,30 @@ runtimeDiscoveryRouter.get("/admin/runtime/connectors/:connectorId/discovery", a
   return c.json({ tools, authorization: "Discovery permits mounting, not execution. Controlled writes require current business gates and user confirmation." });
 });
 
-runtimeDiscoveryRouter.get("/agents/:agentId/capabilities", (c) => {
+runtimeDiscoveryRouter.get("/agents/:agentId/capabilities", async (c) => {
   const user = scopedUser();
   if (!user) throw new HttpFail(401, { code: "runtime_identity_unavailable" });
   const agentId = c.req.param("agentId");
-  const capabilities = getAgentSkills(agentId).flatMap((row) => {
+  const capabilities = (await Promise.all((await getAgentSkills(agentId)).map(async (row) => {
     if (!row.enabled) return [];
     const skillId = String(row.skill_id);
     const context = { agentId, skillId, userId: user.id, runId: "capabilities" };
-    try { assertRuntimeSkill(context); } catch { return []; }
-    const skill = taskDefinition(skillId)!;
-    const resources = getSkillConnectors(skillId).map((binding) => {
+    try { (await assertRuntimeSkill(context)); } catch { return []; }
+    const skill = (await taskDefinition(skillId))!;
+    const resources = (await Promise.all((await getSkillConnectors(skillId)).map(async (binding) => {
       try {
         if (!binding.enabled) return { available: false, tool_count: 0, reason: "runtime_connector_unbound" };
         let toolCount = 0;
-        for (const mount of getSkillTools(skillId, String(binding.connector_id))) {
+        for (const mount of (await getSkillTools(skillId, String(binding.connector_id)))) {
           if (!mount.enabled) continue;
-          const policy = getToolPolicy(String(binding.connector_id), String(mount.tool_name));
+          const policy = (await getToolPolicy(String(binding.connector_id), String(mount.tool_name)));
           if (!policy?.enabled || !["L1", "L2", "L3"].includes(String(policy.risk))) continue;
-          try { authorizeConnector(context, String(binding.connector_id)); toolCount += 1; }
+          try { (await authorizeConnector(context, String(binding.connector_id))); toolCount += 1; }
           catch { /* a single tool grant does not make the resource usable */ }
         }
         return toolCount ? { available: true, tool_count: toolCount } : { available: false, tool_count: 0, reason: "runtime_no_authorized_tools" };
       } catch (error) { return { available: false, tool_count: 0, reason: runtimeErrorCode(error) }; }
-    });
+    })));
     return [{ skill_id: skillId, title: skill.title, description: skill.employee_summary || skill.description,
       binding_version: row.version, configured_resources: resources.filter((resource) => resource.available).length,
       unavailable_resources: resources.filter((resource) => !resource.available).length,
@@ -48,6 +48,6 @@ runtimeDiscoveryRouter.get("/agents/:agentId/capabilities", (c) => {
       availability: resources.some((resource) => !resource.available) ? "resources_unavailable" : "configured",
       // Configuration is not a live tool/network probe.
       live_verified: false }];
-  });
+  }))).flat();
   return c.json({ agent_id: agentId, capabilities });
 });

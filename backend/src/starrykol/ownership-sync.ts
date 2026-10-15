@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { pageKolProfiles } from '../host/starry-connectors.js';
 import { firstString } from './mail-fields.js';
 import { runPlatformSkillTool } from '../runtime/platform-run.js';
@@ -37,7 +38,7 @@ export async function syncStarryOwnershipIndex(): Promise<{ count: number }> {
     }
     throw new Error('starry_ownership_pagination_incomplete');
   } catch(error) {
-    await postgresPool().query(`INSERT INTO starry_ownership_sync_state(company_id,state,source_version,profile_count,error,updated_at)
+    await postgresConnection().query(`INSERT INTO starry_ownership_sync_state(company_id,state,source_version,profile_count,error,updated_at)
       VALUES($1,'failed',$2,$3,$4,$2) ON CONFLICT(company_id) DO UPDATE SET state='failed',error=$4,updated_at=$2`,
       [company,version,rows.length,(error instanceof Error?error.message:String(error)).slice(0,500)]);
     throw error;

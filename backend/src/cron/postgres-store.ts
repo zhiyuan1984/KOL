@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import type { PoolClient } from "pg";
 import { nid } from "../ids.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
@@ -157,7 +158,7 @@ export async function pgEnsureSystemCronJobs(from = new Date()): Promise<void> {
 }
 
 export async function pgCronJobById(id: string): Promise<Row | undefined> {
-  const result = await postgresPool().query<Row>(
+  const result = await postgresConnection().query<Row>(
     `SELECT ${CRON_JOB_READ_COLUMNS} FROM cron_jobs job WHERE job.id=$1 OR job.job_key=$1`,
     [id],
   );
@@ -165,7 +166,7 @@ export async function pgCronJobById(id: string): Promise<Row | undefined> {
 }
 
 export async function pgListCronJobs(): Promise<Row[]> {
-  const result = await postgresPool().query<Row>(
+  const result = await postgresConnection().query<Row>(
     `SELECT ${CRON_JOB_READ_COLUMNS} FROM cron_jobs job ORDER BY job.title`,
   );
   return result.rows as Row[];
@@ -173,7 +174,7 @@ export async function pgListCronJobs(): Promise<Row[]> {
 
 export async function pgListCronRuns(jobId: string, limit = 50): Promise<Row[]> {
   const bounded = Math.min(Math.max(1, Math.floor(limit)), 200);
-  const result = await postgresPool().query<Row>(
+  const result = await postgresConnection().query<Row>(
     "SELECT * FROM cron_runs WHERE job_id=$1 ORDER BY created_at DESC LIMIT $2",
     [jobId, bounded],
   );
@@ -181,7 +182,7 @@ export async function pgListCronRuns(jobId: string, limit = 50): Promise<Row[]> 
 }
 
 export async function pgCronRunById(id: string): Promise<Row | undefined> {
-  const result = await postgresPool().query<Row>("SELECT * FROM cron_runs WHERE id=$1", [id]);
+  const result = await postgresConnection().query<Row>("SELECT * FROM cron_runs WHERE id=$1", [id]);
   return result.rows[0] ? normalizedRun(result.rows[0] as Row) : undefined;
 }
 
@@ -203,7 +204,7 @@ export async function pgCreateCronJob(input: {
   next_run_at: string | null;
 }): Promise<Row> {
   const now = stamp();
-  const result = await postgresPool().query<Row>(
+  const result = await postgresConnection().query<Row>(
     `INSERT INTO cron_jobs
      (id,job_key,title,owner_account_id,execute_as,capability_expert_id,handler_key,scope_json,condition_json,
       cron_expr,timezone,status,retry_policy_json,takeover_policy_json,published_rev,next_run_at,last_run_at,last_terminal_status,created_at,updated_at)
@@ -226,7 +227,7 @@ export async function pgUpdateCronJob(id: string, input: {
   published_rev: number;
   next_run_at: string | null;
 }): Promise<Row | undefined> {
-  const result = await postgresPool().query<Row>(
+  const result = await postgresConnection().query<Row>(
     `UPDATE cron_jobs
         SET title=$1,scope_json=$2,condition_json=$3,cron_expr=$4,timezone=$5,status=$6,published_rev=$7,next_run_at=$8,updated_at=$9
       WHERE id=$10
@@ -318,7 +319,7 @@ export async function pgTickCronDue(now = new Date()): Promise<{ claimed: string
 }
 
 export async function pgStartCronRun(runId: string, now = new Date()): Promise<{ run: Row | undefined; started: boolean }> {
-  const result = await postgresPool().query<Row>(
+  const result = await postgresConnection().query<Row>(
     `UPDATE cron_runs SET status='running',started_at=COALESCE(started_at,$1)
       WHERE id=$2 AND status='queued' RETURNING *`,
     [stamp(now), runId],
@@ -360,15 +361,15 @@ export async function pgSchedulingAdminReadModel(limit: number, status?: string)
   const asOf = stamp();
   const staleAfterMs = Math.max(5_000, Number(process.env.EXECUTION_WORKER_STALE_MS || 45_000));
   const [jobs, statusCounts, outboxCounts, stalePublishing, workerRows, backlog, ruleRows] = await Promise.all([
-    pgListExecutionJobs({ status, limit }),
-    postgresPool().query<{ status: string; count: string }>("SELECT status,COUNT(*) AS count FROM execution_jobs GROUP BY status ORDER BY status"),
-    postgresPool().query<{ status: string; count: string }>("SELECT status,COUNT(*) AS count FROM execution_outbox GROUP BY status ORDER BY status"),
-    postgresPool().query<{ count: string; oldest_updated_at: string | null }>(
+    (await pgListExecutionJobs({ status, limit })),
+    (await postgresConnection().query<{ status: string; count: string }>("SELECT status,COUNT(*) AS count FROM execution_jobs GROUP BY status ORDER BY status")),
+    (await postgresConnection().query<{ status: string; count: string }>("SELECT status,COUNT(*) AS count FROM execution_outbox GROUP BY status ORDER BY status")),
+    (await postgresConnection().query<{ count: string; oldest_updated_at: string | null }>(
       "SELECT COUNT(*) AS count,MIN(updated_at) AS oldest_updated_at FROM execution_outbox WHERE status='publishing' AND publisher_lease_until IS NOT NULL AND publisher_lease_until<=$1", [asOf],
-    ),
-    postgresPool().query<Row>("SELECT worker_id,worker_kind,status,details_json,started_at,heartbeat_at,stopped_at FROM execution_worker_heartbeats ORDER BY heartbeat_at DESC LIMIT 100"),
-    postgresPool().query<{ count: string; oldest_created_at: string | null }>("SELECT COUNT(*) AS count,MIN(created_at) AS oldest_created_at FROM execution_jobs WHERE status IN ('queued','retrying')"),
-    postgresPool().query<Row>("SELECT id,version,rule_type,title,status,scope_json,definition_json,created_by,published_by,created_at,published_at,updated_at FROM scheduling_rules ORDER BY CASE status WHEN 'published' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END,updated_at DESC LIMIT 100"),
+    )),
+    (await postgresConnection().query<Row>("SELECT worker_id,worker_kind,status,details_json,started_at,heartbeat_at,stopped_at FROM execution_worker_heartbeats ORDER BY heartbeat_at DESC LIMIT 100")),
+    (await postgresConnection().query<{ count: string; oldest_created_at: string | null }>("SELECT COUNT(*) AS count,MIN(created_at) AS oldest_created_at FROM execution_jobs WHERE status IN ('queued','retrying')")),
+    (await postgresConnection().query<Row>("SELECT id,version,rule_type,title,status,scope_json,definition_json,created_by,published_by,created_at,published_at,updated_at FROM scheduling_rules ORDER BY CASE status WHEN 'published' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END,updated_at DESC LIMIT 100")),
   ]);
   const workers = workerRows.rows.map((row) => {
     const heartbeat = Date.parse(String(row.heartbeat_at));

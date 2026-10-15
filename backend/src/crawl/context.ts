@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { postgresPool } from "../postgres/pool.js";
 import { authorizeConnector, type RuntimeContext } from "../runtime/execution.js";
 import type { Json } from "../types.js";
@@ -7,8 +8,8 @@ import { runtimeCandidateViews } from "./candidate-actions.js";
 /** Permission-checked snapshots from this conversation, bounded before model input. */
 export async function discoveryResultContext(context: RuntimeContext): Promise<Json[]> {
   if (context.skillId !== "crawler_collect" || !context.sessionId) return [];
-  authorizeConnector(context, "claw");
-  const { rows } = await postgresPool().query(`SELECT c.id,c.remote_task_id,c.state,c.result_state,c.result_json,c.result_error
+  (await authorizeConnector(context, "claw"));
+  const { rows } = await postgresConnection().query(`SELECT c.id,c.remote_task_id,c.state,c.result_state,c.result_json,c.result_error
     FROM runtime_crawl_jobs c JOIN runtime_actions a ON a.id=c.id
     WHERE a.actor_id=$1 AND a.session_id=$2 AND a.context_json->>'agentId'=$3
       AND a.context_json->>'skillId'=$4 AND a.connector_id='claw'
@@ -30,6 +31,6 @@ export async function discoveryResultContext(context: RuntimeContext): Promise<J
       result_complete: snapshot?.complete === true, candidate_count: all.length,
       included_count: candidates.length, context_truncated: candidates.length < all.length, candidates });
   }
-  authorizeConnector(context, "claw");
+  (await authorizeConnector(context, "claw"));
   return result;
 }

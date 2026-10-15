@@ -35,10 +35,24 @@ let url: string;
 let heldTool: string;
 let remoteReject: boolean;
 let previous: Record<string, string | undefined>;
+let ownedDatabaseUrl: string;
+let ownedDatabaseName: string;
+let ownedDatabaseRootPid: string;
 
-function worker(id: string) {
+async function worker(id: string) {
+  const database = new URL(ownedDatabaseUrl);
+  if (!ownedDatabaseName || database.pathname !== `/${ownedDatabaseName}`) throw new Error("isolated_test_database_required");
   const child = spawn(process.execPath, ["--import", "tsx", fileURLToPath(new URL("./fixtures/crawl-recovery-worker.ts", import.meta.url)), id], {
-    cwd: fileURLToPath(new URL("..", import.meta.url)), env: process.env, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"],
+    cwd: fileURLToPath(new URL("..", import.meta.url)),
+    env: {
+      ...process.env,
+      DATABASE_URL: ownedDatabaseUrl,
+      TEST_POSTGRES_URL: ownedDatabaseUrl,
+      KOL_NATIVE_CRAWL_TEST_DATABASE: ownedDatabaseName,
+      KOL_NATIVE_CRAWL_TEST_ROOT_PID: ownedDatabaseRootPid,
+    },
+    windowsHide: true,
+    stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
   const exited = once(child, "exit");
   const record = { process: child, exited };
@@ -46,12 +60,14 @@ function worker(id: string) {
   return record;
 }
 async function completedWorker(id: string) {
-  const record = worker(id);
+  const record = (await worker(id));
   let result: unknown;
   let diagnostics = "";
   record.process.on("message", message => { result = message; });
   record.process.stderr!.on("data", data => { diagnostics += data; });
-  expect((await record.exited)[0], diagnostics).toBe(0);
+  const [exitCode] = await record.exited;
+  if (diagnostics) process.stderr.write(diagnostics);
+  expect(exitCode, diagnostics).toBe(0);
   return result;
 }
 async function expireKilledLease(id: string) {
@@ -67,7 +83,13 @@ async function expireKilledLease(id: string) {
 beforeEach(async () => {
   previous = Object.fromEntries(["AUTH_MODE", "RUNTIME_CREDENTIAL_MASTER_KEY"].map(key => [key, process.env[key]]));
   process.env.AUTH_MODE = "enabled";
-  await freshTestDatabase(); resetConn();
+  ownedDatabaseName = await freshTestDatabase();
+  ownedDatabaseUrl = String(process.env.DATABASE_URL || "");
+  ownedDatabaseRootPid = String(process.pid);
+  const ownedPrefix = `${String(process.env.TEST_DB_PREFIX || "lingong_t")}_${ownedDatabaseRootPid}_`;
+  expect(new URL(ownedDatabaseUrl).pathname).toBe(`/${ownedDatabaseName}`);
+  expect(ownedDatabaseName.startsWith(ownedPrefix)).toBe(true);
+  await resetConn();
   children = []; calls = []; heldTool = "get_creators"; remoteReject = false;
   let signalCall: () => void;
   firstCall = new Promise(resolve => { signalCall = resolve; });
@@ -95,18 +117,17 @@ beforeEach(async () => {
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   url = `http://127.0.0.1:${(server.address() as { port: number }).port}/mcp`;
   const db = getConn();
-  db.prepare("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES(?,?,?,'fixture','[\"employee\"]','[]','',1,'now','now')")
-    .run(context.userId, context.userId, "Recovery fixture");
-  seedPublishedAgent(context.agentId, "Recovery fixture");
-  createAgentBinding({ agent_id: context.agentId, target_type: "organization_unit", target_id: "org:lt_team", company_id: "company:amperetime", source: "test" });
-  db.prepare("UPDATE organization_people SET user_id=? WHERE person_ref='person:ye_guanwang'").run(context.userId);
-  configureCrawlerFixture(url);
-  setAgentSkill(context.agentId, context.skillId, true, 0);
-  setSkillConnector(context.skillId, "claw", true, 0);
+  (await db.query("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES($1,$2,$3,'fixture','[\"employee\"]','[]','',1,'now','now')",[context.userId,context.userId,"Recovery fixture"]));
+  (await seedPublishedAgent(context.agentId, "Recovery fixture"));
+  (await createAgentBinding({ agent_id: context.agentId, target_type: "organization_unit", target_id: "org:lt_team", company_id: "company:amperetime", source: "test" }));
+  (await db.query("UPDATE organization_people SET user_id=$1 WHERE person_ref='person:ye_guanwang'",[context.userId]));
+  (await configureCrawlerFixture(url));
+  (await setAgentSkill(context.agentId, context.skillId, true, 0));
+  (await setSkillConnector(context.skillId, "claw", true, 0));
   for (const tool of descriptors) {
-    setToolPolicy("claw", tool.name, { enabled: true, risk: tool.name === "start_crawl" ? "L3" : "L1",
-      access: tool.name === "start_crawl" ? "write" : "read", schema_hash: toolSchemaHash(tool as unknown as Json) }, Number(getToolPolicy("claw", tool.name)?.version || 0));
-    setSkillTool(context.skillId, "claw", tool.name, true, 0);
+    (await setToolPolicy("claw", tool.name, { enabled: true, risk: tool.name === "start_crawl" ? "L3" : "L1",
+      access: tool.name === "start_crawl" ? "write" : "read", schema_hash: toolSchemaHash(tool as unknown as Json) }, Number((await getToolPolicy("claw", tool.name))?.version || 0)));
+    (await setSkillTool(context.skillId, "claw", tool.name, true, 0));
   }
 });
 
@@ -198,7 +219,7 @@ afterEach(async () => {
   releaseResponse?.();
   for (const child of children || []) { if (child.process.exitCode === null && child.process.signalCode === null) child.process.kill("SIGKILL"); await child.exited; }
   if (server) await new Promise<void>(resolve => { server.close(() => resolve()); server.closeAllConnections(); });
-  resetConn();
+  (await resetConn());
   for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
 });
 
@@ -208,7 +229,7 @@ it("restarts a killed results worker, reads the same task and persists one compl
   const queued = await pgEnqueueExecutionJob({ job_type: "crawler.results", actor_ref: context.userId, tenant_ref: "fixture",
     idempotency_key: "process-recovery-results", risk_level: "low", max_attempts: 3, payload: { crawl_id: "recovery-crawl" } });
   const id = String(queued.job.id);
-  const killed = worker(id); await firstCall;
+  const killed = (await worker(id)); await firstCall;
   killed.process.kill("SIGKILL"); await killed.exited; releaseResponse();
   expect(await expireKilledLease(id)).toEqual({ requeued: 1, uncertain: 0 });
   expect(await completedWorker(id)).toMatchObject({ result: { outcome: "processed", execution_job_id: id } });
@@ -234,7 +255,7 @@ it("quarantines a killed confirmed start worker and never starts again without i
     idempotency_key: `runtime-confirm:${action.id}`, risk_level: "high", max_attempts: 1,
     payload: { action_id: action.id, confirmation_version: action.snapshot } });
   const id = String(queued.job.id);
-  const killed = worker(id); await firstCall;
+  const killed = (await worker(id)); await firstCall;
   killed.process.kill("SIGKILL"); await killed.exited; releaseResponse();
   expect(await expireKilledLease(id)).toEqual({ requeued: 0, uncertain: 1 });
   expect(await completedWorker(id)).toEqual({ result: null });
@@ -257,7 +278,7 @@ it("restarts a killed monitor and closes the same running crawl through its save
   const queued = await pgEnqueueExecutionJob({ job_type: "crawler.monitor", actor_ref: context.userId, tenant_ref: "fixture",
     idempotency_key: "monitor-process-recovery", risk_level: "low", max_attempts: 3, payload: { crawl_id: "monitor-recovery", sequence: 0 } });
   const id = String(queued.job.id);
-  const killed = worker(id); await firstCall;
+  const killed = (await worker(id)); await firstCall;
   killed.process.kill("SIGKILL"); await killed.exited; releaseResponse();
   expect(await expireKilledLease(id)).toEqual({ requeued: 1, uncertain: 0 });
   expect(await completedWorker(id)).toMatchObject({ result: { outcome: "processed" } });

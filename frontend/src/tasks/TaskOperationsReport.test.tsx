@@ -36,7 +36,8 @@ describe("TaskOperationsReport", () => {
     expect(html).toContain("工单总量");
     expect(html).toContain("开放工单");
     expect(html).toContain("阻塞工单");
-    expect(html).toContain("Asia/Shanghai");
+    expect(html).toContain("北京时间（UTC+8）");
+    expect(html).not.toContain("Asia/Shanghai");
   });
 
   it("keeps previous dashboard and work-order counts visible when an update fails", () => {

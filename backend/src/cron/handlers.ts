@@ -1,8 +1,9 @@
+import { postgresConnection } from "../postgres/pool.js";
 /**
  * Explicit handler registry. Cron execution state and read models are
- * PostgreSQL-native. A handler must never quietly reach the legacy SQLite
- * compatibility layer: work whose business repository is not migrated is
- * represented as a governed `needs_takeover` result instead.
+ * PostgreSQL-native, including the business repositories. No handler reaches a
+ * SQLite compatibility layer. `needs_takeover` remains a governed terminal only
+ * for actual manual-recovery conditions, not an unimplemented storage adapter.
  */
 import { postgresPool } from "../postgres/pool.js";
 import { label } from "../stages.js";
@@ -63,7 +64,7 @@ function formalTicketScope(viewer?: TicketPrincipal): { where: string; values: s
  * ticket facts; it does not fabricate a collaboration or remote-mail state. */
 async function overdueScan(ctx: CronHandlerContext): Promise<CronHandlerResult> {
   const scope = formalTicketScope(ctx.viewer);
-  const rows = await postgresPool().query<Row>(
+  const rows = await postgresConnection().query<Row>(
     `SELECT t.id,t.title,t.status,t.priority,t.due_at,t.business_category,t.stage_code,t.owner_user_id,
             pa.assignee_user_id,pa.assignee_person_ref
        FROM tickets t
@@ -95,7 +96,7 @@ async function overdueScan(ctx: CronHandlerContext): Promise<CronHandlerResult> 
  * not a claim that remote collaboration or mail data was refreshed. */
 async function dailyTaskSnapshot(ctx: CronHandlerContext): Promise<CronHandlerResult> {
   const scope = formalTicketScope(ctx.viewer);
-  const rows = await postgresPool().query<Row>(
+  const rows = await postgresConnection().query<Row>(
     `SELECT t.id,t.title,t.status,t.priority,t.business_category,t.stage_code,t.due_at,t.updated_at,
             pa.assignee_user_id,pa.assignee_person_ref
        FROM tickets t
@@ -133,14 +134,14 @@ async function dailyTaskSnapshot(ctx: CronHandlerContext): Promise<CronHandlerRe
 async function ownershipRelease(ctx: CronHandlerContext): Promise<CronHandlerResult> {
   if (!process.env.DATABASE_URL?.trim()) {
     const db = getConn();
-    const rows = listOwnedCollaborations(db);
+    const rows = (await listOwnedCollaborations(db));
     const released: Json[] = [];
     const skipped: Json[] = [];
     for (const row of rows) {
       const lastAt = String(row.last_effective_mail_at || "").trim() || null;
       const decision = evaluateOwnershipRelease(row, lastAt, ctx.nowMs ?? Date.now());
       if (decision.action !== "release") { skipped.push({ follow_id: decision.follow_id, collaboration_id: decision.collaboration_id, reason: decision.reason, detail: decision.detail }); continue; }
-      const applied = releaseFollowOwnershipIfEligible({ db, followId: decision.follow_id, collaborationId: decision.collaboration_id, expectedOwner: decision.owner_before, expectedLastAt: lastAt || "", actor: ctx.actor, nowMs: ctx.nowMs });
+      const applied = (await releaseFollowOwnershipIfEligible({ db, followId: decision.follow_id, collaborationId: decision.collaboration_id, expectedOwner: decision.owner_before, expectedLastAt: lastAt || "", actor: ctx.actor, nowMs: ctx.nowMs }));
       (applied.action === "release" ? released : skipped).push(applied as unknown as Json);
     }
     return { status: "succeeded", receipt: { handler_key: "ownership-release", side_effect: released.length ? "write" : "none", created_session: false, source: "legacy_test_only", scanned: rows.length, released: released.length, skipped: skipped.length } };

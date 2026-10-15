@@ -44,8 +44,8 @@ describe("creator profile briefing", () => {
     expect(briefing.summary).toContain("测试网红-qq-01");
   });
 
-  it("paints 画像说明 and never dumps 摘要数据", () => {
-    const card = emailMcpResultCard("creator_profile", QQ_DETAIL);
+  it("paints 画像说明 and never dumps 摘要数据", async () => {
+    const card = (await emailMcpResultCard("creator_profile", QQ_DETAIL));
     const sections = JSON.stringify(card.sections);
     expect(card.title).toBe("达人画像");
     expect(sections).toContain("画像说明");

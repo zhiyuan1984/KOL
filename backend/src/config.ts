@@ -262,6 +262,7 @@ export type Persona = {
   site: string;
   role: string;
   exam_passed: boolean;
+  exam_todo_count?: number;
   brands: string[];
   exam_module: string;
 };

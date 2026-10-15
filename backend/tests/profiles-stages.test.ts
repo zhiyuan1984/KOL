@@ -35,14 +35,14 @@ describe("Codex Profile capability domains", () => {
     expect(CODEX_PROFILES.filter((profile) => profile.id !== "commander").every((profile) => !profile.canDeriveChildThreads)).toBe(true);
   });
 
-  it("maps skills to profiles without creating separate runtimes", () => {
-    expect(profileFor("creator_discovery").name).toBe("Lead");
-    expect(profileFor("reply_analysis").name).toBe("Opportunity");
-    expect(profileFor("deal_memory").name).toBe("Negotiation");
-    expect(profileFor("confirm_stage").name).toBe("Opportunity");
-    expect(profileFor("risk_scan").name).toBe("Commander");
-    expect(profileFor("email_compose").name).toBe("Lead");
-    expect(profileFor("creator_budget_report").name).toBe("Settlement-Growth");
+  it("maps skills to profiles without creating separate runtimes", async () => {
+    expect((await profileFor("creator_discovery")).name).toBe("Lead");
+    expect((await profileFor("reply_analysis")).name).toBe("Opportunity");
+    expect((await profileFor("deal_memory")).name).toBe("Negotiation");
+    expect((await profileFor("confirm_stage")).name).toBe("Opportunity");
+    expect((await profileFor("risk_scan")).name).toBe("Commander");
+    expect((await profileFor("email_compose")).name).toBe("Lead");
+    expect((await profileFor("creator_budget_report")).name).toBe("Settlement-Growth");
   });
 });
 

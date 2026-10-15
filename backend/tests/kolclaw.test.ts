@@ -61,15 +61,15 @@ beforeEach(async () => {
   process.env.CODEX_MODE = "stub";
   calls.length = 0;
   setKolClawClientFactory(mockClient);
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 
-afterEach(() => {
+afterEach(async () => {
   setKolClawClientFactory();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 

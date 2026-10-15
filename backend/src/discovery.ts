@@ -105,8 +105,8 @@ function ownerId(): string {
   throw new HttpFail(401, "authentication required");
 }
 
-function connectionPayload(): Json {
-  return publicCollectorConnection(getCollectorConnectionSnapshot());
+async function connectionPayload(): Promise<Json> {
+  return publicCollectorConnection((await getCollectorConnectionSnapshot()));
 }
 
 function platformLabel(code: unknown): string {
@@ -285,24 +285,24 @@ function runStatusFromCrawl(status: string): string {
   return "queued";
 }
 
-function requestRow(id: string): Row {
-  const row = getConn().prepare("SELECT * FROM discovery_requests WHERE id=?").get(id) as Row | undefined;
+async function requestRow(id: string): Promise<Awaited<Row>> {
+  const row = (await getConn().query("SELECT * FROM discovery_requests WHERE id=$1",[id])).rows[0] as Row | undefined;
   if (!row || (!isAdmin() && String(row.owner_user_id) !== ownerId())) {
     throw new HttpFail(404, { code: "discovery_request_not_found", message: "未找到该发现请求" });
   }
   return row;
 }
 
-function runRow(id: string): Row {
-  const row = getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(id) as Row | undefined;
+async function runRow(id: string): Promise<Awaited<Row>> {
+  const row = (await getConn().query("SELECT * FROM discovery_runs WHERE id=$1",[id])).rows[0] as Row | undefined;
   if (!row || (!isAdmin() && String(row.owner_user_id) !== ownerId())) {
     throw new HttpFail(404, { code: "discovery_run_not_found", message: "未找到该发现运行" });
   }
   return row;
 }
 
-function candidateRow(id: string): Row {
-  const row = getConn().prepare("SELECT * FROM creator_candidates WHERE id=?").get(id) as Row | undefined;
+async function candidateRow(id: string): Promise<Awaited<Row>> {
+  const row = (await getConn().query("SELECT * FROM creator_candidates WHERE id=$1",[id])).rows[0] as Row | undefined;
   if (!row || (!isAdmin() && String(row.owner_user_id) !== ownerId())) {
     throw new HttpFail(404, { code: "creator_candidate_not_found", message: "未找到该发现候选人" });
   }
@@ -310,15 +310,15 @@ function candidateRow(id: string): Row {
 }
 
 /** Home discovery path: crawl → CreatorCandidate only. Follow must not create Collaboration. */
-function isHomeKindCandidate(candidate: Row): boolean {
+async function isHomeKindCandidate(candidate: Row): Promise<Awaited<boolean>> {
   if (candidate.run_id) {
-    const run = getConn().prepare("SELECT kind FROM discovery_runs WHERE id=?").get(candidate.run_id) as
+    const run = (await getConn().query("SELECT kind FROM discovery_runs WHERE id=$1",[candidate.run_id])).rows[0] as
       | Row
       | undefined;
     if (run && String(run.kind || "") === "home") return true;
   }
   if (candidate.request_id) {
-    const request = getConn().prepare("SELECT scope FROM discovery_requests WHERE id=?").get(candidate.request_id) as
+    const request = (await getConn().query("SELECT scope FROM discovery_requests WHERE id=$1",[candidate.request_id])).rows[0] as
       | Row
       | undefined;
     if (request) {
@@ -387,20 +387,13 @@ function publicCandidate(row: Row): Json {
   };
 }
 
-function countsFor(requestId: string): {
+async function countsFor(requestId: string): Promise<Awaited<{
   candidate_count: number;
   suggested_count: number;
   followed_count: number;
   dismissed_count: number;
-} {
-  const row = getConn().prepare(
-    `SELECT
-        COUNT(*) AS candidate_count,
-        SUM(CASE WHEN status='suggested' THEN 1 ELSE 0 END) AS suggested_count,
-        SUM(CASE WHEN status='followed' THEN 1 ELSE 0 END) AS followed_count,
-        SUM(CASE WHEN status='dismissed' THEN 1 ELSE 0 END) AS dismissed_count
-       FROM creator_candidates WHERE request_id=?`,
-  ).get(requestId) as Row;
+}>> {
+  const row = (await getConn().query("SELECT\n        COUNT(*) AS candidate_count,\n        SUM(CASE WHEN status='suggested' THEN 1 ELSE 0 END) AS suggested_count,\n        SUM(CASE WHEN status='followed' THEN 1 ELSE 0 END) AS followed_count,\n        SUM(CASE WHEN status='dismissed' THEN 1 ELSE 0 END) AS dismissed_count\n       FROM creator_candidates WHERE request_id=$1",[requestId])).rows[0] as Row;
   return {
     candidate_count: Number(row.candidate_count || 0),
     suggested_count: Number(row.suggested_count || 0),
@@ -409,31 +402,27 @@ function countsFor(requestId: string): {
   };
 }
 
-function topCandidates(requestId: string, limit = 8): Json[] {
-  return (getConn().prepare(
-    `SELECT * FROM creator_candidates
-      WHERE request_id=? AND status='suggested'
-      ORDER BY score DESC, followers DESC, created_at DESC LIMIT ?`,
-  ).all(requestId, limit) as Row[]).map(publicCandidate);
+async function topCandidates(requestId: string, limit = 8): Promise<Awaited<Json[]>> {
+  return ((await getConn().query("SELECT * FROM creator_candidates\n      WHERE request_id=$1 AND status='suggested'\n      ORDER BY score DESC, followers DESC, created_at DESC LIMIT $2",[requestId,limit])).rows as Row[]).map(publicCandidate);
 }
 
-export function discoveryResult(requestId: string, run?: Row | null): Json {
-  const counts = countsFor(requestId);
-  const latest = run || latestRun(requestId);
+export async function discoveryResult(requestId: string, run?: Row | null): Promise<Json> {
+  const counts = (await countsFor(requestId));
+  const latest = run || (await latestRun(requestId));
   const errors = [employeeError(latest?.error)].filter(Boolean);
   return {
     ...counts,
-    top_candidates: topCandidates(requestId),
+    top_candidates: (await topCandidates(requestId)),
     errors,
     ready: counts.suggested_count > 0,
     pending_confirm: counts.suggested_count > 0,
-    connection: connectionPayload(),
+    connection: (await connectionPayload()),
   };
 }
 
-function publicRun(row: Row): Json {
-  syncRunFromCrawl(row);
-  const current = getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(row.id) as Row;
+async function publicRun(row: Row): Promise<Json> {
+  (await syncRunFromCrawl(row));
+  const current = (await getConn().query("SELECT * FROM discovery_runs WHERE id=$1",[row.id])).rows[0] as Row;
   const status = String(current.status);
   const searchKeywords = searchKeywordsOf(current);
   const candidateCount = Number(current.candidate_count || 0);
@@ -452,7 +441,7 @@ function publicRun(row: Row): Json {
     started_at: current.started_at,
     updated_at: current.updated_at,
     completed_at: current.completed_at,
-    connection: connectionPayload(),
+    connection: (await connectionPayload()),
   };
 }
 
@@ -466,18 +455,16 @@ function planSummary(row: Row): string {
   return region ? `按 ${topic} 在 ${where} 发现达人 · ${region}` : `按 ${topic} 在 ${where} 发现达人`;
 }
 
-function latestRun(requestId: string): Row | undefined {
-  return getConn().prepare(
-    "SELECT * FROM discovery_runs WHERE request_id=? ORDER BY created_at DESC LIMIT 1",
-  ).get(requestId) as Row | undefined;
+async function latestRun(requestId: string): Promise<Awaited<Row | undefined>> {
+  return (await getConn().query("SELECT * FROM discovery_runs WHERE request_id=$1 ORDER BY created_at DESC LIMIT 1",[requestId])).rows[0] as Row | undefined;
 }
 
-function publicRequest(row: Row): Json {
+async function publicRequest(row: Row): Promise<Json> {
   const latest = row.latest_run_id
-    ? getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(row.latest_run_id) as Row | undefined
-    : latestRun(String(row.id));
-  if (latest) syncRunFromCrawl(latest);
-  const current = getConn().prepare("SELECT * FROM discovery_requests WHERE id=?").get(row.id) as Row;
+    ? (await getConn().query("SELECT * FROM discovery_runs WHERE id=$1",[row.latest_run_id])).rows[0] as Row | undefined
+    : (await latestRun(String(row.id)));
+  if (latest) (await syncRunFromCrawl(latest));
+  const current = (await getConn().query("SELECT * FROM discovery_requests WHERE id=$1",[row.id])).rows[0] as Row;
   const status = String(current.status);
   const summary = planSummary(current);
   return {
@@ -490,32 +477,28 @@ function publicRequest(row: Row): Json {
     title: summary,
     plan_summary: summary,
     brand: current.brand || null,
-    latest_run: latest ? publicRun(latest) : null,
+    latest_run: latest ? (await publicRun(latest)) : null,
     error: employeeError(current.error),
     created_at: current.created_at,
     updated_at: current.updated_at,
-    connection: connectionPayload(),
+    connection: (await connectionPayload()),
   };
 }
 
-export function getDiscoveryResults(id: string): Json {
-  const request = requestRow(id);
-  const latest = latestRun(String(request.id));
+export async function getDiscoveryResults(id: string): Promise<Json> {
+  const request = (await requestRow(id));
+  const latest = (await latestRun(String(request.id)));
   if (latest) {
-    syncRunFromCrawl(latest);
+    (await syncRunFromCrawl(latest));
     if (latest.crawl_job_id) {
-      const job = getConn().prepare("SELECT * FROM crawl_jobs WHERE id=?").get(latest.crawl_job_id) as Row | undefined;
-      if (job && String(job.status) === "result_ready") ingestDiscoveryFromCrawlJob(job);
+      const job = (await getConn().query("SELECT * FROM crawl_jobs WHERE id=$1",[latest.crawl_job_id])).rows[0] as Row | undefined;
+      if (job && String(job.status) === "result_ready") (await ingestDiscoveryFromCrawlJob(job));
     }
   }
-  const current = getConn().prepare("SELECT * FROM discovery_requests WHERE id=?").get(request.id) as Row;
-  const run = latestRun(String(current.id));
-  const counts = countsFor(String(current.id));
-  const candidates = (getConn().prepare(
-    `SELECT * FROM creator_candidates WHERE request_id=?
-      ORDER BY CASE status WHEN 'suggested' THEN 0 WHEN 'followed' THEN 1 ELSE 2 END,
-               score DESC, followers DESC, created_at DESC`,
-  ).all(current.id) as Row[]).map(publicCandidate);
+  const current = (await getConn().query("SELECT * FROM discovery_requests WHERE id=$1",[request.id])).rows[0] as Row;
+  const run = (await latestRun(String(current.id)));
+  const counts = (await countsFor(String(current.id)));
+  const candidates = ((await getConn().query("SELECT * FROM creator_candidates WHERE request_id=$1\n      ORDER BY CASE status WHEN 'suggested' THEN 0 WHEN 'followed' THEN 1 ELSE 2 END,\n               score DESC, followers DESC, created_at DESC",[current.id])).rows as Row[]).map(publicCandidate);
   const summary = planSummary(current);
   const searchKeywords = searchKeywordsOf(run);
   const succeeded = String(current.status) === "succeeded" || String(run?.status) === "succeeded";
@@ -530,8 +513,8 @@ export function getDiscoveryResults(id: string): Json {
     plan_summary: summary,
     created_at: current.created_at,
     updated_at: current.updated_at,
-    request: publicRequest(current),
-    run: run ? publicRun(run) : null,
+    request: (await publicRequest(current)),
+    run: run ? (await publicRun(run)) : null,
     candidates,
     counts,
     error: employeeError(current.error),
@@ -539,14 +522,12 @@ export function getDiscoveryResults(id: string): Json {
     empty_hint: succeeded && counts.candidate_count === 0 ? emptyDiscoveryHint(searchKeywords) : null,
     ready: counts.suggested_count > 0,
     pending_confirm: String(current.status) === "open" || counts.suggested_count > 0,
-    connection: connectionPayload(),
+    connection: (await connectionPayload()),
   };
 }
 
-function refreshRequestStatus(requestId: string): void {
-  const runs = getConn().prepare(
-    "SELECT status, error FROM discovery_runs WHERE request_id=? ORDER BY created_at DESC",
-  ).all(requestId) as Row[];
+async function refreshRequestStatus(requestId: string): Promise<Awaited<void>> {
+  const runs = (await getConn().query("SELECT status, error FROM discovery_runs WHERE request_id=$1 ORDER BY created_at DESC",[requestId])).rows as Row[];
   const latest = runs[0];
   let status = "open";
   if (runs.some((run) => RUN_ACTIVE.has(String(run.status)))) status = "running";
@@ -554,67 +535,42 @@ function refreshRequestStatus(requestId: string): void {
   else if (runs.some((run) => String(run.status) === "failed")) status = "failed";
   else if (runs.some((run) => String(run.status) === "cancelled")) status = "cancelled";
   const error = latest?.error ? persistableEmployeeError(latest.error) : null;
-  getConn().prepare(
-    `UPDATE discovery_requests
-        SET status=?, error=?, latest_run_id=COALESCE(
-          (SELECT id FROM discovery_runs WHERE request_id=? ORDER BY created_at DESC LIMIT 1), latest_run_id
-        ), updated_at=?, data_version=data_version+1
-      WHERE id=?`,
-  ).run(status, error, requestId, nowIso(), requestId);
+  (await getConn().query("UPDATE discovery_requests\n        SET status=$1, error=$2, latest_run_id=COALESCE(\n          (SELECT id FROM discovery_runs WHERE request_id=$3 ORDER BY created_at DESC LIMIT 1), latest_run_id\n        ), updated_at=$4, data_version=data_version+1\n      WHERE id=$5",[status,error,requestId,nowIso(),requestId]));
 }
 
-function persistRunFromCrawl(run: Row, job: Row): void {
+async function persistRunFromCrawl(run: Row, job: Row): Promise<Awaited<void>> {
   const status = runStatusFromCrawl(String(job.status));
   const now = nowIso();
   const completed = ["succeeded", "failed", "cancelled"].includes(status) ? (job.completed_at || now) : null;
   const previous = String(run.status || "");
-  getConn().prepare(
-    `UPDATE discovery_runs
-        SET status=?, remote_task_id=COALESCE(?, remote_task_id), error=?,
-            started_at=COALESCE(started_at, ?), completed_at=?, updated_at=?, data_version=data_version+1
-      WHERE id=?`,
-  ).run(
-    status,
-    job.remote_task_id || null,
-    job.error ? persistableEmployeeError(job.error) : null,
-    job.started_at || now,
-    completed,
-    now,
-    run.id,
-  );
-  refreshRequestStatus(String(run.request_id));
+  (await getConn().query("UPDATE discovery_runs\n        SET status=$1, remote_task_id=COALESCE($2, remote_task_id), error=$3,\n            started_at=COALESCE(started_at, $4), completed_at=$5, updated_at=$6, data_version=data_version+1\n      WHERE id=$7",[status,job.remote_task_id || null,job.error ? persistableEmployeeError(job.error) : null,job.started_at || now,completed,now,run.id]));
+  (await refreshRequestStatus(String(run.request_id)));
   const jobStatus = String(job.status || "");
   if ((jobStatus === "idle" || status === "succeeded") && previous !== "succeeded") {
-    recordDiscoveryFact({
+    (await recordDiscoveryFact({
       kind: "crawl_idle",
       object_type: "discovery_run",
       object_id: String(run.id),
       payload: { crawl_status: jobStatus, run_status: status },
       actor: String(run.owner_user_id || "host"),
       source_version: String(run.brief_version || 1),
-    });
+    }));
   }
 }
 
-function syncRunFromCrawl(run: Row): void {
+async function syncRunFromCrawl(run: Row): Promise<Awaited<void>> {
   if (!run.crawl_job_id) return;
-  const job = getConn().prepare("SELECT * FROM crawl_jobs WHERE id=?").get(run.crawl_job_id) as Row | undefined;
+  const job = (await getConn().query("SELECT * FROM crawl_jobs WHERE id=$1",[run.crawl_job_id])).rows[0] as Row | undefined;
   if (!job) return;
-  persistRunFromCrawl(run, job);
+  (await persistRunFromCrawl(run, job));
 }
 
-function upsertCandidatesFromJob(run: Row, job: Row): number {
-  const snapshots = getConn().prepare(
-    `SELECT s.*, c.id AS claw_creator_id, c.handle AS claw_handle, c.name AS claw_name, c.payload AS claw_payload
-       FROM creator_snapshots s
-       JOIN claw_creators c ON c.id = s.creator_id
-      WHERE s.crawl_job_id=?
-      ORDER BY s.created_at DESC`,
-  ).all(job.id) as Row[];
+async function upsertCandidatesFromJob(run: Row, job: Row): Promise<Awaited<number>> {
+  const snapshots = (await getConn().query("SELECT s.*, c.id AS claw_creator_id, c.handle AS claw_handle, c.name AS claw_name, c.payload AS claw_payload\n       FROM creator_snapshots s\n       JOIN claw_creators c ON c.id = s.creator_id\n      WHERE s.crawl_job_id=$1\n      ORDER BY s.created_at DESC",[job.id])).rows as Row[];
   const seen = new Set<string>();
   const now = nowIso();
   let written = 0;
-  tx((db) => {
+  (await tx(async (db) => {
     for (const snap of snapshots) {
       const platform = String(snap.platform || job.platform || "").toLowerCase();
       const platformCreatorId = String(snap.platform_creator_id || "").trim();
@@ -629,9 +585,7 @@ function upsertCandidatesFromJob(run: Row, job: Row): number {
       const clawEmails = Array.isArray(clawPayload.emails)
         ? (clawPayload.emails as unknown[]).map((item) => String(item || "").trim()).filter(Boolean)
         : [];
-      const existing = db.prepare(
-        "SELECT * FROM creator_candidates WHERE request_id=? AND platform=? AND platform_creator_id=?",
-      ).get(run.request_id, platform, platformCreatorId) as Row | undefined;
+      const existing = (await db.query("SELECT * FROM creator_candidates WHERE request_id=$1 AND platform=$2 AND platform_creator_id=$3",[run.request_id,platform,platformCreatorId])).rows[0] as Row | undefined;
       const payload = {
         ...parseJson(snap.score_details),
         platform,
@@ -659,87 +613,48 @@ function upsertCandidatesFromJob(run: Row, job: Row): number {
         sample_confidence: Number(parseJson(snap.score_details).sample_confidence || 0),
       };
       if (existing) {
-        db.prepare(
-          `UPDATE creator_candidates
-              SET run_id=?, claw_creator_id=?, handle=?, nickname=?, followers=?, score=?,
-                  signals=?, payload=?, updated_at=?
-            WHERE id=?`,
-        ).run(
-          run.id, snap.claw_creator_id || existing.claw_creator_id, nickname, nickname,
-          Number(snap.followers || 0), Number(snap.score || 0),
-          JSON.stringify(signals), JSON.stringify(payload), now, existing.id,
-        );
+        (await db.query("UPDATE creator_candidates\n              SET run_id=$1, claw_creator_id=$2, handle=$3, nickname=$4, followers=$5, score=$6,\n                  signals=$7, payload=$8, updated_at=$9\n            WHERE id=$10",[run.id,snap.claw_creator_id || existing.claw_creator_id,nickname,nickname,Number(snap.followers || 0),Number(snap.score || 0),JSON.stringify(signals),JSON.stringify(payload),now,existing.id]));
       } else {
-        db.prepare(
-          `INSERT INTO creator_candidates
-           (id,request_id,run_id,owner_user_id,platform,platform_creator_id,claw_creator_id,
-            handle,nickname,followers,score,signals,payload,status,created_at,updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'suggested',?,?)`,
-        ).run(
-          nid("cand"), run.request_id, run.id, run.owner_user_id, platform, platformCreatorId,
-          snap.claw_creator_id || null, nickname, nickname, Number(snap.followers || 0),
-          Number(snap.score || 0), JSON.stringify(signals), JSON.stringify(payload), now, now,
-        );
+        (await db.query("INSERT INTO creator_candidates\n           (id,request_id,run_id,owner_user_id,platform,platform_creator_id,claw_creator_id,\n            handle,nickname,followers,score,signals,payload,status,created_at,updated_at)\n           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'suggested',$14,$15)",[nid("cand"),run.request_id,run.id,run.owner_user_id,platform,platformCreatorId,snap.claw_creator_id || null,nickname,nickname,Number(snap.followers || 0),Number(snap.score || 0),JSON.stringify(signals),JSON.stringify(payload),now,now]));
       }
       written += 1;
     }
-    db.prepare(
-      "UPDATE discovery_runs SET candidate_count=?, updated_at=?, data_version=data_version+1 WHERE id=?",
-    ).run(written, now, run.id);
-  });
+    (await db.query("UPDATE discovery_runs SET candidate_count=$1, updated_at=$2, data_version=data_version+1 WHERE id=$3",[written,now,run.id]));
+  }));
   return written;
 }
 
-export function ingestDiscoveryFromCrawlJob(job: Row): void {
-  const run = getConn().prepare("SELECT * FROM discovery_runs WHERE crawl_job_id=?").get(job.id) as Row | undefined;
+export async function ingestDiscoveryFromCrawlJob(job: Row): Promise<Awaited<void>> {
+  const run = (await getConn().query("SELECT * FROM discovery_runs WHERE crawl_job_id=$1",[job.id])).rows[0] as Row | undefined;
   if (!run) return;
   if (String(run.kind || "") === "home") return;
-  persistRunFromCrawl(run, job);
+  (await persistRunFromCrawl(run, job));
   if (String(job.status) === "result_ready") {
-    upsertCandidatesFromJob(run, job);
-    refreshRequestStatus(String(run.request_id));
+    (await upsertCandidatesFromJob(run, job));
+    (await refreshRequestStatus(String(run.request_id)));
   }
 }
 
-function createContainerWorkItem(input: {
+async function createContainerWorkItem(input: {
   ownerUserId: string;
   platform: string;
   mode: string;
   keywords: string[];
-}): string {
+}): Promise<Awaited<string>> {
   const id = nid("tsk");
   const now = nowIso();
   const title = `AI发现 · ${input.platform} · ${input.keywords.join(" ") || input.mode}`.slice(0, 200);
-  getConn().prepare(
-    `INSERT INTO tickets
-     (id,owner_user_id,task_type,title,source,status,priority,skill,profile,
-      input,entities,data_version,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?)`,
-  ).run(
-    id,
-    input.ownerUserId,
-    "creator_discovery",
-    title,
-    "discovery",
-    "pending",
-    "normal",
-    "creator_discovery",
-    "lead",
-    JSON.stringify({
+  (await getConn().query("INSERT INTO tickets\n     (id,owner_user_id,task_type,title,source,status,priority,skill,profile,\n      input,entities,data_version,created_at,updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,1,$12,$13)",[id,input.ownerUserId,"creator_discovery",title,"discovery","pending","normal","creator_discovery","lead",JSON.stringify({
       prompt: title,
       platform: input.platform,
       keywords: input.keywords,
       insight: true,
-    }),
-    JSON.stringify({ platform: input.platform, keywords: input.keywords }),
-    now,
-    now,
-  );
-  ensureTicketForWorkItem(id);
+    }),JSON.stringify({ platform: input.platform, keywords: input.keywords }),now,now]));
+  await ensureTicketForWorkItem(id);
   return id;
 }
 
-function pickPlatform(request: Row, requested?: string): string {
+async function pickPlatform(request: Row, requested?: string): Promise<Awaited<string>> {
   const platforms = parseArray(request.platforms).map((item) => String(item).toLowerCase());
   if (requested) {
     const platform = requested.toLowerCase();
@@ -749,9 +664,7 @@ function pickPlatform(request: Row, requested?: string): string {
     return validateOverseasPlatforms([platform])[0];
   }
   const used = new Set(
-    (getConn().prepare(
-      "SELECT platform, status FROM discovery_runs WHERE request_id=?",
-    ).all(request.id) as Row[])
+    ((await getConn().query("SELECT platform, status FROM discovery_runs WHERE request_id=$1",[request.id])).rows as Row[])
       .filter((row) => ["queued", "running", "succeeded"].includes(String(row.status)))
       .map((row) => String(row.platform)),
   );
@@ -765,41 +678,28 @@ export async function startDiscoveryRun(input: {
   idempotencyKey?: string;
 }): Promise<Json> {
   registerDiscoveryCrawlHook();
-  const request = requestRow(input.requestId);
-  const platform = pickPlatform(request, input.platform);
+  const request = (await requestRow(input.requestId));
+  const platform = (await pickPlatform(request, input.platform));
   const mode = String(request.mode || "search");
   const filters = storedFilters(request);
   const submitted = parseArray(request.keywords).map(String);
   const keywords = crawlSearchKeywords(submitted, filters);
   const parameters: Json = { ...filters, keywords };
   const idempotencyKey = String(input.idempotencyKey || `disc:${request.id}:${platform}:${nid("idem")}`);
-  const existing = getConn().prepare("SELECT * FROM discovery_runs WHERE idempotency_key=?").get(idempotencyKey) as
+  const existing = (await getConn().query("SELECT * FROM discovery_runs WHERE idempotency_key=$1",[idempotencyKey])).rows[0] as
     | Row
     | undefined;
-  if (existing) return { ...publicRun(existing), duplicate: true };
+  if (existing) return { ...(await (publicRun(existing))), duplicate: true };
 
   const ownerUserId = String(request.owner_user_id);
-  const workItemId = createContainerWorkItem({ ownerUserId, platform, mode, keywords });
+  const workItemId = await createContainerWorkItem({ ownerUserId, platform, mode, keywords });
   const runId = nid("drun");
   const now = nowIso();
-  tx((db) => {
-    db.prepare(
-      `INSERT INTO discovery_runs
-       (id,request_id,owner_user_id,work_item_id,platform,mode,parameters,idempotency_key,
-        status,brief_version,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?, 'queued',?,?,?)`,
-    ).run(
-      runId, request.id, ownerUserId, workItemId, platform, mode,
-      JSON.stringify({ ...parameters, brief_version: Number(request.brief_version || request.data_version || 1) }),
-      idempotencyKey,
-      Number(request.brief_version || request.data_version || 1),
-      now, now,
-    );
-    db.prepare(
-      "UPDATE discovery_requests SET latest_run_id=?, status='running', updated_at=?, data_version=data_version+1 WHERE id=?",
-    ).run(runId, now, request.id);
-  });
-  recordDiscoveryFact({
+  (await tx(async (db) => {
+    (await db.query("INSERT INTO discovery_runs\n       (id,request_id,owner_user_id,work_item_id,platform,mode,parameters,idempotency_key,\n        status,brief_version,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8, 'queued',$9,$10,$11)",[runId,request.id,ownerUserId,workItemId,platform,mode,JSON.stringify({ ...parameters, brief_version: Number(request.brief_version || request.data_version || 1) }),idempotencyKey,Number(request.brief_version || request.data_version || 1),now,now]));
+    (await db.query("UPDATE discovery_requests SET latest_run_id=$1, status='running', updated_at=$2, data_version=data_version+1 WHERE id=$3",[runId,now,request.id]));
+  }));
+  (await recordDiscoveryFact({
     kind: "run_create",
     object_type: "discovery_run",
     object_id: runId,
@@ -810,7 +710,7 @@ export async function startDiscoveryRun(input: {
     },
     actor: ownerUserId,
     source_version: String(request.brief_version || 1),
-  });
+  }));
 
   try {
     const job = await startCrawl({
@@ -822,22 +722,11 @@ export async function startDiscoveryRun(input: {
       idempotencyKey,
     });
     const crawlJobId = String(job.id);
-    getConn().prepare(
-      `UPDATE discovery_runs
-          SET crawl_job_id=?, remote_task_id=?, status=?, started_at=?, updated_at=?, data_version=data_version+1
-        WHERE id=?`,
-    ).run(
-      crawlJobId,
-      job.remote_task_id || null,
-      runStatusFromCrawl(String(job.status)),
-      nowIso(),
-      nowIso(),
-      runId,
-    );
-    refreshRequestStatus(String(request.id));
-    const run = getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(runId) as Row;
-    if (String(job.status) === "result_ready") ingestDiscoveryFromCrawlJob(job as Row);
-    return publicRun(run);
+    (await getConn().query("UPDATE discovery_runs\n          SET crawl_job_id=$1, remote_task_id=$2, status=$3, started_at=$4, updated_at=$5, data_version=data_version+1\n        WHERE id=$6",[crawlJobId,job.remote_task_id || null,runStatusFromCrawl(String(job.status)),nowIso(),nowIso(),runId]));
+    (await refreshRequestStatus(String(request.id)));
+    const run = (await getConn().query("SELECT * FROM discovery_runs WHERE id=$1",[runId])).rows[0] as Row;
+    if (String(job.status) === "result_ready") (await ingestDiscoveryFromCrawlJob(job as Row));
+    return await (publicRun(run));
   } catch (error) {
     const source = error instanceof HttpFail ? error.detail ?? error : error;
     const mapped = mapEmployeeError(source);
@@ -854,12 +743,8 @@ export async function startDiscoveryRun(input: {
         ? { crawl_job_id: sourceObj.crawl_job_id }
         : {}),
     });
-    getConn().prepare(
-      `UPDATE discovery_runs
-          SET status='failed', error=?, completed_at=?, updated_at=?, data_version=data_version+1
-        WHERE id=?`,
-    ).run(safe, nowIso(), nowIso(), runId);
-    refreshRequestStatus(String(request.id));
+    (await getConn().query("UPDATE discovery_runs\n          SET status='failed', error=$1, completed_at=$2, updated_at=$3, data_version=data_version+1\n        WHERE id=$4",[safe,nowIso(),nowIso(),runId]));
+    (await refreshRequestStatus(String(request.id)));
     if (error instanceof HttpFail && error.status === 503) {
       throw new HttpFail(503, {
         code: "discovery_not_ready",
@@ -878,7 +763,7 @@ export async function checkDiscoveryConnection(): Promise<Json> {
   return publicCollectorConnection(await probeMediaCrawlerConnection());
 }
 
-export function createDiscoveryRequest(body: Json): Json {
+export async function createDiscoveryRequest(body: Json): Promise<Json> {
   const keywords = asStringList(body.keywords ?? body.keyword);
   const mode = validateMode(String(body.mode || "search"));
   if (mode === "search" && !keywords.length) {
@@ -891,92 +776,69 @@ export function createDiscoveryRequest(body: Json): Json {
   const owner = ownerId();
   const id = nid("dreq");
   const now = nowIso();
-  tx((db) => {
-    db.prepare(
-      `INSERT INTO discovery_requests
-       (id,owner_user_id,keywords,platforms,mode,filters,brand,scope,status,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?, 'open',?,?)`,
-    ).run(
-      id,
-      owner,
-      JSON.stringify(keywords),
-      JSON.stringify(platforms),
-      mode,
-      JSON.stringify(filters),
-      body.brand ? String(body.brand) : null,
-      JSON.stringify(body.scope && typeof body.scope === "object" ? body.scope : {}),
-      now,
-      now,
-    );
-  });
-  audit(owner, "discovery.request.created", { request_id: id, platforms, mode });
-  recordDiscoveryFact({
+  (await tx(async (db) => {
+    (await db.query("INSERT INTO discovery_requests\n       (id,owner_user_id,keywords,platforms,mode,filters,brand,scope,status,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8, 'open',$9,$10)",[id,owner,JSON.stringify(keywords),JSON.stringify(platforms),mode,JSON.stringify(filters),body.brand ? String(body.brand) : null,JSON.stringify(body.scope && typeof body.scope === "object" ? body.scope : {}),now,now]));
+  }));
+  (await audit(owner, "discovery.request.created", { request_id: id, platforms, mode }));
+  (await recordDiscoveryFact({
     kind: "brief",
     object_type: "discovery_request",
     object_id: id,
     payload: { platforms, mode, keywords, brief_version: 1 },
     actor: owner,
     source_version: "1",
-  });
-  return publicRequest(requestRow(id));
+  }));
+  return (publicRequest((await requestRow(id))));
 }
 
-export function listDiscoveryRequests(): Json[] {
+export async function listDiscoveryRequests(): Promise<Json[]> {
   const adminAll = isAdmin();
   const rows = adminAll
-    ? getConn().prepare("SELECT * FROM discovery_requests ORDER BY updated_at DESC").all() as Row[]
-    : getConn().prepare(
-        "SELECT * FROM discovery_requests WHERE owner_user_id=? ORDER BY updated_at DESC",
-      ).all(ownerId()) as Row[];
-  return rows.map(publicRequest);
+    ? (await getConn().query("SELECT * FROM discovery_requests ORDER BY updated_at DESC",[])).rows as Row[]
+    : (await getConn().query("SELECT * FROM discovery_requests WHERE owner_user_id=$1 ORDER BY updated_at DESC",[ownerId()])).rows as Row[];
+  return Promise.all(rows.map(publicRequest));
 }
 
-export function getDiscoveryRequest(id: string): Json {
-  return publicRequest(requestRow(id));
+export async function getDiscoveryRequest(id: string): Promise<Json> {
+  return (publicRequest((await requestRow(id))));
 }
 
-export function getDiscoveryRun(id: string): Json {
-  return publicRun(runRow(id));
+export async function getDiscoveryRun(id: string): Promise<Json> {
+  return (publicRun((await runRow(id))));
 }
 
-export function listRunCandidates(runId: string, query: {
+export async function listRunCandidates(runId: string, query: {
   status?: string;
   limit?: number;
   offset?: number;
-}): Json {
-  const run = runRow(runId);
-  syncRunFromCrawl(run);
+}): Promise<Json> {
+  const run = (await runRow(runId));
+  (await syncRunFromCrawl(run));
   if (run.crawl_job_id) {
-    const job = getConn().prepare("SELECT * FROM crawl_jobs WHERE id=?").get(run.crawl_job_id) as Row | undefined;
-    if (job && String(job.status) === "result_ready") ingestDiscoveryFromCrawlJob(job);
+    const job = (await getConn().query("SELECT * FROM crawl_jobs WHERE id=$1",[run.crawl_job_id])).rows[0] as Row | undefined;
+    if (job && String(job.status) === "result_ready") (await ingestDiscoveryFromCrawlJob(job));
   }
   const limit = Math.max(1, Math.min(100, Number(query.limit || 20)));
   const offset = Math.max(0, Number(query.offset || 0));
   const status = String(query.status || "").trim();
   const rows = (status
-    ? getConn().prepare(
-        `SELECT * FROM creator_candidates WHERE run_id=? AND status=?
-          ORDER BY score DESC, followers DESC, created_at DESC LIMIT ? OFFSET ?`,
-      ).all(run.id, status, limit, offset)
-    : getConn().prepare(
-        `SELECT * FROM creator_candidates WHERE run_id=?
-          ORDER BY score DESC, followers DESC, created_at DESC LIMIT ? OFFSET ?`,
-      ).all(run.id, limit, offset)) as Row[];
+    ? (await getConn().query("SELECT * FROM creator_candidates WHERE run_id=$1 AND status=$2\n          ORDER BY score DESC, followers DESC, created_at DESC LIMIT $3 OFFSET $4",[run.id,status,limit,offset])).rows
+    : (await getConn().query("SELECT * FROM creator_candidates WHERE run_id=$1\n          ORDER BY score DESC, followers DESC, created_at DESC LIMIT $2 OFFSET $3",[run.id,limit,offset])).rows) as Row[];
   const totalRow = (status
-    ? getConn().prepare("SELECT COUNT(*) AS n FROM creator_candidates WHERE run_id=? AND status=?").get(run.id, status)
-    : getConn().prepare("SELECT COUNT(*) AS n FROM creator_candidates WHERE run_id=?").get(run.id)) as { n: number };
+    ? (await getConn().query("SELECT COUNT(*) AS n FROM creator_candidates WHERE run_id=$1 AND status=$2",[run.id,status])).rows[0]
+    : (await getConn().query("SELECT COUNT(*) AS n FROM creator_candidates WHERE run_id=$1",[run.id])).rows[0]) as { n: number };
   const total = Number(totalRow.n);
   return {
     items: rows.map(publicCandidate),
     total,
     limit,
     offset,
-    run: publicRun(getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(run.id) as Row),
+    run: (await publicRun((await getConn().query("SELECT * FROM discovery_runs WHERE id=$1",[run.id])).rows[0] as Row)),
   };
 }
 
-export function getCandidate(id: string): Json {
-  return publicCandidate(candidateRow(id));
+export async function getCandidate(id: string): Promise<Awaited<Json>> {
+  return publicCandidate((await candidateRow(id)));
 }
 
 /**
@@ -985,36 +847,27 @@ export function getCandidate(id: string): Json {
  * Bare handle/display_name is only for leftover source=discovery + disc_* rows of THIS creator.
  * Never attach a real Starry kolUid onto an unrelated Starry-sourced collab via handle.
  */
-function existingCollaboration(candidate: Row, kolUid?: string): Row | undefined {
+async function existingCollaboration(candidate: Row, kolUid?: string): Promise<Awaited<Row | undefined>> {
   if (candidate.collaboration_id) {
-    const byId = getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(candidate.collaboration_id) as
+    const byId = (await getConn().query("SELECT * FROM collaborations WHERE id=$1",[candidate.collaboration_id])).rows[0] as
       | Row
       | undefined;
     if (byId) return byId;
   }
   if (kolUid && isRealKolUid(kolUid)) {
-    const byReal = getConn().prepare("SELECT * FROM collaborations WHERE kol_uid=?").get(kolUid) as Row | undefined;
+    const byReal = (await getConn().query("SELECT * FROM collaborations WHERE kol_uid=$1",[kolUid])).rows[0] as Row | undefined;
     if (byReal) return byReal;
   }
-  const sibling = getConn().prepare(
-    `SELECT c.* FROM creator_candidates cand
-       JOIN collaborations c ON c.id = cand.collaboration_id
-      WHERE cand.platform=? AND cand.platform_creator_id=? AND cand.status='followed'
-        AND cand.collaboration_id IS NOT NULL
-      ORDER BY cand.followed_at DESC LIMIT 1`,
-  ).get(candidate.platform, candidate.platform_creator_id) as Row | undefined;
+  const sibling = (await getConn().query("SELECT c.* FROM creator_candidates cand\n       JOIN collaborations c ON c.id = cand.collaboration_id\n      WHERE cand.platform=$1 AND cand.platform_creator_id=$2 AND cand.status='followed'\n        AND cand.collaboration_id IS NOT NULL\n      ORDER BY cand.followed_at DESC LIMIT 1",[candidate.platform,candidate.platform_creator_id])).rows[0] as Row | undefined;
   if (sibling) return sibling;
   return leftoverDiscoveryPlaceholderByHandle(candidate);
 }
 
-function leftoverDiscoveryPlaceholderByHandle(candidate: Row): Row | undefined {
+async function leftoverDiscoveryPlaceholderByHandle(candidate: Row): Promise<Awaited<Row | undefined>> {
   const handle = String(candidate.handle || candidate.nickname || "").trim();
   if (!handle) return undefined;
   const expected = discoveryPlaceholderKolUid(candidate);
-  const rows = getConn().prepare(
-    `SELECT * FROM collaborations
-      WHERE (handle=? OR display_name=?) AND source='discovery'`,
-  ).all(handle, handle) as Row[];
+  const rows = (await getConn().query("SELECT * FROM collaborations\n      WHERE (handle=$1 OR display_name=$2) AND source='discovery'",[handle,handle])).rows as Row[];
   return rows.find((row) => isPlaceholderKolUid(row.kol_uid) && String(row.kol_uid) === expected);
 }
 
@@ -1023,10 +876,10 @@ export function discoveryPlaceholderKolUid(candidate: Row): string {
   return `disc_${candidate.platform}_${String(candidate.platform_creator_id).replace(/[^A-Za-z0-9._-]/g, "_")}`.slice(0, 80);
 }
 
-function ingestDiscoveryProfile(collaboration: Row, candidate?: Row): void {
+async function ingestDiscoveryProfile(collaboration: Row, candidate?: Row): Promise<Awaited<void>> {
   const kolUid = String(collaboration.kol_uid || "").trim();
   if (!kolUid) return;
-  ingestFormalProfile({
+  (await ingestFormalProfile({
     kol_uid: kolUid,
     handle: String(collaboration.handle || candidate?.handle || ""),
     display_name: String(collaboration.display_name || candidate?.nickname || ""),
@@ -1039,14 +892,14 @@ function ingestDiscoveryProfile(collaboration: Row, candidate?: Row): void {
     region: String(collaboration.audience_geo || ""),
     public_stage: String(collaboration.stage_code || ""),
     ingest_source: "discovery",
-  });
+  }));
 }
 
-function followResult(candidateId: string, collaborationId: string, created: boolean, extra: Json = {}): Json {
-  const collaboration = getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(collaborationId) as Row;
-  ingestDiscoveryProfile(collaboration);
+async function followResult(candidateId: string, collaborationId: string, created: boolean, extra: Json = {}): Promise<Awaited<Json>> {
+  const collaboration = (await getConn().query("SELECT * FROM collaborations WHERE id=$1",[collaborationId])).rows[0] as Row;
+  (await ingestDiscoveryProfile(collaboration));
   return {
-    ...publicCandidate(getConn().prepare("SELECT * FROM creator_candidates WHERE id=?").get(candidateId) as Row),
+    ...publicCandidate((await getConn().query("SELECT * FROM creator_candidates WHERE id=$1",[candidateId])).rows[0] as Row),
     collaboration: {
       id: collaboration.id,
       handle: collaboration.handle,
@@ -1062,14 +915,9 @@ function followResult(candidateId: string, collaborationId: string, created: boo
   };
 }
 
-function markCandidateFollowed(candidateId: string, collaborationId: string): void {
+async function markCandidateFollowed(candidateId: string, collaborationId: string): Promise<Awaited<void>> {
   const now = nowIso();
-  getConn().prepare(
-    `UPDATE creator_candidates
-        SET status='followed', collaboration_id=?, followed_at=COALESCE(followed_at, ?),
-            dismissed_at=NULL, updated_at=?
-      WHERE id=?`,
-  ).run(collaborationId, now, now, candidateId);
+  (await getConn().query("UPDATE creator_candidates\n        SET status='followed', collaboration_id=$1, followed_at=COALESCE(followed_at, $2),\n            dismissed_at=NULL, updated_at=$3\n      WHERE id=$4",[collaborationId,now,now,candidateId]));
 }
 
 /**
@@ -1078,45 +926,45 @@ function markCandidateFollowed(candidateId: string, collaborationId: string): vo
  * Does not send mail, decrypt contact, or write/advance official stage.
  */
 export async function followCandidate(id: string, input: Json = {}): Promise<Json> {
-  const candidate = candidateRow(id);
-  if (isHomeKindCandidate(candidate)) rejectHomeDiscoveryFollow();
-  const request = getConn().prepare("SELECT * FROM discovery_requests WHERE id=?").get(candidate.request_id) as
+  const candidate = (await candidateRow(id));
+  if ((await isHomeKindCandidate(candidate))) rejectHomeDiscoveryFollow();
+  const request = (await getConn().query("SELECT * FROM discovery_requests WHERE id=$1",[candidate.request_id])).rows[0] as
     | Row
     | undefined;
   recheckFollowFilters(candidate, request, parseFollowThresholds(input.thresholds ?? input.filters));
   if (shouldWarnMissingCandidateRegion(candidate, request)) {
-    audit(ownerId(), "discovery.candidate.region_unverified", {
+    (await audit(ownerId(), "discovery.candidate.region_unverified", {
       candidate_id: candidate.id,
       request_id: candidate.request_id,
       plan_region: planRegionOf(request),
       candidate_region: "",
-    });
+    }));
   }
   const sourceBatch = sourceBatchFor(candidate, input.source_batch);
   const externalId = creatorExternalId(candidate.platform, candidate.platform_creator_id);
-  const existing = existingCollaboration(candidate);
+  const existing = (await existingCollaboration(candidate));
   if (existing && isRealKolUid(existing.kol_uid) && String(candidate.status) === "followed") {
-    markCandidateFollowed(String(candidate.id), String(existing.id));
-    audit(ownerId(), "discovery.candidate.followed", {
+    (await markCandidateFollowed(String(candidate.id), String(existing.id)));
+    (await audit(ownerId(), "discovery.candidate.followed", {
       candidate_id: candidate.id,
       collaboration_id: existing.id,
       kol_uid: existing.kol_uid,
       source_batch: sourceBatch,
       created: false,
       reused: true,
-    });
+    }));
     return followResult(String(candidate.id), String(existing.id), false, { skipped_duplicate: true });
   }
   if (existing && isRealKolUid(existing.kol_uid) && String(candidate.status) !== "followed") {
-    markCandidateFollowed(String(candidate.id), String(existing.id));
-    audit(ownerId(), "discovery.candidate.followed", {
+    (await markCandidateFollowed(String(candidate.id), String(existing.id)));
+    (await audit(ownerId(), "discovery.candidate.followed", {
       candidate_id: candidate.id,
       collaboration_id: existing.id,
       kol_uid: existing.kol_uid,
       source_batch: sourceBatch,
       created: false,
       reused: true,
-    });
+    }));
     return followResult(String(candidate.id), String(existing.id), false);
   }
 
@@ -1139,48 +987,20 @@ export async function followCandidate(id: string, input: Json = {}): Promise<Jso
     });
   }
 
-  const linked = existingCollaboration(candidate, kolUid);
+  const linked = (await existingCollaboration(candidate, kolUid));
   const brand = String(request?.brand || "LT");
   const handle = String(candidate.handle || candidate.nickname || candidate.platform_creator_id).trim();
   const cid = String(linked?.id || nid("col"));
   const created = !linked;
   if (!linked) {
-    tx((db) => {
-      db.prepare(
-        `INSERT INTO collaborations
-         (id, handle, display_name, brand, platform, followers, email, mailbox_from,
-          lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,
-          stage_version, locked, kol_uid, source, avg_views_10)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      ).run(
-        cid,
-        handle,
-        handle,
-        brand || "LT",
-        String(candidate.platform),
-        String(candidate.followers || ""),
-        "",
-        BRAND_MAILBOXES[brand] || BRAND_MAILBOXES.LT,
-        `lc_${cid}`,
-        `conv_${cid}`,
-        "INITIAL_CONTACT",
-        0,
-        "from ai discovery follow",
-        0,
-        0,
-        0,
-        kolUid,
-        "discovery",
-        String(avgViews10(candidate) || ""),
-      );
-    });
+    (await tx(async (db) => {
+      (await db.query("INSERT INTO collaborations\n         (id, handle, display_name, brand, platform, followers, email, mailbox_from,\n          lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,\n          stage_version, locked, kol_uid, source, avg_views_10)\n         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)",[cid,handle,handle,brand || "LT",String(candidate.platform),String(candidate.followers || ""),"",BRAND_MAILBOXES[brand] || BRAND_MAILBOXES.LT,`lc_${cid}`,`conv_${cid}`,"INITIAL_CONTACT",0,"from ai discovery follow",0,0,0,kolUid,"discovery",String(avgViews10(candidate) || "")]));
+    }));
   } else if (isPlaceholderKolUid(linked.kol_uid) || !String(linked.kol_uid || "").trim()) {
-    getConn().prepare(
-      "UPDATE collaborations SET kol_uid=?, avg_views_10=COALESCE(NULLIF(avg_views_10,''), ?) WHERE id=?",
-    ).run(kolUid, String(avgViews10(candidate) || ""), cid);
+    (await getConn().query("UPDATE collaborations SET kol_uid=$1, avg_views_10=COALESCE(NULLIF(avg_views_10,''), $2) WHERE id=$3",[kolUid,String(avgViews10(candidate) || ""),cid]));
   }
-  markCandidateFollowed(String(candidate.id), cid);
-  audit(ownerId(), "discovery.candidate.followed", {
+  (await markCandidateFollowed(String(candidate.id), cid));
+  (await audit(ownerId(), "discovery.candidate.followed", {
     candidate_id: candidate.id,
     collaboration_id: cid,
     kol_uid: kolUid,
@@ -1189,17 +1009,17 @@ export async function followCandidate(id: string, input: Json = {}): Promise<Jso
     created,
     sent: false,
     stage_changed: false,
-  });
+  }));
   return followResult(String(candidate.id), cid, created);
 }
 
-function requestForCandidate(candidate: Row): Row | undefined {
-  return getConn().prepare("SELECT * FROM discovery_requests WHERE id=?").get(candidate.request_id) as
+async function requestForCandidate(candidate: Row): Promise<Awaited<Row | undefined>> {
+  return (await getConn().query("SELECT * FROM discovery_requests WHERE id=$1",[candidate.request_id])).rows[0] as
     | Row
     | undefined;
 }
 
-function loadFollowBatchCandidates(input: Json): Row[] {
+async function loadFollowBatchCandidates(input: Json): Promise<Awaited<Row[]>> {
   const ids = asStringList(input.candidate_ids ?? input.candidateIds);
   if (ids.length) {
     if (ids.length > MAX_FOLLOW_BATCH) {
@@ -1209,25 +1029,17 @@ function loadFollowBatchCandidates(input: Json): Row[] {
         max: MAX_FOLLOW_BATCH,
       });
     }
-    return ids.map((id) => candidateRow(id));
+    return (Promise.all(ids.map(async (id) => (await candidateRow(id)))));
   }
   const runId = String(input.run_id || input.runId || "").trim();
   if (runId) {
-    const run = runRow(runId);
-    return getConn().prepare(
-      `SELECT * FROM creator_candidates WHERE run_id=? AND status IN ('suggested','followed')
-        ORDER BY CASE status WHEN 'suggested' THEN 0 ELSE 1 END, score DESC, followers DESC, created_at DESC
-        LIMIT ?`,
-    ).all(run.id, MAX_FOLLOW_BATCH) as Row[];
+    const run = (await runRow(runId));
+    return (await getConn().query("SELECT * FROM creator_candidates WHERE run_id=$1 AND status IN ('suggested','followed')\n        ORDER BY CASE status WHEN 'suggested' THEN 0 ELSE 1 END, score DESC, followers DESC, created_at DESC\n        LIMIT $2",[run.id,MAX_FOLLOW_BATCH])).rows as Row[];
   }
   const requestId = String(input.request_id || input.requestId || "").trim();
   if (requestId) {
-    const request = requestRow(requestId);
-    return getConn().prepare(
-      `SELECT * FROM creator_candidates WHERE request_id=? AND status IN ('suggested','followed')
-        ORDER BY CASE status WHEN 'suggested' THEN 0 ELSE 1 END, score DESC, followers DESC, created_at DESC
-        LIMIT ?`,
-    ).all(request.id, MAX_FOLLOW_BATCH) as Row[];
+    const request = (await requestRow(requestId));
+    return (await getConn().query("SELECT * FROM creator_candidates WHERE request_id=$1 AND status IN ('suggested','followed')\n        ORDER BY CASE status WHEN 'suggested' THEN 0 ELSE 1 END, score DESC, followers DESC, created_at DESC\n        LIMIT $2",[request.id,MAX_FOLLOW_BATCH])).rows as Row[];
   }
   throw new HttpFail(400, {
     code: "follow_batch_empty",
@@ -1300,13 +1112,13 @@ export async function followCandidatesBatch(input: Json = {}): Promise<Json> {
   const thresholds = parseFollowThresholds(rawFilter);
   const selectedIds = asStringList(input.candidate_ids ?? input.candidateIds);
   const applyPlanChips = !selectedIds.length || rawFilter != null;
-  const candidates = loadFollowBatchCandidates(input);
+  const candidates = (await loadFollowBatchCandidates(input));
   const preview: Row[] = [];
   const skipped: Json[] = [];
   const failed: Json[] = [];
 
   for (const candidate of candidates) {
-    if (isHomeKindCandidate(candidate)) {
+    if ((await isHomeKindCandidate(candidate))) {
       failed.push(batchFailItem(
         candidate,
         "home_discovery_follow_forbidden",
@@ -1318,16 +1130,16 @@ export async function followCandidatesBatch(input: Json = {}): Promise<Json> {
       failed.push(batchFailItem(candidate, "candidate_dismissed", "已忽略的线索不能加入跟进。"));
       continue;
     }
-    const request = requestForCandidate(candidate);
+    const request = (await requestForCandidate(candidate));
     const writeFilter = applyPlanChips ? mergePlanFilter(request, thresholds) : null;
     const check = evaluateFollowFilters(candidate, request, writeFilter);
     if (!check.ok) {
       failed.push(batchFailItem(candidate, check.code, check.message));
       continue;
     }
-    const existing = existingCollaboration(candidate);
+    const existing = (await existingCollaboration(candidate));
     if (String(candidate.status) === "followed" && existing && isRealKolUid(existing.kol_uid)) {
-      skipped.push(followResult(String(candidate.id), String(existing.id), false, { skipped_duplicate: true }));
+      skipped.push((await followResult(String(candidate.id), String(existing.id), false, { skipped_duplicate: true })));
       continue;
     }
     preview.push(candidate);
@@ -1374,14 +1186,14 @@ export async function followCandidatesBatch(input: Json = {}): Promise<Json> {
     });
   }
   if (!preview.length) {
-    audit(ownerId(), "discovery.candidates.follow_batch", {
+    (await audit(ownerId(), "discovery.candidates.follow_batch", {
       source_batch: sourceBatch,
       followed: 0,
       failed: failed.length,
       skipped_duplicate: skipped.length,
       sent: false,
       stage_changed: false,
-    });
+    }));
     return {
       source_batch: sourceBatch,
       confirmed: true,
@@ -1405,7 +1217,7 @@ export async function followCandidatesBatch(input: Json = {}): Promise<Json> {
 
   const followed: Json[] = [];
   const outcomes = await runLimited(preview, FOLLOW_BATCH_CONCURRENCY, async (candidate) => {
-    const request = requestForCandidate(candidate);
+    const request = (await requestForCandidate(candidate));
     const writeFilter = applyPlanChips ? mergePlanFilter(request, thresholds) : null;
     const check = evaluateFollowFilters(candidate, request, writeFilter);
     if (!check.ok) {
@@ -1432,7 +1244,7 @@ export async function followCandidatesBatch(input: Json = {}): Promise<Json> {
     else failed.push(outcome.item);
   }
 
-  audit(ownerId(), "discovery.candidates.follow_batch", {
+  (await audit(ownerId(), "discovery.candidates.follow_batch", {
     source_batch: sourceBatch,
     followed: followed.length,
     failed: failed.length,
@@ -1440,7 +1252,7 @@ export async function followCandidatesBatch(input: Json = {}): Promise<Json> {
     sent: false,
     stage_changed: false,
     policy: "import_creator",
-  });
+  }));
 
   return {
     source_batch: sourceBatch,
@@ -1462,8 +1274,8 @@ export async function followCandidatesBatch(input: Json = {}): Promise<Json> {
   };
 }
 
-export function dismissCandidate(id: string): Json {
-  const candidate = candidateRow(id);
+export async function dismissCandidate(id: string): Promise<Awaited<Json>> {
+  const candidate = (await candidateRow(id));
   if (String(candidate.status) === "followed") {
     throw new HttpFail(409, {
       code: "candidate_already_followed",
@@ -1472,36 +1284,26 @@ export function dismissCandidate(id: string): Json {
     });
   }
   const now = nowIso();
-  getConn().prepare(
-    `UPDATE creator_candidates
-        SET status='dismissed', dismissed_at=COALESCE(dismissed_at, ?), updated_at=?
-      WHERE id=?`,
-  ).run(now, now, candidate.id);
-  audit(ownerId(), "discovery.candidate.dismissed", { candidate_id: candidate.id });
-  return publicCandidate(getConn().prepare("SELECT * FROM creator_candidates WHERE id=?").get(candidate.id) as Row);
+  (await getConn().query("UPDATE creator_candidates\n        SET status='dismissed', dismissed_at=COALESCE(dismissed_at, $1), updated_at=$2\n      WHERE id=$3",[now,now,candidate.id]));
+  (await audit(ownerId(), "discovery.candidate.dismissed", { candidate_id: candidate.id }));
+  return publicCandidate((await getConn().query("SELECT * FROM creator_candidates WHERE id=$1",[candidate.id])).rows[0] as Row);
 }
 
-export function listPendingDiscoveryCandidates(ownerUserId?: string): Json[] {
+export async function listPendingDiscoveryCandidates(ownerUserId?: string): Promise<Awaited<Json[]>> {
   const owner = ownerUserId || (authDisabled() || isAdmin() ? DEMO_USER.id : scopedUser()?.id);
   if (!owner) return [];
-  return (getConn().prepare(
-    `SELECT * FROM creator_candidates
-      WHERE owner_user_id=? AND status='suggested'
-      ORDER BY score DESC, followers DESC, updated_at DESC LIMIT 16`,
-  ).all(owner) as Row[]).map(publicCandidate);
+  return ((await getConn().query("SELECT * FROM creator_candidates\n      WHERE owner_user_id=$1 AND status='suggested'\n      ORDER BY score DESC, followers DESC, updated_at DESC LIMIT 16",[owner])).rows as Row[]).map(publicCandidate);
 }
 
-export function restoreActiveDiscoveryRuns(): void {
+export async function restoreActiveDiscoveryRuns(): Promise<Awaited<void>> {
   registerDiscoveryCrawlHook();
-  const rows = getConn().prepare(
-    "SELECT * FROM discovery_runs WHERE status IN ('queued','running')",
-  ).all() as Row[];
+  const rows = (await getConn().query("SELECT * FROM discovery_runs WHERE status IN ('queued','running')",[])).rows as Row[];
   for (const row of rows) {
     try {
-      syncRunFromCrawl(row);
+      (await syncRunFromCrawl(row));
       if (row.crawl_job_id) {
-        const job = getConn().prepare("SELECT * FROM crawl_jobs WHERE id=?").get(row.crawl_job_id) as Row | undefined;
-        if (job && String(job.status) === "result_ready") ingestDiscoveryFromCrawlJob(job);
+        const job = (await getConn().query("SELECT * FROM crawl_jobs WHERE id=$1",[row.crawl_job_id])).rows[0] as Row | undefined;
+        if (job && String(job.status) === "result_ready") (await ingestDiscoveryFromCrawlJob(job));
       }
     } catch {
       // Restart restore is best-effort; crawl monitor remains authoritative.

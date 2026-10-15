@@ -66,23 +66,23 @@ beforeEach(async () => {
   process.env.MEDIACRAWLER_MCP_URL = "http://127.0.0.1:9/mcp";
   process.env.MEDIACRAWLER_MCP_TOKEN = "test-secret";
   process.env.MEDIACRAWLER_PROBE_TIMEOUT_MS = "400";
-  resetConn();
-  seedAll();
-  configureCrawlerFixture();
+  (await resetConn());
+  (await seedAll());
+  (await configureCrawlerFixture());
   resetCollectorConnectionCache();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();
   setCrawlMcpClientFactory();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 
-afterEach(() => {
+afterEach(async () => {
   setCrawlMcpClientFactory();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();
   resetCollectorConnectionCache();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.MEDIACRAWLER_MCP_URL;
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
@@ -121,7 +121,7 @@ describe("employeeError mapping", () => {
 
 describe("GET/POST /api/discovery/connection", () => {
   it("returns not_configured when URL+token are missing", async () => {
-    getConn().prepare("DELETE FROM runtime_connector_config WHERE connector_id='claw'").run();
+    (await getConn().query("DELETE FROM runtime_connector_config WHERE connector_id='claw'",[]));
     resetCollectorConnectionCache();
     const got = await request("GET", "/api/discovery/connection");
     expect(got.status).toBe(200);
@@ -232,7 +232,7 @@ describe("discovery run / completeJob surfaces Chinese connection errors", () =>
     expect((results.body.run as Json).status_label).toBe("失败");
     expect(results.body.connection).toBeTruthy();
     assertEmployeeCopy(results.body);
-    const stored = getConn().prepare("SELECT error FROM discovery_runs ORDER BY created_at DESC LIMIT 1").get() as
+    const stored = (await getConn().query("SELECT error FROM discovery_runs ORDER BY created_at DESC LIMIT 1",[])).rows[0] as
       | { error?: string }
       | undefined;
     expect(stored?.error).toBe(COLLECTOR_CONNECT_MESSAGE);
@@ -240,41 +240,8 @@ describe("discovery run / completeJob surfaces Chinese connection errors", () =>
 
   it("maps crawl_active to Chinese copy and never persists empty-code JSON", async () => {
     const now = new Date().toISOString();
-    getConn().prepare(
-      `INSERT INTO tickets
-       (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      "tsk_active_crawl",
-      DEMO_USER.id,
-      "creator_discovery",
-      "active crawl blocker",
-      "manual",
-      "running",
-      "normal",
-      "creator_discovery",
-      "lead",
-      "{}",
-      "{}",
-      now,
-      now,
-    );
-    getConn().prepare(
-      `INSERT INTO crawl_jobs
-       (id,idempotency_key,owner_user_id,work_item_id,platform,mode,parameters,status,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      "crawl_activeblocker",
-      "idem-active-blocker",
-      DEMO_USER.id,
-      "tsk_active_crawl",
-      "youtube",
-      "search",
-      JSON.stringify({ keywords: ["blocker"] }),
-      "crawling",
-      now,
-      now,
-    );
+    (await getConn().query("INSERT INTO tickets\n       (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",["tsk_active_crawl",DEMO_USER.id,"creator_discovery","active crawl blocker","manual","running","normal","creator_discovery","lead","{}","{}",now,now]));
+    (await getConn().query("INSERT INTO crawl_jobs\n       (id,idempotency_key,owner_user_id,work_item_id,platform,mode,parameters,status,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",["crawl_activeblocker","idem-active-blocker",DEMO_USER.id,"tsk_active_crawl","youtube","search",JSON.stringify({ keywords: ["blocker"] }),"crawling",now,now]));
     const created = await request("POST", "/api/discovery/requests", {
       keywords: ["portable power station", "outdoor review"],
       platforms: ["youtube"],
@@ -287,7 +254,7 @@ describe("discovery run / completeJob surfaces Chinese connection errors", () =>
     });
     expect(JSON.stringify(started.body)).not.toMatch(/\{\"code\":\"\"/);
     assertEmployeeCopy(started.body);
-    const stored = getConn().prepare("SELECT error, started_at FROM discovery_runs ORDER BY created_at DESC LIMIT 1").get() as
+    const stored = (await getConn().query("SELECT error, started_at FROM discovery_runs ORDER BY created_at DESC LIMIT 1",[])).rows[0] as
       | { error?: string; started_at?: string | null }
       | undefined;
     expect(stored?.error).toBe(CRAWL_ACTIVE_MESSAGE);
@@ -309,9 +276,7 @@ describe("discovery run / completeJob surfaces Chinese connection errors", () =>
     const started = await request("POST", `/api/discovery/requests/${created.body.id}/runs`, {});
     expect(started.status).toBe(202);
     const jobId = String(
-      (getConn().prepare(
-        "SELECT crawl_job_id FROM discovery_runs WHERE id=?",
-      ).get(started.body.id) as { crawl_job_id?: string }).crawl_job_id,
+      ((await getConn().query("SELECT crawl_job_id FROM discovery_runs WHERE id=$1",[started.body.id])).rows[0] as { crawl_job_id?: string }).crawl_job_id,
     );
     await monitorCrawlJob(jobId);
     const results = await request("GET", `/api/discovery/requests/${created.body.id}/results`);

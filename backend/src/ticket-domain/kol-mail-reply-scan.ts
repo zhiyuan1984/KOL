@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { postgresPool } from "../postgres/pool.js";
 import { recordLeadEvent } from "./kol-event-bridge.js";
 import type { Row } from "../types.js";
@@ -28,7 +29,7 @@ const SCAN_LOOKBACK_DAYS = 7;
 const SCAN_LIMIT = 200;
 
 async function alreadyEmitted(idempotencyKey: string): Promise<boolean> {
-  const r = await postgresPool().query(
+  const r = await postgresConnection().query(
     `SELECT 1 FROM work_order_verified_events WHERE idempotency_key=$1`, [idempotencyKey]);
   return Boolean(r.rows[0]);
 }
@@ -46,7 +47,7 @@ type InboundItem = {
 };
 
 async function unprocessedInboundItems(): Promise<InboundItem[]> {
-  const r = await postgresPool().query<InboundItem>(
+  const r = await postgresConnection().query<InboundItem>(
     `SELECT i.id, i.thread_id, i.conversation_id,
             COALESCE(i.from_addr,'') AS from_addr, COALESCE(i.from_name,'') AS from_name,
             COALESCE(i.subject,'') AS subject, COALESCE(i.snippet,'') AS snippet,

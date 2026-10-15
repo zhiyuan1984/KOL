@@ -36,11 +36,11 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
       headers: { "content-type": "application/json", "Idempotency-Key": "task-root-route-create-1" },
       body: JSON.stringify({ title: "推进 KOL 资料核验", goal: "建立资料核验的业务目标", priority: "important", due_at: "2031-01-20T09:00:00.000Z" }),
     });
-    const first = await withTicketPrincipal(actor, () => tickets.fetch(request()));
+    const first = await withTicketPrincipal(actor, async () => (tickets.fetch(request())));
     expect(first.status).toBe(201);
     const body = await first.json() as { task: { task_id: string; title: string; goal: string; status: string } };
     expect(body.task).toMatchObject({ title: "推进 KOL 资料核验", goal: "建立资料核验的业务目标", status: "open" });
-    const replay = await withTicketPrincipal(actor, () => tickets.fetch(request()));
+    const replay = await withTicketPrincipal(actor, async () => (tickets.fetch(request())));
     expect(replay.status).toBe(201);
     expect((await replay.json() as { task: { task_id: string } }).task.task_id).toBe(body.task.task_id);
   });
@@ -91,12 +91,12 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
     expect(aggregate.current_blocking_work_order).toMatchObject({ work_order_id: "wo-review", status: "needs_review", latest_decision: { decision_mode: "shadow", outcome: "needs_review" } });
     expect(aggregate.work_orders).toHaveLength(2);
 
-    const response = await withTicketPrincipal(actor, () => tickets.fetch(new Request(`http://test.local/task-work-orders/${task.task_id}`)));
+    const response = await withTicketPrincipal(actor, async () => (tickets.fetch(new Request(`http://test.local/task-work-orders/${task.task_id}`))));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ task: { task_id: task.task_id }, counts: { total: 2, blocked: 1 }, source: "postgresql_task_work_orders" });
 
     expect(await listTaskWorkOrderAggregates(actor.id)).toMatchObject({ items: [{ task: { task_id: task.task_id }, counts: { total: 2, blocked: 1 } }] });
-    const listResponse = await withTicketPrincipal(actor, () => tickets.fetch(new Request("http://test.local/task-work-orders?limit=20")));
+    const listResponse = await withTicketPrincipal(actor, async () => (tickets.fetch(new Request("http://test.local/task-work-orders?limit=20"))));
     expect(listResponse.status).toBe(200);
     expect(await listResponse.json()).toMatchObject({ items: [{ task: { task_id: task.task_id }, current_blocking_work_order: { work_order_id: "wo-review" } }] });
   });
@@ -206,7 +206,7 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
     expect(secondPage.tasks.items).toHaveLength(1);
     expect([...dashboard.tasks.items, ...secondPage.tasks.items].map((item) => item.task.task_id).sort()).toEqual([task.task_id, otherTask.task_id].sort());
 
-    const response = await withTicketPrincipal(actor, () => tickets.fetch(new Request("http://test.local/task-work-orders/dashboard?limit=1")));
+    const response = await withTicketPrincipal(actor, async () => (tickets.fetch(new Request("http://test.local/task-work-orders/dashboard?limit=1"))));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       report_version: "task-work-order-dashboard.v2.1",
@@ -445,7 +445,7 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
           evidence: { verifier: "mail-verifier", message_id: "msg-1" }, payload: { deadline: "2031-05-03" },
         }),
       });
-      const response = await withTicketPrincipal(actor, () => tickets.fetch(request()));
+      const response = await withTicketPrincipal(actor, async () => (tickets.fetch(request())));
       expect(response.status).toBe(202);
       const body = await response.json() as { event: { id: string; replayed: boolean }; decision: { id: string }; execution_job: { id: string; status: string } };
       expect(body).toMatchObject({ event: { replayed: false }, decision: { task_id: task.task_id, outcome: "create" }, execution_job: { job_type: "work_order.materialize", status: "queued" } });
@@ -456,7 +456,7 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
       expect(await taskWorkOrderAggregate(actor.id, task.task_id, true)).toMatchObject({
         verified_events: [{ id: body.event.id, event_type: "deadline.quote", evidence_ref: "mail:verified:quote-1" }],
       });
-      const replay = await withTicketPrincipal(actor, () => tickets.fetch(request()));
+      const replay = await withTicketPrincipal(actor, async () => (tickets.fetch(request())));
       expect(replay.status).toBe(200);
       expect(await replay.json()).toMatchObject({ event: { id: body.event.id, replayed: true }, decision: { id: body.decision.id }, execution_job: { id: body.execution_job.id } });
     } finally {
@@ -510,14 +510,14 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
       },
     }), { status: 200, headers: { "content-type": "application/json" } }));
     try {
-      const response = await withTicketPrincipal(actor, () => tickets.fetch(new Request(`http://test.local/task-work-orders/tasks/${task.task_id}/verified-events`, {
+      const response = await withTicketPrincipal(actor, async () => (tickets.fetch(new Request(`http://test.local/task-work-orders/tasks/${task.task_id}/verified-events`, {
         method: "POST", headers: { "content-type": "application/json", "Idempotency-Key": "a3-verified-event-1" },
         body: JSON.stringify({
           source_system: "mail-verifier", source_event_id: "mail-sample-arrival-1", source_version: "v1", event_type: "mail.reply_verified",
           occurred_at: "2031-06-01T09:00:00.000Z", summary: "Sample has arrived and is testing.", evidence_ref: "mail:verified:sample-arrival-1",
           evidence: { receipt_verified: true, completed_stages: ["SHIPPED", "TESTING"] }, payload: {}, work_order_id: "wo-a3-sample",
         }),
-      })));
+      }))));
       expect(response.status).toBe(202);
       const body = await response.json() as { decision: { id: string; outcome: string; work_order_id: string }; execution_job: { job_type: string; id: string } };
       expect(body).toMatchObject({ decision: { outcome: "advance_stage", work_order_id: "wo-a3-sample" }, execution_job: { job_type: "work_order.advance_stage" } });

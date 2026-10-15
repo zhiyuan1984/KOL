@@ -219,7 +219,7 @@ async function selectScopedLabel(
   client: PoolClient,
   actorId: string,
   mailbox: string,
-  selector: ReturnType<typeof labelSelector>,
+  selector: Awaited<ReturnType<typeof labelSelector>>,
   mode: "add" | "remove",
 ): Promise<{ id: string; name: string } | undefined> {
   if (selector.labelId) {
@@ -317,13 +317,15 @@ async function selectReceiptCandidateLabel(
     return existing;
   }
   if (!isLegalGeneratedMailLabelName(candidate.name)) throw new HttpFail(409, { code: "candidate_receipt_invalid" });
-  return (await selectScopedLabel(
+  const label = await selectScopedLabel(
     client,
     actorId,
     mailbox,
     { name: normalizeMailLabelName(candidate.name) },
     "add",
-  ))!;
+  );
+  if (!label) throw new HttpFail(409, { code: "candidate_label_changed" });
+  return label;
 }
 
 async function consumeReceipt(client: PoolClient, receipt: MailLabelSuggestionReceipt): Promise<void> {
@@ -345,7 +347,7 @@ async function applyLabelAction(input: LabelInput): Promise<LabelsEnvelope> {
   const selector = candidateSelection ? undefined : labelSelector(input);
   const expected = expectedVersion(input.expected_version);
 
-  return await postgresTransaction(async (client) => {
+  return postgresTransaction(async (client) => {
     // Share locks cover status/mailbox updates and thread changes until this
     // receipt commits; the state row serializes same-mailbox preference writes.
     await assertMailboxBound(client, actor.id, mailbox, true);
@@ -436,7 +438,7 @@ const queryMailLabels: Operation["handle"] = async (c, input) => {
   const actor = currentActor();
   const mailbox = requiredMailbox(input.box);
   const result = await postgresTransaction(
-    async (client) => labelEnvelope(client, actor, mailbox, optionalConversationId(input.conversation_id)),
+    async (client) => (labelEnvelope(client, actor, mailbox, optionalConversationId(input.conversation_id))),
     { isolation: "REPEATABLE READ" },
   );
   return c.json({ ...MEMORY, ...result });

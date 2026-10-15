@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import { buildReviewContext, buildReviewOrganization, type ReviewMembership } from "./review-access.js";
+import { buildReviewContext, buildReviewOrganization, type ReviewMembership } from "./review-context.js";
 import { HttpFail } from "../host/errors.js";
 
 export async function postgresReviewContext(

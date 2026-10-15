@@ -11,8 +11,8 @@ describe("discovery direction packs", () => {
     );
   });
 
-  it("serves the same packs as directions on the template endpoint", () => {
-    const template = discoveryTemplate() as Record<string, unknown>;
+  it("serves the same packs as directions on the template endpoint", async () => {
+    const template = (await discoveryTemplate()) as Record<string, unknown>;
     expect(template.directions).toEqual(
       DISCOVERY_KEYWORD_PACKS.map((pack) => ({ id: pack.id, label: pack.label, keywords: [...pack.keywords] })),
     );

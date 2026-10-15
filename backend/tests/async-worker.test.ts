@@ -39,30 +39,16 @@ beforeEach(async () => {
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
   delete process.env.MEDIACRAWLER_AUTO_START;
   setAgentSubmissionOverride();
-  resetConn();
-  seedAll();
-  runtimeCookie = seedRuntimeTestActor(["creator_discovery"]);
-  getConn().prepare(
-    `INSERT OR REPLACE INTO claw_creators
-     (id, handle, name, platform, followers, score, status, outreach_script, payload)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    "cr_async_kol",
-    "async-creator",
-    "async-creator",
-    "youtube",
-    1000,
-    8,
-    "discovered",
-    "Hi, LiTime would like to collaborate.",
-    JSON.stringify({ email: "async.creator@example.com" }),
-  );
+  (await resetConn());
+  (await seedAll());
+  runtimeCookie = (await seedRuntimeTestActor(["creator_discovery"]));
+  (await getConn().query("INSERT INTO claw_creators\n     (id, handle, name, platform, followers, score, status, outreach_script, payload)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,name=EXCLUDED.name,platform=EXCLUDED.platform,followers=EXCLUDED.followers,score=EXCLUDED.score,status=EXCLUDED.status,outreach_script=EXCLUDED.outreach_script,payload=EXCLUDED.payload",["cr_async_kol","async-creator","async-creator","youtube",1000,8,"discovered","Hi, LiTime would like to collaborate.",JSON.stringify({ email: "async.creator@example.com" })]));
 });
 
 afterEach(async () => {
   await new Promise((r) => setTimeout(r, 80));
   setAgentSubmissionOverride();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
   delete process.env.CODEX_BIN;
@@ -80,7 +66,7 @@ afterEach(async () => {
 describe("real Codex HTTP flow", () => {
   it("acknowledges creator discovery immediately and publishes the background outcome", async () => {
     const { createApp } = await import("../src/app.js");
-    const app = authenticatedTestApp(createApp(), runtimeCookie);
+    const app = authenticatedTestApp((await createApp()), runtimeCookie);
     const created = await app.request("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -171,7 +157,7 @@ describe("real Codex HTTP flow", () => {
     process.env.FAKE_CODEX_MODE = "crawl-plan-success";
     process.env.FAKE_CODEX_DELAY = "120";
     const { createApp } = await import("../src/app.js");
-    const app = authenticatedTestApp(createApp(), runtimeCookie);
+    const app = authenticatedTestApp((await createApp()), runtimeCookie);
     const created = await app.request("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -216,7 +202,7 @@ describe("real Codex HTTP flow", () => {
     process.env.FAKE_CODEX_MODE = "crawl-plan-success";
     process.env.FAKE_CODEX_DELAY = "50";
     const { createApp } = await import("../src/app.js");
-    const app = authenticatedTestApp(createApp(), runtimeCookie);
+    const app = authenticatedTestApp((await createApp()), runtimeCookie);
     const created = await app.request("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -258,7 +244,7 @@ describe("real Codex HTTP flow", () => {
     process.env.FAKE_CODEX_DELAY = "2000";
     process.env.HOST_WORKER_TIMEOUT = "8";
     const { createApp } = await import("../src/app.js");
-    const app = authenticatedTestApp(createApp(), runtimeCookie);
+    const app = authenticatedTestApp((await createApp()), runtimeCookie);
     const created = await app.request("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -312,7 +298,7 @@ describe("real Codex HTTP flow", () => {
     setAgentSubmissionOverride(false);
     try {
       const { createApp } = await import("../src/app.js");
-      const app = authenticatedTestApp(createApp(), runtimeCookie);
+      const app = authenticatedTestApp((await createApp()), runtimeCookie);
       const created = await app.request("/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -340,9 +326,9 @@ describe("real Codex HTTP flow", () => {
     // Same isolation as afterEach: a later test opens a new SQLite file, so a
     // delayed crawl follow-up must not insert against missing parents.
     process.env.LINGONG_DB = path.join(tmp, "torn-down.db");
-    resetConn();
-    seedAll();
-    expect(appendTaskEvent(workItemId, runId, "crawl.start_failed", "远程采集启动失败", "failed", "gone")).toBeNull();
-    expect(appendTaskEvent(workItemId, null, "crawl.clarification", "请补充关键词", "needs_clarification")).toBeNull();
+    (await resetConn());
+    (await seedAll());
+    expect(await appendTaskEvent(workItemId, runId, "crawl.start_failed", "远程采集启动失败", "failed", "gone")).toBeNull();
+    expect(await appendTaskEvent(workItemId, null, "crawl.clarification", "请补充关键词", "needs_clarification")).toBeNull();
   });
 });

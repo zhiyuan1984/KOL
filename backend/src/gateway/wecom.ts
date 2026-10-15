@@ -107,8 +107,8 @@ function actorOf(id: string, payload: Json = {}): { id: string; name: string; ro
   };
 }
 
-export function getApproval(aid: string): Row | null {
-  const row = getConn().prepare("SELECT * FROM approvals WHERE id = ?").get(aid) as Row | undefined;
+export async function getApproval(aid: string): Promise<Awaited<Row | null>> {
+  const row = (await getConn().query("SELECT * FROM approvals WHERE id = $1",[aid])).rows[0] as Row | undefined;
   if (!row) return null;
   const d: Row = { ...row };
   d.kind = String(d.kind || "expense");
@@ -117,7 +117,7 @@ export function getApproval(aid: string): Row | null {
   d.chain_id = d.chain_id || d.id;
   d.payload = parseJson(d.payload);
   d.chain_detail = (d.chain as string[]).map((x) => actorOf(x, d.payload as Json));
-  const card = getConn().prepare("SELECT * FROM wecom_cards WHERE id = ?").get(d.wecom_card_id) as Row | undefined;
+  const card = (await getConn().query("SELECT * FROM wecom_cards WHERE id = $1",[d.wecom_card_id])).rows[0] as Row | undefined;
   d.wecom_card = card ? { ...card } : null;
   if (d.wecom_card && (d.wecom_card as Row).payload) {
     (d.wecom_card as Row).payload = parseJson((d.wecom_card as Row).payload);
@@ -130,7 +130,7 @@ export function getApproval(aid: string): Row | null {
   return d;
 }
 
-export function createWorkApproval(input: {
+export async function createWorkApproval(input: {
   kind: WorkApprovalKind;
   brand?: string;
   amountUsd?: number;
@@ -139,7 +139,7 @@ export function createWorkApproval(input: {
   payload?: Json;
   title?: string;
   chain?: string[];
-}): Row {
+}): Promise<Awaited<Row>> {
   const kind = input.kind;
   const brand = String(input.brand || "LT");
   const amount = Number(input.amountUsd || 0);
@@ -154,7 +154,7 @@ export function createWorkApproval(input: {
   const fingerprint = input.fingerprint || JSON.stringify(payload);
   let submittedBy = "";
   try {
-    submittedBy = currentUser().handle;
+    submittedBy = (await currentUser()).handle;
   } catch {
     submittedBy = "host";
   }
@@ -170,83 +170,39 @@ export function createWorkApproval(input: {
     copy: "确认审批",
   };
   const now = nowIso();
-  tx((c) => {
-    c.prepare(
-      `INSERT INTO approvals
-       (id, draft_id, brand, amount_usd, status, chain, current_index, uses_left,
-        fingerprint, need_manual_band, wecom_card_id, created_at, chain_id,
-        kind, payload, title, submitted_by, version, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      aid,
-      input.draftId || "",
-      brand,
-      amount,
-      "pending",
-      JSON.stringify(chain),
-      0,
-      1,
-      fingerprint,
-      0,
-      cardId,
-      now,
-      chainId,
-      kind,
-      JSON.stringify(payload),
-      title,
-      submittedBy,
-      0,
-      now,
-    );
-    c.prepare(
-      `INSERT INTO wecom_cards (id, approval_id, title, body, status, assignee, payload, ts)
-       VALUES (?,?,?,?,?,?,?,?)`,
-    ).run(
-      cardId,
-      aid,
-      title,
-      approvalNotice(kind, payload, "ask", first.name),
-      "waiting",
-      first.name,
-      JSON.stringify(cardPayload),
-      now,
-    );
+  (await tx(async (c) => {
+    (await c.query("INSERT INTO approvals\n       (id, draft_id, brand, amount_usd, status, chain, current_index, uses_left,\n        fingerprint, need_manual_band, wecom_card_id, created_at, chain_id,\n        kind, payload, title, submitted_by, version, updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)",[aid,input.draftId || "",brand,amount,"pending",JSON.stringify(chain),0,1,fingerprint,0,cardId,now,chainId,kind,JSON.stringify(payload),title,submittedBy,0,now]));
+    (await c.query("INSERT INTO wecom_cards (id, approval_id, title, body, status, assignee, payload, ts)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",[cardId,aid,title,approvalNotice(kind, payload, "ask", first.name),"waiting",first.name,JSON.stringify(cardPayload),now]));
     if (input.draftId) {
-      c.prepare("UPDATE drafts SET approval_id = ? WHERE id = ?").run(aid, input.draftId);
+      (await c.query("UPDATE drafts SET approval_id = $1 WHERE id = $2",[aid,input.draftId]));
     }
-  });
-  audit("gateway", "wecom.card", { approval_id: aid, assignee: first.name, kind, amount });
-  return getApproval(aid) as Row;
+  }));
+  (await audit("gateway", "wecom.card", { approval_id: aid, assignee: first.name, kind, amount }));
+  return (await getApproval(aid)) as Row;
 }
 
-export function listApprovals(): Row[] {
-  const ids = getConn().prepare("SELECT id FROM approvals ORDER BY created_at DESC").all() as { id: string }[];
-  return ids.map((r) => getApproval(r.id)).filter((x): x is Row => Boolean(x));
+export async function listApprovals(): Promise<Awaited<Row[]>> {
+  const ids = (await getConn().query("SELECT id FROM approvals ORDER BY created_at DESC",[])).rows as { id: string }[];
+  return (await Promise.all(ids.map(async (r) => (getApproval(r.id))))).filter((x): x is Row => Boolean(x));
 }
 
-export function createReceipt(key: string): Row | null {
-  const row = getConn().prepare(
-    "SELECT result_json FROM approval_idempotency WHERE action = 'create' AND approval_id = '*' AND idempotency_key = ?",
-  ).get(key) as { result_json: string } | undefined;
+export async function createReceipt(key: string): Promise<Awaited<Row | null>> {
+  const row = (await getConn().query("SELECT result_json FROM approval_idempotency WHERE action = 'create' AND approval_id = '*' AND idempotency_key = $1",[key])).rows[0] as { result_json: string } | undefined;
   if (!row?.result_json) return null;
   try {
     const parsed = JSON.parse(row.result_json) as { id?: string };
-    return parsed.id ? getApproval(String(parsed.id)) : null;
+    return parsed.id ? (getApproval(String(parsed.id))) : null;
   } catch {
     return null;
   }
 }
 
-export function saveCreateReceipt(key: string, approval: Row) {
-  getConn().prepare(
-    `INSERT OR IGNORE INTO approval_idempotency
-     (id, action, approval_id, idempotency_key, result_json, created_at)
-     VALUES (?,?,?,?,?,?)`,
-  ).run(nid("aidem"), "create", "*", key, JSON.stringify({ id: approval.id }), nowIso());
+export async function saveCreateReceipt(key: string, approval: Row) {
+  (await getConn().query("INSERT INTO approval_idempotency\n     (id, action, approval_id, idempotency_key, result_json, created_at)\n     VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING",[nid("aidem"),"create","*",key,JSON.stringify({ id: approval.id }),nowIso()]));
 }
 
-export function listWecomCards(): Row[] {
-  return (getConn().prepare("SELECT * FROM wecom_cards ORDER BY ts DESC").all() as Row[]).map((r) => ({
+export async function listWecomCards(): Promise<Awaited<Row[]>> {
+  return ((await getConn().query("SELECT * FROM wecom_cards ORDER BY ts DESC",[])).rows as Row[]).map((r) => ({
     ...r,
     body: withoutRecordIds(String(r.body || "")),
     payload: r.payload ? parseJson(r.payload) : {},
@@ -258,10 +214,8 @@ export type DecideGate = {
   idempotency_key: string;
 };
 
-export function decideReceipt(aid: string, key: string): Json | null {
-  const row = getConn().prepare(
-    "SELECT result_json FROM approval_idempotency WHERE action = 'decide' AND approval_id = ? AND idempotency_key = ?",
-  ).get(aid, key) as { result_json: string } | undefined;
+export async function decideReceipt(aid: string, key: string): Promise<Awaited<Json | null>> {
+  const row = (await getConn().query("SELECT result_json FROM approval_idempotency WHERE action = 'decide' AND approval_id = $1 AND idempotency_key = $2",[aid,key])).rows[0] as { result_json: string } | undefined;
   if (!row?.result_json) return null;
   try {
     return JSON.parse(row.result_json) as Json;
@@ -270,12 +224,8 @@ export function decideReceipt(aid: string, key: string): Json | null {
   }
 }
 
-function insertDecideReceipt(aid: string, key: string, result: Json, at: string) {
-  getConn().prepare(
-    `INSERT OR IGNORE INTO approval_idempotency
-     (id, action, approval_id, idempotency_key, result_json, created_at)
-     VALUES (?,?,?,?,?,?)`,
-  ).run(nid("aidem"), "decide", aid, key, JSON.stringify(result), at);
+async function insertDecideReceipt(aid: string, key: string, result: Json, at: string) {
+  (await getConn().query("INSERT INTO approval_idempotency\n     (id, action, approval_id, idempotency_key, result_json, created_at)\n     VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING",[nid("aidem"),"decide",aid,key,JSON.stringify(result),at]));
 }
 
 function staleFail(): never {
@@ -290,10 +240,10 @@ export async function decide(
   gate?: DecideGate,
 ): Promise<Json> {
   if (gate?.idempotency_key) {
-    const replay = decideReceipt(aid, gate.idempotency_key);
+    const replay = (await decideReceipt(aid, gate.idempotency_key));
     if (replay) return { ...replay, replayed: true };
   }
-  const ap = getApproval(aid);
+  const ap = (await getApproval(aid));
   if (!ap) throw new KeyError(aid);
   if (ap.status !== "pending") throw new Error(`approval status ${ap.status}`);
   if (gate && Number(ap.version || 0) !== gate.expected_version) staleFail();
@@ -306,8 +256,8 @@ export async function decide(
   }
   const now = nowIso();
   const nextVersion = Number(ap.version || 0) + 1;
-  const remember = (result: Json) => {
-    if (gate?.idempotency_key) insertDecideReceipt(aid, gate.idempotency_key, result, now);
+  const remember = async (result: Json) => {
+    if (gate?.idempotency_key) (await insertDecideReceipt(aid, gate.idempotency_key, result, now));
     return result;
   };
   if (decision === "reject") {
@@ -321,19 +271,14 @@ export async function decide(
       reject_reason: rejectReason,
       rejected_by: actorName,
     };
-    tx((c) => {
-      const updated = c.prepare(
-        "UPDATE approvals SET status = 'rejected', payload = ?, version = ?, updated_at = ? WHERE id = ? AND status = 'pending' AND version = ?",
-      ).run(JSON.stringify(nextPayload), nextVersion, now, aid, Number(ap.version || 0));
-      if (!updated.changes) staleFail();
-      c.prepare("UPDATE wecom_cards SET status = 'rejected', body = ? WHERE approval_id = ?").run(
-        approvalNotice(kind, nextPayload, "reject", actorName, undefined, rejectReason),
-        aid,
-      );
-      if (ap.draft_id) c.prepare("UPDATE drafts SET status = 'discarded' WHERE id = ?").run(ap.draft_id);
-    });
-    audit("gateway", "approval.reject", { approval_id: aid, kind, reason: rejectReason, version: nextVersion });
-    return remember({ ...getApproval(aid), sent: false, discarded: true, stage_changed: false, reject_reason: rejectReason });
+    (await tx(async (c) => {
+      const updated = (await c.query("UPDATE approvals SET status = 'rejected', payload = $1, version = $2, updated_at = $3 WHERE id = $4 AND status = 'pending' AND version = $5",[JSON.stringify(nextPayload),nextVersion,now,aid,Number(ap.version || 0)]));
+      if (!(updated.rowCount ?? 0)) staleFail();
+      (await c.query("UPDATE wecom_cards SET status = 'rejected', body = $1 WHERE approval_id = $2",[approvalNotice(kind, nextPayload, "reject", actorName, undefined, rejectReason),aid]));
+      if (ap.draft_id) (await c.query("UPDATE drafts SET status = 'discarded' WHERE id = $1",[ap.draft_id]));
+    }));
+    (await audit("gateway", "approval.reject", { approval_id: aid, kind, reason: rejectReason, version: nextVersion }));
+    return remember({ ...(await getApproval(aid)), sent: false, discarded: true, stage_changed: false, reject_reason: rejectReason });
   }
   if (decision !== "approve") throw new Error("decision must be approve or reject");
 
@@ -341,54 +286,39 @@ export async function decide(
     const nxt = chain[idx + 1];
     const person = actorOf(nxt, ap.payload as Json);
     const expectedActor = actorOf(expected, ap.payload as Json);
-    tx((c) => {
-      const updated = c.prepare(
-        "UPDATE approvals SET current_index = ?, version = ?, updated_at = ? WHERE id = ? AND status = 'pending' AND version = ?",
-      ).run(idx + 1, nextVersion, now, aid, Number(ap.version || 0));
-      if (!updated.changes) staleFail();
-      c.prepare("UPDATE wecom_cards SET status = 'forwarded', body = ? WHERE approval_id = ?").run(
-        approvalNotice(kind, ap.payload as Json, "advance", person.name, expectedActor.name),
-        aid,
-      );
-      c.prepare("UPDATE wecom_cards SET assignee = ?, payload = ?, ts = ? WHERE approval_id = ?").run(
-        person.name,
-        JSON.stringify({ approval_id: aid, assignee: person, level: nxt, kind, amount_usd: ap.amount_usd }),
-        now,
-        aid,
-      );
-    });
-    audit("gateway", "approval.advance", { approval_id: aid, next: nxt, kind, version: nextVersion });
-    return remember({ ...getApproval(aid), sent: false, advanced: true, stage_changed: false });
+    (await tx(async (c) => {
+      const updated = (await c.query("UPDATE approvals SET current_index = $1, version = $2, updated_at = $3 WHERE id = $4 AND status = 'pending' AND version = $5",[idx + 1,nextVersion,now,aid,Number(ap.version || 0)]));
+      if (!(updated.rowCount ?? 0)) staleFail();
+      (await c.query("UPDATE wecom_cards SET status = 'forwarded', body = $1 WHERE approval_id = $2",[approvalNotice(kind, ap.payload as Json, "advance", person.name, expectedActor.name),aid]));
+      (await c.query("UPDATE wecom_cards SET assignee = $1, payload = $2, ts = $3 WHERE approval_id = $4",[person.name,JSON.stringify({ approval_id: aid, assignee: person, level: nxt, kind, amount_usd: ap.amount_usd }),now,aid]));
+    }));
+    (await audit("gateway", "approval.advance", { approval_id: aid, next: nxt, kind, version: nextVersion }));
+    return remember({ ...(await getApproval(aid)), sent: false, advanced: true, stage_changed: false });
   }
 
   const { fulfillExpenseApproval } = await import("../host/approval-fulfill.js");
   const fulfilled = await fulfillExpenseApproval(ap);
-  tx((c) => {
-    const updated = c.prepare(
-      "UPDATE approvals SET status = 'consumed', uses_left = 0, version = ?, updated_at = ? WHERE id = ? AND status = 'pending' AND version = ?",
-    ).run(nextVersion, now, aid, Number(ap.version || 0));
-    if (!updated.changes) staleFail();
-    c.prepare("UPDATE wecom_cards SET status = 'sent', body = ? WHERE approval_id = ?").run(
-      approvalNotice(kind, ap.payload as Json, "done", actorOf(expected, ap.payload as Json).name),
-      aid,
-    );
-  });
-  audit("gateway", "approval.final_fulfill", { approval_id: aid, kind, version: nextVersion });
-  return remember({ ...getApproval(aid), ...fulfilled });
+  (await tx(async (c) => {
+    const updated = (await c.query("UPDATE approvals SET status = 'consumed', uses_left = 0, version = $1, updated_at = $2 WHERE id = $3 AND status = 'pending' AND version = $4",[nextVersion,now,aid,Number(ap.version || 0)]));
+    if (!(updated.rowCount ?? 0)) staleFail();
+    (await c.query("UPDATE wecom_cards SET status = 'sent', body = $1 WHERE approval_id = $2",[approvalNotice(kind, ap.payload as Json, "done", actorOf(expected, ap.payload as Json).name),aid]));
+  }));
+  (await audit("gateway", "approval.final_fulfill", { approval_id: aid, kind, version: nextVersion }));
+  return remember({ ...(await getApproval(aid)), ...fulfilled });
 }
 
 /**
  * 转交：当前审批人将本节点转给他人。仅 pending 且调用者为当前节点审批人时允许。
  * 转交后 chain[current_index] 替换为目标，版本 +1，留痕。
  */
-export function transferApproval(
+export async function transferApproval(
   aid: string,
   targetEmployeeId: string,
   actorRole?: string,
   reason?: string,
   gate?: { expected_version?: number; idempotency_key?: string },
-): Row {
-  const ap = getApproval(aid);
+): Promise<Awaited<Row>> {
+  const ap = (await getApproval(aid));
   if (!ap) throw new KeyError(aid);
   if (String(ap.status) !== "pending") throw new Error(`approval status ${ap.status}`);
   if (gate && Number(ap.version || 0) !== gate.expected_version) staleFail();
@@ -419,28 +349,26 @@ export function transferApproval(
       reason: String(reason || "").trim() || undefined, at: now,
     }],
   };
-  tx((c) => {
-    const updated = c.prepare(
-      "UPDATE approvals SET chain = ?, payload = ?, version = ?, updated_at = ? WHERE id = ? AND status = 'pending' AND version = ?",
-    ).run(JSON.stringify(chain), JSON.stringify(nextPayload), nextVersion, now, aid, Number(ap.version || 0));
-    if (!updated.changes) staleFail();
-  });
-  audit("gateway", "approval.transfer", { approval_id: aid, from: expected, to: target, version: nextVersion });
-  return getApproval(aid) as Row;
+  (await tx(async (c) => {
+    const updated = (await c.query("UPDATE approvals SET chain = $1, payload = $2, version = $3, updated_at = $4 WHERE id = $5 AND status = 'pending' AND version = $6",[JSON.stringify(chain),JSON.stringify(nextPayload),nextVersion,now,aid,Number(ap.version || 0)]));
+    if (!(updated.rowCount ?? 0)) staleFail();
+  }));
+  (await audit("gateway", "approval.transfer", { approval_id: aid, from: expected, to: target, version: nextVersion }));
+  return (await getApproval(aid)) as Row;
 }
 
 /**
  * 加签：在当前节点后插入一个加签审批人。被加签人默认仅查看（不继承原审批人权限）。
  * 方案 §3.4：加签需模板开启（此处默认允许），被加签人可再转交。
  */
-export function countersignApproval(
+export async function countersignApproval(
   aid: string,
   targetEmployeeId: string,
   actorRole?: string,
   reason?: string,
   gate?: { expected_version?: number; idempotency_key?: string },
-): Row {
-  const ap = getApproval(aid);
+): Promise<Awaited<Row>> {
+  const ap = (await getApproval(aid));
   if (!ap) throw new KeyError(aid);
   if (String(ap.status) !== "pending") throw new Error(`approval status ${ap.status}`);
   if (gate && Number(ap.version || 0) !== gate.expected_version) staleFail();
@@ -482,25 +410,23 @@ export function countersignApproval(
       reason: String(reason || "").trim() || undefined, at: now,
     }],
   };
-  tx((c) => {
-    const updated = c.prepare(
-      "UPDATE approvals SET chain = ?, payload = ?, version = ?, updated_at = ? WHERE id = ? AND status = 'pending' AND version = ?",
-    ).run(JSON.stringify(chain), JSON.stringify(nextPayload), nextVersion, now, aid, Number(ap.version || 0));
-    if (!updated.changes) staleFail();
-  });
-  audit("gateway", "approval.countersign", { approval_id: aid, by: expected, target, version: nextVersion });
-  return getApproval(aid) as Row;
+  (await tx(async (c) => {
+    const updated = (await c.query("UPDATE approvals SET chain = $1, payload = $2, version = $3, updated_at = $4 WHERE id = $5 AND status = 'pending' AND version = $6",[JSON.stringify(chain),JSON.stringify(nextPayload),nextVersion,now,aid,Number(ap.version || 0)]));
+    if (!(updated.rowCount ?? 0)) staleFail();
+  }));
+  (await audit("gateway", "approval.countersign", { approval_id: aid, by: expected, target, version: nextVersion }));
+  return (await getApproval(aid)) as Row;
 }
 
 /**
  * 撤回：发起人在终审前撤回。仅 pending 且调用者为发起人时允许。
  */
-export function withdrawApproval(
+export async function withdrawApproval(
   aid: string,
   actorHandle?: string,
   gate?: { expected_version?: number; idempotency_key?: string },
-): Row {
-  const ap = getApproval(aid);
+): Promise<Awaited<Row>> {
+  const ap = (await getApproval(aid));
   if (!ap) throw new KeyError(aid);
   if (String(ap.status) !== "pending") throw new Error(`approval status ${ap.status}`);
   if (gate && Number(ap.version || 0) !== gate.expected_version) staleFail();
@@ -511,15 +437,13 @@ export function withdrawApproval(
     withdrawn_by: actorHandle || undefined,
     withdrawn_at: now,
   };
-  tx((c) => {
-    const updated = c.prepare(
-      "UPDATE approvals SET status = 'withdrawn', payload = ?, version = ?, updated_at = ? WHERE id = ? AND status = 'pending' AND version = ?",
-    ).run(JSON.stringify(nextPayload), nextVersion, now, aid, Number(ap.version || 0));
-    if (!updated.changes) staleFail();
-    c.prepare("UPDATE wecom_cards SET status = 'withdrawn' WHERE approval_id = ?").run(aid);
-  });
-  audit("gateway", "approval.withdraw", { approval_id: aid, version: nextVersion });
-  return getApproval(aid) as Row;
+  (await tx(async (c) => {
+    const updated = (await c.query("UPDATE approvals SET status = 'withdrawn', payload = $1, version = $2, updated_at = $3 WHERE id = $4 AND status = 'pending' AND version = $5",[JSON.stringify(nextPayload),nextVersion,now,aid,Number(ap.version || 0)]));
+    if (!(updated.rowCount ?? 0)) staleFail();
+    (await c.query("UPDATE wecom_cards SET status = 'withdrawn' WHERE approval_id = $1",[aid]));
+  }));
+  (await audit("gateway", "approval.withdraw", { approval_id: aid, version: nextVersion }));
+  return (await getApproval(aid)) as Row;
 }
 
 export class KeyError extends Error {

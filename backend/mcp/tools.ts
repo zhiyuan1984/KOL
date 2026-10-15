@@ -170,25 +170,23 @@ export const CLAW_TOOLS: McpToolDef[] = [
   },
 ];
 
-export function callStarryTool(name: string, args: Json = {}): Json {
+export async function callStarryTool(name: string, args: Json = {}): Promise<Awaited<Json>> {
   if (isForbiddenWriteTool(name)) {
     throw new Error(`MCP starry 拒绝写工具 ${name}。发信/改阶段只走 Gateway。`);
   }
   if (name === "stage_options") return { options: starry.cooperationStageOptions() };
   if (name === "dictionary_options") return { options: starry.dictionaryOptions(String(args.parentKey || "")) };
   if (name === "get_conversation") {
-    return getConversation(String(args.conversation_id || "")) || { found: false };
+    return ((await getConversation(String(args.conversation_id || "")))) || { found: false };
   }
   if (name === "get_collaboration") {
     const db = getConn();
     let row: Record<string, unknown> | undefined;
     if (args.id) {
-      row = db.prepare("SELECT * FROM collaborations WHERE id = ?").get(args.id) as Record<string, unknown> | undefined;
+      row = (await db.query("SELECT * FROM collaborations WHERE id = $1",[args.id])).rows[0] as Record<string, unknown> | undefined;
     }
     if (!row && args.handle) {
-      row = db
-        .prepare("SELECT * FROM collaborations WHERE handle = ? OR display_name = ?")
-        .get(args.handle, args.handle) as Record<string, unknown> | undefined;
+      row = (await db.query("SELECT * FROM collaborations WHERE handle = $1 OR display_name = $2",[args.handle,args.handle])).rows[0] as Record<string, unknown> | undefined;
     }
     if (!row) return { found: false };
     return {
@@ -215,7 +213,7 @@ export function callStarryTool(name: string, args: Json = {}): Json {
     };
   }
   if (name === "get_unbound_inbound") {
-    const row = getConn().prepare("SELECT * FROM inbound WHERE bound = 0 LIMIT 1").get() as Record<string, unknown> | undefined;
+    const row = (await getConn().query("SELECT * FROM inbound WHERE bound = 0 LIMIT 1",[])).rows[0] as Record<string, unknown> | undefined;
     if (!row) return { found: false };
     return {
       found: true,
@@ -228,19 +226,13 @@ export function callStarryTool(name: string, args: Json = {}): Json {
     };
   }
   if (name === "list_collaborations") {
-    const rows = getConn().prepare(
-      `SELECT id,handle,display_name,brand,platform,stage_code,days_in_stage,overdue,notes
-         FROM collaborations ORDER BY overdue DESC, days_in_stage DESC`,
-    ).all() as Record<string, unknown>[];
+    const rows = (await getConn().query("SELECT id,handle,display_name,brand,platform,stage_code,days_in_stage,overdue,notes\n         FROM collaborations ORDER BY overdue DESC, days_in_stage DESC",[])).rows as Record<string, unknown>[];
     return { items: rows, source: "local_starry_cache", external_data: false };
   }
   if (name === "deal_memory") {
-    const row = collaborationForSummary(args);
+    const row = (await collaborationForSummary(args));
     if (!row) return { found: false, source: "local_db" };
-    const drafts = getConn().prepare(
-      `SELECT skill,amount_usd,currency,status,created_at
-         FROM drafts WHERE collaboration_id=? ORDER BY id DESC LIMIT 10`,
-    ).all(row.id) as Record<string, unknown>[];
+    const drafts = (await getConn().query("SELECT skill,amount_usd,currency,status,created_at\n         FROM drafts WHERE collaboration_id=$1 ORDER BY id DESC LIMIT 10",[row.id])).rows as Record<string, unknown>[];
     return {
       found: true,
       collaboration_id: row.id,
@@ -253,7 +245,7 @@ export function callStarryTool(name: string, args: Json = {}): Json {
     };
   }
   if (["logistics_summary", "publication_summary", "settlement_summary", "attribution_summary"].includes(name)) {
-    const row = collaborationForSummary(args);
+    const row = (await collaborationForSummary(args));
     if (!row) return { found: false, source: "local_db", external_data: false };
     const kind = name.replace("_summary", "");
     return {
@@ -274,47 +266,41 @@ export function callStarryTool(name: string, args: Json = {}): Json {
   throw new Error(`unknown starry tool: ${name}`);
 }
 
-function collaborationForSummary(args: Json): Record<string, unknown> | undefined {
+async function collaborationForSummary(args: Json): Promise<Awaited<Record<string, unknown> | undefined>> {
   if (args.collaboration_id) {
-    return getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(args.collaboration_id) as
+    return (await getConn().query("SELECT * FROM collaborations WHERE id=$1",[args.collaboration_id])).rows[0] as
       | Record<string, unknown>
       | undefined;
   }
   if (args.handle) {
-    return getConn().prepare("SELECT * FROM collaborations WHERE handle=? OR display_name=?")
-      .get(args.handle, args.handle) as Record<string, unknown> | undefined;
+    return (await getConn().query("SELECT * FROM collaborations WHERE handle=$1 OR display_name=$2",[args.handle,args.handle])).rows[0] as Record<string, unknown> | undefined;
   }
-  return getConn().prepare("SELECT * FROM collaborations ORDER BY overdue DESC, days_in_stage DESC LIMIT 1")
-    .get() as Record<string, unknown> | undefined;
+  return (await getConn().query("SELECT * FROM collaborations ORDER BY overdue DESC, days_in_stage DESC LIMIT 1",[])).rows[0] as Record<string, unknown> | undefined;
 }
 
-export function callClawTool(name: string, args: Json = {}): Json {
+export async function callClawTool(name: string, args: Json = {}): Promise<Awaited<Json>> {
   if (isForbiddenWriteTool(name)) {
     throw new Error(`MCP claw 拒绝写工具 ${name}。ingest / 写状态只走 Host/Gateway。`);
   }
   if (name === "health") return claw.health();
   if (name === "get_creators") {
-    const rows = claw.listCreators();
+    const rows = (await claw.listCreators());
     const filtered = args.platform ? rows.filter((row) => row.platform === args.platform) : rows;
     const page = Math.max(1, Number(args.page || 1));
     const size = Math.max(1, Number(args.page_size || 100));
     return { creators: filtered.slice((page - 1) * size, page * size), has_more: page * size < filtered.length };
   }
-  if (name === "list_creators") return { creators: claw.listCreators() };
-  if (name === "get_creator") return claw.getCreator(String(args.id || "")) || { found: false };
+  if (name === "list_creators") return { creators: (await claw.listCreators()) };
+  if (name === "get_creator") return (await claw.getCreator(String(args.id || ""))) || { found: false };
   if (name === "outreach_script") return claw.outreachScript(String(args.id || "cr_outdoor"));
   if (name === "analysis_creators") return claw.analysisCreators(args.id ? String(args.id) : null);
   if (name === "search_knowledge") {
     const tag = String(args.tag || "");
-    const row = getConn().prepare(
-      "SELECT title FROM knowledge WHERE status='published' AND tags LIKE ? LIMIT 1",
-    ).get(`%${tag}%`) as { title: string } | undefined;
+    const row = (await getConn().query("SELECT title FROM knowledge WHERE status='published' AND tags LIKE $1 LIMIT 1",[`%${tag}%`])).rows[0] as { title: string } | undefined;
     return { title: row?.title || tag, tag };
   }
   if (name === "list_overdue") {
-    const rows = getConn()
-      .prepare("SELECT handle, stage_code, days_in_stage, brand FROM collaborations WHERE overdue = 1")
-      .all() as { handle: string; stage_code: string; days_in_stage: number; brand: string }[];
+    const rows = (await getConn().query("SELECT handle, stage_code, days_in_stage, brand FROM collaborations WHERE overdue = 1",[])).rows as { handle: string; stage_code: string; days_in_stage: number; brand: string }[];
     return {
       items: rows.map((r) => ({
         handle: r.handle,
@@ -328,8 +314,8 @@ export function callClawTool(name: string, args: Json = {}): Json {
   throw new Error(`unknown claw tool: ${name}`);
 }
 
-export function callMcpTool(server: "starry" | "claw", name: string, args: Json = {}): Json {
-  rejectDiscoveryHarnessTool(name);
+export async function callMcpTool(server: "starry" | "claw", name: string, args: Json = {}): Promise<Awaited<Json>> {
+  (await rejectDiscoveryHarnessTool(name));
   if (server === "starry") return callStarryTool(name, args);
   return callClawTool(name, args);
 }

@@ -81,13 +81,13 @@ beforeEach(async () => {
   process.env.MEDIACRAWLER_MCP_URL = "http://127.0.0.1:9/mcp";
   process.env.MEDIACRAWLER_MCP_TOKEN = "test-secret";
   process.env.MEDIACRAWLER_POLL_INTERVAL_MS = "600000";
-  resetConn();
-  seedAll();
-  configureCrawlerFixture();
+  (await resetConn());
+  (await seedAll());
+  (await configureCrawlerFixture());
   setCrawlMcpClientFactory(mockMcp);
   setDiscoveryBriefRunner(async () => ({ items: [] }));
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const setup = await call("POST", "/api/auth/setup", {
     username: "admin",
     name: "Admin",
@@ -98,10 +98,10 @@ beforeEach(async () => {
   adminCookie = setup.cookie;
 });
 
-afterEach(() => {
+afterEach(async () => {
   setCrawlMcpClientFactory();
   setDiscoveryBriefRunner(null);
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
   process.env.CODEX_MODE = "stub";
@@ -112,13 +112,13 @@ afterEach(() => {
 
 describe("home discovery submit authorization", () => {
   it("accepts the admin request but records an honest failure without calling a disabled collector", async () => {
-    getConn().prepare("UPDATE connectors SET enabled=0 WHERE id='claw'").run();
+    (await getConn().query("UPDATE connectors SET enabled=0 WHERE id='claw'",[]));
     let remoteCalls = 0;
     setCrawlMcpClientFactory(() => ({
       async callTool() { remoteCalls++; return {}; },
       async close() {},
     }));
-    const claw = getConn().prepare("SELECT enabled FROM connectors WHERE id='claw'").get() as
+    const claw = (await getConn().query("SELECT enabled FROM connectors WHERE id='claw'",[])).rows[0] as
       | { enabled?: number }
       | undefined;
     expect(Number(claw?.enabled || 0)).toBe(0);
@@ -127,7 +127,7 @@ describe("home discovery submit authorization", () => {
     expect(started.status, JSON.stringify(started.json)).toBe(202);
     const runId = String(started.json.id || "");
     expect(runId).toMatch(/^drun_/);
-    const job = getConn().prepare("SELECT crawl_job_id FROM discovery_runs WHERE id=?").get(runId) as
+    const job = (await getConn().query("SELECT crawl_job_id FROM discovery_runs WHERE id=$1",[runId])).rows[0] as
       | { crawl_job_id?: string | null }
       | undefined;
     expect(job?.crawl_job_id).toBeFalsy();
@@ -144,11 +144,11 @@ describe("home discovery submit authorization", () => {
     expect(denied.status).toBe(403);
     expect(denied.json.detail).toMatchObject({ code: "agent_not_usable", skill_id: "creator_discovery" });
 
-    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(userId, "person:ye_guanwang");
-    createAgentBinding({
+    (await getConn().query("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2",[userId,"person:ye_guanwang"]));
+    (await createAgentBinding({
       agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
       company_id: "company:amperetime", source: "test",
-    });
+    }));
 
     const allowed = await call("POST", "/api/home/discovery/run", RUN_BODY, employeeCookie);
     expect(allowed.status, JSON.stringify(allowed.json)).toBe(202);

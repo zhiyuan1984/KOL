@@ -55,8 +55,8 @@ export function brandOfMailbox(addr: string): string | null {
   return null;
 }
 
-export function allowedFromMailboxes(user: Persona | null, brand: string | null): { brand: string; email: string; authorized: boolean }[] {
-  const u = user || currentUser();
+export async function allowedFromMailboxes(user: Persona | null, brand: string | null): Promise<Awaited<{ brand: string; email: string; authorized: boolean }[]>> {
+  const u = user || (await currentUser());
   const departmentHead = departmentHeadAccessForUser(u);
   const authorized = departmentHead?.company_wide && departmentHead.brand_scope === "all"
     ? new Set(Object.keys(BRAND_MAILBOXES))
@@ -84,30 +84,26 @@ export function normalizeBrandCode(value: unknown): string | null {
  * 没有登记时用调用方给出的明确品牌（当前合作品牌）核对员工授权范围；共用邮箱要求本人
  * 是 owner 或 shared_with。地址本身绝不拿来猜品牌，也绝不从多个候选里取第一只。
  */
-export function authorizedSenderBrand(
+export async function authorizedSenderBrand(
   addr: string,
   user?: Persona | null,
   preferredBrand?: string | null,
-): { email: string; brand: string; source: "brand_mailbox" | "user_binding" } | null {
-  const u = user || currentUser();
+): Promise<Awaited<{ email: string; brand: string; source: "brand_mailbox" | "user_binding" } | null>> {
+  const u = user || (await currentUser());
   const email = String(addr || "").trim();
   if (!email) return null;
   const direct = brandOfMailbox(email);
   if (direct) {
-    return allowedFromMailboxes(u, direct).length ? { email, brand: direct, source: "brand_mailbox" } : null;
+    return (await allowedFromMailboxes(u, direct)).length ? { email, brand: direct, source: "brand_mailbox" } : null;
   }
   const userId = String(u?.id || "").trim();
   if (!userId) return null;
-  const binding = getConn().prepare(
-    "SELECT mailbox_email, owner_name FROM user_starry_bindings WHERE user_id=? AND lower(mailbox_email)=lower(?)",
-  ).get(userId, email) as Row | undefined;
+  const binding = (await getConn().query("SELECT mailbox_email, owner_name FROM user_starry_bindings WHERE user_id=$1 AND lower(mailbox_email)=lower($2)",[userId,email])).rows[0] as Row | undefined;
   if (!binding) return null;
-  const owner = getConn().prepare(
-    "SELECT brand, owner_name, account_type, shared_with, status FROM mailbox_owners WHERE lower(email)=lower(?)",
-  ).get(String(binding.mailbox_email)) as Row | undefined;
+  const owner = (await getConn().query("SELECT brand, owner_name, account_type, shared_with, status FROM mailbox_owners WHERE lower(email)=lower($1)",[String(binding.mailbox_email)])).rows[0] as Row | undefined;
   if (owner && String(owner.status || "active") !== "active") return null;
   const brand = (owner ? normalizeBrandCode(owner.brand) : null) || normalizeBrandCode(preferredBrand);
-  if (!brand || !allowedFromMailboxes(u, brand).some((row) => row.brand === brand)) return null;
+  if (!brand || !(await allowedFromMailboxes(u, brand)).some((row) => row.brand === brand)) return null;
   if (String(owner?.account_type || "") === "shared") {
     const shared = [owner?.owner_name, owner?.shared_with]
       .map((value) => String(value || "").trim())
@@ -119,17 +115,17 @@ export function authorizedSenderBrand(
 }
 
 /** Map a Starry/operator mailbox onto an authorized Host PEP From, so the dropdown value matches the whitelist. */
-export function resolveAuthorizedFrom(
+export async function resolveAuthorizedFrom(
   fromAddr: string,
   user?: Persona | null,
   preferredBrand?: string | null,
-): { email: string; brand: string | null; allowed: { brand: string; email: string; authorized: boolean }[]; matched: boolean } {
-  const u = user || currentUser();
+): Promise<Awaited<{ email: string; brand: string | null; allowed: { brand: string; email: string; authorized: boolean }[]; matched: boolean }>> {
+  const u = user || (await currentUser());
   const currentBrand = brandOfMailbox(fromAddr);
   const wanted = currentBrand || normalizeBrandCode(preferredBrand);
-  let allowed = allowedFromMailboxes(u, currentBrand);
-  if (!allowed.length) allowed = allowedFromMailboxes(u, wanted);
-  if (!allowed.length) allowed = allowedFromMailboxes(u, null);
+  let allowed = (await allowedFromMailboxes(u, currentBrand));
+  if (!allowed.length) allowed = (await allowedFromMailboxes(u, wanted));
+  if (!allowed.length) allowed = (await allowedFromMailboxes(u, null));
   const normalized = (fromAddr || "").trim().toLowerCase();
   const matched = allowed.find((row) => row.email.toLowerCase() === normalized);
   if (matched) {
@@ -178,17 +174,17 @@ function draftExtra(row: Row): Json {
   }
 }
 
-export function enforceSend(draft: Row, user?: Persona | null, ccOverride?: string | null, options: { readOnly?: boolean } = {}): Json {
-  const u = user || currentUser();
+export async function enforceSend(draft: Row, user?: Persona | null, ccOverride?: string | null, options: { readOnly?: boolean } = {}): Promise<Awaited<Json>> {
+  const u = user || (await currentUser());
   if (!u.exam_passed) {
     throw new PepFail("blocked_exam", 403, "学习考试未通过：数据安全与最小权限。未发送。", "打开「学习考试」通过后再试");
   }
   const fromAddr = String(draft.from_addr);
   const extra = draftExtra(draft);
   const preferredBrand = String(extra.brand || "") || (draft.collaboration_id
-    ? String((getConn().prepare("SELECT brand FROM collaborations WHERE id=?").get(String(draft.collaboration_id)) as Row | undefined)?.brand || "")
+    ? String(((await getConn().query("SELECT brand FROM collaborations WHERE id=$1",[String(draft.collaboration_id)])).rows[0] as Row | undefined)?.brand || "")
     : "");
-  const sender = authorizedSenderBrand(fromAddr, u, preferredBrand);
+  const sender = (await authorizedSenderBrand(fromAddr, u, preferredBrand));
   if (!sender) {
     throw new PepFail("blocked_permission", 403, "From 必须是品牌邮箱（LT/RO/PQ）或本人挂载的邮箱。未发送。", "从授权下拉选择 From");
   }
@@ -205,12 +201,12 @@ export function enforceSend(draft: Row, user?: Persona | null, ccOverride?: stri
     throw new PepFail("send_failed", 400, "To 为空。未发送。", "补充收件邮箱后再发");
   }
   if (draft.collaboration_id) {
-    const row = getConn().prepare("SELECT email FROM collaborations WHERE id = ?").get(draft.collaboration_id) as
+    const row = (await getConn().query("SELECT email FROM collaborations WHERE id = $1",[draft.collaboration_id])).rows[0] as
       | { email: string }
       | undefined;
     const bound = String(row?.email || "").trim();
     if (row && !bound) {
-      if (!options.readOnly) getConn().prepare("UPDATE collaborations SET email=? WHERE id=?").run(toAddr, draft.collaboration_id);
+      if (!options.readOnly) (await getConn().query("UPDATE collaborations SET email=$1 WHERE id=$2",[toAddr,draft.collaboration_id]));
     } else if (row && bound.toLowerCase() !== toAddr.toLowerCase()) {
       throw new PepFail("blocked_permission", 403, "To 必须是已绑定合作邮箱。未发送。", "回到该合作重开草稿");
     }

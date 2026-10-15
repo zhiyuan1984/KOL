@@ -65,7 +65,7 @@ beforeEach(async () => {
   process.env.CODEX_MODE = "real";
   process.env.AUTH_MODE = "enabled";
   process.env.NODE_ENV = "test";
-  resetConn();
+  (await resetConn());
   app = testApp();
 
   const setup = await request("POST", "/api/auth/setup", {
@@ -79,26 +79,10 @@ beforeEach(async () => {
 
   const now = new Date().toISOString();
   const employeePassword = await hashPassword("employee-password");
-  getConn().prepare(
-    `INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    "usr_runtime_employee",
-    "runtime-employee",
-    "Runtime Employee",
-    employeePassword,
-    JSON.stringify(["employee"]),
-    JSON.stringify(["LT"]),
-    "",
-    1,
-    now,
-    now,
-  );
-  getConn().prepare(
-    "INSERT INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES (?,?,?,?,?,?)",
-  ).run("runtime_mcp", "Runtime MCP", 1, "configured", null, now);
+  (await getConn().query("INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",["usr_runtime_employee","runtime-employee","Runtime Employee",employeePassword,JSON.stringify(["employee"]),JSON.stringify(["LT"]),"",1,now,now]));
+  (await getConn().query("INSERT INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES ($1,$2,$3,$4,$5,$6)",["runtime_mcp","Runtime MCP",1,"configured",null,now]));
   // 使用资格闸门要求 Agent 已发布（CONST-05 / ADR-2026-10-03）。
-  seedPublishedAgent("agent:creator", "Creator 测试 Agent");
+  (await seedPublishedAgent("agent:creator", "Creator 测试 Agent"));
 
   const login = await request("POST", "/api/auth/login", {
     username: "runtime-employee",
@@ -108,8 +92,8 @@ beforeEach(async () => {
   employeeCookie = login.cookie;
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
   delete process.env.LINGONG_DB;
@@ -161,9 +145,7 @@ describe("skill runtime governance", () => {
     expect(policy.status).toBe(200);
     expect(policy.body).toMatchObject({ tool_name: "newly_discovered_tool", enabled: 1, risk: "L1", access: "read", schema_hash: hash, version: 1 });
 
-    const events = getConn().prepare(
-      "SELECT event_type,payload FROM audit_events WHERE event_type LIKE 'runtime.%' ORDER BY id",
-    ).all() as { event_type: string; payload: string }[];
+    const events = (await getConn().query("SELECT event_type,payload FROM audit_events WHERE event_type LIKE 'runtime.%' ORDER BY id",[])).rows as { event_type: string; payload: string }[];
     const governanceEvents = events.filter((event) => ![
       "runtime.workspace_planner.migrated",
       "runtime.agent_manifest.migrated",
@@ -254,11 +236,11 @@ describe("skill runtime governance", () => {
     await request("PUT", "/api/admin/runtime/connectors/runtime_mcp/config", { ...validConfig, expected_version: 0 });
     expect((await request("GET", "/api/agents/agent:creator/capabilities", undefined, employeeCookie)).body.capabilities).toEqual([]);
     // 资格来自 Agent 绑定（ADR-2026-10-03）：账号挂到组织人员，Agent 绑定到该人员所在的三级组。
-    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run("usr_runtime_employee", "person:gu_jiarui");
-    createAgentBinding({
+    (await getConn().query("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2",["usr_runtime_employee","person:gu_jiarui"]));
+    (await createAgentBinding({
       agent_id: "agent:creator", target_type: "organization_unit", target_id: "org:lt_team",
       company_id: "company:amperetime", source: "test",
-    });
+    }));
     let result = await request("GET", "/api/agents/agent:creator/capabilities", undefined, employeeCookie);
     expect(result.body.capabilities).toEqual([expect.objectContaining({ skill_id: "creator_profile", unavailable_resources: 1, live_verified: false })]);
     const policy = await request("PUT", "/api/admin/runtime/connectors/runtime_mcp/tools/lookup", {
@@ -316,7 +298,7 @@ describe("skill runtime governance", () => {
   });
 
   it("defaults unknown discovered tools to deny, records L3 only as policy metadata, and cascades connector deletion", async () => {
-    expect(getToolPolicy("runtime_mcp", "newly_discovered_tool")).toBeUndefined();
+    expect((await getToolPolicy("runtime_mcp", "newly_discovered_tool"))).toBeUndefined();
 
     const l3 = await request("PUT", "/api/admin/runtime/connectors/runtime_mcp/tools/side_effect", {
       enabled: true,
@@ -328,7 +310,7 @@ describe("skill runtime governance", () => {
     expect(l3.status).toBe(200);
     // This router has no execution endpoint: L3 registration remains metadata;
     // the parent-owned Gateway is the only formal action path.
-    expect(getToolPolicy("runtime_mcp", "side_effect")).toMatchObject({ enabled: 1, risk: "L3", access: "write" });
+    expect((await getToolPolicy("runtime_mcp", "side_effect"))).toMatchObject({ enabled: 1, risk: "L3", access: "write" });
 
     const config = await request("PUT", "/api/admin/runtime/connectors/runtime_mcp/config", {
       ...validConfig,
@@ -341,9 +323,9 @@ describe("skill runtime governance", () => {
     });
     expect(linked.status).toBe(200);
 
-    getConn().prepare("DELETE FROM connectors WHERE id=?").run("runtime_mcp");
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM runtime_skill_connectors WHERE connector_id=?").get("runtime_mcp") as { n: unknown }).n)).toBe(0);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM runtime_connector_config WHERE connector_id=?").get("runtime_mcp") as { n: unknown }).n)).toBe(0);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM runtime_tool_policies WHERE connector_id=?").get("runtime_mcp") as { n: unknown }).n)).toBe(0);
+    (await getConn().query("DELETE FROM connectors WHERE id=$1",["runtime_mcp"]));
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM runtime_skill_connectors WHERE connector_id=$1",["runtime_mcp"])).rows[0] as { n: unknown }).n)).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM runtime_connector_config WHERE connector_id=$1",["runtime_mcp"])).rows[0] as { n: unknown }).n)).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM runtime_tool_policies WHERE connector_id=$1",["runtime_mcp"])).rows[0] as { n: unknown }).n)).toBe(0);
   });
 });

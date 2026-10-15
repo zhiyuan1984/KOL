@@ -10,17 +10,10 @@ import { getConn } from "../../src/db.js";
  * request-scoped actor both resolve to it, so a rename cannot silently bind
  * a mailbox for a user no endpoint will ever look up.
  */
-export function bindStarryUser(options: { brands?: string[]; site?: string } = {}): void {
+export async function bindStarryUser(options: { brands?: string[]; site?: string } = {}): Promise<Awaited<void>> {
   const now = new Date().toISOString();
   const brands = JSON.stringify(options.brands ?? []);
   const site = options.site ?? "";
-  getConn().prepare(
-    `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-  ).run(DEMO_USER.id, DEMO_USER.handle, DEMO_USER.name, "x", JSON.stringify(["employee", "admin"]), brands, site, 1, now, now);
-  getConn().prepare(
-    `INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, mailbox_id, owner_name, bearer_token, status, updated_at)
-     VALUES (?,?,?,?,?,?,?,?)
-     ON CONFLICT(user_id, mailbox_email) DO UPDATE SET mailbox_id=excluded.mailbox_id, owner_name=excluded.owner_name, status=excluded.status, updated_at=excluded.updated_at`,
-  ).run(DEMO_USER.id, "larry.zhao@amperetime.com", 1, "mbx_larry", "赵良玉", "", "connected", now);
+  (await getConn().query("INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING",[DEMO_USER.id,DEMO_USER.handle,DEMO_USER.name,"x",JSON.stringify(["employee", "admin"]),brands,site,1,now,now]));
+  (await getConn().query("INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, mailbox_id, owner_name, bearer_token, status, updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)\n     ON CONFLICT(user_id, mailbox_email) DO UPDATE SET mailbox_id=excluded.mailbox_id, owner_name=excluded.owner_name, status=excluded.status, updated_at=excluded.updated_at",[DEMO_USER.id,"larry.zhao@amperetime.com",1,"mbx_larry","赵良玉","","connected",now]));
 }

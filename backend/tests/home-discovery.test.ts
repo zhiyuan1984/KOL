@@ -57,55 +57,31 @@ async function request(method: string, url: string, body?: unknown) {
   return { status: response.status, body: text ? JSON.parse(text) as Json : {}, text };
 }
 
-function starryWrites() {
+async function starryWrites() {
   return {
-    sends: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: number }).n),
-    stageWrites: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_stage_writes").get() as { n: number }).n),
-    transitions: Number((getConn().prepare("SELECT COUNT(*) AS n FROM stage_transitions").get() as { n: number }).n),
-    imports: Number((getConn().prepare(
-      "SELECT COUNT(*) AS n FROM audit_events WHERE event_type LIKE '%import%' OR event_type LIKE '%follow%'",
-    ).get() as { n: number }).n),
+    sends: Number(((await getConn().query("SELECT COUNT(*) AS n FROM starry_sends",[])).rows[0] as { n: number }).n),
+    stageWrites: Number(((await getConn().query("SELECT COUNT(*) AS n FROM starry_stage_writes",[])).rows[0] as { n: number }).n),
+    transitions: Number(((await getConn().query("SELECT COUNT(*) AS n FROM stage_transitions",[])).rows[0] as { n: number }).n),
+    imports: Number(((await getConn().query("SELECT COUNT(*) AS n FROM audit_events WHERE event_type LIKE '%import%' OR event_type LIKE '%follow%'",[])).rows[0] as { n: number }).n),
   };
 }
 
-function crawlJobIdFor(runId: string): string {
-  const row = getConn().prepare("SELECT crawl_job_id FROM discovery_runs WHERE id=?").get(runId) as
+async function crawlJobIdFor(runId: string): Promise<Awaited<string>> {
+  const row = (await getConn().query("SELECT crawl_job_id FROM discovery_runs WHERE id=$1",[runId])).rows[0] as
     | { crawl_job_id?: string }
     | undefined;
   return String(row?.crawl_job_id || "");
 }
 
 /** `lookupFlags` reads already_in_pool off an open profile in kol_profile_index. */
-function seedPoolCreator(platformCreatorId: string): void {
+async function seedPoolCreator(platformCreatorId: string): Promise<Awaited<void>> {
   const now = new Date().toISOString();
-  getConn().prepare(
-    `INSERT INTO kol_profile_index
-     (id, company_id, kol_uid, platform, platform_creator_id, pool_status, created_at, updated_at)
-     VALUES (?,?,?,?,?, 'open', ?, ?)`,
-  ).run(`kpi_${platformCreatorId}`, "cmp_test", `disc_${platformCreatorId}`, "youtube", platformCreatorId, now, now);
+  (await getConn().query("INSERT INTO kol_profile_index\n     (id, company_id, kol_uid, platform, platform_creator_id, pool_status, created_at, updated_at)\n     VALUES ($1,$2,$3,$4,$5, 'open', $6, $7)",[`kpi_${platformCreatorId}`,"cmp_test",`disc_${platformCreatorId}`,"youtube",platformCreatorId,now,now]));
 }
 
 /** `lookupFlags` reads already_followed off a collaboration this tenant owns (owner_* 非空才算跟进). */
-function seedFollowedCreator(platformCreatorId: string): void {
-  getConn().prepare(
-    `INSERT INTO collaborations
-     (id, handle, display_name, brand, platform, email, mailbox_from, lifecycle_id,
-      conversation_id, stage_code, owner_name, owner_mailbox)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    `col_${platformCreatorId}`,
-    platformCreatorId,
-    platformCreatorId,
-    "LT",
-    "youtube",
-    "creator@example.com",
-    "ops@example.com",
-    "lc_sourcing",
-    "cv_sourcing",
-    "sourcing",
-    "钟槿年",
-    "ops@example.com",
-  );
+async function seedFollowedCreator(platformCreatorId: string): Promise<Awaited<void>> {
+  (await getConn().query("INSERT INTO collaborations\n     (id, handle, display_name, brand, platform, email, mailbox_from, lifecycle_id,\n      conversation_id, stage_code, owner_name, owner_mailbox)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",[`col_${platformCreatorId}`,platformCreatorId,platformCreatorId,"LT","youtube","creator@example.com","ops@example.com","lc_sourcing","cv_sourcing","sourcing","钟槿年","ops@example.com"]));
 }
 
 async function completeRun(body: Json = {
@@ -115,7 +91,7 @@ async function completeRun(body: Json = {
 }): Promise<Json> {
   const started = await request("POST", "/api/home/discovery/run", body);
   expect(started.status, JSON.stringify(started.body)).toBe(202);
-  const jobId = crawlJobIdFor(String(started.body.id));
+  const jobId = (await crawlJobIdFor(String(started.body.id)));
   expect(jobId).toMatch(/^crawl_/);
   await monitorCrawlJob(jobId);
   await awaitHomeDiscoveryWork();
@@ -143,9 +119,9 @@ beforeEach(async () => {
     recent_views: [8000, 9000, 7000, 8500, 9200, 8100, 8800, 7600, 8300, 8700],
     email: "clean.glow@mailcreators.example",
   }];
-  resetConn();
-  seedAll();
-  configureCrawlerFixture();
+  (await resetConn());
+  (await seedAll());
+  (await configureCrawlerFixture());
   clearTaskRegistryCache();
   resetCollectorConnectionCache();
   setCollectorProbeClientFactory();
@@ -153,17 +129,17 @@ beforeEach(async () => {
   setCrawlMcpClientFactory(mockMcp);
   setDiscoveryBriefRunner(null);
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 
-afterEach(() => {
+afterEach(async () => {
   setDiscoveryBriefRunner(null);
   setCrawlMcpClientFactory();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();
   setStarryKolClientFactory();
   resetCollectorConnectionCache();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.MEDIACRAWLER_MCP_URL;
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
@@ -171,8 +147,8 @@ afterEach(() => {
 
 describe("GET /api/home/discovery/template", () => {
   it("returns dictionary + packs + employee defaults with zero model", async () => {
-    const sessionsBefore = Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n);
-    const workersBefore = Number((getConn().prepare("SELECT COUNT(*) AS n FROM workers").get() as { n: number }).n);
+    const sessionsBefore = Number(((await getConn().query("SELECT COUNT(*) AS n FROM sessions",[])).rows[0] as { n: number }).n);
+    const workersBefore = Number(((await getConn().query("SELECT COUNT(*) AS n FROM workers",[])).rows[0] as { n: number }).n);
     const result = await request("GET", "/api/home/discovery/template");
     expect(result.status).toBe(200);
     expect(result.body.calls_model).toBe(false);
@@ -204,8 +180,8 @@ describe("GET /api/home/discovery/template", () => {
       default_brand: "LT",
       default_region: "global_en",
     });
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n)).toBe(sessionsBefore);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM workers").get() as { n: number }).n)).toBe(workersBefore);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM sessions",[])).rows[0] as { n: number }).n)).toBe(sessionsBefore);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM workers",[])).rows[0] as { n: number }).n)).toBe(workersBefore);
     expect(calls).toEqual([]);
   });
 });
@@ -304,8 +280,8 @@ describe("POST /api/home/discovery/run lifecycle", () => {
   });
 
   it("does not write Starry when crawl ends", async () => {
-    const before = starryWrites();
-    const collabsBefore = Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations").get() as { n: number }).n);
+    const before = (await starryWrites());
+    const collabsBefore = Number(((await getConn().query("SELECT COUNT(*) AS n FROM collaborations",[])).rows[0] as { n: number }).n);
     const run = await completeRun();
     expect(["completed", "rank_failed"]).toContain(run.status);
     expect(run.candidate_count).toBeGreaterThan(0);
@@ -318,13 +294,13 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     expect(creatorCallArgs[0]).not.toHaveProperty("page_size");
     expect(creatorCallArgs[0]).not.toHaveProperty("task_id");
     expect(calls).not.toContain("upload_creators");
-    const after = starryWrites();
+    const after = (await starryWrites());
     expect(after.sends).toBe(before.sends);
     expect(after.stageWrites).toBe(before.stageWrites);
     expect(after.transitions).toBe(before.transitions);
-    const collabsAfter = Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations").get() as { n: number }).n);
+    const collabsAfter = Number(((await getConn().query("SELECT COUNT(*) AS n FROM collaborations",[])).rows[0] as { n: number }).n);
     expect(collabsAfter).toBe(collabsBefore);
-    const poolAfter = Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_profile_index").get() as { n: number }).n);
+    const poolAfter = Number(((await getConn().query("SELECT COUNT(*) AS n FROM kol_profile_index",[])).rows[0] as { n: number }).n);
     expect(poolAfter).toBe(0);
     const events = (run.events as Json[]).map((row) => row.type);
     expect(events).toEqual(expect.arrayContaining([
@@ -338,7 +314,7 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     expect(ingest.body.starry_written).toBe(false);
     expect(ingest.body.code).toBe("ingest_handoff");
     expect(String(ingest.body.message)).toMatch(/网关/);
-    expect(starryWrites().sends).toBe(before.sends);
+    expect((await starryWrites()).sends).toBe(before.sends);
 
     const candidates = await request("GET", `/api/home/discovery/runs/${run.id}/candidates`);
     const candidateId = String((candidates.body.candidates as Json[])[0].id);
@@ -349,9 +325,9 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     const legacyFollow = await request("POST", `/api/discovery/candidates/${candidateId}/follow`);
     expect(legacyFollow.status).toBe(403);
     expect(legacyFollow.body.detail).toMatchObject({ code: "home_discovery_follow_forbidden" });
-    const collabsAfterFollow = Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations").get() as { n: number }).n);
+    const collabsAfterFollow = Number(((await getConn().query("SELECT COUNT(*) AS n FROM collaborations",[])).rows[0] as { n: number }).n);
     expect(collabsAfterFollow).toBe(collabsBefore);
-    expect(starryWrites().sends).toBe(before.sends);
+    expect((await starryWrites()).sends).toBe(before.sends);
   });
 
   it("keeps raw candidates and marks rank_failed when brief is missing ranking", async () => {
@@ -391,7 +367,7 @@ describe("POST /api/home/discovery/run lifecycle", () => {
   });
 
   it("derives library_status from pool / followed / library flags, followed first", async () => {
-    seedPoolCreator("yt-beauty-1");
+    (await seedPoolCreator("yt-beauty-1"));
     const pooled = await completeRun();
     expect(pooled.status).toBe("completed");
     const pooledRows = await request("GET", `/api/home/discovery/runs/${pooled.id}/candidates`);
@@ -402,7 +378,7 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     expect(pooledRow.ingest_readiness).toBe("already_in_library");
     expect(pooledRow.ingest_block_reason).toContain("不重复导入");
 
-    seedFollowedCreator("yt-beauty-1");
+    (await seedFollowedCreator("yt-beauty-1"));
     const followed = await completeRun({
       keywords: ["van life"],
       platforms: ["youtube"],
@@ -498,9 +474,7 @@ describe("POST /api/home/discovery/run lifecycle", () => {
       recent_views: [7000, 7100, 7200, 7300, 7400, 7500, 7600, 7700, 7800, 7900],
     }];
     const run = await completeRun();
-    const stored = getConn().prepare(
-      "SELECT COUNT(*) AS n FROM creator_candidates WHERE run_id=?",
-    ).get(run.id) as { n: unknown };
+    const stored = (await getConn().query("SELECT COUNT(*) AS n FROM creator_candidates WHERE run_id=$1",[run.id])).rows[0] as { n: unknown };
     expect(Number(stored.n)).toBe(1);
     const candidates = await request("GET", `/api/home/discovery/runs/${run.id}/candidates`);
     expect(candidates.body.candidates).toHaveLength(1);
@@ -556,11 +530,11 @@ describe("home discovery extras", () => {
     expect(crawl.body.detail).toMatchObject({ code: "from_text_forbidden" });
   });
 
-  it("registers discovery skills and entry kinds", () => {
-    expect(taskDefinition("discovery_brief")?.id).toBe("discovery_brief");
-    expect(taskDefinition("discovery_plan")?.id).toBe("discovery_plan");
-    expect(taskDefinition("discovery_brief")?.in_market).toBe(false);
-    expect(taskDefinition("discovery_plan")?.in_market).toBe(false);
+  it("registers discovery skills and entry kinds", async () => {
+    expect((await taskDefinition("discovery_brief"))?.id).toBe("discovery_brief");
+    expect((await taskDefinition("discovery_plan"))?.id).toBe("discovery_plan");
+    expect((await taskDefinition("discovery_brief"))?.in_market).toBe(false);
+    expect((await taskDefinition("discovery_plan"))?.in_market).toBe(false);
     const byId = Object.fromEntries(HOME_ENTRY_REGISTRY.map((row) => [row.id, row]));
     expect(byId["list-discovery-runs"]?.kind).toBe("memory");
     expect(byId["list-discovery-candidates"]?.kind).toBe("memory");
@@ -581,7 +555,7 @@ describe("home discovery extras", () => {
     expect(cancelled.status).toBe(200);
     expect(cancelled.body.status).toBe("cancelled");
     expect(calls).toContain("stop_crawl");
-    const jobId = crawlJobIdFor(String(started.body.id));
+    const jobId = (await crawlJobIdFor(String(started.body.id)));
     if (jobId) await monitorCrawlJob(jobId).catch(() => undefined);
     await awaitHomeDiscoveryWork();
   });
@@ -593,10 +567,10 @@ describe("discovery harness gateway reject", () => {
       "../src/gateway/discovery-harness.js"
     );
     const { HttpFail } = await import("../src/host/errors.js");
-    expect(() => runInDiscoveryHarness({ skill: "discovery_brief", session_id: "ses_x" }, () => {
-      rejectDiscoveryHarnessTool("start_crawl");
-    })).toThrow(HttpFail);
-    const rows = listAudit().filter((row) => String(row.event_type) === "discovery.harness.tool_rejected");
+    (await expect((async () => (runInDiscoveryHarness({ skill: "discovery_brief", session_id: "ses_x" }, async () => {
+      (await rejectDiscoveryHarnessTool("start_crawl"));
+    })))()).rejects.toThrow(HttpFail));
+    const rows = (await listAudit()).filter((row) => String(row.event_type) === "discovery.harness.tool_rejected");
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.at(-1)?.payload).toMatchObject({ tool: "start_crawl", skill: "discovery_brief" });
   });

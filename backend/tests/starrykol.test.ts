@@ -5,6 +5,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
+import { hashPassword } from "../src/auth.js";
+import { createAgentBinding, syncUserOrganization } from "../src/runtime/organization-tree.js";
+import { setAgentSkill } from "../src/runtime/store.js";
+import { currentMemoryEmployee } from "../src/host/kol-memory.js";
+import { saveStarryBinding } from "../src/host/starry-bind.js";
 import {
   STARRY_KOL_TASKS as EMAIL_MCP_TASKS,
   emailMcpResultCard,
@@ -23,6 +28,7 @@ import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 let app: Hono;
+let cookieJar = "";
 const calls: Array<{ name: string; args: Json }> = [];
 
 function mockClient() {
@@ -174,33 +180,60 @@ function mockClient() {
 async function request(method: string, url: string, body?: unknown) {
   const response = await app.request(url, {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(cookieJar ? { Cookie: cookieJar } : {}) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
+  const setCookie = response.headers.get("set-cookie");
+  if (setCookie) cookieJar = setCookie.split(";")[0];
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) as Json : {} };
 }
 
 beforeEach(async () => {
-  await freshTestDatabase();
+  cookieJar = "";
+  process.env.AUTH_MODE = "disabled";
+  process.env.RUNTIME_CREDENTIAL_MASTER_KEY = Buffer.alloc(32, 7).toString("base64");
+  await freshTestDatabase({ reclaimPrevious: true });
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-emailmcp-"));
   process.env.LINGONG_DB = path.join(tmp, "emailmcp.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   calls.length = 0;
   setEmailMcpClientFactory(mockClient);
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
+  app = (await createApp());
+  (await seedWorkbenchFixtures());
+  const actor = await currentMemoryEmployee();
+  // Auth-disabled catalog tests still require a real active credential owner
+  // inside the disposable database. Never bypass requireActiveOwner.
+  const actorStamp = new Date().toISOString();
+  await getConn().query(
+    "INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,'[]','',1,$6,$6) ON CONFLICT (id) DO NOTHING",
+    [actor.id, "owned.email.catalog.actor", "隔离邮件目录凭据所有者", await hashPassword("owned-email-catalog-actor-password"), JSON.stringify(["employee"]), actorStamp],
+  );
+  await saveStarryBinding(actor.id, {
+    mailbox_email: "henry.wei@amperetime.com",
+    mailbox_id: "mailbox_emailmcp_fixture",
+    owner_name: "Email MCP fixture",
+    bearer: "email-mcp-fixture-token",
+  });
+  const now = new Date().toISOString();
+  (await getConn().query(`INSERT INTO kol_mail_threads
+    (id, collaboration_id, conversation_id, subject, mailbox, last_direction, last_snippet, unread_count, last_at, created_at, updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)`, [
+    "thread_emailmcp_101", null, "101", "LiTime 合作沟通", "henry.wei@amperetime.com",
+    "inbound", "Thanks, I am interested in the collaboration.", 0, now, now,
+  ]));
 });
 
-afterEach(() => {
+afterEach(async () => {
   setAgentSubmissionOverride();
   setEmailMcpClientFactory();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
+  delete process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
 });
 
 describe("Starry KOL MCP connector", () => {
@@ -235,7 +268,7 @@ describe("Email MCP Host orchestration", () => {
     expect(Array.isArray(data.mailbox_owners)).toBe(true);
     expect((data.mailbox_owners as Json[]).some((row) => row.email === "kol.lt@litime.example" && row.owner_name === "钟槿年")).toBe(true);
     expect(operations[0]).toMatchObject({ name: "starrykol.pageMailboxes", status: "done" });
-    expect(emailMcpResultCard("email_mailbox_list", data).title).toBe("邮箱列表");
+    expect((await emailMcpResultCard("email_mailbox_list", data)).title).toBe("邮箱列表");
   });
 
   it("lists conversations and reads a conversation id", async () => {
@@ -264,7 +297,7 @@ describe("Email MCP Host orchestration", () => {
       keyword: "qiyou1984@gmail.com",
       recipient: "qiyou1984@gmail.com",
     });
-    const card = emailMcpResultCard("email_conversation_list", listed.data);
+    const card = (await emailMcpResultCard("email_conversation_list", listed.data));
     expect(card.summary).toBe("未找到与 qiyou1984@gmail.com 相关的邮件会话。");
     expect(JSON.stringify(card.sections)).toContain("不是 Gmail / 163 收件箱");
     expect(card.recommended_actions).toEqual([
@@ -291,17 +324,17 @@ describe("Email MCP Host orchestration", () => {
       recipientEmail: "qiyou1984@gmail.com",
     });
     expect(preview.data).toMatchObject({ sent: false, conversationId: 101 });
-    expect(emailMcpResultCard("email_compose", preview.data).recommended_actions).toContain("核对预览后回复「确认发送」");
+    expect((await emailMcpResultCard("email_compose", preview.data)).recommended_actions).toContain("核对预览后回复「确认发送」");
 
     calls.length = 0;
-    const sent = await withMailSendAuthority("adapter-test-draft", "adapter-test-confirmed", () => executeEmailMcpTask("email_compose", {
+    const sent = await withMailSendAuthority("adapter-test-draft", "adapter-test-confirmed", async () => (executeEmailMcpTask("email_compose", {
       conversationId: 101,
       to: "qiyou1984@gmail.com",
       confirm_send: true,
-    }));
+    })));
     expect(calls.map((item) => item.name)).toEqual(["previewEmailDraft", "sendEmailNow"]);
     expect(sent.data).toMatchObject({ sent: true, conversationId: 101 });
-    const audits = getConn().prepare("SELECT event_type, payload FROM audit_events WHERE event_type=?").all("starrykol.email_compose") as Array<{ payload: string }>;
+    const audits = (await getConn().query("SELECT event_type, payload FROM audit_events WHERE event_type=$1",["starrykol.email_compose"])).rows as Array<{ payload: string }>;
     expect(JSON.parse(audits.at(-1)?.payload || "{}")).toMatchObject({ sent: true });
   });
 
@@ -363,7 +396,7 @@ describe("Email MCP Host orchestration", () => {
       subject: "LiTime MCP 连通测试",
     });
     expect(calls.map((item) => item.name).filter((name) => !["pageMailboxes", "pageKolProfiles", "listAllKolProfiles", "pageEmailConversations", "getKolProfileDetail"].includes(name))).toEqual(["createEmailConversation", "addKolProfile"]);
-    const card = emailMcpResultCard("email_compose", compose.data);
+    const card = (await emailMcpResultCard("email_compose", compose.data));
     expect(compose.data.error).toBe("联系邮箱已被其他红人占用");
     expect(String(card.summary)).toContain("收件邮箱 qiyou1984@gmail.com 已有红人画像");
     expect(String(card.summary)).toContain("灵工登录");
@@ -393,7 +426,7 @@ describe("Email MCP Host orchestration", () => {
       error: "负责人无可用邮箱",
       missing_fields: ["mailboxEmail"],
     });
-    const card = emailMcpResultCard("email_compose", compose.data);
+    const card = (await emailMcpResultCard("email_compose", compose.data));
     expect(card.summary).toBe("发件邮箱 henry.wei@amperetime.com 未授权给当前账号，无法用它新建红人画像或发出首封邮件。请改用已授权的发件邮箱，或请管理员在邮箱权限里开通。");
     expect(card.recommended_actions).toContain("请改用已授权的发件邮箱后再写邮件");
   });
@@ -434,7 +467,7 @@ describe("Email MCP KOL library", () => {
     expect(data).toMatchObject({ total: 1 });
     expect(operations[0]).toMatchObject({ name: "starrykol.pageKolProfiles", status: "done" });
     expect(operations.map((item) => item.name).join(",")).not.toContain("decryptKolContact");
-    expect(emailMcpResultCard("creator_library_query", data).title).toBe("达人库查询结果");
+    expect((await emailMcpResultCard("creator_library_query", data)).title).toBe("达人库查询结果");
   });
 
   it("unwraps pageKolProfiles when the MCP payload is a raw data array", async () => {
@@ -451,7 +484,7 @@ describe("Email MCP KOL library", () => {
     }));
     const { data } = await executeEmailMcpTask("creator_library_query", {});
     expect(data.list).toEqual([expect.objectContaining({ kolUid: "KOLARR", kolName: "数组达人" })]);
-    expect(String(emailMcpResultCard("creator_library_query", data).summary)).toContain("1 条");
+    expect(String((await emailMcpResultCard("creator_library_query", data)).summary)).toContain("1 条");
   });
 
   it("falls back to listAllKolProfiles when pageKolProfiles is empty", async () => {
@@ -470,7 +503,7 @@ describe("Email MCP KOL library", () => {
     const { data, operations } = await executeEmailMcpTask("creator_library_query", { keyword: "Wendell" });
     expect(operations.map((item) => item.name)).toContain("starrykol.listAllKolProfiles");
     expect(data.list).toEqual([expect.objectContaining({ kolName: "Wendell Fishing" })]);
-    expect(JSON.stringify(emailMcpResultCard("creator_library_query", data).sections)).toContain("Wendell Fishing");
+    expect(JSON.stringify((await emailMcpResultCard("creator_library_query", data)).sections)).toContain("Wendell Fishing");
   });
 
   it("loads profile detail by kolUid and attaches platform data", async () => {
@@ -483,7 +516,7 @@ describe("Email MCP KOL library", () => {
     expect(calls[0].args).toMatchObject({ kolUid: "KOLTEST001" });
     expect(data).toMatchObject({ kolUid: "KOLTEST001", kolName: "户外电源达人" });
     expect(operations.map((item) => item.name).join(",")).not.toContain("decryptKolContact");
-    const card = emailMcpResultCard("creator_profile", data);
+    const card = (await emailMcpResultCard("creator_profile", data));
     expect(card.title).toBe("达人画像");
     expect(JSON.stringify(card.sections)).toContain("平台数据");
     expect(JSON.stringify(card.sections)).toContain("红人绑定 / 负责人");
@@ -508,7 +541,7 @@ describe("Email MCP KOL library", () => {
     });
     expect(data).toMatchObject({ updated: true, kolUid: "KOLTEST001" });
     expect(operations.map((item) => item.name).join(",")).not.toContain("decryptKolContact");
-    expect(emailMcpResultCard("creator_owner_update", data).title).toBe("红人负责人更新结果");
+    expect((await emailMcpResultCard("creator_owner_update", data)).title).toBe("红人负责人更新结果");
   });
 
   it("resolves a profile from a name when kolUid is missing", async () => {
@@ -529,7 +562,7 @@ describe("Email MCP KOL library", () => {
       kolName: "新测试达人",
       contactEmail: "new.creator@example.com",
     });
-    expect(String(emailMcpResultCard("creator_library_sync", created.data).summary)).toContain("新增达人画像");
+    expect(String((await emailMcpResultCard("creator_library_sync", created.data)).summary)).toContain("新增达人画像");
     expect(JSON.parse(String(calls[2].args.requestJson))).toMatchObject({
       kolName: "新测试达人",
       contactEmail: "new.creator@example.com",
@@ -555,10 +588,10 @@ describe("Email MCP KOL library", () => {
     expect(calls.map((item) => item.name)).toEqual(["listAllKolProfiles"]);
     expect(data).toMatchObject({ total: 1 });
     expect(operations[0]).toMatchObject({ name: "starrykol.listAllKolProfiles", status: "done" });
-    expect(emailMcpResultCard("creator_library_all", data).title).toBe("达人库全量结果");
+    expect((await emailMcpResultCard("creator_library_all", data)).title).toBe("达人库全量结果");
     // 标题与下一步动作来自技能 md（result_title / next_actions），不是按技能 ID 写死。
-    expect(emailMcpResultCard("creator_library_all", data).recommended_actions).toEqual(["查看达人画像", "更新红人负责人"]);
-    expect(emailMcpResultCard("creator_library_all", { list: [] }).recommended_actions).toEqual(["换关键词再查", "写合作邮件"]);
+    expect((await emailMcpResultCard("creator_library_all", data)).recommended_actions).toEqual(["查看达人画像", "更新红人负责人"]);
+    expect((await emailMcpResultCard("creator_library_all", { list: [] })).recommended_actions).toEqual(["换关键词再查", "写合作邮件"]);
   });
 
   it("updates creator stage through updateKolProfile after reading detail", async () => {
@@ -598,7 +631,7 @@ describe("Email MCP KOL library", () => {
     expect(calls.map((item) => item.name)).toEqual(["decryptKolContact"]);
     expect(JSON.parse(String(calls[0].args.requestJson))).toMatchObject({ kolUid: "KOLTEST001" });
     expect(data).toMatchObject({ decrypted: true, contactEmail: "qiyou1984@gmail.com" });
-    expect(emailMcpResultCard("creator_contact_decrypt", data).title).toBe("达人联系方式");
+    expect((await emailMcpResultCard("creator_contact_decrypt", data)).title).toBe("达人联系方式");
   });
 
   it("loads lifecycle, risk conversations, filter options and app conversations", async () => {
@@ -623,7 +656,7 @@ describe("Email MCP KOL library", () => {
     const scan = await executeEmailMcpTask("risk_scan", {});
     expect(Array.isArray(scan.data.overdue)).toBe(true);
     expect((scan.data.overdue as Json[]).some((row) => row.handle === "小美妆日记")).toBe(true);
-    const card = emailMcpResultCard("risk_scan", scan.data);
+    const card = (await emailMcpResultCard("risk_scan", scan.data));
     expect(card.title).toBe("超时/风险扫描");
     expect(JSON.stringify(card.sections)).toContain("T8 失联与延期");
     expect(JSON.stringify(card.sections)).toContain("风险汇总");
@@ -652,7 +685,7 @@ describe("Email MCP KOL library", () => {
     expect(Array.isArray(data.checklist)).toBe(true);
     expect((data.checklist as Json[]).some((row) => row.code === "INTERESTED" && String(row.note || "").includes("当前指针"))).toBe(true);
     expect((data.checklist as Json[]).some((row) => row.code === "PUBLISHED" && row.status === "未开始")).toBe(true);
-    const card = emailMcpResultCard("reply_analysis", data);
+    const card = (await emailMcpResultCard("reply_analysis", data));
     expect(card.title).toBe("回复分析");
     expect(card.summary).toContain("已回复-有兴趣");
     expect(JSON.stringify(card.sections)).toContain("十五阶段清单");
@@ -665,6 +698,16 @@ describe("Email MCP KOL library", () => {
 
 describe("Email MCP task run path", () => {
   it("runs all Email MCP catalog tasks from text and persists a result card", async () => {
+    // A requires:creator skill can only run against an authorized local fact.
+    // The remote mock's KOLTEST001 must have a matching disposable local object;
+    // production lookup, scope and context rules are not bypassed.
+    await getConn().query(
+      `INSERT INTO collaborations
+        (id,handle,display_name,brand,platform,email,mailbox_from,lifecycle_id,conversation_id,stage_code,kol_uid,owner_mailbox)
+       VALUES ($1,$2,$2,'LT','YouTube',$3,$4,'fixture_lifecycle_101','101','INITIAL_CONTACT',$1,$4)`,
+      ["KOLTEST001", "户外电源达人", "qiyou1984@gmail.com", "henry.wei@amperetime.com"],
+    );
+
     const prompts: Record<(typeof EMAIL_MCP_TASKS)[number], string> = {
       email_mailbox_list: "品牌邮箱列表",
       email_conversation_list: "邮件会话列表",
@@ -698,7 +741,7 @@ describe("Email MCP task run path", () => {
       );
       expect(executed.status, `${taskType}: run`).toBe(200);
       const messages = executed.body.messages as Json[];
-      expect(messages.some((message) => message.kind === "task_result_card"), `${taskType}: card`).toBe(true);
+      expect(messages.some((message) => message.kind === "task_result_card"), `${taskType}: card ${JSON.stringify(messages)}`).toBe(true);
       expect((executed.body.worker as Json)?.skill).toBe(taskType);
       const detail = await request("GET", `/api/tasks/${task.id}`);
       expect((detail.body.artifacts as Json[]).some((artifact) => artifact.artifact_type === "task_result_card")).toBe(true);
@@ -707,19 +750,57 @@ describe("Email MCP task run path", () => {
 
   it("blocks real employee submission when the publish gate is stubbed unpublished", async () => {
     const previous = process.env.CODEX_MODE;
+    const previousAuth = process.env.AUTH_MODE;
+    const stamp = new Date().toISOString();
+    const userId = "owned_email_catalog_employee";
+    await getConn().query(
+      "INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,'',1,$7,$7)",
+      [userId, "email.catalog.employee", "隔离邮件任务员工", await hashPassword("owned-email-catalog-password"), JSON.stringify(["employee"]), JSON.stringify(["LT"]), stamp],
+    );
+    await getConn().query("INSERT INTO directory_users (id,handle,name,role) VALUES ($1,$2,$3,$4)",
+      [userId, "email.catalog.employee", "隔离邮件任务员工", "employee"]);
+    const personRef = await syncUserOrganization(userId, "org:lt_team");
+    await createAgentBinding({ agent_id: "agent:kol", target_type: "person", target_id: personRef,
+      company_id: "company:amperetime", source: "test" });
+    const grant = (await getConn().query<{ version: number }>("SELECT version FROM runtime_agent_skills WHERE agent_id=$1 AND skill_id=$2", ["agent:kol", "creator_library_query"])).rows[0];
+    await setAgentSkill("agent:kol", "creator_library_query", true, Number(grant?.version || 0));
+    // This case targets the submission publish gate, not an unavailable draft
+    // Agent. Initialize the official built-in catalog only in this owned DB.
+    const { ensureManagedAgents } = await import("../src/runtime/managed-agents.js");
+    await ensureManagedAgents();
+    const eligibleAgent = await getConn().query("SELECT id FROM managed_agents WHERE id=$1 AND status='published'", ["agent:kol"]);
+    expect(eligibleAgent.rows).toHaveLength(1);
+    const { pgVisibleSkillIdsForUser } = await import("../src/postgres/auth-pg.js");
+    expect(await pgVisibleSkillIdsForUser(userId, new Date().toISOString())).toContain("creator_library_query");
+    process.env.AUTH_MODE = "enabled";
     process.env.CODEX_MODE = "real";
     setAgentSubmissionOverride(false);
     try {
+      const { assertRuntimeSkill } = await import("../src/runtime/execution.js");
+      await expect(assertRuntimeSkill({ agentId: "agent:kol", skillId: "creator_library_query", userId,
+        runId: "owned-published-submission-reject" })).rejects.toMatchObject({ status: 409, detail: { code: "agent_not_published" } });
+      expect((await request("POST", "/api/sessions", { title: "unauthenticated native probe" })).status).toBe(401);
+      const login = await request("POST", "/api/auth/login", { username: "email.catalog.employee", password: "owned-email-catalog-password" });
+      expect(login.status, JSON.stringify(login.body)).toBe(200);
+      expect(cookieJar.startsWith("lingong_session=")).toBe(true);
       const created = await request("POST", "/api/sessions", { title: "达人库查询" });
+      expect(created.status, JSON.stringify(created.body)).toBe(200);
       const posted = await request("POST", `/api/sessions/${created.body.id}/messages`, {
         text: "查询达人库 关键词：户外电源",
         intent: "creator_library_query",
         act: "ask",
       });
-      expect(posted.status).toBe(409);
+      expect(posted.status, JSON.stringify(posted.body)).toBe(409);
       expect(posted.body.detail).toMatchObject({ code: "agent_not_published" });
+      expect(calls).toHaveLength(0);
+      const workerRows = await getConn().query("SELECT id FROM workers WHERE session_id=$1", [String(created.body.id)]);
+      expect(workerRows.rows).toHaveLength(0);
+      const progressRows = await getConn().query("SELECT kind FROM messages WHERE session_id=$1 AND kind IN ('job_status','process_trace','operation_trace')", [String(created.body.id)]);
+      expect(progressRows.rows).toHaveLength(0);
     } finally {
       process.env.CODEX_MODE = previous;
+      process.env.AUTH_MODE = previousAuth;
+      cookieJar = "";
       setAgentSubmissionOverride();
       setEmailMcpClientFactory(mockClient);
     }

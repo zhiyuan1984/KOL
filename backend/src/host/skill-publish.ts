@@ -290,63 +290,63 @@ function normalizeCreate(input: CreateSkillInput): {
   };
 }
 
-function setMarketFlag(id: string, inMarket: boolean): void {
-  getConn()
-    .prepare(
-      "INSERT INTO skill_flags (id, in_market, updated_at) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET in_market=excluded.in_market, updated_at=excluded.updated_at",
-    )
-    .run(id, inMarket ? 1 : 0, nowIso());
+async function setMarketFlag(id: string, inMarket: boolean): Promise<Awaited<void>> {
+  (await getConn().query("INSERT INTO skill_flags (id, in_market, updated_at) VALUES ($1,$2,$3) ON CONFLICT(id) DO UPDATE SET in_market=excluded.in_market, updated_at=excluded.updated_at",[id,inMarket ? 1 : 0,nowIso()]));
 }
 
-export function activateSkillForHarness(id: string): string {
+export async function activateSkillForHarness(id: string): Promise<Awaited<string>> {
   clearTaskRegistryCache();
-  if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
-  return writeRuntimeSkill(id);
+  if (!(await catalogSkill(id))) throw new HttpFail(404, "unknown skill");
+  return (await writeRuntimeSkill(id));
 }
 
-export function createPublishedSkill(input: CreateSkillInput): SkillEntry {
+async function requireCatalogSkill(id: string): Promise<SkillEntry> {
+  const entry = await catalogSkill(id);
+  if (!entry) throw new HttpFail(404, "unknown skill");
+  return entry;
+}
+
+export async function createPublishedSkill(input: CreateSkillInput): Promise<Awaited<SkillEntry>> {
   const spec = normalizeCreate(input);
-  if (catalogSkill(spec.id) || isBundledSkill(spec.id)) {
+  if ((await catalogSkill(spec.id)) || isBundledSkill(spec.id)) {
     throw new HttpFail(409, "skill already exists");
   }
   const dir = path.join(publishedSkillsDir(), spec.id);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "SKILL.md"), formatSkillMarkdown(spec), "utf8");
-  getConn()
-    .prepare("INSERT INTO skill_stage_history (id, skill_id, from_stage, to_stage, operator, reason, at) VALUES (?,?,?,?,?,?,?)")
-    .run(nid("ssh"), spec.id, null, "draft", currentUser().handle, "created", nowIso());
-  setMarketFlag(spec.id, spec.in_market);
-  const runtimePath = activateSkillForHarness(spec.id);
-  audit(currentUser().handle, "skill.create", {
+  (await getConn().query("INSERT INTO skill_stage_history (id, skill_id, from_stage, to_stage, operator, reason, at) VALUES ($1,$2,$3,$4,$5,$6,$7)",[nid("ssh"),spec.id,null,"draft",(await currentUser()).handle,"created",nowIso()]));
+  (await setMarketFlag(spec.id, spec.in_market));
+  const runtimePath = (await activateSkillForHarness(spec.id));
+  (await audit((await currentUser()).handle, "skill.create", {
     skill: spec.id,
     in_market: spec.in_market,
     runtime: runtimePath,
     extra_roots: runtimeSkillsRoot(),
-  });
-  const created = catalogSkill(spec.id);
+  }));
+  const created = await catalogSkill(spec.id);
   if (!created) throw new HttpFail(500, "skill catalog did not pick up the new skill");
   return created;
 }
 
-export function setSkillInMarket(id: string, inMarket: boolean): SkillEntry {
-  if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
-  setMarketFlag(id, inMarket);
+export async function setSkillInMarket(id: string, inMarket: boolean): Promise<Awaited<SkillEntry>> {
+  if (!(await catalogSkill(id))) throw new HttpFail(404, "unknown skill");
+  (await setMarketFlag(id, inMarket));
   clearSkillCatalogCache();
-  activateSkillForHarness(id);
-  audit(currentUser().handle, "skill.market", { skill: id, in_market: inMarket });
-  return catalogSkill(id)!;
+  (await activateSkillForHarness(id));
+  (await audit((await currentUser()).handle, "skill.market", { skill: id, in_market: inMarket }));
+  return requireCatalogSkill(id);
 }
 
-export function updatePublishedSkill(id: string, input: UpdateSkillInput): SkillEntry {
-  const current = catalogSkill(id);
+export async function updatePublishedSkill(id: string, input: UpdateSkillInput): Promise<Awaited<SkillEntry>> {
+  const current = await catalogSkill(id);
   if (!current) throw new HttpFail(404, "unknown skill");
   if (!hasPackPatch(input)) {
     if (typeof input.in_market !== "boolean") throw new HttpFail(400, "in_market required");
     return setSkillInMarket(id, input.in_market);
   }
   if (isBundledSkill(id)) throw new HttpFail(400, "bundled skills cannot rewrite pack; use SOP overlay");
-  const def = taskDefinition(id);
-  const sop = getSkillSop(id);
+  const def = (await taskDefinition(id));
+  const sop = (await getSkillSop(id));
   const spec = normalizeCreate({
     id,
     title: input.title ?? current.label,
@@ -377,106 +377,104 @@ export function updatePublishedSkill(id: string, input: UpdateSkillInput): Skill
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "SKILL.md"), formatSkillMarkdown(spec), "utf8");
   if (input.body !== undefined) {
-    getConn().prepare("DELETE FROM skill_sops WHERE id = ?").run(id);
+    (await getConn().query("DELETE FROM skill_sops WHERE id = $1",[id]));
   }
-  setMarketFlag(spec.id, spec.in_market);
+  (await setMarketFlag(spec.id, spec.in_market));
   clearSkillCatalogCache();
-  const runtimePath = activateSkillForHarness(spec.id);
-  audit(currentUser().handle, "skill.update", {
+  const runtimePath = (await activateSkillForHarness(spec.id));
+  (await audit((await currentUser()).handle, "skill.update", {
     skill: spec.id,
     in_market: spec.in_market,
     runtime: runtimePath,
-  });
-  return catalogSkill(spec.id)!;
+  }));
+  return requireCatalogSkill(spec.id);
 }
 
 export type SkillDraft = { id: string; patch: Record<string, unknown>; updated_at: string | null };
 const SOP_DRAFT_FIELDS = ["_sop_summary", "_sop_body"] as const;
 
-export function getSkillDraft(id: string): SkillDraft {
-  if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
-  const row = getConn().prepare("SELECT payload, updated_at FROM skill_drafts WHERE skill_id=?").get(id) as
+export async function getSkillDraft(id: string): Promise<Awaited<SkillDraft>> {
+  if (!(await catalogSkill(id))) throw new HttpFail(404, "unknown skill");
+  const row = (await getConn().query("SELECT payload, updated_at FROM skill_drafts WHERE skill_id=$1",[id])).rows[0] as
     | { payload: string; updated_at: string }
     | undefined;
   return { id, patch: row ? JSON.parse(row.payload) as Record<string, unknown> : {}, updated_at: row?.updated_at || null };
 }
 
 /** Persist candidate edits without changing the catalog, runtime pack, or employee-visible version. */
-export function saveSkillDraft(id: string, patch: Record<string, unknown>): SkillDraft {
-  if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
+export async function saveSkillDraft(id: string, patch: Record<string, unknown>): Promise<Awaited<SkillDraft>> {
+  if (!(await catalogSkill(id))) throw new HttpFail(404, "unknown skill");
   const bundled = isBundledSkill(id);
   const allowed = new Set<string>(bundled ? [...SOP_DRAFT_FIELDS, ...PRESENTATION_OVERLAY_FIELDS] : PACK_FIELDS);
   const clean = Object.fromEntries(Object.entries(patch).filter(([key, value]) => allowed.has(key) && value !== undefined));
   if (!Object.keys(clean).length) throw new HttpFail(400, "no editable skill fields supplied");
-  if (bundled) normalizePresentationPatch(id, pickPresentationFields(clean), taskDefinition(id)?.actions);
-  const previous = getSkillDraft(id);
+  if (bundled) normalizePresentationPatch(id, pickPresentationFields(clean), (await taskDefinition(id))?.actions);
+  const previous = (await getSkillDraft(id));
   const payload = { ...previous.patch, ...clean };
   const updatedAt = nowIso();
-  getConn().prepare(
-    "INSERT INTO skill_drafts (skill_id,payload,updated_at) VALUES (?,?,?) ON CONFLICT(skill_id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at",
-  ).run(id, JSON.stringify(payload), updatedAt);
-  audit(currentUser().handle, "skill.draft.save", { skill: id, fields: Object.keys(clean) });
+  (await getConn().query("INSERT INTO skill_drafts (skill_id,payload,updated_at) VALUES ($1,$2,$3) ON CONFLICT(skill_id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at",[id,JSON.stringify(payload),updatedAt]));
+  (await audit((await currentUser()).handle, "skill.draft.save", { skill: id, fields: Object.keys(clean) }));
   return { id, patch: payload, updated_at: updatedAt };
 }
 
 /** Apply an already-saved candidate only from the release path. */
-export function applySkillDraft(id: string): { applied: boolean } {
-  const draft = getSkillDraft(id);
+export async function applySkillDraft(id: string): Promise<Awaited<{ applied: boolean }>> {
+  const draft = (await getSkillDraft(id));
   if (!Object.keys(draft.patch).length) return { applied: false };
   if (isBundledSkill(id)) {
-    const current = getSkillSop(id);
+    const current = (await getSkillSop(id));
     if (draft.patch._sop_summary !== undefined || draft.patch._sop_body !== undefined) {
-      saveSkillSop(id, {
+      (await saveSkillSop(id, {
         summary: String(draft.patch._sop_summary ?? current.summary),
         body: String(draft.patch._sop_body ?? current.body),
-      });
+      }));
     }
     const presentation = pickPresentationFields(draft.patch);
     if (Object.keys(presentation).length) {
-      savePresentationOverlay(id, normalizePresentationPatch(id, presentation, taskDefinition(id)?.actions));
+      (await savePresentationOverlay(id, normalizePresentationPatch(id, presentation, (await taskDefinition(id))?.actions)));
       clearSkillCatalogCache();
-      activateSkillForHarness(id);
+      (await activateSkillForHarness(id));
     }
   } else {
     const packPatch = Object.fromEntries(Object.entries(draft.patch).filter(([key]) => !SOP_DRAFT_FIELDS.includes(key as typeof SOP_DRAFT_FIELDS[number])));
-    if (Object.keys(packPatch).length) updatePublishedSkill(id, packPatch as UpdateSkillInput);
+    if (Object.keys(packPatch).length) (await updatePublishedSkill(id, packPatch as UpdateSkillInput));
   }
-  getConn().prepare("DELETE FROM skill_drafts WHERE skill_id=?").run(id);
-  audit(currentUser().handle, "skill.draft.apply", { skill: id });
+  (await getConn().query("DELETE FROM skill_drafts WHERE skill_id=$1",[id]));
+  (await audit((await currentUser()).handle, "skill.draft.apply", { skill: id }));
   return { applied: true };
 }
 
-export function deletePublishedSkill(id: string): { ok: true; id: string } {
-  if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
+export async function deletePublishedSkill(id: string): Promise<Awaited<{ ok: true; id: string }>> {
+  if (!(await catalogSkill(id))) throw new HttpFail(404, "unknown skill");
   if (isBundledSkill(id)) throw new HttpFail(400, "bundled skills cannot be deleted");
-  getConn().prepare("DELETE FROM skill_sops WHERE id = ?").run(id);
-  getConn().prepare("DELETE FROM skill_flags WHERE id = ?").run(id);
-  getConn().prepare("DELETE FROM skill_grants WHERE skill_id = ?").run(id);
-  getConn().prepare("DELETE FROM skill_lifecycle WHERE skill_id = ?").run(id);
-  getConn().prepare("DELETE FROM skill_drafts WHERE skill_id = ?").run(id);
-  getConn().prepare("DELETE FROM skill_versions WHERE skill_id = ?").run(id);
-  getConn().prepare("DELETE FROM skill_tests WHERE skill_id = ?").run(id);
-  getConn().prepare("DELETE FROM skill_test_runs WHERE skill_id = ?").run(id);
-  getConn().prepare("DELETE FROM skill_stage_history WHERE skill_id = ?").run(id);
+  (await getConn().query("DELETE FROM skill_sops WHERE id = $1",[id]));
+  (await getConn().query("DELETE FROM skill_flags WHERE id = $1",[id]));
+  (await getConn().query("DELETE FROM skill_grants WHERE skill_id = $1",[id]));
+  (await getConn().query("DELETE FROM skill_lifecycle WHERE skill_id = $1",[id]));
+  (await getConn().query("DELETE FROM skill_drafts WHERE skill_id = $1",[id]));
+  (await getConn().query("DELETE FROM skill_versions WHERE skill_id = $1",[id]));
+  (await getConn().query("DELETE FROM skill_tests WHERE skill_id = $1",[id]));
+  (await getConn().query("DELETE FROM skill_test_runs WHERE skill_id = $1",[id]));
+  (await getConn().query("DELETE FROM skill_stage_history WHERE skill_id = $1",[id]));
   fs.rmSync(path.join(publishedSkillsDir(), id), { recursive: true, force: true });
   fs.rmSync(path.join(runtimeSkillsRoot(), id), { recursive: true, force: true });
   fs.rmSync(path.join(dataDir(), "skill-versions", id), { recursive: true, force: true });
   clearTaskRegistryCache();
   clearSkillCatalogCache();
-  audit(currentUser().handle, "skill.delete", { skill: id });
+  (await audit((await currentUser()).handle, "skill.delete", { skill: id }));
   return { ok: true, id };
 }
 
-export function skillAdminMeta(): {
+export async function skillAdminMeta(): Promise<{
   profiles: readonly string[];
   outputs: readonly string[];
   funnels: readonly string[];
   mcp: string[];
-} {
+}> {
   return {
     profiles: TASK_PROFILES,
     outputs: TASK_OUTPUTS,
     funnels: TASK_FUNNELS,
-    mcp: registeredToolCatalog(),
+    mcp: (await registeredToolCatalog()),
   };
 }

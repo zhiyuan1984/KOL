@@ -102,7 +102,7 @@ const PLATFORM_NAMES: Array<[RegExp, string]> = [
   [/知乎|zhihu/i, "zhihu"],
 ];
 
-export function extractTaskEntities(text: string): Record<string, unknown> {
+export async function extractTaskEntities(text: string): Promise<Awaited<Record<string, unknown>>> {
   const entities: Record<string, unknown> = {};
   for (const [key, pattern] of Object.entries(ENTITY_PATTERNS)) {
     const match = pattern.exec(text);
@@ -118,7 +118,7 @@ export function extractTaskEntities(text: string): Record<string, unknown> {
   if (offer.deliverables) entities.deliverables = offer.deliverables;
   // Same handle rules as Host classify(): skill mentions such as
   // @写合作邮件 are not KOL handles, and a later @红人 still binds.
-  const handle = extractHandle(text);
+  const handle = (await extractHandle(text));
   if (handle) entities.handle = handle;
   const platform = PLATFORM_NAMES.find(([pattern]) => pattern.test(text))?.[1];
   if (platform) entities.platform = platform;
@@ -304,12 +304,12 @@ function matchStarryKolIntent(text: string, entities: Record<string, unknown> = 
   return null;
 }
 
-function defaultClarificationAlternatives(text: string): { task_type: string; title: string; confidence: number }[] {
+async function defaultClarificationAlternatives(text: string): Promise<Awaited<{ task_type: string; title: string; confidence: number }[]>> {
   const ids = /(邮件|邮箱|发件|收件|nylas)/i.test(text)
     ? ["email_mailbox_list", "email_conversation_list", "email_compose"]
     : ["creator_lifecycle_kanban", "reply_analysis", "risk_scan"];
-  return ids
-    .map((id) => taskDefinition(id))
+  return (await Promise.all(ids
+    .map((id) => taskDefinition(id))))
     .filter((definition): definition is TaskDefinition => Boolean(definition))
     .map((definition) => ({
       task_type: definition.id,
@@ -318,13 +318,13 @@ function defaultClarificationAlternatives(text: string): { task_type: string; ti
     }));
 }
 
-function lockedResolution(
+async function lockedResolution(
   taskType: string,
   entities: Record<string, unknown>,
   supplied: Record<string, unknown>,
   text = "",
-): TaskResolution {
-  const definition = taskDefinition(taskType);
+): Promise<Awaited<TaskResolution>> {
+  const definition = (await taskDefinition(taskType));
   if (!definition) {
     return {
       task_type: null,
@@ -375,14 +375,14 @@ function lockedResolution(
  * Production resolver: never picks a skill from regex/substring.
  * With a human- or judge-locked task_type, only validates required fields.
  */
-export function resolveTaskIntent(input: {
+export async function resolveTaskIntent(input: {
   text?: string;
   task_type?: string | null;
   entities?: Record<string, unknown>;
   input?: Record<string, unknown>;
-}): TaskResolution {
+}): Promise<Awaited<TaskResolution>> {
   const text = String(input.text || "").trim();
-  const entities = { ...extractTaskEntities(text), ...(input.entities || {}) };
+  const entities = { ...(await extractTaskEntities(text)), ...(input.entities || {}) };
   const supplied = input.input || {};
   if (input.task_type) return lockedResolution(String(input.task_type), entities, supplied, text);
   return {
@@ -390,27 +390,27 @@ export function resolveTaskIntent(input: {
     confidence: 0,
     entities,
     missing_fields: [],
-    alternatives: defaultClarificationAlternatives(text),
+    alternatives: (await defaultClarificationAlternatives(text)),
     needs_clarification: true,
     clarification_kind: "direction",
   };
 }
 
 /** Tests / INTENT_LLM_MODE=stub only. Production recognize uses Luna or Codex turn items. */
-export function stubResolveTaskIntent(input: {
+export async function stubResolveTaskIntent(input: {
   text?: string;
   task_type?: string | null;
   entities?: Record<string, unknown>;
   input?: Record<string, unknown>;
-}): TaskResolution {
+}): Promise<Awaited<TaskResolution>> {
   const text = String(input.text || "").trim();
-  const entities = { ...extractTaskEntities(text), ...(input.entities || {}) };
+  const entities = { ...(await extractTaskEntities(text)), ...(input.entities || {}) };
   const supplied = input.input || {};
   if (input.task_type) return lockedResolution(String(input.task_type), entities, supplied, text);
 
   const lower = text.toLowerCase();
   if (/(搜索|查找|寻找|发现).*(达人|KOL|创作者)/i.test(text)) {
-    const definition = taskDefinition("creator_discovery");
+    const definition = (await taskDefinition("creator_discovery"));
     if (definition) {
       return {
         task_type: definition.id,
@@ -425,7 +425,7 @@ export function stubResolveTaskIntent(input: {
   }
   const emailTask = matchStarryKolIntent(text, entities);
   if (emailTask) {
-    const definition = taskDefinition(emailTask);
+    const definition = (await taskDefinition(emailTask));
     if (definition) {
       const missingFields = missing(definition, entities, supplied, text);
       return {
@@ -439,7 +439,7 @@ export function stubResolveTaskIntent(input: {
       };
     }
   }
-  const scored = taskDefinitions().flatMap((definition) => {
+  const scored = (await taskDefinitions()).flatMap((definition) => {
     const hit = names(definition).find((name) => lower.includes(name.toLowerCase()));
     if (!hit) return [];
     const confidence = hit === definition.id || hit === definition.title ? 0.98 : 0.92;
@@ -455,7 +455,7 @@ export function stubResolveTaskIntent(input: {
   if (!best || best.confidence < 0.75) {
     const fallbackAlternatives = alternatives.length
       ? alternatives
-      : defaultClarificationAlternatives(text);
+      : (await defaultClarificationAlternatives(text));
     return {
       task_type: null,
       confidence: best?.confidence || 0,

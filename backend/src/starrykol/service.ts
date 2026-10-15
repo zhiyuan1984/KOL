@@ -93,7 +93,7 @@ export function isStarryKolReadTask(value: string | null | undefined): boolean {
   return isStarryKolTask(value) && !isStarryKolWriteTask(value);
 }
 
-type StarryKolClient = Pick<ReturnType<typeof createManagedClient>, "callTool" | "close">;
+type StarryKolClient = Pick<Awaited<ReturnType<typeof createManagedClient>>, "callTool" | "close">;
 let clientFactory: (() => StarryKolClient) | null = null;
 const callScope = new AsyncLocalStorage<{ credentialAccountId?: string; useBoundCredential?: boolean }>();
 
@@ -505,7 +505,7 @@ function mockCall(name: string, args: Json): Json {
 
 export async function callStarryKolTool(name: string, args: Json = {}, options: { timeoutMs?: number } = {}): Promise<Json> {
   const { rejectDiscoveryHarnessTool } = await import("../gateway/discovery-harness.js");
-  rejectDiscoveryHarnessTool(name);
+  (await rejectDiscoveryHarnessTool(name));
   return call(name, args, options.timeoutMs);
 }
 
@@ -670,7 +670,7 @@ export async function writeRemoteOfficialStageWalk(input: RemoteStageWriteInput 
 async function call(name: string, args: Json = {}, timeoutMs?: number): Promise<Json> {
   if (name === "sendEmailNow") await recheckMailSendAuthority();
   if (!clientFactory && codexMode() === "stub") return mockCall(name, args);
-  if (!clientFactory && !starryKolMcpConfigured()) {
+  if (!clientFactory && !(await starryKolMcpConfigured())) {
     throw new HttpFail(503, {
       code: "starrykol_not_configured",
       message: "Starry KOL MCP 未配置。",
@@ -680,8 +680,8 @@ async function call(name: string, args: Json = {}, timeoutMs?: number): Promise<
   const scope = callScope.getStore();
   const client = clientFactory
     ? clientFactory()
-    : createManagedClient("starrykol", scopedUser()?.id || "",
-      scope?.credentialAccountId || (scope?.useBoundCredential === false ? undefined : boundStarryCredentialId(scopedUser()?.id)), timeoutMs);
+    : (await createManagedClient("starrykol", scopedUser()?.id || "",
+      scope?.credentialAccountId || (scope?.useBoundCredential === false ? undefined : await boundStarryCredentialId(scopedUser()?.id)), timeoutMs));
   try {
     return normalizeStarryKolResult(await client.callTool(name, args));
   } catch (error) {
@@ -1067,13 +1067,13 @@ const TOOL_LABELS: Record<string, string> = {
 };
 
 /** 结果卡片标题：技能 md 的 result_title（缺省为技能名称）。 */
-function title(task: StarryKolTask): string {
-  return declaredResultTitle(task) || task;
+async function title(task: StarryKolTask): Promise<Awaited<string>> {
+  return (await declaredResultTitle(task)) || task;
 }
 
 export async function listStarryMailboxes(opts?: { bearer?: string }): Promise<Json[]> {
   const userId = scopedUser()?.id || "";
-  const credential = opts?.bearer ? createCredential({ type: "user_account", owner_user_id: userId,
+  const credential = opts?.bearer ? await createCredential({ type: "user_account", owner_user_id: userId,
     label: "Starry connection probe", purpose: "Temporary mailbox probe",
     secret: opts.bearer.replace(/^Bearer\s+/i, "") }, userId) : undefined;
   try {
@@ -1081,8 +1081,8 @@ export async function listStarryMailboxes(opts?: { bearer?: string }): Promise<J
     // mailbox probe would silently re-enable a broken per-user bearer during
     // an otherwise organization-authenticated mail synchronization.
     return rows(await callScope.run({ ...callScope.getStore(), ...(credential ? { credentialAccountId: credential.id } : {}) },
-      () => call("pageMailboxes", { pageNo: 1, pageSize: 50 })));
-  } finally { if (credential) deleteCredential(credential.id, credential.version); }
+      async () => (call("pageMailboxes", { pageNo: 1, pageSize: 50 }))));
+  } finally { if (credential) await deleteCredential(credential.id, credential.version); }
 }
 
 function rows(data: Json): Json[] {
@@ -1161,12 +1161,12 @@ function ownerFromMailboxRow(row: Json): Json {
   };
 }
 
-function ownerFromBinding(fromAddr: string): Json {
+async function ownerFromBinding(fromAddr: string): Promise<Json> {
   if (!fromAddr) return {};
   try {
     const user = scopedUser();
     if (!user) return {};
-    const row = starryBindingRow(user.id);
+    const row = (await starryBindingRow(user.id));
     if (!row) return {};
     if (normalizeEmail(String(row.mailbox_email || "")) !== normalizeEmail(fromAddr)) return {};
     const ownerUserName = firstString(row.owner_name);
@@ -1289,10 +1289,10 @@ function profileMaskedContact(row: Json): string {
   return firstString(row.contactEmailMasked, row.contact_email_masked, row.emailMasked, row.email_masked);
 }
 
-function profileFollowScope(fromAddr?: string): { mailbox_email: string; owner_name: string } {
+async function profileFollowScope(fromAddr?: string): Promise<{ mailbox_email: string; owner_name: string }> {
   try {
     const user = scopedUser();
-    const bind = publicStarryBinding(user ? starryBindingRow(user.id) : null);
+    const bind = publicStarryBinding(user ? (await starryBindingRow(user.id)) : null);
     return {
       mailbox_email: fromAddr || bind.mailbox_email,
       owner_name: bind.owner_name,
@@ -1302,8 +1302,8 @@ function profileFollowScope(fromAddr?: string): { mailbox_email: string; owner_n
   }
 }
 
-function profileFollowsMailbox(row: Json, fromAddr?: string): boolean {
-  const scope = profileFollowScope(fromAddr);
+async function profileFollowsMailbox(row: Json, fromAddr?: string): Promise<boolean> {
+  const scope = (await profileFollowScope(fromAddr));
   if (!scope.mailbox_email && !scope.owner_name) return false;
   return matchesFollowedMailbox({
     owner_name: firstString(row.ownerUserName, row.owner_user_name, row.ownerName, row.owner_name, row.owner),
@@ -1313,33 +1313,34 @@ function profileFollowsMailbox(row: Json, fromAddr?: string): boolean {
   }, scope);
 }
 
-function pickContactProfile(list: Json[], email: string, opts?: { allowSingle?: boolean; fromAddr?: string }): Json | undefined {
+async function pickContactProfile(list: Json[], email: string, opts?: { allowSingle?: boolean; fromAddr?: string }): Promise<Json | undefined> {
   if (!list.length) return undefined;
   const exact = list.filter((row) => profileMatchesContact(row, email) && kolUidOf(row));
   if (exact.length === 1) return exact[0];
   if (exact.length > 1) {
-    const followed = exact.filter((row) => profileFollowsMailbox(row, opts?.fromAddr));
+    const allowed = await Promise.all(exact.map(async row => profileFollowsMailbox(row, opts?.fromAddr)));
+    const followed = exact.filter((_, index) => allowed[index]);
     return followed[0] || exact[0];
   }
   const masked = list.filter((row) => maskedEmailMatches(profileMaskedContact(row), email) && kolUidOf(row));
   if (masked.length === 1) return masked[0];
   if (masked.length > 1) {
-    const followed = masked.filter((row) => profileFollowsMailbox(row, opts?.fromAddr));
+    const allowed = await Promise.all(masked.map(async row => profileFollowsMailbox(row, opts?.fromAddr)));
+    const followed = masked.filter((_, index) => allowed[index]);
     return followed.length === 1 ? followed[0] : undefined;
   }
   if (opts?.allowSingle && list.length === 1 && kolUidOf(list[0])) return list[0];
   return undefined;
 }
 
-function localFollowedProfile(email: string, fromAddr?: string): Json | undefined {
+async function localFollowedProfile(email: string, fromAddr?: string): Promise<Json | undefined> {
   if (!email) return undefined;
   try {
-    const found = getConn().prepare(
-      "SELECT * FROM collaborations WHERE lower(trim(email)) = ?",
-    ).all(normalizeEmail(email)) as Array<Record<string, unknown>>;
+    const found = (await getConn().query("SELECT * FROM collaborations WHERE lower(trim(email)) = $1",[normalizeEmail(email)])).rows as Array<Record<string, unknown>>;
     const withUid = found.filter((row) => String(row.kol_uid || "").trim());
     if (!withUid.length) return undefined;
-    const followed = withUid.filter((row) => matchesFollowedMailbox(row, profileFollowScope(fromAddr)));
+    const scope = await profileFollowScope(fromAddr);
+    const followed = withUid.filter(row => matchesFollowedMailbox(row, scope));
     const chosen = followed.length ? followed : withUid;
     const uids = new Set(chosen.map((row) => String(row.kol_uid || "").trim()));
     if (uids.size !== 1) return undefined;
@@ -1410,12 +1411,10 @@ function profileFromTaken(source: unknown): Json | undefined {
   return uid ? { ...row, kolUid: uid } : undefined;
 }
 
-function localFollowedCandidates(fromAddr?: string): Json[] {
+async function localFollowedCandidates(fromAddr?: string): Promise<Json[]> {
   try {
-    const found = getConn().prepare(
-      "SELECT * FROM collaborations WHERE kol_uid IS NOT NULL AND trim(kol_uid) != ''",
-    ).all() as Array<Record<string, unknown>>;
-    const scope = profileFollowScope(fromAddr);
+    const found = (await getConn().query("SELECT * FROM collaborations WHERE kol_uid IS NOT NULL AND trim(kol_uid) != ''",[])).rows as Array<Record<string, unknown>>;
+    const scope = (await profileFollowScope(fromAddr));
     return found.filter((row) => matchesFollowedMailbox(row, scope)).map((row) => ({
       kolUid: String(row.kol_uid || ""),
       kolName: firstString(row.display_name, row.handle),
@@ -1435,7 +1434,7 @@ async function findProfileByContact(
   fromAddr?: string,
 ): Promise<{ profile: Json; via: "user" } | undefined> {
   if (!email) return undefined;
-  const local = localFollowedProfile(email, fromAddr);
+  const local = (await localFollowedProfile(email, fromAddr));
   const withLocal = (hit: Json | undefined, via: "user"): { profile: Json; via: "user" } | undefined => {
     if (!hit) return undefined;
     if (local && kolUidOf(local) && kolUidOf(hit) && kolUidOf(local) === kolUidOf(hit)) {
@@ -1447,25 +1446,25 @@ async function findProfileByContact(
   const keywords = [email, localPart.length >= 5 && localPart !== email ? localPart : ""].filter(Boolean);
   const fromPage = async () => {
     for (const keyword of keywords) {
-      const run = () => invokeOptional("pageKolProfiles", requestJson({ pageNo: 1, pageSize: 20, keyword }));
+      const run = async () => (await invokeOptional("pageKolProfiles", requestJson({ pageNo: 1, pageSize: 20, keyword })));
       const payload = await run();
-      const hit = pickContactProfile(rows(payload), email, { allowSingle: true, fromAddr });
+      const hit = (await pickContactProfile(rows(payload), email, { allowSingle: true, fromAddr }));
       if (hit) return hit;
     }
     return undefined;
   };
   const fromAll = async () => {
-    const run = () => invokeOptional("listAllKolProfiles", {});
+    const run = async () => (await invokeOptional("listAllKolProfiles", {}));
     const payload = await run();
-    return pickContactProfile(rows(payload), email, { allowSingle: false, fromAddr });
+    return (await pickContactProfile(rows(payload), email, { allowSingle: false, fromAddr }));
   };
   const fromConversations = async () => {
-    const run = () => invokeOptional("pageEmailConversations", {
+    const run = async () => (await invokeOptional("pageEmailConversations", {
       pageNo: 1,
       pageSize: 20,
       keyword: email,
       ...(fromAddr ? { mailboxEmail: fromAddr } : {}),
-    });
+    }));
     const payload = await run();
     const hits = rows(payload).map((row) => conversationProfile(row, email)).filter(Boolean) as Json[];
     if (!hits.length) return undefined;
@@ -1475,20 +1474,20 @@ async function findProfileByContact(
   const fromFollowedDetails = async () => {
     const seen = new Set<string>();
     const candidates: Json[] = [];
-    const push = (row: Json) => {
+    const push = async (row: Json) => {
       const uid = kolUidOf(row);
       if (!uid || seen.has(uid)) return;
-      if (fromAddr && !profileFollowsMailbox(row, fromAddr)) return;
+      if (fromAddr && !(await profileFollowsMailbox(row, fromAddr))) return;
       seen.add(uid);
       candidates.push(row);
     };
-    for (const row of localFollowedCandidates(fromAddr)) push(row);
+    for (const row of (await localFollowedCandidates(fromAddr))) (await push(row));
     const listed = async (tool: "pageKolProfiles" | "listAllKolProfiles", body: Json) => {
-      const run = () => invokeOptional(tool, tool === "pageKolProfiles" ? requestJson(body) : body);
+      const run = async () => (await invokeOptional(tool, tool === "pageKolProfiles" ? requestJson(body) : body));
       const payload = await run();
-      for (const row of rows(payload)) push(row);
+      for (const row of rows(payload)) (await push(row));
     };
-    const ownerName = profileFollowScope(fromAddr).owner_name;
+    const ownerName = (await profileFollowScope(fromAddr)).owner_name;
     await listed("pageKolProfiles", {
       pageNo: 1,
       pageSize: 20,
@@ -1497,10 +1496,10 @@ async function findProfileByContact(
     await listed("listAllKolProfiles", {});
     const matches: Json[] = [];
     for (const row of candidates.slice(0, 20)) {
-      const run = () => invokeOptional("getKolProfileDetail", { kolUid: kolUidOf(row) });
+      const run = async () => (await invokeOptional("getKolProfileDetail", { kolUid: kolUidOf(row) }));
       const detail = await run();
       const merged = { ...row, ...json(detail) };
-      if (pickContactProfile([merged], email, { allowSingle: false, fromAddr })) matches.push(merged);
+      if ((await pickContactProfile([merged], email, { allowSingle: false, fromAddr }))) matches.push(merged);
     }
     return matches.length === 1 ? matches[0] : undefined;
   };
@@ -1516,21 +1515,21 @@ async function findProfileByContact(
   return undefined;
 }
 
-export function describeStarryActor(): Json {
+export async function describeStarryActor(): Promise<Json> {
   const user = scopedUser();
-  const bind = publicStarryBinding(user ? starryBindingRow(user.id) : null);
+  const bind = publicStarryBinding(user ? (await starryBindingRow(user.id)) : null);
   const workbench = user
     ? `${user.name || "未命名"}（${user.handle}${user.email ? `，${user.email}` : ""}）`
     : "未登录（演示会话）";
   const starry = bind.has_token
     ? `个人设置绑定的 Starry 用户 JWT${bind.mailbox_email ? `，发件箱 ${bind.mailbox_email}` : ""}${bind.owner_name ? `，负责人 ${bind.owner_name}` : ""}`
-    : starryKolMcpConfigured()
+    : (await starryKolMcpConfigured())
       ? "管理侧配置的保险柜身份"
       : "未连接 Starry";
   return {
     workbench,
     starry,
-    via: bind.has_token ? "bound_vault" : (starryKolMcpConfigured() ? "configured_vault" : "none"),
+    via: bind.has_token ? "bound_vault" : ((await starryKolMcpConfigured()) ? "configured_vault" : "none"),
     bound_mailbox: bind.mailbox_email,
     bound_owner: bind.owner_name,
     label: `灵工登录是 ${workbench}。Starry 身份是 ${starry}。`,
@@ -1571,7 +1570,7 @@ function composeOpenFields(data: Json): string[] {
   ].filter(Boolean);
 }
 
-function composeNeedsInputSummary(data: Json): string {
+async function composeNeedsInputSummary(data: Json): Promise<string> {
   const error = String(data.error || "");
   const mailbox = firstEmail(data.mailboxEmail || data.from);
   const recipient = composeRecipient(data);
@@ -1592,7 +1591,7 @@ function composeNeedsInputSummary(data: Json): string {
   if (isEmailTakenByOtherKol(error)) {
     const actor = data.starry_actor && typeof data.starry_actor === "object"
       ? data.starry_actor as Json
-      : describeStarryActor();
+      : (await describeStarryActor());
     const owner = firstString(data.profile_owner, data.ownerUserName, data.ownerName);
     const bound = firstEmail(actor.bound_mailbox);
     const alreadyBound = Boolean(mailbox && bound && normalizeEmail(mailbox) === normalizeEmail(bound));
@@ -1895,7 +1894,7 @@ function rowText(row: Json): string {
   return `${name}${details.length ? ` · ${details.join(" · ")}` : ""}`;
 }
 
-export function emailMcpResultCard(task: EmailMcpTask, data: Json): Json {
+export async function emailMcpResultCard(task: EmailMcpTask, data: Json): Promise<Json> {
   if (task === "creator_profile" && !data.needs_input && !String(data.briefing || "").trim()) {
     const facts = profileBriefingFromFacts(data);
     data = {
@@ -1936,7 +1935,7 @@ export function emailMcpResultCard(task: EmailMcpTask, data: Json): Json {
   if (data.error && !composeSent && composeNeeds && !isStaleComposeNeedError(String(data.error))) {
     sections.push({
       title: "说明",
-      items: [task === "email_compose" ? (composeNeedsInputSummary(data) || String(data.error)) : String(data.error)],
+      items: [task === "email_compose" ? ((await composeNeedsInputSummary(data)) || String(data.error)) : String(data.error)],
     });
   }
   if (task === "email_conversation_list" && !items.length && !data.needs_input) {
@@ -2098,15 +2097,15 @@ export function emailMcpResultCard(task: EmailMcpTask, data: Json): Json {
   ].includes(task);
   return {
     type: "task_result",
-    title: composeSent ? "邮件已发送" : title(task),
+    title: composeSent ? "邮件已发送" : (await title(task)),
     summary: composeSent
       ? "邮件已提交发送。往来已写入会话，发送邮件不会修改阶段。"
       : composeNeeds && task === "email_compose"
-      ? composeNeedsInputSummary(data)
+      ? (await composeNeedsInputSummary(data))
       : data.needs_input && task !== "email_compose"
       ? (needsKolInput
         ? missingFieldsMessage(data.missing_fields as unknown[] || [])
-        : composeNeedsInputSummary(data))
+        : (await composeNeedsInputSummary(data)))
       : data.sent
         ? "邮件已提交发送。"
         : data.duplicate
@@ -2153,14 +2152,14 @@ export function emailMcpResultCard(task: EmailMcpTask, data: Json): Json {
       ? (data.recommended_actions as string[])
       : data.needs_input
       ? (needsKolInput ? ["补充达人 UID、负责人或联系邮箱后重试", "查询达人库"] : composeNeedsInputActions(data))
-      : declaredNextActionLabels(task, { hasResults: items.length > 0 || task === "creator_profile" })
+      : (await declaredNextActionLabels(task, { hasResults: items.length > 0 || task === "creator_profile" }))
         ?? (task === "email_conversation_list"
           ? conversationListActions(data, items)
           : task === "creator_contact_decrypt"
             ? ["仅在授权范围内使用联系方式", "查看达人画像"]
           : ["复核结果并选择下一步任务"]),
     skill: task,
-    profile: taskDefinition(task)?.profile || "lead",
+    profile: (await taskDefinition(task))?.profile || "lead",
     starrykol_data: data,
     emailmcp_data: data,
     ...(Array.isArray(data.suggested_follow_tags) ? { suggested_follow_tags: data.suggested_follow_tags } : {}),
@@ -2181,7 +2180,7 @@ export async function executeStarryKolTask(
 }> {
   const operations: Operation[] = [];
   const invoke = async (tool: string, args: Json = {}): Promise<Json> => {
-    const operation: Operation = { name: `starrykol.${tool}`, label: TOOL_LABELS[tool] || title(task), status: "running" };
+    const operation: Operation = { name: `starrykol.${tool}`, label: TOOL_LABELS[tool] || (await title(task)), status: "running" };
     operations.push(operation);
     onOperation?.(operation);
     try {
@@ -2213,7 +2212,7 @@ export async function executeStarryKolTask(
     });
     const nylas = await invoke("listNylasAccounts");
     data = { ...mailboxes, nylas: Array.isArray(nylas.items) ? nylas.items : rows(nylas) };
-    const localOwners = getConn().prepare("SELECT * FROM mailbox_owners ORDER BY brand, email").all() as Json[];
+    const localOwners = (await getConn().query("SELECT * FROM mailbox_owners ORDER BY brand, email",[])).rows as Json[];
     if (localOwners.length) {
       data = {
         ...data,
@@ -2426,9 +2425,7 @@ export async function executeStarryKolTask(
     const summary = await invokeOptional("summarizeRiskConversations", {});
     data = { ...listed, summary: summary.summary || listed.summary, list: rows(listed) };
     if (task === "risk_scan") {
-      const overdue = (getConn()
-        .prepare("SELECT handle, stage_code, days_in_stage, brand FROM collaborations WHERE overdue = 1")
-        .all() as Array<{ handle: string; stage_code: string; days_in_stage: number; brand: string }>)
+      const overdue = ((await getConn().query("SELECT handle, stage_code, days_in_stage, brand FROM collaborations WHERE overdue = 1",[])).rows as Array<{ handle: string; stage_code: string; days_in_stage: number; brand: string }>)
         .map((row) => ({
           ...row,
           stage_label: label(row.stage_code),
@@ -2514,7 +2511,7 @@ export async function executeStarryKolTask(
       const recipient = firstEmail(conversation.recipientEmail || conversation.to || keyword);
       const handle = firstString(entities.handle, profile.kolName, profile.nickname);
       const local = handle
-        ? getConn().prepare("SELECT * FROM collaborations WHERE handle=? OR display_name=?").get(handle, handle) as
+        ? (await getConn().query("SELECT * FROM collaborations WHERE handle=$1 OR display_name=$2",[handle,handle])).rows[0] as
           | { follow_style_tags?: unknown; handle?: string } | undefined
         : undefined;
       const currentTags = readFollowStyleTags(local || {});
@@ -2578,7 +2575,7 @@ export async function executeStarryKolTask(
       let fromAddr = mailboxEmail;
       let profileOwner = "";
       let mailboxAuthorized = false;
-      const actor = describeStarryActor();
+      const actor = (await describeStarryActor());
       const failPayload = (error: string, mailboxAuthorized = false): Json => ({
         needs_input: true,
         missing_fields: failFields(error, mailboxAuthorized),
@@ -2598,21 +2595,21 @@ export async function executeStarryKolTask(
           fromAddr = mailbox.mailboxEmail;
           const listed = rows(await invokeOptional("pageMailboxes", { pageNo: 1, pageSize: 50 }));
           const listedRow = listed.find((row) => sameMailbox(row, fromAddr));
-          const owner = listedRow ? ownerFromMailboxRow(listedRow) : ownerFromBinding(fromAddr);
+          const owner = listedRow ? ownerFromMailboxRow(listedRow) : (await ownerFromBinding(fromAddr));
           mailboxAuthorized = Boolean(listedRow) || Boolean(owner.mailboxEmail);
           const createFailed = (result: Json) =>
             conversationMissingProfile(result)
             || isEmailTakenByOtherKol(resultError(result))
             || !number(result.conversationId || result.id);
           const createOnce = async (uid: string, kolId = 0) => {
-            const run = () => invoke("createEmailConversation", {
+            const run = async () => (await invoke("createEmailConversation", {
               requestJson: JSON.stringify(conversationCreateBody({
                 mailboxEmail: fromAddr,
                 recipientEmail: to[0],
                 ...(kolId ? { kolId } : uid ? { kolUid: uid } : {}),
                 subject,
               })),
-            });
+            }));
             try {
               return await run();
             } catch (error) {
@@ -2677,7 +2674,7 @@ export async function executeStarryKolTask(
               if (addErr && !kolUid) throw Object.assign(new Error(addErr), { taken: added });
               if (!kolUid) {
                 const found = await findProfileByContact(to[0], invokeOptional, fromAddr);
-                if (found) return createFromHit(found);
+                if (found) return await createFromHit(found);
               }
               const next = await createOnce(kolUid, kolIdOf(added));
               if (conversationMissingProfile(next)) {
@@ -2802,13 +2799,13 @@ export async function executeStarryKolTask(
     }
   }
 
-  audit(actor, `starrykol.${task}`, {
+  (await audit(actor, `starrykol.${task}`, {
     task,
     operations: operations.map((item) => item.name),
     sent: Boolean(data.sent),
     write: ["email_compose", "creator_library_sync", "creator_owner_update", "creator_status_update", "creator_contact_decrypt"].includes(task),
     decrypted: Boolean(data.decrypted),
-  });
+  }));
   return { data, operations };
 }
 

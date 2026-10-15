@@ -45,18 +45,16 @@ async function createAndQueueTask(cookie = "") {
   };
 }
 
-function workItemStatus(taskId: string): string {
-  return String((getConn().prepare("SELECT status FROM tickets WHERE id=?").get(taskId) as { status: string }).status);
+async function workItemStatus(taskId: string): Promise<string> {
+  return String(((await getConn().query("SELECT status FROM tickets WHERE id=$1", [taskId])).rows[0] as { status: string }).status);
 }
 
-function runRow(runId: string): { status: string; error: string | null } {
-  return getConn().prepare("SELECT status,error FROM task_runs WHERE id=?").get(runId) as { status: string; error: string | null };
+async function runRow(runId: string): Promise<{ status: string; error: string | null }> {
+  return (await getConn().query("SELECT status,error FROM task_runs WHERE id=$1", [runId])).rows[0] as { status: string; error: string | null };
 }
 
-function taskEvents(taskId: string): TaskEventRow[] {
-  return getConn().prepare(
-    "SELECT event_type,label,status,safe_summary FROM task_events WHERE work_item_id=? ORDER BY sequence",
-  ).all(taskId) as TaskEventRow[];
+async function taskEvents(taskId: string): Promise<TaskEventRow[]> {
+  return (await getConn().query("SELECT event_type,label,status,safe_summary FROM task_events WHERE work_item_id=$1 ORDER BY sequence", [taskId])).rows as TaskEventRow[];
 }
 
 function lastEvent(rows: TaskEventRow[]): TaskEventRow | undefined {
@@ -67,32 +65,32 @@ describe("task run lifecycle honesty", () => {
   beforeEach(async () => {
     await freshTestDatabase();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-task-run-"));
-    process.env.LINGONG_DB = path.join(tmp, "t.db");
+
     process.env.LINGONG_DATA = tmp;
     process.env.CODEX_MODE = "stub";
-    resetConn();
-    resetRunControl();
-    seedAll();
+    await resetConn();
+    (await resetRunControl());
+    await seedAll();
     const { createApp } = await import("../src/app.js");
-    app = createApp();
+    app = (await createApp());
   });
 
-  afterEach(() => {
-    resetRunControl();
-    resetConn();
+  afterEach(async () => {
+    (await resetRunControl());
+    await resetConn();
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
   it("keeps a bound task queued (not running) while it waits behind another run", async () => {
     const { taskId, sessionId, runId, pending } = await createAndQueueTask();
-    markSessionRunning(sessionId);
+    (await markSessionRunning(sessionId));
     const posted = await request("POST", `/api/sessions/${sessionId}/messages`, pending);
     expect(posted.status, posted.text).toBe(202);
     expect(posted.body.queued).toBe(true);
-    expect(publicQueue(sessionId)).toHaveLength(1);
-    expect(workItemStatus(taskId)).toBe("queued");
-    expect(runRow(runId).status).toBe("queued");
-    const rows = taskEvents(taskId);
+    expect((await publicQueue(sessionId))).toHaveLength(1);
+    expect((await workItemStatus(taskId))).toBe("queued");
+    expect((await runRow(runId)).status).toBe("queued");
+    const rows = (await taskEvents(taskId));
     expect(rows.map((row) => row.event_type)).toContain("run.queued");
     expect(rows.map((row) => row.event_type)).not.toContain("run.started");
     const queuedEvent = rows.find((row) => row.event_type === "run.queued");
@@ -102,15 +100,15 @@ describe("task run lifecycle honesty", () => {
 
   it("keeps the bound ticket awaiting action when its queued run is removed", async () => {
     const { taskId, sessionId, runId, pending } = await createAndQueueTask();
-    markSessionRunning(sessionId);
+    (await markSessionRunning(sessionId));
     await request("POST", `/api/sessions/${sessionId}/messages`, pending);
-    const qid = String(publicQueue(sessionId)[0]?.id || "");
+    const qid = String((await publicQueue(sessionId))[0]?.id || "");
     expect(qid).toBeTruthy();
     const removed = await request("DELETE", `/api/sessions/${sessionId}/queue/${qid}`);
     expect(removed.status, removed.text).toBe(200);
-    expect(workItemStatus(taskId)).toBe("waiting");
-    expect(runRow(runId).status).toBe("cancelled");
-    const last = lastEvent(taskEvents(taskId));
+    expect((await workItemStatus(taskId))).toBe("waiting");
+    expect((await runRow(runId)).status).toBe("cancelled");
+    const last = lastEvent((await taskEvents(taskId)));
     expect(last?.event_type).toBe("run.cancelled");
     expect(String(last?.safe_summary || "")).toContain("未执行");
   });
@@ -142,19 +140,19 @@ describe("task run lifecycle honesty", () => {
       expect(login.status, login.text).toBe(200);
       const cookie = login.cookie;
       // 先绑定 Agent，任务才能创建并排队；随后的 ask 才代表「有资格之后被撤权」。
-      const binding = createAgentBinding({
+      const binding = (await createAgentBinding({
         agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
         company_id: "company:amperetime", source: "test",
-      });
-      getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(String(employee.body.id), "person:ye_guanwang");
+      }));
+      (await getConn().query("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", [String(employee.body.id), "person:ye_guanwang"]));
       const { taskId, sessionId, runId, pending } = await createAndQueueTask(cookie);
       // 撤掉 Agent 绑定：ask 必须在任何执行之前被拒绝。
-      revokeAgentBinding(binding.id);
+      (await revokeAgentBinding(binding.id));
       const posted = await request("POST", `/api/sessions/${sessionId}/messages`, pending, cookie);
       expect(posted.status, posted.text).toBe(400);
-      expect(workItemStatus(taskId)).toBe("failed");
-      expect(runRow(runId).status).toBe("failed");
-      const rows = taskEvents(taskId);
+      expect((await workItemStatus(taskId))).toBe("failed");
+      expect((await runRow(runId)).status).toBe("failed");
+      const rows = (await taskEvents(taskId));
       expect(rows.map((row) => row.event_type)).not.toContain("run.started");
       const last = lastEvent(rows);
       expect(last?.event_type).toBe("run.failed");
@@ -170,18 +168,18 @@ describe("task run lifecycle honesty", () => {
     const { taskId, runId } = await createAndQueueTask();
     // Simulate a worker that died with the previous process: the run row was
     // left running with no execution and no terminal event.
-    getConn().prepare("UPDATE task_runs SET status='running',started_at=? WHERE id=?").run(nowIso(), runId);
-    getConn().prepare("UPDATE tickets SET status='running' WHERE id=?").run(taskId);
-    const touched = failInterruptedTaskRuns("Host 重启时该运行仍在执行");
+    (await getConn().query("UPDATE task_runs SET status='running',started_at=$1 WHERE id=$2", [nowIso(), runId]));
+    (await getConn().query("UPDATE tickets SET status='running' WHERE id=$1", [taskId]));
+    const touched = (await failInterruptedTaskRuns("Host 重启时该运行仍在执行"));
     expect(touched).toContain(taskId);
-    expect(workItemStatus(taskId)).toBe("failed");
-    const run = runRow(runId);
+    expect((await workItemStatus(taskId))).toBe("failed");
+    const run = (await runRow(runId));
     expect(run.status).toBe("failed");
     expect(String(run.error || "")).toContain("interrupted");
-    const last = lastEvent(taskEvents(taskId));
+    const last = lastEvent((await taskEvents(taskId)));
     expect(last?.event_type).toBe("run.failed");
     expect(last?.label).toBe("执行被中断");
     expect(String(last?.safe_summary || "")).toContain("未产生结果");
-    expect(failInterruptedTaskRuns("Host 重启时该运行仍在执行")).toEqual([]);
+    expect((await failInterruptedTaskRuns("Host 重启时该运行仍在执行"))).toEqual([]);
   });
 });

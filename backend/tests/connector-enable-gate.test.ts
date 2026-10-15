@@ -52,11 +52,9 @@ async function verifiedConnector(id: string): Promise<void> {
   expect(created.status, JSON.stringify(created.body)).toBe(201);
   const verified = await call("PATCH", `/api/admin/connectors/${id}`, { status: "verified" });
   expect(verified.status).toBe(200);
-  setConnectorConfig(id, { url: "https://fixture.example/mcp", allow_unauthenticated: true }, 0);
+  (await setConnectorConfig(id, { url: "https://fixture.example/mcp", allow_unauthenticated: true }, 0));
   await call("GET", `/api/admin/runtime/connectors/${id}/activity`);
-  getConn().prepare(`INSERT INTO runtime_connector_probes
-    (connector_id,config_version,actor_id,checked_at,status,probe_kind,tool_count,duration_ms,error_code)
-    VALUES(?,1,'admin','now','succeeded','mcp_tools_list',1,1,NULL)`).run(id);
+  (await getConn().query("INSERT INTO runtime_connector_probes\n    (connector_id,config_version,actor_id,checked_at,status,probe_kind,tool_count,duration_ms,error_code)\n    VALUES($1,1,'admin','now','succeeded','mcp_tools_list',1,1,NULL)",[id]));
 }
 
 async function bindTool(id: string, toolName = "list_records"): Promise<void> {
@@ -78,9 +76,9 @@ beforeEach(async () => {
   process.env.CODEX_MODE = "real";
   process.env.AUTH_MODE = "enabled";
   process.env.NODE_ENV = "test";
-  resetConn();
+  (await resetConn());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
   const setup = await app.request("/api/auth/setup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -91,8 +89,8 @@ beforeEach(async () => {
   expect(adminCookie).toBeTruthy();
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
   delete process.env.LINGONG_DB;
@@ -103,24 +101,29 @@ afterEach(() => {
 });
 
 describe("connector enable gate follows Skill bindings only", () => {
+  it("requires a boolean enabled flag so numeric 0 cannot silently change connector state", async () => {
+    const created = await call("POST", "/api/admin/connectors", { id: "gate_boolean", label: "Gate Boolean", purpose: "启用门禁用例" });
+    expect(created.status).toBe(201);
+    const invalid = await call("PATCH", "/api/admin/connectors/gate_boolean", { enabled: 0 });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body).toMatchObject({ detail: { code: "connector_enabled_must_be_boolean" } });
+  });
   it("requires a version-matched directory probe and Skill mount for MediaCrawler", async () => {
     const id = "gate_hostcrawler";
     await verifiedConnector(id);
     process.env.MEDIACRAWLER_MCP_URL = "https://crawler.example/mcp";
-    configureCrawlerFixture("https://crawler.example/mcp");
-    setConnectorConfig(id, { url: process.env.MEDIACRAWLER_MCP_URL, allow_unauthenticated: true }, 1);
+    (await configureCrawlerFixture("https://crawler.example/mcp"));
+    (await setConnectorConfig(id, { url: process.env.MEDIACRAWLER_MCP_URL, allow_unauthenticated: true }, 1));
     const saved = await call("GET", `/api/admin/runtime/connectors/${id}/config`);
     expect(saved.body).toMatchObject({ version: 2 });
     expect(saved.body).not.toHaveProperty("probe_mode");
     await setEnabled(id, 409, "connector_verification_required");
     expect((await call("GET", `/api/admin/runtime/connectors/${id}/activity`)).status).toBe(200);
-    getConn().prepare(`INSERT INTO runtime_connector_probes
-      (connector_id,config_version,actor_id,checked_at,status,probe_kind,tool_count,duration_ms,error_code)
-      VALUES(?,2,'admin','now','succeeded','mcp_tools_list',1,100,NULL)`).run(id);
+    (await getConn().query("INSERT INTO runtime_connector_probes\n      (connector_id,config_version,actor_id,checked_at,status,probe_kind,tool_count,duration_ms,error_code)\n      VALUES($1,2,'admin','now','succeeded','mcp_tools_list',1,100,NULL)",[id]));
     await setEnabled(id, 409, "connector_skill_binding_required");
     await bindTool(id);
     await setEnabled(id, 200);
-    setConnectorConfig(id, { url: process.env.MEDIACRAWLER_MCP_URL, allow_unauthenticated: true }, 2);
+    (await setConnectorConfig(id, { url: process.env.MEDIACRAWLER_MCP_URL, allow_unauthenticated: true }, 2));
     await setEnabled(id, 409, "connector_verification_required");
   });
 

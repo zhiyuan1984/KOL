@@ -3,17 +3,17 @@ import { persistIncrement } from "./employee-memory.js";
 import { parseTodayTaskResults, writeTodayTaskResults } from "./today-tasks.js";
 import type { PlanScope } from "./today-plan-context.js";
 
-export function persistTodayDisplayFromBrief(input: {
+export async function persistTodayDisplayFromBrief(input: {
   owner: string;
   workItemId: string;
   runId: string | null;
   brief: unknown;
   scope?: PlanScope;
-}): { ok: true } | { ok: false; reason: string } {
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
   const scope = input.scope ?? "today";
   const parsed = parseTodayTaskResults(input.brief);
   if (!parsed) return { ok: false, reason: "规划结果缺少有效的任务展示列表" };
-  const written = writeTodayTaskResults({
+  const written = await writeTodayTaskResults({
     owner: input.owner,
     workItemId: input.workItemId,
     runId: input.runId,
@@ -21,7 +21,7 @@ export function persistTodayDisplayFromBrief(input: {
     scope,
   });
   if (!written.ok) return written;
-  persistIncrement({
+  await persistIncrement({
     owner: input.owner,
     family: scope === "todo" ? "todo" : "task",
     layer: "display",

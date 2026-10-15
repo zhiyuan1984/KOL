@@ -7,7 +7,7 @@ import { normalizeMcpContent } from "../src/mcp/remote.js";
 import "../src/crawl/runtime-gates.js";
 
 const taskId = process.argv.find(arg => arg.startsWith("--task-id="))?.slice(10);
-const client = createMediaCrawlerClient();
+const client = (await createMediaCrawlerClient());
 let runtime: SkillExecution | undefined;
 try {
   const tools = await client.listTools();
@@ -31,4 +31,4 @@ try {
   }
 } catch {
   console.error("Discovery contract inspection failed; no remote data logged"); process.exitCode = 1;
-} finally { runtime?.close(); await client.close(); await closePostgresPool(); getConn().close(); }
+} finally { runtime?.close(); await client.close(); await closePostgresPool(); (await closePostgresPool()); }

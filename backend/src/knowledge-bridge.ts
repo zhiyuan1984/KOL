@@ -48,10 +48,10 @@ function argValues(args: string[], flag: string): string[] {
 
 /** 侧车调用：spawn → stdout 单行 JSON；超时/取消杀进程；进程级失败映射稳定错误码。 */
 export async function runBridge(call: BridgeCall): Promise<BridgeOutcome> {
-  if (bridgeMode() === "stub") return await runStub(call);
+  if (bridgeMode() === "stub") return runStub(call);
   const python = String(process.env.KNOWLEDGE_PAGEINDEX_PYTHON || "python");
   const timeoutMs = call.timeoutMs || 30 * 60_000;
-  return await new Promise<BridgeOutcome>((resolve, reject) => {
+  return new Promise<BridgeOutcome>((resolve, reject) => {
     let settled = false;
     const child = spawn(python, [BRIDGE_SCRIPT, call.cmd, ...call.args], {
       cwd: call.cwd || path.dirname(BRIDGE_SCRIPT),

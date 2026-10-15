@@ -21,8 +21,8 @@ import { PLANNING_TASK_TYPES, PLANNING_TASK_TYPES_SET, TODO_EXCLUDED_TASK_TYPES 
  */
 export type TaskDefinitionIndex = Map<string, TaskDefinition>;
 
-export function taskDefinitionIndex(): TaskDefinitionIndex {
-  return new Map(taskDefinitions().map((definition) => [definition.id, definition]));
+export async function taskDefinitionIndex(): Promise<Awaited<TaskDefinitionIndex>> {
+  return new Map((await taskDefinitions()).map((definition) => [definition.id, definition]));
 }
 
 /** Board list caps: the projection is an overview, not the full archive. */
@@ -480,10 +480,10 @@ export function normalizePriority(value: unknown): string | null {
 }
 
 export function todayDateStr(): string {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${month}-${day}`;
+  // Business dates remain Beijing dates even after migration to a UTC host.
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
 }
 
 /** Date part of a stored date/datetime string; "" when absent or unparseable. */
@@ -549,7 +549,9 @@ export function displayStatusOf(task: {
 /** Recommended-task rows kept on the board; a presentation budget, not a business rule. */
 export const MAX_RECOMMENDED_TASKS = 8;
 
-function recPrompt(intent: string, handle: string, stage = "", definitions = taskDefinitionIndex()): string {
+async function recPrompt(intent: string, handle: string, stage = "", definitions?: TaskDefinitionIndex): Promise<Awaited<string>> {
+if (definitions === undefined) definitions = (await taskDefinitionIndex());
+
   const definition = definitions.get(intent);
   if (intent === "email_compose") {
     return handle
@@ -560,7 +562,9 @@ function recPrompt(intent: string, handle: string, stage = "", definitions = tas
   return handle ? `${title} @${handle}` : title;
 }
 
-function recTitle(intent: string, handle: string, days?: number, stage = "", definitions = taskDefinitionIndex()): string {
+async function recTitle(intent: string, handle: string, days?: number, stage = "", definitions?: TaskDefinitionIndex): Promise<Awaited<string>> {
+if (definitions === undefined) definitions = (await taskDefinitionIndex());
+
   const who = handle ? `@${handle}` : "这位红人";
   const stay = Number(days) > 0 ? `停留 ${days} 天的 ` : "";
   if (intent === "email_compose") return `给${stay}${who} ${stageMailAction(handle, stage).label}`;
@@ -570,7 +574,9 @@ function recTitle(intent: string, handle: string, days?: number, stage = "", def
   return `给 ${who} ${verb}`;
 }
 
-function insightIntent(task: Json, kol?: Json, definitions = taskDefinitionIndex()): string | null {
+async function insightIntent(task: Json, kol?: Json, definitions?: TaskDefinitionIndex): Promise<Awaited<string | null>> {
+if (definitions === undefined) definitions = (await taskDefinitionIndex());
+
   const type = String(task.skill || task.skill_id || task.task_type || "");
   if (definitions.has(type)) return type;
   if (kol?.unbound) return "creator_profile";
@@ -626,7 +632,9 @@ function decorateRecommended(row: Json, index: number): Json {
   };
 }
 
-export function buildRecommendedTasks(tasks: Json[], kols: Json[], definitions = taskDefinitionIndex()): Json[] {
+export async function buildRecommendedTasks(tasks: Json[], kols: Json[], definitions?: TaskDefinitionIndex): Promise<Awaited<Json[]>> {
+if (definitions === undefined) definitions = (await taskDefinitionIndex());
+
   const insights = tasks.filter((task) => (
     isInsightWorkItem(task)
     || (String(task.source || "") === "ai" && Boolean(task.promoted_at) && !isClosedWorkItem(task) && !task.dismissed_at)
@@ -651,12 +659,12 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[], definitions =
     const snippet = String(unread.last_snippet || "").replace(/\s+/g, " ").trim();
     take({
       id: `rec-mail-${kol.id}`,
-      title: recTitle("reply_analysis", handle, undefined, "", definitions),
+      title: await recTitle("reply_analysis", handle, undefined, "", definitions),
       reason: snippet ? `${snippet.slice(0, 48)}${snippet.length > 48 ? "…" : ""} · 待判断` : "有未读来信，先做回复分析",
       source: "ai",
       source_label: "今天推荐",
       intent: "reply_analysis",
-      prompt: recPrompt("reply_analysis", handle, "", definitions),
+      prompt: await recPrompt("reply_analysis", handle, "", definitions),
       handle,
       collaboration_id: kol.id,
     }, handle);
@@ -672,19 +680,19 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[], definitions =
     if (picked.length >= MAX_RECOMMENDED_TASKS) break;
     const handle = bareHandle(task.kol_name || (task.entities as { handle?: unknown } | undefined)?.handle);
     const kol = kolByHandle.get(handle);
-    const intent = insightIntent(task, kol, definitions);
+    const intent = await insightIntent(task, kol, definitions);
     if (!intent) continue;
     const days = Number(kol?.days_in_stage || 0);
     const reason = String(task.risk || task.history_summary || task.description || task.context || "").trim()
       || (days ? `停留 ${days} 天，建议跟进` : "系统注意到信号，确认后才进待办");
     take({
       id: `rec-ai-${task.id}`,
-      title: recTitle(intent, handle, days, String(kol?.stage_code || ""), definitions),
+      title: await recTitle(intent, handle, days, String(kol?.stage_code || ""), definitions),
       reason,
       source: "ai",
       source_label: "今天推荐",
       intent,
-      prompt: recPrompt(intent, handle, String(kol?.stage_code || ""), definitions),
+      prompt: await recPrompt(intent, handle, String(kol?.stage_code || ""), definitions),
       handle,
       collaboration_id: task.collaboration_id || kol?.id || null,
     }, handle);
@@ -697,12 +705,12 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[], definitions =
     if (kol.unbound) {
       take({
         id: `rec-stage-${kol.id}`,
-        title: recTitle("creator_profile", handle, undefined, "", definitions),
+        title: await recTitle("creator_profile", handle, undefined, "", definitions),
         reason: "尚未进入生命周期",
         source: "stage",
         source_label: "按阶段",
         intent: "creator_profile",
-        prompt: recPrompt("creator_profile", handle, "", definitions),
+        prompt: await recPrompt("creator_profile", handle, "", definitions),
         handle,
         collaboration_id: null,
       }, handle);
@@ -712,12 +720,12 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[], definitions =
       const notes = String(kol.notes || "").trim();
       take({
         id: `rec-stage-${kol.id}`,
-        title: recTitle("risk_scan", handle, undefined, "", definitions),
+        title: await recTitle("risk_scan", handle, undefined, "", definitions),
         reason: [notes, "需人选回到主流程"].filter(Boolean).join(" · "),
         source: "stage",
         source_label: "按阶段",
         intent: "risk_scan",
-        prompt: recPrompt("risk_scan", handle, "", definitions),
+        prompt: await recPrompt("risk_scan", handle, "", definitions),
         handle,
         collaboration_id: kol.id,
       }, handle);
@@ -727,12 +735,12 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[], definitions =
     const intent = "email_compose";
     take({
       id: `rec-stage-${kol.id}`,
-      title: recTitle(intent, handle, Number(kol.days_in_stage || 0), String(kol.stage_code || ""), definitions),
+      title: await recTitle(intent, handle, Number(kol.days_in_stage || 0), String(kol.stage_code || ""), definitions),
       reason: `停留 ${kol.days_in_stage} 天 · 所处 ${String(kol.stage_label || "").trim() || "当前阶段"}`,
       source: "stage",
       source_label: "按阶段",
       intent,
-      prompt: recPrompt(intent, handle, String(kol.stage_code || ""), definitions),
+      prompt: await recPrompt(intent, handle, String(kol.stage_code || ""), definitions),
       handle,
       collaboration_id: kol.id,
     }, handle);
@@ -747,14 +755,14 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[], definitions =
     const days = Number(kol.days_in_stage || 0);
     take({
       id: `rec-stage-${kol.id}`,
-      title: recTitle(intent, handle, days || undefined, String(kol.stage_code || ""), definitions),
+      title: await recTitle(intent, handle, days || undefined, String(kol.stage_code || ""), definitions),
       reason: days
         ? `停留 ${days} 天 · 所处 ${String(kol.stage_label || "").trim() || "当前阶段"}`
         : `${String(kol.stage_label || "当前阶段")}，可以继续跟进`,
       source: "stage",
       source_label: "按阶段",
       intent,
-      prompt: recPrompt(intent, handle, String(kol.stage_code || ""), definitions),
+      prompt: await recPrompt(intent, handle, String(kol.stage_code || ""), definitions),
       handle,
       collaboration_id: kol.id,
     }, handle);
@@ -773,7 +781,7 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[], definitions =
       source: "catalog",
       source_label: "任务模板",
       intent: definition.id,
-      prompt: recPrompt(definition.id, "", "", definitions),
+      prompt: await recPrompt(definition.id, "", "", definitions),
       handle: "",
       collaboration_id: null,
       act: "ask",
@@ -821,7 +829,9 @@ export function followReleaseTimer(lastInteractionAt?: string | null): {
   };
 }
 
-export function buildWorkbench(tasks: Json[], kols: Json[], definitions = taskDefinitionIndex()): Json {
+export async function buildWorkbench(tasks: Json[], kols: Json[], definitions?: TaskDefinitionIndex): Promise<Awaited<Json>> {
+if (definitions === undefined) definitions = (await taskDefinitionIndex());
+
   const open = tasks.filter((task) => isOpenWorkItem(task)).map((task) => ({ ...task } as Json));
   const todo = tasks.filter((task) => isTodoWorkItem(task)).map((task) => ({ ...task, candidate: false } as Json));
   const insights = tasks.filter((task) => isInsightWorkItem(task)).map((task) => ({ ...task, candidate: true } as Json));
@@ -844,7 +854,7 @@ export function buildWorkbench(tasks: Json[], kols: Json[], definitions = taskDe
     todo: capped(todo, MAX_WORKBENCH_TASKS).map(slimWorkbenchTask),
     today: capped(today, MAX_WORKBENCH_TASKS).map(slimWorkbenchTask),
     insights: capped(insights, MAX_WORKBENCH_TASKS).map(slimWorkbenchTask),
-    recommendations: buildRecommendedTasks(tasks, kols, definitions),
+    recommendations: await buildRecommendedTasks(tasks, kols, definitions),
   };
 }
 
@@ -856,23 +866,20 @@ function taskMatchesKol(task: Json, kol: { id: string; handle: string }): boolea
   return title.includes(`@${kol.handle}`) || title.includes(kol.handle);
 }
 
-export function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}): Json {
+export async function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}): Promise<Json> {
   const conn = getConn();
   const owner = ownerId();
-  const followScope = currentFollowScope();
-  const definitions = taskDefinitionIndex();
-  const ownershipByUid=new Map((conn.prepare(`SELECT o.kol_uid,o.owner_open_id,o.owner_mailbox FROM starry_profile_ownership o
-    JOIN starry_ownership_sync_state health ON health.company_id=o.company_id AND health.state='ready' WHERE o.company_id=?`).all(memoryCompanyId()) as Row[])
+  const followScope = (await currentFollowScope());
+  const definitions = (await taskDefinitionIndex());
+  const ownershipByUid=new Map(((await conn.query("SELECT o.kol_uid,o.owner_open_id,o.owner_mailbox FROM starry_profile_ownership o\n    JOIN starry_ownership_sync_state health ON health.company_id=o.company_id AND health.state='ready' WHERE o.company_id=$1",[memoryCompanyId()])).rows as Row[])
     .map(row=>[String(row.kol_uid),row]));
-  const collabs = (conn.prepare(
-    "SELECT * FROM collaborations WHERE kol_uid IS NOT NULL AND trim(kol_uid) != '' ORDER BY display_name",
-  ).all() as Row[]).filter((row) => {
+  const collabs = ((await conn.query("SELECT * FROM collaborations WHERE kol_uid IS NOT NULL AND trim(kol_uid) != '' ORDER BY display_name",[])).rows as Row[]).filter((row) => {
     if (!followScope.required) return true;
     if (!followScope.bound || followScope.status === "expired") return false;
     const ownership=ownershipByUid.get(String(row.kol_uid));
     return matchesFollowedMailbox({...row,owner_open_id:ownership?.owner_open_id,verified_owner_mailbox:ownership?.owner_mailbox,ownership_source_ready:Boolean(ownership)}, followScope);
   });
-  const allCollabs = conn.prepare("SELECT * FROM collaborations").all() as Row[];
+  const allCollabs = (await conn.query("SELECT * FROM collaborations",[])).rows as Row[];
   // A creator can have more than one Collaboration. Keep the count in the
   // home projection so the assistant can describe the relationship without
   // leaking internal IDs into the employee surface.
@@ -882,28 +889,31 @@ export function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}
     if (!key) continue;
     collaborationCounts.set(key, (collaborationCounts.get(key) || 0) + 1);
   }
-  if (options.restoreOfficialStages !== false) restoreOfficialCollaborationStages([...allCollabs, ...collabs]);
-  const creators = conn.prepare("SELECT * FROM claw_creators ORDER BY name").all() as Row[];
+  if (options.restoreOfficialStages !== false) (await restoreOfficialCollaborationStages([...allCollabs, ...collabs]));
+  const creators = (await conn.query("SELECT * FROM claw_creators ORDER BY name",[])).rows as Row[];
   const creatorByHandle = new Map(creators.map((row) => [String(row.handle || row.name || ""), row]));
 
-  const planningTypePlaceholders = PLANNING_TASK_TYPES.map(() => "?").join(",");
-  const taskRows = conn.prepare(
+  const taskRows = (await conn.query<Row>(
     `SELECT ${HOME_BOARD_TICKET_COLUMNS},
-            CASE WHEN task_type IN (${planningTypePlaceholders}) THEN '{}' ELSE input END AS input
-       FROM tickets WHERE owner_user_id=? ORDER BY updated_at DESC`,
-  ).all(...PLANNING_TASK_TYPES, owner) as Row[];
+            CASE WHEN task_type = ANY($1::text[]) THEN '{}'::text ELSE input END AS input
+       FROM tickets
+       WHERE owner_user_id = $2
+       ORDER BY updated_at DESC`,
+    [PLANNING_TASK_TYPES, owner],
+  )).rows;
   const taskIds = taskRows.map((row) => String(row.id));
   const lastEventByTask = new Map<string, Row>();
   if (taskIds.length) {
-    const placeholders = taskIds.map(() => "?").join(",");
-    const eventRows = conn.prepare(
+    const eventRows = (await conn.query<Row>(
       `SELECT te.* FROM task_events te
        INNER JOIN (
          SELECT work_item_id, MAX(sequence) AS sequence
-         FROM task_events WHERE work_item_id IN (${placeholders})
+         FROM task_events
+         WHERE work_item_id = ANY($1::text[])
          GROUP BY work_item_id
        ) last ON last.work_item_id = te.work_item_id AND last.sequence = te.sequence`,
-    ).all(...taskIds) as Row[];
+      [taskIds],
+    )).rows;
     for (const event of eventRows) lastEventByTask.set(String(event.work_item_id), event);
   }
 
@@ -953,18 +963,20 @@ export function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}
   const collabIds = collabs.map((row) => String(row.id));
   const sessionByCollab = new Map<string, string>();
   if (collabIds.length) {
-    const placeholders = collabIds.map(() => "?").join(",");
-    const sessionRows = conn.prepare(
+    const sessionRows = (await conn.query<{ collaboration_id: string; id: string }>(
       `SELECT collaboration_id, id FROM sessions
-       WHERE collaboration_id IN (${placeholders}) AND deleted_at IS NULL AND archived_at IS NULL
+       WHERE collaboration_id = ANY($1::text[])
+         AND deleted_at IS NULL
+         AND archived_at IS NULL
        ORDER BY updated_at DESC`,
-    ).all(...collabIds) as { collaboration_id: string; id: string }[];
+      [collabIds],
+    )).rows;
     for (const row of sessionRows) {
       const id = String(row.collaboration_id);
       if (!sessionByCollab.has(id)) sessionByCollab.set(id, String(row.id));
     }
   }
-  const mailByCollab = threadsByCollaborationIds(collabIds);
+  const mailByCollab = await threadsByCollaborationIds(collabIds);
 
   const kols: Json[] = [];
   for (const row of collabs) {
@@ -1070,7 +1082,7 @@ export function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}
 
   // Recommendations read the whole per-kol thread list above; the emitted board
   // caps it only now, so no board logic ever sees the truncated array.
-  const workbench = buildWorkbench(decoratedTasks, kols, definitions);
+  const workbench = await buildWorkbench(decoratedTasks, kols, definitions);
   for (const kol of kols) {
     kol.mail_threads = capped(mailThreadsOf(kol), MAX_KOL_MAIL_THREADS);
   }

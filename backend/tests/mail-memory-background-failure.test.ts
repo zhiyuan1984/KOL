@@ -14,10 +14,10 @@ describe("detached mail memory failure", () => {
     let finish!: (rows: never[]) => void;
     const pending = new Promise<never[]>(resolve => { finish = resolve; });
     const query = vi.spyOn(pool, "postgresQuery").mockReturnValue(pending);
-    triggerMailMemoryIncrement("background-failure-test");
+    (await triggerMailMemoryIncrement("background-failure-test"));
     await vi.waitFor(() => expect(query).toHaveBeenCalledOnce());
     expect(syncAudit).not.toHaveBeenCalled();
-    triggerMailMemoryIncrement("background-failure-test");
+    (await triggerMailMemoryIncrement("background-failure-test"));
     expect(query).toHaveBeenCalledOnce();
     expect(query.mock.calls[0][1]?.[2]).toBe("mail_memory.increment_failed");
     finish([]);
@@ -30,9 +30,9 @@ describe("detached mail memory failure", () => {
     vi.spyOn(db, "getConn").mockImplementation(() => { throw new Error("database unavailable"); });
     const query = vi.spyOn(pool, "postgresQuery").mockRejectedValue(new Error("audit database unavailable"));
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
-    triggerMailMemoryIncrement("background-audit-failure-test");
+    (await triggerMailMemoryIncrement("background-audit-failure-test"));
     await vi.waitFor(() => expect(log).toHaveBeenCalledOnce());
-    triggerMailMemoryIncrement("background-audit-failure-test");
+    (await triggerMailMemoryIncrement("background-audit-failure-test"));
     await vi.waitFor(() => expect(log).toHaveBeenCalledTimes(2));
     expect(query).toHaveBeenCalledTimes(2);
     expect(log.mock.calls[0]).toEqual(["[mail-memory] increment failed; failure audit unavailable"]);

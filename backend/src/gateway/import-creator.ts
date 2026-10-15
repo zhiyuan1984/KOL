@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { starryKolMcpConfigured } from "../starrykol/connection.js";
 /**
  * Gateway：import_creator（ADR-022 / policies/import_creator.yaml）。
@@ -8,7 +9,7 @@ import {
   codexMode,
   liveRemoteSideEffectsEnabled,
 } from "../config.js";
-import { audit } from "../db.js";
+import { postgresPool } from "../postgres/pool.js";
 import { sanitizeSecret } from "../discovery-errors.js";
 import {
   employeeImportError,
@@ -61,8 +62,15 @@ const STARRY_LOOKUP_TIMEOUT_MS = 100_000;
 const STARRY_KEYWORD_LOOKUP_MS = 20_000;
 const STARRY_LISTALL_LOOKUP_MS = 60_000;
 
+async function audit(actor: string, eventType: string, payload: Json): Promise<void> {
+  await postgresConnection().query(
+    "INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)",
+    [new Date().toISOString(), actor === "usr_sriphy" ? "sriphy" : actor, eventType, JSON.stringify(payload)],
+  );
+}
+
 export async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timer: Awaited<ReturnType<typeof setTimeout>> | undefined;
   try {
     return await Promise.race([
       operation,
@@ -209,7 +217,7 @@ async function safeStarryList(tool: string, args: Json, actor: string): Promise<
   try {
     return await callStarryKolTool(tool, args);
   } catch (error) {
-    audit(actor, "host.find_existing_kol_uid.failed", {
+    await audit(actor, "host.find_existing_kol_uid.failed", {
       tool,
       reason: isStarryTimeout(error) ? "timeout" : "failed",
       retried: false,
@@ -269,10 +277,10 @@ export async function lookupImportedKolUid(input: {
 
 export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreatorInput): Promise<Json> {
   const { rejectDiscoveryHarnessTool } = await import("./discovery-harness.js");
-  rejectDiscoveryHarnessTool("importKolProfilesFromCrawler");
+  (await rejectDiscoveryHarnessTool("importKolProfilesFromCrawler"));
   const actor = input.actor || "host";
   if (codexMode() !== "stub") {
-    if (!liveRemoteSideEffectsEnabled() || !starryKolMcpConfigured()) {
+    if (!liveRemoteSideEffectsEnabled() || !(await starryKolMcpConfigured())) {
       throw new HttpFail(409, {
         code: "import_creator_live_disabled",
         message: "当前未开启主档写入，无法加入跟进。",
@@ -290,16 +298,16 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
   let lookedUpAfterTimeout = false;
   try {
     data = await withTimeout(
-      callStarryKolTool(IMPORT_CREATOR_TOOL, {
+      (callStarryKolTool(IMPORT_CREATOR_TOOL, {
         fileName: input.file.fileName,
         fileBase64: input.file.fileBase64,
-      }, { timeoutMs: STARRY_IMPORT_TIMEOUT_MS }),
+      }, { timeoutMs: STARRY_IMPORT_TIMEOUT_MS })),
       STARRY_IMPORT_TIMEOUT_MS,
       "importKolProfilesFromCrawler",
     );
   } catch (error) {
     if (isStarryTimeout(error)) {
-      audit(actor, "host.import_creator.timeout_lookup", {
+      await audit(actor, "host.import_creator.timeout_lookup", {
         policy: IMPORT_CREATOR_POLICY,
         tool: "pageKolProfiles",
         source_batch: input.sourceBatch,
@@ -310,10 +318,10 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
       });
       try {
         const found = await withTimeout(
-          lookupImportedKolUid({
+          (lookupImportedKolUid({
             keyword: input.lookupKeyword,
             creatorExternalId: input.creatorExternalId,
-          }),
+          })),
           STARRY_LOOKUP_TIMEOUT_MS,
           "pageKolProfiles",
         );
@@ -330,7 +338,7 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
           });
         }
       } catch (lookupError) {
-        audit(actor, "host.import_creator.failed", {
+        await audit(actor, "host.import_creator.failed", {
           policy: IMPORT_CREATOR_POLICY, tool: "pageKolProfiles/listAllKolProfiles",
           source_batch: input.sourceBatch, creator_external_id: input.creatorExternalId,
           candidate_id: input.candidateId || null, error_detail: sanitizeSecret(lookupError), retried_import: false,
@@ -345,7 +353,7 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
         });
       }
     } else {
-      audit(actor, "host.import_creator.failed", {
+      await audit(actor, "host.import_creator.failed", {
         policy: IMPORT_CREATOR_POLICY,
         tool: IMPORT_CREATOR_TOOL,
         source_batch: input.sourceBatch,
@@ -371,7 +379,7 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
     ? echoed
     : (isRealKolUid(input.knownKolUid) ? String(input.knownKolUid).trim() : "");
   if (!isRealKolUid(kolUid)) {
-    audit(actor, "host.import_creator.failed", {
+    await audit(actor, "host.import_creator.failed", {
       policy: IMPORT_CREATOR_POLICY,
       tool: IMPORT_CREATOR_TOOL,
       source_batch: input.sourceBatch,
@@ -390,7 +398,7 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
       policy: IMPORT_CREATOR_POLICY,
     });
   }
-  audit(actor, "host.import_creator", {
+  await audit(actor, "host.import_creator", {
     policy: IMPORT_CREATOR_POLICY,
     tool: IMPORT_CREATOR_TOOL,
     source_batch: input.sourceBatch,
@@ -424,10 +432,10 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
  */
 export async function addKolProfileConfirmed(input: AddKolProfileInput): Promise<Json> {
   const { rejectDiscoveryHarnessTool } = await import("./discovery-harness.js");
-  rejectDiscoveryHarnessTool(ADD_KOL_PROFILE_TOOL);
+  (await rejectDiscoveryHarnessTool(ADD_KOL_PROFILE_TOOL));
   const actor = input.actor || "host";
   if (codexMode() !== "stub") {
-    if (!liveRemoteSideEffectsEnabled() || !starryKolMcpConfigured()) {
+    if (!liveRemoteSideEffectsEnabled() || !(await starryKolMcpConfigured())) {
       throw new HttpFail(409, {
         code: "import_creator_live_disabled",
         message: "当前未开启主档写入，无法加入跟进。",
@@ -465,15 +473,15 @@ export async function addKolProfileConfirmed(input: AddKolProfileInput): Promise
   let data: Json;
   try {
     data = await withTimeout(
-      callStarryKolTool(ADD_KOL_PROFILE_TOOL, {
+      (callStarryKolTool(ADD_KOL_PROFILE_TOOL, {
         requestJson: JSON.stringify(body),
-      }, { timeoutMs: STARRY_IMPORT_TIMEOUT_MS }),
+      }, { timeoutMs: STARRY_IMPORT_TIMEOUT_MS })),
       STARRY_IMPORT_TIMEOUT_MS,
       "addKolProfile",
     );
   } catch (error) {
     const reason = isStarryTimeout(error) ? "timeout" : "failed";
-    audit(actor, "host.add_kol_profile.failed", {
+    await audit(actor, "host.add_kol_profile.failed", {
       policy: IMPORT_CREATOR_POLICY,
       tool: ADD_KOL_PROFILE_TOOL,
       source_batch: input.sourceBatch,
@@ -501,7 +509,7 @@ export async function addKolProfileConfirmed(input: AddKolProfileInput): Promise
   }
   const kolUid = parseImportedKolUid(data);
   if (!isRealKolUid(kolUid)) {
-    audit(actor, "host.add_kol_profile.failed", {
+    await audit(actor, "host.add_kol_profile.failed", {
       policy: IMPORT_CREATOR_POLICY,
       tool: ADD_KOL_PROFILE_TOOL,
       source_batch: input.sourceBatch,
@@ -519,7 +527,7 @@ export async function addKolProfileConfirmed(input: AddKolProfileInput): Promise
       policy: IMPORT_CREATOR_POLICY,
     });
   }
-  audit(actor, "host.add_kol_profile", {
+  await audit(actor, "host.add_kol_profile", {
     policy: IMPORT_CREATOR_POLICY,
     tool: ADD_KOL_PROFILE_TOOL,
     source_batch: input.sourceBatch,

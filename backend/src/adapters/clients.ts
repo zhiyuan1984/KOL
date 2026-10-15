@@ -16,14 +16,14 @@ export const starry = {
   dictionaryOptions(parentKey: string): Json[] {
     return mockStarry.dictionaryOptions(parentKey);
   },
-  confirmStage(lifecycleId: string, stageCode: string, actor = "host", transition?: StageTransitionInput): Json {
-    return mockStarry.confirmStage(lifecycleId, { stage_code: stageCode, actor, transition });
+  async confirmStage(lifecycleId: string, stageCode: string, actor = "host", transition?: StageTransitionInput): Promise<Awaited<Json>> {
+    return (await mockStarry.confirmStage(lifecycleId, { stage_code: stageCode, actor, transition }));
   },
-  sendConversation(conversationId: string, payload: Json): Json {
-    return mockStarry.sendConversation(conversationId, payload);
+  async sendConversation(conversationId: string, payload: Json): Promise<Awaited<Json>> {
+    return (await mockStarry.sendConversation(conversationId, payload));
   },
-  translateZh(payload: Json): Json {
-    return mockStarry.translateZh(payload);
+  async translateZh(payload: Json): Promise<Awaited<Json>> {
+    return (await mockStarry.translateZh(payload));
   },
 };
 
@@ -40,17 +40,17 @@ export const claw = {
   health(): Json {
     return mockClaw.health();
   },
-  listCreators(): Json[] {
-    return mockClaw.listCreators();
+  async listCreators(): Promise<Awaited<Json[]>> {
+    return (await mockClaw.listCreators());
   },
-  getCreator(cid: string): Json | null {
-    return mockClaw.getCreator(cid);
+  async getCreator(cid: string): Promise<Awaited<Json | null>> {
+    return (await mockClaw.getCreator(cid));
   },
-  outreachScript(cid: string): Json {
-    return mockClaw.outreachScript(cid);
+  async outreachScript(cid: string): Promise<Awaited<Json>> {
+    return (await mockClaw.outreachScript(cid));
   },
-  analysisCreators(cid?: string | null): Json {
-    return mockClaw.analysis(cid);
+  async analysisCreators(cid?: string | null): Promise<Awaited<Json>> {
+    return (await mockClaw.analysis(cid));
   },
   dailyTasks(): Json {
     return mockClaw.dailyTasks();
@@ -61,7 +61,7 @@ export const claw = {
   budgetReport(): Json {
     return mockClaw.budgetReport();
   },
-  ingestMediacrawler(body: Json): Json {
-    return mockClaw.ingestMediacrawler(body);
+  async ingestMediacrawler(body: Json): Promise<Awaited<Json>> {
+    return (await mockClaw.ingestMediacrawler(body));
   },
 };

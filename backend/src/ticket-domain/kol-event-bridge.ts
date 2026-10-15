@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import { postgresPool } from "../postgres/pool.js";
@@ -38,7 +39,7 @@ export async function ensureLeadFromDiscoveryCandidate(
   const platform = String(raw.platform || "").trim().toLowerCase();
   const handle = String(raw.account_handle || "").trim();
   if (!platform || !handle) throw new HttpFail(422, { code: "kol_candidate_identity_missing" });
-  const dup = await postgresPool().query<{ id: string }>(
+  const dup = await postgresConnection().query<{ id: string }>(
     `SELECT id FROM kol_leads WHERE platform=$1 AND account_handle=$2`, [platform, handle]);
   if (dup.rows[0]) return { lead_id: dup.rows[0]!.id, created: false };
   const displayName = String(raw.display_name || "").trim() || handle;

@@ -74,14 +74,14 @@ function fmtDay(iso: string | null): string {
   return `${mm}-${dd}`;
 }
 
-function ownMailboxSet(user: Persona | null | undefined): Set<string> {
+async function ownMailboxSet(user: Persona | null | undefined): Promise<Set<string>> {
   const set = new Set<string>();
   try {
-    for (const binding of mailboxBindings()) {
+    for (const binding of (await mailboxBindings())) {
       const email = normalizeEmail(String(binding.mailbox || ""));
       if (email) set.add(email);
     }
-    const bound = normalizeEmail(boundMailboxEmail() || "");
+    const bound = normalizeEmail((await boundMailboxEmail()) || "");
     if (bound) set.add(bound);
   } catch {
     // 读绑定失败时不扩大范围：只按空集合处理，候选照常过滤系统地址。
@@ -100,14 +100,8 @@ function usablePeer(raw: unknown, owned: Set<string>): string {
 
 type ThreadPeer = { id: string; peer: string; collaboration_id: string | null; last_at: string | null };
 
-function recentThreads(mailbox: string, limit: number): ThreadPeer[] {
-  const rows = getConn().prepare(
-    `SELECT id, peer_email, last_from, collaboration_id, last_at
-       FROM kol_mail_threads
-      WHERE lower(mailbox)=lower(?)
-      ORDER BY last_at DESC NULLS LAST, updated_at DESC
-      LIMIT ?`,
-  ).all(mailbox, limit) as Row[];
+async function recentThreads(mailbox: string, limit: number): Promise<Awaited<ThreadPeer[]>> {
+  const rows = (await getConn().query("SELECT id, peer_email, last_from, collaboration_id, last_at\n       FROM kol_mail_threads\n      WHERE lower(mailbox)=lower($1)\n      ORDER BY last_at DESC NULLS LAST, updated_at DESC\n      LIMIT $2",[mailbox,limit])).rows as Row[];
   return rows.map((row) => ({
     id: String(row.id || ""),
     peer: String(row.peer_email || row.last_from || ""),
@@ -116,14 +110,8 @@ function recentThreads(mailbox: string, limit: number): ThreadPeer[] {
   }));
 }
 
-function collaborationThreads(collaborationId: string, limit: number): ThreadPeer[] {
-  const rows = getConn().prepare(
-    `SELECT id, peer_email, last_from, collaboration_id, last_at
-       FROM kol_mail_threads
-      WHERE collaboration_id=?
-      ORDER BY last_at DESC NULLS LAST, updated_at DESC
-      LIMIT ?`,
-  ).all(collaborationId, limit) as Row[];
+async function collaborationThreads(collaborationId: string, limit: number): Promise<Awaited<ThreadPeer[]>> {
+  const rows = (await getConn().query("SELECT id, peer_email, last_from, collaboration_id, last_at\n       FROM kol_mail_threads\n      WHERE collaboration_id=$1\n      ORDER BY last_at DESC NULLS LAST, updated_at DESC\n      LIMIT $2",[collaborationId,limit])).rows as Row[];
   return rows.map((row) => ({
     id: String(row.id || ""),
     peer: String(row.peer_email || row.last_from || ""),
@@ -132,16 +120,16 @@ function collaborationThreads(collaborationId: string, limit: number): ThreadPee
   }));
 }
 
-export function composeRecipientFor(input: {
+export async function composeRecipientFor(input: {
   /** 已解析的发件箱；为空时 memory 档跳过（最近往来只看当前发件箱） */
   mailbox: string;
   collaboration?: Row | null;
   conversationId?: string | null;
   explicitTo?: string | null;
   user?: Persona | null;
-}): ComposeRecipient {
+}): Promise<ComposeRecipient> {
   const user = input.user || null;
-  const owned = ownMailboxSet(user || currentUserSafe());
+  const owned = (await ownMailboxSet(user || (await currentUserSafe())));
   const mailbox = normalizeEmail(String(input.mailbox || ""));
 
   // 第 1 档：口令里写明的地址。写明了但属于本人/系统地址时不静默换人，
@@ -173,7 +161,7 @@ export function composeRecipientFor(input: {
   // 第 2 档：通讯页选中的会话的对方。会话必须在（所选/默认）发件箱下，否则拒绝。
   const conversationId = String(input.conversationId || "").trim();
   if (conversationId) {
-    const thread = findMailThread(conversationId, mailbox || undefined);
+    const thread = (await findMailThread(conversationId, mailbox || undefined));
     if (!thread) {
       return {
         to: "",
@@ -213,7 +201,7 @@ export function composeRecipientFor(input: {
   if (collaboration) {
     const cid = String(collaboration.id || "");
     if (cid) {
-      for (const thread of collaborationThreads(cid, 5)) {
+      for (const thread of (await collaborationThreads(cid, 5))) {
         const peer = usablePeer(thread.peer, owned);
         if (peer) {
           return {
@@ -244,7 +232,7 @@ export function composeRecipientFor(input: {
   if (mailbox) {
     const candidates: RecipientCandidate[] = [];
     let picked: ThreadPeer | null = null;
-    for (const thread of recentThreads(mailbox, 10)) {
+    for (const thread of (await recentThreads(mailbox, 10))) {
       const peer = usablePeer(thread.peer, owned);
       if (!peer) continue;
       if (!picked) picked = thread;
@@ -292,9 +280,9 @@ export function composeRecipientFor(input: {
   };
 }
 
-function currentUserSafe(): Persona | null {
+async function currentUserSafe(): Promise<Awaited<Persona | null>> {
   try {
-    return currentUser();
+    return (await currentUser());
   } catch {
     return null;
   }

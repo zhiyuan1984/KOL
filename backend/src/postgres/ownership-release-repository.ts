@@ -1,3 +1,4 @@
+import { postgresConnection } from "./pool.js";
 import { postgresPool, postgresTransaction } from "./pool.js";
 import type { Json, Row } from "../types.js";
 
@@ -27,7 +28,7 @@ export async function listNativeOwnershipCandidates(input: {
   const params: unknown[] = [now.toISOString(), limit];
   const companyClause = company ? "AND company_id=$3" : "";
   if (company) params.push(company);
-  const rows = await postgresPool().query<Row>(
+  const rows = await postgresConnection().query<Row>(
     `SELECT * FROM kol_follow_index
       WHERE status='active'
         AND last_effective_mail_at_ts IS NOT NULL
@@ -94,7 +95,7 @@ export async function releaseNativeIfUnchanged(input: {
 export async function nativeOwnershipParity(companyId?: string): Promise<Json> {
   const clause = companyId ? "WHERE company_id=$1" : "";
   const args = companyId ? [companyId] : [];
-  const result = await postgresPool().query<{ active: string; open_profiles: string; due: string }>(
+  const result = await postgresConnection().query<{ active: string; open_profiles: string; due: string }>(
     `SELECT
        (SELECT COUNT(*)::text FROM kol_follow_index WHERE status='active' ${companyId ? "AND company_id=$1" : ""}) AS active,
        (SELECT COUNT(*)::text FROM kol_profile_index WHERE pool_status='open' ${companyId ? "AND company_id=$1" : ""}) AS open_profiles,

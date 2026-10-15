@@ -1,3 +1,4 @@
+import { postgresConnection } from "./postgres/pool.js";
 /**
  * Home AI Discovery harness — crawl job + discovery_brief.
  * Crawl complete writes CreatorCandidate only. Idle does not write Starry.
@@ -127,7 +128,7 @@ export async function awaitHomeDiscoveryWork(): Promise<void> {
 
 function track(work: Promise<void>): void {
   pendingWork.add(work);
-  work.finally(() => pendingWork.delete(work));
+  void work.then(() => pendingWork.delete(work), () => pendingWork.delete(work));
 }
 
 function ownerId(): string {
@@ -180,25 +181,23 @@ function nullableString(value: unknown): string | null {
   return text || null;
 }
 
-function tableExists(name: string): boolean {
-  const row = getConn().prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-  ).get(name) as { name?: string } | undefined;
+async function tableExists(name: string): Promise<Awaited<boolean>> {
+  const row = (await getConn().query("SELECT table_name AS name FROM information_schema.tables WHERE table_schema=current_schema() AND table_name=$1",[name])).rows[0] as { name?: string } | undefined;
   return Boolean(row?.name);
 }
 
-function event(
+async function event(
   workItemId: string | null,
   type: string,
   status: string,
   summary: string,
-): void {
+): Promise<Awaited<void>> {
   if (!workItemId) return;
-  appendTaskEvent(workItemId, null, type, summary, status, summary);
+  (await appendTaskEvent(workItemId, null, type, summary, status, summary));
 }
 
-function homeRunRow(id: string): Row {
-  const row = getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(id) as Row | undefined;
+async function homeRunRow(id: string): Promise<Awaited<Row>> {
+  const row = (await getConn().query("SELECT * FROM discovery_runs WHERE id=$1",[id])).rows[0] as Row | undefined;
   if (!row || String(row.kind || "") !== HOME_KIND) {
     throw new HttpFail(404, { code: "discovery_run_not_found", message: "未找到该发现运行" });
   }
@@ -208,10 +207,10 @@ function homeRunRow(id: string): Row {
   return row;
 }
 
-function homeCandidateRow(id: string): Row {
-  const row = getConn().prepare("SELECT * FROM creator_candidates WHERE id=?").get(id) as Row | undefined;
+async function homeCandidateRow(id: string): Promise<Awaited<Row>> {
+  const row = (await getConn().query("SELECT * FROM creator_candidates WHERE id=$1",[id])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(404, { code: "creator_candidate_not_found", message: "未找到该发现候选人" });
-  const run = getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(row.run_id) as Row | undefined;
+  const run = (await getConn().query("SELECT * FROM discovery_runs WHERE id=$1",[row.run_id])).rows[0] as Row | undefined;
   if (!run || String(run.kind || "") !== HOME_KIND) {
     throw new HttpFail(404, { code: "creator_candidate_not_found", message: "未找到该发现候选人" });
   }
@@ -235,7 +234,7 @@ export function assertNotFromTextDiscovery(taskType: string | null | undefined):
   });
 }
 
-function validateSpec(body: Json): DiscoverySpec {
+async function validateSpec(body: Json): Promise<Awaited<DiscoverySpec>> {
   const platforms = asStringList(body.platforms ?? body.platform).map((code) => code.toLowerCase());
   if (!platforms.length) {
     throw new HttpFail(400, { code: "platforms_required", message: "请选择海外平台。" });
@@ -272,10 +271,10 @@ function validateSpec(body: Json): DiscoverySpec {
       max: MAX_DISCOVERY_DIRECTIONS,
     });
   }
-  const brandRaw = body.brand == null || body.brand === "" ? employeeDefaultBrand() : String(body.brand);
+  const brandRaw = body.brand == null || body.brand === "" ? (await employeeDefaultBrand()) : String(body.brand);
   const brand = brandRaw ? normalizeBrandCode(brandRaw) || String(brandRaw).toUpperCase() : null;
   if (brand) {
-    const authorized = new Set(employeeAuthorizedBrands().map((item) => item.toUpperCase()));
+    const authorized = new Set((await employeeAuthorizedBrands()).map((item) => item.toUpperCase()));
     if (!authorized.has(brand.toUpperCase())) {
       throw new HttpFail(403, { code: "brand_not_authorized", message: "当前账号无权使用该品牌。" });
     }
@@ -324,9 +323,9 @@ function storedList(value: unknown): string[] {
   return parsed.length ? asStringList(parsed) : asStringList(value);
 }
 
-function specOf(run: Row): DiscoverySpec {
+async function specOf(run: Row): Promise<Awaited<DiscoverySpec>> {
   const parameters = parseJson(run.parameters);
-  const request = getConn().prepare("SELECT * FROM discovery_requests WHERE id=?").get(run.request_id) as
+  const request = (await getConn().query("SELECT * FROM discovery_requests WHERE id=$1",[run.request_id])).rows[0] as
     | Row
     | undefined;
   const filters = parseJson(request?.filters);
@@ -353,53 +352,34 @@ function specOf(run: Row): DiscoverySpec {
   };
 }
 
-function lookupFlags(platform: string, platformCreatorId: string): {
+async function lookupFlags(platform: string, platformCreatorId: string): Promise<Awaited<{
   already_in_pool: boolean;
   already_followed: boolean;
   already_in_library: boolean;
-} {
+}>> {
   const key = `${platform}:${platformCreatorId}`;
   let alreadyInLibrary = false;
   let alreadyInPool = false;
   let alreadyFollowed = false;
-  if (tableExists("kol_profile_index")) {
-    const profile = getConn().prepare(
-      `SELECT pool_status FROM kol_profile_index
-        WHERE lower(platform)=? AND platform_creator_id=? LIMIT 1`,
-    ).get(platform, platformCreatorId) as { pool_status?: string } | undefined;
+  if ((await tableExists("kol_profile_index"))) {
+    const profile = (await getConn().query("SELECT pool_status FROM kol_profile_index\n        WHERE lower(platform)=$1 AND platform_creator_id=$2 LIMIT 1",[platform,platformCreatorId])).rows[0] as { pool_status?: string } | undefined;
     if (profile) {
       alreadyInLibrary = true;
       alreadyInPool = String(profile.pool_status || "") === "open";
     }
   }
-  if (tableExists("kol_follow_index")) {
-    const follow = getConn().prepare(
-      `SELECT id FROM kol_follow_index
-        WHERE status='active' AND kol_uid IN (
-          SELECT kol_uid FROM kol_profile_index
-           WHERE lower(platform)=? AND platform_creator_id=?
-        ) LIMIT 1`,
-    ).get(platform, platformCreatorId) as { id?: string } | undefined;
+  if ((await tableExists("kol_follow_index"))) {
+    const follow = (await getConn().query("SELECT id FROM kol_follow_index\n        WHERE status='active' AND kol_uid IN (\n          SELECT kol_uid FROM kol_profile_index\n           WHERE lower(platform)=$1 AND platform_creator_id=$2\n        ) LIMIT 1",[platform,platformCreatorId])).rows[0] as { id?: string } | undefined;
     alreadyFollowed = Boolean(follow?.id);
   }
-  const collab = getConn().prepare(
-    `SELECT id, owner_name, owner_mailbox, source FROM collaborations
-      WHERE lower(COALESCE(platform,''))=? AND (
-        COALESCE(kol_uid,'')=? OR handle=? OR display_name=?
-      ) LIMIT 1`,
-    ).get(platform, key, platformCreatorId, platformCreatorId) as Row | undefined;
+  const collab = (await getConn().query("SELECT id, owner_name, owner_mailbox, source FROM collaborations\n      WHERE lower(COALESCE(platform,''))=$1 AND (\n        COALESCE(kol_uid,'')=$2 OR handle=$3 OR display_name=$4\n      ) LIMIT 1",[platform,key,platformCreatorId,platformCreatorId])).rows[0] as Row | undefined;
   if (collab) {
     alreadyInLibrary = true;
     if (collab.owner_name || collab.owner_mailbox) alreadyFollowed = true;
   }
-  const claw = getConn().prepare(
-    "SELECT id FROM claw_creators WHERE platform=? AND platform_creator_id=?",
-  ).get(platform, platformCreatorId) as { id?: string } | undefined;
+  const claw = (await getConn().query("SELECT id FROM claw_creators WHERE platform=$1 AND platform_creator_id=$2",[platform,platformCreatorId])).rows[0] as { id?: string } | undefined;
   if (claw?.id) alreadyInLibrary = alreadyInLibrary || false;
-  const followedCandidate = getConn().prepare(
-    `SELECT id FROM creator_candidates
-      WHERE platform=? AND platform_creator_id=? AND status='followed' LIMIT 1`,
-  ).get(platform, platformCreatorId) as { id?: string } | undefined;
+  const followedCandidate = (await getConn().query("SELECT id FROM creator_candidates\n      WHERE platform=$1 AND platform_creator_id=$2 AND status='followed' LIMIT 1",[platform,platformCreatorId])).rows[0] as { id?: string } | undefined;
   if (followedCandidate?.id) alreadyFollowed = true;
   return {
     already_in_pool: alreadyInPool,
@@ -408,10 +388,10 @@ function lookupFlags(platform: string, platformCreatorId: string): {
   };
 }
 
-function libraryHits(candidates: Row[]): Json[] {
+async function libraryHits(candidates: Row[]): Promise<Awaited<Json[]>> {
   const hits: Json[] = [];
   for (const row of candidates) {
-    const flags = lookupFlags(String(row.platform), String(row.platform_creator_id));
+    const flags = (await lookupFlags(String(row.platform), String(row.platform_creator_id)));
     if (flags.already_in_library || flags.already_followed || flags.already_in_pool) {
       hits.push({
         candidate_id: row.id,
@@ -555,9 +535,9 @@ function publicCandidate(row: Row, ranking?: Json | null): Json {
  * brief's ranking is the only source for why/band/fit. Read it once per list instead
  * of querying per candidate.
  */
-function briefRanking(workItemId: string): Map<string, Json> {
+async function briefRanking(workItemId: string): Promise<Awaited<Map<string, Json>>> {
   const index = new Map<string, Json>();
-  const brief = briefArtifact(workItemId);
+  const brief = (await briefArtifact(workItemId));
   const ranking = brief?.ranking;
   if (!Array.isArray(ranking)) return index;
   for (const item of ranking) {
@@ -569,13 +549,9 @@ function briefRanking(workItemId: string): Map<string, Json> {
   return index;
 }
 
-function briefArtifact(workItemId: string): Json | null {
+async function briefArtifact(workItemId: string): Promise<Awaited<Json | null>> {
   if (!workItemId) return null;
-  const artifact = getConn().prepare(
-    `SELECT payload FROM task_artifacts
-      WHERE work_item_id=? AND artifact_type='discovery_brief'
-      ORDER BY created_at DESC LIMIT 1`,
-  ).get(workItemId) as { payload?: string } | undefined;
+  const artifact = (await getConn().query("SELECT payload FROM task_artifacts\n      WHERE work_item_id=$1 AND artifact_type='discovery_brief'\n      ORDER BY created_at DESC LIMIT 1",[workItemId])).rows[0] as { payload?: string } | undefined;
   return artifact?.payload ? parseJson(artifact.payload) : null;
 }
 
@@ -643,18 +619,12 @@ const RUN_LIST_EVENT_LIMIT = 0;
  * polling wrote 415k rows, and embedding a work item's whole history in the
  * list turned a 40-row response into 128 MB.
  */
-function runEvents(workItemId: string, limit: number): { events: Json[]; eventCount: number } {
+async function runEvents(workItemId: string, limit: number): Promise<Awaited<{ events: Json[]; eventCount: number }>> {
   if (!workItemId) return { events: [], eventCount: 0 };
-  const total = getConn().prepare(
-    "SELECT COUNT(*) AS n FROM task_events WHERE work_item_id=?",
-  ).get(workItemId) as { n: number } | undefined;
+  const total = (await getConn().query("SELECT COUNT(*) AS n FROM task_events WHERE work_item_id=$1",[workItemId])).rows[0] as { n: number } | undefined;
   const eventCount = Number(total?.n || 0);
   if (limit <= 0) return { events: [], eventCount };
-  const rows = getConn().prepare(
-    `SELECT * FROM (
-       SELECT * FROM task_events WHERE work_item_id=? ORDER BY sequence DESC LIMIT ?
-     ) ORDER BY sequence`,
-  ).all(workItemId, limit) as Row[];
+  const rows = (await getConn().query("SELECT * FROM (\n       SELECT * FROM task_events WHERE work_item_id=$1 ORDER BY sequence DESC LIMIT $2\n     ) ORDER BY sequence",[workItemId,limit])).rows as Row[];
   return {
     events: rows.map((item) => ({
       type: item.event_type,
@@ -666,12 +636,12 @@ function runEvents(workItemId: string, limit: number): { events: Json[]; eventCo
   };
 }
 
-function publicRun(row: Row, eventLimit: number = RUN_EVENT_LIMIT): Json {
-  const spec = specOf(row);
+async function publicRun(row: Row, eventLimit: number = RUN_EVENT_LIMIT): Promise<Awaited<Json>> {
+  const spec = (await specOf(row));
   const searchKeywords = spec.keywords;
   const candidateCount = Number(row.candidate_count || 0);
   const workItemId = row.work_item_id ? String(row.work_item_id) : "";
-  const { events, eventCount } = runEvents(workItemId, eventLimit);
+  const { events, eventCount } = (await runEvents(workItemId, eventLimit));
   const status = String(row.status);
   return {
     id: row.id,
@@ -680,14 +650,14 @@ function publicRun(row: Row, eventLimit: number = RUN_EVENT_LIMIT): Json {
     work_item_id: row.work_item_id || null,
     platform: row.platform,
     status,
-    memory_validity: skillResultMemoryStatus(String(row.owner_user_id || ""), "creator_discovery", String(row.id || "")),
+    memory_validity: (await skillResultMemoryStatus(String(row.owner_user_id || ""), "creator_discovery", String(row.id || ""))),
     spec,
     search_keywords: searchKeywords,
     candidate_count: candidateCount,
     raw_count: row.raw_count == null ? null : Number(row.raw_count),
     empty_hint: status === "completed" && candidateCount === 0 ? emptyDiscoveryHint(searchKeywords) : null,
     error: row.error || null,
-    brief: briefArtifact(workItemId),
+    brief: (await briefArtifact(workItemId)),
     events,
     event_count: eventCount,
     created_at: row.created_at,
@@ -698,104 +668,57 @@ function publicRun(row: Row, eventLimit: number = RUN_EVENT_LIMIT): Json {
   };
 }
 
-function createSession(owner: string, title: string): string {
+async function createSession(owner: string, title: string): Promise<Awaited<string>> {
   const id = nid("ses");
   const now = nowIso();
-  getConn().prepare(
-    "INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id) VALUES (?,?,?,?,?,?,?)",
-  ).run(id, title, now, now, "discovery", 0, owner);
+  (await getConn().query("INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id) VALUES ($1,$2,$3,$4,$5,$6,$7)",[id,title,now,now,"discovery",0,owner]));
   return id;
 }
 
-function createWorkItem(input: {
+async function createWorkItem(input: {
   owner: string;
   sessionId: string;
   taskType: string;
   skill: string;
   title: string;
   payload: Json;
-}): string {
+}): Promise<Awaited<string>> {
   const id = nid("tsk");
   const now = nowIso();
-  getConn().prepare(
-    `INSERT INTO tickets
-     (id,owner_user_id,task_type,title,source,status,priority,skill,profile,
-      session_id,input,entities,data_version,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)`,
-  ).run(
-    id,
-    input.owner,
-    input.taskType,
-    input.title,
-    "home_discovery",
-    "pending",
-    "normal",
-    input.skill,
-    "lead",
-    input.sessionId,
-    JSON.stringify(input.payload),
-    JSON.stringify(input.payload),
-    now,
-    now,
-  );
-  ensureTicketForWorkItem(id);
+  (await getConn().query("INSERT INTO tickets\n     (id,owner_user_id,task_type,title,source,status,priority,skill,profile,\n      session_id,input,entities,data_version,created_at,updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,1,$13,$14)",[id,input.owner,input.taskType,input.title,"home_discovery","pending","normal",input.skill,"lead",input.sessionId,JSON.stringify(input.payload),JSON.stringify(input.payload),now,now]));
+  await ensureTicketForWorkItem(id);
   return id;
 }
 
-function updateRunStatus(runId: string, status: string, extra: { error?: string | null; completed?: boolean } = {}): void {
+async function updateRunStatus(runId: string, status: string, extra: { error?: string | null; completed?: boolean } = {}): Promise<Awaited<void>> {
   const now = nowIso();
-  getConn().prepare(
-    `UPDATE discovery_runs
-        SET status=?, error=?, completed_at=?, updated_at=?, data_version=data_version+1
-      WHERE id=?`,
-  ).run(
-    status,
-    extra.error ?? null,
-    extra.completed || ["completed", "crawl_failed", "rank_failed", "cancelled"].includes(status) ? now : null,
-    now,
-    runId,
-  );
-  const run = getConn().prepare("SELECT request_id, work_item_id FROM discovery_runs WHERE id=?").get(runId) as
+  (await getConn().query("UPDATE discovery_runs\n        SET status=$1, error=$2, completed_at=$3, updated_at=$4, data_version=data_version+1\n      WHERE id=$5",[status,extra.error ?? null,extra.completed || ["completed", "crawl_failed", "rank_failed", "cancelled"].includes(status) ? now : null,now,runId]));
+  const run = (await getConn().query("SELECT request_id, work_item_id FROM discovery_runs WHERE id=$1",[runId])).rows[0] as
     | { request_id: string; work_item_id?: string | null }
     | undefined;
   if (run) {
-    getConn().prepare(
-      "UPDATE discovery_requests SET status=?, error=?, updated_at=?, data_version=data_version+1 WHERE id=?",
-    ).run(status, extra.error ?? null, now, run.request_id);
+    (await getConn().query("UPDATE discovery_requests SET status=$1, error=$2, updated_at=$3, data_version=data_version+1 WHERE id=$4",[status,extra.error ?? null,now,run.request_id]));
     const taskStatus = status === "completed" ? "completed"
       : status === "cancelled" ? "cancelled"
         : status === "crawl_failed" || status === "rank_failed" ? "failed"
           : status === "queued" ? "waiting"
             : "running";
     if (run.work_item_id) {
-      getConn().prepare(
-        `UPDATE tickets
-            SET status=?, completed_at=?, updated_at=?, data_version=data_version+1
-          WHERE id=?`,
-      ).run(
-        taskStatus,
-        ["completed", "cancelled", "failed"].includes(taskStatus) ? now : null,
-        now,
-        run.work_item_id,
-      );
+      (await getConn().query("UPDATE tickets\n            SET status=$1, completed_at=$2, updated_at=$3, data_version=data_version+1\n          WHERE id=$4",[taskStatus,["completed", "cancelled", "failed"].includes(taskStatus) ? now : null,now,run.work_item_id]));
     }
   }
 }
 
-function tenantCrawlBusy(): boolean {
-  const row = getConn().prepare(
-    `SELECT id FROM crawl_jobs
-      WHERE status IN ('queued','crawling','uploading','analyzing','starting','running','stopping')
-      LIMIT 1`,
-  ).get() as { id?: string } | undefined;
+async function tenantCrawlBusy(): Promise<Awaited<boolean>> {
+  const row = (await getConn().query("SELECT id FROM crawl_jobs\n      WHERE status IN ('queued','crawling','uploading','analyzing','starting','running','stopping')\n      LIMIT 1",[])).rows[0] as { id?: string } | undefined;
   return Boolean(row?.id);
 }
 
 async function startHomeCrawl(run: Row): Promise<void> {
-  const spec = specOf(run);
-  if (tenantCrawlBusy()) {
-    updateRunStatus(String(run.id), "queued");
-    event(String(run.work_item_id || ""), "discovery.queued", "queued", "发现采集排队中");
+  const spec = (await specOf(run));
+  if ((await tenantCrawlBusy())) {
+    (await updateRunStatus(String(run.id), "queued"));
+    (await event(String(run.work_item_id || ""), "discovery.queued", "queued", "发现采集排队中"));
     return;
   }
   try {
@@ -813,20 +736,13 @@ async function startHomeCrawl(run: Row): Promise<void> {
       },
       idempotencyKey: String(run.idempotency_key),
     });
-    getConn().prepare(
-      `UPDATE discovery_runs
-          SET crawl_job_id=?, remote_task_id=?, status='crawling', started_at=COALESCE(started_at,?),
-              updated_at=?, data_version=data_version+1
-        WHERE id=?`,
-    ).run(job.id, job.remote_task_id || null, nowIso(), nowIso(), run.id);
-    getConn().prepare(
-      "UPDATE tickets SET status='running', completed_at=NULL, updated_at=?, data_version=data_version+1 WHERE id=?",
-    ).run(nowIso(), run.work_item_id);
-    event(String(run.work_item_id || ""), "crawl_started", "crawling", "发现采集已开始");
+    (await getConn().query("UPDATE discovery_runs\n          SET crawl_job_id=$1, remote_task_id=$2, status='crawling', started_at=COALESCE(started_at,$3),\n              updated_at=$4, data_version=data_version+1\n        WHERE id=$5",[job.id,job.remote_task_id || null,nowIso(),nowIso(),run.id]));
+    (await getConn().query("UPDATE tickets SET status='running', completed_at=NULL, updated_at=$1, data_version=data_version+1 WHERE id=$2",[nowIso(),run.work_item_id]));
+    (await event(String(run.work_item_id || ""), "crawl_started", "crawling", "发现采集已开始"));
   } catch (error) {
     if (error instanceof HttpFail && String((error.detail as Json | undefined)?.code || "") === "crawl_active") {
-      updateRunStatus(String(run.id), "queued");
-      event(String(run.work_item_id || ""), "discovery.queued", "queued", "发现采集排队中");
+      (await updateRunStatus(String(run.id), "queued"));
+      (await event(String(run.work_item_id || ""), "discovery.queued", "queued", "发现采集排队中"));
       return;
     }
     const message = error instanceof Error ? error.message : String(error);
@@ -835,35 +751,24 @@ async function startHomeCrawl(run: Row): Promise<void> {
     const nextAction = error instanceof HttpFail
       ? String((error.detail as Json | undefined)?.next_action || "").trim()
       : "";
-    updateRunStatus(String(run.id), "crawl_failed", {
+    (await updateRunStatus(String(run.id), "crawl_failed", {
       error: nextAction ? `${message}${nextAction}` : message,
       completed: true,
-    });
-    event(String(run.work_item_id || ""), "failed", "crawl_failed", "发现采集失败");
+    }));
+    (await event(String(run.work_item_id || ""), "failed", "crawl_failed", "发现采集失败"));
   }
 }
 
-function pumpQueuedHomeRuns(): void {
-  if (tenantCrawlBusy()) return;
-  const next = getConn().prepare(
-    `SELECT * FROM discovery_runs
-      WHERE kind=? AND status='queued' AND crawl_job_id IS NULL
-      ORDER BY created_at LIMIT 1`,
-  ).get(HOME_KIND) as Row | undefined;
+async function pumpQueuedHomeRuns(): Promise<Awaited<void>> {
+  if ((await tenantCrawlBusy())) return;
+  const next = (await getConn().query("SELECT * FROM discovery_runs\n      WHERE kind=$1 AND status='queued' AND crawl_job_id IS NULL\n      ORDER BY created_at LIMIT 1",[HOME_KIND])).rows[0] as Row | undefined;
   if (!next) return;
-  track(startHomeCrawl(next));
+  track((startHomeCrawl(next)));
 }
 
-function hostFilterSnapshots(run: Row, job: Row): { kept: Row[]; raw: number; dropped: number } {
-  const spec = specOf(run);
-  const snapshots = getConn().prepare(
-    `SELECT s.*, c.id AS claw_creator_id, c.handle AS claw_handle, c.name AS claw_name,
-            c.payload AS claw_payload
-       FROM creator_snapshots s
-       JOIN claw_creators c ON c.id = s.creator_id
-      WHERE s.crawl_job_id=?
-      ORDER BY s.created_at DESC`,
-  ).all(job.id) as Row[];
+async function hostFilterSnapshots(run: Row, job: Row): Promise<Awaited<{ kept: Row[]; raw: number; dropped: number }>> {
+  const spec = (await specOf(run));
+  const snapshots = (await getConn().query("SELECT s.*, c.id AS claw_creator_id, c.handle AS claw_handle, c.name AS claw_name,\n            c.payload AS claw_payload\n       FROM creator_snapshots s\n       JOIN claw_creators c ON c.id = s.creator_id\n      WHERE s.crawl_job_id=$1\n      ORDER BY s.created_at DESC",[job.id])).rows as Row[];
   const seen = new Set<string>();
   const kept: Row[] = [];
   let dropped = 0;
@@ -901,7 +806,7 @@ async function persistFilteredCandidates(
   run: Row,
   job: Row,
 ): Promise<{ written: number; raw: number; dropped: number; duplicates: number; dedup_skipped: boolean }> {
-  const { kept, raw, dropped } = hostFilterSnapshots(run, job);
+  const { kept, raw, dropped } = (await hostFilterSnapshots(run, job));
   // 一期去重：「去重打分」阶段名副其实 —— 归一化 → 批次内去重 → 池比对 → 业务比对 → 写池。
   // PG 不可用时降级跳过去重（候选照常落盘），不伪造去重结论。
   let dedupByKey = new Map<string, DedupOutcome>();
@@ -932,7 +837,7 @@ async function persistFilteredCandidates(
   }
   const now = nowIso();
   let written = 0;
-  tx((db) => {
+  (await tx(async (db) => {
     for (const [index, snap] of kept.entries()) {
       // 批次内重复：第一条已写入，后续跳过（与原来"后写覆盖先写"结果一致，更干净）。
       if (dedupByKey.size && keptKeys.indexOf(keptKeys[index]) !== index) continue;
@@ -941,12 +846,10 @@ async function persistFilteredCandidates(
       const nickname = String(snap.nickname || snap.claw_name || snap.claw_handle || "").trim();
       const followersPresent = snap.followers != null && String(snap.followers) !== "";
       const views = recentViewsOf(snap);
-      const flags = lookupFlags(platform, platformCreatorId);
+      const flags = (await lookupFlags(platform, platformCreatorId));
       const dedup = dedupByKey.get(keptKeys[index]);
       const metricsMissing = !followersPresent || !views.length;
-      const existing = db.prepare(
-        "SELECT * FROM creator_candidates WHERE request_id=? AND platform=? AND platform_creator_id=?",
-      ).get(run.request_id, platform, platformCreatorId) as Row | undefined;
+      const existing = (await db.query("SELECT * FROM creator_candidates WHERE request_id=$1 AND platform=$2 AND platform_creator_id=$3",[run.request_id,platform,platformCreatorId])).rows[0] as Row | undefined;
       const payload = {
         platform,
         platform_creator_id: platformCreatorId,
@@ -976,62 +879,14 @@ async function persistFilteredCandidates(
         avg_views_10: views.length ? avgViews10(snap) : null,
       };
       if (existing) {
-        db.prepare(
-          `UPDATE creator_candidates
-              SET run_id=?, claw_creator_id=?, handle=?, nickname=?, followers=?, score=?,
-                  signals=?, payload=?, order_index=?, metrics_missing=?, avg_views_10=?, updated_at=?
-            WHERE id=?`,
-        ).run(
-          run.id,
-          snap.claw_creator_id || existing.claw_creator_id,
-          nickname,
-          nickname,
-          followersPresent ? Number(snap.followers || 0) : 0,
-          Number(existing.score || 0),
-          JSON.stringify(signals),
-          JSON.stringify(payload),
-          index,
-          metricsMissing ? 1 : 0,
-          views.length ? avgViews10(snap) : null,
-          now,
-          existing.id,
-        );
+        (await db.query("UPDATE creator_candidates\n              SET run_id=$1, claw_creator_id=$2, handle=$3, nickname=$4, followers=$5, score=$6,\n                  signals=$7, payload=$8, order_index=$9, metrics_missing=$10, avg_views_10=$11, updated_at=$12\n            WHERE id=$13",[run.id,snap.claw_creator_id || existing.claw_creator_id,nickname,nickname,followersPresent ? Number(snap.followers || 0) : 0,Number(existing.score || 0),JSON.stringify(signals),JSON.stringify(payload),index,metricsMissing ? 1 : 0,views.length ? avgViews10(snap) : null,now,existing.id]));
       } else {
-        db.prepare(
-          `INSERT INTO creator_candidates
-           (id,request_id,run_id,owner_user_id,platform,platform_creator_id,claw_creator_id,
-            handle,nickname,followers,score,signals,payload,status,order_index,metrics_missing,
-            avg_views_10,created_at,updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'suggested',?,?,?,?,?)`,
-        ).run(
-          nid("cand"),
-          run.request_id,
-          run.id,
-          run.owner_user_id,
-          platform,
-          platformCreatorId,
-          snap.claw_creator_id || null,
-          nickname,
-          nickname,
-          followersPresent ? Number(snap.followers || 0) : 0,
-          0,
-          JSON.stringify(signals),
-          JSON.stringify(payload),
-          index,
-          metricsMissing ? 1 : 0,
-          views.length ? avgViews10(snap) : null,
-          now,
-          now,
-        );
+        (await db.query("INSERT INTO creator_candidates\n           (id,request_id,run_id,owner_user_id,platform,platform_creator_id,claw_creator_id,\n            handle,nickname,followers,score,signals,payload,status,order_index,metrics_missing,\n            avg_views_10,created_at,updated_at)\n           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'suggested',$14,$15,$16,$17,$18)",[nid("cand"),run.request_id,run.id,run.owner_user_id,platform,platformCreatorId,snap.claw_creator_id || null,nickname,nickname,followersPresent ? Number(snap.followers || 0) : 0,0,JSON.stringify(signals),JSON.stringify(payload),index,metricsMissing ? 1 : 0,views.length ? avgViews10(snap) : null,now,now]));
       }
       written += 1;
     }
-    db.prepare(
-      `UPDATE discovery_runs
-          SET raw_count=?, candidate_count=?, updated_at=?, data_version=data_version+1
-        WHERE id=?`,
-    ).run(raw, written, now, run.id);
-  });
+    (await db.query("UPDATE discovery_runs\n          SET raw_count=$1, candidate_count=$2, updated_at=$3, data_version=data_version+1\n        WHERE id=$4",[raw,written,now,run.id]));
+  }));
   return { written, raw, dropped, duplicates: batchDuplicates, dedup_skipped: dedupSkipped };
 }
 
@@ -1062,37 +917,31 @@ function crawlerFieldsOf(clawPayload: Json, snapshot: Row): Json {
   return fields;
 }
 
-function writeBriefArtifact(run: Row, brief: DiscoveryBrief, status: string): void {
+async function writeBriefArtifact(run: Row, brief: DiscoveryBrief, status: string): Promise<Awaited<void>> {
   const now = nowIso();
-  getConn().prepare(
-    `INSERT INTO task_artifacts
-     (id,work_item_id,run_id,artifact_type,message_id,version,payload,created_at)
-     VALUES (?,?,NULL,'discovery_brief',NULL,1,?,?)`,
-  ).run(nid("art"), run.work_item_id, JSON.stringify(brief), now);
-  updateRunStatus(String(run.id), status, { completed: status !== "ranking" });
+  (await getConn().query("INSERT INTO task_artifacts\n     (id,work_item_id,run_id,artifact_type,message_id,version,payload,created_at)\n     VALUES ($1,$2,NULL,'discovery_brief',NULL,1,$3,$4)",[nid("art"),run.work_item_id,JSON.stringify(brief),now]));
+  (await updateRunStatus(String(run.id), status, { completed: status !== "ranking" }));
 }
 
-function applyRanking(run: Row, brief: DiscoveryBrief): void {
+async function applyRanking(run: Row, brief: DiscoveryBrief): Promise<Awaited<void>> {
   const now = nowIso();
-  tx((db) => {
+  (await tx(async (db) => {
     for (const [index, item] of brief.ranking.entries()) {
-      db.prepare(
-        "UPDATE creator_candidates SET score=?, order_index=?, updated_at=? WHERE id=? AND run_id=?",
-      ).run(Number(item.score || 0), index, now, item.candidate_id, run.id);
+      (await db.query("UPDATE creator_candidates SET score=$1, order_index=$2, updated_at=$3 WHERE id=$4 AND run_id=$5",[Number(item.score || 0),index,now,item.candidate_id,run.id]));
     }
-  });
+  }));
 }
 
-export function applyDiscoveryBriefResult(runId: string, value: unknown): Json {
-  const run = homeRunRow(runId);
+export async function applyDiscoveryBriefResult(runId: string, value: unknown): Promise<Awaited<Json>> {
+  const run = (await homeRunRow(runId));
   const validated = validateDiscoveryBrief(value);
   if (!validated.ok) {
-    updateRunStatus(runId, "rank_failed", { error: validated.message, completed: true });
-    event(String(run.work_item_id || ""), "failed", "rank_failed", validated.message);
-    return publicRun(homeRunRow(runId));
+    (await updateRunStatus(runId, "rank_failed", { error: validated.message, completed: true }));
+    (await event(String(run.work_item_id || ""), "failed", "rank_failed", validated.message));
+    return publicRun((await homeRunRow(runId)));
   }
-  applyRanking(run, validated.brief);
-  writeBriefArtifact(run, validated.brief, "completed");
+  (await applyRanking(run, validated.brief));
+  (await writeBriefArtifact(run, validated.brief, "completed"));
   const parameters = parseJson(run.parameters) as Record<string, unknown>;
   const contract = parameters.skill_contract && typeof parameters.skill_contract === "object"
     ? parameters.skill_contract as Record<string, unknown> : {};
@@ -1100,7 +949,7 @@ export function applyDiscoveryBriefResult(runId: string, value: unknown): Json {
     ? contract.memory_policy as Record<string, unknown> : {};
   if (contract.skill_id === "creator_discovery" && policy.kind === "skill_result"
     && policy.auto_persist === "on_complete" && policy.scope === "owner") {
-    persistValidatedSkillResult({
+    (await persistValidatedSkillResult({
       owner: String(run.owner_user_id || ""),
       skillId: "creator_discovery",
       runId,
@@ -1110,16 +959,14 @@ export function applyDiscoveryBriefResult(runId: string, value: unknown): Json {
         headline: validated.brief.headline,
         counts: validated.brief.counts as unknown as Json,
       },
-    });
+    }));
   }
-  event(String(run.work_item_id || ""), "artifact_ready", "completed", validated.brief.headline);
-  return publicRun(homeRunRow(runId));
+  (await event(String(run.work_item_id || ""), "artifact_ready", "completed", validated.brief.headline));
+  return publicRun((await homeRunRow(runId)));
 }
 
-function trimmedCandidates(runId: string): Json[] {
-  return (getConn().prepare(
-    `SELECT * FROM creator_candidates WHERE run_id=? ORDER BY order_index ASC, created_at DESC LIMIT 40`,
-  ).all(runId) as Row[]).map((row) => {
+async function trimmedCandidates(runId: string): Promise<Awaited<Json[]>> {
+  return ((await getConn().query("SELECT * FROM creator_candidates WHERE run_id=$1 ORDER BY order_index ASC, created_at DESC LIMIT 40",[runId])).rows as Row[]).map((row) => {
     const pub = publicCandidate(row);
     return {
       id: pub.id,
@@ -1138,7 +985,7 @@ function trimmedCandidates(runId: string): Json[] {
 }
 
 async function rankHomeDiscoveryRun(run: Row, counts: { raw: number; written: number; dropped: number }): Promise<void> {
-  const spec = specOf(run);
+  const spec = (await specOf(run));
   if (counts.written === 0) {
     const brief = emptyDiscoveryBrief({
       headline: emptyDiscoveryHint(spec.keywords),
@@ -1146,22 +993,22 @@ async function rankHomeDiscoveryRun(run: Row, counts: { raw: number; written: nu
       afterHostFilter: 0,
       searchKeywords: spec.keywords,
     });
-    writeBriefArtifact(run, brief, "completed");
-    event(String(run.work_item_id || ""), "crawl_idle", "completed", brief.headline);
+    (await writeBriefArtifact(run, brief, "completed"));
+    (await event(String(run.work_item_id || ""), "crawl_idle", "completed", brief.headline));
     return;
   }
-  updateRunStatus(String(run.id), "ranking");
-  event(String(run.work_item_id || ""), "ranking_started", "ranking", "开始生成发现简报");
-  const sessionId = String(run.session_id || createSession(String(run.owner_user_id), "发现简报"));
+  (await updateRunStatus(String(run.id), "ranking"));
+  (await event(String(run.work_item_id || ""), "ranking_started", "ranking", "开始生成发现简报"));
+  const sessionId = String(run.session_id || (await createSession(String(run.owner_user_id), "发现简报")));
   if (!run.session_id) {
-    getConn().prepare("UPDATE discovery_runs SET session_id=?, updated_at=? WHERE id=?").run(sessionId, nowIso(), run.id);
+    (await getConn().query("UPDATE discovery_runs SET session_id=$1, updated_at=$2 WHERE id=$3",[sessionId,nowIso(),run.id]));
   }
   const pack = {
     spec,
-    candidates: trimmedCandidates(String(run.id)),
-    library_hits: libraryHits(
-      getConn().prepare("SELECT * FROM creator_candidates WHERE run_id=?").all(run.id) as Row[],
-    ),
+    candidates: (await trimmedCandidates(String(run.id))),
+    library_hits: (await libraryHits(
+      (await getConn().query("SELECT * FROM creator_candidates WHERE run_id=$1",[run.id])).rows as Row[],
+    )),
     counts: {
       raw: counts.raw,
       after_host_filter: counts.written,
@@ -1186,25 +1033,25 @@ async function rankHomeDiscoveryRun(run: Row, counts: { raw: number; written: nu
         work_item_id: String(run.work_item_id || ""),
         run_id: String(run.id),
       },
-      () => (briefRunner || defaultBriefRunner)({
+      async () => (await (briefRunner || defaultBriefRunner)({
         sessionId,
         prompt: "根据 Host 已过滤的候选人写 discovery_brief/v1。不要编造粉丝、播放或邮箱。",
         extra,
         onStream: trace.onStream,
-      }),
+      })),
     );
     // 先收尾推理行，再落简报终态事件：工作项的最后一条事件仍是终态，
     // 与今日规划一致（home-board 用 MAX(sequence) 当「最新状态」）。
-    trace.finish(false);
+    await trace.finish(false);
     const items = (result as WorkerResult).items || (result as Json).items || result;
-    const applied = applyDiscoveryBriefResult(String(run.id), { items: Array.isArray(items) ? items : [items] });
+    const applied = (await applyDiscoveryBriefResult(String(run.id), { items: Array.isArray(items) ? items : [items] }));
     // 简报没通过校验就是这轮没有产出，推理行不能显示成功。
-    if (String(applied.status) === "rank_failed") trace.finish(true);
+    if (String(applied.status) === "rank_failed") await trace.finish(true);
   } catch (error) {
-    trace.finish(true);
+    await trace.finish(true);
     const message = error instanceof Error ? error.message : String(error);
-    updateRunStatus(String(run.id), "rank_failed", { error: message, completed: true });
-    event(String(run.work_item_id || ""), "failed", "rank_failed", "发现简报失败，已保留原始候选人。");
+    (await updateRunStatus(String(run.id), "rank_failed", { error: message, completed: true }));
+    (await event(String(run.work_item_id || ""), "failed", "rank_failed", "发现简报失败，已保留原始候选人。"));
   }
 }
 
@@ -1217,42 +1064,38 @@ async function defaultPlanRunner(input: { sessionId: string; prompt: string; ext
 }
 
 async function onHomeCrawlSettled(job: Row): Promise<void> {
-  const run = getConn().prepare(
-    "SELECT * FROM discovery_runs WHERE crawl_job_id=? AND kind=?",
-  ).get(job.id, HOME_KIND) as Row | undefined;
+  const run = (await getConn().query("SELECT * FROM discovery_runs WHERE crawl_job_id=$1 AND kind=$2",[job.id,HOME_KIND])).rows[0] as Row | undefined;
   if (run) {
     const status = String(job.status);
     if (status === "result_ready") {
       try {
-        event(String(run.work_item_id || ""), "crawl_progress", "crawling", "采集结果已就绪");
+        (await event(String(run.work_item_id || ""), "crawl_progress", "crawling", "采集结果已就绪"));
         const counts = await persistFilteredCandidates(run, job);
-        event(String(run.work_item_id || ""), "crawl_idle", "ranking", "采集空闲，已写入 CreatorCandidate");
-        track(rankHomeDiscoveryRun(getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(run.id) as Row, counts));
+        (await event(String(run.work_item_id || ""), "crawl_idle", "ranking", "采集空闲，已写入 CreatorCandidate"));
+        track((rankHomeDiscoveryRun((await getConn().query("SELECT * FROM discovery_runs WHERE id=$1",[run.id])).rows[0] as Row, counts)));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        updateRunStatus(String(run.id), "crawl_failed", { error: message, completed: true });
-        event(String(run.work_item_id || ""), "failed", "crawl_failed", message);
+        (await updateRunStatus(String(run.id), "crawl_failed", { error: message, completed: true }));
+        (await event(String(run.work_item_id || ""), "failed", "crawl_failed", message));
       }
     } else if (["error", "failed", "stopped", "cancelled"].includes(status)) {
       const next = status === "stopped" || status === "cancelled" ? "cancelled" : "crawl_failed";
-      updateRunStatus(String(run.id), next, { error: job.error ? String(job.error) : null, completed: true });
-      event(String(run.work_item_id || ""), "failed", next, next === "cancelled" ? "发现采集已取消" : "发现采集失败");
+      (await updateRunStatus(String(run.id), next, { error: job.error ? String(job.error) : null, completed: true }));
+      (await event(String(run.work_item_id || ""), "failed", next, next === "cancelled" ? "发现采集已取消" : "发现采集失败"));
     }
   }
-  pumpQueuedHomeRuns();
+  (await pumpQueuedHomeRuns());
 }
 
-export function restoreActiveHomeDiscoveryRuns(): void {
+export async function restoreActiveHomeDiscoveryRuns(): Promise<Awaited<void>> {
   registerHomeDiscoveryHook();
-  const rows = getConn().prepare(
-    "SELECT * FROM discovery_runs WHERE kind=? AND status IN ('queued','crawling','ranking')",
-  ).all(HOME_KIND) as Row[];
+  const rows = (await getConn().query("SELECT * FROM discovery_runs WHERE kind=$1 AND status IN ('queued','crawling','ranking')",[HOME_KIND])).rows as Row[];
   for (const row of rows) {
     try {
-      if (String(row.status) === "queued" && !row.crawl_job_id) track(startHomeCrawl(row));
+      if (String(row.status) === "queued" && !row.crawl_job_id) track((startHomeCrawl(row)));
       else if (row.crawl_job_id) {
-        const job = getConn().prepare("SELECT * FROM crawl_jobs WHERE id=?").get(row.crawl_job_id) as Row | undefined;
-        if (job) onHomeCrawlSettled(job);
+        const job = (await getConn().query("SELECT * FROM crawl_jobs WHERE id=$1",[row.crawl_job_id])).rows[0] as Row | undefined;
+        if (job) (await onHomeCrawlSettled(job));
       }
     } catch {
       // Restart restore is best-effort.
@@ -1270,48 +1113,49 @@ function runListLimit(raw: unknown): number {
   return Math.min(Math.floor(n), RUN_LIST_MAX_LIMIT);
 }
 
-export function listHomeDiscoveryRuns(query: { limit?: unknown } = {}): Json {
+export async function listHomeDiscoveryRuns(query: { limit?: unknown } = {}): Promise<Awaited<Json>> {
   registerHomeDiscoveryHook();
   const owner = ownerId();
   const limit = runListLimit(query.limit);
   const scope = isAdmin()
-    ? { sql: "kind=?", params: [HOME_KIND] as unknown[] }
-    : { sql: "kind=? AND owner_user_id=?", params: [HOME_KIND, owner] as unknown[] };
-  const total = Number((getConn().prepare(
+    ? { sql: "kind=$1", params: [HOME_KIND] as unknown[] }
+    : { sql: "kind=$1 AND owner_user_id=$2", params: [HOME_KIND, owner] as unknown[] };
+  const totalResult = await getConn().query(
     `SELECT COUNT(*) AS n FROM discovery_runs WHERE ${scope.sql}`,
-  ).get(...scope.params) as { n: number } | undefined)?.n || 0);
-  const rows = getConn().prepare(
-    `SELECT * FROM discovery_runs WHERE ${scope.sql} ORDER BY updated_at DESC LIMIT ?`,
-  ).all(...scope.params, limit) as Row[];
+    scope.params,
+  );
+  const total = Number((totalResult.rows[0] as { n?: number } | undefined)?.n || 0);
+  const rowsResult = await getConn().query(
+    `SELECT * FROM discovery_runs WHERE ${scope.sql} ORDER BY updated_at DESC LIMIT $${scope.params.length + 1}`,
+    [...scope.params, limit],
+  );
+  const rows = rowsResult.rows as Row[];
   return {
     entry: "memory",
     creates_session: false,
     calls_model: false,
-    runs: rows.map((row) => publicRun(row, RUN_LIST_EVENT_LIMIT)),
+    runs: (await Promise.all(rows.map(async (row) => (publicRun(row, RUN_LIST_EVENT_LIMIT))))),
     total,
     limit,
     truncated: total > rows.length,
   };
 }
 
-export function getHomeDiscoveryRun(id: string): Json {
+export async function getHomeDiscoveryRun(id: string): Promise<Awaited<Json>> {
   registerHomeDiscoveryHook();
   return {
     entry: "memory",
     creates_session: false,
     calls_model: false,
-    run: publicRun(homeRunRow(id)),
+    run: (await publicRun((await homeRunRow(id)))),
   };
 }
 
-export function listHomeDiscoveryCandidates(id: string): Json {
+export async function listHomeDiscoveryCandidates(id: string): Promise<Awaited<Json>> {
   registerHomeDiscoveryHook();
-  const run = homeRunRow(id);
-  const rows = getConn().prepare(
-    `SELECT * FROM creator_candidates WHERE run_id=?
-      ORDER BY CASE WHEN order_index IS NULL THEN 1 ELSE 0 END, order_index ASC, score DESC, created_at DESC`,
-  ).all(run.id) as Row[];
-  const ranking = briefRanking(String(run.work_item_id || ""));
+  const run = (await homeRunRow(id));
+  const rows = (await getConn().query("SELECT * FROM creator_candidates WHERE run_id=$1\n      ORDER BY CASE WHEN order_index IS NULL THEN 1 ELSE 0 END, order_index ASC, score DESC, created_at DESC",[run.id])).rows as Row[];
+  const ranking = (await briefRanking(String(run.work_item_id || "")));
   // 缺邮箱的线索仍须可见：员工需要知道其数据价值和具体阻塞原因；
   // 但 `ingest_readiness=needs_contact` 会让结果页禁止把它带入 L3。
   // Gateway 也会在真正写入前再次拒绝，绝不编造联系方式。
@@ -1328,8 +1172,8 @@ export async function createHomeDiscoveryPlan(body: Json): Promise<Json> {
   registerHomeDiscoveryHook();
   const owner = ownerId();
   const title = "发现计划草稿";
-  const sessionId = createSession(owner, title);
-  const workItemId = createWorkItem({
+  const sessionId = (await createSession(owner, title));
+  const workItemId = await createWorkItem({
     owner,
     sessionId,
     taskType: "discovery_plan",
@@ -1337,35 +1181,31 @@ export async function createHomeDiscoveryPlan(body: Json): Promise<Json> {
     title,
     payload: { text: body.text || body.prompt || "", locked: true },
   });
-  event(workItemId, "discovery.plan_started", "running", "正在生成发现计划草稿");
+  (await event(workItemId, "discovery.plan_started", "running", "正在生成发现计划草稿"));
   const extra: Json = {
     work_item_id: workItemId,
     text: body.text || body.prompt || "",
     memory_stitch: false,
     allowed_skills: ["discovery_plan"],
     employee: {
-      brands: employeeAuthorizedBrands(),
-      default_brand: employeeDefaultBrand(),
+      brands: (await employeeAuthorizedBrands()),
+      default_brand: (await employeeDefaultBrand()),
       default_region: employeeDefaultRegion(),
     },
   };
   const result = await runInDiscoveryHarness(
     { skill: "discovery_plan", session_id: sessionId, work_item_id: workItemId },
-    () => (planRunner || defaultPlanRunner)({
+    async () => (await (planRunner || defaultPlanRunner)({
       sessionId,
       prompt: String(body.text || body.prompt || "请把发现目标写成 spec 草稿，不要采集。"),
       extra,
-    }),
+    })),
   );
   const items = (result as WorkerResult).items || [];
   const specItem = items.find((item) => item && typeof item === "object" && (item.spec || item.schema === "discovery_spec/v1"));
   const spec = (specItem?.spec || specItem || {}) as Json;
-  getConn().prepare(
-    `INSERT INTO task_artifacts
-     (id,work_item_id,run_id,artifact_type,message_id,version,payload,created_at)
-     VALUES (?,?,NULL,'discovery_spec',NULL,1,?,?)`,
-  ).run(nid("art"), workItemId, JSON.stringify({ schema: "discovery_spec/v1", ...spec }), nowIso());
-  getConn().prepare("UPDATE tickets SET status='waiting',updated_at=? WHERE id=?").run(nowIso(), workItemId);
+  (await getConn().query("INSERT INTO task_artifacts\n     (id,work_item_id,run_id,artifact_type,message_id,version,payload,created_at)\n     VALUES ($1,$2,NULL,'discovery_spec',NULL,1,$3,$4)",[nid("art"),workItemId,JSON.stringify({ schema: "discovery_spec/v1", ...spec }),nowIso()]));
+  (await getConn().query("UPDATE tickets SET status='waiting',updated_at=$1 WHERE id=$2",[nowIso(),workItemId]));
   return {
     entry: "think",
     task_type: "discovery_plan",
@@ -1381,16 +1221,12 @@ export async function createHomeDiscoveryPlan(body: Json): Promise<Json> {
 export async function startHomeDiscoveryRun(body: Json): Promise<Json> {
   registerHomeDiscoveryHook();
   const owner = ownerId();
-  const existing = getConn().prepare(
-    `SELECT * FROM discovery_runs
-      WHERE kind=? AND owner_user_id=? AND status IN ('queued','crawling','ranking')
-      ORDER BY created_at DESC LIMIT 1`,
-  ).get(HOME_KIND, owner) as Row | undefined;
+  const existing = (await getConn().query("SELECT * FROM discovery_runs\n      WHERE kind=$1 AND owner_user_id=$2 AND status IN ('queued','crawling','ranking')\n      ORDER BY created_at DESC LIMIT 1",[HOME_KIND,owner])).rows[0] as Row | undefined;
   if (existing) {
-    return { ...publicRun(existing), duplicate: true, reused: true };
+    return { ...(await (publicRun(existing))), duplicate: true, reused: true };
   }
-  const spec = validateSpec(body);
-  const skill = taskDefinition("creator_discovery");
+  const spec = (await validateSpec(body));
+  const skill = (await taskDefinition("creator_discovery"));
   const lockedSkillContract = skill ? {
     skill_id: skill.id,
     skill_version: "unversioned",
@@ -1399,8 +1235,8 @@ export async function startHomeDiscoveryRun(body: Json): Promise<Json> {
   } : null;
   const platform = spec.platforms[0];
   const title = `AI发现 · ${platform} · ${spec.keywords.join(" ") || spec.mode}`.slice(0, 200);
-  const sessionId = createSession(owner, title);
-  const workItemId = createWorkItem({
+  const sessionId = (await createSession(owner, title));
+  const workItemId = await createWorkItem({
     owner,
     sessionId,
     taskType: "discovery_crawl",
@@ -1411,106 +1247,67 @@ export async function startHomeDiscoveryRun(body: Json): Promise<Json> {
   const requestId = nid("dreq");
   const runId = nid("drun");
   const now = nowIso();
-  tx((db) => {
-    db.prepare(
-      `INSERT INTO discovery_requests
-       (id,owner_user_id,keywords,platforms,mode,filters,brand,scope,status,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?, 'queued',?,?)`,
-    ).run(
-      requestId,
-      owner,
-      JSON.stringify(spec.keywords),
-      JSON.stringify(spec.platforms),
-      spec.mode,
-      JSON.stringify({
+  (await tx(async (db) => {
+    (await db.query("INSERT INTO discovery_requests\n       (id,owner_user_id,keywords,platforms,mode,filters,brand,scope,status,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8, 'queued',$9,$10)",[requestId,owner,JSON.stringify(spec.keywords),JSON.stringify(spec.platforms),spec.mode,JSON.stringify({
         region: spec.region,
         directions: spec.directions,
         ...spec.thresholds,
-      }),
-      spec.brand,
-      JSON.stringify({ kind: HOME_KIND }),
-      now,
-      now,
-    );
-    db.prepare(
-      `INSERT INTO discovery_runs
-       (id,request_id,owner_user_id,work_item_id,session_id,platform,mode,parameters,idempotency_key,
-        status,kind,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?, 'queued',?,?,?)`,
-    ).run(
-      runId,
-      requestId,
-      owner,
-      workItemId,
-      sessionId,
-      platform,
-      spec.mode,
-      JSON.stringify({
+      }),spec.brand,JSON.stringify({ kind: HOME_KIND }),now,now]));
+    (await db.query("INSERT INTO discovery_runs\n       (id,request_id,owner_user_id,work_item_id,session_id,platform,mode,parameters,idempotency_key,\n        status,kind,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, 'queued',$10,$11,$12)",[runId,requestId,owner,workItemId,sessionId,platform,spec.mode,JSON.stringify({
         keywords: spec.keywords,
         directions: spec.directions,
         region: spec.region,
         ...(lockedSkillContract ? { skill_contract: lockedSkillContract } : {}),
         ...spec.thresholds,
-      }),
-      `home:${requestId}:${platform}:${nid("idem")}`,
-      HOME_KIND,
-      now,
-      now,
-    );
-    db.prepare("UPDATE discovery_requests SET latest_run_id=? WHERE id=?").run(runId, requestId);
-  });
-  event(workItemId, "discovery.queued", "queued", "发现采集已排队");
+      }),`home:${requestId}:${platform}:${nid("idem")}`,HOME_KIND,now,now]));
+    (await db.query("UPDATE discovery_requests SET latest_run_id=$1 WHERE id=$2",[runId,requestId]));
+  }));
+  (await event(workItemId, "discovery.queued", "queued", "发现采集已排队"));
   if (spec.target_count_clamped) {
-    event(workItemId, "discovery.target_clamped", "queued", "目标人数已限制为 80");
+    (await event(workItemId, "discovery.target_clamped", "queued", "目标人数已限制为 80"));
   }
-  const run = getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(runId) as Row;
+  const run = (await getConn().query("SELECT * FROM discovery_runs WHERE id=$1",[runId])).rows[0] as Row;
   await startHomeCrawl(run);
-  return publicRun(getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(runId) as Row);
+  return publicRun((await getConn().query("SELECT * FROM discovery_runs WHERE id=$1",[runId])).rows[0] as Row);
 }
 
 export async function retryHomeDiscoveryRun(id: string): Promise<Json> {
   registerHomeDiscoveryHook();
-  const run = homeRunRow(id);
+  const run = (await homeRunRow(id));
   const status = String(run.status);
   if (status === "crawl_failed") {
-    getConn().prepare(
-      "UPDATE discovery_runs SET crawl_job_id=NULL, remote_task_id=NULL, error=NULL, completed_at=NULL, updated_at=? WHERE id=?",
-    ).run(nowIso(), run.id);
-    updateRunStatus(String(run.id), "queued");
-    event(String(run.work_item_id || ""), "discovery.queued", "queued", "重新排队采集");
-    await startHomeCrawl(getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(run.id) as Row);
-    return publicRun(homeRunRow(id));
+    (await getConn().query("UPDATE discovery_runs SET crawl_job_id=NULL, remote_task_id=NULL, error=NULL, completed_at=NULL, updated_at=$1 WHERE id=$2",[nowIso(),run.id]));
+    (await updateRunStatus(String(run.id), "queued"));
+    (await event(String(run.work_item_id || ""), "discovery.queued", "queued", "重新排队采集"));
+    await startHomeCrawl((await getConn().query("SELECT * FROM discovery_runs WHERE id=$1",[run.id])).rows[0] as Row);
+    return publicRun((await homeRunRow(id)));
   }
   if (status === "rank_failed") {
     const count = Number(run.candidate_count || 0);
     const raw = count;
     await rankHomeDiscoveryRun(run, { raw, written: count, dropped: 0 });
-    return publicRun(homeRunRow(id));
+    return publicRun((await homeRunRow(id)));
   }
   throw new HttpFail(409, { code: "retry_not_applicable", message: "当前状态不能重试。" });
 }
 
 export async function cancelHomeDiscoveryRun(id: string): Promise<Json> {
   registerHomeDiscoveryHook();
-  const run = homeRunRow(id);
+  const run = (await homeRunRow(id));
   if (run.crawl_job_id) {
     await stopCrawl(String(run.crawl_job_id));
   }
-  updateRunStatus(String(run.id), "cancelled", { completed: true });
-  event(String(run.work_item_id || ""), "failed", "cancelled", "发现采集已取消");
-  return publicRun(homeRunRow(id));
+  (await updateRunStatus(String(run.id), "cancelled", { completed: true }));
+  (await event(String(run.work_item_id || ""), "failed", "cancelled", "发现采集已取消"));
+  return publicRun((await homeRunRow(id)));
 }
 
-export function ignoreHomeDiscoveryCandidate(id: string): Json {
-  const candidate = homeCandidateRow(id);
+export async function ignoreHomeDiscoveryCandidate(id: string): Promise<Awaited<Json>> {
+  const candidate = (await homeCandidateRow(id));
   const now = nowIso();
-  getConn().prepare(
-    `UPDATE creator_candidates
-        SET status='dismissed', dismissed_at=COALESCE(dismissed_at, ?), updated_at=?
-      WHERE id=?`,
-  ).run(now, now, candidate.id);
-  audit(ownerId(), "discovery.candidate.ignored", { candidate_id: candidate.id });
-  return publicCandidate(getConn().prepare("SELECT * FROM creator_candidates WHERE id=?").get(candidate.id) as Row);
+  (await getConn().query("UPDATE creator_candidates\n        SET status='dismissed', dismissed_at=COALESCE(dismissed_at, $1), updated_at=$2\n      WHERE id=$3",[now,now,candidate.id]));
+  (await audit(ownerId(), "discovery.candidate.ignored", { candidate_id: candidate.id }));
+  return publicCandidate((await getConn().query("SELECT * FROM creator_candidates WHERE id=$1",[candidate.id])).rows[0] as Row);
 }
 
 const INGEST_HANDOFF = {
@@ -1520,13 +1317,13 @@ const INGEST_HANDOFF = {
   message: "采集完成只保留 CreatorCandidate。正式入库由网关 POST /api/home/discovery/ingest 执行，本路径不写 Starry。",
 } as const;
 
-export function homeDiscoveryIngestPlaceholder(id: string): Json {
-  homeRunRow(id);
+export async function homeDiscoveryIngestPlaceholder(id: string): Promise<Awaited<Json>> {
+  (await homeRunRow(id));
   return { ...INGEST_HANDOFF };
 }
 
-export function homeDiscoveryCandidateIngestPlaceholder(id: string): Json {
-  homeCandidateRow(id);
+export async function homeDiscoveryCandidateIngestPlaceholder(id: string): Promise<Awaited<Json>> {
+  (await homeCandidateRow(id));
   return { ...INGEST_HANDOFF };
 }
 
@@ -1547,7 +1344,7 @@ async function resolveCandidateForAction(
   id: string, body: Json,
 ): Promise<{ candidate: Row; sqliteRow: Row | null; sourceBatch: string; runId: string }> {
   try {
-    const row = homeCandidateRow(id);
+    const row = (await homeCandidateRow(id));
     return { candidate: row, sqliteRow: row, sourceBatch: `home:${row.run_id}`, runId: String(row.run_id) };
   } catch (error) {
     if (!(error instanceof HttpFail) || error.status !== 404) throw error;
@@ -1559,7 +1356,7 @@ async function resolveCandidateForAction(
   // 注意：/api/home/discovery/* 不在 formalAuthorityPath 内，ticket principal 中间件不会执行，
   // 这里必须用工作台身份 ownerId()（与 runtime_crawl_jobs.actor_id 同一 id 空间），不能用 requireTicketPrincipal()。
   const actorId = ownerId();
-  const job = await postgresPool().query<{ result_json: unknown }>(
+  const job = await postgresConnection().query<{ result_json: unknown }>(
     `SELECT result_json FROM runtime_crawl_jobs WHERE id=$1 AND actor_id=$2`,
     [actionId, actorId],
   );
@@ -1615,13 +1412,13 @@ export async function ingestHomeDiscoveryCandidate(id: string, body: Json): Prom
     source_batch: sourceBatch,
     run_id: runId,
   });
-  audit(ownerId(), "discovery.candidate.ingested", {
+  (await audit(ownerId(), "discovery.candidate.ingested", {
     candidate_id: candidate.id,
     kol_uid: (receipt as Record<string, unknown>).kol_uid,
     source_batch: sourceBatch,
     sent: false,
     followed: false,
-  });
+  }));
   return {
     ok: true,
     candidate_id: candidate.id,
@@ -1662,7 +1459,7 @@ export async function followHomeDiscoveryCandidate(id: string, body: Json): Prom
   const key = normalizeCreatorKey(platform, platformCreatorId);
   const handleKey = handle ? normalizeCreatorKey(platform, handle) : null;
   const existingLead = (
-    await postgresPool().query(
+    await postgresConnection().query(
       `SELECT id FROM kol_leads
         WHERE NOT is_archived AND lower(platform)=$1
           AND (lower(account_handle)=$2 OR ($3::text IS NOT NULL AND lower(account_handle)=$3))
@@ -1694,7 +1491,7 @@ export async function followHomeDiscoveryCandidate(id: string, body: Json): Prom
   const leadId = String((created as { lead: { id: string } }).lead.id);
   // Starry 库表更新：upsert 画像（PG kol_profile_index），仍在公海（open），不做排他认领。
   const now = new Date().toISOString();
-  await postgresPool().query(
+  await postgresConnection().query(
     `INSERT INTO kol_profile_index
        (id, company_id, kol_uid, handle, display_name, platform, homepage_url, followers,
         avg_plays, region, ingest_source, pool_status, platform_creator_id, source_batch,
@@ -1725,7 +1522,7 @@ export async function followHomeDiscoveryCandidate(id: string, body: Json): Prom
   );
   // SQLite 行状态回写仅在有行时做；会话视图（运行时回退）无行可写，前端已本地标已跟进。
   if (sqliteRow) {
-    getConn().prepare(`UPDATE creator_candidates SET status='followed', updated_at=? WHERE id=?`).run(now, candidate.id);
+    (await getConn().query("UPDATE creator_candidates SET status='followed', updated_at=$1 WHERE id=$2",[now,candidate.id]));
   }
   // 需求变更（2026-10-08 qiyou）：跟进成功后写 Starry 公海（复用 ingestOne，真邮箱才写）。
   // 失败不破坏跟进（无邮箱 409 等如实降级），状态返回给前端展示。
@@ -1737,7 +1534,7 @@ export async function followHomeDiscoveryCandidate(id: string, body: Json): Prom
     const detail = error instanceof HttpFail ? (error.detail as { code?: string; message?: string } | undefined) : undefined;
     starry = { imported: false, error: String(detail?.message || (error instanceof Error ? error.message : "Starry 入库失败")) };
   }
-  audit(ownerId(), "discovery.candidate.followed", {
+  (await audit(ownerId(), "discovery.candidate.followed", {
     candidate_id: candidate.id,
     lead_id: leadId,
     platform,
@@ -1745,15 +1542,15 @@ export async function followHomeDiscoveryCandidate(id: string, body: Json): Prom
     sent: false,
     stage_changed: false,
     starry_imported: starry.imported,
-  });
+  }));
   return { ok: true, lead_id: leadId, kol_uid: `candidate:${key}`, reused: false,
     starry_imported: starry.imported, starry_kol_uid: starry.kol_uid, starry_error: starry.error };
 }
 
-export function starryWriteCounts(): { sends: number; stageWrites: number; transitions: number } {
+export async function starryWriteCounts(): Promise<Awaited<{ sends: number; stageWrites: number; transitions: number }>> {
   return {
-    sends: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: number }).n),
-    stageWrites: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_stage_writes").get() as { n: number }).n),
-    transitions: Number((getConn().prepare("SELECT COUNT(*) AS n FROM stage_transitions").get() as { n: number }).n),
+    sends: Number(((await getConn().query("SELECT COUNT(*) AS n FROM starry_sends",[])).rows[0] as { n: number }).n),
+    stageWrites: Number(((await getConn().query("SELECT COUNT(*) AS n FROM starry_stage_writes",[])).rows[0] as { n: number }).n),
+    transitions: Number(((await getConn().query("SELECT COUNT(*) AS n FROM stage_transitions",[])).rows[0] as { n: number }).n),
   };
 }

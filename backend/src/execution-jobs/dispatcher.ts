@@ -110,20 +110,12 @@ async function dispatchClaimedExecutionJobInner(claimed: ClaimedExecutionJob): P
       return { execution_job_id: id, job_type: jobType, handled: true, outcome: "processed", target_id: result.work_order?.id || decisionId };
     }
     if (jobType === "work_plan.run" || jobType === "today_analyze.run") {
-      // The compatibility workbench still owns its plan/task-run projection.
-      // Its worker may execute these read-only planning jobs; a true
-      // PostgreSQL-only deployment must quarantine them instead of importing
-      // the compatibility adapter.
-      if (process.env.KOL_RUNTIME_MODE === "postgres-only") {
-        await runtimeQuarantineExecutionJob(id, {
-          code: "needs_takeover",
-          summary: `${jobType} depends on retired planning/task-run storage and is disabled in PostgreSQL-only runtime`,
-        });
-        return { execution_job_id: id, job_type: jobType, handled: false, outcome: "needs_takeover", target_id: String(claimed.ticket_id || "") || null };
-      }
-      const { executeClaimedPlanningJob } = await import("../host/today-plan-run.js");
-      const workItemId = await executeClaimedPlanningJob(claimed);
-      return { execution_job_id: id, job_type: jobType, handled: true, outcome: "processed", target_id: workItemId };
+      // Plan/session/run/artifact facts are all PostgreSQL-native. Do not
+      // quarantine or import the retired execution-job/task-run bridge.
+      const { executeNativeClaimedPlanningJob } = await import("../postgres/today-plan-repository.js");
+      const receipt = await executeNativeClaimedPlanningJob(claimed);
+      await runtimeCompleteExecutionJob(id, receipt, new Date(), String(claimed.worker_id));
+      return { execution_job_id: id, job_type: jobType, handled: true, outcome: "processed", target_id: String(receipt.work_item_id || claimed.ticket_id || "") || null };
     }
     await runtimeFailExecutionJob(id, {
       code: "unsupported_job_type",

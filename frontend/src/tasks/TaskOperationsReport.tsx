@@ -1,3 +1,4 @@
+import { timezoneLabel } from "../timezoneLabel";
 import { Segmented } from "antd";
 import type { CSSProperties, ReactNode } from "react";
 import type { AiTaskWorkOrderDashboard, TaskOperationsDashboard, TaskOperationsPeriod } from "../api";
@@ -60,7 +61,7 @@ export function TaskOperationsReport({ dashboard, workOrders, period, loading, w
   const workOrderCounts = workOrders?.summary.work_orders;
   return <section className="task-operations-report" aria-label="任务运营" aria-busy={loading || workOrdersLoading}>
     <header className="task-operations-head">
-      <div className="task-operations-title"><h2>任务运营</h2><p className="muted">Agent／系统任务全量 · {filteredRangeLabel || (period === "realtime" ? "当前快照" : "周期口径")}</p>{dashboard ? <span className="task-operations-as-of">更新于 {formatAsOf(dashboard.as_of, dashboard.timezone)} · {dashboard.timezone}</span> : null}</div>
+      <div className="task-operations-title"><h2>任务运营</h2><p className="muted">Agent／系统任务全量 · {filteredRangeLabel || (period === "realtime" ? "当前快照" : "周期口径")}</p>{dashboard ? <span className="task-operations-as-of">更新于 {formatAsOf(dashboard.as_of, dashboard.timezone)} · {timezoneLabel(dashboard.timezone)}</span> : null}</div>
       <div className="task-operations-controls"><Segmented className="task-period-segmented" aria-label="报表时间维度" size="small" value={period} options={PERIODS} onChange={value => onPeriod(value as TaskOperationsPeriod)} />{headerAction}</div>
     </header>
     {loading && !dashboard ? <div className="task-report-skeleton" aria-label="正在读取任务运营数据"><span /><span /><span /><span /><span /><span /></div> : <>

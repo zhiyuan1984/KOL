@@ -76,6 +76,9 @@ if [ ! -f "$ROOT/.env" ]; then
 fi
 load_dotenv "$ROOT/.env"
 
+[ -n "${DATABASE_URL:-}" ] || die "DATABASE_URL is required; PostgreSQL is the only authority store"
+case "$DATABASE_URL" in postgres://*|postgresql://*) ;; *) die "DATABASE_URL must be a PostgreSQL URL" ;; esac
+
 export CODEX_MODE="${CODEX_MODE:-real}"
 export AUTH_MODE="${AUTH_MODE:-enabled}"
 export LINGONG_PORT="${LINGONG_PORT:-8765}"
@@ -96,7 +99,7 @@ fi
 
 # shellcheck source=native.sh
 . "$ROOT/scripts/native.sh"
-(cd "$ROOT/backend" && build_better_sqlite3 && build_esbuild)
+(cd "$ROOT/backend" && build_esbuild)
 (cd "$ROOT/frontend" && build_esbuild)
 
 if frontend_stale; then
