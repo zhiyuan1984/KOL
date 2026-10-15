@@ -36,7 +36,35 @@ const SCOPES: Array<{ id: OntologyScope; label: string; listKeys: string[] }> = 
   { id: "tickets", label: "票型", listKeys: ["kinds", "tickets"] },
   { id: "rules", label: "规则", listKeys: ["nodes", "rules"] },
 ];
+type OntologyRef = { ref: string; kind: "branch" | "commit"; subject: string; date: string };
+type OntologyDiffChange = {
+  section: string;
+  change_kind: "added" | "removed" | "changed";
+  key: string;
+  label: string;
+  fields?: Array<{ field: string; from: string; to: string }>;
+  from?: string;
+  to?: string;
+};
+type OntologyDiff = {
+  scope: OntologyScope;
+  base_version: string;
+  base_label: string;
+  target_label: string;
+  target_digest: string | null;
+  approvable: boolean;
+  changes: OntologyDiffChange[];
+  truncated: boolean;
+};
+
+/** 未提交的工作区改动：仅预览 diff，不可发起审批。 */
+const WORKING_PREVIEW_REF = "__working__";
+
 const TARGET_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/i;
+
+function diffKindLabel(kind: string): string {
+  return kind === "added" ? "新增" : kind === "removed" ? "删除" : "变更";
+}
 
 function isScope(value: unknown): value is OntologyScope {
   return SCOPES.some((scope) => scope.id === value);
@@ -187,10 +215,67 @@ export default function AdminOntology() {
   const [notice, setNotice] = useState("");
   const [summary, setSummary] = useState("");
   const [title, setTitle] = useState("");
-  const [changeRef, setChangeRef] = useState("");
   const [targetDigest, setTargetDigest] = useState("");
   const [formError, setFormError] = useState("");
   const [showConfig, setShowConfig] = useState(false);
+  // 审批发起（Phase 2）：引用下拉 + diff 预览 + 确认勾选，替代手输 Git ref / sha256。
+  const [refs, setRefs] = useState<OntologyRef[]>([]);
+  const [refsLoading, setRefsLoading] = useState(false);
+  const [selectedRef, setSelectedRef] = useState("");
+  const [diff, setDiff] = useState<OntologyDiff | null>(null);
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [diffError, setDiffError] = useState("");
+  const [diffConfirmed, setDiffConfirmed] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const loadRefs = useCallback(async (nextScope: OntologyScope) => {
+    setRefsLoading(true);
+    setSelectedRef("");
+    setDiff(null);
+    setDiffError("");
+    setDiffConfirmed(false);
+    try {
+      const res = await ontologyRequest<{ refs?: OntologyRef[] }>(
+        `/api/admin/ontology/refs?scope=${encodeURIComponent(nextScope)}`,
+      );
+      setRefs(Array.isArray(res.refs) ? res.refs : []);
+    } catch (cause) {
+      setDiffError(cause instanceof Error ? cause.message : "无法读取引用候选");
+    } finally {
+      setRefsLoading(false);
+    }
+  }, []);
+
+  const loadDiff = useCallback(async (nextScope: OntologyScope, ref: string) => {
+    setDiffLoading(true);
+    setDiffError("");
+    setDiffConfirmed(false);
+    try {
+      const qs = new URLSearchParams({ scope: nextScope });
+      if (ref !== WORKING_PREVIEW_REF) qs.set("change_ref", ref);
+      const res = await ontologyRequest<OntologyDiff>(`/api/admin/ontology/diff?${qs.toString()}`);
+      setDiff(res);
+    } catch (cause) {
+      setDiff(null);
+      setDiffError(cause instanceof Error ? cause.message : "无法读取 diff");
+    } finally {
+      setDiffLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadRefs(scope);
+  }, [scope, loadRefs]);
+
+  useEffect(() => {
+    if (!selectedRef) {
+      setDiff(null);
+      setDiffError("");
+      setDiffConfirmed(false);
+      return;
+    }
+    void loadDiff(scope, selectedRef);
+  }, [selectedRef, scope, loadDiff]);
+
   const loadSequence = useRef(0);
   const { ask, dialog } = useAdminConfirm();
 
@@ -254,8 +339,9 @@ export default function AdminOntology() {
     setNotice("");
     const body: Record<string, string> = { scope, summary: summary.trim() };
     if (title.trim()) body.title = title.trim();
-    if (changeRef.trim()) body.change_ref = changeRef.trim();
-    if (targetDigest.trim()) body.target_digest = targetDigest.trim();
+    // 优先用下拉所选引用（后端按引用算 digest）；高级兜底才用手输摘要。
+    if (selectedRef && selectedRef !== WORKING_PREVIEW_REF) body.change_ref = selectedRef;
+    else if (targetDigest.trim()) body.target_digest = targetDigest.trim();
 
     try {
       await ontologyRequest("/api/admin/ontology/change-approvals", {
@@ -269,8 +355,10 @@ export default function AdminOntology() {
         setNotice(`待审批请求已响应；已重新读取「${activeLabel}」的真实最新审批状态。`);
         setSummary("");
         setTitle("");
-        setChangeRef("");
         setTargetDigest("");
+        setSelectedRef("");
+        setDiff(null);
+        setDiffConfirmed(false);
       } catch (refreshCause) {
         setError(`审批请求已响应，但读取最新审批状态失败：${refreshCause instanceof Error ? refreshCause.message : "未知错误"}`);
       }
@@ -279,34 +367,61 @@ export default function AdminOntology() {
     } finally {
       setSubmitting(false);
     }
-  }, [activeLabel, changeRef, loadLatest, scope, submitting, summary, targetDigest, title]);
+  }, [activeLabel, loadLatest, scope, submitting, summary, targetDigest, title, selectedRef]);
 
   const openApprovalConfirm = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const cleanSummary = summary.trim();
-    const cleanChangeRef = changeRef.trim();
     const cleanTargetDigest = targetDigest.trim();
     if (!scope || !cleanSummary) {
       setFormError("范围与变更摘要为必填项。");
       return;
     }
-    if (!cleanTargetDigest && !cleanChangeRef) {
-      setFormError("必须提供目标内容摘要，或提供可由后端解析的 Git 变更引用。");
-      return;
-    }
-    if (cleanTargetDigest && !TARGET_DIGEST_PATTERN.test(cleanTargetDigest)) {
-      setFormError("目标内容摘要必须是 sha256:<64 位十六进制字符>；也可改为提供可解析的 Git 变更引用。");
-      return;
+    const useAdvanced = showAdvanced && !!cleanTargetDigest;
+    if (useAdvanced) {
+      if (!TARGET_DIGEST_PATTERN.test(cleanTargetDigest)) {
+        setFormError("目标内容摘要必须是 sha256:<64 位十六进制字符>。");
+        return;
+      }
+    } else {
+      if (!selectedRef) {
+        setFormError("请选择变更引用（下拉），并确认 diff；或在高级中提供 target_digest。");
+        return;
+      }
+      if (selectedRef === WORKING_PREVIEW_REF) {
+        setFormError("未提交的工作区改动仅供预览 diff，不可发起审批；请先把改动提交到分支，再选该分支。");
+        return;
+      }
+      if (!diff || diffError) {
+        setFormError("diff 未读出，无法确认变更内容；请重试或选其他引用。");
+        return;
+      }
+      if (!diff.approvable) {
+        setFormError("该目标不可发起审批；请选择一个分支或提交引用。");
+        return;
+      }
+      if (!diffConfirmed) {
+        setFormError("请先勾选“我已确认以上变更”，再提交审批。");
+        return;
+      }
     }
     setFormError("");
-    const digestForConfirm = cleanTargetDigest || "未填写（由后端根据 Git 变更引用计算）";
-    const refForConfirm = cleanChangeRef || "未填写（使用显式目标内容摘要）";
+    const added = diff?.changes.filter((c) => c.change_kind === "added").length ?? 0;
+    const removed = diff?.changes.filter((c) => c.change_kind === "removed").length ?? 0;
+    const changed = diff?.changes.filter((c) => c.change_kind === "changed").length ?? 0;
+    const diffSummary = useAdvanced
+      ? "高级模式：未预览 diff，目标摘要由发起人提供。"
+      : `diff：新增 ${added}、删除 ${removed}、变更 ${changed}${diff?.truncated ? "（已截断，仅显示前 200 项）" : ""}；目标：${diff?.target_label ?? selectedRef}；基线：${diff?.base_label ?? baseline}。`;
+    const digestForConfirm = useAdvanced
+      ? cleanTargetDigest
+      : diff?.target_digest || "未填写（由后端根据所选引用计算）";
+    const refForConfirm = useAdvanced ? "未填写（使用显式目标内容摘要）" : selectedRef;
     ask({
       kind: "approval-initiate",
       title: "确认发起本体变更审批？",
       object: `${activeLabel} · ${scope}`,
       scope: `${activeLabel}（${scope}）`,
-      change: `摘要：${cleanSummary}；目标内容摘要：${digestForConfirm}；Git 变更引用：${refForConfirm}${title.trim() ? `；标题：${title.trim()}` : ""}`,
+      change: `摘要：${cleanSummary}；${diffSummary}；目标内容摘要：${digestForConfirm}；变更引用：${refForConfirm}${title.trim() ? `；标题：${title.trim()}` : ""}`,
       consequence: "确认后只创建待审批请求，不产生 CEO 批准。此页面不写入注册表文件；文件级变更仍必须通过 Git 完成，并由后端按当前基线与目标内容校验。",
       ruleVersion: baseline,
       approvalState: latest?.status ? `当前最新状态：${latest.status}` : "当前暂无审批记录",
@@ -441,7 +556,7 @@ export default function AdminOntology() {
           <div className="ontology-form-head">
             <div>
               <h2>发起变更审批</h2>
-              <p className="muted">审批请求绑定当前范围与后端返回的 baseline。必须提供目标内容摘要，或可由后端解析的 Git 变更引用；当前运行文件摘要不会被自动当作待变更目标。</p>
+              <p className="muted">选一个变更引用，系统自动算出 diff 供你确认；target_digest 由后端按引用计算，不用手输。审批请求绑定当前范围与后端返回的 baseline；当前运行文件摘要不会被自动当作待变更目标。</p>
             </div>
             <span className="ontology-risk">R3 · 正式写入前确认</span>
           </div>
@@ -461,17 +576,101 @@ export default function AdminOntology() {
               <textarea required value={summary} onChange={(event) => setSummary(event.target.value)} disabled={submitting} rows={3} placeholder="说明改了什么、为什么，以及受影响的范围" />
             </label>
             <label className="field ui-native-field">
-              Git 变更引用（目标内容摘要未填时必填）
-              <input value={changeRef} onChange={(event) => setChangeRef(event.target.value)} disabled={submitting} placeholder="可由后端解析为提交的 Git 引用" />
+              变更引用（下拉选择，不用手输）
+              <select
+                value={selectedRef}
+                onChange={(event) => setSelectedRef(event.target.value)}
+                disabled={submitting || refsLoading}
+              >
+                <option value="">{refsLoading ? "读取引用中…" : "请选择变更引用"}</option>
+                <option value={WORKING_PREVIEW_REF}>未提交的工作区改动（仅预览 diff，不可审批）</option>
+                {refs.map((r) => (
+                  <option key={`${r.kind}:${r.ref}`} value={r.ref}>
+                    {r.kind === "branch" ? "分支" : "提交"} · {r.ref.slice(0, 40)}{r.subject ? ` · ${r.subject.slice(0, 40)}` : ""}
+                  </option>
+                ))}
+              </select>
             </label>
-            <label className="field ui-native-field">
-              目标内容摘要 target_digest（必填；或提供可解析 Git 版本）
-              <input value={targetDigest} onChange={(event) => setTargetDigest(event.target.value)} disabled={submitting} placeholder="sha256:<64 位十六进制字符>" />
-            </label>
+          </div>
+
+          {/* diff 预览 + 确认勾选 */}
+          {selectedRef && (
+            <div className="ontology-diff-preview" style={{ marginTop: 12 }}>
+              {diffLoading ? (
+                <p className="muted">正在计算 diff…</p>
+              ) : diffError ? (
+                <p className="field-error" role="alert">{diffError}</p>
+              ) : diff ? (
+                <>
+                  <p className="muted">
+                    基线：{diff.base_label} · 目标：{diff.target_label}
+                    {diff.target_digest ? ` · 目标摘要：${diff.target_digest.slice(0, 19)}…` : ""}
+                  </p>
+                  {diff.changes.length === 0 ? (
+                    <p className="muted">基线与目标内容一致，无变更。</p>
+                  ) : (
+                    <div style={{ maxHeight: 300, overflowY: "auto", border: "1px solid #e5e5e5", borderRadius: 4, padding: 8 }}>
+                      {Array.from(new Set(diff.changes.map((c) => c.section))).map((section) => (
+                        <div key={section} style={{ marginBottom: 8 }}>
+                          <strong>{section}</strong>
+                          <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
+                            {diff.changes.filter((c) => c.section === section).map((c, i) => (
+                              <li key={`${c.change_kind}:${c.key}:${i}`} style={{ fontSize: 13 }}>
+                                [{diffKindLabel(c.change_kind)}] {c.label}
+                                {c.key !== c.label ? <code>（{c.key}）</code> : null}
+                                {c.fields && c.fields.length > 0 ? (
+                                  <ul style={{ margin: "2px 0 0 16px", padding: 0, color: "#555" }}>
+                                    {c.fields.map((f) => (
+                                      <li key={f.field}>
+                                        {f.field}：{f.from || "（空）"} → {f.to || "（空）"}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : null}
+                                {c.from !== undefined || c.to !== undefined ? (
+                                  <span style={{ color: "#555" }}>：{c.from || "（空）"} → {c.to || "（空）"}</span>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {diff.truncated && <p className="muted">diff 已截断，仅显示前 200 项。</p>}
+                  {diff.approvable ? (
+                    <label style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "flex-start" }}>
+                      <input
+                        type="checkbox"
+                        checked={diffConfirmed}
+                        onChange={(event) => setDiffConfirmed(event.target.checked)}
+                        disabled={submitting || diff.changes.length === 0}
+                      />
+                      <span>我已确认以上 {diff.changes.length} 项变更{diff.changes.length === 0 ? "（无变更，不可提交）" : ""}</span>
+                    </label>
+                  ) : (
+                    <p className="muted">未提交改动仅供预览；请先把改动提交到分支，再选该分支发起审批。</p>
+                  )}
+                </>
+              ) : null}
+            </div>
+          )}
+
+          {/* 高级兜底：改动不在服务器 Git 里时，才需要手输摘要 */}
+          <div style={{ marginTop: 12 }}>
+            <button type="button" className="btn text" aria-expanded={showAdvanced} onClick={() => setShowAdvanced((v) => !v)}>
+              {showAdvanced ? "收起高级：直接提供 target_digest" : "高级：直接提供 target_digest（改动不在服务器 Git 里时用）"}
+            </button>
+            {showAdvanced && (
+              <label className="field ui-native-field" style={{ marginTop: 8 }}>
+                目标内容摘要 target_digest（高级兜底；勾选 diff 时不填）
+                <input value={targetDigest} onChange={(event) => setTargetDigest(event.target.value)} disabled={submitting} placeholder="sha256:<64 位十六进制字符>" />
+              </label>
+            )}
           </div>
           {formError ? <p className="field-error" role="alert">{formError}</p> : null}
           <div className="ontology-form-actions">
-            <p className="muted">确认页会再次展示范围、变更摘要与目标内容摘要；提交只创建待审批请求，不产生 CEO 批准，随后只读取真实 latest。</p>
+            <p className="muted">确认页会再次展示范围、变更摘要、diff 摘要与目标内容摘要；提交只创建待审批请求，不产生 CEO 批准，随后只读取真实 latest。</p>
             <button type="submit" className="btn work" disabled={submitting || loading} aria-busy={submitting || undefined}>{submitting ? "提交审批中…" : "发起审批"}</button>
           </div>
         </form>
