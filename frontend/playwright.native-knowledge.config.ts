@@ -2,6 +2,13 @@ import { defineConfig, devices } from "@playwright/test";
 import os from "node:os";
 import path from "node:path";
 
+// The tests execute durable jobs in their own process. Match the server's
+// explicitly isolated stub engine; production still verifies real index files.
+if (process.env.NODE_ENV === "test" && process.env.E2E_MODE === "stub") {
+  process.env.KNOWLEDGE_ENGINE_MODE = "stub";
+  process.env.KNOWLEDGE_NORMALIZE_MODE = "stub";
+}
+
 const port = process.env.E2E_PORT || "8949";
 const baseURL = process.env.E2E_BASE || `http://127.0.0.1:${port}`;
 const outputDir = process.env.PLAYWRIGHT_OUTPUT_DIR

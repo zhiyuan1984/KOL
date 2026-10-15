@@ -4348,92 +4348,74 @@ test("process trace keeps reasoning summary prose instead of generic processing 
   await expect(page.locator("[data-run-status]")).toContainText(english);
 });
 
-function wb5ApprovalRow(id: string) {
-  const chain_detail = [
-    { name: "林桐", role: "直属负责人" },
-    { name: "王主管", role: "业务负责人" },
-    { name: "财务负责人", role: "财务" },
-    { name: "张总", role: "最终审批人" },
-  ];
-  return {
-    id,
-    kind: "expense",
-    brand: "LT",
-    amount_usd: 50000,
-    status: "pending",
-    chain: chain_detail.map(({ name }) => name),
-    chain_detail,
-    current_index: 0,
-    can_decide: true,
-    allowed_actions: ["approve", "reject"],
-    expected_role: "reviewer",
-    // The fixture keeps the requester and independent reviewer distinct. It
-    // models the native gateway's reviewed projection; it never self-approves.
-    submitted_by: "employee-requester-liyuyan",
-    requester_name: "黎玉燕",
-    payload: { amount: 50000, amount_base: 355000, currency: "USD", requester_name: "黎玉燕", purpose: "KOL 推广" },
-    version: 17,
-    version_code: "FIN-EXP-004@17",
-    consequence_label: "仅推进审批链；不修改合作阶段。",
-    evidence: {
-      object: "黎玉燕申请 USD 50,000，折合人民币 355,000",
-      scope: "按费用规则；请求人与审批人分离",
-      change: "按 FIN-EXP-004 推进当前审批节点",
-      consequence: "审批结论不直接发送邮件或变更合作阶段。",
-      approval_state: "待审批",
-      rule_version: "FIN-EXP-004@17",
-    },
-    wecom_card_id: "card-wb5",
-    need_manual_band: 0,
-  };
-}
-
-async function wb5InstallApprovalStub(page: Page, options: { id: string; created?: boolean } = { id: "appr_wb5_created", created: false }) {
+/** Current Reviews v2 browser fixture. It deliberately has a requester and a
+ * separate active reviewer, and validates versioned prepare → confirmed command
+ * writes instead of reviving the retired /api/approvals page contract. */
+async function wb5InstallApprovalStub(page: Page, options: { id: string; created?: boolean } = { id: "review_wb5_created", created: false }) {
   const id = options.id;
-  let created = options.created ?? true;
-  let row = wb5ApprovalRow(id);
-  await page.route("**/api/approvals**", async (route) => {
-    const url = new URL(route.request().url());
-    const path = url.pathname;
-    const method = route.request().method();
-    const json = <T>(body: T, status = 200) => route.fulfill({ status, json: body });
-    if (path === "/api/approvals/badge" && method === "GET") return json({ count: created ? 1 : 0 });
-    if (path === "/api/approvals/preview" && method === "POST") {
-      const payload = route.request().postDataJSON() as { amount?: number; currency?: string };
-      if (!Number(payload.amount) || !payload.currency) return json({ detail: { code: "invalid_amount", message: "请填写金额和币种" } }, 400);
-      return json({
-        kind: "expense",
-        expected_version: row.version,
-        plan: { rule_id: "FIN-EXP-004@17", amount: payload.amount, currency: payload.currency, amount_base: 355000, requester_name: "黎玉燕" },
-        steps: row.chain_detail,
-      });
+  const names = ["林桐", "王主管", "财务负责人", "张总"];
+  const reviewerIds = names.map((_, index) => `reviewer-${index + 1}`);
+  const definition = {
+    schema: "review.definition.v1" as const, name: "费用审批（FIN-EXP-004）", description: "按 FIN-EXP-004 逐级复核；审批不自动外发或推进合作阶段。",
+    fields: [{ id: "amount", label: "费用金额", type: "money" as const, required: true, currencies: ["USD"], currencySource: "FIN-EXP-004" }, { id: "purpose", label: "费用用途", type: "textarea" as const, required: true }],
+    nodes: [{ id: "start", name: "发起", type: "start" as const, next: "review-1" }, ...names.map((name, index) => ({ id: `review-${index + 1}`, name, type: "review" as const, assignee: { kind: "named" as const, userIds: [reviewerIds[index]] }, mode: "single" as const, reject: "any_reject" as const, next: index === names.length - 1 ? "end" : `review-${index + 2}` })), { id: "end", name: "结束", type: "end" as const }],
+  };
+  const commands: unknown[] = [];
+  let created = options.created ?? false, forceStale = false, confirmation: { id: string; command: any } | undefined;
+  const make = () => {
+    const current = Math.min(Math.max(instance?.tasks.findIndex((task: any) => task.status === "pending") ?? 0, 0), names.length - 1);
+    return {
+      id, templateId: "fin-exp-004", templateVersion: 17, version: instance?.version ?? 17, requester: "employee-requester-liyuyan", title: "黎玉燕 KOL 推广费用", definition,
+      values: { amount: { amount: "50000", currency: "USD" }, purpose: "KOL 推广" }, currentNode: `review-${current + 1}`,
+      status: instance?.status ?? "reviewing", allowedActions: instance?.status && instance.status !== "reviewing" ? [] : ["approve", "reject"],
+      tasks: instance?.tasks ?? names.map((_, index) => ({ id: `task-${index + 1}`, nodeId: `review-${index + 1}`, userId: reviewerIds[index], status: index === 0 ? "pending" : "waiting", duty: "review", round: 1 })),
+      events: instance?.events ?? [], createdAt: "2026-10-15T00:00:00.000Z", updatedAt: "2026-10-15T00:00:00.000Z", progress: { approval: instance?.status === "approved" ? "approved" : instance?.status === "rejected" ? "rejected" : "pending", fulfillment: "none", currentResponsibility: names[current] },
+    };
+  };
+  let instance: any = created ? undefined : undefined;
+  if (created) instance = make();
+  const json = (route: any, body: unknown, status = 200) => route.fulfill({ status, json: body });
+  await page.route("**/api/approvals/v2/**", async route => {
+    const p = new URL(route.request().url()).pathname.split("/v2/")[1], method = route.request().method();
+    if (p === "companies") return json(route, [{ id: "lt", name: "LiTime" }]);
+    if (p === "context") return json(route, { tenant: "lt", actor: "reviewer-1", admin: false, organization: { defaultUnitId: "lt", units: [{ id: "lt", name: "LiTime", parentId: null }] }, people: [{ id: "employee-requester-liyuyan", name: "黎玉燕", managerIds: [] }, ...names.map((name, index) => ({ id: reviewerIds[index], name, managerIds: [] }))] });
+    if (p === "templates") return json(route, [{ id: "fin-exp-004", enabled: true, lifecycleVersion: 3, version: 17, publishedVersion: 17, definition, updatedAt: "2026-10-15T00:00:00.000Z" }]);
+    if (p === "drafts") return json(route, []);
+    if (p === "notifications/inbox") return json(route, { unreadCount: created ? 1 : 0, items: created ? [{ id: "notice-wb5", instance_id: id, message: "待处理费用审批", created_at: "2026-10-15T00:00:00.000Z", read_at: null }] : [] });
+    if (p === "notifications/notice-wb5/read") return json(route, { id: "notice-wb5", readAt: "2026-10-15T00:00:00.000Z" });
+    if (p.startsWith("instance-page")) return json(route, { items: created && instance ? [instance] : [], nextCursor: null });
+    if (p === `instances/${id}` && method === "GET") return created && instance ? json(route, instance) : json(route, { detail: { code: "not_found", message: "审批不存在" } }, 404);
+    const body = route.request().postDataJSON() as any;
+    if (p === "preview") {
+      if (body.templateVersion !== 17 || body.values?.amount?.amount !== "50000" || body.values?.amount?.currency !== "USD") return json(route, { detail: { code: "invalid_preview", message: "费用、币种和 FIN-EXP-004 版本必须完整匹配" } }, 400);
+      return json(route, { summary: { name: definition.name, version: 17, consequence: "审批通过后不会自动外发或推进合作阶段。", reviewers: names }, trace: reviewerIds.map((userId, index) => ({ nodeId: `review-${index + 1}`, type: "review", userIds: [userId] })) });
     }
-    if (path === "/api/approvals" && method === "POST") {
-      const payload = route.request().postDataJSON() as { expected_version?: number };
-      if (payload.expected_version !== row.version) return json({ detail: { code: "stale", message: "内容已变化，请重新确认。" } }, 409);
-      created = true;
-      return json({ id: row.id, kind: row.kind, status: row.status, can_decide: row.can_decide, expected_role: row.expected_role, chain_detail: row.chain_detail, payload: row.payload });
+    if (p === "prepare") {
+      if (body.templateVersion !== undefined && body.templateVersion !== 17) return json(route, { detail: { code: "stale", message: "流程版本已变化，请重新核对。" } }, 409);
+      if (body.expectedVersion !== undefined && body.expectedVersion !== instance?.version) return json(route, { detail: { code: "stale", message: "内容已变化，请重新确认。" } }, 409);
+      confirmation = { id: `confirmation-${commands.length + 1}`, command: body };
+      return json(route, { confirmationId: confirmation.id, expiresAt: "2099-01-01T00:00:00.000Z", summary: { name: body.title || instance?.title || definition.name, version: body.templateVersion || instance?.templateVersion || 17, scope: "LiTime · 费用审批 · 请求人与审批人分离", configuration: "FIN-EXP-004", reviewers: names, consequence: body.action === "reject" ? "驳回将结束该申请，必须填写处理意见。" : "仅记录审批决定；不会自动外发或推进合作阶段。" } });
     }
-    if (path === "/api/approvals" && method === "GET") return json(created ? [row] : []);
-    const match = path.match(/^\/api\/approvals\/([^/]+)(?:\/decide)?$/);
-    if (!match || match[1] !== id || !created) return json({ detail: { code: "not_found" } }, 404);
-    if (method === "GET") return json(row);
-    if (method !== "POST" || !path.endsWith("/decide")) return json({ detail: { code: "method_not_allowed" } }, 405);
-    const payload = route.request().postDataJSON() as { decision?: "approve" | "reject"; expected_version?: number; idempotency_key?: string; reason?: string };
-    if (!payload.idempotency_key || payload.expected_version !== row.version) return json({ detail: { code: "stale", message: "内容已变化，请重新确认。" } }, 409);
-    if (payload.decision === "reject") {
-      if (!payload.reason?.trim()) return json({ detail: { code: "reject_reason_required", message: "请填写驳回原因" } }, 400);
-      row = { ...row, status: "rejected", version: row.version + 1, allowed_actions: [], payload: { ...row.payload, reject_reason: payload.reason.trim() } };
-      return json(row);
+    if (p === "commands") {
+      if (!confirmation || body.confirmationId !== confirmation.id || JSON.stringify(body.command) !== JSON.stringify(confirmation.command) || !body.idempotencyKey) return json(route, { detail: { code: "confirmation_invalid", message: "确认内容不匹配" } }, 409);
+      const command = body.command;
+      if (forceStale && command.action === "approve") { forceStale = false; instance = { ...instance, version: instance.version + 1 }; return json(route, { detail: { code: "stale", message: "内容已变化，请重新确认。" } }, 409); }
+      if (command.action === "submit") { created = true; instance = make(); }
+      else if (!instance || command.expectedVersion !== instance.version) return json(route, { detail: { code: "stale", message: "内容已变化，请重新确认。" } }, 409);
+      else if (command.action === "reject") {
+        if (!command.reason?.trim()) return json(route, { detail: { code: "reject_reason_required", message: "请填写驳回原因" } }, 400);
+        const tasks = instance.tasks.map((task: any) => task.status === "pending" ? { ...task, status: "rejected", reason: command.reason.trim(), decidedAt: "2026-10-15T00:01:00.000Z" } : task);
+        instance = { ...instance, version: instance.version + 1, status: "rejected", allowedActions: [], tasks, events: [...instance.events, { id: `event-${instance.version}`, actor: "reviewer-1", action: "reject", version: instance.version + 1, detail: { reason: command.reason.trim() }, created_at: "2026-10-15T00:01:00.000Z" }], progress: { approval: "rejected", fulfillment: "cancelled", currentResponsibility: "审批已结束" } };
+      } else if (command.action === "approve") {
+        const index = instance.tasks.findIndex((task: any) => task.status === "pending"), done = index === names.length - 1;
+        const tasks = instance.tasks.map((task: any, taskIndex: number) => taskIndex === index ? { ...task, status: "approved", decidedAt: "2026-10-15T00:01:00.000Z" } : taskIndex === index + 1 ? { ...task, status: "pending" } : task);
+        instance = { ...instance, version: instance.version + 1, status: done ? "approved" : "reviewing", currentNode: done ? "end" : `review-${index + 2}`, allowedActions: done ? [] : ["approve", "reject"], tasks, events: [...instance.events, { id: `event-${instance.version}`, actor: "reviewer-1", action: "approve", version: instance.version + 1, detail: {}, created_at: "2026-10-15T00:01:00.000Z" }], progress: { approval: done ? "approved" : "pending", fulfillment: "none", currentResponsibility: done ? "审批已结束" : names[index + 1] } };
+      }
+      commands.push(body); return json(route, { id: `receipt-${commands.length}`, resourceId: id, version: instance.version });
     }
-    if (payload.decision !== "approve") return json({ detail: { code: "decision_invalid" } }, 400);
-    const nextIndex = row.current_index + 1;
-    const complete = nextIndex >= row.chain_detail.length;
-    row = { ...row, current_index: complete ? row.current_index : nextIndex, status: complete ? "consumed" : "pending", version: row.version + 1, allowed_actions: complete ? [] : ["approve", "reject"] };
-    return json(row);
+    return json(route, { detail: { code: "fixture_route_not_found", message: p } }, 404);
   });
-  await page.route("**/api/wecom/cards", (route) => route.fulfill({ json: [] }));
-  return { id };
+  return { id, commands, forceStale: () => { forceStale = true; } };
 }
 
 async function wb5InstallCronStub(page: Page) {
@@ -4957,131 +4939,113 @@ test("cron 跑一次风险扫描 keeps the run receipt on the cron page", async 
 });
 
 test("approvals page can preview and initiate an expense approval", async ({ page }) => {
-  await wb5InstallApprovalStub(page);
+  const fixture = await wb5InstallApprovalStub(page);
   await page.goto("/approvals");
-  await page.getByRole("button", { name: "发起费用审批", exact: true }).click();
-  const form = page.locator("[data-approval-initiate]");
-  await expect(form).toBeVisible();
-  await expect(form.getByRole("heading", { name: "发起费用审批" })).toBeVisible();
-  await expect(form).toContainText("阶段变更请在合作确认里提交");
-  await expect(page.locator("[data-approval-box='inbox']")).toBeVisible();
-  await expect(form.locator('[name="requester"]')).toHaveAttribute("readonly", "");
+  await expect(page.getByRole("heading", { name: "审批中心" })).toBeVisible();
+  await page.getByRole("button", { name: "发起审批", exact: true }).click();
+  const form = page.locator("main.review-page form").first();
+  await expect(form.getByRole("heading", { name: "发起审批" })).toBeVisible();
+  await expect(form).toContainText("R2 草稿 · 填写内容尚未提交");
   await expect(form).not.toContainText(/MCP|Codex|Host|engine/i);
-  await form.locator('[name="amount"]').fill("50000");
-  await form.locator('[name="currency"]').selectOption("USD");
-  await form.locator('[name="purpose"]').fill("KOL 推广");
-  await form.locator('[name="amount"]').blur();
-  await expect(page.locator("[data-approval-preview]")).toContainText("林桐", { timeout: 10000 });
-  await expect(page.locator("[data-approval-preview]")).toContainText("张总");
+  await form.getByLabel("申请标题").fill("黎玉燕 KOL 推广费用");
+  await form.getByLabel("费用金额金额").fill("50000");
+  await form.getByLabel("费用金额币种").selectOption("USD");
+  await form.getByLabel("费用用途").fill("KOL 推广");
+  await form.getByRole("button", { name: "核对申请与路径" }).click();
+  const preview = page.getByRole("complementary", { name: "申请核对" });
+  await expect(preview).toContainText("流程 v17");
+  await expect(preview).toContainText("林桐");
+  await expect(preview).toContainText("张总");
+  await expect(preview).toContainText("不会自动外发或推进合作阶段");
   await saveScreenshot(page, "approvals_initiate_preview_chain.png");
-  await form.getByRole("button", { name: "提交费用审批" }).click();
-  const initiateDialog = page.locator("[data-approval-confirm]");
+  await form.getByRole("button", { name: "提交审批", exact: true }).click();
+  const initiateDialog = page.getByRole("dialog");
   await expect(initiateDialog).toBeVisible();
-  await expect(initiateDialog.locator("[data-approval-confirm-change]")).toContainText("林桐");
-  await initiateDialog.getByRole("button", { name: "确认提交" }).click();
-  await expect(page).toHaveURL(/box=submitted/);
-  await expect(page).toHaveURL(/[?&]id=appr_/);
-  const card = page.locator("[data-approval-id][data-approval-kind='expense']").first();
-  await expect(card).toBeVisible();
-  await expect(card).toHaveAttribute("data-approval-focus", "true");
-  await expect(card).toContainText("黎玉燕");
-  await expect(card).toContainText("林桐");
-  await expect(card.locator("[data-approval-receipt]")).toContainText("已提交");
-  await expect(card.locator("[data-path-state='current'] .path-state")).toContainText("当前");
+  await expect(initiateDialog).toContainText("R3 · 确认后正式写入");
+  await expect(initiateDialog).toContainText("FIN-EXP-004");
+  expect(fixture.commands).toHaveLength(0);
+  await initiateDialog.getByRole("button", { name: "提交审批", exact: true }).click();
+  const detail = page.getByRole("region", { name: "申请详情" });
+  await expect(detail).toBeVisible();
+  await expect(detail).toContainText("黎玉燕");
+  await expect(detail).toContainText("流程版本 v17");
+  await expect(detail).toContainText("林桐");
+  await expect(detail).toContainText("审批中");
+  expect(fixture.commands).toHaveLength(1);
   await expect(page.locator("body")).not.toContainText("approval_id=");
   await saveScreenshot(page, "approvals_initiate_focused_card.png");
 });
 
 test("expense approval walks FIN-EXP-004 to 已办结 without record ids", async ({ page }) => {
-  const { id } = await wb5InstallApprovalStub(page, { id: "appr_wb5_walk", created: true });
-  await page.goto(`/approvals?id=${id}`);
-  const card = page.locator(`[data-approval-id="${id}"]`);
+  const { id } = await wb5InstallApprovalStub(page, { id: "review_wb5_walk", created: true });
+  await page.goto(`/reviews/${id}`);
+  const card = page.getByRole("region", { name: "申请详情" });
   await expect(card).toBeVisible();
-  await expect(page.locator(".approval-page[data-visual='docs20']")).toHaveCount(0);
-  await expect(card.locator("[data-approval-row-meta]")).toContainText("按费用规则");
-  await expect(card.locator("[data-approval-row-meta]")).not.toContainText("FIN-EXP");
+  await expect(card).toContainText("流程版本 v17");
+  await expect(card).toContainText("黎玉燕");
+  await expect(card).toContainText("费用金额");
   await expect(page.locator("body")).not.toContainText("approval_id=");
-  await expect(page.locator("body")).not.toContainText("chain_id=");
-  await expect(card).toContainText("折合人民币");
   for (const name of ["林桐", "王主管", "财务负责人", "张总"]) {
-    await expect(card).toContainText(`当前等待 ${name}`);
-    await confirmApprovalDecision(card, "approve");
+    await expect(card).toContainText(name);
+    await card.getByRole("button", { name: "同意", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "同意", exact: true }).click();
   }
-  await expect(card).toHaveAttribute("data-approval-status", "consumed", { timeout: 15000 });
+  await expect(card).toContainText("审批已通过", { timeout: 15000 });
   await expect(card).toContainText("审批已通过");
-  await expect(card.locator("[data-approval-receipt]")).toBeVisible();
   await expect(page.locator("body")).not.toContainText("approval_id=");
   await expect(page.locator("body")).not.toContainText("appr_");
 });
 
 test("expense approval reject requires a reason and leaves a durable receipt", async ({ page }) => {
-  const { id } = await wb5InstallApprovalStub(page, { id: "appr_wb5_reject", created: true });
-  await page.goto(`/approvals?id=${id}`);
-  const card = page.locator(`[data-approval-id="${id}"]`);
+  const fixture = await wb5InstallApprovalStub(page, { id: "review_wb5_reject", created: true });
+  await page.goto(`/reviews/${fixture.id}`);
+  const card = page.getByRole("region", { name: "申请详情" });
   await expect(card).toBeVisible();
   await card.getByRole("button", { name: "驳回" }).click();
-  const dialog = page.locator("[data-approval-confirm]");
+  const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
-  await expect(dialog.locator("[data-approval-confirm-consequence]")).toContainText("整单作废");
-  await expect(dialog.getByRole("button", { name: "确认驳回" })).toBeDisabled();
-  await dialog.locator("[name='reject_reason']").fill("超出本月预算");
-  await dialog.getByRole("button", { name: "确认驳回" }).click();
-  await expect(card).toHaveAttribute("data-approval-status", "rejected", { timeout: 15000 });
-  await expect(card.locator("[data-approval-receipt]")).toContainText("超出本月预算");
-  await expect(card.locator("[data-approval-receipt]")).toContainText("已作废");
+  expect(fixture.commands).toHaveLength(0);
+  await dialog.getByRole("button", { name: "驳回", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("请填写驳回原因");
+  expect(fixture.commands).toHaveLength(0);
+  await dialog.getByRole("button", { name: "取消，不执行", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await card.locator("textarea").fill("超出本月预算");
+  await card.getByRole("button", { name: "驳回" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "驳回", exact: true }).click();
+  await expect(card).toContainText("审批已驳回", { timeout: 15000 });
+  await expect(card).toContainText("超出本月预算");
   await page.reload();
-  await expect(page.locator(`[data-approval-id="${id}"] [data-approval-receipt]`)).toContainText("超出本月预算");
+  await expect(page.getByRole("region", { name: "申请详情" })).toContainText("超出本月预算");
   await expect(page.locator("body")).not.toContainText("approval_id=");
 });
 
 test("approvals boxes, badge API, cancel reject, and stale decide", async ({ page }) => {
-  const badgeUrls: string[] = [];
-  const listForBadge: string[] = [];
+  const v2Urls: string[] = [];
   page.on("request", (req) => {
     const url = new URL(req.url());
-    if (!url.pathname.startsWith("/api/approvals")) return;
-    if (url.pathname.endsWith("/badge")) badgeUrls.push(url.pathname);
-    if (url.pathname === "/api/approvals") listForBadge.push(url.pathname + url.search);
+    if (url.pathname.startsWith("/api/approvals/v2/")) v2Urls.push(url.pathname);
   });
-  const { id } = await wb5InstallApprovalStub(page, { id: "appr_wb5_stale", created: true });
-  await page.goto("/");
-  await expect.poll(() => badgeUrls.length).toBeGreaterThan(0);
-  expect(listForBadge).toEqual([]);
-
-  await page.goto(`/approvals?box=inbox&id=${id}`);
-  await expect(page).toHaveURL(/box=inbox/);
-  const card = page.locator(`[data-approval-id="${id}"]`);
+  const fixture = await wb5InstallApprovalStub(page, { id: "review_wb5_stale", created: true });
+  await page.goto("/approvals");
+  await expect(page.getByRole("button", { name: "站内通知，1 条未读", exact: true })).toBeVisible();
+  await expect.poll(() => v2Urls.some(path => path.endsWith("/notifications/inbox"))).toBeTruthy();
+  await page.getByRole("button", { name: "待我处理", exact: true }).click();
+  await page.getByRole("button", { name: "黎玉燕 KOL 推广费用", exact: true }).click();
+  const card = page.getByRole("region", { name: "申请详情" });
   await expect(card).toBeVisible();
-  await expect(card.locator("[data-path-state='current'] .path-state")).toContainText("当前");
-  await expect(page.locator("[data-approval-box='submitted']")).toBeVisible();
-  await page.locator(".approval-filters [data-approval-box='submitted']").click();
-  await expect(page).toHaveURL(/box=submitted/);
-  await page.locator(".approval-filters [data-approval-box='inbox']").click();
-  await expect(page).toHaveURL(/box=inbox/);
-
+  await expect(card).toContainText("当前需要我：林桐");
   await card.getByRole("button", { name: "驳回" }).click();
-  const dialog = page.locator("[data-approval-confirm]");
+  const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
-  await dialog.getByRole("button", { name: "取消，不执行" }).click();
+  expect(fixture.commands).toHaveLength(0);
+  await dialog.getByRole("button", { name: "取消，不执行", exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(card).toHaveAttribute("data-approval-status", "pending");
-
+  expect(fixture.commands).toHaveLength(0);
+  await expect(card).toContainText("审批中");
+  fixture.forceStale();
   await card.getByRole("button", { name: "同意" }).click();
-  await expect(page.locator("[data-approval-confirm]")).toBeVisible();
-  const version = Number(await card.getAttribute("data-approval-version") || "0");
-  const decided = await page.evaluate(async ({ approvalId, expectedVersion }) => {
-    const response = await fetch(`/api/approvals/${approvalId}/decide`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-      decision: "approve",
-        expected_version: expectedVersion,
-        idempotency_key: `e2e-stale-${approvalId}`,
-      }),
-    });
-    return { ok: response.ok, status: response.status };
-  }, { approvalId: id, expectedVersion: version });
-  expect(decided.ok).toBeTruthy();
-  await page.locator("[data-approval-confirm]").getByRole("button", { name: "确认同意" }).click();
-  await expect(page.getByText("内容已变化，请重新确认")).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "同意", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "内容已变化，请重新确认" })).toBeVisible();
+  expect(fixture.commands).toHaveLength(0);
 });
