@@ -38,10 +38,12 @@ async function ask(prompt: string, extra: Json = {}, expectStatus = 200) {
   return [String(session.body.id), listed.body] as const;
 }
 
-function cite(knowledgeId: string): void {
-  getConn().prepare(
-    "INSERT OR REPLACE INTO knowledge_citations (user_id, knowledge_id, cited_at) VALUES (?,?,?)",
-  ).run(PERSONAS.sriphy.id, knowledgeId, new Date().toISOString());
+async function cite(knowledgeId: string): Promise<void> {
+  await getConn().query(
+    `INSERT INTO knowledge_citations (user_id, knowledge_id, cited_at) VALUES ($1,$2,$3)
+     ON CONFLICT (user_id, knowledge_id) DO UPDATE SET cited_at=EXCLUDED.cited_at`,
+    [PERSONAS.sriphy.id, knowledgeId, new Date().toISOString()],
+  );
 }
 
 async function insertQiyou(email = ""): Promise<Awaited<string>> {
@@ -89,7 +91,7 @@ describe("first-touch To cannot stay empty for 灵工连通测试-qiyou1984", ()
   });
 
   it("does not put larry.zhao into Host draft To when the prompt also has a KOL inbox", async () => {
-    cite("kb_mail_kol");
+    await cite("kb_mail_kol");
     const [, data] = await ask(
       "首封建联 发件箱 larry.zhao@amperetime.com 发给 qiyou1984@gmail.com 主题：LiTime Mini 12V — weekend van test",
       { intent: "email_compose", knowledge_id: "kb_mail_kol" },
@@ -114,7 +116,7 @@ describe("first-touch To cannot stay empty for 灵工连通测试-qiyou1984", ()
 
   it("does not fall back to a Host draft when 首封建联 is missing 发件箱", async () => {
     const id = (await insertQiyou(""));
-    cite("kb_mail_kol");
+    await cite("kb_mail_kol");
     const [, data] = await ask(
       "首封建联 发送给 灵工连通测试-qiyou1984 qiyou1984@gmail.com",
       { intent: "email_compose", collaboration_id: id, knowledge_id: "kb_mail_kol" },

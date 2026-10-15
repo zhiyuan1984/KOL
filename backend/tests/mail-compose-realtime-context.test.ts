@@ -47,10 +47,13 @@ async function bindMailbox(email: string, brand: string, isDefault: boolean): Pr
   const now = new Date().toISOString();
   (await conn.query("INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING",[DEMO_USER.id,DEMO_USER.handle,DEMO_USER.name,"x",JSON.stringify(["employee", "admin"]),JSON.stringify([brand]),DEMO_USER.site,1,now,now]));
   (await conn.query("INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, status, updated_at)\n     VALUES ($1,$2,$3,'connected',$4)",[DEMO_USER.id,email,isDefault ? 1 : 0,now]));
-  conn.prepare(
-    `INSERT OR REPLACE INTO mailbox_owners (email, brand, owner_name, account_type, status)
-     VALUES (?,?,?,?,'active')`,
-  ).run(email, brand, DEMO_USER.name, "personal");
+  await conn.query(
+    `INSERT INTO mailbox_owners (email, brand, owner_name, account_type, status)
+     VALUES ($1,$2,$3,$4,'active')
+     ON CONFLICT (email) DO UPDATE SET brand=EXCLUDED.brand, owner_name=EXCLUDED.owner_name,
+       account_type=EXCLUDED.account_type, status=EXCLUDED.status`,
+    [email, brand, DEMO_USER.name, "personal"],
+  );
 }
 
 async function clearBindings(): Promise<Awaited<void>> {

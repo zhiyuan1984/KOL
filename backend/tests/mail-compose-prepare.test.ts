@@ -462,10 +462,13 @@ describe("未指定发件箱时的默认发件箱", () => {
     (await conn.query("INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING",[DEMO_USER.id,DEMO_USER.handle,DEMO_USER.name,"x",JSON.stringify(["employee", "admin"]),JSON.stringify(["LT", "RO", "PQ"]),DEMO_USER.site,1,now,now]));
     (await conn.query("DELETE FROM user_starry_bindings WHERE user_id=$1",[DEMO_USER.id]));
     (await conn.query("INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, status, updated_at)\n       VALUES ($1,$2,1,'connected',$3)",[DEMO_USER.id,email,now]));
-    conn.prepare(
-      `INSERT OR REPLACE INTO mailbox_owners (email, brand, owner_name, account_type, status)
-       VALUES (?,?,?,?,'active')`,
-    ).run(email, brand, DEMO_USER.name, "personal");
+    await conn.query(
+      `INSERT INTO mailbox_owners (email, brand, owner_name, account_type, status)
+       VALUES ($1,$2,$3,$4,'active')
+       ON CONFLICT (email) DO UPDATE SET brand=EXCLUDED.brand, owner_name=EXCLUDED.owner_name,
+         account_type=EXCLUDED.account_type, status=EXCLUDED.status`,
+      [email, brand, DEMO_USER.name, "personal"],
+    );
   }
 
   async function draftRow(from: string): Promise<Awaited<Record<string, unknown>>> {

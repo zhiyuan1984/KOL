@@ -158,19 +158,19 @@ export function messageRowOf(row: Row | Json): MessageRow {
   };
 }
 
-export function threadsByCollaborationIds(ids: string[]): Map<string, Json[]> {
+export async function threadsByCollaborationIds(ids: string[]): Promise<Map<string, Json[]>> {
   const map = new Map<string, Json[]>();
-  const unique = [...new Set(ids.map((id) => String(id || "")).filter(Boolean))];
+  const unique = [...new Set(ids.map((id) => String(id || "").trim()).filter(Boolean))];
   if (!unique.length) return map;
-  const placeholders = unique.map(() => "?").join(",");
-  const rows = getConn()
-    .prepare(
-      `SELECT collaboration_id, conversation_id, subject, last_direction, last_snippet, last_from, last_from_name,
-              unread_count, last_at, mailbox, peer_email, peer_name, last_preview, match_state, last_receipt,
-              digest_source, digest_text
-       FROM kol_mail_threads WHERE collaboration_id IN (${placeholders}) ORDER BY last_at DESC, updated_at DESC`,
-    )
-    .all(...unique) as Json[];
+  const rows = (await getConn().query<Row>(
+    `SELECT collaboration_id, conversation_id, subject, last_direction, last_snippet, last_from, last_from_name,
+            unread_count, last_at, mailbox, peer_email, peer_name, last_preview, match_state, last_receipt,
+            digest_source, digest_text
+     FROM kol_mail_threads
+     WHERE collaboration_id = ANY($1::text[])
+     ORDER BY last_at DESC NULLS LAST, updated_at DESC NULLS LAST`,
+    [unique],
+  )).rows;
   for (const row of rows) {
     const id = String(row.collaboration_id || "");
     const list = map.get(id) || [];
@@ -180,8 +180,8 @@ export function threadsByCollaborationIds(ids: string[]): Map<string, Json[]> {
   return map;
 }
 
-export function threadsForCollaboration(collaborationId: string): Json[] {
-  return threadsByCollaborationIds([collaborationId]).get(collaborationId) || [];
+export async function threadsForCollaboration(collaborationId: string): Promise<Json[]> {
+  return (await threadsByCollaborationIds([collaborationId])).get(collaborationId) || [];
 }
 
 export async function itemsForCollaboration(collaborationId: string): Promise<Awaited<Json[]>> {
@@ -230,22 +230,6 @@ export async function setConversationStarred(threadId: string, starred: boolean)
   (await getConn().query("UPDATE kol_mail_threads SET starred=$1, updated_at=$2 WHERE id=$3",[starred ? 1 : 0,nowIso(),threadId]));
 }
 
-/**
- * List projection of kol_mail_threads for the mailbox page. Columns are explicit
- * (and digest_text is left out on purpose): the list payload is the page's first
- * paint, so it carries only ConversationRow's fields. Message counts come from one
- * grouped join instead of a correlated COUNT subquery per thread.
- */
-const LIST_COLUMNS = `t.id, t.mailbox, t.conversation_id, t.collaboration_id, t.match_state, t.subject,
-       t.peer_email, t.peer_name, t.last_from, t.last_from_name, t.last_at, t.last_direction, t.last_preview,
-       t.unread_count, t.starred, t.last_receipt, t.digest_source,
-       c.kol_uid, c.handle, c.stage_code, IFNULL(mc.message_count, 0) AS message_count`;
-
-const LIST_JOINS = `FROM kol_mail_threads t
-         LEFT JOIN collaborations c ON c.id=t.collaboration_id
-         LEFT JOIN (SELECT thread_id, COUNT(*) AS message_count FROM kol_mail_items GROUP BY thread_id) mc
-                ON mc.thread_id = t.id`;
-
 export async function listMailboxConversations(mailbox?: string): Promise<ConversationRow[]> {
   const box = mailbox === undefined ? (await currentMailbox()) : mailbox;
   if (!box) return [];
@@ -257,16 +241,26 @@ export async function findMailThread(id: string, mailbox?: string): Promise<Row 
   const raw = String(id || "").trim();
   if (!raw) return undefined;
   const box = mailbox === undefined ? (await currentMailbox()) : mailbox;
-  const allowed = (await mailboxBindings()).map((binding) => normalizeEmail(binding.mailbox));
-  if (!allowed.length || (box && !allowed.includes(normalizeEmail(box)))) return undefined;
-  const byId = (await getConn().query("SELECT * FROM kol_mail_threads WHERE id=$1",[raw])).rows[0] as Row | undefined;
-  if (byId && allowed.includes(normalizeEmail(String(byId.mailbox || ""))) && (!box || normalizeEmail(String(byId.mailbox || "")) === normalizeEmail(box))) return byId;
-  if (box) {
-    return (await getConn().query("SELECT * FROM kol_mail_threads WHERE conversation_id=$1 AND lower(mailbox)=lower($2)",[raw,box])).rows[0] as Row | undefined;
-  }
-  return getConn().prepare(
-    `SELECT * FROM kol_mail_threads WHERE conversation_id=? AND lower(mailbox) IN (${allowed.map(() => "?").join(",")}) ORDER BY updated_at DESC LIMIT 1`,
-  ).get(raw, ...allowed) as Row | undefined;
+  const allowed = [...new Set((await mailboxBindings())
+    .map((binding) => normalizeEmail(binding.mailbox).toLowerCase())
+    .filter(Boolean))];
+  const requestedMailbox = normalizeEmail(box).toLowerCase();
+  if (!allowed.length || (requestedMailbox && !allowed.includes(requestedMailbox))) return undefined;
+  const mailboxScope = requestedMailbox ? [requestedMailbox] : allowed;
+  const byId = (await getConn().query<Row>(
+    `SELECT * FROM kol_mail_threads
+     WHERE id=$1 AND lower(COALESCE(mailbox,'')) = ANY($2::text[])
+     LIMIT 1`,
+    [raw, mailboxScope],
+  )).rows[0];
+  if (byId) return byId;
+  return (await getConn().query<Row>(
+    `SELECT * FROM kol_mail_threads
+     WHERE conversation_id=$1 AND lower(COALESCE(mailbox,'')) = ANY($2::text[])
+     ORDER BY updated_at DESC NULLS LAST
+     LIMIT 1`,
+    [raw, mailboxScope],
+  )).rows[0];
 }
 
 /**
@@ -276,25 +270,19 @@ export async function findMailThread(id: string, mailbox?: string): Promise<Row 
 export async function findMailItem(id: string): Promise<Row | undefined> {
   const raw = String(id || "").trim();
   if (!raw) return undefined;
-  const item = (await getConn().query("SELECT * FROM kol_mail_items WHERE id=$1",[raw])).rows[0] as Row | undefined;
-  if (!item) return undefined;
-  // 核对：item → thread → mailbox 必须在本人挂载范围内。
-  const threadId = String(item.thread_id || "");
-  const convId = String(item.conversation_id || "");
-  let thread: Row | undefined;
-  if (threadId) {
-    thread = (await getConn().query("SELECT * FROM kol_mail_threads WHERE id=$1",[threadId])).rows[0] as Row | undefined;
-  }
-  if (!thread && convId) {
-    thread = (await getConn().query("SELECT * FROM kol_mail_threads WHERE conversation_id=$1 ORDER BY updated_at DESC LIMIT 1",[convId])).rows[0] as Row | undefined;
-  }
-  if (!thread) return undefined;
-  const mailbox = String(thread.mailbox || "");
-  if (!mailbox) return undefined;
-  const owned = (await mailboxBindings()).some(
-    (binding) => String(binding.mailbox || "").toLowerCase() === mailbox.toLowerCase(),
-  );
-  if (!owned) return undefined;
+  const allowed = [...new Set((await mailboxBindings())
+    .map((binding) => normalizeEmail(binding.mailbox).toLowerCase())
+    .filter(Boolean))];
+  if (!allowed.length) return undefined;
+  // The mailbox scope is part of the SQL predicate: an item from an unbound
+  // mailbox is never materialized before authorization succeeds.
+  const item = (await getConn().query<Row>(
+    `SELECT i.* FROM kol_mail_items i
+     JOIN kol_mail_threads t ON t.id=i.thread_id
+     WHERE i.id=$1 AND lower(COALESCE(t.mailbox,'')) = ANY($2::text[])
+     LIMIT 1`,
+    [raw, allowed],
+  )).rows[0];
   return item;
 }
 
@@ -387,7 +375,7 @@ export async function persistThreadDigest(threadId: string, digest: {
   (await getConn().query("UPDATE kol_mail_threads\n     SET digest_text=$1, digest_source=$2, digest_fingerprint=$3, digest_error=$4, digest_failed_at=$5, digest_mail_count=$6\n     WHERE id=$7",[String(digest.text || ""),String(digest.source || ""),String(digest.fingerprint || ""),digest.error ? String(digest.error) : "",digest.failed_at ? String(digest.failed_at) : "",Number(digest.mail_count || 0),threadId]));
 }
 
-export function persistItemMemory(itemId: string, memory: {
+export async function persistItemMemory(itemId: string, memory: {
   summary?: string;
   summary_zh?: string;
   summary_source?: string;
@@ -398,22 +386,27 @@ export function persistItemMemory(itemId: string, memory: {
   generated_at?: string;
   error?: string;
   attempts?: number;
-}): void {
+}): Promise<void> {
   if (!itemId) return;
-  const fields: string[] = [];
-  const values: unknown[] = [];
-  if (memory.summary !== undefined) { fields.push("summary=?"); values.push(memory.summary); }
-  if (memory.summary_zh !== undefined) { fields.push("summary_zh=?"); values.push(memory.summary_zh); }
-  if (memory.summary_source !== undefined) { fields.push("summary_source=?"); values.push(memory.summary_source); }
-  if (memory.translation_zh !== undefined) { fields.push("translation_zh=?"); values.push(memory.translation_zh); }
-  if (memory.translation_source !== undefined) { fields.push("translation_source=?"); values.push(memory.translation_source); }
-  if (memory.fingerprint !== undefined) { fields.push("memory_fingerprint=?"); values.push(memory.fingerprint); }
-  if (memory.source !== undefined) { fields.push("memory_source=?"); values.push(memory.source); }
-  if (memory.generated_at !== undefined) { fields.push("memory_generated_at=?"); values.push(memory.generated_at); }
-  if (memory.error !== undefined) { fields.push("memory_error=?"); values.push(memory.error); }
-  if (memory.attempts !== undefined) { fields.push("memory_attempts=?"); values.push(memory.attempts); }
+  const fields: Array<[string, unknown]> = [];
+  // Field names are fixed repository columns; only values are supplied by callers.
+  if (memory.summary !== undefined) fields.push(["summary", memory.summary]);
+  if (memory.summary_zh !== undefined) fields.push(["summary_zh", memory.summary_zh]);
+  if (memory.summary_source !== undefined) fields.push(["summary_source", memory.summary_source]);
+  if (memory.translation_zh !== undefined) fields.push(["translation_zh", memory.translation_zh]);
+  if (memory.translation_source !== undefined) fields.push(["translation_source", memory.translation_source]);
+  if (memory.fingerprint !== undefined) fields.push(["memory_fingerprint", memory.fingerprint]);
+  if (memory.source !== undefined) fields.push(["memory_source", memory.source]);
+  if (memory.generated_at !== undefined) fields.push(["memory_generated_at", memory.generated_at]);
+  if (memory.error !== undefined) fields.push(["memory_error", memory.error]);
+  if (memory.attempts !== undefined) fields.push(["memory_attempts", memory.attempts]);
   if (!fields.length) return;
-  getConn().prepare(`UPDATE kol_mail_items SET ${fields.join(", ")} WHERE id=?`).run(...values, itemId);
+  const values = fields.map(([, value]) => value);
+  const set = fields.map(([column], index) => `${column}=$${index + 1}`).join(", ");
+  await getConn().query(
+    `UPDATE kol_mail_items SET ${set} WHERE id=$${values.length + 1}`,
+    [...values, itemId],
+  );
 }
 
 export async function markItemMemoryPending(itemId: string): Promise<Awaited<void>> {
