@@ -6,8 +6,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { BRAND_MAILBOXES } from "../src/config.js";
-import { tokenDigest } from "../src/auth.js";
+import { mapUser, tokenDigest, withScopedUser } from "../src/auth.js";
+import { drainBackgroundWork } from "../src/background-work.js";
+import { waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
 import { skillCatalog } from "../src/host/skills-catalog.js";
+import { saveStarryBinding } from "../src/host/starry-bind.js";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { EMAIL_TEMPLATES, templateAllowedForStage } from "../src/email-templates.js";
@@ -17,7 +20,7 @@ import { executeStarryKolTask, setStarryKolClientFactory } from "../src/starryko
 import { ensureStarryHomeLibrary } from "../src/starrykol/library-sync.js";
 import { ensureOrganizationTree, syncUserOrganization } from "../src/runtime/organization-tree.js";
 import { runtimeAgentCandidates } from "../src/runtime/execution.js";
-import { ensureRuntimeSchema } from "../src/runtime/store.js";
+import { ensureRuntimeSchema, getSkillConnectors, setSkillConnector, setConnectorConfig } from "../src/runtime/store.js";
 import { pgVisibleSkillIdsForUser } from "../src/postgres/auth-pg.js";
 import type { Json } from "../src/types.js";
 import {
@@ -188,6 +191,10 @@ beforeEach(async () => {
   // `confirm_stage` declares the retained Starry alias and its current Starry
   // permission.  Seed only its two read grants for this ordinary local user;
   // this exercises, rather than disables, the native connector gate.
+  // Grants reference actual connector entities, not runtime alias strings alone.
+  for (const id of ["starry", "starrykol"]) {
+    await getConn().query("INSERT INTO connectors(id,label,purpose,updated_at,enabled) VALUES($1,$1,'isolated snapshot fixture',$2,1) ON CONFLICT(id) DO UPDATE SET enabled=1", [id, now]);
+  }
   await getConn().query(
     "INSERT INTO user_connector_grants(user_id,connector_id,access,created_at) VALUES($1,$2,'read',$3) ON CONFLICT(user_id,connector_id) DO UPDATE SET access=EXCLUDED.access,created_at=EXCLUDED.created_at",
     [fixtureUser.id, "starry", now],
@@ -206,6 +213,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await waitForBackgroundSync();
+  await drainBackgroundWork();
   setStarryKolClientFactory();
   (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
@@ -537,7 +546,7 @@ describe("home board and host flows with Starry + markdown creators", () => {
     });
     expect(String(indexed?.audience_geo || "")).toContain("美国");
     expect(Number((await getConn().query("SELECT COUNT(*) AS n FROM collaborations WHERE source='starry'", [])).rows[0].n)).toBe(220);
-    expect((await getConn().query("SELECT COUNT(*) AS n FROM collaborations WHERE handle IN ('Holly Yoo','小美妆日记')", [])).rows[0].n).toBe("0");
+    expect((await getConn().query("SELECT COUNT(*) AS n FROM collaborations WHERE handle IN ('Holly Yoo','小美妆日记')", [])).rows[0].n).toBe(0);
   });
 
   it("keeps the skill home catalog while the board uses real creator rows", async () => {
@@ -548,11 +557,17 @@ describe("home board and host flows with Starry + markdown creators", () => {
   });
 
   it("sends a follow-up to Wendell Fishing without changing the official stage", async () => {
+    const resource = (await getSkillConnectors("email_compose")).find(row => row.connector_id === "starrykol");
+    await setSkillConnector("email_compose", "starrykol", true, Number(resource?.version || 0));
+    const config = (await getConn().query("SELECT version FROM runtime_connector_config WHERE connector_id='starrykol'")).rows[0];
+    await setConnectorConfig("starrykol", { protocol: "mcp", url: "https://api.example.test/mcp", headers_secret_refs: { "X-MCP-API-KEY": "isolated-mail-secret" } }, Number(config?.version || 0));
+    await saveStarryBinding(fixtureUser.id, { mailbox_email: BRAND_MAILBOXES.LT, mailbox_id: "mbx_snapshot_fixture", owner_name: fixtureUser.name, owner_open_id: "open_snapshot_fixture" });
     const id = (await insertCollaboration(wendellProfile(), "INITIAL_CONTACT"));
     const [sid] = await ask("记状态 @Wendell Fishing", "confirm_stage", id);
     const { persistDraft } = await import("../src/host/api.js");
     const { BRAND_MAILBOXES } = await import("../src/config.js");
-    const draft = (await persistDraft(sid, {
+    const scopedActor = await mapUser((await getConn().query("SELECT * FROM users WHERE id=$1", [fixtureUser.id])).rows[0]);
+    const draft = await withScopedUser(scopedActor, () => persistDraft(sid, {
       skill: "email_compose",
       template_id: "stage_mail.followup",
       from: BRAND_MAILBOXES.LT,

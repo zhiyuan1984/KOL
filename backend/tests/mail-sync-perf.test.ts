@@ -186,7 +186,7 @@ describe("mail sync performance", () => {
   });
 
   it("hydrates remaining conversations in the background", async () => {
-    const mcp = mockMcp(100, 12);
+    const mcp = mockMcp(100, 12, 10);
     setEmailMcpClientFactory(() => mcp);
     const result = await nativeSync();
     expect(result).toMatchObject({ ok: true, index_updated: 10, body_pending: 10 });
@@ -199,7 +199,7 @@ describe("mail sync performance", () => {
   });
 
   it("commits the first-page index before any delayed body request completes", async () => {
-    const mcp = mockMcp(0, 10);
+    const mcp = mockMcp(0, 10, 10);
     const original = mcp.callTool.bind(mcp);
     let releaseBody!: () => void;
     const bodyGate = new Promise<void>((resolve) => { releaseBody = resolve; });

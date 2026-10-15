@@ -229,4 +229,30 @@ describe("follow-style tags", () => {
     expect(row.follow_style_tags).toContain("cautious");
     await waitForFollowedMailSync(sid);
   });
+
+  it("rejects another brand's direct tag write and session open without mutation", async () => {
+    await getConn().query("UPDATE collaborations SET brand='RO' WHERE id='col_xiaomei'");
+    const before = (await getConn().query("SELECT follow_style_tags FROM collaborations WHERE id='col_xiaomei'")).rows[0];
+    const sessions = (await getConn().query("SELECT count(*)::int AS n FROM sessions")).rows[0].n;
+    const saved = await request("PUT", "/api/collaborations/col_xiaomei/follow-style-tags", { tags: ["犹豫谨慎"] });
+    expect([403, 404]).toContain(saved.status);
+    const opened = await request("POST", "/api/collaborations/col_xiaomei/session", {});
+    expect([403, 404]).toContain(opened.status);
+    expect((await getConn().query("SELECT follow_style_tags FROM collaborations WHERE id='col_xiaomei'")).rows[0]).toEqual(before);
+    expect((await getConn().query("SELECT count(*)::int AS n FROM sessions")).rows[0].n).toBe(sessions);
+    expect((await getConn().query("SELECT count(*)::int AS n FROM audit_events WHERE event_type='follow_style_tags.update'")).rows[0].n).toBe(0);
+  });
+
+  it("rejects another brand's handle in a chat tag command", async () => {
+    await getConn().query("UPDATE collaborations SET brand='RO' WHERE id='col_xiaomei'");
+    const before = (await getConn().query("SELECT follow_style_tags FROM collaborations WHERE id='col_xiaomei'")).rows[0];
+    const opened = await request("POST", "/api/sessions", { title: "个人标签请求" });
+    expect(opened.status).toBe(200);
+    const asked = await request("POST", `/api/sessions/${opened.body.id}/messages`, {
+      text: "给 @小美妆日记 打标签 犹豫谨慎",
+    });
+    expect([403, 404]).toContain(asked.status);
+    expect((await getConn().query("SELECT follow_style_tags FROM collaborations WHERE id='col_xiaomei'")).rows[0]).toEqual(before);
+    expect((await getConn().query("SELECT count(*)::int AS n FROM audit_events WHERE event_type='follow_style_tags.update'")).rows[0].n).toBe(0);
+  });
 });

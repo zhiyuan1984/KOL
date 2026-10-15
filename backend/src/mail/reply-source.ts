@@ -82,5 +82,11 @@ export async function observeReplyMail(input: ReplyMailObservation): Promise<{ c
       JSON.stringify({ thread_id: input.thread_id, conversation_id: input.conversation_id, from: input.from, revision: Boolean(prior) }),
       JSON.stringify({ mail_item_id: itemId, fingerprint }),`email.received:${identity}:${fingerprint}`,input.collaboration_id || input.thread_id]);
     return { changed: true, quarantined: false, item_id: itemId };
+  }, {
+    // Identity and thread/item locks serialize every conflicting observation.
+    // Read the committed predecessor after acquiring those locks; SERIALIZABLE
+    // gives unrelated mailbox predicate scans SSI conflicts during hydration.
+    // Cache, immutable revision and business event still commit atomically.
+    isolation: "READ COMMITTED",
   });
 }

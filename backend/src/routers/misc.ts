@@ -1,6 +1,7 @@
 import { postgresConnection } from "../postgres/pool.js";
 import { mediaCrawlerConfigured } from "../crawl/managed-connection.js";
 import { employeeSkillPreferences, recordEmployeeSkillView, setEmployeeSkillFavorite } from "../host/employee-skill-preferences.js";
+import { trackBackgroundWork } from "../background-work.js";
 import { publishKnowledgeConfig } from '../knowledge/skill-generation.js';
 import { starryKolConnectionHealth } from "../starrykol/connection.js";
 import fs from "node:fs";
@@ -1031,11 +1032,11 @@ misc.get("/home/board", async (c) => {
   const library = (await starryLibraryStatus());
   const mail = await followedMailStatus();
   if (refresh) {
-    void startStarryHomeLibrarySync().catch(() => undefined);
-    void startFollowedMailSync(true).catch(() => undefined);
+    void trackBackgroundWork(startStarryHomeLibrarySync().catch(() => undefined), "home.library.refresh");
+    void trackBackgroundWork(startFollowedMailSync(true).catch(() => undefined), "home.mail.refresh");
   } else {
-    void ensureStarryHomeLibrary().catch(() => undefined);
-    void ensureFollowedMailSync(false).catch(() => undefined);
+    void trackBackgroundWork(ensureStarryHomeLibrary().catch(() => undefined), "home.library.ensure");
+    void trackBackgroundWork(ensureFollowedMailSync(false).catch(() => undefined), "home.mail.ensure");
   }
   return c.json({
     ...board,
