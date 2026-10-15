@@ -48,14 +48,32 @@ command -v npm >/dev/null 2>&1 || die "缺少 npm"
 
 # Runtime skill fingerprints include the resolved manifest path. Restarting a
 # worker pinned to another release is not a deployment of this working tree.
-for unit in lingong lingong-outbox lingong-execution-worker@1 lingong-execution-worker@2; do
+RUNTIME_UNITS=(lingong lingong-outbox lingong-execution-worker@1 lingong-execution-worker@2 lingong-cron-tick)
+for unit in "${RUNTIME_UNITS[@]}"; do
   working_dir="$(systemctl show "$unit" -p WorkingDirectory --value)"
   entry="start.sh"
-  [ "$unit" = "lingong" ] || entry="worker.sh"
+  role=""
+  case "$unit" in
+    lingong-outbox) entry="worker.sh"; role=" outbox" ;;
+    lingong-execution-worker@*) entry="worker.sh"; role=" execution" ;;
+    lingong-cron-tick) entry="worker.sh"; role=" cron-tick" ;;
+  esac
   actual_start="$(systemctl show "$unit" -p ExecStart --value)"
   [ "$working_dir" = "$ROOT" ] && [[ "$actual_start" == *"path=$ROOT/scripts/$entry ;"* ]] \
+    && [[ "$actual_start" == *"argv[]=$ROOT/scripts/$entry$role ;"* ]] \
     || die "$unit 不使用本次发布路径 $ROOT；请先统一 WorkingDirectory 与 ExecStart，未构建、未重启"
 done
+
+ticker_environment="$(systemctl show lingong-cron-tick -p Environment --value)"
+[[ "$ticker_environment" =~ (^|[[:space:]\"])CRON_MISSED_RUN_POLICY=(coalesce|replay)($|[[:space:]\"]) ]] \
+  || die "Cron 恢复策略尚未显式配置；未构建、未重启"
+
+runtime_units_active() {
+  local unit
+  for unit in "${RUNTIME_UNITS[@]}"; do
+    systemctl is-active --quiet "$unit" || return 1
+  done
+}
 
 need_install() {
   local dir="$1" marker="$2"
@@ -112,12 +130,16 @@ if [ -d "$ROOT/frontend/dist" ]; then
 fi
 mv "$BUILD_PATH" "$ROOT/frontend/dist"
 echo "dist 已替换（上一版在 frontend/dist.prev；release.json绑定完整提交）"
-echo "重启 lingong、Outbox 与执行 Worker 服务"
+echo "重启 lingong、Outbox、执行 Worker 与 Cron 入队服务"
 # 后端、发布器和执行 Worker 都以常驻 Node 进程加载仓库源码。只重启
 # lingong 会使 Worker 继续执行旧代码，而新技能清单可能已采用新契约。
-sudo -n systemctl restart lingong lingong-outbox lingong-execution-worker@1 lingong-execution-worker@2
+sudo -n systemctl restart "${RUNTIME_UNITS[@]}"
 
 for _ in $(seq 1 60); do
+  if ! runtime_units_active; then
+    sleep 1
+    continue
+  fi
   version_body="$(curl -fsS -m 2 "http://127.0.0.1:${PORT}/api/version" 2>/dev/null || true)"
   if [ -n "$version_body" ]; then
     echo "服务已恢复：$version_body"

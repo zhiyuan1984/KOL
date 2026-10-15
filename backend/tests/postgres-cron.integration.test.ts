@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { closePostgresPool, postgresPool } from "../src/postgres/pool.js";
+import { closePostgresPool, postgresPool, postgresTransaction } from "../src/postgres/pool.js";
 import {
   pgCronJobById,
   pgCronRunById,
@@ -10,6 +10,7 @@ import {
 } from "../src/cron/postgres-store.js";
 import { pgClaimExecutionJobById, pgEnqueueExecutionJob, pgFailExecutionJob, pgRetryFailedExecutionJob } from "../src/execution-jobs/postgres-store.js";
 import { executeCronRun } from "../src/cron/worker.js";
+import { pgCronTickHeartbeat, runCronTickWorker } from "../src/cron/tick-worker.js";
 
 const configured = Boolean(process.env.TEST_POSTGRES_URL?.trim());
 if (configured) process.env.DATABASE_URL = process.env.TEST_POSTGRES_URL;
@@ -158,4 +159,147 @@ describePostgres("native PostgreSQL Cron scheduler", () => {
     expect(releaseResult).toMatchObject({ status: "succeeded" });
     expect(releaseResult.receipt_json).toMatchObject({ handler_key: "ownership-release" });
   });
+
+  it("coalesces missed windows once, advances into the future and never executes the handler", async () => {
+    const now = new Date("2031-01-01T00:00:00.000Z");
+    const oldSlot = "2030-12-29T23:50:00.000Z";
+    await pgEnsureSystemCronJobs(now);
+    await postgresPool().query("UPDATE cron_jobs SET next_run_at=$1 WHERE job_key='mail-memory-increment'", [oldSlot]);
+    const tick = await pgTickCronDue(now, { missed_run_policy: "coalesce", ensure_system_jobs: false });
+    expect(tick.claimed).toHaveLength(1);
+    expect(await pgCronRunById(tick.claimed[0]!)).toMatchObject({ status: "queued", started_at: null, receipt_json: null, scheduled_for: oldSlot });
+    const job = await pgCronJobById("mail-memory-increment");
+    expect(new Date(job!.next_run_at as string).toISOString()).toBe("2031-01-01T00:10:00.000Z");
+    const dispatch = await postgresPool().query("SELECT payload_json FROM execution_jobs WHERE job_type='cron.run'");
+    const payload = typeof dispatch.rows[0].payload_json === "string" ? JSON.parse(dispatch.rows[0].payload_json) : dispatch.rows[0].payload_json;
+    expect(payload.schedule_dispatch).toMatchObject({ missed_run_policy: "coalesce", first_due_at: oldSlot, advance_from: now.toISOString() });
+    expect((await pgTickCronDue(now, { missed_run_policy: "coalesce", ensure_system_jobs: false })).claimed).toEqual([]);
+    expect((await postgresPool().query("SELECT COUNT(*)::int AS n FROM execution_outbox")).rows[0].n).toBe(1);
+  });
+
+  it("preserves the existing API replay policy unless coalescing is explicitly chosen", async () => {
+    const now = new Date("2031-01-01T00:00:00.000Z");
+    await pgEnsureSystemCronJobs(now);
+    await postgresPool().query("UPDATE cron_jobs SET next_run_at='2030-12-29T23:50:00.000Z' WHERE job_key='mail-memory-increment'");
+    expect((await pgTickCronDue(now, { ensure_system_jobs: false })).claimed).toHaveLength(1);
+    const job = await pgCronJobById("mail-memory-increment");
+    expect(new Date(job!.next_run_at as string).toISOString()).toBe("2030-12-30T00:00:00.000Z");
+  });
+
+  it("two concurrent tickers cannot create duplicate runs or Outbox events", async () => {
+    const now = new Date("2031-01-01T00:00:00.000Z");
+    await pgEnsureSystemCronJobs(now);
+    await postgresPool().query("UPDATE cron_jobs SET next_run_at='2030-12-29T23:50:00.000Z' WHERE job_key='mail-memory-increment'");
+    const options = { missed_run_policy: "coalesce" as const, ensure_system_jobs: false };
+    const results = await Promise.all([pgTickCronDue(now, options), pgTickCronDue(now, options)]);
+    expect(results.flatMap((result) => result.claimed)).toHaveLength(1);
+    for (const table of ["cron_runs", "execution_jobs", "execution_outbox"]) {
+      expect((await postgresPool().query(`SELECT COUNT(*)::int AS n FROM ${table}`)).rows[0].n).toBe(1);
+    }
+  });
+
+  it("an outer rollback preserves the old clock and removes the run, execution job and Outbox together", async () => {
+    const now = new Date("2031-01-01T00:00:00.000Z");
+    const oldSlot = "2030-12-29T23:50:00.000Z";
+    await pgEnsureSystemCronJobs(now);
+    await postgresPool().query("UPDATE cron_jobs SET next_run_at=$1 WHERE job_key='mail-memory-increment'", [oldSlot]);
+    await expect(postgresTransaction(async () => {
+      expect((await pgTickCronDue(now, { missed_run_policy: "coalesce", ensure_system_jobs: false })).claimed).toHaveLength(1);
+      throw new Error("synthetic outer rollback");
+    })).rejects.toThrow("synthetic outer rollback");
+    expect(new Date((await pgCronJobById("mail-memory-increment"))!.next_run_at as string).toISOString()).toBe(oldSlot);
+    for (const table of ["cron_runs", "execution_jobs", "execution_outbox"]) {
+      expect((await postgresPool().query(`SELECT COUNT(*)::int AS n FROM ${table}`)).rows[0].n).toBe(0);
+    }
+  });
+
+  it("bootstrap and recurring ticks preserve explicitly disabled system jobs and custom conditions", async () => {
+    const now = new Date("2031-01-01T00:00:00.000Z");
+    await pgEnsureSystemCronJobs(now);
+    const condition = JSON.stringify({ enabled: false, operator_pause: true, idle_days: 14 });
+    await postgresPool().query("UPDATE cron_jobs SET status='disabled',condition_json=$1,next_run_at='2030-12-29T23:50:00.000Z' WHERE job_key IN ('mail-memory-increment','ownership-release')", [condition]);
+    await pgEnsureSystemCronJobs(now);
+    expect((await pgTickCronDue(now, { missed_run_policy: "coalesce" })).claimed).toEqual([]);
+    for (const key of ["mail-memory-increment", "ownership-release"]) {
+      const job = await pgCronJobById(key);
+      expect(job?.status).toBe("disabled");
+      expect(typeof job?.condition_json === "string" ? JSON.parse(job.condition_json) : job?.condition_json).toEqual(JSON.parse(condition));
+    }
+  });
+
+  it("a due single-run window is queued once and then has no next run", async () => {
+    const now = new Date("2031-01-01T00:00:00.000Z");
+    const oldSlot = "2030-12-31T23:50:00.000Z";
+    await pgEnsureSystemCronJobs(now);
+    await postgresPool().query("UPDATE cron_jobs SET next_run_at=$1,condition_json=$2 WHERE job_key='mail-memory-increment'", [oldSlot, JSON.stringify({ schedule: { kind: "once", once_at: oldSlot } })]);
+    expect((await pgTickCronDue(now, { missed_run_policy: "coalesce", ensure_system_jobs: false })).claimed).toHaveLength(1);
+    expect((await pgCronJobById("mail-memory-increment"))?.next_run_at).toBeNull();
+    expect((await pgTickCronDue(now, { missed_run_policy: "coalesce", ensure_system_jobs: false })).claimed).toEqual([]);
+  });
+
+  it("a configured synthetic AI job is only enqueued, with no invented session or terminal receipt", async () => {
+    const now = new Date("2031-01-01T00:00:00.000Z");
+    await pgEnsureSystemCronJobs(now);
+    await postgresPool().query("UPDATE cron_jobs SET handler_key='ai-task',execute_as='synthetic-employee',next_run_at='2030-12-31T23:59:00.000Z' WHERE job_key='overdue-scan'");
+    const tick = await pgTickCronDue(now, { missed_run_policy: "coalesce", ensure_system_jobs: false });
+    expect(tick.claimed).toHaveLength(1);
+    expect(await pgCronRunById(tick.claimed[0]!)).toMatchObject({ status: "queued", session_id: null, receipt_json: null, started_at: null });
+    expect((await postgresPool().query("SELECT actor_ref,status FROM execution_jobs")).rows[0]).toMatchObject({ actor_ref: "synthetic-employee", status: "queued" });
+  });
+
+  it("records a fresh Cron worker generation and explicit stop in the existing heartbeat table", async () => {
+    await pgCronTickHeartbeat("synthetic-ticker", "running", { enqueue_only: true }, "2020-01-01T00:00:00.000Z");
+    await pgCronTickHeartbeat("synthetic-ticker", "stopped", { enqueue_only: true });
+    let row = (await postgresPool().query("SELECT * FROM execution_worker_heartbeats WHERE worker_id='synthetic-ticker'")).rows[0];
+    expect(row).toMatchObject({ worker_kind: "cron-tick", status: "stopped" });
+    expect(row.stopped_at).toBeTruthy();
+    await pgCronTickHeartbeat("synthetic-ticker", "running", { enqueue_only: true }, "2021-01-01T00:00:00.000Z");
+    row = (await postgresPool().query("SELECT * FROM execution_worker_heartbeats WHERE worker_id='synthetic-ticker'")).rows[0];
+    expect(new Date(row.started_at).toISOString()).toBe("2021-01-01T00:00:00.000Z");
+    expect(row.stopped_at).toBeNull();
+  });
+
+  it("marks only truly stale runs and never fabricates no-side-effect evidence", async () => {
+    const now = new Date("2031-01-01T00:00:00.000Z");
+    await pgEnsureSystemCronJobs(now);
+    const job = await pgCronJobById("mail-memory-increment");
+    const queued = await pgEnqueueManualCronRun(String(job!.id), "synthetic-stale-slot");
+    await postgresPool().query("UPDATE cron_runs SET status='running',started_at=$1 WHERE id=$2", [now.toISOString(), queued.run_id]);
+    const healthyTick = await pgTickCronDue(now, { missed_run_policy: "coalesce", ensure_system_jobs: false });
+    expect(healthyTick.stale).toBe(false);
+    expect((await pgCronRunById(queued.run_id))?.status).toBe("running");
+    const later = new Date(now.getTime() + 31 * 60_000);
+    const staleTick = await pgTickCronDue(later, { missed_run_policy: "coalesce", ensure_system_jobs: false });
+    expect(staleTick.stale).toBe(true);
+    expect(await pgCronRunById(queued.run_id)).toMatchObject({ status: "needs_takeover", error_code: "stale_run", receipt_json: {
+      side_effect: "unknown", created_session: null, reconciliation_required: true,
+    } });
+  });
+
+  it("runs the actual native resident worker, commits only queue state, and drains cleanly on stop", async () => {
+    await pgEnsureSystemCronJobs(new Date("2031-01-01T00:00:00.000Z"));
+    await postgresPool().query("UPDATE cron_jobs SET next_run_at='2020-01-01T00:00:00.000Z' WHERE job_key='mail-memory-increment'");
+    const controller = new AbortController();
+    const listenersBefore = process.listenerCount("SIGTERM");
+    const worker = runCronTickWorker({ worker_id: "synthetic-resident", poll_ms: 250, missed_run_policy: "coalesce", signal: controller.signal });
+    let success = false;
+    let workerFailure: unknown;
+    worker.catch((error) => { workerFailure = error; });
+    const deadline = Date.now() + 12_000;
+    try {
+      while (Date.now() < deadline && !workerFailure) {
+        const row = (await postgresPool().query("SELECT details_json FROM execution_worker_heartbeats WHERE worker_id='synthetic-resident'")).rows[0];
+        const details = typeof row?.details_json === "string" ? JSON.parse(row.details_json) : row?.details_json;
+        if (details?.last_success_at) { success = true; break; }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    } finally {
+      controller.abort();
+      await worker;
+    }
+    expect(success).toBe(true);
+    expect(process.listenerCount("SIGTERM")).toBe(listenersBefore);
+    expect((await postgresPool().query("SELECT status FROM execution_worker_heartbeats WHERE worker_id='synthetic-resident'")).rows[0].status).toBe("stopped");
+    expect((await postgresPool().query("SELECT status,started_at,receipt_json FROM cron_runs")).rows).toEqual([{ status: "queued", started_at: null, receipt_json: null }]);
+  }, 20_000);
 });
