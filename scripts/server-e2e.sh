@@ -62,6 +62,7 @@ export PLAYWRIGHT_OUTPUT_DIR="${PLAYWRIGHT_OUTPUT_DIR:-$ROOT/artifacts/e2e-$(git
 FIXTURE_SCRIPT=prepare-e2e-runtime.ts
 if [ "$AUTH_KIND" = enabled ]; then FIXTURE_SCRIPT=prepare-authenticated-e2e.ts; fi
 (cd backend && npm run db:apply:postgres-schema >/dev/null && npm run db:seed:reference >/dev/null && node_modules/.bin/tsx "scripts/$FIXTURE_SCRIPT")
-if [ "$NOBUILD" = 0 ]; then (cd frontend && npm run build); fi
+# Backend fixtures require test; static assets must match the production bundle.
+if [ "$NOBUILD" = 0 ]; then (cd frontend && NODE_ENV=production npm run build); fi
 cd frontend
 E2E_SKIP_BUILD=1 npx playwright test "$@" --workers="${E2E_WORKERS:-1}" --retries=0

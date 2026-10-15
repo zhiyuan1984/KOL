@@ -49,7 +49,9 @@ if (process.env.E2E_SKIP_BUILD === "1") {
   const buildArgs = process.platform === "win32" ? ["/d", "/s", "/c", "npm run build"] : ["run", "build"];
   const build = spawn(buildCommand, buildArgs, {
     cwd: path.join(root, "frontend"),
-    env: process.env,
+    // Keep backend fixture safeguards in test, but do not ship a development
+    // React bundle (and StrictMode replay) merely because E2E owns a test DB.
+    env: { ...process.env, NODE_ENV: "production" },
     stdio: "inherit",
     windowsHide: true,
   });

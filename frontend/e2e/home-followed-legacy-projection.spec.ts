@@ -1,8 +1,34 @@
 import { expect, test } from "@playwright/test";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 
-test.beforeEach(async ({ request }) => {
-  await request.post("/api/demo/reset", { data: { workbench: true } });
-  await request.post("/api/me/persona", { data: { persona: "sriphy" } });
+// These demo-only setup calls do not use authentication cookies. Playwright's
+// global keep-alive agent can reuse a socket closed while another spec ran.
+// A fresh connection prevents that race; no retry can replay a reset silently.
+async function setupPost(baseURL: string, pathname: string, data: unknown) {
+  const url = new URL(pathname, baseURL), body = JSON.stringify(data);
+  await new Promise<void>((resolve, reject) => {
+    const send = url.protocol === "https:" ? httpsRequest : httpRequest;
+    const request = send(url, { method: "POST", agent: false, headers: {
+      "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body), Connection: "close",
+    } }, response => {
+      let text = ""; response.setEncoding("utf8"); response.on("data", chunk => { text += chunk; });
+      response.on("error", reject); response.on("end", () => {
+        try {
+          if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) throw new Error(`Demo setup ${pathname} failed: HTTP ${response.statusCode}`);
+          JSON.parse(text); resolve();
+        } catch (error) { reject(error); }
+      });
+    });
+    request.setTimeout(60000, () => request.destroy(new Error(`Demo setup ${pathname} timed out`)));
+    request.on("error", reject); request.end(body);
+  });
+}
+
+test.beforeEach(async ({ baseURL }) => {
+  if (!baseURL) throw new Error("Explicit E2E baseURL is required");
+  await setupPost(baseURL, "/api/demo/reset", { workbench: true });
+  await setupPost(baseURL, "/api/me/persona", { persona: "sriphy" });
 });
 
 function followingEnvelope(kols: Array<Record<string, unknown>>) {
@@ -112,4 +138,18 @@ test("following 明确成功为空时绝不混入 board 的其他负责人记录
   await expect(page.locator('[data-follow-empty="mailbox"]')).toBeVisible();
   await expect(page.locator('[data-followed-kol="OtherOwnerOnly"]')).toHaveCount(0);
   await expect(page.locator("[data-followed-overview-count]")).toHaveText("目前跟进了 0 位");
+});
+
+test('demo setup transport never reuses an idle socket or retries a failed reset', async () => {
+  const { createServer } = await import('node:http');let requests=0,connections=0;
+  const server=createServer((_request,response)=>{requests++;response.writeHead(requests===3?503:200,{'Content-Type':'application/json'});response.end(JSON.stringify({ok:true}));});
+  server.on('connection',()=>{connections++;});
+  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try {
+    const address=server.address();if(!address||typeof address==='string')throw new Error('Local fixture server did not bind');const base=`http://127.0.0.1:${address.port}`;
+    await setupPost(base,'/api/demo/reset',{workbench:true});await setupPost(base,'/api/me/persona',{persona:'sriphy'});
+    expect(requests).toBe(2);expect(connections).toBe(2);
+    await expect(setupPost(base,'/api/demo/reset',{workbench:true})).rejects.toThrow('HTTP 503');
+    expect(requests).toBe(3);expect(connections).toBe(3);
+  } finally {await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));}
 });
