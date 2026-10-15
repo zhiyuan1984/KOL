@@ -145,7 +145,7 @@ jobs:
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ecs-user@47.88.94.205 \
             "cd ~/kol-e2e && git fetch github '$E2E_REVISION' && git show '$E2E_REVISION:scripts/server-e2e.sh' | LINGONG_E2E_ROOT=\$PWD bash -s -- --rev '$E2E_REVISION' $E2E_SPECS"
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ecs-user@47.88.94.205 \
-            "cd ~/kol-e2e && git show '$E2E_REVISION:scripts/server-e2e.sh' | LINGONG_E2E_ROOT=\$PWD bash -s -- --rev '$E2E_REVISION' --no-build --config=playwright.runtime.config.ts"
+            "cd ~/kol-e2e && git show '$E2E_REVISION:scripts/server-e2e.sh' | LINGONG_E2E_ROOT=\$PWD bash -s -- --rev '$E2E_REVISION' --no-build --authenticated --config=playwright.runtime.config.ts"
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ecs-user@47.88.94.205 \
             "cd ~/kol-e2e/frontend && npm run test:e2e:agents"
 

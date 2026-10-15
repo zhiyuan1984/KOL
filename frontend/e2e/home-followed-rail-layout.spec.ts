@@ -248,8 +248,12 @@ test("服务端刷新失败时保留已经授权的 following rows", async ({ pa
   await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
   await expect(page.locator('[data-followed-kol="红人2"]')).toBeVisible();
   await page.locator('[data-home-mode="today"]').click();
+  // A click promise does not certify the React mode transition has committed.
+  // Prove the excursion before re-entering the lifecycle refresh boundary.
+  await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
   await page.locator('[data-home-mode="lifecycle"]').click();
 
+  await expect.poll(() => followingReads).toBeGreaterThanOrEqual(2);
   await expect(page.locator("[data-follow-refresh-error]")).toBeVisible();
   await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
   await expect(page.locator('[data-followed-kol="红人2"]')).toBeVisible();

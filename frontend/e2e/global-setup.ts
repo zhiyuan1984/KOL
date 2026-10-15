@@ -32,6 +32,11 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
     if (!response.ok()) {
       throw new Error(`E2E test account login failed: ${response.status()} ${await response.text()}`);
     }
+    const status = await context.get("/api/auth/status");
+    const identity = await status.json() as { authenticated?: boolean; setup_required?: boolean };
+    if (!status.ok() || identity.authenticated !== true || identity.setup_required === true) {
+      throw new Error("E2E login did not establish an authenticated native session or explicit demo persona");
+    }
     await context.storageState({ path: authFile });
   } finally {
     await context.dispose();

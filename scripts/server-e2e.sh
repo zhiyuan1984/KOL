@@ -7,11 +7,13 @@ ROOT="${LINGONG_E2E_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 cd "$ROOT"
 REV="github/main"
 NOBUILD=0
+AUTH_KIND=disabled
 while [ $# -gt 0 ]; do
   case "$1" in
     --rev) REV="${2:?missing --rev value}"; shift 2 ;;
     --no-build) NOBUILD=1; shift ;;
     --no-schema) shift ;;
+    --authenticated) AUTH_KIND=enabled; shift ;;
     *) break ;;
   esac
 done
@@ -51,13 +53,15 @@ DATABASE_URL="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileS
 export DATABASE_URL
 export TEST_DB_PREFIX=lingong_t_server_e2e NODE_ENV=test
 export E2E_MODE=stub CODEX_MODE=stub CLAW_MODE=mock
-export E2E_AUTH_MODE=disabled AUTH_MODE=disabled LIVE_REMOTE_SIDE_EFFECTS=0
+export E2E_AUTH_MODE="$AUTH_KIND" AUTH_MODE="$AUTH_KIND" LIVE_REMOTE_SIDE_EFFECTS=0
 export KNOWLEDGE_ENGINE_MODE=stub
 export RUNTIME_CREDENTIAL_MASTER_KEY="$(printf '%064d' 0)"
 export PLAYWRIGHT_OUTPUT_DIR="${PLAYWRIGHT_OUTPUT_DIR:-$ROOT/artifacts/e2e-$(git rev-parse --short HEAD)-$OWNER}"
 # Always initialize a NEW database; never migrate/reset the configured reference
 # test DB and never clone production facts or credentials.
-(cd backend && npm run db:apply:postgres-schema >/dev/null && npm run db:seed:reference >/dev/null && node_modules/.bin/tsx scripts/prepare-e2e-runtime.ts)
+FIXTURE_SCRIPT=prepare-e2e-runtime.ts
+if [ "$AUTH_KIND" = enabled ]; then FIXTURE_SCRIPT=prepare-authenticated-e2e.ts; fi
+(cd backend && npm run db:apply:postgres-schema >/dev/null && npm run db:seed:reference >/dev/null && node_modules/.bin/tsx "scripts/$FIXTURE_SCRIPT")
 if [ "$NOBUILD" = 0 ]; then (cd frontend && npm run build); fi
 cd frontend
 E2E_SKIP_BUILD=1 npx playwright test "$@" --workers="${E2E_WORKERS:-1}" --retries=0

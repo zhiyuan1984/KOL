@@ -277,7 +277,10 @@ test("discovery confirmation uses the refreshed snapshot once and waits for remo
   const confirm = page.locator("[data-discovery-start-confirm]");
   await expect(confirm).toBeInViewport();
   await expect(page.locator("[data-discovery-run-status-label]")).toContainText("待确认");
-  expect(await page.locator("[data-ai-prompt-submit]").evaluate(el => getComputedStyle(el).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
+  // The secondary-state render starts the existing background transition. Read
+  // its exact final value rather than racing an intermediate alpha on CI.
+  await expect(page.locator("[data-workspace-awaiting-confirm]")).toBeAttached();
+  await expect(page.locator("[data-ai-prompt-submit]")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   state.revise();
   await page.clock.runFor(2100);
   await confirm.evaluate(el => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });
