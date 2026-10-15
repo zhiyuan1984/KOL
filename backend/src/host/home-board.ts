@@ -893,24 +893,27 @@ export async function buildHomeBoard(options: { restoreOfficialStages?: boolean 
   const creators = (await conn.query("SELECT * FROM claw_creators ORDER BY name",[])).rows as Row[];
   const creatorByHandle = new Map(creators.map((row) => [String(row.handle || row.name || ""), row]));
 
-  const planningTypePlaceholders = PLANNING_TASK_TYPES.map(() => "?").join(",");
-  const taskRows = conn.prepare(
+  const taskRows = (await conn.query<Row>(
     `SELECT ${HOME_BOARD_TICKET_COLUMNS},
-            CASE WHEN task_type IN (${planningTypePlaceholders}) THEN '{}' ELSE input END AS input
-       FROM tickets WHERE owner_user_id=? ORDER BY updated_at DESC`,
-  ).all(...PLANNING_TASK_TYPES, owner) as Row[];
+            CASE WHEN task_type = ANY($1::text[]) THEN '{}'::jsonb ELSE input END AS input
+       FROM tickets
+       WHERE owner_user_id = $2
+       ORDER BY updated_at DESC`,
+    [PLANNING_TASK_TYPES, owner],
+  )).rows;
   const taskIds = taskRows.map((row) => String(row.id));
   const lastEventByTask = new Map<string, Row>();
   if (taskIds.length) {
-    const placeholders = taskIds.map(() => "?").join(",");
-    const eventRows = conn.prepare(
+    const eventRows = (await conn.query<Row>(
       `SELECT te.* FROM task_events te
        INNER JOIN (
          SELECT work_item_id, MAX(sequence) AS sequence
-         FROM task_events WHERE work_item_id IN (${placeholders})
+         FROM task_events
+         WHERE work_item_id = ANY($1::text[])
          GROUP BY work_item_id
        ) last ON last.work_item_id = te.work_item_id AND last.sequence = te.sequence`,
-    ).all(...taskIds) as Row[];
+      [taskIds],
+    )).rows;
     for (const event of eventRows) lastEventByTask.set(String(event.work_item_id), event);
   }
 
@@ -960,12 +963,14 @@ export async function buildHomeBoard(options: { restoreOfficialStages?: boolean 
   const collabIds = collabs.map((row) => String(row.id));
   const sessionByCollab = new Map<string, string>();
   if (collabIds.length) {
-    const placeholders = collabIds.map(() => "?").join(",");
-    const sessionRows = conn.prepare(
+    const sessionRows = (await conn.query<{ collaboration_id: string; id: string }>(
       `SELECT collaboration_id, id FROM sessions
-       WHERE collaboration_id IN (${placeholders}) AND deleted_at IS NULL AND archived_at IS NULL
+       WHERE collaboration_id = ANY($1::text[])
+         AND deleted_at IS NULL
+         AND archived_at IS NULL
        ORDER BY updated_at DESC`,
-    ).all(...collabIds) as { collaboration_id: string; id: string }[];
+      [collabIds],
+    )).rows;
     for (const row of sessionRows) {
       const id = String(row.collaboration_id);
       if (!sessionByCollab.has(id)) sessionByCollab.set(id, String(row.id));
