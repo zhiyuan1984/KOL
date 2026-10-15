@@ -154,6 +154,7 @@ async function openSkills(page: Page) {
   await page.goto("/admin/skills");
   await expect(page.locator("[data-admin-page='skills']")).toBeVisible();
   await expect(page.locator(".skill-v2-row", { hasText: "技能 Alpha" })).toBeVisible();
+  await page.getByRole("button", { name: "配置", exact: true }).click();
   await expect(page.getByLabel("技能说明（Markdown）")).toHaveValue("Alpha 初始正文");
 }
 
@@ -177,6 +178,7 @@ test("编辑后拒绝切换会保留正文；确认放弃和关闭都走同一�
   await beta.click();
   await discardDialog(page).getByRole("button", { name: "放弃修改" }).click();
   await expect(page.locator("#skill-detail-title").filter({ hasText: "技能 Beta" })).toBeVisible();
+  await page.getByRole("button", { name: "配置", exact: true }).click();
   await expect(page.getByLabel("技能说明（Markdown）")).toHaveValue("Beta 初始正文");
 
   const betaBody = page.getByLabel("技能说明（Markdown）");
@@ -211,13 +213,18 @@ test("保存失败仍受保护，成功保存清除保护；展示元数据也�
   await beta.click();
   await expect(discardDialog(page)).toHaveCount(0);
   await expect(page.locator("#skill-detail-title").filter({ hasText: "技能 Beta" })).toBeVisible();
-
+  await page.getByRole("button", { name: "配置", exact: true }).click();
+  await expect(page.getByLabel("技能说明（Markdown）")).toBeVisible();
   await page.locator("[data-skill-presentation]").getByLabel("来源徽章").fill("待放弃展示元数据");
   await page.locator(".skill-v2-row", { hasText: "技能 Alpha" }).click();
   await expect(discardDialog(page)).toBeVisible();
   await discardDialog(page).getByRole("button", { name: "继续编辑" }).click();
 
-  await page.getByRole("button", { name: "测试与版本" }).click();
+  await expect(page.locator(".skill-detail-tabs button")).toHaveText(["概览", "配置", "工具", "知识", "Agent引用", "测试", "版本"]);
+  await page.locator('[aria-label="技能详情分类"]').getByRole("button", { name: "测试", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "测试验证", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "发布草稿并生成版本", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "版本", exact: true }).click();
   await expect(page.getByRole("button", { name: "发布草稿并生成版本", exact: true })).toBeVisible();
   expect(fixture.publishCalls).toBe(0);
   expect(fixture.writes.filter((write) => write.path.endsWith("/versions"))).toHaveLength(0);
