@@ -27,6 +27,9 @@ const startBackend = () => {
       NODE_OPTIONS: `${process.env.NODE_OPTIONS || ""} --require ${path.join(root, "scripts", "tsx-windows-shim.cjs")}`.trim(),
       CODEX_MODE: mode,
       AUTH_MODE: authMode,
+      // Demo writes still require an explicit TEST_DB_PREFIX matching the
+      // actual database. Test mode alone never authorizes an arbitrary reset.
+      NODE_ENV: mode === "stub" ? "test" : process.env.NODE_ENV,
       LINGONG_PORT: port,
       LINGONG_DATA: data,
       LINGONG_FRONTEND_DIST: frontendOutput,
