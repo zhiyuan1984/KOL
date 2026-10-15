@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Worker 进程入口：与 start.sh 使用相同的非执行式 .env 解析，避免 systemd
-# 直接解释带特殊字符的运行时密钥。用法：scripts/worker.sh outbox|execution
+# 直接解释带特殊字符的运行时密钥。用法：scripts/worker.sh outbox|execution|cron-tick
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 usage() {
-  echo "usage: $0 outbox|execution" >&2
+  echo "usage: $0 outbox|execution|cron-tick" >&2
   exit 2
 }
 
@@ -38,6 +38,7 @@ export LINGONG_DATA="${LINGONG_DATA:-$ROOT/data}"
 case "${1:-}" in
   outbox) entry="src/outbox-publisher.ts" ;;
   execution) entry="src/execution-worker.ts" ;;
+  cron-tick) entry="src/cron-tick-worker.ts" ;;
   *) usage ;;
 esac
 

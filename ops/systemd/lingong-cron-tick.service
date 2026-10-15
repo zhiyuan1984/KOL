@@ -1,0 +1,25 @@
+[Unit]
+Description=Lingong PostgreSQL Cron durable enqueue ticker
+After=network-online.target postgresql.service
+Requires=postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ecs-user
+WorkingDirectory=/home/ecs-user/kol
+Environment=CRON_TICK_WORKER_ID=production-cron-tick
+Environment=CRON_TICK_POLL_MS=5000
+Environment=LINGONG_DATA=/home/ecs-user/kol/data
+# CRON_MISSED_RUN_POLICY must be explicitly selected in a service drop-in.
+# No default: historical replay versus coalescing is an operator decision.
+ExecStart=/home/ecs-user/kol/scripts/worker.sh cron-tick
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+MemoryMax=512M
+MemorySwapMax=256M
+
+[Install]
+WantedBy=multi-user.target
