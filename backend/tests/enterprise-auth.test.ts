@@ -259,9 +259,10 @@ describe("production account and enterprise controls", () => {
     // 人员资格改由 Agent 绑定决定，历史授权行只作核对、不再放行。
     expect(retired.response.status).toBe(410);
     for (const [id, access] of [["starrykol", "read"], ["claw", "read"], ["enterprise_mail", "write"], ["wecom", "read"]]) {
-      getConn().prepare(
-        "INSERT OR REPLACE INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES (?,?,?,?)",
-      ).run(employee.id, id, access, now);
+      await getConn().query(
+        "INSERT INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id,connector_id) DO UPDATE SET access=EXCLUDED.access,created_at=EXCLUDED.created_at",
+        [employee.id, id, access, now],
+      );
     }
     await call("PUT", `/api/admin/users/${employee.id}/approval-roles`, { roles: ["lead"] });
     const detail = await call("GET", `/api/admin/users/${employee.id}`);

@@ -49,8 +49,9 @@ beforeEach(async () => {
   });
   if (process.env.TEST_DATABASE_URL || process.env.DATABASE_URL)
     await freshTestDatabase();
-  const db = (await resetConn());
-  (await ensureOrganizationTree());
+  await resetConn();
+  const db = getConn();
+  await ensureOrganizationTree();
   for (const company of ["review-test-a", "review-test-b"])
     (await db.query("INSERT INTO organization_units(id,company_id,display_name,type,level,head_person_ref,status,org_version,created_at,updated_at) VALUES($1,$2,$3,$4,1,$5,'active',1,$6,$7)",[company,company,company,"department",`review-person:reviewer`,"now","now"]));
   for (const id of ["admin", "employee", "reviewer", "outsider"]) {
@@ -71,8 +72,8 @@ beforeEach(async () => {
     ),
   );
 });
-afterEach(() => {
-  getConn().close();
+afterEach(async () => {
+  await resetConn();
   for (const [key, value] of Object.entries(original))
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
@@ -149,10 +150,14 @@ describe("approval optimization boundaries on PostgreSQL", () => {
     const templates = await (await req("employee", "/approvals/v2/templates")).json();
     expect(templates[0].choiceCandidates).toEqual({ review: ["review-reviewer"] });
     const command = { action: "submit", templateId: t.id, templateVersion: 1, title: "选择人员", values: {}, selectedApprovers: { review: ["review-reviewer"] } };
-    const counts = () => ["review_instances", "review_notifications", "review_confirmations"].map(table => getConn().prepare(`SELECT COUNT(*) AS count FROM ${table}`).get());
-    const before = counts();
+    const counts = async () => Promise.all([
+      getConn().query<{ count: number }>("SELECT COUNT(*)::int AS count FROM review_instances"),
+      getConn().query<{ count: number }>("SELECT COUNT(*)::int AS count FROM review_notifications"),
+      getConn().query<{ count: number }>("SELECT COUNT(*)::int AS count FROM review_confirmations"),
+    ]).then((results) => results.map((result) => result.rows[0]?.count ?? 0));
+    const before = await counts();
     const preview = await req("employee", "/approvals/v2/preview", command);
-    expect(preview.status).toBe(200); expect((await preview.json()).trace[1].userIds).toEqual(["review-reviewer"]); expect(counts()).toEqual(before);
+    expect(preview.status).toBe(200); expect((await preview.json()).trace[1].userIds).toEqual(["review-reviewer"]); expect(await counts()).toEqual(before);
     for (const selectedApprovers of [{ review: ["review-outsider"] }, { review: ["review-employee"] }, { start: ["review-reviewer"] }, { review: ["review-reviewer", "review-reviewer"] }])
       expect((await req("employee", "/approvals/v2/preview", { ...command, selectedApprovers })).status).toBe(422);
     const confirm = await (await req("employee", "/approvals/v2/prepare", command)).json();
@@ -247,10 +252,21 @@ describe("review API with actual session authentication and organization storage
     expect(repeated.id).toBe(saved.id);
     expect(repeated.version).toBe(1);
     expect((await req("admin", "/admin/approval-types/v2/templates", { definition: { ...definition, name: "changed" }, creationKey })).status).toBe(409);
-    const service = new ReviewService(getConn(), (await reviewContextForActor(getConn(), "review-admin")));
-    (await tx(async () => { const command = { action: "publish" as const, templateId: saved.id, expectedVersion: 1 }; const prepared = (await service.prepare(command)); (await service.execute(command, prepared.confirmationId, "review-content-diff-publish")); }));
-    (await tx(async () => (service.saveTemplate(saved.id, 1, definition))));
-    expect((await service.templates(true)).find(t => t.id === saved.id)).toMatchObject({ version: 2, publishedVersion: 1, hasUnpublishedChanges: false });
+    await tx(async (db) => {
+      const service = new ReviewService(db, await reviewContextForActor(db, "review-admin"));
+      const command = { action: "publish" as const, templateId: saved.id, expectedVersion: 1 };
+      const prepared = await service.prepare(command);
+      await service.execute(command, prepared.confirmationId, "review-content-diff-publish");
+    });
+    await tx(async (db) => {
+      const service = new ReviewService(db, await reviewContextForActor(db, "review-admin"));
+      await service.saveTemplate(saved.id, 1, definition);
+    });
+    const template = await tx(async (db) => {
+      const service = new ReviewService(db, await reviewContextForActor(db, "review-admin"));
+      return (await service.templates(true)).find((candidate) => candidate.id === saved.id);
+    });
+    expect(template).toMatchObject({ version: 2, publishedVersion: 1, hasUnpublishedChanges: false });
   });
   it("returns both branch outcomes and complete read-only trial traces including cc and waiting duties", async () => {
     const definition = emptyReviewDefinition();
@@ -261,8 +277,12 @@ describe("review API with actual session authentication and organization storage
       { id: "branch", name: "条件", type: "condition", condition: { field: "content", op: "eq", value: "A" }, next: "review", otherwise: "review" },
       ...(["cc", "consult", "handler"] as const).map((type, index, types) => ({ id: type, name: type, type, next: types[index+1] || "end", assignee: { kind: "named" as const, userIds: ["review-reviewer"] }, mode: "single" as const })),
     );
-    const counts = () => ["review_instances", "review_notifications", "review_events"].map(table => (getConn().prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number }).count);
-    const before = counts();
+    const counts = async () => Promise.all([
+      getConn().query<{ count: number }>("SELECT COUNT(*)::int AS count FROM review_instances"),
+      getConn().query<{ count: number }>("SELECT COUNT(*)::int AS count FROM review_notifications"),
+      getConn().query<{ count: number }>("SELECT COUNT(*)::int AS count FROM review_events"),
+    ]).then((results) => results.map((result) => result.rows[0]?.count ?? 0));
+    const before = await counts();
     for (const [content, branch] of [["A", "matched"], ["B", "otherwise"]]) {
       const response = await req("admin", "/admin/approval-types/v2/simulate", { definition, values: { content }, requester: "review-employee" });
       expect(response.status).toBe(200);
@@ -271,7 +291,7 @@ describe("review API with actual session authentication and organization storage
       expect(result.trace[1]).toMatchObject({ branch, inputs: { content } });
       expect(result.trace[3]).toMatchObject({ userIds: ["review-reviewer"], type: "cc" });
     }
-    expect(counts()).toEqual(before);
+    expect(await counts()).toEqual(before);
   });
   it("supports the real authority shape with no company unit and four organization levels", async () => {
     (await department("institute", "review-test-a", 1));
@@ -491,19 +511,18 @@ describe("review API with actual session authentication and organization storage
     ).toBe(409);
   });
   async function overdue(action: "remind" | "transfer" = "remind") {
-    const now = new Date(Date.now() - 3 * 3600000).toISOString(),
-      db = getConn();
-    const admin = new ReviewService(
-      db,
-      (await reviewContextForActor(db, "review-admin", "review-test-a")),
-      now,
-    );
-    const employee = new ReviewService(
-      db,
-      (await reviewContextForActor(db, "review-employee", "review-test-a")),
-      now,
-    );
-    return tx(async () => {
+    const now = new Date(Date.now() - 3 * 3600000).toISOString();
+    return tx(async (db) => {
+      const admin = new ReviewService(
+        db,
+        await reviewContextForActor(db, "review-admin", "review-test-a"),
+        now,
+      );
+      const employee = new ReviewService(
+        db,
+        await reviewContextForActor(db, "review-employee", "review-test-a"),
+        now,
+      );
       const d = emptyReviewDefinition();
       d.nodes[1].timeoutHours = 1;
       d.nodes[1].operations = {
@@ -516,13 +535,10 @@ describe("review API with actual session authentication and organization storage
                 deadline: "reset",
               },
       };
-      const t = (await admin.saveTemplate(undefined, undefined, d)),
-        pub = {
-          action: "publish" as const,
-          templateId: t.id,
-          expectedVersion: 1,
-        };
-      (await admin.execute(pub, (await admin.prepare(pub)).confirmationId, "timeout-publish"));
+      const t = await admin.saveTemplate(undefined, undefined, d);
+      const pub = { action: "publish" as const, templateId: t.id, expectedVersion: 1 };
+      const publication = await admin.prepare(pub);
+      await admin.execute(pub, publication.confirmationId, "timeout-publish");
       const submit = {
         action: "submit" as const,
         templateId: t.id,
@@ -530,13 +546,11 @@ describe("review API with actual session authentication and organization storage
         title: "超时验证",
         values: {},
       };
-      const r = (await employee.execute(
-        submit,
-        (await employee.prepare(submit)).confirmationId,
-        "timeout-submit",
-      ));
-      const job = (await db.query("SELECT id FROM execution_jobs WHERE job_type='review.timeout'",[])).rows[0] as { id: string };
-      return { r, job, employee };
+      const prepared = await employee.prepare(submit);
+      const r = await employee.execute(submit, prepared.confirmationId, "timeout-submit");
+      const job = (await db.query<{ id: string }>("SELECT id FROM execution_jobs WHERE job_type=$1", ["review.timeout"])).rows[0];
+      if (!job) throw new Error("review timeout job was not scheduled");
+      return { r, job };
     });
   }
   it("dispatches an overdue reminder with real durable outbox and an atomic receipt", async () => {
@@ -579,20 +593,21 @@ describe("review API with actual session authentication and organization storage
     expect(detail.tasks[1].userId).toBe("review-admin");
   });
   it("ignores an old timeout after withdrawal", async () => {
-    const { r, job, employee } = (await overdue());
-    (await tx(async () => {
+    const { r, job } = await overdue();
+    await tx(async (db) => {
+      const employee = new ReviewService(
+        db,
+        await reviewContextForActor(db, "review-employee", "review-test-a"),
+      );
       const c = {
         action: "withdraw" as const,
         instanceId: r.resourceId,
         expectedVersion: 1,
         reason: "取消",
       };
-      (await employee.execute(
-        c,
-        (await employee.prepare(c)).confirmationId,
-        "timeout-withdraw",
-      ));
-    }));
+      const prepared = await employee.prepare(c);
+      await employee.execute(c, prepared.confirmationId, "timeout-withdraw");
+    });
     await processExecutionJobById(job.id, "review-test-worker");
     const result = (await getConn().query("SELECT receipt_json FROM execution_jobs WHERE id=$1",[job.id])).rows[0] as { receipt_json: string };
     expect(JSON.parse(result.receipt_json).status).toBe("skipped");

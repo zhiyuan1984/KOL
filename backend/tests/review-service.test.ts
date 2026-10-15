@@ -1,7 +1,7 @@
-import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { DatabaseConnection } from "../src/db.js";
-import { reviewSchema } from "../src/approval/review-schema.js";
+import type { PoolClient } from "pg";
+import { freshTestDatabase } from "./support/pg.js";
+import { closePostgresPool, postgresPool } from "../src/postgres/pool.js";
 import {
   ReviewService,
   type ReviewContext,
@@ -10,8 +10,7 @@ import {
   emptyReviewDefinition,
   type ReviewCommand,
 } from "../../shared/review.js";
-const Database = createRequire(import.meta.url)("better-sqlite3");
-let db: DatabaseConnection;
+let db: PoolClient;
 const people = [
   { id: "admin", name: "管理员", managerIds: ["reviewer"] },
   { id: "employee", name: "员工", managerIds: ["reviewer"] },
@@ -29,15 +28,15 @@ const service = (
   tenant = "company",
   now = "2026-10-04T00:00:00.000Z",
 ) => new ReviewService(db, ctx(actor, tenant), now);
-const transaction = async <T>(f: () => T) => {
-  (await db.query("BEGIN IMMEDIATE"));
+const transaction = async <T>(f: () => Promise<T>): Promise<T> => {
+  await db.query("BEGIN");
   try {
-    const result = f();
-    (await db.query("COMMIT"));
+    const result = await f();
+    await db.query("COMMIT");
     return result;
-  } catch (e) {
-    (await db.query("ROLLBACK"));
-    throw e;
+  } catch (error) {
+    await db.query("ROLLBACK");
+    throw error;
   }
 };
 const run = async (
@@ -67,12 +66,14 @@ async function submitted() {
     values: {},
   });
 }
-beforeEach(() => {
-  db = new Database(":memory:") as DatabaseConnection;
-  db.exec("PRAGMA foreign_keys=ON");
-  reviewSchema.forEach((s) => db.exec(s));
+beforeEach(async () => {
+  await freshTestDatabase();
+  db = await postgresPool().connect();
 });
-afterEach(() => db.close());
+afterEach(async () => {
+  db.release();
+  await closePostgresPool();
+});
 describe("transactional generic review service", () => {
   it("persists placeholders as drafts but rejects them at the confirmed publish boundary", async () => {
     const definition = emptyReviewDefinition();
@@ -897,12 +898,27 @@ describe("transactional generic review service", () => {
         values: {},
       },
       p = (await service("employee").prepare(c));
-    (await db.query("CREATE TRIGGER fail_receipt BEFORE INSERT ON review_commands BEGIN SELECT RAISE(ABORT,'injected'); END"));
-    (await expect((async () =>
-      (await transaction(async () =>
-        (await service("employee").execute(c, p.confirmationId, "rollback-key")),
-      )))()).rejects.toThrow());
-    expect((await service("employee").instances())).toEqual([]);
+    await db.query(`
+      CREATE OR REPLACE FUNCTION review_fail_command_insert() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.idempotency_key = 'rollback-key' THEN
+          RAISE EXCEPTION 'injected' USING ERRCODE = 'P0001';
+        END IF;
+        RETURN NEW;
+      END;
+      $$;
+      CREATE TRIGGER review_fail_command_insert_trigger
+      BEFORE INSERT ON review_commands
+      FOR EACH ROW EXECUTE FUNCTION review_fail_command_insert();
+    `);
+    try {
+      await expect(transaction(async () =>
+        service("employee").execute(c, p.confirmationId, "rollback-key"),
+      )).rejects.toThrow("injected");
+    } finally {
+      await db.query("DROP TRIGGER IF EXISTS review_fail_command_insert_trigger ON review_commands; DROP FUNCTION IF EXISTS review_fail_command_insert();");
+    }
+    expect(await service("employee").instances()).toEqual([]);
     expect(
       (
         (await db.query("SELECT consumed FROM review_confirmations WHERE id=$1",[p.confirmationId])).rows[0] as { consumed: number }
