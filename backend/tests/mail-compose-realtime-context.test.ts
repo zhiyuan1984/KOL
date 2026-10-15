@@ -18,11 +18,10 @@ import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { publishKnowledgeEntry } from "./support/knowledge-publication-fixture.js";
 import {
-  approveKnowledge,
   cite,
   createKnowledge,
-  knowledgeRow,
 } from "../src/host/knowledge.js";
 
 type Json = Record<string, unknown>;
@@ -102,7 +101,7 @@ function insertCollab(input: { id: string; handle: string; email: string; brand?
   );
 }
 
-function addPublishedTemplate(input: { id: string; brand?: string; stages?: string[] }): void {
+async function addPublishedTemplate(input: { id: string; brand?: string; stages?: string[] }): Promise<void> {
   createKnowledge({
     id: input.id,
     title: input.id,
@@ -117,7 +116,7 @@ function addPublishedTemplate(input: { id: string; brand?: string; stages?: stri
     stage_codes: input.stages || ["INITIAL_CONTACT"],
     status: "draft",
   });
-  approveKnowledge(input.id, Number(knowledgeRow(input.id).current_version || 1));
+  await publishKnowledgeEntry(input.id);
   cite(input.id);
 }
 
@@ -173,7 +172,7 @@ describe("无合作对象时的收发件准备", () => {
 
   it("b. 最近往来已匹配到范围内唯一合作时，采用该合作并走正常模板流程", async () => {
     bindMailbox("m@litime.com", "LT", true);
-    addPublishedTemplate({ id: "tpl_first_touch" });
+    await addPublishedTemplate({ id: "tpl_first_touch" });
     insertThread({
       id: "th_xiaomei", mailbox: "m@litime.com", conversation_id: "conv_xiaomei",
       peer_email: "xiaomei.beauty@example.com", last_at: "2026-10-06T10:00:00.000Z",

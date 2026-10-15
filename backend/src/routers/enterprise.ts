@@ -574,7 +574,11 @@ enterprise.patch("/admin/users/:uid", async (c) => {
     if (process.env.DATABASE_URL) { if (validUnit || (siteChanged && !site)) await pgSyncOrganizationMembership(uid, site || null, nowIso()); } else if (validUnit || (siteChanged && !site)) syncUserOrganization(uid, site);
   }
   audit(admin.id, "admin.user.update", { user_id: uid, fields: sets.map((s) => s.split("=")[0]) });
-  return c.json(process.env.DATABASE_URL ? { ...(await pgUserById(uid)), password_hash: undefined } : safeUser(userById(uid)));
+  // PATCH must return the same safe projection as GET. Returning the raw PG
+  // row dropped membership-derived org_unit_ids and normalized grant fields.
+  const updated = process.env.DATABASE_URL ? await pgUserById(uid) : userById(uid);
+  if (!updated) throw new HttpFail(404, "user not found");
+  return c.json(safeUser(updated));
 });
 
 enterprise.delete("/admin/users/:uid", async (c) => {

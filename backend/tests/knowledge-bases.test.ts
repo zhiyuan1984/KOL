@@ -3,6 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
+import { mapUser, withScopedUser, type AppUser } from "../src/auth.js";
+import { DEMO_USER, PERSONAS } from "../src/config.js";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
@@ -10,17 +12,28 @@ import { setPersona } from "../src/host/persona.js";
 import { assertUsableKnowledge, resolveForSkill } from "../src/host/knowledge.js";
 import type { Row } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { installKnowledgePublicationFixture, publishKnowledgeEntry } from "./support/knowledge-publication-fixture.js";
 
 type Json = Record<string, unknown>;
 
 let tmp: string;
 let app: Hono;
+let admin: AppUser;
+let employee: AppUser;
+let defaultActor: AppUser | undefined;
+
+function persistedUser(id: string): AppUser {
+  const row = getConn().prepare("SELECT * FROM users WHERE id=?").get(id) as Row | undefined;
+  if (!row) throw new Error(`missing persisted knowledge test user: ${id}`);
+  return mapUser(row);
+}
 
 async function request(
   method: string,
   url: string,
   body?: unknown,
   cookie = "",
+  actor = defaultActor,
 ): Promise<{ status: number; cookie: string; json: () => Promise<Json>; text: () => Promise<string> }> {
   const init: RequestInit = { method, headers: {} };
   const headers = init.headers as Record<string, string>;
@@ -31,7 +44,9 @@ async function request(
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
-  const res = await app.request(url, init);
+  const res = actor
+    ? await withScopedUser(actor, () => app.request(url, init))
+    : await app.request(url, init);
   const text = await res.text();
   return {
     status: res.status,
@@ -41,8 +56,8 @@ async function request(
   };
 }
 
-async function rows(url: string): Promise<Json[]> {
-  return (await (await request("GET", url)).json()) as unknown as Json[];
+async function rows(url: string, actor = defaultActor): Promise<Json[]> {
+  return (await (await request("GET", url, undefined, "", actor)).json()) as unknown as Json[];
 }
 
 async function detailCode(res: { json: () => Promise<Json> }): Promise<string> {
@@ -88,6 +103,10 @@ beforeEach(async () => {
   const { createApp } = await import("../src/app.js");
   app = createApp();
   seedWorkbenchFixtures();
+  await installKnowledgePublicationFixture();
+  admin = persistedUser(DEMO_USER.id);
+  employee = persistedUser(PERSONAS.employee.id);
+  defaultActor = admin;
 });
 
 afterEach(() => {
@@ -141,20 +160,24 @@ describe("knowledge domains and bases (P2)", () => {
     expect(list.domains[0].level).toBe("family");
 
     const edited = (await (await request("PUT", `/api/admin/knowledge/domains/${dom.id}`, {
-      name: "模板域（改）", sort: 5,
+      name: "模板域（改）", sort: 5, expected_updated_at: dom.updated_at,
     })).json()) as { domain: Json };
     expect(edited.domain.name).toBe("模板域（改）");
     // 不允许改 code/level/parent_id（PUT 只接受 name/sort/status/note）
     expect(edited.domain.code).toBe("templates");
 
     // 归档仍有子域的族 → 409
-    const archFamily = await request("PUT", `/api/admin/knowledge/domains/${fam.id}`, { status: "archived" });
+    const archFamily = await request("PUT", `/api/admin/knowledge/domains/${fam.id}`, {
+      status: "archived", confirmed: true, expected_updated_at: fam.updated_at,
+    });
     expect(archFamily.status).toBe(409);
     expect(await detailCode(archFamily)).toBe("knowledge_domain_in_use");
 
     // 归档仍有库的域 → 409
     await createBase({ code: "tmpl", name: "模板库", domain_id: dom.id as string, kind: "structured" });
-    const archDomain = await request("PUT", `/api/admin/knowledge/domains/${dom.id}`, { status: "archived" });
+    const archDomain = await request("PUT", `/api/admin/knowledge/domains/${dom.id}`, {
+      status: "archived", confirmed: true, expected_updated_at: edited.domain.updated_at,
+    });
     expect(archDomain.status).toBe(409);
     expect(await detailCode(archDomain)).toBe("knowledge_domain_in_use");
 
@@ -268,10 +291,15 @@ describe("knowledge domains and bases (P2)", () => {
     const stored = getConn().prepare("SELECT source_body FROM knowledge WHERE id=?").get(String(prompt.id)) as Row;
     expect(String(stored.source_body)).toBe("正文");
 
-    // 归档库拒绝写入
-    await request("PUT", `/api/admin/knowledge/bases/${unstructured.id}`, { status: "archived", expected_version: 1 });
+    // 空库须经明确确认及当前版本后才能归档；归档库拒绝写入。
+    const archivedBase = await createBase({ code: "archived", name: "归档库", domain_id: dom.id as string, kind: "unstructured" });
+    const archivedAt = String(archivedBase.updated_at);
+    const archivedResult = await request("PUT", `/api/admin/knowledge/bases/${archivedBase.id}`, {
+      status: "archived", expected_version: 1, confirmed: true, expected_updated_at: archivedAt,
+    });
+    expect(archivedResult.status).toBe(200);
     const archived = await request("POST", "/api/admin/knowledge", {
-      title: "x", body: "y", kind: "policy", base_id: unstructured.id,
+      title: "x", body: "y", kind: "policy", base_id: archivedBase.id,
     });
     expect(archived.status).toBe(400);
     expect(await detailCode(archived)).toBe("knowledge_base_archived");
@@ -290,11 +318,13 @@ describe("knowledge domains and bases (P2)", () => {
     const other = await createBase({ code: "other", name: "其它库", domain_id: dom.id as string, kind: "structured" });
 
     const inBase = await (await request("POST", "/api/admin/knowledge", {
-      title: "库内", body: "x", kind: "policy", base_id: base.id, status: "published",
+      title: "库内", body: "x", kind: "policy", base_id: base.id, status: "draft",
     })).json();
     const otherEntry = await (await request("POST", "/api/admin/knowledge", {
-      title: "库外", body: "x", kind: "policy", base_id: other.id, status: "published",
+      title: "库外", body: "x", kind: "policy", base_id: other.id, status: "draft",
     })).json();
+    await publishKnowledgeEntry(String(inBase.id));
+    await publishKnowledgeEntry(String(otherEntry.id));
 
     const byBase = await rows(`/api/admin/knowledge?base=${base.id}`);
     expect(byBase.map((row) => row.id)).toContain(inBase.id);
@@ -311,10 +341,10 @@ describe("knowledge domains and bases (P2)", () => {
 
     // 员工面同样按 SQL 过滤并暴露分类
     setPersona("employee");
-    const employee = await rows("/api/knowledge?base=tmpl");
-    expect(employee.map((row) => row.id)).toEqual([inBase.id]);
-    expect(employee[0].base_id).toBe(base.id);
-    expect(employee[0].family_name).toBe("族");
+    const visible = await rows("/api/knowledge?base=tmpl", employee);
+    expect(visible.map((row) => row.id)).toEqual([inBase.id]);
+    expect(visible[0].base_id).toBe(base.id);
+    expect(visible[0].family_name).toBe("族");
   });
 
   it("skips entries in a non-structured base with the wrong_base_type reason", async () => {
@@ -322,22 +352,25 @@ describe("knowledge domains and bases (P2)", () => {
     const dom = await createDomain(fam.id as string, "templates");
     const un = await createBase({ code: "u", name: "非结构化库", domain_id: dom.id as string, kind: "unstructured" });
     const entry = await (await request("POST", "/api/admin/knowledge", {
-      title: "非结构化制度", body: "x", kind: "policy", base_id: un.id, status: "published", skill_id: "email_compose",
+      title: "非结构化制度", body: "x", kind: "policy", base_id: un.id, status: "draft", skill_id: "email_compose",
     })).json();
+    await publishKnowledgeEntry(String(entry.id));
 
-    await request("POST", `/api/knowledge/${entry.id}/cite`, {});
+    setPersona("employee");
+    await request("POST", `/api/knowledge/${entry.id}/cite`, {}, "", employee);
     // 注入闸门直接拒绝
     expect(() => assertUsableKnowledge(String(entry.id))).toThrowError(/结构化/);
 
     await request("POST", "/api/admin/knowledge/bindings", {
       skill_id: "email_compose",
       selector: { ids: [entry.id] },
-    });
+    }, "", admin);
     const result = resolveForSkill("email_compose", {});
     expect(result.bound).toBe(true);
     expect(result.resolved.map((item) => item.id)).not.toContain(entry.id);
     expect(result.skipped).toContainEqual(expect.objectContaining({ knowledge_id: entry.id, reason: "wrong_base_type" }));
 
+    await request("POST", `/api/knowledge/${entry.id}/cite`, {}, "", admin);
     const preview = await (await request("POST", "/api/admin/knowledge/resolve-preview", {
       skill_id: "email_compose",
     })).json();

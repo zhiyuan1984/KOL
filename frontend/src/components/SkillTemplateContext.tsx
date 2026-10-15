@@ -23,6 +23,9 @@ export default function SkillTemplateContext({
   const optionalInputs = template.inputs.filter((field) => !field.required);
   const outputTitle = String(template.output?.title || template.output?.type || "任务结果").trim();
   const noRequiredInputs = !template.inputs.some((field) => field.required);
+  // Discovery renders this in the event stream. Keep the contract's R1/read-only
+  // meaning visible rather than relying on an internal template flag alone.
+  const kicker = flat && template.read_only ? "技能交互模板 · 只读" : flat ? "技能交互模板" : "技能说明";
 
   return (
     <section
@@ -33,7 +36,7 @@ export default function SkillTemplateContext({
       aria-label={`${template.title}技能交互模板`}
     >
       <header className="skill-template-context-head">
-        <span className="skill-template-context-kicker">{flat ? "技能交互模板" : "技能说明"}</span>
+        <span className="skill-template-context-kicker">{kicker}</span>
         <strong>{template.title}</strong>
       </header>
       <div className="skill-template-context-grid">

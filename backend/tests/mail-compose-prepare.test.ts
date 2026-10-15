@@ -7,17 +7,16 @@ import { BRAND_MAILBOXES, DEMO_USER, PERSONAS, type Persona } from "../src/confi
 import { getConn, resetConn } from "../src/db.js";
 import { enforceSend } from "../src/host/pep.js";
 import {
-  approveKnowledge,
   archiveKnowledge,
   assertMailTemplateSnapshotApplicable,
   cite,
   createKnowledge,
   editKnowledge,
-  knowledgeRow,
 } from "../src/host/knowledge.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { publishKnowledgeEntry } from "./support/knowledge-publication-fixture.js";
 
 type Json = Record<string, unknown>;
 type Reply = { status: number; body: Json; text: string };
@@ -33,25 +32,13 @@ async function request(method: string, url: string, body?: unknown): Promise<Rep
   return { status: response.status, text, body: text ? JSON.parse(text) as Json : {} };
 }
 
-function removeSeededMailTemplates(): void {
-  const conn = getConn();
-  const ids = (conn.prepare("SELECT id FROM knowledge WHERE kind='mail_template'").all() as Array<{ id: string }>)
-    .map((row) => row.id);
-  for (const id of ids) {
-    conn.prepare("DELETE FROM knowledge_deprecations WHERE knowledge_id=?").run(id);
-    conn.prepare("DELETE FROM knowledge_citations WHERE knowledge_id=?").run(id);
-    conn.prepare("DELETE FROM knowledge_versions WHERE knowledge_id=?").run(id);
-    conn.prepare("DELETE FROM knowledge WHERE id=?").run(id);
-  }
+
+/** 发布必须经过真实的独立审批；该夹具不会绕过数据库发布守卫。 */
+async function approveCurrentVersion(id: string): Promise<void> {
+  await publishKnowledgeEntry(id);
 }
 
-// approveKnowledge 现在强制带 expected_version（kb 的乐观并发契约），
-// 直接调用的测试助手按当前版本号审核即可。
-function approveCurrentVersion(id: string): void {
-  approveKnowledge(id, Number(knowledgeRow(id).current_version || 1));
-}
-
-function addPublishedTemplate(input: {
+async function addPublishedTemplate(input: {
   id: string;
   title?: string;
   brand?: string;
@@ -59,7 +46,7 @@ function addPublishedTemplate(input: {
   subject?: string;
   body?: string;
   placeholders?: string[];
-}): void {
+}): Promise<void> {
   createKnowledge({
     id: input.id,
     title: input.title || input.id,
@@ -74,7 +61,7 @@ function addPublishedTemplate(input: {
     stage_codes: input.stages || ["INITIAL_CONTACT"],
     status: "draft",
   });
-  approveCurrentVersion(input.id);
+  await approveCurrentVersion(input.id);
   cite(input.id);
 }
 
@@ -135,7 +122,6 @@ beforeEach(async () => {
   const { createApp } = await import("../src/app.js");
   app = createApp();
   seedWorkbenchFixtures();
-  removeSeededMailTemplates();
 });
 
 afterEach(() => {
@@ -145,7 +131,7 @@ afterEach(() => {
 
 describe("POST /api/actions/mail.prepare", () => {
   it("is read-only and returns exactly one authoritative published template", async () => {
-    addPublishedTemplate({ id: "mail_one" });
+    await addPublishedTemplate({ id: "mail_one" });
     const conn = getConn();
     const before = {
       drafts: Number((conn.prepare("SELECT COUNT(*) AS n FROM drafts").get() as { n: number }).n),
@@ -183,7 +169,7 @@ describe("POST /api/actions/mail.prepare", () => {
   });
 
   it("uses the session-bound collaboration and rejects a conflicting request scope", async () => {
-    addPublishedTemplate({ id: "mail_one" });
+    await addPublishedTemplate({ id: "mail_one" });
     const sid = await newSession();
     getConn().prepare("UPDATE sessions SET collaboration_id=? WHERE id=?").run("col_xiaomei", sid);
 
@@ -197,7 +183,7 @@ describe("POST /api/actions/mail.prepare", () => {
   });
 
   it("requires a single scoped collaboration rather than guessing across object refs", async () => {
-    addPublishedTemplate({ id: "mail_one" });
+    await addPublishedTemplate({ id: "mail_one" });
     const response = await request("POST", "/api/actions/mail.prepare", {
       skill_id: "email_compose",
       object_refs: [
@@ -213,8 +199,8 @@ describe("POST /api/actions/mail.prepare", () => {
   });
 
   it("returns all tied applicable candidates rather than selecting an arbitrary template", async () => {
-    addPublishedTemplate({ id: "mail_a", title: "A" });
-    addPublishedTemplate({ id: "mail_b", title: "B" });
+    await addPublishedTemplate({ id: "mail_a", title: "A" });
+    await addPublishedTemplate({ id: "mail_b", title: "B" });
 
     const response = await prepare();
     expect(response.status).toBe(200);
@@ -235,7 +221,7 @@ describe("POST /api/actions/mail.prepare", () => {
   });
 
   it("uses only the published snapshot and keeps an unpublished edit out of editor prefill", async () => {
-    addPublishedTemplate({
+    await addPublishedTemplate({
       id: "mail_snapshot",
       subject: "Published subject",
       body: "Published body for [红人].",
@@ -295,8 +281,7 @@ describe("POST /api/actions/mail.prepare", () => {
     ];
 
     for (const scenario of scenarios) {
-      removeSeededMailTemplates();
-      addPublishedTemplate({ id: scenario.id });
+      await addPublishedTemplate({ id: scenario.id });
       scenario.disable();
       const response = await prepare({ knowledge_id: scenario.id });
       expect(response.status, `${scenario.id}: ${response.text}`).toBe(403);
@@ -305,7 +290,7 @@ describe("POST /api/actions/mail.prepare", () => {
   });
 
   it("rejects a pinned compose draft when authoritative stage or brand applicability has been revoked", async () => {
-    addPublishedTemplate({ id: "mail_scoped" });
+    await addPublishedTemplate({ id: "mail_scoped" });
     const prepared = await prepare({ knowledge_id: "mail_scoped" });
     const contextVersion = String(prepared.body.context_version);
     expect(prepared.body.status).toBe("ready");
@@ -330,7 +315,7 @@ describe("POST /api/actions/mail.prepare", () => {
   });
 
   it("rejects an unpublished/stale template version rather than accepting a current draft revision", async () => {
-    addPublishedTemplate({ id: "mail_version" });
+    await addPublishedTemplate({ id: "mail_version" });
     editKnowledge("mail_version", { body_en: "Revision two is not yet published." });
     const response = await submitEditedDraft({ knowledgeId: "mail_version", knowledgeVersion: 2 });
     expect(response.status, response.text).toBe(403);
@@ -338,7 +323,7 @@ describe("POST /api/actions/mail.prepare", () => {
   });
 
   it("preserves employee-authored subject/body through the stub harness without sending", async () => {
-    addPublishedTemplate({ id: "mail_authored" });
+    await addPublishedTemplate({ id: "mail_authored" });
     editKnowledge("mail_authored", { body_en: "A later unpublished edit." });
     const prepared = await prepare({ knowledge_id: "mail_authored" });
     expect(prepared.body.status).toBe("ready");
@@ -399,7 +384,7 @@ describe("POST /api/actions/mail.prepare", () => {
 
 describe("mail compose edge invariants", () => {
   it("shows the incomplete published template for editing rather than hiding the body", async () => {
-    addPublishedTemplate({ id: "mail_incomplete", body: "Hello [红人], the budget is [金额USD].", placeholders: ["[红人]", "[金额USD]"] });
+    await addPublishedTemplate({ id: "mail_incomplete", body: "Hello [红人], the budget is [金额USD].", placeholders: ["[红人]", "[金额USD]"] });
     const response = await prepare();
     expect(response.body.status).toBe("needs_fields");
     expect((response.body.editor as Json).body).toContain("[金额USD]");
@@ -407,7 +392,7 @@ describe("mail compose edge invariants", () => {
   });
 
   it("rejects a stale address context before starting the worker", async () => {
-    addPublishedTemplate({ id: "mail_context" });
+    await addPublishedTemplate({ id: "mail_context" });
     const prepared = await prepare();
     getConn().prepare("UPDATE collaborations SET email='changed@example.com' WHERE id='col_xiaomei'").run();
     const reply = await submitEditedDraft({ knowledgeId: "mail_context", knowledgeVersion: 1, contextVersion: String(prepared.body.context_version) });
@@ -416,10 +401,10 @@ describe("mail compose edge invariants", () => {
   });
 
   it("pins an already prepared published version when a newer one is approved", async () => {
-    addPublishedTemplate({ id: "mail_pinned" });
+    await addPublishedTemplate({ id: "mail_pinned" });
     const prepared = await prepare();
     editKnowledge("mail_pinned", { body_en: "The newly published version must not silently replace this draft." });
-    approveCurrentVersion("mail_pinned");
+    await approveCurrentVersion("mail_pinned");
     const response = await submitEditedDraft({ knowledgeId: "mail_pinned", knowledgeVersion: 1, contextVersion: String(prepared.body.context_version) });
     expect(response.status, response.text).toBe(200);
     expect((response.body.draft as Json).extra).toMatchObject({ knowledge_version: 1 });
@@ -427,14 +412,14 @@ describe("mail compose edge invariants", () => {
   });
 
   it("never accepts a nonexistent source draft as revision authority", async () => {
-    addPublishedTemplate({ id: "mail_source" });
+    await addPublishedTemplate({ id: "mail_source" });
     const reply = await submitEditedDraft({ knowledgeId: "mail_source", knowledgeVersion: 1, sourceDraftId: "does-not-exist" });
     expect(reply.status).toBe(404);
     expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: unknown }).n)).toBe(0);
   });
 
   it("keeps the legacy knowledge picker on the approved snapshot too", async () => {
-    addPublishedTemplate({ id: "mail_picker_snapshot", body: "Approved picker body." });
+    await addPublishedTemplate({ id: "mail_picker_snapshot", body: "Approved picker body." });
     editKnowledge("mail_picker_snapshot", { body_en: "UNPUBLISHED picker body must not appear." });
     const rows = await request("GET", "/api/knowledge/composer");
     expect(JSON.stringify(rows.body)).toContain("Approved picker body.");
@@ -503,7 +488,7 @@ describe("未指定发件箱时的默认发件箱", () => {
   }
 
   it("defaults the sender to the current user's mounted mailbox", async () => {
-    addPublishedTemplate({ id: "mail_default_sender", brand: "LT" });
+    await addPublishedTemplate({ id: "mail_default_sender", brand: "LT" });
     bindMountedMailbox(MOUNTED, "LT");
     const response = await prepare();
     expect(response.status, response.text).toBe(200);
@@ -512,7 +497,7 @@ describe("未指定发件箱时的默认发件箱", () => {
   });
 
   it("keeps the brand mailbox fallback when the user has no mounted mailbox", async () => {
-    addPublishedTemplate({ id: "mail_no_binding", brand: "LT" });
+    await addPublishedTemplate({ id: "mail_no_binding", brand: "LT" });
     const response = await prepare();
     expect(response.status, response.text).toBe(200);
     expect(String((response.body.editor as Json).from)).toBe(BRAND_MAILBOXES.LT);

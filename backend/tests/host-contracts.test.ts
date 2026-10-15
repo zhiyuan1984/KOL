@@ -17,6 +17,7 @@ import { isKolClawTask } from "../src/kolclaw/service.js";
 import { profileFor } from "../src/profiles.js";
 import { emailCardPayload, persistDraft } from "../src/host/api.js";
 import { emailMcpResultCard } from "../src/starrykol/service.js";
+import { taskDefinition } from "../src/tasks/registry.js";
 import { classify } from "../src/host/intent.js";
 import { ensureStarryHomeLibrary } from "../src/starrykol/library-sync.js";
 import { freshTestDatabase } from "./support/pg.js";
@@ -533,7 +534,10 @@ describe("host contracts", () => {
     const runner = fs.readFileSync(path.join(import.meta.dirname, "../src/worker/runner.ts"), "utf8");
     expect(runner).toMatch(/codexMode\(\) === "stub"/);
     expect(runner).not.toMatch(/isEmailMcpTask\(skill\) && skill !== "email_compose"/);
-    expect(runner).toContain("deriveChildThread");
+    // Each turn starts with a fresh capability set; removed child-thread
+    // inheritance must not leak a previous turn's capabilities.
+    expect(runner).not.toContain("deriveChildThread");
+    expect(runner).toContain("fresh capability set");
     expect(runner).not.toContain("starry.sendConversation");
   });
 
@@ -761,6 +765,15 @@ describe("host contracts", () => {
         expect(messages.some((message) => message.kind === "task_result_card"), `${rec.id}: artifact`).toBe(true);
         continue;
       }
+      // These capabilities require a current creator or conversation selected
+      // from the authorized surface. Home recommendations carry neither, so the
+      // Host returns an explicit gap card and never opens a worker.
+      if (taskDefinition(String(rec.id))?.context?.requires.some((key) => key === "creator" || key === "conversation")) {
+        expect(data.worker ?? null, `${rec.id}: no worker without current context`).toBeNull();
+        expect(messages.some((message) => message.kind === "supplement_card"), `${rec.id}: context gap card`).toBe(true);
+        expect(messages.some((message) => message.kind === "task_result_card"), `${rec.id}: no result without context`).toBe(false);
+        continue;
+      }
       if (isKolClawTask(String(rec.id)) || isStarryKolTask(String(rec.id))) {
         const prefix = isStarryKolTask(String(rec.id)) ? "starrykol." : "kolclaw.";
         expect((data.worker as Json)?.skill, String(rec.id)).toBe(rec.id);
@@ -895,6 +908,8 @@ describe("host contracts", () => {
     expect(pj.summary).toBe("测试改过的达人发现摘要");
     const beforePublish = (await (await request("GET", "/api/skills")).json()) as unknown as Json[];
     expect(beforePublish.find((s) => s.id === "creator_discovery")?.summary).not.toBe("测试改过的达人发现摘要");
+    const owner = await request("PATCH", "/api/admin/skills/creator_discovery/lifecycle", { owner: DEMO_ADMIN.user_id });
+    expect(owner.status, await owner.text()).toBe(200);
     for (const stage of ["testing", "published"]) {
       const moved = await request("POST", "/api/admin/skills/creator_discovery/stage", { stage });
       expect(moved.status, await moved.text()).toBe(200);
@@ -960,7 +975,8 @@ describe("host contracts", () => {
       const denied = await request("POST", `/api/sessions/${ses.id}/messages`, {
         text: "搜索 YouTube 露营达人", act: "ask", intent: "creator_discovery",
       }, employeeCookie);
-      expect(denied.status).toBe(400);
+      expect(denied.status).toBe(403);
+      expect((await denied.json()).detail).toMatchObject({ code: "runtime_agent_not_usable" });
 
       // 资格来自 Agent 绑定：账号挂到组织人员，Agent 绑定到该人员所在的三级组。
       getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(employeeId, "person:ye_guanwang");

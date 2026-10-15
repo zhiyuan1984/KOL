@@ -14,7 +14,7 @@ import {
   ticketStatusFromWorkItem,
 } from "../src/tickets.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
-import { ensureFollowedMailSync, resetFollowedMailSync } from "../src/starrykol/mail-sync.js";
+import { ensureFollowedMailSync, resetFollowedMailSync, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
 import type { Json, Row } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
 
@@ -46,7 +46,8 @@ beforeEach(async () => {
   app = createApp();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await waitForBackgroundSync();
   setStarryKolClientFactory();
   resetFollowedMailSync();
   resetTicketTypesCache();
@@ -208,6 +209,7 @@ describe("email.received wiring", () => {
       async close() { /* noop */ },
     }));
     await ensureFollowedMailSync(true);
+    await waitForBackgroundSync();
     const events = getConn().prepare(
       "SELECT event_type,object_type,object_id,idempotency_key,actor_type,occurred_at,received_at FROM business_events WHERE event_type='email.received'",
     ).all() as Row[];
@@ -215,6 +217,7 @@ describe("email.received wiring", () => {
     expect(String(events[0].object_type)).toBe("email");
     expect(String(events[0].idempotency_key)).toMatch(/^email\.received:[a-f0-9]{64}:[a-f0-9]{64}$/);
     await ensureFollowedMailSync(true);
+    await waitForBackgroundSync();
     expect(getConn().prepare("SELECT id FROM business_events WHERE event_type='email.received'").all()).toHaveLength(1);
     expect(String(events[0].actor_type)).toBe("external");
     const response = await request("GET", "/api/events?event_type=email.received");

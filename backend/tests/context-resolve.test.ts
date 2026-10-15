@@ -6,7 +6,7 @@ import type { Hono } from "hono";
 import { DEMO_USER } from "../src/config.js";
 import { requireTaskDefinition, taskDefinition, validateDeclaredTaskContract } from "../src/tasks/registry.js";
 import { getConn, nowIso, resetConn } from "../src/db.js";
-import { approveKnowledge, cite, createKnowledge, knowledgeRow, workerSafeExtra } from "../src/host/knowledge.js";
+import { cite, workerSafeExtra } from "../src/host/knowledge.js";
 import { openContext, resolveContext, type ContextResolveInput } from "../src/host/context-resolve.js";
 import { contextGapResponse, workerRunContext } from "../src/host/api.js";
 import { runtimeAgentScopeContext } from "../src/contract-scope.js";
@@ -474,38 +474,21 @@ describe("POST /api/actions/context.resolve", () => {
  * 关键分支，证明接入解析层后响应字段与状态口径没变。
  */
 describe("POST /api/actions/mail.prepare 行为回归", () => {
-  function addPublishedTemplate(id: string): void {
-    createKnowledge({
-      id,
-      title: id,
-      body: "template source",
-      kind: "mail_template",
-      base_id: "kbase_legacy",
-      skill_id: "email_compose",
-      brand: "LT",
-      subject: "Original subject for [红人]",
-      body_en: "Original body for [红人].",
-      placeholders: ["[红人]"],
-      stage_codes: ["INITIAL_CONTACT"],
-      status: "draft",
-    });
-    approveKnowledge(id, Number(knowledgeRow(id).current_version || 1));
-    cite(id);
-  }
-
   async function prepare(body: Json = {}) {
     return request("POST", "/api/actions/mail.prepare", { skill_id: "email_compose", collaboration_id: "col_xiaomei", ...body });
   }
 
   it("ready：合作/阶段/模板/收发件与 context_version 一次给全", async () => {
-    addPublishedTemplate("mail_local");
+    // Use the seeded published snapshot. New documents must traverse the
+    // governed publication workflow and cannot be force-published by a test.
+    cite("kb_mail_kol");
     const response = await prepare();
     expect(response.status, response.text).toBe(200);
     expect(response.body).toMatchObject({
       status: "ready",
       skill_id: "email_compose",
       context: { collaboration_id: "col_xiaomei", stage_code: "INITIAL_CONTACT", stage_source: "collaboration", brand: "LT" },
-      template: { knowledge_id: "mail_local", published_version: 1, source: "knowledge" },
+      template: { knowledge_id: "kb_mail_kol", published_version: 1, source: "knowledge" },
       candidates: [],
     });
     const editor = response.body.editor as Json;

@@ -336,7 +336,9 @@ describe("cited search plan (not TypeScript constants)", () => {
       expect(policy).toContain("不要改 TypeScript 常数");
       expect(policy).not.toMatch(/\|\s*USD\s*\|\s*7\.2\s*\|/);
       expect(skill).toContain("web_search");
-      expect(approvalBoxGuardrails().some((line) => line.includes("web_search"))).toBe(true);
+      const guardrails = approvalBoxGuardrails().join("\n");
+      expect(guardrails).toContain("需要汇率时用 Codex 内置网络搜索技能");
+      expect(guardrails).toContain("公开搜索不能替代公司制度");
       expect(sandboxPolicyForSkill("business_approval", box).networkAccess).toBe(true);
       expect(sandboxPolicyForSkill("kol", box).networkAccess).toBe(false);
     } finally {

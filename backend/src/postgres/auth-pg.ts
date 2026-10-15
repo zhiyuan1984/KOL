@@ -1,26 +1,53 @@
 import { postgresQuery, postgresTransaction } from "../postgres/pool.js";
 import type { Json, Row } from "../types.js";
 import { isDemoAdminIdentifier, looksLikePhone, normalizeAccount, normalizeEmail, normalizePhone } from "../host/identity.js";
+import { DEMO_ADMIN } from "../config.js";
 
 export async function pgFindUserForLogin(raw: string): Promise<Row | undefined> {
   const ident = String(raw || "").trim();
   if (!ident) return undefined;
+  // The shipped administrator has explicit aliases. Resolve them first so an
+  // older row without its optional email/phone column still finds the canonical
+  // account, never an unrelated same-name account.
+  if (isDemoAdminIdentifier(ident)) {
+    const rows = await postgresQuery<Row>(
+      `SELECT * FROM users WHERE active=1 AND (
+        username=$1 OR lower(coalesce(email,''))=$2 OR lower(trim(name))=lower($3)
+      ) ORDER BY CASE WHEN username=$1 THEN 0 ELSE 1 END, id`,
+      [DEMO_ADMIN.handle, normalizeEmail(DEMO_ADMIN.email), DEMO_ADMIN.name],
+    );
+    return rows.find((row) => String(row.username) === DEMO_ADMIN.handle)
+      || rows.find((row) => normalizeEmail(String(row.email || "")) === normalizeEmail(DEMO_ADMIN.email));
+  }
   const account = normalizeAccount(ident);
   const email = ident.includes("@") ? normalizeEmail(ident) : "";
-  const rows = await postgresQuery<Row>(
-    `SELECT * FROM users WHERE active=1 AND (
-      username=$1 OR lower(coalesce(email,''))=$2 OR lower(trim(name))=lower($3)
-      OR ($4 <> '' AND phone IS NOT NULL AND trim(phone) <> '')
-    ) ORDER BY CASE WHEN username=$1 THEN 0 ELSE 1 END, id`,
-    [email || account, email, ident, looksLikePhone(ident) ? "phone" : ""],
-  );
   const phone = looksLikePhone(ident) ? normalizePhone(ident) : "";
-  const candidates = rows.filter((row) => !phone || normalizePhone(String(row.phone || "")) === phone);
-  if (isDemoAdminIdentifier(ident)) {
-    return candidates.find((row) => String(row.username) === "lingong" || normalizeEmail(String(row.email || "")) === normalizeEmail("qiyouhuang@163.com")) || candidates[0];
+  if (email) {
+    const rows = await postgresQuery<Row>(
+      "SELECT * FROM users WHERE active=1 AND (username=$1 OR lower(coalesce(email,''))=$2) ORDER BY CASE WHEN username=$1 THEN 0 ELSE 1 END, id",
+      [email, email],
+    );
+    return rows.find((row) => String(row.username) === email)
+      || rows.find((row) => normalizeEmail(String(row.email || "")) === email)
+      || (rows.length === 1 ? rows[0] : undefined);
   }
-  if (email || account) return candidates.find((row) => String(row.username) === (email || account)) || candidates.find((row) => normalizeEmail(String(row.email || "")) === email) || (candidates.length === 1 ? candidates[0] : undefined);
-  return candidates.length === 1 ? candidates[0] : undefined;
+  if (phone) {
+    const rows = await postgresQuery<Row>("SELECT * FROM users WHERE active=1 AND phone IS NOT NULL AND trim(phone) <> ''", []);
+    const candidates = rows.filter((row) => normalizePhone(String(row.phone || "")) === phone);
+    return candidates.length === 1 ? candidates[0] : undefined;
+  }
+  if (account) {
+    const rows = await postgresQuery<Row>(
+      "SELECT * FROM users WHERE active=1 AND username=$1 ORDER BY id",
+      [account],
+    );
+    if (rows.length === 1) return rows[0];
+  }
+  const rows = await postgresQuery<Row>(
+    "SELECT * FROM users WHERE active=1 AND lower(trim(name))=lower($1) ORDER BY id",
+    [ident],
+  );
+  return rows.length === 1 ? rows[0] : undefined;
 }
 
 export async function pgUserCount(): Promise<number> {

@@ -4,23 +4,34 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
+import { mapUser, withScopedUser, type AppUser } from "../src/auth.js";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { bundledSkillPath } from "../src/host/skill-sop.js";
 import { resolveMailTemplate } from "../src/host/knowledge.js";
 import { DEMO_ADMIN, DEMO_USER } from "../src/config.js";
+import type { Row } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { installKnowledgePublicationFixture, publishKnowledgeEntry } from "./support/knowledge-publication-fixture.js";
 
 type Json = Record<string, unknown>;
 
 let tmp: string;
 let app: Hono;
+let admin: AppUser;
+
+function persistedUser(id: string): AppUser {
+  const row = getConn().prepare("SELECT * FROM users WHERE id=?").get(id) as Row | undefined;
+  if (!row) throw new Error(`missing persisted knowledge test user: ${id}`);
+  return mapUser(row);
+}
 
 async function request(
   method: string,
   url: string,
   body?: unknown,
+  actor = admin,
 ): Promise<{ status: number; json: () => Promise<Json>; text: () => Promise<string> }> {
   const init: RequestInit = { method, headers: {} };
   if (body instanceof FormData) {
@@ -29,7 +40,7 @@ async function request(
     (init.headers as Record<string, string>)["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
-  const res = await app.request(url, init);
+  const res = await withScopedUser(actor, () => app.request(url, init));
   const text = await res.text();
   return {
     status: res.status,
@@ -50,6 +61,19 @@ async function ask(prompt: string, extra: Json = {}, expectStatus = 200): Promis
   return [String(ses.id), await r.json()];
 }
 
+async function createPublished(input: Json): Promise<Json> {
+  const created = await (await request("POST", "/api/admin/knowledge", {
+    base_id: "kbase_legacy",
+    ...input,
+    status: "draft",
+  })).json();
+  expect(created.status).toBe("draft");
+  await publishKnowledgeEntry(String(created.id));
+  const published = await (await request("GET", `/api/knowledge/${created.id}`)).json();
+  expect(published.status).toBe("published");
+  return published;
+}
+
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-kb-"));
@@ -61,6 +85,8 @@ beforeEach(async () => {
   const { createApp } = await import("../src/app.js");
   app = createApp();
   seedWorkbenchFixtures();
+  await installKnowledgePublicationFixture();
+  admin = persistedUser(DEMO_USER.id);
 });
 
 afterEach(() => {
@@ -159,7 +185,7 @@ describe("WikiSkill knowledge", () => {
       status: "draft",
     })).json();
     expect(created.stage_codes).toEqual(["TESTING"]);
-    await request("POST", `/api/admin/knowledge/${created.id}/approve`, { expected_version: created.current_version });
+    await publishKnowledgeEntry(String(created.id));
     const published = await (await request("GET", `/api/knowledge/${created.id}`)).json();
     expect(published.status).toBe("published");
     expect(published.stage_codes).toEqual(["TESTING"]);
@@ -199,7 +225,18 @@ describe("WikiSkill knowledge", () => {
   });
 
   it("blocks brand transfer outside the From whitelist", async () => {
-    const r = await request("POST", "/api/admin/knowledge/kb_mail_followup/transfer", { to_brand: "XX" });
+    const followup = await createPublished({
+      title: "阶段跟进（品牌转移回归）",
+      body: "Hi,\n\nJust a quick follow-up on the LiTime collab kit we mentioned last week. Happy to share the spec sheet or a short unboxing angle whenever you have a slot.\n\nBest,\nLiTime Creator Desk\n",
+      kind: "mail_template",
+      skill_id: "email_compose",
+      brand: "LT",
+      subject: "Following up — LiTime collab kit",
+      body_en: "Hi,\n\nJust a quick follow-up on the LiTime collab kit we mentioned last week. Happy to share the spec sheet or a short unboxing angle whenever you have a slot.\n\nBest,\nLiTime Creator Desk\n",
+      placeholders: ["[红人或合作]"],
+      stage_codes: ["INITIAL_CONTACT", "INTERESTED"],
+    });
+    const r = await request("POST", `/api/admin/knowledge/${followup.id}/transfer`, { to_brand: "XX" });
     expect(r.status).toBe(400);
   });
 
@@ -219,17 +256,28 @@ describe("WikiSkill knowledge", () => {
   });
 
   it("refuses to physically delete knowledge cited by sent mail", async () => {
-    await request("POST", "/api/knowledge/kb_mail_followup/cite", {});
+    const followup = await createPublished({
+      title: "阶段跟进（留存回归）",
+      body: "Hi,\n\nJust a quick follow-up on the LiTime collab kit we mentioned last week. Happy to share the spec sheet or a short unboxing angle whenever you have a slot.\n\nBest,\nLiTime Creator Desk\n",
+      kind: "mail_template",
+      skill_id: "email_compose",
+      brand: "LT",
+      subject: "Following up — LiTime collab kit",
+      body_en: "Hi,\n\nJust a quick follow-up on the LiTime collab kit we mentioned last week. Happy to share the spec sheet or a short unboxing angle whenever you have a slot.\n\nBest,\nLiTime Creator Desk\n",
+      placeholders: ["[红人或合作]"],
+      stage_codes: ["INITIAL_CONTACT", "INTERESTED"],
+    });
+    await request("POST", `/api/knowledge/${followup.id}/cite`, {});
     const [, data] = await ask("给@小美妆日记 写阶段跟进", {
       intent: "email_compose",
       collaboration_id: "col_xiaomei",
-      knowledge_id: "kb_mail_followup",
+      knowledge_id: followup.id,
     });
     const draft = data.draft as Json;
     expect((await confirmAndSendDraft(request, String(draft.id), {})).status).toBe(200);
-    const archived = await request("POST", "/api/admin/knowledge/kb_mail_followup/archive", {});
+    const archived = await request("POST", `/api/admin/knowledge/${followup.id}/archive`, {});
     expect(archived.status).toBe(200);
-    const del = await request("DELETE", "/api/admin/knowledge/kb_mail_followup");
+    const del = await request("DELETE", `/api/admin/knowledge/${followup.id}`);
     expect(del.status).toBe(403);
   });
 

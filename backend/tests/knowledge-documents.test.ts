@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as bridge from "../src/knowledge-bridge.js";
-import { tokenDigest,withScopedUser,requireAdmin,authDisabled } from "../src/auth.js";
+import { tokenDigest,withScopedUser,mapUser,authDisabled } from "../src/auth.js";
 import type { Hono } from "hono";
 import { getConn, resetConn,txImmediate } from "../src/db.js";
 import { randomUUID } from "node:crypto";
@@ -24,6 +24,7 @@ import { createAgentBinding, revokeAgentBinding, canUseAgent } from "../src/runt
 import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
 import { setIntentLlmFetch } from "../src/tasks/openai-intent.js";
 import { queryDocuments } from "../src/host/knowledge-documents.js";
+import type { Row } from "../src/types.js";
 
 type Json = Record<string, unknown>;
 
@@ -45,7 +46,8 @@ async function request(
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
-  const res = await (authDisabled() ? withScopedUser(requireAdmin(),()=>app.request(url,init)) : app.request(url,init));
+  const admin = authDisabled() ? getConn().prepare("SELECT * FROM users WHERE id='sriphy'").get() as Row | undefined : undefined;
+  const res = await (admin ? withScopedUser(mapUser(admin),()=>app.request(url,init)) : app.request(url,init));
   const text = await res.text();
   return {
     status: res.status,
@@ -57,6 +59,12 @@ async function request(
 
 async function detailCode(res: { json: () => Promise<Json> }): Promise<string> {
   return String(((await res.json()).detail as Json | undefined)?.code || "");
+}
+
+async function searchLibrary(input: Json): Promise<Json> {
+  const response = await request("POST", "/api/admin/knowledge/search", input);
+  expect(response.status, await response.text()).toBe(200);
+  return response.json();
 }
 
 function pdfBytes(marker = ""): Buffer {
@@ -225,6 +233,8 @@ describe("knowledge documents (P1 pipeline)", () => {
       id: "product_consultation", title: "产品咨询", body: "使用知识文档问答工具回答并保留页码。", mcp: ["knowledge.ask_documents"],
     });
     expect(create.status, await create.text()).toBe(201);
+    const ownership = await request("PATCH", "/api/admin/skills/product_consultation/lifecycle", { owner: "sriphy" });
+    expect(ownership.status, await ownership.text()).toBe(200);
     for (const stage of ["editing", "testing", "published"]) {
       const result = await request("POST", "/api/admin/skills/product_consultation/stage", { stage });
       expect(result.status, await result.text()).toBe(200);
@@ -265,9 +275,14 @@ describe("knowledge documents (P1 pipeline)", () => {
       const sourceUrl = String(answer.citations[0].source_url).split("#")[0];
       expect((await request("GET", sourceUrl, undefined, "lingong_session=product-source-test")).status).toBe(200);
       process.env.AUTH_MODE = "disabled";
-      db.prepare("UPDATE knowledge_bases SET status='archived' WHERE id=?").run(base.id);
-      await expect(runtime.invoke("knowledge.ask_documents", { query: "规格？" })).rejects.toMatchObject({ detail: { code: "knowledge_scope_unavailable" } });
-      db.prepare("UPDATE knowledge_bases SET status='active' WHERE id=?").run(base.id);
+      const currentBase = db.prepare("SELECT version,updated_at FROM knowledge_bases WHERE id=?").get(base.id) as Row;
+      const archive = await request("PUT", `/api/admin/knowledge/bases/${base.id}`, {
+        status: "archived", confirmed: true, expected_version: Number(currentBase.version), expected_updated_at: currentBase.updated_at,
+      });
+      expect(archive.status, await archive.text()).toBe(409);
+      expect(await detailCode(archive)).toBe("knowledge_base_in_use");
+      // A published, bound library cannot be archived behind its consumers.
+      expect((db.prepare("SELECT status FROM knowledge_bases WHERE id=?").get(base.id) as Row | undefined)?.status).toBe("active");
       const originalBridge = bridge.runBridge;
       const revoked = vi.spyOn(bridge, "runBridge").mockImplementationOnce(async (call) => {
         const outcome = await originalBridge(call);
@@ -456,10 +471,10 @@ describe("knowledge documents (P1 pipeline)", () => {
     expect(published.status).toBe("published");
     expect(published.published_at).toBeTruthy();
 
-    const answer = await (await request("POST", "/api/admin/knowledge/search", {
+    const answer = await searchLibrary({
       query: "这份资料的要点是什么？",
       base_id: base.id,
-    })).json();
+    });
     expect(String(answer.answer)).toContain("stub 试算答案");
     expect(String(answer.answer)).toContain("这份资料的要点是什么？");
     const citations = answer.citations as Json[];
@@ -479,15 +494,15 @@ describe("knowledge documents (P1 pipeline)", () => {
     const pendingDoc = await upload(String(base.id), "未发布.pdf", pdfBytes());
     await waitStatus(String(pendingDoc.id), ["pending_review"]);
 
-    const trial = await (await request("POST", "/api/admin/knowledge/search", {
+    const trial = await searchLibrary({
       query: "范围？", base_id: base.id,
-    })).json();
+    });
     const citations = trial.citations as Json[];
     expect(citations.map((item) => item.document_id)).toEqual([publishedDoc.id]);
 
-    const scoped = await (await request("POST", "/api/admin/knowledge/search", {
+    const scoped = await searchLibrary({
       query: "审批前试算", base_id: base.id, include_pending: true, doc_ids: [pendingDoc.id],
-    })).json();
+    });
     expect((scoped.citations as Json[]).map((item) => item.document_id)).toEqual([pendingDoc.id]);
 
     const tooMany = await request("POST", "/api/admin/knowledge/search", {
@@ -501,6 +516,19 @@ describe("knowledge documents (P1 pipeline)", () => {
     });
     expect(notPublished.status).toBe(409);
     expect(await detailCode(notPublished)).toBe("knowledge_no_published_documents");
+  });
+
+  it("rejects search without current organization evidence before invoking retrieval", async () => {
+    const base = await createUnstructuredBase();
+    const document = await upload(String(base.id), "未核验来源.pdf", pdfBytes());
+    await waitStatus(String(document.id), ["pending_review"]);
+    getConn().prepare("UPDATE knowledge_documents SET created_by='foreign-organization-owner' WHERE id=?").run(document.id);
+    const retrieval = vi.spyOn(bridge, "runBridge");
+    const response = await request("POST", "/api/admin/knowledge/search", {
+      query: "不得检索未授权原文", base_id: base.id, include_pending: true, doc_ids: [document.id],
+    });
+    expect(response.status, await response.text()).toBe(403);
+    expect(retrieval).not.toHaveBeenCalled();
   });
 
   it("fails an index job honestly and retries from the failed stage", async () => {
@@ -558,7 +586,9 @@ describe("knowledge documents (P1 pipeline)", () => {
     const removed = await request("DELETE", `/api/admin/knowledge/documents/${failing.id}`);
     expect(removed.status).toBe(200);
     expect((await (await request("GET", `/api/admin/knowledge/documents/${failing.id}`)).json()).detail).toBeTruthy();
-    expect((await request("GET", `/api/admin/knowledge/documents/${failing.id}`)).status).toBe(404);
+    // A deleted document no longer supplies current organization evidence;
+    // the native governance guard must reject it before any content projection.
+    expect((await request("GET", `/api/admin/knowledge/documents/${failing.id}`)).status).toBe(403);
     const dir = path.join(tmp, "knowledge", "bases", String(base.id), "documents", String(failing.id));
     expect(fs.existsSync(dir)).toBe(false);
   });

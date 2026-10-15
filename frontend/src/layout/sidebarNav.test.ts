@@ -62,7 +62,7 @@ describe("今日 sidebar IA", () => {
 });
 
 describe("admin sidebar parity", () => {
-  it("keeps the admin navigation contract for 业务地图 / 知识库 / 去审批 / Agent 移组（ADR-2026-10-12）", () => {
+  it("keeps the admin navigation contract for 业务地图 / 知识库 / Agent 移组 and current ontology/master-data entries", () => {
     expect(ADMIN_SECTIONS).toEqual([
       "employees",
       "overview",
@@ -72,9 +72,11 @@ describe("admin sidebar parity", () => {
       "knowledge",
       "agents",
       "ontology",
+      "business-domains",
       "approval-types",
       "skills",
       "exams",
+      "master-data",
       "data",
       "cost",
       "scheduling",
@@ -84,7 +86,7 @@ describe("admin sidebar parity", () => {
       "approvals",
     ]);
     expect(ADMIN_HIDDEN_SECTIONS).toEqual(["approvals"]);
-    expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([3, 5, 1, 1, 6]);
+    expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([3, 6, 1, 1, 7]);
     expect(ADMIN_NAV_GROUPS.flatMap((group) => group.rows.map((row) => row.label))).toEqual([
       "员工",
       "工作战报",
@@ -93,9 +95,11 @@ describe("admin sidebar parity", () => {
       "知识库",
       "Agent",
       "本体",
+      "业务域地图",
       "评审流程",
       "技能",
       "考试",
+      "主数据",
       "数据",
       "成本",
       "调度监控",
@@ -103,9 +107,10 @@ describe("admin sidebar parity", () => {
       "审计中心",
       "配置",
     ]);
-    // 资产簇内「连接器 / 知识库 / Agent / 本体」同组且顺序固定；「审批」已从菜单去掉（隐藏分节）。
+    // 资产簇内本体后的业务域地图与平台配置簇中的主数据均为当前正式入口；
+    // 「审批」仍已从菜单去掉（隐藏分节）。
     const assetIds = ADMIN_NAV_GROUPS.find((group) => group.label === "资产")!.rows.map((row) => row.id);
-    expect(assetIds).toEqual(["connectors", "knowledge", "agents", "ontology", "approval-types"]);
+    expect(assetIds).toEqual(["connectors", "knowledge", "agents", "ontology", "business-domains", "approval-types"]);
     expect(ADMIN_NAV_GROUPS.flatMap((group) => group.rows.map((row) => row.id))).not.toContain("approvals");
     // 「业务地图」一行映射两个看板路由（侧栏高亮与面板分节共用）。
     const businessMap = ADMIN_NAV_GROUPS.flatMap((group) => group.rows).find((row) => row.id === "business-map");
@@ -122,6 +127,8 @@ describe("admin sidebar parity", () => {
     expect(adminTabOf("/admin/audit")).toBe("audit");
     expect(adminTabOf("/admin/approval-types")).toBe("approval-types");
     expect(adminTabOf("/admin/connectors/conn_a")).toBe("connectors");
+    expect(adminTabOf("/admin/business-domains")).toBe("business-domains");
+    expect(adminTabOf("/admin/master-data")).toBe("master-data");
     expect(adminTabOf("/admin/lead-funnel")).toBe("lead-funnel");
     expect(adminTabOf("/admin/project-delivery")).toBe("project-delivery");
     expect(adminTabOf("/admin/approvals")).toBe("approvals"); // 隐藏深链分节

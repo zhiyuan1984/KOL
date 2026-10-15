@@ -88,7 +88,11 @@ describe("real Codex HTTP flow", () => {
     });
     const { id } = (await created.json()) as { id: string };
 
-    const startedAt = Date.now();
+    // The acknowledgement contract is causal, not a CI-host scheduling SLO:
+    // while a known-slow real worker is active, POST must already acknowledge
+    // 202/running. A synchronous dispatch would instead wait for this worker
+    // and return its terminal response, so this remains a strict async gate.
+    process.env.FAKE_CODEX_DELAY = "1000";
     const response = await app.request(`/api/sessions/${id}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -100,7 +104,6 @@ describe("real Codex HTTP flow", () => {
       messages?: unknown[];
     };
     expect(response.status).toBe(202);
-    expect(Date.now() - startedAt).toBeLessThan(500);
     expect(body.accepted).toBe(true);
     expect(body.agent_status).toBe("running");
     expect(body.messages?.length).toBeGreaterThan(0);
