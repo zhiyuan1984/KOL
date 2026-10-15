@@ -1,6 +1,7 @@
 /** Explicit cutover only. Runtime never reads these legacy environment credentials. */
 import { pathToFileURL } from "node:url";
 import { audit, getConn, nowIso, tx } from "../src/db.js";
+import { closePostgresPool } from "../src/postgres/pool.js";
 import { createCredential, deleteCredential, resolveSecretReference } from "../src/runtime/credentials.js";
 import { ensureRuntimeSchema, validateConnectorConfig } from "../src/runtime/store.js";
 import { assertConnectorCredentialStorage } from "../src/connectors/catalog.js";
@@ -46,5 +47,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   } catch {
     console.error("Crawler vault migration failed; no secrets logged. Check source configuration and vault readiness.");
     process.exitCode = 1;
-  } finally { getConn().close(); }
+  } finally { await closePostgresPool(); }
 }
