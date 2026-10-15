@@ -768,7 +768,7 @@ describe("host contracts", () => {
       // These capabilities require a current creator or conversation selected
       // from the authorized surface. Home recommendations carry neither, so the
       // Host returns an explicit gap card and never opens a worker.
-      if (taskDefinition(String(rec.id))?.context?.requires.some((key) => key === "creator" || key === "conversation")) {
+      if (taskDefinition(String(rec.id))?.context?.requires.length) {
         expect(data.worker ?? null, `${rec.id}: no worker without current context`).toBeNull();
         expect(messages.some((message) => message.kind === "supplement_card"), `${rec.id}: context gap card`).toBe(true);
         expect(messages.some((message) => message.kind === "task_result_card"), `${rec.id}: no result without context`).toBe(false);

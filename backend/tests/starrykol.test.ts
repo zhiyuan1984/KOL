@@ -726,6 +726,11 @@ describe("Email MCP task run path", () => {
     process.env.CODEX_MODE = "real";
     setAgentSubmissionOverride(false);
     try {
+      const now = new Date().toISOString();
+      getConn().prepare(`INSERT INTO users
+        (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?)`).run(DEMO_USER.id, DEMO_USER.handle, DEMO_USER.name,
+          "test-only", JSON.stringify(["employee"]), "[]", "", 1, now, now);
       const user = getConn().prepare("SELECT * FROM users WHERE id=?").get(DEMO_USER.id) as Row;
       const posted = await withScopedUser(mapUser(user), async () => {
         const created = await request("POST", "/api/sessions", { title: "达人库查询" });
