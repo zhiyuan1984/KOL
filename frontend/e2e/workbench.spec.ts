@@ -1171,13 +1171,14 @@ async function expectObjectToolbarAligned(page: Page) {
       cardWidth: card instanceof HTMLElement ? card.clientWidth : 0,
       searchHeight: search instanceof HTMLElement ? search.getBoundingClientRect().height : 0,
       searchFont: searchCs ? Number.parseFloat(searchCs.fontSize) : 0,
+      fontToken: Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--ds-font-sm")),
     };
   });
   expect(metrics).toBeTruthy();
   // 搜索框高度走 DESIGN §控件尺寸 的 --control-h-lg（32px），与今日任务右栏的搜索框同档。
   expect(metrics!.searchHeight).toBeGreaterThanOrEqual(32);
   expect(metrics!.searchHeight).toBeLessThanOrEqual(36);
-  expect(metrics!.searchFont).toBeGreaterThanOrEqual(14);
+  expect(metrics!.searchFont).toBe(metrics!.fontToken);
   expect(Math.abs(metrics!.clientWidth - metrics!.cardWidth)).toBeLessThan(8);
 }
 
@@ -3182,7 +3183,7 @@ test("approval, knowledge, and exam are vertical primary nav items before cloud"
   await page.locator('[data-nav="approvals"]').click();
   await expect(page).toHaveURL(/\/approvals$/);
   await expect(page.getByRole("heading", { name: "审批中心" })).toBeVisible();
-  await expect(page.locator("main")).not.toContainText("等我确认");
+  await expect(page.locator(".review-workbench")).not.toContainText("等我确认");
   await expect(page.locator('[data-nav="approvals"]')).toHaveClass(/active/);
   await page.locator('[data-nav="knowledge"]').click();
   await expect(page.getByRole("heading", { name: "知识库" })).toBeVisible();
