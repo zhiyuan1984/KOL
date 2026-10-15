@@ -50,6 +50,28 @@ async function request(method: string, url: string, body?: unknown) {
   return { status: response.status, body: text ? JSON.parse(text) as Json : {} };
 }
 
+type JevAssessmentReceipt = { status?: unknown; message?: unknown };
+
+/** Await the owned asynchronous assessment to a real terminal receipt. */
+async function waitForJevAssessmentReceipt(): Promise<{ status: number; body: Json }> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const receipt = await request("GET", "/api/home/pool/jev-assess");
+    const body = receipt.body as JevAssessmentReceipt;
+    if (body.status === "succeeded") return receipt;
+    if (body.status === "failed") {
+      throw new Error(`Jev assessment failed: ${String(body.message || "未提供失败详情")}`);
+    }
+    if (body.status !== "running") {
+      throw new Error(`Jev assessment returned unexpected status: ${String(body.status)}`);
+    }
+    if (Date.now() >= deadline) {
+      throw new Error("Jev assessment did not reach a terminal state within 10000ms");
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 async function seedProfile(kolUid: string, extra: Record<string, string> = {}) {
   return (await ingestFormalProfile({
     kol_uid: kolUid,
@@ -73,7 +95,7 @@ beforeEach(async () => {
   // Public-page fetches are fixtures; DNS must be equally deterministic.
   avatarDns.mockReset();
   avatarDns.mockResolvedValue([{ address: "93.184.216.34", family: 4 }]);
-  await freshTestDatabase();
+  await freshTestDatabase({ reclaimPrevious: true });
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-kol-mem-"));
   process.env.LINGONG_DB = path.join(tmp, "mem.db");
   process.env.LINGONG_DATA = tmp;
@@ -540,9 +562,12 @@ ${body.state?.target_criteria || ""}`;
       });
       expect(accepted.status).toBe(202);
       expect(String(accepted.body.criteria_summary)).toContain("关键词 camping, portable power station");
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      const receipt = await request("GET", "/api/home/pool/jev-assess");
-      expect(receipt.body).toMatchObject({ ok: true, status: "succeeded" });
+      const receipt = await waitForJevAssessmentReceipt();
+      expect(receipt.body).toMatchObject({
+        ok: true,
+        status: "succeeded",
+        result: { eligible: 1, assessed: 1, high_potential: 1, high_risk: 0, failed: 0 },
+      });
       // 回执必须写明口径，否则不同条件下的分看起来一样。
       expect(String(receipt.body.message)).toContain("评分口径：");
       expect(String(receipt.body.message)).toContain("近10条均播 ≥5000");
@@ -579,9 +604,15 @@ ${body.state?.target_criteria || ""}`;
       const accepted = await request("POST", "/api/home/pool/jev-assess", { kol_uids: ["KOL_NO_CRITERIA"], criteria: null });
       expect(accepted.status).toBe(202);
       expect(accepted.body.criteria_summary).toBe("");
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      expect((await request("GET", "/api/home/pool/jev-assess")).body.status).toBe("succeeded");
+      const receipt = await waitForJevAssessmentReceipt();
+      expect(receipt.body).toMatchObject({
+        ok: true,
+        status: "succeeded",
+        result: { eligible: 1, assessed: 1, failed: 0, criteria_summary: "" },
+      });
       expect(latest).not.toHaveBeenCalled();
+      const submitted = JSON.parse(seen) as { state?: { target_criteria?: unknown } };
+      expect(submitted.state?.target_criteria).toBeUndefined();
       expect(seen).not.toContain("old scope");
     } finally {
       if (priorKey === undefined) delete process.env.OPENROUTER_API_KEY;
