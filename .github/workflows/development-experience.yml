@@ -13,6 +13,8 @@ on:
       - 'config/development-skill-registry.yaml'
       - 'schemas/development-task.schema.json'
       - 'scripts/development-*'
+      - 'scripts/deploy.sh'
+      - 'scripts/*production-health*'
       - '.agents/skills/**'
       - '.github/workflows/development-experience.yml'
       - 'frontend/src/admin/knowledge/**'
@@ -36,6 +38,8 @@ on:
       - 'config/development-skill-registry.yaml'
       - 'schemas/development-task.schema.json'
       - 'scripts/development-*'
+      - 'scripts/deploy.sh'
+      - 'scripts/*production-health*'
       - '.agents/skills/**'
       - '.github/workflows/development-experience.yml'
       - 'frontend/src/admin/knowledge/**'
@@ -72,6 +76,7 @@ jobs:
         run: |
           node scripts/test-development-execution.mjs
           node scripts/test-development-entry.mjs
+          node scripts/test-production-health.mjs
       # These two calls load the repository's actual skill packages and their
       # declared templates/dependencies. They validate discovery assets only;
       # they are not a release gate and cannot certify feature delivery.

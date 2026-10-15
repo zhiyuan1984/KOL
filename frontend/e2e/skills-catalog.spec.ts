@@ -626,7 +626,7 @@ test.describe("技能目录（/skills）· 现行双 rail 几何、滚动与响�
     await page.locator("[data-kbv-list]").evaluate(element => { element.scrollTop = element.scrollHeight; });
     const afterList = await snapshot();
     expect(afterList.list, "list actually scrolls").toBeGreaterThan(0);
-    expect(afterList.body, "scrolling list cannot move detail body").toBe(0);
+    expect(afterList.body, "scrolling list cannot move detail body from its established reading position").toBe(before.body);
     expect(afterList.head, "list scrolling cannot move detail head").toBeCloseTo(before.head, 0);
     expect(afterList.foot, "list scrolling cannot move detail foot").toBeCloseTo(before.foot, 0);
     await page.locator(".kbv-rail-body").evaluate(element => { element.scrollTop = element.scrollHeight; });
@@ -733,7 +733,7 @@ test.describe("技能目录（/skills）· 现行双 rail 几何、滚动与响�
   test("O37 · 展开阅读切换 aria-expanded 并增加当前详情 rail 比重", async ({ page }) => {
     await openSkill(page);
     const workspace = page.locator(".knowledge-browse-workspace");
-    const toggle = page.getByRole("button", { name: /^(展开阅读|收起阅读)$/ });
+    const toggle = page.getByRole("button", { name: /^(展开阅读|收窄)$/ });
     const before = (await page.locator(".kbv-rail").boundingBox())!.width;
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await toggle.click();
