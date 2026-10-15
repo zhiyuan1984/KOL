@@ -7,7 +7,10 @@ async function workspace(page:Page) {
   const now="2026-10-05T07:00:00.000Z";
   const task={task_id:"workspace-task",title:"绑定原任务",goal:"复核当前依赖",status:"open",priority:"normal",data_version:1,workspace_allowed:true,due_at:null,created_at:now,updated_at:now};
   const aggregate={task,counts,work_orders:[],verified_events:[],current_blocking_work_order:null,as_of:now,source:"postgresql_task_work_orders"};
-  await page.route("**/api/tasks**",route=>route.fulfill({json:{items:[],page:{total:0,next_cursor:null}}}));
+  // Exact task collection only: the old broad glob swallowed /api/task-work-orders/dashboard.
+  await page.route(/\/api\/tasks(?:\?.*)?$/,route=>route.request().method()==="GET"
+    ? route.fulfill({json:{items:[],page:{total:0,next_cursor:null}}})
+    : route.continue());
   await page.route("**/api/queries/runtime.actions**",route=>route.fulfill({json:{actions:[]}}));
   await page.route("**/api/task-work-orders/dashboard**",route=>route.fulfill({json:{report_version:"task-work-order-dashboard.v2.1",period:"realtime",as_of:now,timezone:"Asia/Shanghai",scope:"personal_authorized",source:"postgresql_task_work_orders",summary:{tasks:{total:1,open:1,blocked:0,waiting_review:0,completed:0},work_orders:counts},by_template:[],tasks:{items:[{task,counts,current_blocking_work_order:null,next_work_order:null}],page:{limit:100,total:1,next_cursor:null}}}}));
   await page.route(/\/api\/task-work-orders\/workspace-task$/,route=>route.fulfill({json:aggregate}));

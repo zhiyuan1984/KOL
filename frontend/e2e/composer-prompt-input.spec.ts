@@ -391,15 +391,16 @@ test("settings fields keep a MASTER focus ring and login error-summary uses defi
     const primaryProbe = document.createElement("i");
     primaryProbe.style.background = "var(--primary)";
     primaryProbe.style.color = "var(--primary-fg)";
+    primaryProbe.style.fontSize = "var(--ds-font-sm)";
     document.body.appendChild(primaryProbe);
     const primary = getComputedStyle(primaryProbe);
-    const out = { bg: cs.backgroundColor, color: cs.color, fontSize: cs.fontSize, primaryBg: primary.backgroundColor, primaryFg: primary.color };
+    const out = { bg: cs.backgroundColor, color: cs.color, fontSize: cs.fontSize, primaryBg: primary.backgroundColor, primaryFg: primary.color, controlFontSize: primary.fontSize };
     primaryProbe.remove();
     return out;
   });
   expect(rgb(workIdle.bg)).toEqual(rgb(workIdle.primaryBg));
   expect(rgb(workIdle.color)).toEqual(rgb(workIdle.primaryFg));
-  expect(parseFloat(workIdle.fontSize)).toBeGreaterThanOrEqual(14);
+  expect(workIdle.fontSize).toBe(workIdle.controlFontSize);
 
   await work.focus();
   const workFocus = await work.evaluate((el) => {

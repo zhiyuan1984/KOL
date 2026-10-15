@@ -135,7 +135,8 @@ async function stubKol172(page: Page) {
         calls_model: false,
         index: "我的跟进",
         employee_id: "u_sriphy",
-        authority: "kol_follow_index",
+        authority: "kol_follow_index+verified_starry_binding",
+        completeness: "complete",
         kols: [FOLLOW_REFUSED, FOLLOW_NEAR],
       },
     });

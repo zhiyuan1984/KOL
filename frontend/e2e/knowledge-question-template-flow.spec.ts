@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { prepareNativeKnowledgeAdmin } from "./fixtures/native-knowledge-admin";
 
 /**
  * 知识库问题模板：管理端操作 → 用户端可见（真实链路，不 stub 问题模板接口）。
@@ -89,7 +90,7 @@ async function cleanupE2eRows(request: APIRequestContext) {
 async function createDraftViaAdmin(page: Page, request: APIRequestContext): Promise<string> {
   // 新建条目挂在结构化库下（种子存量统一迁入默认库 kbase_legacy）。
   await page.goto("/admin/knowledge/bases/kbase_legacy");
-  await expect(page.locator("[data-admin-kb-view='base']")).toBeVisible();
+  await expect(page.locator("[data-admin-kb-base-meta]")).toBeVisible();
   await page.locator("[data-admin-kb-create-entry]").click();
   const form = page.locator("[data-admin-kb-create]");
   await expect(form).toBeVisible();
@@ -127,6 +128,8 @@ async function archiveSeedScore(request: APIRequestContext) {
   expect(response.ok(), `归档种子 ${SEED_ID} 失败：${response.status()}`).toBeTruthy();
 }
 
+test.beforeAll(async () => { await prepareNativeKnowledgeAdmin(); });
+
 test.beforeEach(async ({ page, request }) => {
   await request.post("/api/demo/reset", { data: { workbench: true } });
   await request.post("/api/me/persona", { data: { persona: "sriphy" } });
@@ -142,7 +145,7 @@ test.afterEach(async ({ request }) => {
 
 test("归档槽位模板后，公海入口禁用并如实提示", async ({ page }) => {
   await page.goto("/admin/knowledge/bases/kbase_legacy");
-  await expect(page.locator("[data-admin-kb-view='base']")).toBeVisible();
+  await expect(page.locator("[data-admin-kb-base-meta]")).toBeVisible();
   await page.locator("[data-admin-kb-filter='kind']").selectOption("question_template");
   const seedRow = page.locator(`[data-admin-knowledge-id='${SEED_ID}']`);
   await expect(seedRow).toBeVisible();

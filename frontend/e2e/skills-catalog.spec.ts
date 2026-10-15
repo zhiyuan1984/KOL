@@ -608,6 +608,9 @@ test.describe("技能目录（/skills）· 现行双 rail 几何、滚动与响�
     const context = await nativeContext(browser, { viewport: { width: 1280, height: 720 } });
     const page = await context.newPage();
     await ready(page);
+    // Incremental browse initially reveals only the rows fitting the viewport.
+    // Load more through the actual affordance before testing real overflow.
+    await page.locator("[data-kb-load-more]").click();
     await openSkill(page);
     await page.locator("[data-skill-detail] summary", { hasText: "说明书与示例" }).click();
     const snapshot = () => page.evaluate(() => {
@@ -730,7 +733,7 @@ test.describe("技能目录（/skills）· 现行双 rail 几何、滚动与响�
   test("O37 · 展开阅读切换 aria-expanded 并增加当前详情 rail 比重", async ({ page }) => {
     await openSkill(page);
     const workspace = page.locator(".knowledge-browse-workspace");
-    const toggle = page.getByRole("button", { name: "展开阅读" });
+    const toggle = page.getByRole("button", { name: /^(展开阅读|收起阅读)$/ });
     const before = (await page.locator(".kbv-rail").boundingBox())!.width;
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await toggle.click();

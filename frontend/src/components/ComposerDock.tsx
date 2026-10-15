@@ -3,7 +3,7 @@ import { useAccount } from "./AuthGate";
 import CompactButton from "./CompactButton";
 import { readWorkspaceDraft, saveWorkspaceDraft, takeDraft, scopeEquals, draftScopeKey, type ComposerDraftScope, type DraftBroadcast } from "../composer/draft";
 import { fieldLabel } from "../labels";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api, type ComposeInput, type KnowledgeRow, type SkillTemplate } from "../api";
 import ChipRail from "../composer/ChipRail";
 import { mergeSubjectIntoText } from "../composer/addresses";
@@ -60,6 +60,9 @@ import { NO_REQUIRED_INPUTS_COPY, templateForSkill } from "../skillTemplate";
 
 export type ComposerVariant = "compact" | "workspace";
 export type ComposerPlacement = "hero" | "dock";
+
+/** A workspace's pending human confirmation owns the primary action. */
+export const WorkspaceSubmitEmphasisContext = createContext<"primary" | "secondary">("primary");
 
 export type AttachmentRef = { id?: string; name: string; path: string; size?: number; type?: string };
 type ProjectOption = { id: string; label: string; handle?: string; description?: string };
@@ -183,7 +186,7 @@ export default function ComposerDock({
   onSkillRemoved,
   initialDraft,
   submitLabel = "发送",
-  submitEmphasis = "primary",
+  submitEmphasis,
   draftToken,
   onDraftChange,
   draftScope,
@@ -248,6 +251,8 @@ export default function ComposerDock({
   suggestionsMode?: "inline" | "menu";
   retainAttachmentsOnSubmit?: boolean;
 }) {
+  const workspaceSubmitEmphasis = useContext(WorkspaceSubmitEmphasisContext);
+  const effectiveSubmitEmphasis = submitEmphasis ?? workspaceSubmitEmphasis;
   const [skills, setSkills] = useState<SkillOption[]>([]);
   const [skillTemplates, setSkillTemplates] = useState<SkillTemplate[]>([]);
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
@@ -1631,7 +1636,7 @@ export default function ComposerDock({
                 type="submit"
                 data-send
                 data-ai-prompt-submit
-                data-send-emphasis={submitEmphasis}
+                data-send-emphasis={effectiveSubmitEmphasis}
                 data-send-state={sendState}
                 disabled={sendDisabled}
                 aria-label={submitLabel}

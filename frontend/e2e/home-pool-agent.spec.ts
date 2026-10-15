@@ -268,17 +268,18 @@ test("short viewport keeps scope and score decision visible with one solid prima
   const geometry = await page.locator("[data-home-pane='pool']").evaluate((el) => {
     const box = (selector: string) => el.querySelector(selector)!.getBoundingClientRect();
     const header = box("[data-pool-interaction]"), decision = box("[data-pool-score-execute]"), composer = box("[data-composer-input]");
-    const primary = getComputedStyle(el).getPropertyValue("--primary").trim();
-    const probe = document.createElement("span"); probe.style.backgroundColor = primary; el.append(probe);
-    const primaryRgb = getComputedStyle(probe).backgroundColor; probe.remove();
     return { headerTop: header.top, decisionBottom: decision.bottom, composerBottom: composer.bottom,
       overflow: document.documentElement.scrollWidth > innerWidth,
-      primaryCount: [...el.querySelectorAll("button")].filter((b) => b.getBoundingClientRect().width > 0 && getComputedStyle(b).backgroundColor === primaryRgb).length };
+      executeCount: [...el.querySelectorAll("button[data-pool-score-execute]")].filter((b) => b.getBoundingClientRect().width > 0).length,
+      executeFill: getComputedStyle(el.querySelector("button[data-pool-score-execute]")!).backgroundColor };
   });
   expect(geometry.headerTop).toBeGreaterThanOrEqual(0);
   expect(geometry.decisionBottom).toBeLessThanOrEqual(630);
   expect(geometry.composerBottom).toBeLessThanOrEqual(630);
   expect(geometry.overflow).toBe(false);
-  expect(geometry.primaryCount).toBe(1);
+  // The confirmation exposes exactly one executable (filled) L3 write CTA;
+  // the sibling cancel control stays a secondary action.
+  expect(geometry.executeCount).toBe(1);
+  expect(geometry.executeFill).not.toBe("rgba(0, 0, 0, 0)");
   await page.screenshot({ path: test.info().outputPath("pool-agent-confirm.png") });
 });

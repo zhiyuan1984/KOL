@@ -243,14 +243,18 @@ test("today pane shows today-scheduled work items including unpromoted source=ai
   ];
   const writes: string[] = [];
   await mockTodayBrief(page);
+  const todayRows = todos.filter((row) => !["tsk_queued", "tsk_open", "tsk_ai_open"].includes(row.id));
+  // The rendered 今日任务 rail reads this result-memory endpoint. Keep the
+  // board fixture below only as the negative recommendation lure.
+  await page.route(/\/api\/home\/today-tasks(?:\?.*)?$/, (route) => route.fulfill({ json: { items: todayRows } }));
   await page.route("**/api/workbench/tasks**", (route) => {
     const view = new URL(route.request().url()).searchParams.get("view");
-    const items = view === "today" ? todos.filter((row) => !["tsk_queued", "tsk_open", "tsk_ai_open"].includes(row.id)) : todos;
+    const items = view === "today" ? todayRows : todos;
     return route.fulfill({ json: { items, page: { next_cursor: null } } });
   });
   await page.route("**/api/tickets?**", (route) => route.fulfill({ json: { items: [], page: { next_cursor: null } } }));
   await page.route("**/api/home/board", (route) => route.fulfill({
-    json: { kols: [], tabs: [], tasks: todos, workbench: { today: todos.filter((row) => !["tsk_queued", "tsk_open", "tsk_ai_open"].includes(row.id)), todo: todos, recommendations: [{ id: "rec-1", title: "诱饵", reason: "不要出现", source: "ai" }] } },
+    json: { kols: [], tabs: [], tasks: todos, workbench: { today: todayRows, todo: todos, recommendations: [{ id: "rec-1", title: "诱饵", reason: "不要出现", source: "ai" }] } },
   }));
   await page.route("**/api/tasks**", async (route) => {
     const url = new URL(route.request().url());

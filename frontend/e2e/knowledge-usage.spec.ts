@@ -5,7 +5,7 @@ import { expect, test, type Page } from "@playwright/test";
  *
  * 只断言页面自己的 DOM 契约，不改 workbench.spec.ts 的既有基线：
  *   搜索 → [data-kb-search]（debounce 后走 GET /api/knowledge?q=）
- *   适用 → 行内 [data-kb-scope] chips 只露品牌值（阶段在右栏给中文标签），
+ *   适用 → 当前紧凑行只显示标题和类型；品牌与阶段在打开后的右栏完整给出，
  *          阶段筛选默认全部＋五个字典标签，其余下拉；值按代码过滤、展示中文标签
  *   溯源 → 右栏 [data-kb-provenance]：发布人 / 版本 / 更新时间 / 适用
  *   芯片 → 草稿与回执 [data-draft-knowledge]：模板：{标题} v{n}
@@ -77,16 +77,20 @@ test("行内只露品牌值；阶段中文标签在右栏；无适用范围写�
   const kb = page.locator("[data-kb-page='mine']");
   await expandKnowledgeList(page);
 
-  const mail = kb.locator('[data-knowledge="kb_mail_followup"] [data-kb-scope]');
-  await expect(mail).toBeVisible();
-  await expect(mail).toContainText("LT");
-  await expect(mail).not.toContainText("初步接触");
+  // 当前 KnowledgeBrowse 紧凑行故意只放标题与类型；范围不能悄悄丢失，必须在右栏完整可读。
+  const mail = kb.locator('[data-knowledge="kb_mail_followup"]');
+  await expect(mail).toHaveText(/^\s*阶段跟进\s*邮件模板\s*$/);
+  await expect(mail).not.toContainText(/LiTime|初步接触/);
+  await mail.click();
+  const mailRail = page.locator('[data-kb-preview="kb_mail_followup"] [data-kb-scope]');
+  await expect(mailRail).toContainText("LT");
+  await expect(mailRail).toContainText("初步接触");
 
-  const policy = kb.locator('[data-knowledge="kb_followup"] [data-kb-scope]');
-  await expect(policy).toBeVisible();
-  await expect(policy).toContainText("通用");
+  const policy = kb.locator('[data-knowledge="kb_followup"]');
+  await expect(policy).toHaveText(/^\s*跟进信模板（阶段保持）\s*口径\s*$/);
+  await expect(policy).not.toContainText(/全阶段|通用/);
 
-  await kb.locator('[data-kb-open="kb_followup"]').click();
+  await policy.click();
   const rail = page.locator('[data-kb-preview="kb_followup"] [data-kb-scope]');
   await expect(rail).toContainText("全阶段");
   await expect(rail).toContainText("通用");

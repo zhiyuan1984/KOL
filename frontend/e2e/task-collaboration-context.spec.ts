@@ -24,7 +24,9 @@ async function fixture(page: Page, readSuggestions: () => unknown[] = () => []) 
     } });
   });
   await page.goto("/tasks");
-  await page.getByRole("region", { name: "任务明细" }).getByRole("button", { name: "详情", exact: true }).click();
+  const taskRow = page.getByRole("row").filter({ hasText: task.title });
+  await expect(taskRow).toHaveCount(1);
+  await taskRow.getByRole("button", { name: "详情", exact: true }).click();
   return { revoke: () => { revoked = true; }, reads: () => reads };
 }
 

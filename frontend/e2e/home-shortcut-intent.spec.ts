@@ -35,23 +35,15 @@ async function stubHome(page: Page) {
   const planPosts: string[] = [];
   await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
   await page.route("**/api/home/todo-tasks**", (route) => route.fulfill({ json: { items: [] } }));
-  await page.route("**/api/home/today-brief**", async (route) => {
+  // Today and todo deliberately use the same deterministic planning entry.
+  await page.route("**/api/workbench/plan**", async (route) => {
     const url = new URL(route.request().url());
-    if (route.request().method() === "POST" && url.pathname.endsWith("/plan")) {
+    if (route.request().method() === "POST" && url.pathname === "/api/workbench/plan-runs") {
       planPosts.push(url.pathname);
-      await route.fulfill({ json: { planning: true, attached: false, work_item_id: "tsk_today_plan" } });
+      await route.fulfill({ json: { planning: true, attached: false, work_item_id: "tsk_workbench_plan" } });
       return;
     }
     await route.fulfill({ json: { planning: planPosts.length > 0, brief: null, events: [], creates_session: false, calls_model: false } });
-  });
-  await page.route("**/api/home/todo-brief**", async (route) => {
-    const url = new URL(route.request().url());
-    if (route.request().method() === "POST" && url.pathname.endsWith("/plan")) {
-      planPosts.push(url.pathname);
-      await route.fulfill({ json: { planning: true, attached: false, work_item_id: "tsk_todo_plan", task_type: "todo_plan" } });
-      return;
-    }
-    await route.fulfill({ json: { planning: false, brief: null, events: [], creates_session: false, calls_model: false } });
   });
   await page.route("**/api/tasks/from-text", (route) => route.fulfill({
     json: {
@@ -127,7 +119,7 @@ test("先进 AI发现再点今日任务后提交：启动规划，不发起采�
 
   await page.locator("[data-home] [data-ai-prompt-submit]").click();
   await expect.poll(() => planPosts.length).toBe(1);
-  expect(planPosts[0]).toBe("/api/home/today-brief/plan");
+  expect(planPosts[0]).toBe("/api/workbench/plan-runs");
   expect(paths).not.toContain("/api/home/discovery/run");
 });
 
@@ -146,6 +138,6 @@ test("今日选过技能再切到我的待办提交：待办计划仍然启动�
 
   await page.locator("[data-home] [data-ai-prompt-submit]").click();
   await expect.poll(() => planPosts.length).toBe(1);
-  expect(planPosts[0]).toBe("/api/home/todo-brief/plan");
+  expect(planPosts[0]).toBe("/api/workbench/plan-runs");
   expect(fromText).toEqual([]);
 });

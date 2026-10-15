@@ -12,6 +12,16 @@ async function openFollowed(page: Page) {
   await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
 }
 
+/** Current native result cards resolve their server-owned draft snapshot through this read-only query. */
+async function stubDraftActionSnapshot(page: Page, draftId: string, subject = "Collaboration with LiTime") {
+  await page.route(`**/api/queries/mail.draft-actions?draft_id=${encodeURIComponent(draftId)}`, route => route.fulfill({
+    json: {
+      action: { state: "ready", draft_id: draftId, version: 1 },
+      snapshot: { id: draftId, status: "draft", subject, body: "Hi, we would love to collaborate.", from: "brand@litime.com", to: "kol@example.com", version: 1 },
+    },
+  }));
+}
+
 test.beforeEach(async ({ page, request }) => {
   await request.post("/api/demo/reset", { data: { workbench: true } });
   await request.post("/api/me/persona", { data: { persona: "sriphy" } });
@@ -78,7 +88,7 @@ test("send chrome has no stage picker; Chat header is not a lifecycle board", as
   await page.locator("[data-composer-input]").fill("写跟进邮件 @小美妆日记");
   await page.locator("[data-send]").click();
   // 当前原生工作台把可操作草稿放入右侧结果栏；中栏只保留可定位的成果摘要。
-  const draft = page.locator("[data-workbench] [data-email-action='send']");
+  const draft = page.locator("[data-workbench] .side-body [data-email-action='send']");
   await expect(draft).toBeVisible({ timeout: 20000 });
   await expect(page.locator("[data-session-stream-pane] [data-kind='stage-from-draft']")).toHaveCount(0);
   await expect(page.locator('[data-workbench] [data-confirm-stage]')).toHaveCount(0);
@@ -113,23 +123,25 @@ test("inbound mail card replies only; stage write stays on confirm_stage card", 
 test("draft send opens L3 confirm with object/scope/consequence; cancel does not send", async ({ page, request }) => {
   const ses = await request.post("/api/collaborations/col_xiaomei/session").then((r) => r.json() as Promise<{ id: string }>);
   await page.goto(`/s/${ses.id}`);
+  // The server-generated email-card snapshot is read through its current draft-action query.
+  await stubDraftActionSnapshot(page, "draft_xiaomei");
   await page.locator("[data-composer-input]").fill("写跟进邮件 @小美妆日记");
   await page.locator("[data-send]").click();
   await expect(page.locator("[data-admin-confirm='draft-send']")).toHaveCount(0);
-  await expect(page.locator("[data-workbench] [data-kind='email-card']")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-workbench] .side-body [data-kind='email-card']")).toBeVisible({ timeout: 20000 });
   const sendPosts: string[] = [];
   page.on("request", (req) => {
     if (req.method() === "POST" && /\/api\/actions\/mail\.send$/.test(new URL(req.url()).pathname)) {
       sendPosts.push(req.url());
     }
   });
-  await page.locator('[data-workbench] [data-email-action="send"]').click();
+  await page.locator('[data-workbench] .side-body [data-email-action="send"]').click();
   const dialog = page.locator("[data-admin-confirm='draft-send']");
   await expect(dialog).toBeVisible();
   await expect(dialog).toHaveAttribute("data-risk", "L3");
   await expect(dialog.locator("[data-admin-confirm-object]")).not.toHaveText("");
   await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("外发");
-  await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("发送不等于推进阶段");
+  await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("发送不会推进正式阶段");
   await expect(dialog.locator("[data-admin-confirm-ok]")).toHaveText("确认发送");
   await saveScreenshot(page, "chat_l3_draft_send_confirm.png");
   await page.locator("[data-admin-confirm-cancel]").click();
@@ -170,15 +182,16 @@ test("result draft 确认发送 also requires L3 confirm before SMTP", async ({ 
     sent = true;
     await route.fulfill({ json: { ok: true } });
   });
+  await stubDraftActionSnapshot(page, "draft_json");
   await page.goto("/s/result-send");
-  const sendBtn = page.locator("[data-workbench] [data-result-draft] [data-email-action='send']");
+  const sendBtn = page.locator("[data-workbench] .side-body [data-result-draft] [data-email-action='send']");
   await expect(sendBtn).toHaveText("确认发送");
   await sendBtn.click();
   const dialog = page.locator("[data-admin-confirm='draft-send']");
   await expect(dialog).toBeVisible();
   await expect(dialog.locator("[data-admin-confirm-object]")).toContainText("brand@litime.com");
   await expect(dialog.locator("[data-admin-confirm-object]")).toContainText("kol@example.com");
-  await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("发送不等于推进阶段");
+  await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("发送不会推进正式阶段");
   await saveScreenshot(page, "chat_l3_result_draft_send_confirm.png");
   expect(sent).toBe(false);
   await page.locator("[data-admin-confirm-ok]").click();

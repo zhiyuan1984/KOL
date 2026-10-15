@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { prepareNativeKnowledgeAdmin } from "./fixtures/native-knowledge-admin";
 
 const PRODUCT_BASE_CODE = "e2e_product_knowledge";
 
@@ -51,6 +52,8 @@ async function ensureProductBase(request: APIRequestContext): Promise<ProductBas
     "创建受权非结构化知识库失败",
   )).base;
 }
+
+test.beforeAll(async () => { await prepareNativeKnowledgeAdmin(); });
 
 test.beforeEach(async ({ request }) => {
   // 使用系统已有的产品经理账号建立授权，再选择 E2E persona；不把 401/403/409 视作可忽略错误。

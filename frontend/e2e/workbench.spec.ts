@@ -1,6 +1,7 @@
 import { test, expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import path from "node:path";
-import { paneBodyText, stubFollowingFromServerBoard, stubHomeBoardAndFollowing } from "./kol-surface-stub";
+import { paneBodyText, stubFollowingFromServerBoard } from "./kol-surface-stub";
+import { stubNativeHomeBoardAndFollowing as stubHomeBoardAndFollowing } from "./workbench-native-fixture";
 
 async function saveScreenshot(page: Page, name: string): Promise<void> {
   const dir = process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results";
@@ -47,18 +48,37 @@ test.beforeEach(async ({ page, request }) => {
 /** Stub Codex (Playwright webServer sets CODEX_MODE=stub). Drafts must appear — do not skip P0. */
 async function expectDraft(page: Page) {
   await expect(
-    page.locator("[data-session-stream-pane]").locator('[data-kind="email-card"], [data-kind="task-result-card"]').first(),
+    page.locator("[data-workbench]").locator('[data-kind="email-card"], [data-kind="task-result-card"]').first(),
   ).toBeVisible({ timeout: 20000 });
 }
 
 async function openDraftTab(page: Page) {
-  const draft = page.locator('[data-session-stream-pane] [data-kind="email-card"]');
+  const draft = page.locator('[data-workbench] [data-kind="email-card"]');
   if (await draft.isVisible()) return;
-  const mail = page.locator('[data-session-stream-pane] [data-tab="mail"]');
+  const mail = page.locator('[data-workbench] [data-tab="mail"]');
   if (await mail.isVisible()) await mail.click();
   if (await draft.isVisible()) return;
-  const tab = page.locator('[data-session-stream-pane] [data-tab="draft"]');
+  const tab = page.locator('[data-workbench] [data-tab="draft"]');
   if (await tab.isVisible()) await tab.click();
+}
+
+/** 原生结果工作台的正式阶段变更是独立 details；必须经真实控件打开，不修改 DOM open。 */
+async function openStageReview(page: Page) {
+  const review = page.locator('[data-workbench] .mail-stage-review');
+  await expect(review).toBeAttached({ timeout: 15000 });
+  if (!(await review.evaluate((element) => element instanceof HTMLDetailsElement && element.open))) {
+    await review.locator('summary').click();
+  }
+  await expect(review).toHaveJSProperty('open', true);
+}
+
+async function openTaskContext(page: Page) {
+  const context = page.locator('[data-task-context]');
+  await expect(context).toBeVisible();
+  if (!(await context.evaluate((element) => element instanceof HTMLDetailsElement && element.open))) {
+    await context.locator('summary').click();
+  }
+  await expect(context).toHaveJSProperty('open', true);
 }
 
 function homeRecByTitle(page: Page, title: string) {
@@ -161,7 +181,7 @@ async function expectEmployeeShell(page: Page) {
 
 async function expectFollowedKolHeadingRemoved(page: Page) {
   await expect(page.locator("[data-followed-kol-heading]")).toHaveCount(0);
-  await expect(page.locator("[data-home-pane=lifecycle] h2")).toHaveCount(0);
+  await expect(page.locator("[data-followed-kol-list] h2")).toHaveCount(0);
   await expect(page.locator('[data-home-mode="lifecycle"]')).toContainText("我跟进的红人");
 }
 
@@ -299,6 +319,7 @@ async function openFollowedKolDetail(page: Page, handle?: string) {
 }
 
 async function openStageSop(page: Page) {
+  await openTaskContext(page);
   const sop = page.locator("[data-stage-sop]");
   await expect(sop).toBeVisible();
   if (!(await sop.evaluate((el) => el instanceof HTMLDetailsElement && el.open))) {
@@ -356,7 +377,7 @@ function resultCardTimeout(): number {
 }
 
 function workbenchResultCard(page: Page) {
-  return page.locator('[data-session-stream-pane] [data-kind="task-result-card"]');
+  return page.locator('[data-workbench] [data-kind="task-result-card"]');
 }
 
 function chatStream(page: Page) {
@@ -388,6 +409,7 @@ async function proposePipelineStage(page: Page, handle: string, stageCode?: stri
 
 async function askKolSession(page: Page, request: APIRequestContext, collaborationId: string, text: string) {
   const ses = await request.post(`/api/collaborations/${collaborationId}/session`).then((r) => r.json() as Promise<{ id: string }>);
+  expect(ses.id).toBeTruthy();
   await page.goto(`/s/${ses.id}`);
   await page.locator("[data-composer-input]").fill(text);
   await page.locator("[data-send]").click();
@@ -409,6 +431,7 @@ async function expectFollowedObjectToolbar(page: Page) {
 async function askConfirmStage(page: Page, handle: string, stageLabel: string) {
   await page.locator("[data-composer-input]").fill(`提出阶段变更 @${handle} 到 ${stageLabel}`);
   await page.locator("[data-send]").click();
+  await openStageReview(page);
   await expect(page.locator('[data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 20000 });
 }
 
@@ -744,10 +767,10 @@ test("exception template 延期关怀 prefills home then drafts without changing
   await submitHomeComposer(page);
   await expect(page.locator('[data-kind="me"]')).toContainText("延期关怀", { timeout: 15000 });
   await expectDraft(page);
-  await expect(page.locator("[data-session-stream-pane] [data-draft-subject]")).toHaveValue("Update on the Content Timeline");
+  await expect(page.locator("[data-workbench] [data-draft-subject]")).toHaveValue("Update on the Content Timeline");
   // Constitution §4: one quiet send≠stage hint on the composer, not on the draft.
   await expect(page.locator("[data-session-send-hint]")).toHaveText("发送不等于改阶段");
-  await expect(page.locator("[data-session-stream-pane] [data-kind='email-card']")).not.toContainText("正式阶段");
+  await expect(page.locator("[data-workbench] [data-kind='email-card']")).not.toContainText("正式阶段");
 });
 
 test("home composer posts a message into a new session", async ({ page }) => {
@@ -843,10 +866,10 @@ test("pipeline review follows the common task flow with progress and a right-sid
   await expect(page.locator('[data-kind="process-trace"]')).toContainText("识别风险");
   await expect(page.locator('[data-kind="operation-trace"]')).toContainText("读取合作记录");
   await expect(page.locator('[data-ai-result="task_result"]')).toBeVisible();
-  await expect(page.locator('[data-session-stream-pane] [data-kind="task-result-card"]')).toContainText("两项合作需要优先处理");
-  await expect(page.locator('[data-session-stream-pane] [data-kind="task-result-card"]')).toContainText("优先关注停滞合作");
-  // 结果卡只在中栏时间流里出现一次；右栏是指向它的目录。
-  await expect(page.locator('.chat [data-kind="task-result-card"]')).toHaveCount(1);
+  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("两项合作需要优先处理");
+  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("优先关注停滞合作");
+  // 当前原生布局：中栏是成果指针，右栏完整成果仍只渲染一次。
+  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toHaveCount(1);
   await expect(page.locator("[data-workbench] [data-result-index]")).toContainText("KOL 流水线复盘");
   expect(bodies[0]?.act).toBe("ask");
   expect(bodies[0]?.intent).toBe("risk_scan");
@@ -939,7 +962,7 @@ test("pipeline stage CTA passes concrete stage_code into confirm_stage", async (
   expect(posted?.entities?.reason).toBeFalsy();
   expect(posted?.text || "").toContain("已回复-有兴趣");
   expect(posted?.text || "").not.toContain("下一阶段");
-  await expect(page.locator('[data-session-stream-pane] [data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('[data-workbench] [data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 15000 });
 });
 
 test("pipeline skip/exception require a reason on confirm_stage handoff", async ({ page }) => {
@@ -2264,7 +2287,7 @@ test("employee stream parses task_result JSON into a card and hides engine jargo
     },
   }));
   await page.goto("/s/json-stream");
-  const draftCard = page.locator("[data-session-stream-pane] [data-stream-result]").filter({ hasText: "合作邮件草稿" });
+  const draftCard = page.locator("[data-workbench] [data-stream-result]").filter({ hasText: "合作邮件草稿" });
   await expect(draftCard).toBeVisible();
   await expect(draftCard).toContainText("Collaboration with LiTime");
   await expect(draftCard).toContainText("we would love to collaborate");
@@ -2279,7 +2302,7 @@ test("employee stream parses task_result JSON into a card and hides engine jargo
   const workbench = page.locator("[data-workbench]");
   await expect(workbench).toBeVisible();
   await expect(workbench.locator("[data-result-draft]")).toHaveCount(0);
-  await expect(page.locator('[data-session-stream-pane] [data-email-action="send"]')).toHaveCount(1);
+  await expect(page.locator('[data-workbench] [data-email-action="send"]')).toHaveCount(1);
   await expect(workbench.locator("[data-result-index]")).toContainText("合作邮件草稿");
   await expectNoEngineJargon(page.locator("[data-session-stream-pane]"));
   await expectNoEngineJargon(workbench);
@@ -2290,7 +2313,7 @@ test("记状态 to CONTENT_REVIEW queues content approval and writes after manag
   await page.goto("/pipeline");
   await proposePipelineStage(page, "母婴小课");
   await page.waitForURL(/\/s\//);
-  const card = page.locator('[data-session-stream-pane] [data-kind="confirm-stage-card"]');
+  const card = page.locator('[data-workbench] [data-kind="confirm-stage-card"]');
   await expect(card).toBeVisible({ timeout: 15000 });
   await expect(card).toContainText("内容策划");
   await pickStageChip(card, "CONTENT_REVIEW");
@@ -2346,7 +2369,7 @@ test("session page shows Agent TaskList, L3 block, and stage diff", async ({ pag
   await page.locator("[data-tasklist-scroll]").hover();
   await page.mouse.wheel(0, -120);
   await refreshed;
-  const card = page.locator('[data-session-stream-pane] [data-kind="confirm-stage-card"]');
+  const card = page.locator('[data-workbench] [data-kind="confirm-stage-card"]');
   await expect(card).toBeVisible({ timeout: 15000 });
   await expect(card).toHaveAttribute("data-risk", "L3");
   await expect(card.locator("[data-stage-diff]")).toContainText("变更前");
@@ -2371,7 +2394,7 @@ test("记状态 shows stage workbench, never a draft tab card", async ({ page, r
   await page.goto("/pipeline");
   await proposePipelineStage(page, "小美妆日记");
   await page.waitForURL(/\/s\//);
-  await expect(page.locator('[data-session-stream-pane] [data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('[data-workbench] [data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
   await expect(page.locator('[data-kind="confirm-stage-card"]')).toContainText("初步接触");
   await expectSelectedStage(page.locator('[data-kind="confirm-stage-card"]'), "INTERESTED");
@@ -2425,12 +2448,12 @@ test("session 催大纲 [红人或合作] also stays on a supplement card", asyn
 
 test("地址核对: incomplete email in workbench, complete 可以出库", async ({ page, request }) => {
   await askKolSession(page, request, "col_xiaomei", "核对地址 @小美妆日记");
-  await expect(page.locator('[data-session-stream-pane] [data-kind="email-card"]')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('[data-workbench] [data-kind="email-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("可以出库")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /出库|WMS|仓库/ })).toHaveCount(0);
 
   await askKolSession(page, request, "col_laozhang", "核对地址 @数码老张");
-  await expect(page.locator('[data-session-stream-pane] [data-kind="task-result-card"]')).toContainText("可以进入人工确认后的出库流程", { timeout: 15000 });
+  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("可以进入人工确认后的出库流程", { timeout: 15000 });
   await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
 });
 
@@ -2438,7 +2461,7 @@ test("发货通知 without tracking shows supplement in workbench", async ({ pag
   const before = await request.get("/api/workers");
   const n0 = ((await before.json()) as unknown[]).length;
   await askKolSession(page, request, "col_xiaomei", "发货通知 @小美妆日记");
-  await expect(page.locator('[data-session-stream-pane] [data-kind="supplement-card"]')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('[data-workbench] [data-kind="supplement-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-kind="supplement-card"]')).toContainText("运单号");
   await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
   const after = await request.get("/api/workers");
@@ -2457,11 +2480,11 @@ test("核对地址 shows sample facts and draft on one result page", async ({ pa
   await page.goto(`/s/${ses.id}`);
   await page.locator("[data-composer-input]").fill("核对地址 @数码老张");
   await page.locator("[data-send]").click();
-  await expect(page.locator("[data-session-stream-pane] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
-  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).toContainText(/寄样资料|张伟|LT-100AH/);
-  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).toContainText("可以进入人工确认后的出库流程");
-  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).not.toContainText(/USD\s*680/);
-  await expect(page.locator('[data-session-stream-pane] [data-kind="email-card"]')).toHaveCount(0);
+  await expect(page.locator("[data-workbench] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).toContainText(/寄样资料|张伟|LT-100AH/);
+  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).toContainText("可以进入人工确认后的出库流程");
+  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).not.toContainText(/USD\s*680/);
+  await expect(page.locator('[data-workbench] [data-kind="email-card"]')).toHaveCount(0);
 });
 
 test("发brief shows content facts and draft on one result page", async ({ page, request }) => {
@@ -2469,9 +2492,9 @@ test("发brief shows content facts and draft on one result page", async ({ page,
   await page.goto(`/s/${ses.id}`);
   await page.locator("[data-composer-input]").fill("发brief @母婴小课");
   await page.locator("[data-send]").click();
-  await expect(page.locator("[data-session-stream-pane] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
-  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).toContainText("内容要点");
-  await expect(page.locator('[data-session-stream-pane] [data-kind="email-card"]')).toBeVisible();
+  await expect(page.locator("[data-workbench] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).toContainText("内容要点");
+  await expect(page.locator('[data-workbench] [data-kind="email-card"]')).toBeVisible();
   await expect(page.locator("[data-draft-body]")).toBeEditable();
 });
 
@@ -2481,8 +2504,8 @@ test("写报价邮件 without amount keeps result and composer on fill-price", a
   await expect(page.locator("[data-composer-input]")).toHaveAttribute("placeholder", /写报价邮件 @数码老张 金额 \[USD\]/);
   await page.locator("[data-composer-input]").fill("写报价邮件 @数码老张");
   await page.locator("[data-send]").click();
-  await expect(page.locator("[data-session-stream-pane] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
-  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).toContainText(/金额未写明|补上金额后再确认发送/);
+  await expect(page.locator("[data-workbench] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).toContainText(/金额未写明|补上金额后再确认发送/);
   await expect(page.locator("[data-composer-suggestions] button").first()).toHaveText("补上金额");
   await page.locator("[data-composer-suggestions] button").first().click();
   await expect(page.locator("[data-composer-input]")).toHaveValue("把金额改成 [USD]");
@@ -2494,14 +2517,15 @@ test("写一份报价邮件 shows priced letter and draft on one result page", a
   await page.goto(`/s/${ses.id}`);
   await page.locator("[data-composer-input]").fill("写一份报价邮件 金额 680");
   await page.locator("[data-send]").click();
-  await expect(page.locator("[data-session-stream-pane] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
-  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).toContainText(/USD\s*680|金额：USD 680/);
-  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).not.toContainText("往来依据");
-  await expect(page.locator('[data-session-stream-pane] [data-kind="email-card"]')).toBeVisible();
+  await expect(page.locator("[data-workbench] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).toContainText(/USD\s*680|金额：USD 680/);
+  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).not.toContainText("往来依据");
+  await expect(page.locator('[data-workbench] [data-kind="email-card"]')).toBeVisible();
   await expect(page.locator("[data-draft-subject]")).toBeVisible();
   await expect(page.locator("[data-draft-body]")).toBeEditable();
   await expect(page.locator("[data-draft-body]")).toContainText(/USD 680|680/);
-  await expect(page.locator('[data-email-action="send"]')).toBeEnabled();
+  await expect(page.locator('[data-kind="email-card"] [data-email-action="send"]')).toBeEnabled();
+  await expect(page.locator('[data-kind="task-result-card"] [data-email-action="send"]')).toBeDisabled();
   await expect(page.getByText("已提交审批")).toHaveCount(0);
   await page.locator('[data-email-action="translate"]').click();
   const zh = page.locator("[data-draft-zh]");
@@ -2519,9 +2543,9 @@ test("写报价邮件 100美金1小时 lands USD 100 per hour in the draft", asy
   await page.goto(`/s/${ses.id}`);
   await page.locator("[data-composer-input]").fill("写报价邮件 100美金1小时");
   await page.locator("[data-send]").click();
-  await expect(page.locator("[data-session-stream-pane] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
-  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).toContainText("USD 100 per hour");
-  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).not.toContainText("往来依据");
+  await expect(page.locator("[data-workbench] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).toContainText("USD 100 per hour");
+  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).not.toContainText("往来依据");
   await expect(page.locator("[data-draft-body]")).toContainText("USD 100 per hour");
   await expect(page.locator("[data-draft-body]")).not.toContainText("one video");
 });
@@ -2537,8 +2561,8 @@ test("KOL / 写合作邮件 fills composer with USD 100 per hour draft", async (
   await expect(input).toHaveValue(/USD 100 per hour/, { timeout: 15000 });
   await expect(input).not.toHaveValue(/one video/);
   await page.locator("[data-send]").click();
-  await expect(page.locator("[data-session-stream-pane] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
-  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).not.toContainText("往来依据");
+  await expect(page.locator("[data-workbench] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).not.toContainText("往来依据");
   await expect(page.locator("[data-draft-body]")).toContainText("USD 100 per hour");
 });
 
@@ -2574,8 +2598,8 @@ test("unbound inbound stays on this thread", async ({ page }) => {
   await page.locator('[data-home] .rec[data-intent="creator_lifecycle_kanban"]').click();
   await expectHomeComposerDraft(page, "合作生命周期看板");
   await submitHomeComposer(page);
-  await expect(page.locator('[data-session-stream-pane] [data-kind="task-result-card"]')).toBeVisible({ timeout: 15000 });
-  await expect(page.locator('[data-session-stream-pane] [data-kind="inbound-card"]')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('[data-workbench] [data-kind="inbound-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-kind="inbound-card"]')).toContainText("未绑定来信");
   await expect(page.locator('[data-kind="inbound-card"]')).toContainText("vanlife.kit@example.com");
   await expect(page.locator('[data-kind="sys-msg"]')).toContainText("无法判断，请人选阶段");
@@ -2588,8 +2612,8 @@ test("two buttons stay separate: send keeps stage, confirm-stage advances", asyn
   await askKolSession(page, request, "col_xiaomei", "写跟进邮件 @小美妆日记");
   await expectDraft(page);
   await openDraftTab(page);
-  await expect(page.locator("[data-session-stream-pane] [data-kind='stage-from-draft']")).toHaveCount(0);
-  await expect(page.locator('[data-session-stream-pane] [data-email-action="confirm-stage"]')).toHaveCount(0);
+  await expect(page.locator("[data-workbench] [data-kind='stage-from-draft']")).toHaveCount(0);
+  await expect(page.locator('[data-workbench] [data-email-action="confirm-stage"]')).toHaveCount(0);
   await page.locator('[data-email-action="send"]').click();
   await confirmDraftSend(page);
   await expect(page.getByText(/已发送原文/).first()).toBeVisible();
@@ -2599,11 +2623,11 @@ test("two buttons stay separate: send keeps stage, confirm-stage advances", asyn
     stage_code: string;
   };
   expect(x.stage_code).toBe("INITIAL_CONTACT");
-  await expect(page.locator("[data-session-stream-pane] [data-kind='stage-from-draft']")).toHaveCount(0);
-  await expect(page.locator('[data-session-stream-pane] [data-email-action="confirm-stage"]')).toHaveCount(0);
+  await expect(page.locator("[data-workbench] [data-kind='stage-from-draft']")).toHaveCount(0);
+  await expect(page.locator('[data-workbench] [data-email-action="confirm-stage"]')).toHaveCount(0);
 
   await askConfirmStage(page, "小美妆日记", "已回复-有兴趣");
-  const confirmCard = page.locator('[data-session-stream-pane] [data-kind="confirm-stage-card"]');
+  const confirmCard = page.locator('[data-workbench] [data-kind="confirm-stage-card"]');
   await pickStageChip(confirmCard, "INTERESTED");
   await confirmCard.locator("[data-confirm-stage]").click();
   await expect(page.getByText(/正式阶段已按你的确认更新/).first()).toBeVisible();
@@ -2738,7 +2762,7 @@ test("sidebar does not list 最近 sessions", async ({ page }) => {
   await expect(page.getByLabel("筛选最近")).toHaveCount(0);
   await expect(page.locator(".sidebar .nav-label", { hasText: /^最近$/ })).toHaveCount(0);
   await expect(page.locator('nav[aria-label="今日"]')).toBeVisible();
-  await expect(page.locator('nav[aria-label="agent"]')).toBeVisible();
+  await expect(page.locator('nav[aria-label="Agent"]')).toBeVisible();
   await expect(page.locator('nav[aria-label="资产"]')).toBeVisible();
 });
 
@@ -2876,7 +2900,7 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
   await expect(page.locator("[data-expert-card='expert:kol']")).toContainText("KOL 合作专员");
   await expect(page.locator("[data-expert-summon='expert:kol']")).toHaveText("召唤专家");
-  await expect(page.locator('nav[aria-label="agent"] [data-nav]')).toHaveCount(1);
+  await expect(page.locator('nav[aria-label="Agent"] [data-nav]')).toHaveCount(1);
   await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
   await expect(page.locator(".sidebar")).not.toContainText("技能目录");
   await expect(page.locator(".sidebar")).not.toContainText("数字团队");
@@ -2998,8 +3022,8 @@ test("my skills page distinguishes load error from empty list", async ({ page })
     });
   });
   await page.goto("/skills");
-  await expect(page.locator("[data-skills-error]")).toContainText("无法加载我的技能");
-  await expect(page.locator("[data-skills-empty]")).toHaveCount(0);
+  await expect(page.locator("[data-skill-catalog]").getByRole("alert").filter({ hasText: "无法加载我的技能" })).toBeVisible();
+  await expect(page.locator("[data-skill-catalog] .kbv-empty").filter({ hasText: /没有|暂无/ })).toHaveCount(0);
 });
 
 test("skill hub distinguishes load error from empty catalog", async ({ page }) => {
@@ -3027,8 +3051,8 @@ test("admin debug toggle reveals the skills navigation", async ({ page }) => {
   await enableDebugView(page);
   await expect(page.locator(".workbench")).toHaveAttribute("data-view-mode", "debug");
   await expect(page.locator('[data-nav="skills"]')).toBeVisible();
-  await expect(page.locator('nav[aria-label="agent"] [data-nav]')).toHaveCount(1);
-  await expect(page.locator('nav[aria-label="agent"] [data-nav="skills"]')).toHaveCount(0);
+  await expect(page.locator('nav[aria-label="Agent"] [data-nav]')).toHaveCount(1);
+  await expect(page.locator('nav[aria-label="Agent"] [data-nav="skills"]')).toHaveCount(0);
   await expect(page.locator('nav[aria-label="技能"] [data-nav="skills"]')).toBeVisible();
   await expect(page.locator('nav[aria-label="技能"]')).toHaveAttribute("aria-label", "技能");
   await expect(page.locator('nav[aria-label="资产"] [data-nav="skills"]')).toHaveCount(0);
@@ -3081,7 +3105,7 @@ test("approval, knowledge, and exam are vertical primary nav items before cloud"
   expect(assetOrder.indexOf("exam")).toBeLessThan(assetOrder.indexOf("云盘"));
   await expect(page.locator('[data-nav="pipeline"]')).toHaveCount(0);
   await expect(page.locator(".sidebar")).not.toContainText("生命周期");
-  await expect(page.locator('nav[aria-label="agent"] [data-nav]')).toHaveCount(1);
+  await expect(page.locator('nav[aria-label="Agent"] [data-nav]')).toHaveCount(1);
   await expect(page.locator('[data-nav="agents"]')).toBeVisible();
   await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
   await expect(page.locator('.sidebar-foot a[href="/approvals"], .sidebar-foot a[href="/kb"], .sidebar-foot a[href="/exam"]')).toHaveCount(0);
@@ -3184,9 +3208,9 @@ test("docs/org-permissions.md employee sidebar has no connectors entry", async (
   await expect(page.locator(".sidebar")).not.toContainText("技能目录");
   await expect(page.locator('[data-nav="connectors"]')).toHaveCount(0);
   await expect(page.locator('.sidebar a[href="/admin/connectors"]')).toHaveCount(0);
-  await expect(page.locator('[data-nav="agents"]')).toHaveText("agent");
+  await expect(page.locator('[data-nav="agents"]')).toHaveText("Agent");
   await expect(page.locator('[data-nav="agents"]')).toHaveAttribute("href", "/agents");
-  await expect(page.locator('nav[aria-label="agent"] [data-nav]')).toHaveCount(1);
+  await expect(page.locator('nav[aria-label="Agent"] [data-nav]')).toHaveCount(1);
   await expect(page.locator('[data-nav="pipeline"]')).toHaveCount(0);
   await expect(page.locator('[data-nav="teams"]')).toHaveCount(0);
   await expect(page.locator('[data-nav="agents-teams"]')).toHaveCount(0);
@@ -3232,7 +3256,7 @@ test("admin console uses a left sidebar with short labels for the current accoun
   await expect(page.locator("[data-admin-nav]").first()).toBeVisible();
   const labels = await page.locator(".sidebar [data-admin-nav]").allTextContents();
   expect(labels.map((label) => label.trim())).toEqual([
-    "员工", "工作战报", "业务地图", "连接", "知识库", "Agent", "本体", "评审流程", "技能", "考试", "数据", "成本", "调度监控", "工单治理", "审计中心", "配置",
+    "员工", "工作战报", "业务地图", "连接器", "知识库", "Agent", "本体", "业务域地图", "评审流程", "技能", "考试", "主数据", "数据", "成本", "调度监控", "工单治理", "审计中心", "配置",
   ]);
   // 「审批」已从菜单去掉（ADR-2026-10-12）：菜单不再渲染该条目，深链能力保留（见下方 goto 断言）。
   await expect(page.locator("[data-admin-nav='approvals']")).toHaveCount(0);
@@ -3295,10 +3319,10 @@ test("admin left menu replicates the employee sidebar shell", async ({ page }) =
   await expect(rail.locator(".sidebar-head .sidebar-lucas img")).toHaveAttribute("src", /Lucas6\.webp$/);
   await expect(rail.locator(".sidebar-foot [data-account-bar]")).toBeVisible();
   // 只换菜单文字：管理端 16 条，员工开工条目 0 条。
-  await expect(rail.locator("[data-admin-nav]")).toHaveCount(16);
+  await expect(rail.locator("[data-admin-nav]")).toHaveCount(18);
   await expect(rail.locator("[data-nav='new-task'], [data-nav='running'], [data-nav='cron'], [data-nav='mail']")).toHaveCount(0);
   // 同解剖：18px 描边图标 + 标签；分簇靠分隔线，不用可见组标题。
-  await expect(rail.locator("[data-admin-nav] .nav-ico")).toHaveCount(16);
+  await expect(rail.locator("[data-admin-nav] .nav-ico")).toHaveCount(18);
   await expect(rail.locator("nav.nav-group")).toHaveCount(5);
   await expect(rail.locator(".nav-group > h2, .nav-group > .nav-group-title")).toHaveCount(0);
   const clusterBorder = await rail.locator("nav.nav-group").nth(1).evaluate((el) => getComputedStyle(el).borderTopWidth);
@@ -3481,9 +3505,9 @@ test("admin and settings expose bind Starry mailbox menus", async ({ page }) => 
   await expect(accountBar.getByRole("link", { name: /Starry|连接 Starry 邮箱/ })).toHaveCount(0);
   await accountBar.locator("[data-account-settings]").click();
   await expect(page).toHaveURL(/\/settings/);
-  await page.getByRole("tab", { name: "连接 Starry" }).click();
+  await page.getByRole("tab", { name: "账号与邮箱" }).click();
   await expect(page).toHaveURL(/\/settings\?tab=starry/);
-  await expect(page.getByRole("tab", { name: "连接 Starry" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "账号与邮箱" })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-starry-bind]")).toBeVisible();
   await expect(page.getByRole("heading", { name: "绑定跟进邮箱" })).toBeVisible();
   await expect(page.getByRole("button", { name: "读取可用邮箱" })).toBeVisible();
@@ -3672,8 +3696,8 @@ test("preview toolbar collapses, exports, shares, and opens read-only view", asy
   });
   await page.goto(`/s/${id}`);
   await expect(page.locator("[data-workbench]")).toBeVisible();
-  const draft = page.locator('[data-session-stream-pane] [data-kind="email-card"]');
-  const result = page.locator('[data-session-stream-pane] [data-kind="task-result-card"]');
+  const draft = page.locator('[data-workbench] [data-kind="email-card"]');
+  const result = page.locator('[data-workbench] [data-kind="task-result-card"]');
   await expect(draft.or(result).first()).toBeVisible();
   await expect(page.getByLabel("下载 Markdown")).toBeVisible();
   await expect(page.getByLabel("下载 JSON")).toHaveCount(0);
@@ -3710,8 +3734,9 @@ test("composer renders uploaded files as removable attachment cards", async ({ p
   await card.getByRole("button", { name: "移除 creator-brief.md" }).click();
   await expect(card).toHaveCount(0);
   await page.locator("[data-home] [data-attach]").click();
-  await page.getByRole("menu", { name: "添加内容" }).getByRole("menuitem", { name: "最近的文件" }).hover();
-  await page.getByRole("menu", { name: "最近的文件" }).getByRole("menuitem", { name: /creator-brief.md/ }).first().evaluate((element: HTMLElement) => element.click());
+  const files = page.getByRole("menu", { name: "添加内容" });
+  await expect(files.locator('[data-menu-section="文件"]')).toBeVisible();
+  await files.getByRole("menuitem", { name: /creator-brief.md/ }).click();
   await expect(card).toBeVisible();
 });
 
@@ -3970,9 +3995,9 @@ test("task detail keeps process in center, result on right, and supports complet
   await expect(page.locator("[data-task-detail]")).not.toContainText("AI 发现");
   await expect(page.locator("[data-task-source='ai']")).toHaveText("今天推荐");
   await expect(page.locator('[data-kind="process-trace"]')).toContainText("汇总合作状态");
-  // 结果卡在中栏时间流里完整出现一次；右栏是指向它的目录。
-  await expect(page.locator('.chat [data-kind="task-result-card"]')).toHaveCount(1);
-  await expect(page.locator('[data-session-stream-pane] [data-kind="task-result-card"]')).toContainText("一项合作需要优先处理");
+  // 当前原生布局：中栏是成果指针，右栏完整成果仍只渲染一次。
+  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toHaveCount(1);
+  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("一项合作需要优先处理");
   await expect(page.locator("[data-workbench] [data-result-entry='result']")).toContainText("合作进展复盘");
   await page.locator("[data-complete-task]").click();
   await expect(page.locator("[data-task-detail]")).toContainText("任务已完成验收");
@@ -4359,7 +4384,7 @@ test("generic creator profile task result stays in the standard result renderer"
     messages: [],
   } }));
   await page.goto("/s/profile-session");
-  await expect(page.locator('[data-session-stream-pane] [data-kind="task-result-card"]')).toContainText("内容以户外装备实测为主");
+  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("内容以户外装备实测为主");
   await expect(page.locator("[data-crawl-candidates]")).toHaveCount(0);
 });
 
@@ -4369,7 +4394,7 @@ test("达人画像 and 更新红人负责人 run through Starry KOL MCP", async 
   await input.fill("达人画像 达人 UID KOLTEST001");
   await page.locator("[data-home] [data-send]").click();
   await page.waitForURL(/\/s\//);
-  const profile = page.locator('[data-session-stream-pane] [data-kind="task-result-card"]');
+  const profile = page.locator('[data-workbench] [data-kind="task-result-card"]');
   await expect(profile).toBeVisible({ timeout: 20000 });
   await expect(profile).toContainText("达人画像");
   await expect(profile).toContainText("画像说明");
@@ -4382,7 +4407,7 @@ test("达人画像 and 更新红人负责人 run through Starry KOL MCP", async 
   await page.locator("[data-home] [data-composer-input]").fill("达人画像 测试网红-qq-01");
   await page.locator("[data-home] [data-send]").click();
   await page.waitForURL(/\/s\//);
-  const qq = page.locator('[data-session-stream-pane] [data-kind="task-result-card"]');
+  const qq = page.locator('[data-workbench] [data-kind="task-result-card"]');
   await expect(qq).toBeVisible({ timeout: 20000 });
   await expect(qq).toContainText("画像说明");
   await expect(qq).toContainText("测试网红-qq-01");
@@ -4396,7 +4421,7 @@ test("达人画像 and 更新红人负责人 run through Starry KOL MCP", async 
 
   await page.locator("[data-composer-input]").fill("更新红人负责人 达人 UID KOLTEST001 负责人：王主管");
   await page.locator("[data-send]").click();
-  const owner = page.locator('[data-session-stream-pane] [data-kind="task-result-card"]').filter({ hasText: "红人负责人更新结果" });
+  const owner = page.locator('[data-workbench] [data-kind="task-result-card"]').filter({ hasText: "红人负责人更新结果" });
   await expect(owner).toBeVisible({ timeout: 20000 });
   await expect(owner).toContainText("红人绑定 / 负责人");
   await expect(page.locator('[data-kind="operation-trace"]').last()).toContainText("查询达人详情");
@@ -4527,7 +4552,7 @@ test("employee knowledge market URL redirects to /kb", async ({ page }) => {
   await expect(page).toHaveURL(/\/kb$/);
   await expect(page.locator("[data-kb-page='mine']")).toBeVisible();
   await expect(page.locator("[data-kb-page='market']")).toHaveCount(0);
-  await expect(page.locator(".kbv-lead")).not.toContainText("知识市场");
+  await expect(page.locator("[data-kbv-list]")).not.toContainText("知识市场");
 });
 
 test("employee knowledge base uses task copy, taxonomy scope, and an inline detail rail", async ({ page }) => {
@@ -4639,7 +4664,7 @@ test("达人库查询 starter placeholder still lists profiles", async ({ page }
   await page.goto("/");
   await page.locator("[data-home] [data-composer-input]").fill("达人库查询 [关键词]");
   await submitHomeComposer(page);
-  const card = page.locator('[data-session-stream-pane] [data-kind="task-result-card"]');
+  const card = page.locator('[data-workbench] [data-kind="task-result-card"]');
   await expect(card).toBeVisible({ timeout: 20000 });
   await expect(card).toContainText("户外电源达人");
   await expect(card).not.toContainText("未找到匹配的达人画像");

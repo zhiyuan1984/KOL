@@ -18,6 +18,7 @@ import "./discovery-workspace.css";
 import "./discovery-flow.css";
 import { discoveryTaskStatus } from "./discoveryTaskStatus";
 import { RuntimeActions } from "../components/RuntimeActions";
+import { WorkspaceSubmitEmphasisContext } from "../components/ComposerDock";
 
 /**
  * AI发现 = 走同一工作台骨架的页面（WorkspaceShell），中栏是一条有序事件流：
@@ -247,7 +248,9 @@ export default function DiscoveryWorkspace({
         {pendingAction && sessionId ? <p className="workspace-confirm-hint" role="status">
           ⚠ 请核对执行范围 <button className="btn ghost" type="button" onClick={() => revealWorkspace(sessionId, "center", pendingAction.id)}>查看确认卡</button>
         </p> : null}
-        {centerFooter}
+        <WorkspaceSubmitEmphasisContext.Provider value={pendingAction ? "secondary" : "primary"}>
+          {centerFooter}
+        </WorkspaceSubmitEmphasisContext.Provider>
       </div>}
       railHeader={<DiscoveryResultPane state={disc} brief={brief} runStatus={status} region="header" />}
       rail={<DiscoveryResultPane state={disc} brief={brief} runStatus={status} region="body" />}

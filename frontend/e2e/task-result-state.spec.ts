@@ -47,7 +47,7 @@ for (const [agent, ready, label, tone, glyph] of [
     await expect(page.locator(".session-center [data-run-status]")).toHaveCount(0);
     await expect(page.locator("[data-task-analysis-summary]")).toHaveCount(0);
     // 中栏三段式：页头与输入框固定在滚动区之外，只有消息流在滚（DESIGN §10.1）。
-    await expect(page.locator(".session-center > header.session-workspace-header")).toHaveCount(1);
+    await expect(page.locator(".session-center .session-workspace-header")).toHaveCount(1);
     await expect(page.locator("[data-session-stream-pane] .session-workspace-header")).toHaveCount(0);
     await expect(page.locator("[data-session-stream-pane] .session-composer")).toHaveCount(0);
     const trace = page.locator('[data-kind="operation-trace"]');

@@ -28,10 +28,11 @@ async function createAuthoredDraft(page: Page, sid: string): Promise<string> {
   await input.fill("/");
   await page.locator('[data-skill-option="email_compose"]').click();
   await expect(page.locator('[data-mail-compose-status="editing"]')).toBeVisible();
-  // 当前已发布模板的展示标题是稳定的“邮件模板”；来源与发布版本才是可核验事实。
-  await expect(page.locator("[data-mail-template-source]")).toHaveText("邮件模板");
+  // The cited legal template is the published initial-contact source and version.
+  await expect(page.locator("[data-mail-template-source]")).toHaveText("首封建联");
   await expect(page.getByText("来源：知识库", { exact: true })).toBeVisible();
   await expect(page.locator("[data-mail-template-version]")).toContainText("发布版 v");
+  await expect(page.locator("[data-mail-compose-subject] input")).toHaveValue("LiTime Mini 12V — weekend van test");
   await expect(input).toHaveValue(/We would love to send a LiTime Mini 12V/);
   await page.locator("[data-mail-compose-subject] input").fill("Employee reviewed partnership subject");
   await input.fill("Hello Xiaomei,\n\nThis exact edited body is the reviewed test draft.\n\nRegards, Test Operator");
@@ -39,7 +40,7 @@ async function createAuthoredDraft(page: Page, sid: string): Promise<string> {
   const card = page.locator('[data-kind="email-card"]').last();
   await expect(card).toBeVisible();
   await expect(card.locator("[data-draft-body]")).toHaveValue(/This exact edited body is the reviewed test draft/);
-  await expect(card.locator("[data-draft-template-source]")).toContainText("第 1 版");
+  await expect(card.locator("[data-draft-template-source]")).toContainText("模板来源：知识库 · 第 1 版");
   await expect(page.locator('[data-session-stream-pane] [data-kind="me"]').last()).toContainText("This exact edited body is the reviewed test draft.");
   // 邮件草稿在结果工作台展开；必须可见、在视口中且发送按钮不被输入框盖住。
   const send = card.locator('[data-email-action="send"]');

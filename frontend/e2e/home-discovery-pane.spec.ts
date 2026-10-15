@@ -80,7 +80,9 @@ function nativeRuntimeCandidates(snapshotSuffix = "v1") {
     snapshot_version: `snapshot-${candidate.id}-${snapshotSuffix}`,
     in_pool: Boolean(candidate.already_in_pool),
     followers_evidence: {
-      state: "source_recorded",
+      // A zero/missing fixture metric cannot claim the evidence source that
+      // would make it a verified numeric fact; the UI must keep it unverified.
+      state: candidate.followers ? "source_recorded" : "not_recorded",
       raw_text: candidate.followers ? `${candidate.followers} followers` : null,
       source_field: "fixture",
       captured_at: "2026-10-06T09:00:00.000Z",
@@ -994,7 +996,11 @@ test("submit posts the workspace endpoint, streams the run trail, and ingests to
     },
   });
   await stubRuntimeActions(page, () => [
-    runtimeAction(crawlState, crawlState === "running" ? runningCrawl("rt_disc_e2e") : null),
+    // A terminal action retains its task-scoped receipt and immutable candidate
+    // snapshot. Completion changes its state; it must not erase the result.
+    runtimeAction(crawlState, crawlState === "running"
+      ? runningCrawl("rt_disc_e2e")
+      : completedCrawl("v1", "rt_disc_e2e")),
   ]);
   await page.route("**/api/tasks/tsk_disc_e2e/events", (route) => {
     eventTick += 1;
@@ -1015,17 +1021,12 @@ test("submit posts the workspace endpoint, streams the run trail, and ingests to
         ];
     void route.fulfill({ json: { events } });
   });
-  await page.route("**/api/home/discovery/ingest", async (route) => {
+  await page.route("**/api/home/discovery/runtime/act_disc_e2e/candidates/cand_solar/ingest", async (route) => {
     ingestBodies.push(route.request().postDataJSON());
     await route.fulfill({
       json: {
-        status: "completed",
-        run_id: "drun_e2e",
-        items: [
-          { candidate_id: "cand_solar", status: "imported" },
-        ],
-        counts: { selected: 1, imported: 1, already_imported: 0, failed: 0 },
-        claimed: false,
+        ok: true,
+        starry_imported: true,
       },
     });
   });
@@ -1068,59 +1069,57 @@ test("submit posts the workspace endpoint, streams the run trail, and ingests to
   await expect(trail).toContainText("采集结束去重后 28 条");
   await expect(trail).toContainText("已排出候选");
 
-  // 候选仍来自既有的 run 路径：右栏结果区原位更新。
-  const solar = page.locator('[data-discovery-candidate="TheSolarLab"]');
-  await expect(solar.locator("[data-discovery-candidate-identity]")).toContainText("Solar Lab");
-  await expect(solar.locator("[data-discovery-candidate-identity]")).toContainText("YouTube");
-  await expect(solar.locator("[data-discovery-candidate-meta]")).toContainText("粉丝 153k");
-  await expect(solar.locator("[data-discovery-source]")).toHaveText("看来源");
-  await expect(solar.locator("[data-discovery-ignore]")).toHaveText("忽略");
+  // 候选由同一受控动作的持久回执原位投影；统一 KOL 卡用稳定 ID、
+  // layout role 与可访问控件取代退役的 Discovery 专有装饰属性。
+  const solar = page.locator('[data-kol-unified="discovery"][data-discovery-candidate="cand_solar"]');
+  await expect(solar.locator('[data-kol-layout="identity"]')).toContainText("Solar Lab");
+  await expect(solar.locator('[data-kol-layout="meta"]')).toContainText("YouTube");
+  await expect(solar.locator('[data-kol-layout="meta"]')).toContainText("粉丝 153,000");
+  await expect(solar.getByRole("link", { name: /主页/ })).toHaveAttribute("href", "https://youtube.com/@TheSolarLab");
+  await expect(solar.getByRole("button", { name: "忽略" })).toBeVisible();
 
-  const missing = page.locator('[data-discovery-candidate="NoStats"]');
-  await expect(missing).toContainText("粉丝 无");
-  await expect(missing).toContainText("均播 无");
-  await expect(missing).toContainText("匹配：暂无足够内容证据");
-  await expect(missing.locator("[data-discovery-source-missing]")).toHaveText("看来源 · 来源链接缺失");
-  await expect(missing.locator("[data-discovery-in-library]")).toHaveText("已在库");
+  const missing = page.locator('[data-kol-unified="discovery"][data-discovery-candidate="cand_zero"]');
+  await expect(missing).toContainText("粉丝 无法核验");
+  await expect(missing).toContainText("近10条均播 无法核验");
+  await expect(missing).toContainText("粉丝缺少可核验来源");
+  await expect(missing).toContainText("主页未提供");
+  await expect(missing).toContainText("已加入公海");
 
   await expect(page.locator("[data-discovery-panel]")).not.toContainText(BANNED_FOLLOW);
   await expect(page.locator("[data-discovery-panel]")).not.toContainText("发送邮件");
   await expect(page.locator("[data-coach-next], [data-next-step-card]")).toHaveCount(0);
   await expect(page.locator("[data-discovery-next-plan]")).toContainText("核对线索后选择入库对象");
-  // 右栏顶部的当前任务状态跟着采集回执走（远端已结束）。
-  await expect(page.locator('[data-scope-task-rail] [data-discovery-run-status="completed"]')).toBeVisible();
-  await expect(page.locator('[data-scope-task-rail] [data-discovery-run-status-label]')).toContainText("已完成");
+  // 最终结果到达后，右栏不重复显示阶段标题；中栏 ⑥ 是完成事实，
+  // 右栏仍必须保留同一任务的远程回执与结果读取状态，不能靠候选推断完成。
+  await expect(trail.locator("[data-discovery-run-title]")).toHaveText("已完成");
+  await expect(trail.locator("[data-discovery-remote-line]")).toContainText("远端：已完成 · 候选 2 条");
+  await expect(page.locator('[data-scope-task-rail] [data-discovery-remote-receipt]')).toContainText("采集完成");
+  await expect(page.locator('[data-scope-task-rail] [data-discovery-results-summary]')).toContainText("结果读取完成");
   await expect(page.locator('[data-discovery-params-executed]')).toContainText("YouTube");
-  await expect(page.locator("[data-discovery-ingest]")).toBeDisabled();
-  await page.locator('[data-discovery-result-filter="existing"]').click();
-  await expect(page.locator('[data-discovery-candidate="NoStats"]')).toBeVisible();
-  await expect(page.locator('[data-discovery-select="cand_zero"]')).toBeDisabled();
-  await page.locator('[data-discovery-result-filter="all"]').click();
-  await solar.locator('[data-lead-expand]').click();
-  await expect(solar.locator('[data-lead-detail]')).toBeVisible();
+  // Native batch ingress is unavailable without an eligible selection; an
+  // already-in-pool candidate remains visible but its checkbox is unavailable.
+  await expect(page.getByRole("button", { name: "加入公海（0）", exact: true })).toBeDisabled();
+  await expect(missing.getByRole("checkbox", { name: "选择 NoStats" })).toBeDisabled();
+  await solar.locator("summary").click();
+  await expect(solar).toContainText("资料取得时间");
   // 结果筛选与查看详情都是纯前端交互，不得再次启动发现任务。
   expect(submitPosts).toEqual(["/api/home/discovery/workspace"]);
 
-  await page.locator('[data-discovery-select="cand_solar"]').check();
-  await expect(page.locator("[data-discovery-select-all]")).toBeVisible();
-  await page.locator("[data-discovery-select-all]").check();
-  const ingest = page.locator("[data-discovery-ingest]");
-  await expect(ingest).toHaveText("入库公海（1）");
-  await expect(page.locator("[data-discovery-panel] .btn.work")).toHaveCount(1);
+  await solar.getByRole("checkbox", { name: "选择 Solar Lab" }).check();
+  const ingest = page.getByRole("button", { name: "加入公海（1）", exact: true });
+  await expect(ingest).toBeEnabled();
   await ingest.click();
-  const confirm = page.locator("[data-discovery-ingest-confirm]");
+  const confirm = page.getByRole("dialog");
   await expect(confirm).toBeVisible();
-  await expect(confirm).toContainText("写入 Starry 并进入公海");
-  await expect(confirm).toContainText("不会建联");
-  await expect(confirm).toContainText("不会发信");
-  await confirm.locator("[data-discovery-ingest-yes]").click();
-  await expect(page.locator("[data-discovery-toast]")).toHaveText("去公海看这批");
-  await expect(page.locator("[data-discovery-pool-link]")).toHaveAttribute("href", "/?tab=pool");
-  await expect(page.locator('[data-home-mode="lifecycle"]')).toHaveAttribute("aria-selected", "false");
+  await expect(confirm).toContainText("R3");
+  await expect(confirm).toContainText("公开资料加入公海");
+  await expect(confirm).toContainText("不领取跟进");
+  await expect(confirm).toContainText("不发信");
+  await expect(confirm).toContainText("不改变阶段");
+  await confirm.getByRole("button", { name: "确认入库公海", exact: true }).click();
+  await expect(page.locator(".discovery-batch-receipt")).toContainText("本次已确认加入公海 1 位；0 位未完成。");
   expect(ingestBodies).toEqual([{
-    run_id: "drun_e2e",
-    candidate_ids: ["cand_solar"],
-    expected_brief_version: 1,
+    snapshot_version: "snapshot-cand_solar-v1",
     confirmed: true,
   }]);
   expect(followPosts).toEqual([]);

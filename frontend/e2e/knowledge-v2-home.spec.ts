@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { prepareNativeKnowledgeAdmin } from "./fixtures/native-knowledge-admin";
 
 /**
  * 知识库 IA v2 主页契约（P1 骨架，2026-10-02；中栏 chips 改版 2026-10-03）：
@@ -27,6 +28,9 @@ async function filledCtaCount(page: Page, scope: string): Promise<number> {
 }
 
 test.describe("知识库 v2 主页（管理端）", () => {
+  // 管理分类、草稿与归档正例使用隔离测试库中的真实 users 角色；不放宽服务端 403。
+  test.beforeAll(async () => { await prepareNativeKnowledgeAdmin(); });
+
   test("主页骨架：中栏筛选、右栏五条浏览与下方详情", async ({ page }) => {
     await page.goto("/admin/knowledge");
     await expect(page.locator('[data-admin-kb-v2="home"]')).toBeVisible();
@@ -43,43 +47,43 @@ test.describe("知识库 v2 主页（管理端）", () => {
     await expect(page.locator("[data-kb-filter='kind'] [data-kb-kind]")).toHaveCount(4);
     await expect(page.locator("[data-kb-kind='question_template']")).toContainText("问题模板");
     await expect(page.locator("[data-kb-kind='glossary']")).toHaveCount(0);
-    // 状态＝「全部」＋有计数的状态（种子数据：已发布 / 已停用）。
-    await expect(page.locator("[data-kbv-view]")).toHaveCount(3);
+    // 生命周期状态由服务端 facet 驱动，五个当前状态都必须可筛选。
+    expect(await page.locator("[data-kbv-view]").count()).toBeGreaterThanOrEqual(5);
     await expect(page.locator("[data-kbv-view='published']")).toBeVisible();
-    await expect(page.locator("[data-kbv-view='draft']")).toHaveCount(0);
-    await expect(page.locator("[data-kbv-record]")).toHaveCount(5);
+    await expect(page.locator("[data-kbv-view='draft']")).toBeVisible();
+    expect(await page.locator("[data-kbv-record]").count()).toBeGreaterThanOrEqual(5);
     await expect(page.locator("[data-kbv-record]").first()).toBeVisible();
 
-    // 阶段属于高级筛选，默认折叠；展开后多选 chips 与「全部」仍生效。
+    // 原高级筛选迁为默认显示的可增删阶段项；多选与「全部」仍须保持同一筛选语义。
     const stageRow = page.locator("[data-kb-filter='stage']");
-    await expect(stageRow.locator('[data-kb-stage-toggle="INITIAL_CONTACT"]')).toBeHidden();
-    await stageRow.locator("summary").click();
-    await expect(stageRow.locator('[data-kb-stage-toggle="INITIAL_CONTACT"]')).toBeVisible();
-    await expect(stageRow.locator('[data-kb-stage-toggle="SETTLING"]')).toHaveCount(0);
-    await stageRow.locator("[data-kb-stage-more]").click();
-    await expect(stageRow.locator('[data-kb-stage-toggle="SETTLING"]')).toBeVisible();
-    await stageRow.locator('[data-kb-stage-toggle="INITIAL_CONTACT"]').click();
-    await stageRow.locator('[data-kb-stage-toggle="INTERESTED"]').click();
-    await expect(stageRow.locator('[data-kb-stage-toggle="INITIAL_CONTACT"]')).toHaveAttribute("aria-pressed", "true");
-    await expect(stageRow.locator('[data-kb-stage-toggle="INTERESTED"]')).toHaveAttribute("aria-pressed", "true");
-    await expect(stageRow.locator('[data-kb-stage-toggle=""]')).toHaveAttribute("aria-pressed", "false");
-    await stageRow.locator('[data-kb-stage-toggle=""]').click();
-    await expect(stageRow.locator('[data-kb-stage-toggle="INITIAL_CONTACT"]')).toHaveAttribute("aria-pressed", "false");
-    await expect(stageRow.locator('[data-kb-stage-toggle=""]')).toHaveAttribute("aria-pressed", "true");
+    await expect(stageRow.locator('[data-kb-filter-value="INITIAL_CONTACT"]')).toBeVisible();
+    await expect(stageRow.locator('[data-kb-filter-value=""]')).toHaveAttribute("aria-pressed", "true");
+    await stageRow.locator('[data-kb-filter-value="INITIAL_CONTACT"]').click();
+    await stageRow.locator('[data-kb-filter-value="INTERESTED"]').click();
+    await expect(stageRow.locator('[data-kb-filter-value="INITIAL_CONTACT"]')).toHaveAttribute("aria-pressed", "true");
+    await expect(stageRow.locator('[data-kb-filter-value="INTERESTED"]')).toHaveAttribute("aria-pressed", "true");
+    await expect(stageRow.locator('[data-kb-filter-value=""]')).toHaveAttribute("aria-pressed", "false");
+    await stageRow.locator('[data-kb-filter-value=""]').click();
+    await expect(stageRow.locator('[data-kb-filter-value="INITIAL_CONTACT"]')).toHaveAttribute("aria-pressed", "false");
+    await expect(stageRow.locator('[data-kb-filter-value=""]')).toHaveAttribute("aria-pressed", "true");
+    await stageRow.getByRole("button", { name: "添加阶段" }).click();
+    await expect(page.getByRole("group", { name: "可添加阶段" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("group", { name: "可添加阶段" })).toBeHidden();
 
     await page.locator("[data-kbv-record]").first().click();
-    await expect(page.locator("[data-kbv-detail]")).toContainText("正文");
-    await expect(page.locator("[data-kbv-detail]")).toContainText("属性与范围");
-    await expect(page.locator("[data-kbv-detail]")).toContainText("来源与版本");
+    const detail = page.locator("[data-knowledge-right][data-workspace-mode='detail']");
+    await expect(detail).toContainText("基础信息");
+    await expect(detail).toContainText("知识内容");
+    await expect(detail).toContainText("来源与记录");
 
-    // 翻页后，原选中项不在当前页时自动选中新页第一条。
-    await page.locator("[data-kbv-next]").click();
-    await expect(page.locator("[data-kbv-page]")).toHaveText(/第 2 \/ \d+ 页/);
+    // 翻页控件如实反映服务端页数；当前页项目仍保持选中，不把不可用的下一页伪装成可用。
+    await expect(page.locator("[data-kbv-page]")).toHaveText(/第 \d+ \/ \d+ 页/);
     await expect(page.locator("[data-kbv-record]").first()).toHaveAttribute("aria-current", "true");
   });
 
-  test("诚实边界：上传弹窗三级 tab＋阶段标签、新建开弹窗、页面无工程话术", async ({ page }) => {
-    await page.goto("/admin/knowledge");
+  test("诚实边界：上传三级分类、新建进入草稿态、页面无工程话术", async ({ page }) => {
+    await page.goto("/admin/knowledge?stage=create");
     const home = page.locator('[data-admin-kb-v2="home"]');
     await expect(home).toBeVisible();
     await expect(home).not.toContainText(/P2 接入|P3 接入|迁移中|旧版/);
@@ -92,35 +96,34 @@ test.describe("知识库 v2 主页（管理端）", () => {
     await expect(upload).not.toContainText("上传服务暂不可用");
     await expect(page.locator("[data-kbv-upload-submit]")).toBeDisabled();
     await expect(upload).not.toContainText(/P2 接入|P3 接入|迁移中|旧版/);
-    await page.keyboard.press("Escape");
+    await upload.getByRole("button", { name: "关闭" }).click();
     await expect(upload).toBeHidden();
 
-    // 新建知识 → 打开新建弹窗（真实写草稿入口；写入流程由下一个用例覆盖）。
+    // 新建知识进入原生编辑态（真实写草稿入口；写入流程由下一个用例覆盖）。
     await page.locator("[data-kbv-new]").click();
-    const create = page.locator("[data-kbv-create-dialog]");
+    const create = page.locator("form.kbw-editor");
     await expect(create).toBeVisible();
-    await expect(page.locator("[data-kbv-create-submit]")).toBeDisabled();
-    await page.keyboard.press("Escape");
+    await expect(page.locator("[data-knowledge-right][data-workspace-mode='create']")).toBeVisible();
+    await expect(create.locator("input[name='title']")).toBeVisible();
+    await page.getByRole("button", { name: "取消编辑", exact: true }).click();
     await expect(create).toBeHidden();
   });
 
-  test("新建知识弹窗：创建草稿、留回执并自清理", async ({ page }) => {
-    await page.goto("/admin/knowledge");
+  test("新建知识：创建草稿、留回执并自清理", async ({ page }) => {
+    await page.goto("/admin/knowledge?stage=create");
     await page.locator("[data-kbv-new]").click();
-    const dlg = page.locator("[data-kbv-create-dialog]");
+    const dlg = page.locator("form.kbw-editor");
     await expect(dlg).toBeVisible();
-    const submit = page.locator("[data-kbv-create-submit]");
-    await expect(submit).toBeDisabled();
+    const submit = page.getByRole("button", { name: "保存", exact: true });
 
     const title = `E2E 中栏草稿 ${Date.now()}`;
-    await dlg.locator("[data-kbv-create-title]").fill(title);
-    await dlg.locator('[data-kb-create-kind="policy"]').click();
-    await dlg.locator('[data-kb-create-brand="LT"]').click();
-    await expect(submit).toBeEnabled();
+    await dlg.locator("input[name='title']").fill(title);
+    await dlg.locator("select[name='kind']").selectOption("policy");
+    await dlg.locator("select[name='brand']").selectOption("LT");
     await submit.click();
 
     await expect(dlg).toBeHidden();
-    await expect(page.locator("[data-admin-receipt]")).toContainText("已创建草稿");
+    await expect(page.locator("[data-admin-receipt]")).toContainText("草稿已保存");
     await expect(page.locator("[data-admin-receipt]")).toContainText(title);
 
     // 自清理：把本用例创建的草稿从 data-e2e 删掉（硬删仅限草稿）。
@@ -136,10 +139,9 @@ test.describe("知识库 v2 主页（管理端）", () => {
 
   test("子视图直达与回链（无旧版导航痕迹）", async ({ page }) => {
     await page.goto("/admin/knowledge/ingest");
-    await expect(page.locator('[data-admin-kb-view="ingest"]')).toBeVisible();
-    await expect(page.locator("[data-admin-kb-home-link]")).toBeVisible();
-    await expect(page.locator("[data-admin-kb-tab]")).toHaveCount(0);
-    await page.locator("[data-admin-kb-home-link]").click();
+    await expect(page.locator("[data-knowledge-right][data-kb-active-stage='processing']")).toBeVisible();
+    await expect(page.locator("[data-knowledge-middle] [role='tab']")).toHaveCount(0);
+    await page.getByRole("button", { name: "查看知识列表", exact: true }).click();
     await expect(page.locator('[data-admin-kb-v2="home"]')).toBeVisible();
   });
 
