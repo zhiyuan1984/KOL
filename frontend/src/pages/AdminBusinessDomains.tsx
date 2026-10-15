@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Card, Empty, Select, Spin, Table, Tabs, Tag } from "antd";
+import { Alert, Card, Empty, Input, Spin, Table, Tabs, Tag } from "antd";
 
 /**
  * 管理端 · 本体六构件业务域地图（2026-10-12）。
@@ -79,6 +79,7 @@ export default function AdminBusinessDomains() {
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<string>("brand");
   const [tab, setTab] = useState<string>("objects");
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     fetch("/api/admin/business-domains", { credentials: "include" })
@@ -96,6 +97,16 @@ export default function AdminBusinessDomains() {
   if (!data) return <Spin style={{ margin: 32 }} />;
 
   const comp = domain?.components?.[tab as keyof DomainView["components"]] as ComponentBlock | undefined;
+
+  // 表格搜索：全字段匹配（大小写不敏感）。切换域/Tab 时保留搜索词。
+  const filteredItems = useMemo(() => {
+    if (!comp) return [];
+    const q = query.trim().toLowerCase();
+    if (!q) return comp.items;
+    return comp.items.filter((row) =>
+      Object.values(row).some((v) => String(Array.isArray(v) ? v.join("、") : v ?? "").toLowerCase().includes(q)),
+    );
+  }, [comp, query]);
 
   const columns = useMemo(() => {
     if (!comp || comp.items.length === 0) return [];
@@ -115,14 +126,24 @@ export default function AdminBusinessDomains() {
         企业级业务本体 · 每个域按六构件呈现（对象 / 属性 / 关系 / 事件 / 规则 / 动作）。数据来自真实注册表，空白如实标注。
       </p>
 
-      {/* 域选择 */}
+      {/* 域选择（唯一选择器） */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
         {data.domains.map((d) => (
           <Card
             key={d.code}
             size="small"
             hoverable
+            tabIndex={0}
+            role="button"
+            aria-pressed={selected === d.code}
+            aria-label={`选择${d.name}域`}
             onClick={() => setSelected(d.code)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setSelected(d.code);
+              }
+            }}
             style={{
               width: 168,
               cursor: "pointer",
@@ -171,8 +192,9 @@ export default function AdminBusinessDomains() {
               const p = DOMAIN_POS[d.code];
               if (!p) return null;
               const active = d.code === selected;
+              // SVG 仅展示，不作选择器（选择器唯一是上方域卡片，避免两套控件）。
               return (
-                <g key={d.code} onClick={() => setSelected(d.code)} style={{ cursor: "pointer" }}>
+                <g key={d.code}>
                   <rect
                     x={p.x}
                     y={p.y}
@@ -199,24 +221,15 @@ export default function AdminBusinessDomains() {
           <div style={{ fontSize: 11, color: "#888", padding: "4px 8px" }}>
             <span style={{ color: "#1890ff" }}>—</span> 业务关系
             <span style={{ color: "#999", marginLeft: 12 }}>┄</span> 主数据供给
-            <span style={{ marginLeft: 12 }}>点击域卡片切换下方六构件视图</span>
+            <span style={{ marginLeft: 12 }}>上方域卡片切换下方六构件视图</span>
           </div>
         </Card>
 
-        {/* 六构件（全宽） */}
+        {/* 六构件（全宽；Tabs 为唯一切换器） */}
         <Card
           title={`${domain?.name ?? ""} · 六构件`}
           size="small"
           bodyStyle={{ padding: 8 }}
-          extra={
-            <Select
-              size="small"
-              value={tab}
-              onChange={setTab}
-              options={COMPONENT_TABS.map((t) => ({ value: t.key, label: t.label }))}
-              style={{ width: 100 }}
-            />
-          }
         >
           {domain && (
             <div style={{ fontSize: 12, color: "#666", marginBottom: 8 }}>
@@ -232,6 +245,17 @@ export default function AdminBusinessDomains() {
             activeKey={tab}
             onChange={setTab}
             size="small"
+            tabBarExtraContent={
+              <Input
+                size="small"
+                allowClear
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="搜索当前列表（编码/名称/说明）"
+                aria-label="搜索当前六构件列表"
+                style={{ width: 220 }}
+              />
+            }
             items={COMPONENT_TABS.map((t) => {
               const block = domain?.components?.[t.key as keyof DomainView["components"]] as ComponentBlock | undefined;
               return {
@@ -250,6 +274,9 @@ export default function AdminBusinessDomains() {
     if (!block || block.total === 0) {
       return <Empty description={`${COMPONENT_TABS.find((t) => t.key === key)?.label ?? ""}暂无数据（空白如实标注，待建设）`} />;
     }
+    if (filteredItems.length === 0) {
+      return <Empty description={`没有匹配“${query.trim()}”的条目`} />;
+    }
     return (
       <>
         {block.missing && block.missing.length > 0 && (
@@ -264,7 +291,7 @@ export default function AdminBusinessDomains() {
           size="small"
           rowKey={(_: ComponentItem, idx?: number) => `${key}-${idx}`}
           columns={columns}
-          dataSource={block.items}
+          dataSource={filteredItems}
           pagination={{ pageSize: 12 }}
         />
         {block.truncated && <div style={{ fontSize: 11, color: "#999" }}>仅显示前 100 条。</div>}
@@ -280,8 +307,17 @@ function columnTitle(key: string): string {
     from_name: "起点", to_name: "终点", label: "关系", direction: "方向",
     category: "分类", object_type: "对象类型", status: "状态",
     type: "类型", detail: "说明", action: "动作", risk: "风险", note: "说明",
+    // 常见扩展字段：映射不到时不再暴露原始英文 key。
+    description: "描述", source_ref: "来源", authority_source: "权威源",
+    authority_source_status: "权威源状态", stable_id: "稳定标识", carrier: "载体",
+    clauses: "条款", lineage: "血缘", rule: "规则", gap: "缺口",
+    layer: "分层", scope: "范围", change_kind: "变更类型", approver_role: "审批角色",
+    from: "起点域", to: "终点域", version: "版本", base_version: "基线版本",
+    target_digest: "目标摘要", change_ref: "变更引用", approval_id: "审批 ID",
   };
-  return map[key] ?? key;
+  if (map[key]) return map[key];
+  // 兜底：snake_case 转可读中文分隔（不暴露原始 key）。
+  return key.replace(/_/g, " · ");
 }
 
 function renderCell(key: string, value: unknown, _row: ComponentItem) {
@@ -300,5 +336,16 @@ function renderCell(key: string, value: unknown, _row: ComponentItem) {
     const label = value === "stage" ? "阶段" : value === "constraint" ? "约束" : value === "derived" ? "派生" : value;
     return <Tag>{label}</Tag>;
   }
-  return String(value ?? "");
+  // 数组 / 对象不再用 String() 出 [object Object]：数组用顿号连接，对象用 JSON 展开。
+  if (Array.isArray(value)) {
+    return value.map((v) => (typeof v === "object" ? JSON.stringify(v) : String(v ?? ""))).join("、") || "—";
+  }
+  if (value !== null && typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "—";
+    }
+  }
+  return String(value ?? "") || "—";
 }
