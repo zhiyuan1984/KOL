@@ -1129,10 +1129,11 @@ async function expectNoPageHorizontalScroll(page: Page) {
 async function expectObjectToolbarAligned(page: Page) {
   const metrics = await page.evaluate(() => {
     const toolbar = document.querySelector("[data-followed-object-toolbar]");
-    const search = document.querySelector("[data-followed-object-search]");
+    const searchInput = document.querySelector("[data-followed-object-search]");
+    const search = searchInput?.closest(".workspace-search-input.ant-input-affix-wrapper") || searchInput;
     const card = document.querySelector("[data-followed-kol]");
     if (!(toolbar instanceof HTMLElement)) return null;
-    const searchCs = search instanceof HTMLElement ? getComputedStyle(search) : null;
+    const searchCs = searchInput instanceof HTMLElement ? getComputedStyle(searchInput) : null;
     return {
       clientWidth: toolbar.clientWidth,
       cardWidth: card instanceof HTMLElement ? card.clientWidth : 0,
