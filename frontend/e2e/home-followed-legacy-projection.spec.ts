@@ -66,6 +66,7 @@ test("我的红人正常显示 following 返回的已验证 Starry 历史记录"
   // follow-list row or supplement this list.
   await page.route("**/api/home/board*", (route) => route.fulfill({
     json: {
+      follow_scope: followingEnvelope([]).follow_scope,
       kols: [{
         id: "col_other_owner",
         kol_uid: "kol_other_owner",
@@ -116,6 +117,7 @@ test("我的红人正常显示 following 返回的已验证 Starry 历史记录"
 test("following 明确成功为空时绝不混入 board 的其他负责人记录", async ({ page }) => {
   await page.route("**/api/home/board*", (route) => route.fulfill({
     json: {
+      follow_scope: followingEnvelope([]).follow_scope,
       kols: [{
         id: "col_other_owner",
         kol_uid: "kol_other_owner",

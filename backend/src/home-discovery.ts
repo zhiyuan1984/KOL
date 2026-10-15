@@ -723,6 +723,13 @@ async function startHomeCrawl(run: Row): Promise<void> {
     (await event(String(run.work_item_id || ""), "discovery.queued", "queued", "发现采集排队中"));
     return;
   }
+  // A synchronous start failure emits settlement before startCrawl returns.
+  // Claim first so its queue pump cannot launch this same unlinked run again.
+  const claimed = (await getConn().query(
+    "UPDATE discovery_runs SET status='crawling', started_at=COALESCE(started_at,$1), updated_at=$1, data_version=data_version+1 WHERE id=$2 AND status='queued' AND crawl_job_id IS NULL RETURNING id",
+    [nowIso(), run.id],
+  )).rows[0];
+  if (!claimed) return;
   try {
     const job = await startCrawl({
       ownerUserId: String(run.owner_user_id),

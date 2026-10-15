@@ -178,8 +178,15 @@ describe("home discovery submit authorization", () => {
   });
 
   it("keeps a broken collector as the run's honest failure, not a submit-time 403", async () => {
+    let remoteCalls = 0;
+    const startupStatuses: string[] = [];
     setCrawlMcpClientFactory(() => ({
-      async callTool() { throw new Error("collector down"); },
+      async callTool() {
+        remoteCalls++;
+        const runs = await getConn().query<{ status: string }>("SELECT status FROM discovery_runs WHERE crawl_job_id IS NULL", []);
+        startupStatuses.push(...runs.rows.map(row => row.status));
+        throw new Error("collector down");
+      },
       async close() {},
     }));
 
@@ -191,5 +198,9 @@ describe("home discovery submit authorization", () => {
     const row = run.json.run as Json;
     expect(String(row.status)).toBe("crawl_failed");
     expect(String(row.error || "")).not.toBe("");
+    expect(remoteCalls).toBe(1);
+    expect(startupStatuses).toEqual(["crawling"]);
+    const ticket = (await getConn().query<{ status: string }>("SELECT status FROM tickets WHERE id=(SELECT work_item_id FROM discovery_runs WHERE id=$1)", [runId])).rows[0];
+    expect(ticket?.status).toBe("failed");
   });
 });
