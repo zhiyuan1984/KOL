@@ -163,6 +163,13 @@ async function mailMemoryIncrement(ctx: CronHandlerContext): Promise<CronHandler
       created_session: false,
       source: "mail_memory_increment",
       mailbox: mailbox || "*",
+      // Keep durable scheduler state visible to Cron rather than collapsing a
+      // yield, source Chinese completion, or provider/quality diagnosis into a
+      // generic failed/succeeded receipt.
+      phase: stats.phase, next_phase: stats.next_phase, phase_cursor: stats.phase_cursor,
+      source_chinese: stats.source_chinese || 0, chunk_yielded: stats.chunk_yielded || 0,
+      error_types: stats.error_types || {}, remaining_candidates: stats.remaining_candidates,
+      completion_scope: stats.completion_scope, remaining_work: stats.remaining_work,
       ...stats,
     },
   };

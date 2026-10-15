@@ -30,7 +30,7 @@ beforeEach(async () => {
 
 afterEach(async () => { (await resetConn()); });
 
-describe.sequential("KOL scoring criteria (native PostgreSQL)", () => {
+describe("KOL scoring criteria (native PostgreSQL)", () => {
   it("reads only the employee's latest declared discovery request using parameterized PostgreSQL", async () => {
     await seedDiscoveryRequest({ id: "criteria-old", owner: "employee:criteria", createdAt: NOW, platforms: JSON.stringify(["youtube"]), keywords: JSON.stringify(["old"]), filters: JSON.stringify({ region: "global_en", directions: ["outdoor"], min_followers: 1000, target_count: 10 }), brand: "LT" });
     await seedDiscoveryRequest({ id: "criteria-latest", owner: "employee:criteria", createdAt: "2031-01-02T00:00:00.000Z", platforms: JSON.stringify(["youtube", "invalid-platform"]), keywords: JSON.stringify(["portable power", "portable power", "camping"]), filters: JSON.stringify({ region: "global_en", directions: ["tech", "outdoor"], min_followers: 12000, max_followers: 500000, min_avg_views_10: 8000, target_count: 20 }), brand: "TB" });

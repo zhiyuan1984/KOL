@@ -77,9 +77,12 @@ export async function listNativeMemoryItems(
   }
   if (input.pendingOnly) {
     clauses.push(`(
-      NOT (COALESCE(i.translation_zh,'') <> ''
-        AND COALESCE(i.translation_source,'') = ANY(ARRAY['codex_memory','luna','starry_mcp'])
-        AND COALESCE(i.memory_fingerprint,'') = ${fingerprint})
+      NOT ((COALESCE(i.translation_source,'')='source_zh' AND COALESCE(i.memory_fingerprint,'') = ${fingerprint})
+        OR (COALESCE(i.translation_zh,'') <> ''
+          AND COALESCE(i.translation_source,'') = ANY(ARRAY['codex_memory','luna','starry_mcp'])
+          AND COALESCE(i.memory_fingerprint,'') = ${fingerprint}
+          AND COALESCE(i.translation_zh,'') <> COALESCE(i.body_text,'')
+          AND COALESCE(i.translation_zh,'') NOT LIKE '%发送仍用英文原文，本段仅内部查看%'))
       OR NOT (COALESCE(i.summary,'') <> '' OR COALESCE(i.summary_zh,'') <> '')
         OR NOT (COALESCE(i.summary_source,'') = ANY(ARRAY['codex_memory','luna','openai','starry_mcp']))
         OR COALESCE(i.memory_fingerprint,'') <> ${fingerprint}
@@ -165,16 +168,32 @@ export async function writeNativeItemMemoryIfFresh(
     summarySource?: string;
     source?: string;
     error?: string | null;
+    /** A Chinese source has no derived translation; clear stale model text. */
+    clearTranslation?: boolean;
+    /** Cron writes bind the final CAS to the mailbox scope selected at read time. */
+    mailbox?: string;
   },
   client?: PoolClient,
 ): Promise<boolean> {
   const fingerprint = mailBodyFingerprint(input.body);
   const result = await (client || postgresConnection()).query(
-    `UPDATE kol_mail_items SET body_fingerprint=$1, translation_zh=COALESCE($2,translation_zh),
-       translation_source=COALESCE($3,translation_source), summary=COALESCE($4,summary), summary_zh=COALESCE($5,summary_zh),
-       summary_source=COALESCE($6,summary_source), memory_source=COALESCE($7,memory_source), memory_fingerprint=$1,
-       memory_generated_at=now()::text, memory_generated_at_ts=now(), memory_attempts=COALESCE(memory_attempts,0)+1,
-       memory_error=$8, memory_next_retry_at=NULL WHERE id=$9 AND md5(COALESCE(body_text,''))=$1`,
+    `UPDATE kol_mail_items AS i SET body_fingerprint=$1,
+       /* A new source version cannot inherit another version's translation or summary. */
+       translation_zh=CASE WHEN $10 THEN NULL WHEN $2::text IS NOT NULL THEN $2::text
+         WHEN COALESCE(i.memory_fingerprint,'')=$1 THEN i.translation_zh ELSE NULL END,
+       translation_source=CASE WHEN $3::text IS NOT NULL THEN $3::text
+         WHEN COALESCE(i.memory_fingerprint,'')=$1 THEN i.translation_source ELSE 'pending' END,
+       summary=CASE WHEN $4::text IS NOT NULL THEN $4::text
+         WHEN COALESCE(i.memory_fingerprint,'')=$1 THEN i.summary ELSE NULL END,
+       summary_zh=CASE WHEN $5::text IS NOT NULL THEN $5::text
+         WHEN COALESCE(i.memory_fingerprint,'')=$1 THEN i.summary_zh ELSE NULL END,
+       summary_source=CASE WHEN $6::text IS NOT NULL THEN $6::text
+         WHEN COALESCE(i.memory_fingerprint,'')=$1 THEN i.summary_source ELSE 'pending' END,
+       memory_source=COALESCE($7,CASE WHEN COALESCE(i.memory_fingerprint,'')=$1 THEN i.memory_source ELSE 'pending' END), memory_fingerprint=$1,
+       memory_generated_at=now()::text, memory_generated_at_ts=now(), memory_attempts=COALESCE(i.memory_attempts,0)+1,
+       memory_error=$8, memory_next_retry_at=NULL
+       WHERE i.id=$9 AND md5(COALESCE(i.body_text,''))=$1
+       AND ($11='' OR EXISTS (SELECT 1 FROM kol_mail_threads t WHERE t.id=i.thread_id AND COALESCE(t.mailbox,'')=$11))`,
     [
       fingerprint,
       input.translationZh ?? null,
@@ -185,6 +204,8 @@ export async function writeNativeItemMemoryIfFresh(
       input.source ?? NATIVE_MAIL_MEMORY_VERSION,
       input.error ?? null,
       input.itemId,
+      Boolean(input.clearTranslation),
+      input.mailbox || "",
     ],
   );
   return Boolean(result.rowCount);

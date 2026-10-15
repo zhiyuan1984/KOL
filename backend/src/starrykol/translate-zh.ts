@@ -47,17 +47,51 @@ export function stripInternalZhHeader(text: string): string {
   return String(text || "").replace(/^【内部中文译稿[^\n]*】\s*/u, "").trim();
 }
 
+export type MailSourceLanguage = {
+  kind: "empty" | "source_zh" | "needs_model";
+  cjk_count: number;
+  ascii_letters: number;
+  reason: "empty" | "source_chinese" | "mixed_substantive_english" | "non_chinese";
+};
+
+/**
+ * `source_zh` is intentionally narrow: every non-space character must be Han,
+ * a number, or Unicode punctuation.  A single untranslated Latin word (URL,
+ * model number, "deal", or "OK") keeps the source on the model path.
+ */
+export function classifyMailSourceLanguage(text: string): MailSourceLanguage {
+  const source = String(text || "");
+  const cjk = cjkCount(source);
+  const ascii = (source.match(/[A-Za-z]/g) || []).length;
+  if (!source.trim()) return { kind: "empty", cjk_count: cjk, ascii_letters: ascii, reason: "empty" };
+  const chineseOnly = /^[\p{Script=Han}\p{N}\p{P}\p{Z}\p{M}\r\n]+$/u.test(source);
+  if (cjk > 0 && chineseOnly) return { kind: "source_zh", cjk_count: cjk, ascii_letters: ascii, reason: "source_chinese" };
+  return { kind: "needs_model", cjk_count: cjk, ascii_letters: ascii, reason: cjk > 0 ? "mixed_substantive_english" : "non_chinese" };
+}
+
+/** A short all-English greeting may legitimately translate to two Han chars.
+ * All normal/long mail retains the historical >=8 Han quality floor. */
 export function isUsableInternalZh(zh: string, english: string): boolean {
   const stripped = stripInternalZhHeader(zh);
-  if (cjkCount(stripped) < 8) return false;
-  const en = String(english || "").trim().replace(/\s+/g, " ");
-  if (!en) return true;
-  const zhNorm = stripped.replace(/\s+/g, " ");
-  if (zhNorm === en) return false;
-  if (en.length >= 12 && stripped.includes(String(english || "").trim()) && cjkCount(stripped) < Math.max(8, en.length / 3)) {
-    return false;
+  if (!stripped || stripped === INTERNAL_ZH_HEADER || isStubInternalZh(stripped)) return false;
+  const source = String(english || "").trim();
+  const normalizedSource = source.replace(/\s+/g, " ");
+  const normalizedZh = stripped.replace(/\s+/g, " ");
+  if (normalizedSource && normalizedZh === normalizedSource) return false;
+  // Preserve legitimate names/brands/URLs; a single shared English token is not
+  // an echoed sentence.  Whole-source echoes and consecutive source clauses are
+  // rejected even if wrapped in a Chinese prefix or reformatted punctuation.
+  const sourceWords = normalizedSource.match(/[A-Za-z]{2,}/g) || [];
+  if (source.length >= 12 && normalizedZh.includes(normalizedSource)) return false;
+  const outputWords = (normalizedZh.match(/[A-Za-z]{2,}/g) || []).map(word => word.toLowerCase()).join(" ");
+  for (let index = 0; index + 4 <= sourceWords.length; index += 1) {
+    const clause = sourceWords.slice(index, index + 4).map(word => word.toLowerCase()).join(" ");
+    if (outputWords.includes(clause)) return false;
   }
-  return true;
+  const shortEnglish = Array.from(normalizedSource).length <= 12
+    && /^[A-Za-z\s,.!?'"-]+$/.test(normalizedSource) && sourceWords.length > 0;
+  const floor = shortEnglish ? 2 : 8;
+  return cjkCount(stripped) >= floor;
 }
 
 function translateLine(line: string): string {
@@ -244,32 +278,86 @@ async function translateWithCodexOne(english: string): Promise<string | null> {
   }
 }
 
+/** Progress received from the PG-native mail job for a single long Codex source. */
+export type CodexLongTextProgress = {
+  completedChunks?: string[];
+  shouldYield?: () => boolean;
+  checkpoint?: (input: { index: number; chunkCount: number; translation: string }) => Promise<boolean>;
+};
+export type CodexTranslationAttempt = {
+  text?: string;
+  yielded?: boolean;
+  sourceChanged?: boolean;
+  error?: string;
+  /** Actual source chunk count; callers never infer it from stale checkpoint state. */
+  chunkCount?: number;
+};
+
 /**
- * For exceptional long bodies, invoke the existing one-turn Codex translation per
- * bounded chunk. A partial result is never returned: callers can mark the full body
- * pending and retry if any individual turn is unavailable or unusable.
+ * The existing one-turn path remains untouched for normal mail.  A long path
+ * can resume with durable caller-owned checkpoints; it never returns a prefix.
  */
+export async function translateWithCodexChunksResumable(
+  english: string,
+  translateChunk: (chunk: string) => Promise<string | null>,
+  progress: CodexLongTextProgress = {},
+): Promise<CodexTranslationAttempt> {
+  const source = String(english || "");
+  if (!source) return { error: "empty_source", chunkCount: 0 };
+  const chunks = Array.from(source).length > CODEX_TRANSLATION_CHUNK_THRESHOLD
+    ? splitLongTextForCodex(source) : [source];
+  const completed = [...(progress.completedChunks || [])];
+  if (completed.length > chunks.length || completed.some((part, index) => !isUsableInternalZh(part, chunks[index]))) {
+    return { error: "invalid_chunk_checkpoint", chunkCount: chunks.length };
+  }
+  for (let index = completed.length; index < chunks.length; index += 1) {
+    if (progress.shouldYield?.()) return { yielded: true, chunkCount: chunks.length };
+    const zh = await translateChunk(chunks[index]);
+    if (!zh || !isUsableInternalZh(zh, chunks[index]) || isStubInternalZh(zh)) return { error: "codex_chunk_unavailable", chunkCount: chunks.length };
+    const normalized = stripInternalZhHeader(zh);
+    completed.push(normalized);
+    if (progress.checkpoint && !(await progress.checkpoint({ index, chunkCount: chunks.length, translation: normalized }))) {
+      return { sourceChanged: true, chunkCount: chunks.length };
+    }
+  }
+  const joined = completed.join("\n\n");
+  return isUsableInternalZh(joined, source) ? { text: ensureInternalZhHeader(joined), chunkCount: chunks.length } : { error: "merged_translation_unusable", chunkCount: chunks.length };
+}
+
+/** Backward-compatible complete-only helper used by unit contracts and draft paths. */
 export async function translateWithCodexChunks(
   english: string,
   translateChunk: (chunk: string) => Promise<string | null>,
 ): Promise<string | null> {
-  const source = String(english || "");
-  if (!source) return null;
-  const chunks = Array.from(source).length > CODEX_TRANSLATION_CHUNK_THRESHOLD
-    ? splitLongTextForCodex(source)
-    : [source];
-  const translated: string[] = [];
-  for (const chunk of chunks) {
-    const zh = await translateChunk(chunk);
-    if (!zh || !isUsableInternalZh(zh, chunk) || isStubInternalZh(zh)) return null;
-    translated.push(stripInternalZhHeader(zh));
-  }
-  const joined = translated.join("\n\n");
-  return isUsableInternalZh(joined, source) ? ensureInternalZhHeader(joined) : null;
+  return (await translateWithCodexChunksResumable(english, translateChunk)).text || null;
 }
 
-async function translateWithCodex(english: string): Promise<string | null> {
-  return translateWithCodexChunks(english, translateWithCodexOne);
+async function translateWithCodex(english: string, progress?: CodexLongTextProgress): Promise<CodexTranslationAttempt> {
+  return translateWithCodexChunksResumable(english, translateWithCodexOne, progress);
+}
+
+/** Mail-body provider order stays MCP -> Codex -> Luna; a budget yield is not a provider failure. */
+export async function translateMailBodyZhResumable(
+  body: string,
+  progress?: CodexLongTextProgress,
+): Promise<{ text?: string; source?: string; yielded?: boolean; sourceChanged?: boolean; error?: string }> {
+  const source = String(body || "");
+  if (!source.trim()) return { error: "empty_source" };
+  const fromMcp = await translateWithMcp(source);
+  if (fromMcp && !isStubInternalZh(fromMcp)) return { text: stripInternalZhHeader(fromMcp), source: "starry_mcp" };
+  if (!remoteMailAnalysisEnabled()) return { error: "provider_disabled" };
+  let codexError = "";
+  if (!intentLlmFetchOverridden()) {
+    const codex = await translateWithCodex(source, progress);
+    if (codex.text) return { text: stripInternalZhHeader(codex.text), source: "codex_memory" };
+    if (codex.yielded || codex.sourceChanged) return codex;
+    codexError = String(codex.error || "");
+  }
+  const fromLuna = await translateWithLuna(source);
+  if (fromLuna) return { text: stripInternalZhHeader(fromLuna), source: "luna" };
+  // Preserve the bounded Codex/quality diagnostic.  It is safe metadata, never
+  // body text, and avoids misreporting a chunk-quality failure as generic outage.
+  return { error: codexError || "translation_provider_unavailable" };
 }
 
 async function translateWithLuna(english: string): Promise<string | null> {
@@ -404,18 +492,8 @@ export function isStubInternalZh(zh: string): boolean {
  * 拿不到可用译文时返回 null，由调用方标记 translation_source='pending'。
  */
 export async function translateMailBodyZh(body: string): Promise<{ text: string; source: string } | null> {
-  const source = String(body || "").trim();
-  if (!source) return null;
-  const fromMcp = await translateWithMcp(source);
-  if (fromMcp && !isStubInternalZh(fromMcp)) return { text: stripInternalZhHeader(fromMcp), source: "starry_mcp" };
-  if (!remoteMailAnalysisEnabled()) return null;
-  if (!intentLlmFetchOverridden()) {
-    const fromCodex = await translateWithCodex(source);
-    if (fromCodex) return { text: stripInternalZhHeader(fromCodex), source: "codex_memory" };
-  }
-  const fromLuna = await translateWithLuna(source);
-  if (fromLuna) return { text: stripInternalZhHeader(fromLuna), source: "luna" };
-  return null;
+  const result = await translateMailBodyZhResumable(body);
+  return result.text && result.source ? { text: result.text, source: result.source } : null;
 }
 
 /** On-demand mail skill path: deliberately use the established Codex → Luna chain. */
@@ -424,7 +502,7 @@ export async function translateMailBodyZhWithCodexLuna(body: string): Promise<{ 
   if (!source || !remoteMailAnalysisEnabled()) return null;
   if (!intentLlmFetchOverridden()) {
     const fromCodex = await translateWithCodex(source);
-    if (fromCodex) return { text: stripInternalZhHeader(fromCodex), source: "codex_memory" };
+    if (fromCodex.text) return { text: stripInternalZhHeader(fromCodex.text), source: "codex_memory" };
   }
   const fromLuna = await translateWithLuna(source);
   if (fromLuna) return { text: stripInternalZhHeader(fromLuna), source: "luna" };
@@ -442,7 +520,7 @@ export async function translateDraftInternal(english: string, cached = ""): Prom
   if (fromMcp && !isStubInternalZh(fromMcp)) return fromMcp;
   if (remoteMailAnalysisEnabled() && !intentLlmFetchOverridden()) {
     const fromCodex = await translateWithCodex(source);
-    if (fromCodex) return fromCodex;
+    if (fromCodex.text) return fromCodex.text;
   }
   if (remoteMailAnalysisEnabled()) {
     const fromLuna = await translateWithLuna(source);

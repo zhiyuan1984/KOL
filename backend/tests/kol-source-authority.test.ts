@@ -131,7 +131,7 @@ afterEach(async () => {
   (await resetConn());
 });
 
-describe.sequential("KOL source authority (local PostgreSQL)", () => {
+describe("KOL source authority (local PostgreSQL)", () => {
   it("requires an exact non-placeholder verified mailbox, never a name, local-part, or legacy extras match", () => {
     const legacyExtrasMatcher = matchesVerifiedMailbox as unknown as (
       kol: { owner_mailbox?: unknown; owner_name?: unknown },
