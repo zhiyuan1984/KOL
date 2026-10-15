@@ -138,14 +138,32 @@ export async function createApp(): Promise<Hono> {
     return c.json({ detail: err.message || "internal error" }, 500);
   });
 
-  app.get("/api/health", (c) => c.json({
-    ok: true,
-    name: "灵工",
-    ui: "agent-v1",
-    codex_mode: codexMode(),
-    codex_bin_ok: codexBinOk(),
-    codex_stub_allowed: isTestRuntime(),
-  }));
+  app.get("/api/health", async (c) => {
+    const authority = {
+      runtime_mode: "postgres-native",
+      authority_store: "postgresql",
+      storage_adapter: "pg-native",
+      compat_bridge: false,
+    };
+    try {
+      const probe = await getConn().query<{ ready: number }>("SELECT 1::int AS ready");
+      if (probe.rows[0]?.ready !== 1) throw new Error("native readiness probe did not return a row");
+      return c.json({
+        ok: true,
+        name: "灵工",
+        ui: "agent-v1",
+        codex_mode: codexMode(),
+        codex_bin_ok: codexBinOk(),
+        codex_stub_allowed: isTestRuntime(),
+        database_ready: true,
+        ...authority,
+      });
+    } catch {
+      // This public readiness response never returns database connection details.
+      return c.json({ ok: false, name: "灵工", database_ready: false,
+        message: "原生数据库暂未就绪", ...authority }, 503);
+    }
+  });
   app.route("/api", authRouter);
   app.route("/api", examRouter);
   app.route("/api", enterprise);

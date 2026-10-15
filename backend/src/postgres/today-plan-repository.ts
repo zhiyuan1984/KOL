@@ -10,6 +10,7 @@ import { packTodayPlanContext, planningRunInput, planningRuntimeIdentity, type P
 import { briefPointerTable, planTaskType } from "../host/planning-types.js";
 import { validateTodayBrief } from "../host/today-brief.js";
 import { runWorker } from "../worker/runner.js";
+import { withHostPlanningDisplay } from "../host/planning-display.js";
 
 export type NativePlanStart = {
   work_item_id: string;
@@ -142,9 +143,8 @@ function briefFromWorkerItems(items: Json[]): Json | null {
   return brief as Json;
 }
 
-/** Every formal unfinished ticket must have its own model-generated display row.
- * Do not fill missing rows with host defaults: that would conceal a partial model
- * result as a completed plan. */
+/** The final Host projection must cover every authorized unfinished formal ticket.
+ * The published skill assigns full display coverage to the Host, not the model. */
 function missingDisplayCoverage(brief: Json | null, pack: TodayPlanPack): string[] {
   if (!brief || !Array.isArray(brief.display_tasks)) return pack.history.unfinished_tasks
     .map((item) => String(item.work_item_id || item.id || "")).filter(Boolean);
@@ -228,10 +228,17 @@ export async function executeNativeClaimedPlanningJob(claimed: ClaimedExecutionJ
     // validation rejects the artifact; do not rewrite it as a worker failure.
     await trace.finish(false);
     await appendTaskEvent(workItemId, runId, "run.progress", planningProgress(scope).writing, "running", "正在验证并持久化模型简报");
-    const brief = briefFromWorkerItems(result.items);
+    const modelBrief = briefFromWorkerItems(result.items);
+    // Validate the real model envelope first. Missing/invalid narrative output
+    // never becomes a generated Host summary or a successful AI artifact.
+    const modelCheck = validateTodayBrief(modelBrief);
+    if (!modelCheck.ok) throw new Error(modelCheck.reason);
+    // The published skill explicitly assigns complete task facts to the Host;
+    // the model may return an empty candidate list and only natural-language analysis.
+    const brief = withHostPlanningDisplay(modelCheck.brief, pack);
     const missing = missingDisplayCoverage(brief, pack);
     if (!brief || missing.length) {
-      const reason = !brief ? "真实模型没有返回 today_brief 结构化结果" : `真实模型展示行漏了 ${missing.length} 项任务（${missing.slice(0, 3).join("、")}）`;
+      const reason = !brief ? "真实模型没有返回 today_brief 结构化结果" : `Host 授权任务展示行漏了 ${missing.length} 项任务（${missing.slice(0, 3).join("、")}）`;
       await nativePlanTerminal(workItemId, runId, false, reason);
       throw new Error(reason);
     }

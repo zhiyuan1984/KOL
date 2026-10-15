@@ -480,10 +480,10 @@ export function normalizePriority(value: unknown): string | null {
 }
 
 export function todayDateStr(): string {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${month}-${day}`;
+  // Business dates remain Beijing dates even after migration to a UTC host.
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
 }
 
 /** Date part of a stored date/datetime string; "" when absent or unparseable. */

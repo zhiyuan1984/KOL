@@ -24,10 +24,11 @@ afterEach(async () => {
 });
 
 describe("knowledge taxonomy native PostgreSQL", () => {
-  it("backfills missing legacy classification and immutable version fields once without overwriting stored values", async () => {
+  it("backfills current legacy entry fields once and preserves every historical version field", async () => {
     const conn = getConn(), now = new Date().toISOString();
     await conn.query("INSERT INTO knowledge (id,title,body,tags,kind,status,in_market,current_version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,1,1,$7,$7)", ["k_legacy_1","历史制度","正文","extracted","policy","draft",now]);
     await conn.query("INSERT INTO knowledge_versions (id,knowledge_id,version,title,body,kind,status,created_at,note) VALUES($1,$2,1,$3,$4,$5,$6,$7,$8)", ["kv_1","k_legacy_1","历史制度","原始版本正文","policy","draft",now,"create"]);
+    const originalVersion = (await conn.query("SELECT * FROM knowledge_versions WHERE id=$1", ["kv_1"])).rows[0];
     const client = new Client({ connectionString: process.env.DATABASE_URL });
     await client.connect();
     try {
@@ -40,10 +41,13 @@ describe("knowledge taxonomy native PostgreSQL", () => {
       expect(base).toMatchObject({ kind: "structured" });
       const row = (await conn.query("SELECT base_id,source_body,structured,body FROM knowledge WHERE id=$1", ["k_legacy_1"])).rows[0];
       expect(row).toMatchObject({ base_id: "kbase_legacy", source_body: "正文", body: "正文", structured: null });
-      const version = (await conn.query("SELECT tags,in_market,source_body,base_id,body FROM knowledge_versions WHERE id=$1", ["kv_1"])).rows[0];
-      expect(version).toMatchObject({ tags: "extracted", in_market: 1, source_body: "原始版本正文", body: "原始版本正文", base_id: "kbase_legacy" });
+      const version = (await conn.query("SELECT * FROM knowledge_versions WHERE id=$1", ["kv_1"])).rows[0];
+      // A missing historical tag/base/publication flag is unknown. Current entry
+      // metadata cannot be used to reconstruct an older immutable snapshot.
+      expect(version).toEqual(originalVersion);
+      expect(version.body).toBe("原始版本正文");
       await expect(applyPostgresMigrations(client, { only: MIGRATION })).resolves.toEqual([]);
-      expect((await conn.query("SELECT tags,in_market,source_body,base_id,body FROM knowledge_versions WHERE id=$1", ["kv_1"])).rows[0]).toEqual(version);
+      expect((await conn.query("SELECT * FROM knowledge_versions WHERE id=$1", ["kv_1"])).rows[0]).toEqual(version);
     } finally { await client.end(); }
   });
   it("validates structured fields against config/knowledge-kinds.yaml", () => {
