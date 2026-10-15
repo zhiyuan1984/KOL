@@ -323,9 +323,22 @@ test("short discovery reveals focused input after context growth and respects ma
   })).toBe(true);
   await expect(submit).toBeFocused();
   const stage = page.locator(".scope-workspace-center-scroll");
-  await stage.evaluate(el => { el.scrollTop = el.scrollHeight; });
-  await stage.evaluate(el => { el.scrollTop = 0; });
+  await stage.evaluate(el => {
+    // Positioning at the tail is setup only. The return to history must use a
+    // trusted wheel event so this test exercises the reader-intent contract.
+    el.dataset.manualReadingWheel = "";
+    el.addEventListener("wheel", event => {
+      el.dataset.manualReadingWheel = JSON.stringify({ isTrusted: event.isTrusted, deltaY: event.deltaY });
+    }, { once: true });
+    el.scrollTop = el.scrollHeight;
+  });
+  await expect.poll(() => stage.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(1);
+  await stage.hover();
+  await page.mouse.wheel(0, -4000);
   await expect.poll(() => stage.evaluate(el => el.scrollTop)).toBe(0);
+  const manualReadingWheel = JSON.parse(await stage.getAttribute("data-manual-reading-wheel") || "null");
+  expect(manualReadingWheel).toMatchObject({ isTrusted: true });
+  expect(manualReadingWheel.deltaY).toBeLessThan(0);
   await grow();
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   await expect.poll(() => stage.evaluate(el => el.scrollTop)).toBe(0);

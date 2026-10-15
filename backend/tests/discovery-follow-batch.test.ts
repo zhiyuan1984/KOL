@@ -2,7 +2,7 @@ import { configureCrawlerFixture } from "./helpers/crawler-vault.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Hono } from "hono";
 import {
   resetCollectorConnectionCache,
@@ -21,6 +21,8 @@ import { seedAll } from "../src/seed.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import type { Json, Row } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { postgresPool, closePostgresPool } from "../src/postgres/pool.js";
+import { awaitHomeDiscoveryWork } from "../src/home-discovery.js";
 
 const crawlCalls: string[] = [];
 let tmp = "";
@@ -185,6 +187,39 @@ afterEach(async () => {
 });
 
 describe("ADR-022 P1 batch helpers", () => {
+  it("keeps the pool open until a crawl-settled discovery continuation finishes", async () => {
+    const pool = postgresPool();
+    const originalQuery = pool.query.bind(pool);
+    let release!: () => void;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    let entered = false;
+    const query = vi.spyOn(pool, "query").mockImplementation(((...args: unknown[]) => {
+      if (typeof args[0] === "string" && args[0].includes("SELECT * FROM discovery_runs WHERE crawl_job_id=$1 AND kind=$2")) {
+        entered = true;
+        return barrier.then(() => Reflect.apply(originalQuery, pool, args));
+      }
+      return Reflect.apply(originalQuery, pool, args);
+    }) as typeof pool.query);
+    const end = vi.spyOn(pool, "end");
+    let closing: Promise<void> | undefined;
+    try {
+      await readyCandidates();
+      await vi.waitFor(() => expect(entered).toBe(true));
+      closing = closePostgresPool();
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(end).not.toHaveBeenCalled();
+      release();
+      await closing;
+      expect(end).toHaveBeenCalledOnce();
+      await awaitHomeDiscoveryWork();
+    } finally {
+      release();
+      await closing;
+      query.mockRestore();
+      end.mockRestore();
+    }
+  });
+
   it("evaluates thresholds without inventing region or email", () => {
     const candidate = {
       id: "cand_1",

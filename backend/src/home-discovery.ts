@@ -47,6 +47,7 @@ import { brandScope } from "./host/inbound-scope.js";
 import { memoryCompanyId } from "./host/kol-memory.js";
 import { postgresPool } from "./postgres/pool.js";
 import { createKolLead } from "./ticket-domain/kol-leads.js";
+import { trackBackgroundWork } from "./background-work.js";
 
 /** 本文件内的 asObject（此前 1572 行引用缺失，tsc TS2552）。 */
 function asObject(value: unknown): Record<string, unknown> {
@@ -127,8 +128,9 @@ export async function awaitHomeDiscoveryWork(): Promise<void> {
 }
 
 function track(work: Promise<void>): void {
-  pendingWork.add(work);
-  void work.then(() => pendingWork.delete(work), () => pendingWork.delete(work));
+  const registered = trackBackgroundWork(work, "discovery.home");
+  pendingWork.add(registered);
+  void registered.then(() => pendingWork.delete(registered), () => pendingWork.delete(registered));
 }
 
 function ownerId(): string {
