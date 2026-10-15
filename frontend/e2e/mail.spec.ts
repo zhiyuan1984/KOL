@@ -717,7 +717,7 @@ test("≤1100px 单栏用页级面板切换，选邮件自动进详情", async (
   await page.setViewportSize({ width: 900, height: 800 });
   await page.goto("/mail");
   await page.locator('[data-mail-correspondent="amy@example.com"]').click();
-  await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(0);
+  await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(2);
 
   const switcher = page.locator("[data-mail-panes]");
   await expect(switcher).toBeVisible();
