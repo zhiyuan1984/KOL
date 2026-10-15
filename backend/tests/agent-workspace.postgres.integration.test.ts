@@ -10,7 +10,7 @@ import {getConn,resetConn} from "../src/db.js";
 import {withScopedUser,type AppUser} from "../src/auth.js";
 import {agentWorkspaceRouter} from "../src/routers/agent-workspace.js";
 import {adminAgentsRouter} from "../src/routers/admin-agents.js";
-import {canUseAgent} from "../src/runtime/organization-tree.js";
+import {canUseAgent,createAgentBinding} from "../src/runtime/organization-tree.js";
 import {HttpFail} from "../src/host/errors.js";
 import {agentSkillCatalog,agentWorkspace,agentWorkspaceDetail,saveAgentDraft,prepareAgentRelease,publishAgentRelease,changeAgentAvailability,assertLegacyAgentWriteAllowed} from "../src/agents/workspace.js";
 import {assertRuntimeSkill} from "../src/runtime/execution.js";
@@ -113,7 +113,7 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
   expect((await canUseAgent('employee',agentId))).toBe(true);
   await saveAgentDraft(actor,agentId,input());const releaseCheck=await prepareAgentRelease(actor,agentId),before=await agentWorkspaceDetail(agentId);
   const check=await ownerPreview();expect(check.after?.path.map(unit=>unit.level)).toEqual([1,2,3]);
-  const key=randomUUID(),[first,replay]=await Promise.all([(await ownerChange(check.preparation_id,key)),(await ownerChange(check.preparation_id,key))]);expect(first.id).toBe(replay.id);
+  const key=randomUUID(),[first,replay]=await Promise.all([ownerChange(check.preparation_id,key),ownerChange(check.preparation_id,key)]);expect(first.id).toBe(replay.id);
   const assigned=await agentWorkspaceDetail(agentId);expect(assigned.organization.revision).toBe(1);expect(assigned.bindings).toEqual(before.bindings);expect(assigned.coverage).toEqual(before.coverage);expect(assigned.draft).toEqual(before.draft);expect(assigned.effective).toEqual(before.effective);expect(assigned.version).toBe(before.version);expect((await canUseAgent('employee',agentId))).toBe(true);
   const scoped=await agentWorkspace({level1:'owner-root',level2:'owner-dept',level3:'owner-team'});expect(scoped.browse.rows.map(row=>row.id)).toEqual([agentId]);expect(scoped.browse.facets.level1.find(option=>option.value==='owner-root')?.count).toBe(1);
   const moved=await ownerPreview('owner-root',1);await ownerChange(moved.preparation_id);expect((await agentWorkspace({level1:'owner-root'})).browse.rows.map(row=>row.id)).toEqual([agentId]);expect((await agentWorkspace({level2:'owner-dept'})).browse.rows).toEqual([]);
@@ -131,8 +131,8 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
   await expect(ownerChange(check.preparation_id)).rejects.toMatchObject({status:409});expect((await agentWorkspaceDetail(agentId)).organization.revision).toBe(kind==='concurrent'?1:0);
  });
  it('serializes competing ownership commands and rejects idempotency-key reuse with different confirmed content',async()=>{
-  const [first,second]=await Promise.all([(await ownerPreview('owner-team')),(await ownerPreview('owner-other'))]);
-  const key=randomUUID(),results=await Promise.allSettled([(await ownerChange(first.preparation_id,key)),(await ownerChange(second.preparation_id))]);expect(results.filter(value=>value.status==='fulfilled')).toHaveLength(1);expect(results.filter(value=>value.status==='rejected')).toHaveLength(1);
+  const [first,second]=await Promise.all([ownerPreview('owner-team'),ownerPreview('owner-other')]);
+  const key=randomUUID(),results=await Promise.allSettled([ownerChange(first.preparation_id,key),ownerChange(second.preparation_id)]);expect(results.filter(value=>value.status==='fulfilled')).toHaveLength(1);expect(results.filter(value=>value.status==='rejected')).toHaveLength(1);
   expect((await agentWorkspaceDetail(agentId)).organization.revision).toBe(1);
   const stored=(await postgresPool().query('SELECT request_id,preparation_id FROM agent_organization_receipts WHERE agent_id=$1',[agentId])).rows[0];
   await expect(changeAgentOrganization(actor,agentId,{...stored,confirmed:true,reason:'换了原因'})).rejects.toMatchObject({status:409});
@@ -164,7 +164,7 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
  it("publishes one immutable snapshot and replays the same receipt on retry",async()=>{
   await saveAgentDraft(actor,agentId,input());const check=await prepareAgentRelease(actor,agentId),key=randomUUID();
   expect(check.removed_skills).toEqual([skillA]);expect(check.added_skills).toEqual([skillB]);
-  const [first,replay]=await Promise.all([(await release(check.preparation_id,key)),(await release(check.preparation_id,key))]);expect(replay.id).toBe(first.id);expect(first.version).toBe(2);
+  const [first,replay]=await Promise.all([release(check.preparation_id,key),release(check.preparation_id,key)]);expect(replay.id).toBe(first.id);expect(first.version).toBe(2);
   const row=await agentWorkspaceDetail(agentId);expect(row.draft).toBeNull();expect(row.effective.skills.map(value=>value.skill_id)).toEqual([skillB]);expect(row.versions.map(value=>value.version)).toEqual([2,1]);
   expect(Number((await postgresPool().query("SELECT count(*) FROM audit_events WHERE event_type='admin.agent.release.publish' AND payload::jsonb->>'agent_id'=$1",[agentId])).rows[0].count)).toBe(1);
  });
@@ -196,9 +196,10 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
  });
  it("blocks runtime invocation when a pinned skill has changed",async()=>{
   await saveAgentDraft(actor,agentId,input());const check=await prepareAgentRelease(actor,agentId);await release(check.preparation_id);
-  await expect((async ()=>(assertRuntimeSkill({agentId,skillId:skillB,userId:actor,runId:'test'})))()).resolves.not.toBeInstanceOf(Error);
+  expect(await canUseAgent('employee',agentId)).toBe(true);
+  await expect((async ()=>(assertRuntimeSkill({agentId,skillId:skillB,userId:'employee',runId:'test'})))()).resolves.not.toBeInstanceOf(Error);
   await postgresPool().query("INSERT INTO skill_sops(id,summary,body,updated_at) VALUES($1,'changed','changed',$2)",[skillB,stamp]);
-  await expect((async ()=>(assertRuntimeSkill({agentId,skillId:skillB,userId:actor,runId:'test'})))()).rejects.toThrow('runtime_agent_skill_upgrade_required');
+  await expect((async ()=>(assertRuntimeSkill({agentId,skillId:skillB,userId:'employee',runId:'test'})))()).rejects.toThrow('runtime_agent_skill_upgrade_required');
  });
  it("returns real projection data to admins and denies employees",async()=>{
   const app=new Hono().route('/api',agentWorkspaceRouter);app.onError((e,c)=>c.json({message:e.message},(e instanceof HttpFail?e.status:500) as 403));
@@ -216,6 +217,30 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
   await postgresPool().query("UPDATE agent_bindings SET binding_version=binding_version+1 WHERE id='test-binding'");
   expect((await call('DELETE',base,{...check,reason:'test'})).status).toBe(409);expect((await canUseAgent('employee',agentId))).toBe(true);
   const next=await (await call('POST',`${base}/revoke-preview`)).json();expect((await call('DELETE',base,{...next,reason:'test'})).status).toBe(200);expect((await canUseAgent('employee',agentId))).toBe(false);
+ });
+ it("uses a real workspace-created Agent without a shipped asset manifest while preserving native publication and revoke gates",async()=>{
+  const previousMode=process.env.CODEX_MODE;process.env.CODEX_MODE='real';
+  let customId:string|undefined;
+  try{
+   const created=await saveAgentDraft(actor,null,{...input([skillA]),name:'原生自建岗位',expected_version:undefined});
+   customId=created.id;expect(customId).toMatch(/^agent:[0-9a-f-]{36}$/);
+   await expect(assertRuntimeSkill({agentId:customId,skillId:skillA,userId:'employee',runId:'owned-custom-draft'})).rejects.toBeInstanceOf(HttpFail);
+   await createAgentBinding({agent_id:customId,target_type:'person',target_id:'person-employee',company_id:'company',source:'test'});
+   const check=await prepareAgentRelease(actor,customId);expect(check.blockers).toEqual([]);
+   await publishAgentRelease(actor,customId,{preparation_id:check.preparation_id,request_id:randomUUID(),confirmed:true});
+   expect(await canUseAgent('employee',customId)).toBe(true);
+   const {declaredAgentSubmissionAllowed,runtimeAgentScopeContext}=await import('../src/contract-scope.js');
+   expect(declaredAgentSubmissionAllowed(customId,'real')).toBe(true);
+   const scope=await runtimeAgentScopeContext(customId);
+   expect(scope).toMatchObject({agent_id:customId,status:'published',kind:'platform',execution_scope:'skill-resources',company_ids:[],organization_scope:[],brand_scope:[],region_scope:[]});
+   expect(scope.agent_version).toBe(String((await agentWorkspaceDetail(customId)).version));
+   await expect(assertRuntimeSkill({agentId:customId,skillId:skillA,userId:'employee',runId:'owned-custom-published'})).resolves.toMatchObject({user:{id:'employee'}});
+   await postgresPool().query("UPDATE agent_bindings SET status='revoked' WHERE agent_id=$1",[customId]);
+   await expect(assertRuntimeSkill({agentId:customId,skillId:skillA,userId:'employee',runId:'owned-custom-revoked'})).rejects.toMatchObject({status:403,detail:{code:'runtime_agent_not_usable'}});
+  }finally{
+   process.env.CODEX_MODE=previousMode;
+   if(customId){await postgresPool().query('DELETE FROM agent_bindings WHERE agent_id=$1',[customId]);await postgresPool().query('DELETE FROM runtime_agent_skills WHERE agent_id=$1',[customId]);}
+  }
  });
  it("creates an unpublished draft and requires confirmation for release",async()=>{
   const created=await saveAgentDraft(actor,null,{...input(),expected_version:undefined});expect(created.status).toBe('draft');expect(created.published_revision).toBeNull();expect(created.effective.skills).toEqual([]);

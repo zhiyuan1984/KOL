@@ -1,9 +1,9 @@
 import { postgresConnection } from "../postgres/pool.js";
 /**
  * Explicit handler registry. Cron execution state and read models are
- * PostgreSQL-native. A handler must never quietly reach the legacy SQLite
- * compatibility layer: work whose business repository is not migrated is
- * represented as a governed `needs_takeover` result instead.
+ * PostgreSQL-native, including the business repositories. No handler reaches a
+ * SQLite compatibility layer. `needs_takeover` remains a governed terminal only
+ * for actual manual-recovery conditions, not an unimplemented storage adapter.
  */
 import { postgresPool } from "../postgres/pool.js";
 import { label } from "../stages.js";

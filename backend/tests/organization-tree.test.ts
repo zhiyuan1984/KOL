@@ -21,6 +21,7 @@ import {
   visibleSkillIdsForUser,
 } from "../src/runtime/organization-tree.js";
 import { ensureRuntimeSchema } from "../src/runtime/store.js";
+import { ensureManagedAgents } from "../src/runtime/managed-agents.js";
 import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
@@ -46,6 +47,8 @@ beforeEach(async () => {
   await freshTestDatabase();
   (await resetConn());
   getConn();
+  // Qualification requires a genuinely published native Agent, not merely a binding row.
+  await ensureManagedAgents();
 });
 
 afterEach(async () => {
@@ -248,7 +251,7 @@ describe("effective Agent users", () => {
     expect([...(await effectiveAgentUsers("agent:kol")).person_refs].sort()).toEqual(["person:huang_qiyou", "person:lu_haijun", "person:yan_chen"]);
     expect((await listAgentBindings("agent:kol"))).toHaveLength(2);
     await expect((async () => (bind("organization_unit", "org:not_exists")))()).rejects.toThrow(/unknown organization unit/);
-    await expect((async () => (bind("person", "person:not_exists")))()).rejects.toThrow(/unknown person/);
+    await expect((async () => (bind("person", "person:not_exists")))()).rejects.toThrow(/unknown active person/);
     await expect((async () => (createAgentBinding({ agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team", company_id: "company:other" })))()).rejects.toThrow(/outside the company/);
   });
 

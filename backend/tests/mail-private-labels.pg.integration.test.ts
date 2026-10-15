@@ -73,7 +73,7 @@ async function ensureUser(user: AppUser): Promise<void> {
 async function bind(userId: string, mailbox: string): Promise<void> {
   await postgresPool().query(
     `INSERT INTO user_starry_bindings(user_id,mailbox_email,is_default,status,updated_at)
-     VALUES ($1,$2,1,'connected',now())
+     VALUES ($1,$2,CASE WHEN EXISTS (SELECT 1 FROM user_starry_bindings WHERE user_id=$1 AND is_default=1) THEN 0 ELSE 1 END,'connected',now())
      ON CONFLICT (user_id,mailbox_email) DO UPDATE SET status='connected',updated_at=now()`,
     [userId, mailbox],
   );

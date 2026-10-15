@@ -1,6 +1,6 @@
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
-import { postgresQuery, postgresTransaction } from "../postgres/pool.js";
+import { currentTransactionClient, postgresQuery, postgresTransaction } from "../postgres/pool.js";
 import { PLATFORM_SYNC_AGENT } from "./platform-principal.js";
 
 export type ManagedAgent = {
@@ -16,7 +16,7 @@ function nowIso(): string { return new Date().toISOString(); }
 export async function ensureManagedAgents(): Promise<void> {
   const database = String(process.env.DATABASE_URL || "");
   if (initializedFor === database) return;
-  if (!initializing) initializing = (postgresTransaction(async (client) => {
+  const initialize = () => postgresTransaction(async (client) => {
     const now = nowIso();
     for (const [id, name, description] of [
       ["agent:kol", "KOL 智能体", "KOL 合作与跟进能力"],
@@ -26,8 +26,12 @@ export async function ensureManagedAgents(): Promise<void> {
       await client.query(`INSERT INTO managed_agents(id,name,description,status,version,created_at,updated_at)
         VALUES($1,$2,$3,'published',1,$4,$4) ON CONFLICT(id) DO NOTHING`, [id, name, description, now]);
     }
-    initializedFor = database;
-  }, { isolation: "SERIALIZABLE" }).finally(() => { initializing = null; }));
+  }, { isolation: "SERIALIZABLE" });
+  // A released savepoint is not an outer COMMIT. Nested initialization must
+  // remain scoped to its caller; rollback must never leave a global ready flag.
+  if (currentTransactionClient()) { await initialize(); return; }
+  if (!initializing) initializing = initialize().then(() => { initializedFor = database; })
+    .finally(() => { initializing = null; });
   await initializing;
 }
 

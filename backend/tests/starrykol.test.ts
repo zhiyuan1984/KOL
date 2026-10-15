@@ -5,6 +5,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
+import { hashPassword } from "../src/auth.js";
+import { createAgentBinding, syncUserOrganization } from "../src/runtime/organization-tree.js";
+import { setAgentSkill } from "../src/runtime/store.js";
+import { currentMemoryEmployee } from "../src/host/kol-memory.js";
+import { saveStarryBinding } from "../src/host/starry-bind.js";
 import {
   STARRY_KOL_TASKS as EMAIL_MCP_TASKS,
   emailMcpResultCard,
@@ -23,6 +28,7 @@ import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
 let app: Hono;
+let cookieJar = "";
 const calls: Array<{ name: string; args: Json }> = [];
 
 function mockClient() {
@@ -174,15 +180,20 @@ function mockClient() {
 async function request(method: string, url: string, body?: unknown) {
   const response = await app.request(url, {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(cookieJar ? { Cookie: cookieJar } : {}) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
+  const setCookie = response.headers.get("set-cookie");
+  if (setCookie) cookieJar = setCookie.split(";")[0];
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) as Json : {} };
 }
 
 beforeEach(async () => {
-  await freshTestDatabase();
+  cookieJar = "";
+  process.env.AUTH_MODE = "disabled";
+  process.env.RUNTIME_CREDENTIAL_MASTER_KEY = Buffer.alloc(32, 7).toString("base64");
+  await freshTestDatabase({ reclaimPrevious: true });
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-emailmcp-"));
   process.env.LINGONG_DB = path.join(tmp, "emailmcp.db");
   process.env.LINGONG_DATA = tmp;
@@ -194,6 +205,27 @@ beforeEach(async () => {
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
   (await seedWorkbenchFixtures());
+  const actor = await currentMemoryEmployee();
+  // Auth-disabled catalog tests still require a real active credential owner
+  // inside the disposable database. Never bypass requireActiveOwner.
+  const actorStamp = new Date().toISOString();
+  await getConn().query(
+    "INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,'[]','',1,$6,$6) ON CONFLICT (id) DO NOTHING",
+    [actor.id, "owned.email.catalog.actor", "隔离邮件目录凭据所有者", await hashPassword("owned-email-catalog-actor-password"), JSON.stringify(["employee"]), actorStamp],
+  );
+  await saveStarryBinding(actor.id, {
+    mailbox_email: "henry.wei@amperetime.com",
+    mailbox_id: "mailbox_emailmcp_fixture",
+    owner_name: "Email MCP fixture",
+    bearer: "email-mcp-fixture-token",
+  });
+  const now = new Date().toISOString();
+  (await getConn().query(`INSERT INTO kol_mail_threads
+    (id, collaboration_id, conversation_id, subject, mailbox, last_direction, last_snippet, unread_count, last_at, created_at, updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)`, [
+    "thread_emailmcp_101", null, "101", "LiTime 合作沟通", "henry.wei@amperetime.com",
+    "inbound", "Thanks, I am interested in the collaboration.", 0, now, now,
+  ]));
 });
 
 afterEach(async () => {
@@ -201,6 +233,7 @@ afterEach(async () => {
   setEmailMcpClientFactory();
   (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
+  delete process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
 });
 
 describe("Starry KOL MCP connector", () => {
@@ -665,6 +698,16 @@ describe("Email MCP KOL library", () => {
 
 describe("Email MCP task run path", () => {
   it("runs all Email MCP catalog tasks from text and persists a result card", async () => {
+    // A requires:creator skill can only run against an authorized local fact.
+    // The remote mock's KOLTEST001 must have a matching disposable local object;
+    // production lookup, scope and context rules are not bypassed.
+    await getConn().query(
+      `INSERT INTO collaborations
+        (id,handle,display_name,brand,platform,email,mailbox_from,lifecycle_id,conversation_id,stage_code,kol_uid,owner_mailbox)
+       VALUES ($1,$2,$2,'LT','YouTube',$3,$4,'fixture_lifecycle_101','101','INITIAL_CONTACT',$1,$4)`,
+      ["KOLTEST001", "户外电源达人", "qiyou1984@gmail.com", "henry.wei@amperetime.com"],
+    );
+
     const prompts: Record<(typeof EMAIL_MCP_TASKS)[number], string> = {
       email_mailbox_list: "品牌邮箱列表",
       email_conversation_list: "邮件会话列表",
@@ -698,7 +741,7 @@ describe("Email MCP task run path", () => {
       );
       expect(executed.status, `${taskType}: run`).toBe(200);
       const messages = executed.body.messages as Json[];
-      expect(messages.some((message) => message.kind === "task_result_card"), `${taskType}: card`).toBe(true);
+      expect(messages.some((message) => message.kind === "task_result_card"), `${taskType}: card ${JSON.stringify(messages)}`).toBe(true);
       expect((executed.body.worker as Json)?.skill).toBe(taskType);
       const detail = await request("GET", `/api/tasks/${task.id}`);
       expect((detail.body.artifacts as Json[]).some((artifact) => artifact.artifact_type === "task_result_card")).toBe(true);
@@ -707,19 +750,57 @@ describe("Email MCP task run path", () => {
 
   it("blocks real employee submission when the publish gate is stubbed unpublished", async () => {
     const previous = process.env.CODEX_MODE;
+    const previousAuth = process.env.AUTH_MODE;
+    const stamp = new Date().toISOString();
+    const userId = "owned_email_catalog_employee";
+    await getConn().query(
+      "INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,'',1,$7,$7)",
+      [userId, "email.catalog.employee", "隔离邮件任务员工", await hashPassword("owned-email-catalog-password"), JSON.stringify(["employee"]), JSON.stringify(["LT"]), stamp],
+    );
+    await getConn().query("INSERT INTO directory_users (id,handle,name,role) VALUES ($1,$2,$3,$4)",
+      [userId, "email.catalog.employee", "隔离邮件任务员工", "employee"]);
+    const personRef = await syncUserOrganization(userId, "org:lt_team");
+    await createAgentBinding({ agent_id: "agent:kol", target_type: "person", target_id: personRef,
+      company_id: "company:amperetime", source: "test" });
+    const grant = (await getConn().query<{ version: number }>("SELECT version FROM runtime_agent_skills WHERE agent_id=$1 AND skill_id=$2", ["agent:kol", "creator_library_query"])).rows[0];
+    await setAgentSkill("agent:kol", "creator_library_query", true, Number(grant?.version || 0));
+    // This case targets the submission publish gate, not an unavailable draft
+    // Agent. Initialize the official built-in catalog only in this owned DB.
+    const { ensureManagedAgents } = await import("../src/runtime/managed-agents.js");
+    await ensureManagedAgents();
+    const eligibleAgent = await getConn().query("SELECT id FROM managed_agents WHERE id=$1 AND status='published'", ["agent:kol"]);
+    expect(eligibleAgent.rows).toHaveLength(1);
+    const { pgVisibleSkillIdsForUser } = await import("../src/postgres/auth-pg.js");
+    expect(await pgVisibleSkillIdsForUser(userId, new Date().toISOString())).toContain("creator_library_query");
+    process.env.AUTH_MODE = "enabled";
     process.env.CODEX_MODE = "real";
     setAgentSubmissionOverride(false);
     try {
+      const { assertRuntimeSkill } = await import("../src/runtime/execution.js");
+      await expect(assertRuntimeSkill({ agentId: "agent:kol", skillId: "creator_library_query", userId,
+        runId: "owned-published-submission-reject" })).rejects.toMatchObject({ status: 409, detail: { code: "agent_not_published" } });
+      expect((await request("POST", "/api/sessions", { title: "unauthenticated native probe" })).status).toBe(401);
+      const login = await request("POST", "/api/auth/login", { username: "email.catalog.employee", password: "owned-email-catalog-password" });
+      expect(login.status, JSON.stringify(login.body)).toBe(200);
+      expect(cookieJar.startsWith("lingong_session=")).toBe(true);
       const created = await request("POST", "/api/sessions", { title: "达人库查询" });
+      expect(created.status, JSON.stringify(created.body)).toBe(200);
       const posted = await request("POST", `/api/sessions/${created.body.id}/messages`, {
         text: "查询达人库 关键词：户外电源",
         intent: "creator_library_query",
         act: "ask",
       });
-      expect(posted.status).toBe(409);
+      expect(posted.status, JSON.stringify(posted.body)).toBe(409);
       expect(posted.body.detail).toMatchObject({ code: "agent_not_published" });
+      expect(calls).toHaveLength(0);
+      const workerRows = await getConn().query("SELECT id FROM workers WHERE session_id=$1", [String(created.body.id)]);
+      expect(workerRows.rows).toHaveLength(0);
+      const progressRows = await getConn().query("SELECT kind FROM messages WHERE session_id=$1 AND kind IN ('job_status','process_trace','operation_trace')", [String(created.body.id)]);
+      expect(progressRows.rows).toHaveLength(0);
     } finally {
       process.env.CODEX_MODE = previous;
+      process.env.AUTH_MODE = previousAuth;
+      cookieJar = "";
       setAgentSubmissionOverride();
       setEmailMcpClientFactory(mockClient);
     }

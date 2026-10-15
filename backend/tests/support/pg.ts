@@ -50,11 +50,12 @@ export async function freshTestDatabase(options: { empty?: boolean; reclaimPrevi
   process.env.DATABASE_URL = urlWithDatabase(name);
   await resetConn();
   const { postgresPool } = await import("../../src/postgres/pool.js");
-  if (options.empty) {
-    const { applyPostgresMigrations } = await import("../../src/postgres/migrations.js");
-    const client = await postgresPool().connect();
-    try { await applyPostgresMigrations(client); } finally { client.release(); }
-  }
+  // A shared historical template is a starting snapshot, not schema authority.
+  // Apply the complete checksum-protected manifest only to this owned clone.
+  // Empty and historical clones must expose the same current formal schema.
+  const { applyPostgresMigrations } = await import("../../src/postgres/migrations.js");
+  const client = await postgresPool().connect();
+  try { await applyPostgresMigrations(client); } finally { client.release(); }
   const { runtimeActionSchema, crawlQueueStateMigration } = await import("../../src/runtime/action-schema.js");
   await postgresPool().query(runtimeActionSchema);
   for (const statement of crawlQueueStateMigration) await postgresPool().query(statement);
@@ -97,7 +98,7 @@ export async function dropTestDatabases(): Promise<void> {
       let failure: unknown;
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
-          await admin.query(`DROP DATABASE IF EXISTS ${ident(name)} WITH (FORCE)`);
+          await admin.query(`DROP DATABASE IF EXISTS ${ident(name)}`);
           failure = undefined;
           break;
         } catch (error) {

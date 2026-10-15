@@ -17,7 +17,7 @@ export function requiredPostgresUrl(): string {
 export function postgresPool(): Pool {
   const connectionString = requiredPostgresUrl();
   if (pool && poolUrl === connectionString) return pool;
-  if (pool) { void pool.end(); pool = null; }
+  if (pool) throw new Error("DATABASE_URL changed while the PostgreSQL pool is active; await closePostgresPool() before selecting another database");
   poolUrl = connectionString;
   pool = new Pool({
     connectionString,

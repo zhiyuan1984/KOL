@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { ExecutionNotDispatched } from "../execution-jobs/failure.js";
+import { declaredAgentSubmissionAllowed } from "../contract-scope.js";
 import fs from "node:fs";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
 import { pgAudit } from "../postgres/auth-pg.js";
@@ -121,6 +122,12 @@ export async function assertRuntimeSkill(context: RuntimeContext): Promise<{ use
   // 人员资格锚点是「人 → Agent」使用绑定（CONST-05 / ADR-2026-10-03），不再有逐人技能授权。
   if (!platform && !(await canUseAgent(context.userId, context.agentId))) {
     reject("runtime_agent_not_usable");
+  }
+  // Native publication and person eligibility do not supersede an asset's
+  // explicit employee-submission gate. Apply it before dispatch, for every
+  // person execution entry (HTTP, queued jobs, scheduled tasks and tools).
+  if (!platform && !declaredAgentSubmissionAllowed(context.agentId)) {
+    reject("agent_not_published", 409);
   }
   const skillVersion=(await runtimeSkillVersion(context.skillId));
   if (binding.release_hash && binding.release_hash !== skillVersion) reject("runtime_agent_skill_upgrade_required", 409);

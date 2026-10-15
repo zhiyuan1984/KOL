@@ -4,7 +4,7 @@
 #
 # 用法（服务器上，仓库根目录）：
 #   ./scripts/deploy.sh           # 用当前工作区代码部署
-#   ./scripts/deploy.sh --sync    # 先 git fetch github && git reset --hard github/main 再部署
+#   ./scripts/deploy.sh --sync    # 仅安全快进 github/main；分叉时拒绝覆盖并停止发布
 # 本机一条命令：
 #   ssh ecs-user@47.88.94.205 "cd ~/kol && ./scripts/deploy.sh --sync"
 set -euo pipefail
@@ -25,15 +25,18 @@ if [ "$(readlink /proc/$$/fd/9 2>/dev/null || true)" != "$LOCK_PATH" ]; then
 fi
 flock -n 9 || die "已有发布正在执行，未修改代码或产物"
 if [ "${1:-}" = "--sync" ] && [ -z "${DEPLOY_RESYNCED:-}" ]; then
-  # reset 可能替换本脚本本身，而 bash 不能安全地边改边读同一个脚本，所以重新执行新版本。
-  # 把仍在运行的工作树 HEAD 作为真实部署基线传给 reset 后的新脚本；这不是
+  # 快进可能替换本脚本本身，而 bash 不能安全地边改边读同一个脚本，所以重新执行新版本。
+  # 把仍在运行的工作树 HEAD 作为真实部署基线传给快进后的新脚本；这不是
   # 可跳过门禁的开关，后续仍会由 PG 发布账本核对其内容摘要。
   if [ -z "${ONTOLOGY_RELEASE_BASE:-}" ]; then
-    ONTOLOGY_RELEASE_BASE="$(git rev-parse --verify HEAD)" || die "无法读取当前运行版本 Git commit，未 fetch/reset"
+    ONTOLOGY_RELEASE_BASE="$(git rev-parse --verify HEAD)" || die "无法读取当前运行版本 Git commit，未 fetch/merge"
     export ONTOLOGY_RELEASE_BASE
   fi
+  git diff --quiet && git diff --cached --quiet || die "工作区存在未提交变更，未同步、未构建、未重启"
   git fetch github
-  git reset --hard github/main
+  # A parallel main must not erase a deployed native migration, owner hotfix,
+  # or other production history. Never force-reset a divergent live checkout.
+  git merge --ff-only github/main || die "远端主线与生产历史分叉；未覆盖代码，需先正常整合并通过本体发布门禁"
   export DEPLOY_RESYNCED=1
   [ -f "$SELF" ] || die "reset 后 $SELF 不存在：github/main 里缺少 scripts/deploy.sh"
   exec "$SELF" --sync

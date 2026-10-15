@@ -227,8 +227,9 @@ export async function requireTaskAccess(skill: string, agentId?: string): Promis
   const definition = (await taskDefinition(skill));
   if (!definition) throw new HttpFail(400, { code: "unknown_task_type", task_type: skill });
   if (codexMode() !== "stub") {
-    (await assertRuntimeSkill({ agentId: agentId || (await runtimeAgentForSkill(skill, scopedUser()?.id || "")), skillId: skill,
-      userId: scopedUser()?.id || "", runId: "submission" }));
+    const selectedAgent = agentId || (await runtimeAgentForSkill(skill, scopedUser()?.id || ""));
+    await assertRuntimeSkill({ agentId: selectedAgent, skillId: skill,
+      userId: scopedUser()?.id || "", runId: "submission" });
     return;
   }
   if (definition.runtime_access === "authenticated") {
@@ -3899,6 +3900,15 @@ host.post("/sessions/:sid/messages", async (c) => {
   if (explicitSkill && !authDisabled() && explicitActor && !isAdmin(explicitActor)
     && !explicitActor.authority_skills?.includes(explicitSkill)) {
     throw new HttpFail(400, "未授权该技能");
+  }
+  // A named real submission must receive its actual Runtime rejection before
+  // capability-filtered recognition can downgrade it into accepted clarification.
+  if (explicitSkill && explicitActor && !authDisabled() && codexMode() !== "stub") {
+    const explicitAgent = String(body.agent_id
+      || (await sessionAgentDefault(sid, explicitSkill, explicitActor.id))
+      || (await runtimeAgentForSkill(explicitSkill, explicitActor.id, { employeeChoice: true })));
+    await assertRuntimeSkill({ agentId: explicitAgent, skillId: explicitSkill,
+      userId: explicitActor.id, runId: "submission", sessionId: sid });
   }
 
   if (workspace && ((body.intent && body.intent !== "kol_analyze") || body.collaboration_id || body.work_item_id || body.task_id || body.compose_input)) {

@@ -22,6 +22,7 @@ import {
   type RuntimeVersionedTable,
 } from "../postgres/runtime-governance-repository.js";
 import { PLATFORM_SYNC_AGENT, PLATFORM_SYNC_SKILLS } from "./platform-principal.js";
+import { currentTransactionClient, requiredPostgresUrl } from "../postgres/pool.js";
 
 export type HttpTool = {
   name: string;
@@ -70,6 +71,7 @@ const PLATFORM_PLANNER_AGENT = "agent:workspace-planner";
 const PLATFORM_PLANNER_SKILLS = ["today_plan", "todo_plan", "today_analyze"] as const;
 
 let schemaReady: Promise<void> | null = null;
+let schemaReadyDatabase: string | null = null;
 
 async function bootstrapWorkspacePlanner(): Promise<void> {
   const definitions = new Map((await taskDefinitions()).map((definition) => [definition.id, definition]));
@@ -117,14 +119,21 @@ async function bootstrapAgentManifestBindings(agentId: string): Promise<void> {
 
 /** Schema ownership belongs to formal PostgreSQL migrations; this function only performs reviewed one-way bootstrap rows. */
 export async function ensureRuntimeSchema(): Promise<void> {
-  if (schemaReady) return schemaReady;
-  const current = ((async () => {
+  const database = requiredPostgresUrl();
+  if (schemaReady && schemaReadyDatabase === database) return schemaReady;
+  const initialize = async () => {
     await bootstrapWorkspacePlanner();
     await bootstrapAgentManifestBindings("agent:kol");
     await bootstrapPlatformSync();
-  })());
+  };
+  if (currentTransactionClient()) { await initialize(); return; }
+  const current = initialize();
   schemaReady = current;
-  try { await current; } catch (error) { if (schemaReady === current) schemaReady = null; throw error; }
+  schemaReadyDatabase = database;
+  try { await current; } catch (error) {
+    if (schemaReady === current) { schemaReady = null; schemaReadyDatabase = null; }
+    throw error;
+  }
 }
 
 function invalid(message: string): never {

@@ -12,7 +12,7 @@ import { ListToolsRequestSchema, CallToolRequestSchema, type Tool } from "@model
 import { getConn, resetConn } from "../src/db.js";
 import { setAgentSkill, setSkillConnector, setSkillTool, setConnectorConfig, setToolPolicy, getAgentSkills, getSkillConnectors, getToolPolicy } from "../src/runtime/store.js";
 import { SkillExecution, assertRuntimeSkill, toolSchemaHash, type RuntimeContext, type RuntimeRemote } from "../src/runtime/execution.js";
-import { createAgentBinding, revokeAgentBinding } from "../src/runtime/organization-tree.js";
+import { createAgentBinding, revokeAgentBinding, syncUserOrganization } from "../src/runtime/organization-tree.js";
 import { startRuntimeProxy, type RuntimeProxy } from "../src/runtime/proxy.js";
 import { RemoteMcpClient, type RemoteMcpOptions } from "../src/mcp/remote.js";
 import type { Json } from "../src/types.js";
@@ -420,7 +420,7 @@ describe("governed Skill Runtime", () => {
     const { factory } = await one();
     // 管理员同样要挂到组织人员上才具备 Agent 使用资格；本用例验证的是
     // 有资格之后，连接器停用与 Agent→技能解绑仍然拦住管理员。
-    (await getConn().query("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2",["admin-a","person:xi_chucong"]));
+    await syncUserOrganization("admin-a", "org:lt_team");
     const admin = new SkillExecution({ ...context, userId: "admin-a" }, factory);
     const catalog = await admin.discover();
     (await getConn().query("UPDATE connectors SET enabled=0 WHERE id='catalog_a'",[]));
@@ -489,6 +489,9 @@ describe("governed Skill Runtime", () => {
   });
 
   it("does not let governance relabel existing Gateway-only operations as L1", async () => {
+    // This negative side-effect test first needs the administrator's actual
+    // personnel membership in the already-bound group; role alone grants nothing.
+    await syncUserOrganization("admin-a", "org:lt_team");
     const dangerous = tool("sendEmailNow");
     (await connector("catalog_a", [dangerous]));
     const fixture = fake({ "http://catalog_a.example.test/mcp": [dangerous] });

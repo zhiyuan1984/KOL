@@ -34,7 +34,7 @@ import {
   type AgentBindingInput,
 } from "../postgres/organization-repository.js";
 import { pgUserCanUseAgent, pgUserCanUseSkill, pgVisibleSkillIdsForUser } from "../postgres/auth-pg.js";
-import { postgresQuery, postgresTransaction } from "../postgres/pool.js";
+import { currentTransactionClient, postgresQuery, postgresTransaction } from "../postgres/pool.js";
 import { isPlatformAgent } from "./platform-principal.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -212,17 +212,20 @@ async function upsertRegistry(client: PoolClient, registry: OrgRegistry): Promis
 export async function ensureOrganizationTree(): Promise<void> {
   const database = String(process.env.DATABASE_URL || "");
   if (initializedFor === database) return;
-  if (!initialization) initialization = (postgresTransaction(async (client) => {
+  const initialize = () => postgresTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [SEED_KEY]);
     const existing = (await client.query("SELECT 1 FROM app_state WHERE key=$1 FOR UPDATE", [SEED_KEY])).rows[0];
     if (!existing) {
       await upsertRegistry(client, readRegistry());
       await client.query("INSERT INTO app_state(key,value) VALUES($1,$2)", [SEED_KEY, nowIso()]);
     }
-    initializedFor = database;
-  }, { isolation: "SERIALIZABLE" }).finally(() => { initialization = null; }));
+  }, { isolation: "SERIALIZABLE" });
+  if (currentTransactionClient()) { await initialize(); return; }
+  if (!initialization) initialization = initialize().then(() => { initializedFor = database; })
+    .finally(() => { initialization = null; });
   await initialization;
 }
+
 /** Explicit administrative re-import. This is idempotent and uses the migrated schema; it never issues DDL. */
 export async function reseedOrganizationTreeFromRegistry(): Promise<void> {
   await postgresTransaction(async (client) => (upsertRegistry(client, readRegistry())), { isolation: "SERIALIZABLE" });
@@ -340,7 +343,9 @@ function computeCoverage(
 export async function computeEffectiveAgentUsers(
   agentId: string, bindings: AgentBindingRow[], simulatePerson?: (personRef: string, companyId: string) => Promise<SimulatedPerson | null>, source?: OrganizationCoverageSource,
 ): Promise<EffectiveAgentUsers> {
-  await ensureOrganizationTree();
+  // An explicit source is already the caller's transaction-consistent snapshot.
+  // Do not perform bootstrap writes (or strengthen isolation) inside that read.
+  if (!source) await ensureOrganizationTree();
   const facts = source || await pgOrganizationCoverageSource();
   if (!simulatePerson) return computeCoverage(agentId, bindings, facts);
   // Preview only has at most a bounded number of person targets; resolve before pure computation.
