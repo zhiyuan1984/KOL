@@ -15,7 +15,7 @@ export default function DocumentRail({ id, path, reload, notify,mode="detail",on
   id: string; path: string; reload: () => void; notify: (message: string) => void; fail: (cause: unknown) => void;
 }) {
   const load = useCallback(() => api.adminKnowledgeDocument(id), [id]);
-  const { data, error, loading, reload: refresh } = useKbData(load);
+  const { data, error, failureStatus, loading, reload: refresh } = useKbData(load);
   const { ask, dialog, open: confirming } = useAdminConfirm();
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
@@ -25,6 +25,7 @@ export default function DocumentRail({ id, path, reload, notify,mode="detail",on
   const doc = data?.document;
   const mediaLabel = ({ pdf: "PDF", image: "图片", audio: "音频", video: "视频", pptx: "演示文稿" } as Record<string,string>)[doc?.media_type || ""] || "资料";
   const processing = Boolean(doc && ["uploaded", "normalizing", "indexing"].includes(doc.status));
+  const transientReadFailure = !failureStatus || [408, 429].includes(failureStatus) || failureStatus >= 500;
   const progress = doc ? kbDocProgressText(doc) : "";
   const previousStatus = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -35,10 +36,10 @@ export default function DocumentRail({ id, path, reload, notify,mode="detail",on
 
   // Follow only a real persisted job; changing selection cleans up the timer.
   useEffect(() => {
-    if (!processing || loading || error || busy || confirming) return;
-    const timer = window.setTimeout(refresh, 3000);
+    if (!processing || loading || (error && !transientReadFailure) || busy || confirming) return;
+    const timer = window.setTimeout(refresh, error ? 8000 : 3000);
     return () => window.clearTimeout(timer);
-  }, [processing, loading, error, busy, confirming, refresh]);
+  }, [processing, loading, error, transientReadFailure, busy, confirming, refresh]);
 
   const run = async (action: "start" | "retry" | "cancel", message: string, propagate = false) => {
     if (lock.current) return;
@@ -108,10 +109,10 @@ export default function DocumentRail({ id, path, reload, notify,mode="detail",on
           {doc.media_type === "pptx" && Boolean(doc.artifacts?.normalize) && <a className="kbv-link-plain" href={`/api/admin/knowledge/documents/${encodeURIComponent(id)}/preview${reviewCompany()?"?company="+encodeURIComponent(reviewCompany()):""}`} target="_blank" rel="noreferrer">预览逐页 PDF（页码对应原幻灯片）</a>}
         </section>}
         {doc.error && <div className="kbv-document-notice" role="alert"><KbvIcon name="status" /><span>{doc.error}</span><button className="kbv-text-action" disabled={blocked} onClick={refresh}>重新检查</button></div>}
-        {processing && <p role="status" className="kbv-document-progress">{progress || "等待加工服务处理已提交的资料"} · 自动刷新中</p>}
+        {processing && <p role="status" className="kbv-document-progress">{progress || "等待加工服务处理已提交的资料"} · {error ? transientReadFailure ? "刷新暂时失败，将自动重试" : "自动刷新已暂停，请重新检查" : "自动刷新中"}</p>}
         {doc.status === "draft" && <><p>原件已保存，尚未解析；不会参与员工问答。</p>{mode==="edit" && <label>替换草稿原件<input type="file" disabled={blocked} accept=".pdf,.pptx,.png,.jpg,.jpeg,.gif,.webp,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.mp4,.mov,.webm,.mkv" onChange={e=>{const file=e.currentTarget.files?.[0];if(file){setReplacement(file);onDirty?.(true);}}} />{replacement && <p>{replacement.name}</p>}</label>}</>}
         {doc.status === "cancelled" && <p>加工已取消，可重试恢复；未发布资料不参与员工问答。</p>}
-        {mode!=='review' && <KnowledgeScopePanel key={`scope:${id}`} id={id} onReady={setScopeReady} onDirty={onDirty} onChanged={()=>{refresh();reload();}} />}
+        {mode!=='review' && <KnowledgeScopePanel key={`scope:${id}`} id={id} documentStatus={doc.status} refreshToken={`${doc.status}:${doc.updated_at}:${doc.latest_job?.id}:${doc.latest_job?.status}`} onReady={setScopeReady} onDirty={onDirty} onChanged={()=>{refresh();reload();}} />}
         {["pending_review", "published"].includes(doc.status) && (scopeReady || mode==='review') && <PublicationPanel key={`publication:${id}`} id={id} mode={mode==="review"?"review":"detail"} ownsPrimary={mode!=="edit"} onInitiate={()=>onMode?.("review")} onSubmitted={()=>onMode?.("detail")} onDirty={onDirty} notify={notify} refreshDocument={() => { refresh(); reload(); }} />}
         {mode!=="review" && <WorkspaceActions><div className="kbv-document-actions">
       <div className="kbv-actions">

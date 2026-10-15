@@ -326,11 +326,13 @@ export function errorStatus(error: unknown): number {
 export function useKbData<T>(loader: () => Promise<T>, deps: unknown[] = []): {
   data: T | null;
   error: string;
+  failureStatus: number;
   loading: boolean;
   reload: () => void;
 } {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState("");
+  const [failureStatus, setFailureStatus] = useState(0);
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((value) => value + 1), []);
@@ -343,9 +345,13 @@ export function useKbData<T>(loader: () => Promise<T>, deps: unknown[] = []): {
         if (!alive) return;
         setData(value);
         setError("");
+        setFailureStatus(0);
       })
       .catch((cause: unknown) => {
-        if (alive) setError(errorMessage(cause, "无法加载治理数据"));
+        if (alive) {
+          setError(errorMessage(cause, "无法加载治理数据"));
+          setFailureStatus(errorStatus(cause));
+        }
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -355,5 +361,5 @@ export function useKbData<T>(loader: () => Promise<T>, deps: unknown[] = []): {
     };
   }, [tick, ...deps]);
 
-  return { data, error, loading, reload };
+  return { data, error, failureStatus, loading, reload };
 }
