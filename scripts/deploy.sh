@@ -143,7 +143,7 @@ for _ in $(seq 1 60); do
   fi
   # Native production retires legacy version routes. A nonempty HTML/login
   # response is not proof of readiness; require the real PG/engine contract.
-  health_body="$(curl -fsS -m 2 "http://127.0.0.1:${PORT}/api/health" 2>/dev/null || true)"
+  health_body="$(curl --compressed -fsS -m 2 "http://127.0.0.1:${PORT}/api/health" 2>/dev/null || true)"
   if printf '%s' "$health_body" | node "$ROOT/scripts/check-production-health.mjs"; then
     echo "原生 PostgreSQL 服务已恢复：$health_body"
     record_ontology_release
