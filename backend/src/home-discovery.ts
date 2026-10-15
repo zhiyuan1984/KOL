@@ -1118,14 +1118,18 @@ export async function listHomeDiscoveryRuns(query: { limit?: unknown } = {}): Pr
   const owner = ownerId();
   const limit = runListLimit(query.limit);
   const scope = isAdmin()
-    ? { sql: "kind=?", params: [HOME_KIND] as unknown[] }
-    : { sql: "kind=? AND owner_user_id=?", params: [HOME_KIND, owner] as unknown[] };
-  const total = Number((getConn().prepare(
+    ? { sql: "kind=$1", params: [HOME_KIND] as unknown[] }
+    : { sql: "kind=$1 AND owner_user_id=$2", params: [HOME_KIND, owner] as unknown[] };
+  const totalResult = await getConn().query(
     `SELECT COUNT(*) AS n FROM discovery_runs WHERE ${scope.sql}`,
-  ).get(...scope.params) as { n: number } | undefined)?.n || 0);
-  const rows = getConn().prepare(
-    `SELECT * FROM discovery_runs WHERE ${scope.sql} ORDER BY updated_at DESC LIMIT ?`,
-  ).all(...scope.params, limit) as Row[];
+    scope.params,
+  );
+  const total = Number((totalResult.rows[0] as { n?: number } | undefined)?.n || 0);
+  const rowsResult = await getConn().query(
+    `SELECT * FROM discovery_runs WHERE ${scope.sql} ORDER BY updated_at DESC LIMIT $${scope.params.length + 1}`,
+    [...scope.params, limit],
+  );
+  const rows = rowsResult.rows as Row[];
   return {
     entry: "memory",
     creates_session: false,
