@@ -8,6 +8,7 @@ import path from "node:path";
 import { mailAnalysisTimeout } from "../config.js";
 import { remoteMailAnalysisEnabled } from "../host/mail-summary.js";
 import {
+  codexRecognizeThreadConfig,
   extractRemoteIntentText,
   intentLlmApiKey,
   intentLlmFetch,
@@ -170,7 +171,8 @@ async function translateWithCodex(english: string): Promise<string | null> {
       cwd,
       approvalPolicy: "never",
       sandbox: "read-only",
-      config: { mcp_servers: {}, model: intentLlmModel() },
+      // Codex must use CODEX_MODEL / CLI default; gpt-5.6-luna is Responses-only.
+      config: codexRecognizeThreadConfig(),
     });
     const thread = (started.thread as { id?: string } | undefined) || started;
     const threadId = String((thread as { id?: string }).id || "");
@@ -211,6 +213,12 @@ async function translateWithCodex(english: string): Promise<string | null> {
 }
 
 async function translateWithLuna(english: string): Promise<string | null> {
+  // gpt-5.6-luna is not a public api.openai.com model. In real mode an
+  // explicit custom base is required; a test-only fetch override remains local.
+  if (!intentLlmFetchOverridden() && !String(process.env.OPENAI_BASE_URL || "").trim()) {
+    noteFailure("luna", "OPENAI_BASE_URL is not configured");
+    return null;
+  }
   const key = intentLlmApiKey();
   if (!key) return null;
   const base = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");

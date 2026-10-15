@@ -24,6 +24,9 @@ beforeEach(async () => {
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_HOME = path.join(tmp, "codex-home");
   process.env.CODEX_MODE = "stub";
+  // All mocked Luna requests target an explicit non-routable endpoint; tests
+  // never exercise the production no-base fallback path.
+  process.env.OPENAI_BASE_URL = "https://example.invalid/v1";
   (await resetConn());
   (await seedAll());
   (await seedWorkbenchFixtures());
@@ -126,7 +129,7 @@ describe("Codex mail memory", () => {
       subject: "Re: Collaboration Opportunity with LiTime",
       body: "Hi, I am interested and would love to collaborate.",
       from: "xiaomei.beauty@example.com",
-    }));
+    }, { deferDigest: true }));
     const digest = await ensureCodexThreadDigest("col_xiaomei");
     expect(digest.text).toBe("来信明确说想合作，并请品牌补充下一步。");
     expect(digest.source).toBe("luna");
@@ -173,7 +176,7 @@ describe("Codex mail memory", () => {
       to: "qiyou1984@gmail.com",
       direction: "outbound",
       provider_message_id: "out-fail-1",
-    }));
+    }, { deferDigest: true }));
     const digest = await ensureCodexThreadDigest("col_xiaomei");
     expect(digest.source).toBe("analysis_failed");
     expect(digest.text).toMatch(/寒暄跟进|往来/);
@@ -213,7 +216,7 @@ describe("Codex mail memory", () => {
       body: "Hi, I am interested and would love to collaborate.",
       from: "xiaomei.beauty@example.com",
       provider_message_id: "sticky-fail-1",
-    }));
+    }, { deferDigest: true }));
     const failed = await ensureCodexThreadDigest("col_xiaomei");
     expect(failed.source).toBe("analysis_failed");
     expect(failed.error).toBe("HTTP 500");
@@ -257,7 +260,7 @@ describe("Codex mail memory", () => {
       body: "Please share the collaboration quote.",
       from: "xiaomei.beauty@example.com",
       provider_message_id: "obs-timeout-1",
-    }));
+    }, { deferDigest: true }));
     const timedOut = await ensureCodexThreadDigest("col_xiaomei");
     expect(timedOut.source).toBe("analysis_failed");
     expect(timedOut.error).toBe("timeout");
@@ -309,7 +312,7 @@ describe("Codex mail memory", () => {
         body: "Please share the collaboration quote.",
         from: "xiaomei.beauty@example.com",
         provider_message_id: "log-col-1",
-      }));
+      }, { deferDigest: true }));
       await ensureCodexThreadDigest("col_xiaomei");
     } finally {
       process.stderr.write = write;
@@ -335,7 +338,7 @@ describe("Codex mail memory", () => {
       direction: "outbound",
       occurred_at: "2026-09-08T15:50:31.000Z",
       provider_message_id: "out-poison-1",
-    }));
+    }, { deferDigest: true }));
     (await ingestKolMail("col_xiaomei", {
       subject: "Re: KOL合作",
       body: "Hi 灵工连通测试-qiyou1984, I hope this message finds you in great spirits. Just checking in.",
@@ -344,7 +347,7 @@ describe("Codex mail memory", () => {
       direction: "outbound",
       occurred_at: "2026-09-08T12:32:54.000Z",
       provider_message_id: "out-poison-2",
-    }));
+    }, { deferDigest: true }));
     (await getConn().query("INSERT INTO app_state (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",["mail_digest:col_xiaomei",JSON.stringify({
         text: "去信寒暄跟进，尚未落到报价、档期或明确兴趣。",
         source: "codex_memory",
@@ -363,7 +366,7 @@ describe("Codex mail memory", () => {
       subject: "Re: Collaboration Opportunity with LiTime",
       body: "Hi, I am interested and would love to collaborate.",
       from: "xiaomei.beauty@example.com",
-    }));
+    }, { deferDigest: true }));
     expect(ingested.ok).toBe(true);
     const rows = (await mailHistoryRows("col_xiaomei"));
     expect(mailSummaryOf(rows[0] || {})).toContain("would love to collaborate");

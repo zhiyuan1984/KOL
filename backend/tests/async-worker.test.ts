@@ -41,7 +41,9 @@ beforeEach(async () => {
   setAgentSubmissionOverride();
   (await resetConn());
   (await seedAll());
-  runtimeCookie = (await seedRuntimeTestActor(["creator_discovery"]));
+  // Use the canonical published Agent and the real person/company binding.
+  // Admin status alone is not a qualification fallback.
+  runtimeCookie = (await seedRuntimeTestActor(["creator_discovery"], true));
   (await getConn().query("INSERT INTO claw_creators\n     (id, handle, name, platform, followers, score, status, outreach_script, payload)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,name=EXCLUDED.name,platform=EXCLUDED.platform,followers=EXCLUDED.followers,score=EXCLUDED.score,status=EXCLUDED.status,outreach_script=EXCLUDED.outreach_script,payload=EXCLUDED.payload",["cr_async_kol","async-creator","async-creator","youtube",1000,8,"discovered","Hi, LiTime would like to collaborate.",JSON.stringify({ email: "async.creator@example.com" })]));
 });
 
@@ -64,6 +66,23 @@ afterEach(async () => {
 });
 
 describe("real Codex HTTP flow", () => {
+  it("does not let an admin bypass a revoked Agent qualification", async () => {
+    const { createApp } = await import("../src/app.js");
+    const app = authenticatedTestApp(await createApp(), runtimeCookie);
+    const created = await app.request("/api/sessions", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "qualification revoked" }),
+    });
+    const { id } = await created.json() as { id: string };
+    const removed = await getConn().query(`DELETE FROM agent_bindings WHERE target_type='person'
+      AND target_id IN (SELECT person_ref FROM organization_people WHERE user_id=$1) RETURNING id`, ["usr_runtime_fixture"]);
+    expect(removed.rows.length).toBeGreaterThan(0);
+    const response = await app.request(`/api/sessions/${id}/messages`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "搜索 YouTube 露营达人", intent: "creator_discovery", act: "ask" }),
+    });
+    expect(response.status).toBe(403);
+  });
+
   it("acknowledges creator discovery immediately and publishes the background outcome", async () => {
     const { createApp } = await import("../src/app.js");
     const app = authenticatedTestApp((await createApp()), runtimeCookie);
