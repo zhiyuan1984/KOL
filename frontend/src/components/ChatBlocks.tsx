@@ -356,6 +356,19 @@ export function DraftArtifact({
     || subject !== (card.subject || "")
     || body !== (card.body || "");
   const messageOf = (e: unknown) => e instanceof Error ? e.message : String(e);
+  // The stream artifact can reconcile before React flushes the effect below.
+  // Write at the input boundary to the existing session-scoped edit map, never
+  // a second draft cache, so source rereads cannot remount a saved card over it.
+  const retainEdit = (next: Partial<DraftEdit>) => {
+    const draft = { cc, from: fromAddr, to: toAddr, subject, body, ...next };
+    const matchesSavedDraft = draft.cc === (card.cc || "")
+      && pickFromAddr(draft.from, opts) === pickFromAddr(card.send_from || card.from, opts)
+      && draft.to === (card.to || "")
+      && draft.subject === (card.subject || "")
+      && draft.body === (card.body || "");
+    if (matchesSavedDraft) edits?.delete(card.draft_id);
+    else edits?.set(card.draft_id, draft);
+  };
 
   useEffect(() => {
     const local = edits?.get(card.draft_id);
@@ -368,10 +381,6 @@ export function DraftArtifact({
     const nextZh = usableInternalZh(card.body_zh_internal, card.body || "");
     if (nextZh) setZh(nextZh);
   }, [card.draft_id, card.cc, card.from, card.send_from, card.to, card.subject, card.body, card.send_error, card.body_zh_internal, fromOptionsKey]);
-  useEffect(() => {
-    if (dirty) edits?.set(card.draft_id, {cc,from: fromAddr,to: toAddr,subject,body});
-    else edits?.delete(card.draft_id);
-  }, [edits,card.draft_id,dirty,cc,fromAddr,toAddr,subject,body]);
 
   const persist = async () => {
     await api.patchDraft(card.draft_id, {
@@ -445,7 +454,7 @@ export function DraftArtifact({
           <label className="draft-field">
             <span>发件人</span>
             {opts.length > 1 ? (
-              <select disabled={!!busy || confirmedSend.busy} value={resolvedFrom} onChange={(e) => setFromAddr(e.target.value)} data-from-select>
+              <select disabled={!!busy || confirmedSend.busy} value={resolvedFrom} onChange={(e) => { const next = e.target.value; retainEdit({ from: next }); setFromAddr(next); }} data-from-select>
                 {opts.map((o) => (
                   <option key={o.email} value={o.email}>
                     {o.brand} · {o.email}
@@ -461,18 +470,18 @@ export function DraftArtifact({
           </label>
           <label className="draft-field">
             <span>收件人</span>
-            <input disabled={!!busy || confirmedSend.busy} value={toAddr} onChange={(e) => setToAddr(e.target.value)} placeholder="收件邮箱" data-draft-to />
+            <input disabled={!!busy || confirmedSend.busy} value={toAddr} onChange={(e) => { const next = e.target.value; retainEdit({ to: next }); setToAddr(next); }} placeholder="收件邮箱" data-draft-to />
           </label>
           <label className="draft-field">
             <span>抄送</span>
-            <input disabled={!!busy || confirmedSend.busy} value={cc} onChange={(e) => setCc(e.target.value)} placeholder="上级 / 同站点 / 相关同事" />
+            <input disabled={!!busy || confirmedSend.busy} value={cc} onChange={(e) => { const next = e.target.value; retainEdit({ cc: next }); setCc(next); }} placeholder="上级 / 同站点 / 相关同事" />
           </label>
           <label className="draft-field">
             <span>主题</span>
             <input
               value={subject}
               disabled={!!busy || confirmedSend.busy}
-              onChange={(e) => setSubject(e.target.value)}
+              onChange={(e) => { const next = e.target.value; retainEdit({ subject: next }); setSubject(next); }}
               placeholder="邮件主题"
               data-draft-subject
             />
@@ -482,7 +491,7 @@ export function DraftArtifact({
             <textarea
               value={body}
               disabled={!!busy || confirmedSend.busy}
-              onChange={(e) => setBody(e.target.value)}
+              onChange={(e) => { const next = e.target.value; retainEdit({ body: next }); setBody(next); }}
               placeholder="英文原文"
               rows={12}
               data-draft-body

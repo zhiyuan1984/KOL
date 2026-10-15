@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../api";
 
 import type { ReplyContext } from "./reply-context";
@@ -14,11 +14,46 @@ export function ReplyContextPanel({ sessionId, onAnalyze, analyzing = false }: {
   const [busy, setBusy] = useState(false);
   const revision = useRef("");
   const refresh = useRef<() => void>(() => undefined);
+  const restoreDraftFocus = useRef(false);
+  const lastDraftFocused = useRef(false);
+  // Commit the restored context before returning focus. An animation frame can
+  // be delayed past a polling-clock advance and leave the active editor blurred.
+  useLayoutEffect(() => {
+    if (!restoreDraftFocus.current) return;
+    restoreDraftFocus.current = false;
+    // The focus was captured before this response committed. Layout effects run
+    // in that same commit, so another focused control here is an application
+    // focus side effect, not an intervening deliberate human focus change.
+    document.querySelector<HTMLTextAreaElement>("[data-draft-body]")?.focus({ preventScroll: true });
+  }, [context, error]);
+  useEffect(() => {
+    const rememberFocusedElement = (event: FocusEvent) => {
+      if (event.target instanceof HTMLTextAreaElement && event.target.matches("[data-draft-body]")) lastDraftFocused.current = true;
+    };
+    const clearForDeliberateMove = (event: PointerEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent && event.key !== "Tab") return;
+      const target = event.target;
+      if (event instanceof KeyboardEvent || !(target instanceof Element) || !target.matches("[data-draft-body]")) {
+        lastDraftFocused.current = false;
+        restoreDraftFocus.current = false;
+      }
+    };
+    document.addEventListener("focusin", rememberFocusedElement);
+    document.addEventListener("pointerdown", clearForDeliberateMove, true);
+    document.addEventListener("keydown", clearForDeliberateMove, true);
+    return () => {
+      document.removeEventListener("focusin", rememberFocusedElement);
+      document.removeEventListener("pointerdown", clearForDeliberateMove, true);
+      document.removeEventListener("keydown", clearForDeliberateMove, true);
+    };
+  }, []);
   useEffect(() => {
     let active = true, loading = false;
     revision.current = "";
+    restoreDraftFocus.current = false;
+    lastDraftFocused.current = false;
     setContext(null); setError(""); setChanged(false);
-    const read = async () => {
+    const read = async (preservePolledDraftFocus = false) => {
       if (!active || loading) return;
       loading = true; setBusy(true);
       try {
@@ -32,23 +67,21 @@ export function ReplyContextPanel({ sessionId, onAnalyze, analyzing = false }: {
           && document.activeElement.matches("[data-draft-body]");
         if (revision.current && revision.current !== next.version) setChanged(true);
         revision.current = next.version;
+        restoreDraftFocus.current = draftWasFocused || (preservePolledDraftFocus && lastDraftFocused.current);
         setContext(next); setError("");
-        if (draftWasFocused) {
-          requestAnimationFrame(() => {
-            if (!active || document.activeElement !== document.body) return;
-            document.querySelector<HTMLTextAreaElement>("[data-draft-body]")?.focus({ preventScroll: true });
-          });
-        }
       } catch (cause) {
         if (!active) return;
         const status = (cause as { status?: number }).status;
+        const draftWasFocused = document.activeElement instanceof HTMLTextAreaElement
+          && document.activeElement.matches("[data-draft-body]");
         if ([401,403,404].includes(status || 0)) { setContext(null); revision.current = ""; }
+        restoreDraftFocus.current = draftWasFocused || (preservePolledDraftFocus && lastDraftFocused.current);
         setError("邮件依据暂不可核验，请检查当前权限与同步状态。人工草稿仍保留。");
       } finally { loading = false; if (active) setBusy(false); }
     };
     refresh.current = () => void read();
     void read();
-    const interval = setInterval(() => { if (!document.hidden) void read(); }, 15000);
+    const interval = setInterval(() => { if (!document.hidden) void read(true); }, 15000);
     return () => { active = false; clearInterval(interval); };
   }, [sessionId]);
   return <section className="reply-context-panel" aria-label="回复任务邮件依据" data-reply-context>

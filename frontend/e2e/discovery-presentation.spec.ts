@@ -59,6 +59,29 @@ test("reply source failure and revocation remain explicit while human editor sur
   expect(fixture.errors).toEqual([]);
 });
 
+for (const move of ["keyboard", "pointer"] as const) {
+  test(`reply polling respects a deliberate ${move} focus move away from the draft`, async ({page}) => {
+    const fixture = await replyFixture(page);
+    await page.clock.install();
+    await page.goto("/s/reply-ui-session");
+    const panel = page.locator("[data-reply-context]");
+    await expect(panel).toContainText("读取已核验缓存");
+    await page.clock.runFor(500);
+    const body = page.locator("[data-draft-body]");
+    await body.fill("Human edit retained after focus move");
+    if (move === "keyboard") await body.press("Tab");
+    else await panel.getByText("查看原文与来源版本", {exact: true}).click();
+    await expect(body).not.toBeFocused();
+    await page.evaluate(() => document.activeElement?.setAttribute("data-human-focus-marker", "true"));
+    fixture.revise();
+    await page.clock.runFor(15100);
+    await expect(panel).toContainText("人工草稿未被替换");
+    await expect(body).toHaveValue("Human edit retained after focus move");
+    await expect(page.locator("[data-human-focus-marker]")).toBeFocused();
+    expect(fixture.errors).toEqual([]);
+  });
+}
+
 test("a new reply analysis round keeps the earlier unsaved human draft", async ({page}) => {
   const fixture = await replyFixture(page);
   const clients = new Set<ServerResponse>();
