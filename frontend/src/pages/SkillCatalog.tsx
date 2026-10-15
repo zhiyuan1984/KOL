@@ -407,6 +407,13 @@ export function SkillCatalog() {
     if (q) params.set("q",q); else params.delete("q");
     nav({ pathname: location.pathname,search:`?${params}` });
   };
+  const resetFilters = () => {
+    setQ("");
+    const params = new URLSearchParams(location.search);
+    params.delete("q"); params.delete("tab");
+    params.set("mode", "all"); params.set("stage", "all");
+    nav({ pathname: location.pathname, search: `?${params}` });
+  };
   const select = (skill: SkillRow) => {
     setSelectedId(skill.id); setDetailOpen(true);
     void api.viewSkill(skill.id).then(() => setPersonal(current => {
@@ -445,7 +452,7 @@ export function SkillCatalog() {
                 count={visibleSkills.filter(skill => matchesQuery(skill) && matchesMode(skill,mode) && (tab.id === "all" || skill.funnel === tab.id)).length}
                 data-skill-stage={tab.id} onClick={() => updateFilters(mode,tab.id as BusinessStage)} />)}
             </FilterRow>
-            {q || mode !== "all" || businessStage !== "all" ? <FilterAction onClick={() => { setQ(""); const params = new URLSearchParams(location.search);params.delete("q");params.delete("tab");params.set("mode","all");params.set("stage","all");nav({pathname:location.pathname,search:`?${params}`}); }}>清除筛选</FilterAction> : null}
+            {q || mode !== "all" || businessStage !== "all" ? <FilterAction onClick={resetFilters}>清除筛选</FilterAction> : null}
           </KnowledgeFilterBar>
           <div className="kbv-tabs asset-views" role="group" aria-label="快捷视图">
             {TABS.filter(tab => tab.kind === "mode" && ["all","favorites","viewed"].includes(tab.id)).map(tab => <FilterOptionButton key={tab.id} label={tab.label}
@@ -463,7 +470,7 @@ export function SkillCatalog() {
         <div className="kbv-records">{rows.map(skill => <BrowseListRow key={skill.id} title={skill.title} kind={skill.badge || "技能"} selected={selected?.id === skill.id}
           onOpen={() => select(skill)} recordAttributes={{"data-skill-id":skill.id}} openAttributes={{"data-skill-open":skill.id}} />)}</div>
         {rows.length ? <ListLoadFooter remaining={filtered.length - rows.length} onMore={more} /> : null}
-        {!loading && !err && !rows.length ? <p className="kbv-empty">{personalError && ["favorites","viewed","frequent","recent"].includes(mode) ? "个人记录读取失败，请重试。" : "没有匹配的技能。"}<FilterAction onClick={() => updateFilters("all","all")}>查看全部</FilterAction></p> : null}
+        {!loading && !err && !rows.length ? <p className="kbv-empty">{personalError && ["favorites","viewed","frequent","recent"].includes(mode) ? "个人记录读取失败，请重试。" : "没有匹配的技能。"}<FilterAction onClick={resetFilters}>查看全部</FilterAction></p> : null}
       </section>
       <aside className="kbv-rail" aria-label="技能详情" data-skill-detail-pane>
         {selected ? <SkillDetail key={selected.id} skill={selected} favorite={!!personal.find(item => item.skill_id === selected.id)?.favorite}

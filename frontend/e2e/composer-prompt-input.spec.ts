@@ -139,8 +139,26 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   expect(chrome.placeholderLine).toBe("20px");
   expect(parseFloat(chrome.plusWidth)).toBe(32);
   expect(parseFloat(chrome.plusHeight)).toBe(32);
-  expect(chrome.plusBg).toMatch(/rgba\(\s*0,\s*0,\s*0,\s*0\s*\)|transparent/);
-  near(rgb(chrome.sendColor) as number[], [180, 180, 180], 24);
+  // The current native icon button is a neutral outlined surface, not the old
+  // transparent DOM affordance. It must remain visually subordinate to Send.
+  expect(rgb(chrome.plusBg)).toEqual(rgb(chrome.background));
+  const initialSend = await page.locator("[data-home] [data-send]").evaluate((el) => {
+    const cs = getComputedStyle(el);
+    const probe = document.createElement("i");
+    probe.style.background = "var(--primary)";
+    document.body.appendChild(probe);
+    const primary = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return { disabled: (el as HTMLButtonElement).disabled, color: cs.color, background: cs.backgroundColor, primary };
+  });
+  // Draft restoration may make Send ready on first paint. Both native states
+  // must retain their intended contrast, rather than assuming the retired idle DOM.
+  if (initialSend.disabled) {
+    near(rgb(initialSend.color) as number[], [180, 180, 180], 24);
+  } else {
+    near(rgb(initialSend.color) as number[], [255, 255, 255]);
+    expect(rgb(initialSend.background)).toEqual(rgb(initialSend.primary));
+  }
 
   // The 分析跟进 / 开始发现 / 安排今天 row is gone from the ask box, and the
   // 推荐技能 row that briefly lived at the top of Home was removed too, so neither
@@ -337,7 +355,11 @@ test("settings fields keep a MASTER focus ring and login error-summary uses defi
   });
   expect(fieldFocus.outlineStyle).not.toBe("none");
   expect(parseFloat(fieldFocus.outlineWidth)).toBeGreaterThanOrEqual(2);
-  near(rgb(fieldFocus.outlineColor) as number[], [0, 0, 0]);
+  // Ant's native password shell resolves its own dark focus ink (#141414);
+  // retain a strict dark-ring contrast envelope rather than restoring old black DOM.
+  const fieldRing = rgb(fieldFocus.outlineColor) as number[];
+  expect(fieldRing).toHaveLength(3);
+  for (const channel of fieldRing) expect(channel).toBeLessThanOrEqual(32);
 
   const summary = await page.evaluate(() => {
     const host = document.createElement("div");
@@ -347,21 +369,36 @@ test("settings fields keep a MASTER focus ring and login error-summary uses defi
     host.appendChild(el);
     document.body.appendChild(host);
     const cs = getComputedStyle(el);
-    const out = { bg: cs.backgroundColor, color: cs.color };
+    const probe = document.createElement("i");
+    probe.style.color = "var(--danger)";
+    host.appendChild(probe);
+    const out = { bg: cs.backgroundColor, color: cs.color, danger: getComputedStyle(probe).color, cardBg: getComputedStyle(host).backgroundColor };
     host.remove();
     return out;
   });
-  near(rgb(summary.color) as number[], [196, 60, 60]);
-  near(rgb(summary.bg) as number[], [242, 232, 233]);
+  // Error ink is the named danger token, and its surface remains visibly tinted
+  // instead of falling back to the card's plain background.
+  expect(rgb(summary.color)).toEqual(rgb(summary.danger));
+  expect(summary.bg).not.toBe(summary.cardBg);
+  const summaryBg = rgb(summary.bg) as number[];
+  expect(summaryBg[0]).toBeGreaterThan(summaryBg[1]);
+  expect(summaryBg[0]).toBeGreaterThan(summaryBg[2]);
 
   const work = page.getByRole("button", { name: "更新密码", exact: true });
   await expect(work).toBeVisible();
   const workIdle = await work.evaluate((el) => {
     const cs = getComputedStyle(el);
-    return { bg: cs.backgroundColor, color: cs.color, fontSize: cs.fontSize };
+    const primaryProbe = document.createElement("i");
+    primaryProbe.style.background = "var(--primary)";
+    primaryProbe.style.color = "var(--primary-fg)";
+    document.body.appendChild(primaryProbe);
+    const primary = getComputedStyle(primaryProbe);
+    const out = { bg: cs.backgroundColor, color: cs.color, fontSize: cs.fontSize, primaryBg: primary.backgroundColor, primaryFg: primary.color };
+    primaryProbe.remove();
+    return out;
   });
-  near(rgb(workIdle.bg) as number[], [199, 59, 122]);
-  near(rgb(workIdle.color) as number[], [255, 255, 255]);
+  expect(rgb(workIdle.bg)).toEqual(rgb(workIdle.primaryBg));
+  expect(rgb(workIdle.color)).toEqual(rgb(workIdle.primaryFg));
   expect(parseFloat(workIdle.fontSize)).toBeGreaterThanOrEqual(14);
 
   await work.focus();

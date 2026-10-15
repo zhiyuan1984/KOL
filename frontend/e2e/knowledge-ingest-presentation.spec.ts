@@ -1,156 +1,117 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function fixture(page: Page, v2 = false, pptx = false) {
+/** 当前紧凑资料表 → 原生资料工作区的迁移回归。
+ * 旧表行曾重复渲染引擎状态、正文与审批；现行表只保留资料身份/原件/更多操作，
+ * 加工正文、确认与真实审批在 “加工与审批” 的同一资产工作区完成。 */
+async function fixture(page: Page, pptx = false) {
   const account = { id: "admin", name: "管理员", available_modes: ["admin", "employee"] };
-  const common = { base_id: "base", base_name: "产品规格", filename: pptx ? "战略规划.pptx" : "产品规格.pdf", title: "产品规格", size_bytes: 603136, updated_at: "2026-10-05T09:03:00Z", ...(pptx ? {media_type:"pptx",artifacts:{normalize:{mode:"pptx-convert"}}} : {}) };
-  let documents = [{ ...common, id: "published", status: "published" }, { ...common, id: "pending", status: "pending_review" }];
+  const common = { base_id: "base", base_name: "产品规格", filename: pptx ? "战略规划.pptx" : "产品规格.pdf", title: "产品规格", media_type: pptx ? "pptx" : "pdf", size_bytes: 603136, updated_at: "2026-10-05T09:03:00Z", created_at: "2026-10-05T08:00:00Z", ...(pptx ? { artifacts: { normalize: { mode: "pptx-convert" } } } : {}) };
+  let documents: any[] = [{ ...common, id: "published", status: "published" }, { ...common, id: "pending", status: "pending_review" }];
   let detailFails = false;
-  let ready = false;
-  const writes: string[] = [];
-  const errors: string[] = [];
+  const writes: string[] = [], errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.route("**/api/**", async route => {
     const path = new URL(route.request().url()).pathname;
-    let json: unknown = [];
+    const method = route.request().method();
+    let json: any = [];
     if (path === "/api/health") json = { ok: true };
     else if (path === "/api/auth/status") json = { authenticated: true, account };
     else if (path === "/api/me") json = account;
     else if (path === "/api/preferences") json = { theme: "light" };
-    else if (path.endsWith("/index-health")) json = { ok: true, mode: "real", pageindex: "unknown" };
-    else if (path === "/api/admin/knowledge/bases") json = { bases: [{ id: "base", name: "产品规格", kind: "unstructured" }] };
+    else if (path === "/api/cron/jobs") json = { jobs: [] };
+    else if (path === "/api/admin/knowledge/workspace-v1") json = { tenant: "test", bases: [{ id: "base", name: "产品规格", kind: "unstructured", status: "active" }], domains: [], rows: documents.map(doc => ({ ...doc, asset_type: "document", kind: "document" })), total: documents.length, page: 1, page_size: 20, page_count: 1, facets: { view: { all: documents.length, values: { pending_review: 1, published: 1 } }, kind: { all: documents.length, values: { document: documents.length } }, brand: { all: documents.length, values: {}, unbranded: documents.length }, stage: { all: documents.length, values: {}, empty: documents.length }, family: { all: documents.length, values: {} }, domain: { all: documents.length, values: {} }, base: { all: documents.length, values: { base: documents.length } } }, stats: { status: { draft: 0, pending_review: 1, published: 1, archived: 0 }, pending_review: { count: 1, max_wait_days: 1 }, pending_documents: { count: 1, max_wait_days: 1 }, expiring: { count: 0, nearest: null } } };
+    else if (path.endsWith("/index-health")) json = { ok: true, mode: "stub", pageindex: "available" };
+    else if (path === "/api/admin/knowledge/bases") json = { bases: [{ id: "base", name: "产品规格", kind: "unstructured", status: "active" }] };
+    else if (path === "/api/admin/knowledge/domains") json = { domains: [] };
+    else if (path === "/api/admin/knowledge/raw") json = [];
+    else if (path === "/api/admin/knowledge/jobs") json = [];
     else if (path === "/api/admin/knowledge/documents") {
-      if (route.request().method() === "POST") {
-        writes.push("upload");
-        const doc = { ...common, id: "uploaded", status: "uploaded" };
-        documents = [...documents, doc];
-        await new Promise(resolve => setTimeout(resolve, 500));
-        json = { document: doc };
-      } else json = { documents };
-    } else if (path.endsWith("/publication-v2")) {
-      json = { ...(v2 ? {} : { legacy: { updatedAt: common.updated_at } }), tenant: "test", templates: [], publication: v2 ? { tenant: "test", instanceId: "v2-approval", documentId: "pending", title: common.title, filename: common.filename, fingerprint: "real-version-fingerprint", releaseNote: "核对后申请", status: "waiting", reviewStatus: "reviewing", createdAt: common.updated_at, updatedAt: common.updated_at } : null, intake: { allowed: true, reason: "" } };
-    } else if (path.endsWith("/publication")) {
-      const published = path.includes("/published/");
-      json = { tenant: "test", base_id: "base", version: 1, label: published ? "已发布" : ready ? "待提交审批" : "审批中", review_status: published ? "legacy" : ready ? "not_submitted" : "reviewing", publication_status: published ? "published" : "unpublished", allowed_actions: published ? ["create_revision"] : ready ? ["submit"] : ["view_review"], instance_id: published || ready ? null : "approval", binding: null, error: null, attempts: 0, blocking_reason: "" };
-    } else if (path.endsWith("/review-check")) {
-      json = { allowed: true, reason: "", reviewers: [] };
-    } else if (path.endsWith("/review-prepare")) {
-      json = { confirmationId: "confirmation", command: { action: "submit", values: {} }, material: { title: "产品规格", base_name: "产品规格", pages: 4, version: 1 }, summary: { consequence: "审批通过后将自动发布此版本" } };
-    } else if (/\/documents\/[^/]+$/.test(path)) {
+      if (method === "POST") { writes.push("upload"); const uploaded = { ...common, id: "uploaded", filename: "产品规格.pdf", status: "uploaded" }; documents = [...documents, uploaded]; json = { document: uploaded }; }
+      else json = { documents };
+    } else if (/\/api\/admin\/knowledge\/documents\/[^/]+$/.test(path)) {
       if (detailFails) return route.fulfill({ status: 503, json: { detail: "详情暂不可用" } });
-      json = { document: documents.find(doc => path.endsWith(doc.id)), base: { name: "产品规格" }, jobs: [{ id: "job", kind: "normalize", status: "done", attempt: 1, progress_total: 4, progress_done: 4 }], text_preview: { text: "加工结果正文" } };
-    } else if (path.endsWith("/archive")) writes.push("archive");
-    else if (path === "/api/approvals/v2/commands") { writes.push("submit-review"); json = { id: "receipt" }; }
-    else if (path === "/api/approvals/v2/context") json = { tenant: "test", actor: "admin", admin: false, people: [] };
+      const id = path.split("/").at(-1)!;
+      json = { document: documents.find(doc => doc.id === id), base: { name: "产品规格" }, jobs: [{ id: "job", kind: "normalize", status: "done", attempt: 1, progress_total: 4, progress_done: 4 }], text_preview: { text: "加工结果正文" }, actions: { edit: false, start: false, retry: false, cancel: false, revision: true } };
+    } else if (path.endsWith("/archive")) { writes.push("archive"); json = { document: { id: "published" } }; }
+    else if (path.endsWith("/publication-v2")) json = { legacy: { updatedAt: common.updated_at }, tenant: "test", templates: [], publication: null, intake: { allowed: true, reason: "" } };
+    else if (path.endsWith("/scope")) json = { revision: 1, state: "checked", frozen: false, explanation: "产品规格", scope: { summary: "产品规格", topics: [], entities: [], question_types: [], limitations: [], unverified_notes: [], coverage: { status: "complete", unreadable_pages: [] }, evidence: [] }, job: null, actions: { edit: true, generate: true, check: false } };
     await route.fulfill({ json });
   });
   await page.goto("/admin/knowledge/ingest?reviewCompany=test");
-  await expect(page.locator("[data-admin-kb-documents-table]")).toBeVisible({ timeout: 20000 });
-  return { writes, errors, ready: () => { ready = true; }, failDetails: () => { detailFails = true; }, recoverDetails: () => { detailFails = false; } };
+  await expect(page.locator("[data-admin-kb-documents-table]")).toBeVisible();
+  return { writes, errors, failDetails: () => { detailFails = true; }, recoverDetails: () => { detailFails = false; } };
 }
 
-test("PPTX 资料详情保留原件与逐页 PDF 预览，不执行发布", async ({ page }, testInfo) => {
-  const f = await fixture(page, false, true);
+test("PPTX 资料详情保留原件与逐页 PDF 预览，不触发发布", async ({ page }) => {
+  const f = await fixture(page, true);
   await page.locator("[data-admin-kb-doc-detail='pending']").click();
-  const source = page.locator("[data-admin-kb-doc-open='pending']");
-  const preview = page.locator("[data-admin-kb-doc-preview='pending']");
-  await expect(source).toHaveAttribute("href", /\/documents\/pending\/file\?company=test/);
-  await expect(preview).toHaveAttribute("href", /\/documents\/pending\/preview\?company=test/);
-  await expect(preview).toHaveText("预览逐页 PDF");
-  await page.screenshot({ path: testInfo.outputPath("pptx-preview-detail.png"), fullPage: true });
+  await expect(page.locator("[data-admin-kb-doc-open='pending']")).toHaveAttribute("href", /\/documents\/pending\/file\?company=test/);
+  await expect(page.locator("[data-admin-kb-doc-preview='pending']")).toHaveText("预览逐页 PDF");
   expect(f.writes).toEqual([]); expect(f.errors).toEqual([]);
 });
 
-test("紧凑工作表关联同名原文、加工结果和真实审批；空模块通过 Tab 查看", async ({ page }, testInfo) => {
+test("紧凑资料表保留同名独立性和原生工作区入口；空模块通过 Tab 查看", async ({ page }) => {
   const f = await fixture(page);
-  await expect(page.locator("[data-admin-kb-engine-health]")).toHaveText("PageIndex · 可用");
-  await page.screenshot({ path: testInfo.outputPath("ingest-desktop.png"), fullPage: true });
-  const pending = page.locator("[data-admin-kb-doc='pending']");
-  await expect(pending).toContainText("审批中");
-  await expect(pending).not.toContainText("待提交审批");
-  await expect(pending).toContainText("同名资料");
-  await pending.getByRole("button", { name: "查看审批进度" }).click();
+  await page.locator("[data-admin-kb-doc-detail='pending']").click();
   const detail = page.locator("[data-admin-kb-doc-detail-panel='pending']");
-  await expect(detail).toContainText("加工结果正文");
-  await expect(detail.getByRole("link", { name: /查看本次审批/ })).toHaveAttribute("href", /reviews\/approval/);
-  expect(await detail.evaluate(el => el.closest("tr")?.previousElementSibling?.getAttribute("data-admin-kb-doc"))).toBe("pending");
+  await expect(detail).toContainText("同名资料 · 1");
+  await expect(detail).toContainText("独立记录，未确认版本关系");
+  await expect(detail.getByRole("link", { name: "加工与审批", exact: true })).toHaveAttribute("href", /assetId=pending/);
   await page.getByRole("button", { name: "原文库 0" }).click();
   await expect(page.locator("[data-admin-knowledge-ingest]")).toContainText("暂无原文");
-  await expect(page.locator("[data-admin-kb-documents]")).toHaveCount(0);
   await page.getByRole("button", { name: "提取作业 0" }).click();
   await expect(page.locator("[data-admin-kb-jobs]")).toContainText("还没有提取作业");
-  expect(f.writes).toEqual([]);
-  expect(f.errors).toEqual([]);
+  expect(f.writes).toEqual([]); expect(f.errors).toEqual([]);
 });
 
-test("归档进入更多菜单且确认说明退出检索，取消不写入", async ({ page }) => {
+test("归档在更多操作中说明退出检索；取消不写入", async ({ page }) => {
   const f = await fixture(page);
-  const row = page.locator("[data-admin-kb-doc='published']");
-  await expect(row.locator("[data-admin-kb-doc-archive]")).not.toBeVisible();
-  await row.getByText("更多", { exact: true }).click();
-  await row.locator("[data-admin-kb-doc-archive]").click();
+  await page.locator("[data-admin-kb-doc-details-link='published']").click();
+  const detail = page.locator("[data-admin-kb-doc-detail-panel='published']");
+  await detail.locator("summary").filter({ hasText: "更多操作" }).click();
+  await detail.locator("[data-admin-kb-doc-archive='published']").click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("不再参与检索");
   await dialog.locator("[data-admin-confirm-cancel]").click();
-  expect(f.writes).toEqual([]);
+  expect(f.writes).toEqual([]); expect(f.errors).toEqual([]);
 });
 
-test("上传立即展示可追踪传输记录，并保留同名提示", async ({ page }) => {
+test("上传经知识创作工作区显示待上传文件并要求合法非结构化库", async ({ page }) => {
   const f = await fixture(page);
-  await page.locator("[data-admin-kb-doc-base]").selectOption("base");
-  await page.locator("[data-admin-kb-doc-file]").setInputFiles({ name: "产品规格.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 fixture") });
-  await expect(page.locator("[data-admin-kb-doc-upload]")).toContainText("已有同名文件");
-  await page.locator("[data-admin-kb-doc-upload-submit]").click();
-  await expect(page.locator("[data-admin-kb-upload-progress]")).toBeVisible();
-  await expect(page.locator("[data-admin-kb-doc='uploaded']")).toContainText("排队中");
-  await expect(page.locator("[data-admin-receipt]")).toContainText("审批通过后自动发布");
-  expect(f.writes).toEqual(["upload"]);
-  expect(f.errors).toEqual([]);
+  await page.getByRole("tab", { name: "知识创作", exact: true }).click();
+  await page.getByRole("button", { name: "上传文件", exact: true }).click();
+  await page.locator("[data-kbv-upload-pick]").setInputFiles({ name: "产品规格.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 fixture") });
+  await expect(page.locator("[data-kbv-upload-queue]")).toContainText("产品规格.pdf");
+  await expect(page.locator("[data-kbv-upload-submit]")).toBeDisabled();
+  await page.locator("[data-kbv-upload-scope] [data-kb-scope-base='base']").click();
+  await expect(page.locator("[data-kbv-upload-submit]")).toBeEnabled();
+  expect(f.writes).toEqual([]); expect(f.errors).toEqual([]);
 });
 
-test("详情失败可恢复，窄屏无页面横向溢出", async ({ page }) => {
-  const f = await fixture(page);
-  f.failDetails();
+test("资料详情失败可恢复，紧凑工作区窄屏不横向溢出", async ({ page }) => {
+  const f = await fixture(page); f.failDetails();
   await page.locator("[data-admin-kb-doc-detail='pending']").click();
-  const detail = page.locator("[data-admin-kb-doc-detail-panel]");
-  await expect(detail).toContainText("详情暂不可用");
-  f.recoverDetails();
-  await detail.getByRole("button", { name: "重试读取详情" }).click();
-  await expect(detail).toContainText("加工结果正文");
-  for (const width of [1440, 1024, 390]) {
-    await page.setViewportSize({ width, height: 700 });
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  }
+  const detail = page.locator("[data-admin-kb-doc-detail-panel='pending']");
+  await expect(detail.getByRole("alert")).toContainText("详情暂不可用");
+  f.recoverDetails(); await detail.getByRole("button", { name: "重试读取详情" }).click();
+  await expect(detail.locator(".ant-descriptions")).toBeVisible();
+  for (const width of [1440, 1024, 390]) { await page.setViewportSize({ width, height: 700 }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true); }
   expect(f.errors).toEqual([]);
 });
 
-
-test("待审资料在原位检查结果并确认审批，取消不提交", async ({ page }) => {
+test("待审资料在紧凑表原位提供加工与审批深链，确认流不在表行绕过", async ({ page }) => {
   const f = await fixture(page);
-  f.ready();
-  await page.reload();
-  const row = page.locator("[data-admin-kb-doc='pending']");
-  await row.getByRole("button", { name: "提交审批", exact: true }).click();
-  const detail = page.locator("[data-admin-kb-doc-detail-panel='pending']");
-  await expect(detail).toContainText("加工结果正文");
-  await detail.getByLabel("发布说明").fill("核对原文和加工结果后申请发布");
-  await detail.getByRole("button", { name: "提交审批", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "确认提交知识发布审批" });
-  await expect(dialog).toContainText("审批通过后将自动发布");
-  await dialog.locator("[data-admin-confirm-cancel]").click();
-  await expect(detail.getByLabel("发布说明")).toHaveValue("核对原文和加工结果后申请发布");
-  expect(f.writes).toEqual([]);
-  expect(f.errors).toEqual([]);
+  await page.locator("[data-admin-kb-doc-detail='pending']").click();
+  const link = page.locator("[data-admin-kb-doc-detail-panel='pending']").getByRole("link", { name: "加工与审批", exact: true });
+  await expect(link).toHaveAttribute("href", /stage=published.*assetId=pending/);
+  expect(f.writes).toEqual([]); expect(f.errors).toEqual([]);
 });
 
-
-test("新版发布审批保持原位并使用 publication-v2 的审批状态与真实入口", async ({ page }) => {
-  const f = await fixture(page, true);
+test("新版审批资料仍以稳定资产 ID 进入当前工作区，不在表格伪造审批状态", async ({ page }) => {
+  const f = await fixture(page);
   const row = page.locator("[data-admin-kb-doc='pending']");
-  await expect(row).toContainText("审批中");
-  await row.getByRole("button", { name: "查看审批进度" }).click();
-  const detail = page.locator("[data-admin-kb-doc-detail-panel='pending']");
-  await expect(detail.getByRole("link", { name: /查看审批记录与处理入口/ })).toHaveAttribute("href", /reviews\/v2-approval/);
-  await expect(detail).toContainText("real-version");
-  expect(f.writes).toEqual([]);
-  expect(f.errors).toEqual([]);
+  await expect(row).not.toContainText("审批中");
+  await row.locator("[data-admin-kb-doc-details-link='pending']").click();
+  await expect(page.locator("[data-admin-kb-doc-workspace='pending']")).toHaveAttribute("href", /assetId=pending/);
+  expect(f.writes).toEqual([]); expect(f.errors).toEqual([]);
 });

@@ -8,7 +8,7 @@ import { test, expect } from "@playwright/test";
 for (const [agent, ready, label, tone, glyph] of [
   ["listening", true, "", "", ""],
   ["listening", false, "", "", ""],
-  ["waiting_approval", true, "待确认 · 需要你确认后才会执行", "confirm", "⚠"],
+  ["waiting_approval", true, "待你确认", "confirm", "⚠"],
 ] as const) {
   test(`task result state ${label || (ready ? "result ready" : "awaiting review")} keeps results in the stream and an index on the right`, async ({ page }) => {
     const sid = "result-state-session";
@@ -47,8 +47,8 @@ for (const [agent, ready, label, tone, glyph] of [
     await expect(page.locator(".session-center [data-run-status]")).toHaveCount(0);
     await expect(page.locator("[data-task-analysis-summary]")).toHaveCount(0);
     // 中栏三段式：页头与输入框固定在滚动区之外，只有消息流在滚（DESIGN §10.1）。
-    await expect(page.locator(".session-center > header.task-detail-header")).toHaveCount(1);
-    await expect(page.locator("[data-session-stream-pane] .task-detail-header")).toHaveCount(0);
+    await expect(page.locator(".session-center > header.session-workspace-header")).toHaveCount(1);
+    await expect(page.locator("[data-session-stream-pane] .session-workspace-header")).toHaveCount(0);
     await expect(page.locator("[data-session-stream-pane] .session-composer")).toHaveCount(0);
     const trace = page.locator('[data-kind="operation-trace"]');
     await expect(trace).toContainText("系统能力调用记录");

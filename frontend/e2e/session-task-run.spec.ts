@@ -48,8 +48,11 @@ test("stopped task shows one progress block, a unified status and a retry entry"
   await expect(trace).toContainText("任务进度");
   await expect(trace).toContainText("任务已创建");
   await expect(trace).toContainText("已停止生成");
-  // 停止是执行结束：右栏状态退场，「已停止生成」作为里程碑留在中栏时间流里。
-  await expect(page.locator("[data-run-status]")).toHaveCount(0);
+  // 当前右栏把取消以文字、图形和状态 key 明示，且仍保留中栏终态里程碑与重试入口。
+  const status = page.locator("[data-run-status='cancelled']");
+  await expect(status).toHaveCount(1);
+  await expect(status.locator(".status-shape")).toBeVisible();
+  await expect(status).toContainText(/已停止|已取消/);
   await expect(page.locator("[data-rerun-task]")).toBeVisible();
   const workbench = page.locator("[data-workbench]");
   await expect(workbench).not.toContainText("本轮结果 · 结果");

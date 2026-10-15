@@ -31,6 +31,15 @@
 .settings-memory-drawer .ant-form-item { margin-bottom: var(--space-3); }
 .settings-memory-drawer .ant-form-item-label > label { font-size: var(--ds-font-sm); }
 .settings-v2 :focus-visible, .settings-memory-drawer :focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: var(--focus-ring-offset); }
+/* Ant's password input resets the native input outline. Keep the visible ring
+ * on both its keyboard-focused input and the affix shell using shared tokens. */
+.settings-v2 .ant-input:focus-visible,
+.settings-v2 .ant-input-affix-wrapper:has(.ant-input:focus-visible),
+.settings-memory-drawer .ant-input:focus-visible,
+.settings-memory-drawer .ant-input-affix-wrapper:has(.ant-input:focus-visible) {
+  outline: var(--focus-ring-width) solid var(--focus-ring) !important;
+  outline-offset: var(--focus-ring-offset) !important;
+}
 @container (max-width: 479px) {
   .settings-list-tools .ant-input-search { max-width: 100%; width: 100%; }
 }

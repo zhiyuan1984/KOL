@@ -43,6 +43,70 @@ type Skill = {
 };
 type Personal = { skill_id: string; favorite?: boolean; viewed_at?: string | null; use_count?: number; used_at?: string | null };
 
+/** Deterministic employee-visible records: they exercise the real current
+ * AssetBrowse surface without weakening native authorization or calling a live
+ * service.  Admin/Agent authorization remains server-owned in real mode. */
+function employeeSkill(id: string, title: string, overrides: Partial<Skill> = {}): Skill {
+  return {
+    id, title, label: title, summary: `${title}的员工使用说明`, employee_visible: true,
+    employee_quick: `直接查看${title}的已授权信息`, employee_agent: `由数字员工协助准备${title}`,
+    employee_example: [`请帮我处理${title}`], output: "kol_analyze_brief", risk: "L1", funnel: "reach", keeps_stage: true,
+    learning: { inputs: ["达人名称"], steps: ["读取授权范围内的信息并分析", "形成业务建议"], result: "kol_analyze_brief", confirmation: "按当前权限执行" },
+    execution: { tools: [{ ref: "starrykol.getKolProfileDetail", kind: "api", risk: "L1" }], permissions: ["starrykol:read"], receipt_required: false, async: { enabled: false, cancelable: false, retryable: false, status: "同步完成" } },
+    ...overrides,
+  };
+}
+
+const EMPLOYEE_SKILLS: Skill[] = [
+  employeeSkill("creator_profile", "达人画像", { learning: { inputs: ["达人名称"], steps: ["核实目标", "读取资料", "形成建议"], result: "kol_analyze_brief", confirmation: "按当前权限执行" } }),
+  employeeSkill("creator_library_query", "达人库查询", { output: null, learning: { inputs: ["筛选条件"], steps: ["核实目标", "读取资料"], confirmation: "按当前权限执行" } }),
+  employeeSkill("creator_discovery", "推荐建联", { risk: "L3", execution: { tools: [{ ref: "starrykol.getKolProfileDetail", kind: "api", risk: "L3" }], permissions: ["starrykol:read"], receipt_required: true, async: { enabled: true, cancelable: true, retryable: true, status: "采集进行中" } } }),
+  employeeSkill("discovery_plan", "发现计划", { employee_quick: null, employee_agent: null }),
+  employeeSkill("discovery_brief", "发现简报", { employee_quick: null, employee_agent: null }),
+  employeeSkill("kol_analyze", "达人分析", { employee_quick: null, employee_agent: null }),
+  employeeSkill("today_plan", "今日计划", { employee_quick: null, employee_agent: null }),
+  employeeSkill("today_analyze", "今日分析", { employee_quick: null, employee_agent: null }),
+  employeeSkill("todo_plan", "待办计划", { employee_quick: null, employee_agent: null }),
+  ...Array.from({ length: 24 }, (_, index) => employeeSkill(`fixture_skill_${index + 1}`, `技能浏览夹具 ${index + 1}`)),
+];
+const EMPLOYEE_DOC = ["### 使用说明", ...Array.from({ length: 28 }, (_, index) => `- 第 ${index + 1} 条已登记阅读说明，保留在详情正文中。`), "### 范围", "只看当前已授权范围。"].join("\n");
+
+async function installEmployeeSkillFixture(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    for (const key of Object.keys(sessionStorage)) if (key.startsWith("asset-browse:")) sessionStorage.removeItem(key);
+  });
+  const personal: Personal[] = EMPLOYEE_SKILLS.map((skill, index) => ({
+    skill_id: skill.id, favorite: false, viewed_at: null, use_count: index === 0 ? 2 : 0,
+    used_at: index === 0 ? "2026-10-16T00:00:00.000Z" : null,
+  }));
+  await page.route("**/api/skills**", async route => {
+    const request = route.request(), pathname = new URL(request.url()).pathname, method = request.method();
+    if (pathname === "/api/skills" && method === "GET") return route.fulfill({ json: EMPLOYEE_SKILLS });
+    if (pathname === "/api/skills/personal" && method === "GET") return route.fulfill({ json: { items: personal } });
+    const agent = /^\/api\/skills\/([^/]+)\/agents$/.exec(pathname);
+    if (agent && method === "GET") return route.fulfill({ json: { agents: [{ id: "agent:fixture", name: "员工数字员工" }] } });
+    const view = /^\/api\/skills\/([^/]+)\/view$/.exec(pathname);
+    if (view && method === "POST") {
+      const record = personal.find(item => item.skill_id === decodeURIComponent(view[1]));
+      if (record) record.viewed_at = new Date().toISOString();
+      return route.fulfill({ json: { id: decodeURIComponent(view[1]) } });
+    }
+    const favorite = /^\/api\/skills\/([^/]+)\/favorite$/.exec(pathname);
+    if (favorite && (method === "POST" || method === "DELETE")) {
+      const record = personal.find(item => item.skill_id === decodeURIComponent(favorite[1]));
+      if (record) record.favorite = method === "POST";
+      return route.fulfill({ json: { id: decodeURIComponent(favorite[1]), favorite: method === "POST" } });
+    }
+    const detail = /^\/api\/skills\/([^/]+)$/.exec(pathname);
+    if (detail && method === "GET") {
+      const skill = EMPLOYEE_SKILLS.find(item => item.id === decodeURIComponent(detail[1]));
+      return route.fulfill({ status: skill ? 200 : 404, json: skill ? { ...skill, employee_doc: EMPLOYEE_DOC } : { detail: "fixture skill missing" } });
+    }
+    return route.fulfill({ status: 404, json: { detail: "unhandled skills fixture route" } });
+  });
+  await page.route("**/api/sessions", route => route.fulfill({ json: [{ id: "ses_fixture", title: "当前技能任务" }] }));
+}
+
 function authStatePath(): string {
   return process.env.E2E_AUTH_STATE
     || path.join(process.env.PLAYWRIGHT_OUTPUT_DIR || os.tmpdir(), "lingong-e2e-auth", "user.json");
@@ -127,6 +191,7 @@ async function ensureNativeSkillEligibility(page: Page): Promise<void> {
 }
 
 async function ready(page: Page): Promise<void> {
+  await installEmployeeSkillFixture(page);
   await ensureNativeSkillEligibility(page);
   await page.goto("/skills");
   await page.locator("[data-skill-catalog]").waitFor();
@@ -327,7 +392,7 @@ test.describe("技能目录（/skills）· AssetBrowse 视觉、可访问性与�
   test("O10 · 搜索空态诚实区分且提供恢复动作", async ({ page }) => {
     const input = page.getByRole("textbox", { name: "搜索技能 / SOP / 场景" });
     await input.fill("不存在的技能名zzz");
-    const empty = page.locator(".kbv-empty");
+    const empty = page.locator("[data-kbv-list] .kbv-empty");
     await expect(empty).toContainText("没有匹配的技能");
     await expect(empty.getByRole("button", { name: "查看全部" })).toBeVisible();
     await empty.getByRole("button", { name: "查看全部" }).click();
@@ -544,6 +609,7 @@ test.describe("技能目录（/skills）· 现行双 rail 几何、滚动与响�
     const page = await context.newPage();
     await ready(page);
     await openSkill(page);
+    await page.locator("[data-skill-detail] summary", { hasText: "说明书与示例" }).click();
     const snapshot = () => page.evaluate(() => {
       const list = document.querySelector<HTMLElement>("[data-kbv-list]")!;
       const body = document.querySelector<HTMLElement>(".kbv-rail-body")!;
@@ -773,7 +839,7 @@ test.describe("技能详情 · 数据真实度、筛选与排版", () => {
     expect(shown.every(id => frequent.includes(id)), "view/favorite cannot independently place a skill in frequent").toBe(true);
     if (shown.length) {
       await openSkill(page, shown[0]);
-      const favorite = page.getByRole("button", { name: /收藏|取消收藏/ });
+      const favorite = page.locator("[data-skill-favorite]");
       await expect(favorite).toHaveAttribute("aria-pressed", /true|false/);
     } else {
       await expect(page.locator(".kbv-empty")).toContainText("没有匹配的技能");
@@ -787,10 +853,12 @@ test.describe("技能详情 · 数据真实度、筛选与排版", () => {
     await page.keyboard.press("Tab");
     await expect(second).toBeFocused();
     await first.click();
+    await page.getByRole("combobox", { name: "选择目标任务" }).click();
+    await page.getByText("工作台提问框", { exact: true }).click();
     const action = await primaryAction(page);
     await action.focus();
     await expect(action).toBeFocused();
-    expect(await first.locator(":is(a[href], button)").count(), "row keeps one focusable semantic selection, never a repeated action").toBe(1);
+    expect(await page.locator(".knowledge-list-row").first().locator(".knowledge-list-open").count(), "row keeps one focusable semantic selection, never a repeated action").toBe(1);
   });
 
   test("O47 · 搜索清除入口清空查询并把焦点归还输入框", async ({ page }) => {
@@ -806,8 +874,8 @@ test.describe("技能详情 · 数据真实度、筛选与排版", () => {
 
   test("O48 · 详情小节按登记阅读顺序渲染，不产生未登记字段", async ({ page }) => {
     const skill = await openCandidate(page, candidate => !!candidate.employee_quick && !!candidate.employee_agent && !!candidate.output && !!candidate.learning, "fixture needs a complete skill for section-order contract");
-    const headings = await page.locator("[data-skill-detail] :is(h3, summary)").evaluateAll(elements => elements.map(element => element.textContent?.trim() || ""));
-    const allowed = ["可以直接查到", "需要走确认或 AI 助理", "需要你提供", "产出", "使用步骤", "执行边界", "说明书与示例", "调用关系与安全边界"];
+    const headings = await page.locator("[data-skill-detail] .kbv-rail-body > .asset-detail-section > :is(h3, summary)").evaluateAll(elements => elements.map(element => element.textContent?.trim() || ""));
+    const allowed = ["可经由以下数字员工使用", "可以直接查到", "需要走确认或 AI 助理", "需要你提供", "产出", "使用步骤", "执行边界", "说明书与示例", "调用关系与安全边界"];
     expect(headings.length, "complete detail must render its registered reading hierarchy").toBeGreaterThan(3);
     expect(headings.filter(heading => !allowed.includes(heading)), `unregistered current detail headings: ${headings.join(" / ")}`).toEqual([]);
     expect(headings, "registered headings must be in documented order").toEqual(allowed.filter(heading => headings.includes(heading)));

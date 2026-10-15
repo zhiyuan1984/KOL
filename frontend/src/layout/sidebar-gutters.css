@@ -5,7 +5,15 @@
   .workbench:not(.sidebar-collapsed) .sidebar .sidebar-scroll {
     width: auto;
     margin-inline-end: 0;
-    padding-inline: 0 var(--inset-scrollbar-width, 6px);
+    /* Overlay scrollbars measure 0px, but the content inset must still retain
+     * the shared thin-scrollbar token rather than disappearing at the rail edge. */
+    padding-inline: 0 var(--scrollbar-size, 6px);
     scrollbar-gutter: auto;
+  }
+
+  /* The scroll box reaches the rail edge so its thin thumb remains reachable;
+   * its navigation content still needs the symmetric shell reading gutter. */
+  .workbench:not(.sidebar-collapsed) .sidebar .sidebar-nav-stack {
+    margin-inline-end: calc(var(--space-4) - var(--scrollbar-size, 6px));
   }
 }

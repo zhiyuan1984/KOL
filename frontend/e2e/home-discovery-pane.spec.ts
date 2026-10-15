@@ -295,12 +295,12 @@ test("condition card renders in-page and pre-fills the editable ask box", async 
   await expect(card.locator('[data-discovery-keyword-chip="camping"]')).toBeVisible();
   await expect(card.locator('[data-discovery-keyword-chip="portable power station"]')).toBeVisible();
   await expect(card.locator("[data-discovery-clear-keywords]")).toBeVisible();
-  // 选中/未选中不锁死具体色值（token 会演进）：断言两者可以区分，选中态另有 ✓ 形状信号。
-  const selectedBorder = await card.locator('[data-skill-param="platforms"] [data-discovery-chip="youtube"]')
-    .evaluate((el) => getComputedStyle(el).borderTopColor);
-  const idleBorder = await card.locator('[data-skill-param="platforms"] [data-discovery-chip="instagram"]')
-    .evaluate((el) => getComputedStyle(el).borderTopColor);
-  expect(selectedBorder).not.toBe(idleBorder);
+  // 选中态不锁死会演进的色值：原生卡以 aria-pressed、字重和 ✓ 形状共同表达，
+  // 让读屏/键盘与视觉用户得到同一结论，而不是只比较两个透明边框。
+  await expect(card.locator('[data-skill-param="platforms"] [data-discovery-chip="youtube"]'))
+    .toContainText("✓");
+  await expect(card.locator('[data-skill-param="platforms"] [data-discovery-chip="instagram"]'))
+    .not.toContainText("✓");
   // 上限留空即不限：语义由 placeholder 承载（不再有独立说明行）。
   await expect(card.locator('[data-skill-param="max_followers"] input')).toHaveAttribute("placeholder", "不限");
   await expect(card.locator('[data-skill-param="min_followers"] input'))
@@ -447,14 +447,17 @@ test("the middle column keeps ①–③ before submit and appends ④–⑥ afte
   }
 
   await page.locator("[data-home] [data-ai-prompt-submit]").click();
-  await expect(flow).toHaveCount(6);
-  expect(await kinds()).toEqual(["skill", "guidance", "conditions", "params", "confirm", "run"]);
+  // 现行原生 Agent 只在 Host 确认后才创建⑥。提交只追加可核对参数和 R3
+  // 确认卡；把准备记录伪装成采集执行会违反等待诚实与确认闸门。
+  await expect(flow).toHaveCount(5);
+  expect(await kinds()).toEqual(["skill", "guidance", "conditions", "params", "confirm"]);
   // 事件块自带的序号与 DOM 顺序一致。
   expect(await flow.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-discovery-event-index"))))
-    .toEqual(["1", "2", "3", "4", "5", "6"]);
+    .toEqual(["1", "2", "3", "4", "5"]);
   // 提交后不跳转：这次协作仍在本页。
   await expect(page).not.toHaveURL(/\/s\//);
-  // ④ 参数还没有提案 = 等待态；⑤ 待服务端提出动作，确认按钮此刻不存在。
+  // ④ 参数还没有提案 = 等待态；⑤ 待服务端提出动作，确认按钮此刻不存在；⑥
+  // 在确认前必须不存在，不能把准备记录画成已执行的采集。
   await expect(page.locator('[data-discovery-event="params"]')).toHaveAttribute("data-discovery-event-state", "waiting");
   await expect(page.locator("[data-discovery-params-waiting]")).toBeVisible();
   await expect(page.locator("[data-discovery-params-status]")).toHaveText("整理中");
@@ -462,6 +465,7 @@ test("the middle column keeps ①–③ before submit and appends ④–⑥ afte
   await expect(page.locator("[data-discovery-start-detail]")).toContainText("整理本次采集范围");
   await expect(page.locator("[data-discovery-start-confirm]")).toHaveCount(0);
   await expect(page.locator("[data-discovery-start-cancel]")).toHaveCount(0);
+  await expect(page.locator('[data-discovery-event="run"]')).toHaveCount(0);
 });
 
 test("a terminal discovery error stops the process trail before later success events", async ({ page }) => {
@@ -511,7 +515,7 @@ test("a terminal discovery error stops the process trail before later success ev
   await expect(trail.locator("[data-discovery-run-steps]")).not.toContainText("已排出候选");
 });
 
-test("a failed run keeps one business status block and folds the engine detail", async ({ page }) => {
+test("a resumed task without a selected current run does not fabricate historical failure or expose engine detail", async ({ page }) => {
   const failedRun = {
     id: "drun_capacity_failed",
     run_id: "drun_capacity_failed",
@@ -544,18 +548,17 @@ test("a failed run keeps one business status block and folds the engine detail",
   }));
 
   await page.goto("/?tab=discovery&resume=tsk_capacity_failed");
-  const summary = page.locator("[data-discovery-ai-summary]");
-  await expect(summary).toContainText("需要处理");
-  await expect(summary).toContainText("检索没有完成");
-  await expect(summary).toContainText("原始 32 · 入围 17");
-  await expect(summary).toContainText("检索没有完成，可稍后重试。");
-  await expect(summary.locator("[data-discovery-retry]")).toHaveText("重试");
-  await expect(summary.locator("[data-discovery-error-detail]")).toBeHidden();
+  // ?resume= 只恢复当前任务身份，不会自行认领任意历史 run；否则可能把另一轮的
+  // 引擎错误、数据范围和确认版本带入本轮。当前任务没有选中的 runtime action 时，
+  // 原生流只显示可核对的①–⑤，且绝不泄露远端模型错误正文。
+  const flow = page.locator("[data-discovery-flow] [data-discovery-event]");
+  await expect(flow).toHaveCount(5);
+  await expect(page.locator("[data-discovery-ai-summary]")).toHaveCount(0);
+  await expect(page.locator('[data-discovery-event="run"]')).toHaveCount(0);
+  await expect(page.locator("[data-discovery-flow]")).not.toContainText("Selected model is at capacity");
+  await expect(page.locator('[data-discovery-event="params"]')).toHaveAttribute("data-discovery-event-state", "waiting");
+  await expect(page.locator('[data-discovery-event="confirm"]')).toHaveAttribute("data-discovery-event-state", "waiting_proposal");
   await expect(page.getByText(/历史发现/)).toHaveCount(0);
-
-  await summary.locator("[data-discovery-error-details-toggle]").click();
-  await expect(summary.locator("[data-discovery-error-detail]"))
-    .toContainText("生成服务结束状态：failed；Selected model is at capacity.");
 });
 
 test("a discovery task resumes its linked run instead of a chat session", async ({ page }) => {
@@ -580,7 +583,7 @@ test("condition chips rewrite the ask-box body and the card footer keeps a cente
   await expect(card.locator("[data-discovery-card-submit]")).toHaveText("提交条件，核对参数");
 });
 
-test("idle discovery keeps the task-rail width and full brief above the dock", async ({ page }) => {
+test("idle discovery keeps a fixed native Agent center and full brief above the dock", async ({ page }) => {
   await page.setViewportSize({ width: 1966, height: 900 });
   await stubNoRuns(page);
   await openDiscovery(page);
@@ -588,14 +591,17 @@ test("idle discovery keeps the task-rail width and full brief above the dock", a
   await expect(workspace).toHaveClass(/is-result-idle/);
   const rail = workspace.locator('[data-scope-task-rail]');
   const center = workspace.locator('[data-scope-ai-workspace]');
-  expect(Math.round((await rail.boundingBox())!.width)).toBe(820);
+  // DESIGN §27.2：AI发现使用固定 Agent 中栏，右栏吃剩余空间；820 上限仅属于
+  // 其他 Home 模式，不能把当前原生会话视觉回退为旧的通用结果栏。
+  const initialCenterWidth = Math.round((await center.boundingBox())!.width);
   const discoveryRailWidth = Math.round((await rail.boundingBox())!.width);
-  // 双栏按结果可读性分配：右栏拿到 DESIGN 记录的 820 上限，中栏吃掉剩下的宽度，
-  // 两列合起来正好是工作台宽度（右栏可以宽于中栏）。
-  const centerWidth = await center.evaluate((element) => element.clientWidth);
-  expect(centerWidth).toBeGreaterThan(0);
+  expect(initialCenterWidth).toBeGreaterThan(0);
+  expect(discoveryRailWidth).toBeGreaterThan(820);
   const workspaceWidth = await workspace.evaluate((element) => element.clientWidth);
-  expect(Math.abs(centerWidth + discoveryRailWidth - workspaceWidth)).toBeLessThanOrEqual(4);
+  expect(Math.abs(initialCenterWidth + discoveryRailWidth - workspaceWidth)).toBeLessThanOrEqual(4);
+  await page.setViewportSize({ width: 1766, height: 900 });
+  expect(Math.round((await center.boundingBox())!.width)).toBe(initialCenterWidth);
+  expect(Math.round((await rail.boundingBox())!.width)).toBeLessThan(discoveryRailWidth);
   const card = workspace.locator('[data-discovery-search-card]');
   const followerMin = card.locator('[data-skill-param="min_followers"]');
   const followerMax = card.locator('[data-skill-param="max_followers"]');
@@ -608,7 +614,8 @@ test("idle discovery keeps the task-rail width and full brief above the dock", a
   await page.locator('[data-home-mode="today"]').click();
   const todayRail = page.locator('[data-home-pane="today"] [data-scope-task-rail]');
   await expect(todayRail).toBeVisible();
-  expect(Math.round((await todayRail.boundingBox())!.width)).toBe(discoveryRailWidth);
+  // 通用 Home 保留其自己的结果栏约束；不可拿它覆盖 AI发现的固定 Agent 中栏。
+  expect(Math.round((await todayRail.boundingBox())!.width)).toBeLessThan(discoveryRailWidth);
   for (const width of [1024, 720, 480]) {
     await page.setViewportSize({ width, height: 900 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
@@ -643,21 +650,28 @@ test("compact discovery thresholds stay visible above the dock", async ({ page }
   const minBox = await followerMin.boundingBox();
   const maxBox = await followerMax.boundingBox();
   const playsBox = await avgPlays.boundingBox();
-  const countBox = await expectedCount.boundingBox();
-  const keywordBox = await card.locator("[data-discovery-keywords]").boundingBox();
   const minInputBox = await followerMin.locator("input").boundingBox();
   const playsInputBox = await avgPlays.locator("input").boundingBox();
-  const dockBox = await workspace.locator('.home-composer-dock').boundingBox();
+  // 固定 Agent 中栏在本断点已是窄容器；DESIGN 不变量要求独立字段组单列，
+  // 不能为迁就旧桌面双列断言而在 <480px 内容区二次分栏。
   expect(minBox && maxBox && Math.abs(minBox.y - maxBox.y) < 2).toBeTruthy();
-  expect(playsBox && countBox && Math.abs(playsBox.y - countBox.y) < 2).toBeTruthy();
-  // All primary controls share the same left baseline; compact numeric fields
-  // no longer stretch to the width of the keyword field.
-  expect(keywordBox && minInputBox && Math.abs(keywordBox.x - minInputBox.x) < 2).toBeTruthy();
-  expect(keywordBox && playsInputBox && Math.abs(keywordBox.x - playsInputBox.x) < 2).toBeTruthy();
-  expect(keywordBox && minInputBox && minInputBox.width < keywordBox.width).toBeTruthy();
-  for (const field of ["platforms", "region", "directions", "keywords"]) {
-    await expect(card.locator(`[data-skill-param="${field}"]`)).toHaveCSS("border-bottom-width", "1px");
+  await expectedCount.scrollIntoViewIfNeeded();
+  const visiblePlaysBox = await avgPlays.boundingBox();
+  const countBox = await expectedCount.boundingBox();
+  const dockBox = await workspace.locator('.home-composer-dock').boundingBox();
+  expect(visiblePlaysBox && countBox && visiblePlaysBox.y < countBox.y).toBeTruthy();
+  // 原生 Agent 卡按「标签列 + 控制列」对齐，不再强制旧卡片的共享左边线。
+  // 更强的不变量是每个可编辑阈值完整落在可滚动条件卡内，不裁切也不横向溢出。
+  const cardBox = await card.boundingBox();
+  for (const box of [minInputBox, playsInputBox, countBox]) {
+    expect(cardBox && box && box.x >= cardBox.x && box.x + box.width <= cardBox.x + cardBox.width).toBeTruthy();
   }
+  // 当前原生卡以字段标签和间距分组，不沿用旧表单的重复下划线；避免在窄栏
+  // 形成双重边界并压缩触控/文本空间。
+  for (const field of ["platforms", "region", "directions", "keywords"]) {
+    await expect(card.locator(`[data-skill-param="${field}"]`)).toHaveCSS("border-bottom-width", "0px");
+  }
+  // 长表单允许在中栏滚动，但固定 dock 绝不能吞掉当前字段。
   expect(countBox && dockBox && countBox.y + countBox.height <= dockBox.y).toBeTruthy();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
 });
@@ -1036,7 +1050,11 @@ test("submit posts the workspace endpoint, streams the run trail, and ingests to
     text: expect.stringContaining("【发现任务】"),
     brief: expect.objectContaining({
       platforms: ["youtube"],
-      keywords: ["camping", "portable power station"],
+      keywords: expect.arrayContaining(["camping", "portable power station"]),
+      directions: ["portable_power"],
+      region: "global_en",
+      min_followers: 10_000,
+      max_followers: null,
       min_avg_plays_10: 5000,
       expect_count: 30,
     }),
@@ -1138,27 +1156,18 @@ test("after submit the condition card stays read-only in place and 修改条件 
   await expect(page.locator("[data-discovery-edit-conditions]")).toHaveCount(0);
   await page.locator("[data-home] [data-ai-prompt-submit]").click();
 
-  // 提交后卡片原位转只读（数值保留），不再消失；中栏保留 ④⑤⑥。
-  await expect(card).toBeVisible();
-  await expect(card).toHaveAttribute("data-param-mode", "ready");
-  await expect(card.locator('[data-discovery-keyword-static="camping"]')).toBeVisible();
+  // 提交后原生 Agent 把编辑卡收束为只读的提交条件摘要；值、修改入口和确认闸门
+  // 原位保留，但不以一张隐藏的旧编辑表单重复渲染。
+  await expect(card).toBeHidden();
   await expect(page.locator('[data-discovery-event="conditions"]')).toHaveAttribute("data-discovery-event-state", "readonly");
   await expect(page.locator("[data-discovery-edit-conditions]")).toHaveText("修改条件");
   const flow = page.locator("[data-discovery-flow] [data-discovery-event]");
-  await expect(flow).toHaveCount(6);
-  for (const index of ["4", "5", "6"]) {
+  await expect(flow).toHaveCount(5);
+  for (const index of ["4", "5"]) {
     await expect(page.locator(`[data-discovery-event-index="${index}"]`)).toBeVisible();
   }
-  // ⑥ 步骤与时间来自 /api/tasks/:id/events；未确认前不得声称正在采集。
-  const trail = page.locator('[data-discovery-event="run"]');
-  await expect(trail).toContainText("排队");
-  await expect(trail).toContainText("等待确认");
-  await expect(trail).toContainText("还没有开始采集");
-  // 步骤标签可能来自真实事件（例如 crawl.started 就叫「正在采集」），所以看状态位而不是整块文本。
-  await expect(trail.locator("[data-discovery-run-title]")).toHaveText("等待确认");
-  await expect(trail.locator("[data-discovery-run-status]")).toHaveText("待确认");
-  await expect(trail.locator("[data-discovery-run-stop]")).toHaveCount(0);
-  await expect(trail.locator("[data-discovery-step-time]").first()).toHaveText(/^\d{2}:\d{2}:\d{2}$/);
+  // 未确认前⑥根本不出现，准备事件不能被画成采集执行或提供停止入口。
+  await expect(page.locator('[data-discovery-event="run"]')).toHaveCount(0);
   // 结果容器只在右栏；下一步计划属于中栏的人机交互。
   await expect(page.locator("[data-scope-task-rail] [data-discovery-panel]")).toHaveCount(1);
   await expect(page.locator("[data-scope-ai-workspace] [data-discovery-panel]")).toHaveCount(0);
@@ -1172,6 +1181,7 @@ test("after submit the condition card stays read-only in place and 修改条件 
   await edit.click({ trial: true });
   await edit.click();
   await expect(page.locator('[data-discovery-event="conditions"]')).toHaveAttribute("data-discovery-event-state", "edit", { timeout: 10000 });
+  await expect(card).toBeVisible();
   await expect(card).toHaveAttribute("data-param-mode", "edit");
   expect(submitPosts).toEqual(["/api/home/discovery/workspace"]);
 });
@@ -1288,8 +1298,9 @@ test("修改条件让本次核对失效，并取消未确认的提案", async ({
     if (!(await confirm.count())) return "absent";
     return (await confirm.first().isDisabled()) ? "disabled" : "enabled";
   }).not.toBe("enabled");
-  // 中栏仍是同一条事件流（⑥ 不清空、也不跳转）。
-  await expect(page.locator("[data-discovery-flow] [data-discovery-event]")).toHaveCount(6);
+  // 中栏仍是同一条真实的提交/核对流（⑥ 尚未获确认，因此不得凭准备记录生成）。
+  await expect(page.locator("[data-discovery-flow] [data-discovery-event]")).toHaveCount(5);
+  await expect(page.locator('[data-discovery-event="run"]')).toHaveCount(0);
 
   // 未确认的旧提案被取消：只发一次 cancel，且没有任何 start-crawl / stop / retry 写动作。
   await expect.poll(() => posts.filter((path) => path === "/api/actions/runtime.cancel"))
@@ -1454,16 +1465,12 @@ test("the preparation trail never claims a collection before the employee confir
   await openDiscovery(page);
   await page.locator("[data-home] [data-ai-prompt-submit]").click();
 
-  const trail = page.locator('[data-discovery-event="run"]');
-  // 提交与准备阶段的记录如实转写（图 1 里那条 19:33:49「正在采集」就是这个事件）。
-  await expect(trail).toContainText("任务开始处理");
-  await expect(trail).toContainText("加载任务规则");
-  await expect(trail.locator("[data-discovery-run-title]")).toHaveText("等待确认");
-  await expect(trail.locator("[data-discovery-run-status]")).toHaveText("待确认");
-  await expect(trail).not.toContainText("正在采集");
-  await expect(trail).not.toContainText("进行中");
-  await expect(trail.locator("[data-discovery-run-stop]")).toHaveCount(0);
-  await expect(trail.locator('[data-discovery-step="collecting"]')).toHaveCount(0);
+  // 准备阶段记录不再伪装成⑥：确认前只显示 R3 待确认，且无停止/采集事件。
+  const flow = page.locator("[data-discovery-flow]");
+  await expect(page.locator('[data-discovery-event="confirm"]')).toHaveAttribute("data-discovery-event-state", "pending");
+  await expect(page.locator('[data-discovery-event="run"]')).toHaveCount(0);
+  await expect(flow).not.toContainText("正在采集");
+  await expect(flow).not.toContainText("进行中");
 });
 
 test("a confirm the server refused reads 未开始 in ⑥ instead of 进行中", async ({ page }) => {
@@ -1475,19 +1482,16 @@ test("a confirm the server refused reads 未开始 in ⑥ instead of 进行中",
   await openDiscovery(page);
   await page.locator("[data-home] [data-ai-prompt-submit]").click();
 
-  // ⑤ 给出服务端结论与原因，不是光秃秃的「执行失败」。
+  // ⑤给出服务端结论与原因；服务端明确是「未执行」时不得把它改写成执行失败。
   const confirm = page.locator('[data-discovery-event="confirm"]');
-  await expect(confirm).toContainText("执行失败");
+  await expect(confirm).toContainText("未执行");
   await expect(confirm.locator("[data-discovery-start-reason]")).toContainText("本次启动未执行");
   await expect(confirm.locator("[data-discovery-start-retry]")).toBeEnabled();
 
-  // ⑥ 与 ⑤ 必须一致：采集从未启动，就不能写「正在采集 / 进行中」，也不能给停止入口。
-  const trail = page.locator('[data-discovery-event="run"]');
-  await expect(trail.locator("[data-discovery-run-title]")).toHaveText("尚未开始");
-  await expect(trail.locator("[data-discovery-run-status]")).toHaveText("未开始");
-  await expect(trail).not.toContainText("进行中");
-  await expect(trail).not.toContainText("已结束");
-  await expect(trail.locator("[data-discovery-run-stop]")).toHaveCount(0);
+  // 没有获 Host 接受的开始动作，⑥不能出现，更不能写进行中/已结束或给停止入口。
+  await expect(page.locator('[data-discovery-event="run"]')).toHaveCount(0);
+  await expect(page.locator("[data-discovery-flow]")).not.toContainText("进行中");
+  await expect(page.locator("[data-discovery-flow]")).not.toContainText("已结束");
 });
 
 test("the newest proposal wins, so 核对后重试 shows a fresh 待确认 card", async ({ page }) => {

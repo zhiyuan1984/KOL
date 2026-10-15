@@ -8,7 +8,13 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
  */
 test.skip(process.env.E2E_MODE === "real", "This suite targets the deterministic stub knowledge engine.");
 
-const BASE_CODE = "e2e_docs";
+// 每次运行独立：旧中断运行可遗留分类，不能把正常 409 冲突吞成 `family.id` 的 undefined。
+const BASE_CODE = `e2e_docs_${Date.now()}`;
+
+async function jsonOk<T>(response: Awaited<ReturnType<APIRequestContext["post"]>>): Promise<T> {
+  expect(response.ok(), await response.text()).toBeTruthy();
+  return response.json() as Promise<T>;
+}
 
 async function ensureBase(request: APIRequestContext): Promise<string> {
   const bases = await request.get("/api/admin/knowledge/bases")
@@ -19,19 +25,19 @@ async function ensureBase(request: APIRequestContext): Promise<string> {
     .then((response) => response.json() as Promise<{ domains: { id: string; code: string }[] }>);
   let family = domains.domains.find((row) => row.code === `${BASE_CODE}_fam`);
   if (!family) {
-    family = (await request.post("/api/admin/knowledge/domains", {
+    family = (await jsonOk<{ domain: { id: string; code: string } }>(await request.post("/api/admin/knowledge/domains", {
       data: { code: `${BASE_CODE}_fam`, name: "E2E 资料族", level: "family" },
-    }).then((response) => response.json())).domain as { id: string; code: string };
+    }))).domain;
   }
   let domain = domains.domains.find((row) => row.code === `${BASE_CODE}_dom`);
   if (!domain) {
-    domain = (await request.post("/api/admin/knowledge/domains", {
+    domain = (await jsonOk<{ domain: { id: string; code: string } }>(await request.post("/api/admin/knowledge/domains", {
       data: { code: `${BASE_CODE}_dom`, name: "E2E 资料域", level: "domain", parent_id: family.id },
-    }).then((response) => response.json())).domain as { id: string; code: string };
+    }))).domain;
   }
-  const base = (await request.post("/api/admin/knowledge/bases", {
+  const base = (await jsonOk<{ base: { id: string } }>(await request.post("/api/admin/knowledge/bases", {
     data: { code: BASE_CODE, name: "E2E 资料库", domain_id: domain.id, kind: "unstructured" },
-  }).then((response) => response.json())).base as { id: string };
+  }))).base;
   return String(base.id);
 }
 

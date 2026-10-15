@@ -1,34 +1,95 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIRequestContext } from "@playwright/test";
+
+const PRODUCT_BASE_CODE = "e2e_product_knowledge";
+
+type ProductBase = { id: string; code: string; status: string };
+type ProductDomain = { id: string; code: string };
+
+async function responseJson<T>(response: Awaited<ReturnType<APIRequestContext["get"]>>, message: string): Promise<T> {
+  expect(response.ok(), `${message}：${response.status()} ${await response.text()}`).toBeTruthy();
+  return response.json() as Promise<T>;
+}
+
+/**
+ * 测试只使用当前 persona 有权管理的、固定命名的非结构化库；不会放开 409
+ * 或绕过知识/Agent 的服务端授权。夹具可复用，避免测试顺序依赖。
+ */
+async function ensureProductBase(request: APIRequestContext): Promise<ProductBase> {
+  const bases = await responseJson<{ bases: ProductBase[] }>(
+    await request.get("/api/admin/knowledge/bases"),
+    "读取受权知识库夹具失败",
+  );
+  const existing = bases.bases.find((base) => base.code === PRODUCT_BASE_CODE);
+  if (existing) return existing;
+
+  const domains = await responseJson<{ domains: ProductDomain[] }>(
+    await request.get("/api/admin/knowledge/domains"),
+    "读取受权知识分类夹具失败",
+  );
+  let family = domains.domains.find((domain) => domain.code === `${PRODUCT_BASE_CODE}_family`);
+  if (!family) {
+    family = (await responseJson<{ domain: ProductDomain }>(
+      await request.post("/api/admin/knowledge/domains", {
+        data: { code: `${PRODUCT_BASE_CODE}_family`, name: "E2E 产品资料", level: "family" },
+      }),
+      "创建受权产品资料族失败",
+    )).domain;
+  }
+  let domain = domains.domains.find((item) => item.code === `${PRODUCT_BASE_CODE}_domain`);
+  if (!domain) {
+    domain = (await responseJson<{ domain: ProductDomain }>(
+      await request.post("/api/admin/knowledge/domains", {
+        data: { code: `${PRODUCT_BASE_CODE}_domain`, name: "E2E 产品规格", level: "domain", parent_id: family.id },
+      }),
+      "创建受权产品资料域失败",
+    )).domain;
+  }
+  return (await responseJson<{ base: ProductBase }>(
+    await request.post("/api/admin/knowledge/bases", {
+      data: { code: PRODUCT_BASE_CODE, name: "E2E 产品资料库", kind: "unstructured", domain_id: domain.id },
+    }),
+    "创建受权非结构化知识库失败",
+  )).base;
+}
+
+test.beforeEach(async ({ request }) => {
+  // 使用系统已有的产品经理账号建立授权，再选择 E2E persona；不把 401/403/409 视作可忽略错误。
+  const login = await request.post("/api/login", { data: { username: "jeffrey", password: "123456789" } });
+  expect(login.ok(), `初始化产品经理授权失败：${login.status()} ${await login.text()}`).toBeTruthy();
+  const persona = await request.post("/api/me/persona", { data: { persona: "sriphy" } });
+  expect(persona.ok(), `初始化测试 persona 失败：${persona.status()} ${await persona.text()}`).toBeTruthy();
+});
 
 test("PDF 草稿可见并独立解析", async ({ page, request }) => {
   const suffix = Date.now().toString();
-  const family = (await (await request.post("/api/admin/knowledge/domains", { data: { code: `ipd_${suffix}`, name: "IPD 测试", level: "family" } })).json()).domain;
-  const domain = (await (await request.post("/api/admin/knowledge/domains", { data: { code: `battery_${suffix}`, name: "电池测试", level: "domain", parent_id: family.id } })).json()).domain;
-  const base = (await (await request.post("/api/admin/knowledge/bases", { data: { code: `spec_${suffix}`, name: "产品规格测试", kind: "unstructured", domain_id: domain.id } })).json()).base;
-  await page.goto("/admin/knowledge");
+  const base = await ensureProductBase(request);
+  await page.goto("/admin/knowledge?stage=create");
   await page.locator("[data-kbv-upload]").click();
   const upload = page.locator("[data-kbv-upload-dialog]");
-  await upload.locator(`[data-kb-scope-family="${family.id}"]`).click();
-  await upload.locator(`[data-kb-scope-domain="${domain.id}"]`).click();
   await upload.locator(`[data-kb-scope-base="${base.id}"]`).click();
   await upload.locator("[data-kbv-upload-pick]").setInputFiles({ name: `产品规格-${suffix}.pdf`, mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\nProduct fixture\n%%EOF") });
-  await upload.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await upload.getByRole("button", { name: "上传并开始解析", exact: true }).click();
   await expect(upload).not.toBeVisible();
-  const detail = page.locator("[data-kbv-detail]");
-  await expect(detail).toContainText("草稿（未解析）");
-  const documents = (await (await request.get(`/api/admin/knowledge/documents?base=${base.id}`)).json()).documents;
-  expect(documents).toHaveLength(1);
-  const doc = documents[0];
-  expect((await (await request.get(`/api/admin/knowledge/documents/${doc.id}`)).json()).jobs).toEqual([]);
-  await detail.getByRole("button", { name: "解析并准备审批" }).click();
-  await expect.poll(async () => (await (await request.get(`/api/admin/knowledge/documents/${doc.id}`)).json()).document.status).toBe("pending_review");
+  const documents = await responseJson<{ documents: Array<{ id: string; title: string; status: string }> }>(
+    await request.get(`/api/admin/knowledge/documents?base=${base.id}`),
+    "读取上传资料失败",
+  );
+  const doc = documents.documents.find((item) => item.title === `产品规格-${suffix}`);
+  expect(doc, "上传的 PDF 应在指定非结构化库中留下独立资料记录").toBeTruthy();
+  await expect.poll(async () => {
+    const detail = await responseJson<{ document: { status: string } }>(
+      await request.get(`/api/admin/knowledge/documents/${doc!.id}`),
+      "读取资料解析状态失败",
+    );
+    return detail.document.status;
+  }, { timeout: 15000, message: "PDF 解析应推进到待审批，而不能伪造已发布" }).toBe("pending_review");
+  await expect(page.locator("[data-workspace-mode='detail']")).toBeVisible();
+  await expect(page.locator("[data-knowledge-right]")).toContainText("待审批");
 });
 
 test("文档问答技能可绑定非结构化库", async ({ page, request }) => {
   const suffix=Date.now().toString();
-  const bases=(await (await request.get("/api/admin/knowledge/bases?kind=unstructured")).json()).bases;
-  const base=bases.find((b:{status:string})=>b.status==="active");
-  expect(base).toBeTruthy();
+  const base=await ensureProductBase(request);
   const skillId = `product_test_${suffix}`;
   await page.goto("/admin/skills");
   await page.getByRole("button", { name: "新增技能", exact: true }).click();

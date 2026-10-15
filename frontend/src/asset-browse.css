@@ -20,3 +20,36 @@
 .asset-browse .asset-view-more .ant-select { height: var(--control-h-sm); }
 .asset-browse .asset-view-more .ant-select-selector { height: var(--control-h-sm); border: 0; box-shadow: none; background: transparent; font-size: var(--ds-font-sm); }
 .asset-browse .asset-read-warning { margin: 0 0 var(--space-2); font-size: var(--ds-font-xs); color: var(--text-quiet); }
+
+/* Skills owns this AssetBrowse composition.  Keep its canvas and reading rail
+   explicit instead of inheriting a transparent surface or an accidental block
+   layout from another browse consumer. */
+.asset-browse[data-skill-catalog] { background: var(--bg); }
+.asset-browse .kbv-rail-inner { display: flex; flex-direction: column; min-height: 0; }
+
+/* Ant's inner native inputs are focusable controls too.  Their own line box
+   must not collapse below the registered small-control target inside the
+   correctly sized outer search/select affordances. */
+#root .asset-browse .kbv-search .ant-input,
+#root .asset-browse .asset-view-more :is(.ant-select-input, .ant-select-selection-search-input) {
+  min-height: var(--control-h-sm) !important;
+  line-height: var(--lh-control-sm) !important;
+}
+#root .asset-browse .knowledge-list-open { line-height: var(--lh-control-sm); }
+
+/* knowledge-page.css ends with a legacy 13px blanket for all controls.  This
+   is the registered L4 supporting text, so keep it at the existing xs token. */
+#root .asset-browse .asset-read-warning { font-size: var(--ds-font-xs) !important; }
+
+@media (pointer: coarse) {
+  /* The prior pseudo-element enlarged the painted area but left the actual
+     focusable boxes at 24/36px.  Touch users need a real 44px target. */
+  #root .asset-browse .knowledge-filter-option,
+  #root .asset-browse .knowledge-filter-action,
+  #root .asset-browse .knowledge-list-row,
+  #root .asset-browse .knowledge-list-open {
+    height: var(--touch-hit-min);
+    min-height: var(--touch-hit-min);
+  }
+  #root .asset-browse .knowledge-list-row { height: var(--touch-hit-min); }
+}

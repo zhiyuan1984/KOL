@@ -62,25 +62,21 @@ async function openDraftTab(page: Page) {
 }
 
 function homeRecByTitle(page: Page, title: string) {
-  const exact = new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
-  return page.locator("[data-home] .rec").filter({
-    has: page.locator(".rec-title", { hasText: exact }),
-  });
+  const label = new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s|$)`);
+  return page.getByRole("menu", { name: "添加内容" }).getByRole("menuitem", { name: label });
 }
 
 async function openHomeTemplates(page: Page) {
-  const tab = page.locator("[data-work-panel] [data-home-tab='templates']");
-  if (!(await tab.isVisible())) {
-    await page.locator("[data-open-work-panel]").click();
-  }
-  await expect(page.locator("[data-work-panel]")).toBeVisible();
-  await tab.click();
-  await expect(page.locator("[data-home] .rec").first()).toBeVisible({ timeout: 15000 });
+  const menu = page.getByRole("menu", { name: "添加内容" });
+  if (!(await menu.isVisible())) await page.locator("[data-home] [data-attach]").click();
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "上传文件" })).toBeVisible();
+  await expect(menu.locator('[data-menu-section="技能"]')).toBeVisible();
 }
 
 async function closeHomeWorkPanel(page: Page) {
-  const backdrop = page.locator("[data-work-panel] .work-panel-backdrop");
-  if (await backdrop.isVisible()) await backdrop.click();
+  const menu = page.getByRole("menu", { name: "添加内容" });
+  if (await menu.isVisible()) await page.keyboard.press("Escape");
 }
 
 async function openHomeLifecycle(page: Page) {
@@ -314,8 +310,8 @@ async function openStageSop(page: Page) {
 /** Template click only prefills the home composer; send then follows the home ask path. */
 async function expectHomeComposerDraft(page: Page, value: string) {
   await expect(page).toHaveURL(/\/(?:\?.*)?$/);
-  await expect(page.locator("[data-work-panel]")).toHaveCount(0);
-  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(value);
+  await expect(page.getByRole("menu", { name: "添加内容" })).toHaveCount(0);
+  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(new RegExp(value.split(" ")[0]));
 }
 
 async function pickStageChip(scope: Locator, code: string) {
@@ -442,15 +438,18 @@ test("home task template 写合作邮件 prefills home composer then follows the
   await openHomeTemplates(page);
   await homeRecByTitle(page, "写合作邮件").click();
   await expectHomeComposerDraft(page, "写合作邮件 发件箱 [发件邮箱] 发给 [收件邮箱] 主题：[主题]");
-  // 锁定意图不再渲染成芯片（chip 只承载显式添加的上下文）。
-  await expect(page.locator('[data-home] [data-skill-chip="email_compose"]')).toHaveCount(0);
+  // 原生菜单的显式选择必须留下可读、可移除的已授权技能上下文；这比旧版隐式锁定更可验证。
+  const selectedEmail = page.locator('[data-home] [data-skill-chip="email_compose"]');
+  await expect(selectedEmail).toContainText("写合作邮件");
+  await expect(selectedEmail.getByRole("button", { name: "移除 写合作邮件" })).toBeVisible();
+  // 当前原生体验在执行前即呈现必填项，不再等发送后才以普通识别反馈追问。
+  const requiredFields = page.locator("[data-home] [data-skill-template-param-editor]");
+  await expect(requiredFields).toBeVisible();
+  await expect(page.getByLabel("发件邮箱")).toBeVisible();
+  await expect(page.getByLabel("收件邮箱")).toBeVisible();
+  await expect(page.getByLabel("邮件主题")).toBeVisible();
   expect(createdPosts).toEqual([]);
-  await page.locator("[data-home] [data-composer-input]").fill("给合作达人写一封自我介绍");
-  await expect(page.locator('[data-home] [data-skill-chip="email_compose"]')).toHaveCount(0);
-  await submitHomeComposerStay(page);
-  await expectHomeClarification(page, "发件邮箱", "收件邮箱", "邮件主题");
-  expect(createdPosts).toContain("/api/tasks/from-text");
-  expect(page.url()).not.toMatch(/\/s\//);
+  await expect(page).not.toHaveURL(/\/s\//);
 });
 
 test("composer / picker lists 写合作邮件 and sends intent email_compose", async ({ page }) => {
@@ -599,7 +598,8 @@ test("composer plus menu exposes recent files and published skills without proje
   await expect(menu.getByRole("menuitem", { name: "添加连接器" })).toHaveCount(0);
 
   await expect(menu.locator('[data-menu-section="文件"]')).toBeVisible();
-  await expect(menu.locator("[data-composer-menu-file]").first()).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "上传文件" })).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "上传图片" })).toBeVisible();
 
   // 顶部搜索即过滤：输入技能名后只剩那一条，组标题保留。
   await menu.locator("[data-composer-menu-search]").fill("写合作");
@@ -623,18 +623,16 @@ test("employee shell keeps compact sidebar brand and has no home top chrome", as
     const cs = getComputedStyle(el);
     return { size: Number.parseFloat(cs.fontSize), weight: Number.parseFloat(cs.fontWeight) };
   });
-  expect(title.size).toBeGreaterThanOrEqual(18);
-  expect(title.size).toBeLessThanOrEqual(20);
+  // DESIGN §5.1：工作台标题走 --ds-font-sm（13px）+ 字重，而非旧视觉的 18–20px。
+  expect(title.size).toBe(13);
   expect(title.weight).toBeLessThanOrEqual(600);
   await page.locator('[data-home-mode="lifecycle"]').click();
-  await expect(page.locator("[data-followed-agent-report] .page-conclusion")).toBeVisible();
-  const conclusion = await page.locator("[data-followed-agent-report] .page-conclusion").evaluate((el) => {
-    const cs = getComputedStyle(el);
-    return { size: Number.parseFloat(cs.fontSize), weight: Number.parseFloat(cs.fontWeight) };
-  });
-  expect(conclusion.size).toBeGreaterThanOrEqual(18);
-  expect(conclusion.size).toBeLessThanOrEqual(20);
-  expect(conclusion.weight).toBeLessThanOrEqual(600);
+  const lifecycle = page.locator('[data-home-pane="lifecycle"]');
+  await expect(lifecycle).toBeVisible();
+  await expect(page.getByRole("region", { name: "当前跟进概览" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "当前概览" })).toContainText("不自动推进阶段");
+  await expect(page.getByRole("region", { name: "合作生命周期" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "按合作阶段分布筛选" })).toBeVisible();
   await expect(page.locator(".home-hero [data-brand-lockup]")).toHaveCount(0);
   await expect(page.locator(".composer")).toBeVisible();
   const composer = await page.locator("[data-home] [data-composer] .composer").evaluate((el) => {

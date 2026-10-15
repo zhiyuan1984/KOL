@@ -1,12 +1,17 @@
 import { expect, test } from "@playwright/test";
 
 test("管理侧发布的产品专家出现在员工目录，并开启绑定该 Agent 的会话", async ({ page, request }) => {
+  const accountResponse = await request.get("/api/me");
+  expect(accountResponse.ok()).toBeTruthy();
+  const account = await accountResponse.json() as { id: string };
+  expect(account.id).toBeTruthy();
   const created = await request.post("/api/admin/agents", { data: { name: "产品专家 E2E", description: "回答产品规格和使用问题" } });
   expect(created.status()).toBe(201);
   const agent = await created.json();
   const skill = await request.put(`/api/admin/agents/${agent.id}/skills/creator_profile`, { data: { enabled: true, expected_version: 0 } });
   expect(skill.ok()).toBeTruthy();
-  const binding = await request.post(`/api/admin/agents/${agent.id}/bindings`, { data: { target_type: "organization_unit", target_id: "org:lt_team" } });
+  // 绑定当前浏览器所用员工，验证真实发布和资格校验；不以放开 409 代替授权。
+  const binding = await request.post(`/api/admin/agents/${agent.id}/bindings`, { data: { target_type: "person", user_id: account.id, reason: "E2E 当前员工资格夹具" } });
   expect(binding.ok()).toBeTruthy();
   const published = await request.patch(`/api/admin/agents/${agent.id}`, { data: { status: "published", expected_version: 1 } });
   expect(published.ok()).toBeTruthy();
