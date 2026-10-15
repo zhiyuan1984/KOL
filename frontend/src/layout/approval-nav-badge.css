@@ -1,0 +1,29 @@
+.approval-nav-badge {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.approval-nav-badge .ant-badge-count {
+  min-width: var(--badge-h);
+  height: var(--badge-h);
+  line-height: var(--badge-h);
+  font-size: var(--font-xs);
+  color: var(--bg);
+  box-shadow: none;
+  transition-property: transform, opacity;
+}
+.approval-nav-badge[data-approval-stale] .ant-badge-count {
+  outline: 1px dashed var(--warning-text);
+  outline-offset: 1px;
+}
+.sidebar-collapsed [data-nav="approvals"] .approval-nav-badge {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  margin-left: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .approval-nav-badge *, .approval-nav-badge *::before {
+    animation: none !important;
+    transition: none !important;
+  }
+}
