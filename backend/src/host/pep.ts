@@ -11,6 +11,7 @@ import { isMissingInputDraft } from "./draft-quality.js";
 import { currentFingerprint, fingerprint } from "./fingerprint.js";
 import { currentUser } from "./persona.js";
 import { departmentHeadAccessForUser } from "../contract-scope.js";
+import { remoteWriteDecision, sameBrand } from "../brand-binding-policy.js";
 
 export { currentFingerprint, fingerprint, TEMPLATES };
 
@@ -181,14 +182,35 @@ export async function enforceSend(draft: Row, user?: Persona | null, ccOverride?
   }
   const fromAddr = String(draft.from_addr);
   const extra = draftExtra(draft);
-  const preferredBrand = String(extra.brand || "") || (draft.collaboration_id
-    ? String(((await getConn().query("SELECT brand FROM collaborations WHERE id=$1",[String(draft.collaboration_id)])).rows[0] as Row | undefined)?.brand || "")
-    : "");
+  const collaboration = draft.collaboration_id
+    ? (await getConn().query("SELECT brand FROM collaborations WHERE id=$1",[String(draft.collaboration_id)])).rows[0] as Row | undefined
+    : undefined;
+  // The collaboration row is the authority for an external write.  Draft extra is
+  // untrusted presentation metadata and may only help drafts without a collaboration.
+  const collaborationBrand = String(collaboration?.brand || "").trim();
+  const bindingDecision = collaboration ? remoteWriteDecision(collaborationBrand) : null;
+  if (bindingDecision && !bindingDecision.write_allowed) {
+    throw new PepFail(
+      "tb_remote_binding_required",
+      403,
+      "TB 尚未完成远端品牌和邮箱绑定，不能发送依赖该绑定的邮件。",
+      "完成远端 TB 品牌与发件箱绑定后再发送",
+    );
+  }
+  const preferredBrand = collaborationBrand || String(extra.brand || "");
   const sender = (await authorizedSenderBrand(fromAddr, u, preferredBrand));
   if (!sender) {
     throw new PepFail("blocked_permission", 403, "From 必须是品牌邮箱（LT/RO/PQ）或本人挂载的邮箱。未发送。", "从授权下拉选择 From");
   }
   const brand = sender.brand;
+  if (collaboration && !sameBrand(brand, collaborationBrand)) {
+    throw new PepFail(
+      "cross_brand_sender_forbidden",
+      403,
+      "发件箱品牌必须与当前合作品牌一致，不能跨品牌代发。未发送。",
+      "选择当前合作品牌的授权发件箱",
+    );
+  }
   const departmentHead = departmentHeadAccessForUser(u);
   const hasBrandScope = departmentHead?.company_wide && departmentHead.brand_scope === "all"
     ? true

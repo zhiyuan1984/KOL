@@ -118,6 +118,37 @@ describe("human-confirmed mail send boundary", () => {
     expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM starry_sends", [])).rows[0] as { n: unknown }).n)).toBe(0);
   });
 
+  it("hard-rejects an old TB draft before claim/provider even when its LT From and extra brand are forged", async () => {
+    // The disabled-mode actor is already authorized for LT/RO/PQ.  The collaboration
+    // row, not the stale draft.extra value, is the server-side brand authority.
+    (await getConn().query("UPDATE collaborations SET brand='TB', mailbox_from=$1 WHERE id='col_xiaomei'", [BRAND_MAILBOXES.LT]));
+    (await getConn().query("UPDATE drafts SET extra=$1 WHERE id=$2", [JSON.stringify({ brand: "LT" }), draftId]));
+    const provider = vi.spyOn(starry, "sendConversation");
+    const draft = await getDraft(draftId);
+
+    await expect(validateMailSend(draft)).rejects.toMatchObject({ status: "tb_remote_binding_required", http: 403 });
+    expect((await mailSendAction(draft)).action).toMatchObject({ enabled: false });
+    await expect(claimMailSend(draftId, { request_id: randomUUID(), confirmation_version: "blocked-tb-current-snapshot" })).rejects.toMatchObject({ status: "tb_remote_binding_required", http: 403 });
+    expect(provider).not.toHaveBeenCalled();
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM mail_send_attempts", [])).rows[0] as { n: unknown }).n)).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM starry_sends", [])).rows[0] as { n: unknown }).n)).toBe(0);
+  });
+
+  it("hard-rejects cross-brand delegation for a multi-brand actor before claim/provider", async () => {
+    // The default test actor has LT/RO/PQ scope; broad scope cannot authorize LT to
+    // send for a current RO collaboration.
+    (await getConn().query("UPDATE collaborations SET brand='RO' WHERE id='col_xiaomei'", []));
+    (await getConn().query("UPDATE drafts SET extra=$1 WHERE id=$2", [JSON.stringify({ brand: "RO" }), draftId]));
+    const provider = vi.spyOn(starry, "sendConversation");
+    const draft = await getDraft(draftId);
+
+    await expect(validateMailSend(draft)).rejects.toMatchObject({ status: "cross_brand_sender_forbidden", http: 403 });
+    await expect(claimMailSend(draftId, { request_id: randomUUID(), confirmation_version: "blocked-cross-brand-current-snapshot" })).rejects.toMatchObject({ status: "cross_brand_sender_forbidden", http: 403 });
+    expect(provider).not.toHaveBeenCalled();
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM mail_send_attempts", [])).rows[0] as { n: unknown }).n)).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM starry_sends", [])).rows[0] as { n: unknown }).n)).toBe(0);
+  });
+
   it("rejects a direct send without any human-confirmed version", async () => {
     await expect(claimMailSend(draftId, {})).rejects.toThrow(/确认/);
     await expect(sendDraft(draftId)).rejects.toThrow(/确认/);

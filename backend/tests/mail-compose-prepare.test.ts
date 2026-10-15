@@ -6,6 +6,7 @@ import type { Hono } from "hono";
 import { BRAND_MAILBOXES, DEMO_USER, PERSONAS, type Persona } from "../src/config.js";
 import { getConn, resetConn } from "../src/db.js";
 import { enforceSend } from "../src/host/pep.js";
+import { composeSenderFor } from "../src/host/compose-sender.js";
 import {
   archiveKnowledge,
   assertMailTemplateSnapshotApplicable,
@@ -489,6 +490,37 @@ describe("未指定发件箱时的默认发件箱", () => {
     expect(response.status, response.text).toBe(200);
     expect(String((response.body.editor as Json).from)).toBe(MOUNTED);
     expect(((response.body.missing_fields as string[]) || [])).not.toContain("from");
+  });
+
+  it("does not default an LT mounted mailbox for TB, whose remote binding is still denied", async () => {
+    (await bindMountedMailbox(MOUNTED, "LT"));
+    (await getConn().query("UPDATE collaborations SET brand='TB', mailbox_from=$1 WHERE id='col_xiaomei'", [BRAND_MAILBOXES.LT]));
+    const col = (await getConn().query("SELECT * FROM collaborations WHERE id='col_xiaomei'",[])).rows[0] as Record<string, unknown>;
+    const sender = await composeSenderFor({ collaboration: col, user: DEMO_USER });
+    expect(sender).toMatchObject({ from: "", send_from: "", source: "none" });
+  });
+
+  it("does not default a unique LT mounted mailbox for a different current collaboration brand", async () => {
+    (await bindMountedMailbox(MOUNTED, "LT"));
+    (await getConn().query("UPDATE collaborations SET brand='RO' WHERE id='col_xiaomei'", []));
+    const col = (await getConn().query("SELECT * FROM collaborations WHERE id='col_xiaomei'",[])).rows[0] as Record<string, unknown>;
+    const sender = await composeSenderFor({ collaboration: col, user: DEMO_USER });
+    expect(sender.send_from).not.toBe(MOUNTED);
+    expect(sender.from).not.toBe(MOUNTED);
+  });
+
+  it("keeps multiple mounted mailbox choices instead of selecting a first mailbox for TB", async () => {
+    const second = "mailer.ro@renogy.com";
+    await bindMountedMailbox(MOUNTED, "LT");
+    const now = new Date().toISOString();
+    (await getConn().query("UPDATE user_starry_bindings SET is_default=0 WHERE user_id=$1",[DEMO_USER.id]));
+    (await getConn().query("INSERT INTO user_starry_bindings (user_id,mailbox_email,is_default,status,updated_at) VALUES ($1,$2,0,'connected',$3)",[DEMO_USER.id,second,now]));
+    (await getConn().query("INSERT INTO mailbox_owners (email,brand,owner_name,account_type,status) VALUES ($1,$2,$3,$4,'active')",[second,"RO",DEMO_USER.name,"personal"]));
+    (await getConn().query("UPDATE collaborations SET brand='TB' WHERE id='col_xiaomei'", []));
+    const col = (await getConn().query("SELECT * FROM collaborations WHERE id='col_xiaomei'",[])).rows[0] as Record<string, unknown>;
+    const sender = await composeSenderFor({ collaboration: col, user: DEMO_USER });
+    expect(sender).toMatchObject({ from: "", send_from: "", source: "none" });
+    expect(sender.candidates.map((candidate) => candidate.email)).toEqual([MOUNTED, second].sort());
   });
 
   it("keeps the brand mailbox fallback when the user has no mounted mailbox", async () => {

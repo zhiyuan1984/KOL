@@ -994,7 +994,7 @@ export async function followCandidate(id: string, input: Json = {}): Promise<Jso
   const created = !linked;
   if (!linked) {
     (await tx(async (db) => {
-      (await db.query("INSERT INTO collaborations\n         (id, handle, display_name, brand, platform, followers, email, mailbox_from,\n          lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,\n          stage_version, locked, kol_uid, source, avg_views_10)\n         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)",[cid,handle,handle,brand || "LT",String(candidate.platform),String(candidate.followers || ""),"",BRAND_MAILBOXES[brand] || BRAND_MAILBOXES.LT,`lc_${cid}`,`conv_${cid}`,"INITIAL_CONTACT",0,"from ai discovery follow",0,0,0,kolUid,"discovery",String(avgViews10(candidate) || "")]));
+      (await db.query("INSERT INTO collaborations\n         (id, handle, display_name, brand, platform, followers, email, mailbox_from,\n          lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,\n          stage_version, locked, kol_uid, source, avg_views_10)\n         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)",[cid,handle,handle,brand || "LT",String(candidate.platform),String(candidate.followers || ""),"",BRAND_MAILBOXES[brand] || "",`lc_${cid}`,`conv_${cid}`,"INITIAL_CONTACT",0,"from ai discovery follow",0,0,0,kolUid,"discovery",String(avgViews10(candidate) || "")]));
     }));
   } else if (isPlaceholderKolUid(linked.kol_uid) || !String(linked.kol_uid || "").trim()) {
     (await getConn().query("UPDATE collaborations SET kol_uid=$1, avg_views_10=COALESCE(NULLIF(avg_views_10,''), $2) WHERE id=$3",[kolUid,String(avgViews10(candidate) || ""),cid]));

@@ -76,11 +76,11 @@ async function crawlJobIdFor(requestId: string): Promise<Awaited<string>> {
   return String(row?.crawl_job_id || "");
 }
 
-async function readyCandidate(): Promise<Json> {
+async function readyCandidate(brand = "LT"): Promise<Json> {
   const created = await request("POST", "/api/discovery/requests", {
     keywords: ["portable power"],
     platforms: ["youtube"],
-    brand: "LT",
+    brand,
     filters: { region: "us", directions: ["户外电源"] },
   });
   expect(created.status).toBe(201);
@@ -318,6 +318,24 @@ describe("ADR-022 P0 follow import", () => {
     expect((regionWarns[0].payload as Json).candidate_region).toBe("");
     const row = (await getConn().query("SELECT status FROM creator_candidates WHERE id=$1",[candidate.id])).rows[0] as Row;
     expect(row.status).toBe("followed");
+  });
+
+  it("keeps a TB discovery follow but stores no LT/RO/PQ mailbox fallback", async () => {
+    setStarryKolClientFactory(() => ({
+      async callTool(name: string) {
+        if (name === "importKolProfilesFromCrawler") return { data: { kolUid: "KOLTBUNBOUND", imported: 1 } };
+        throw new Error(`unexpected tool ${name}`);
+      },
+      async close() {},
+    }));
+    const candidate = await readyCandidate("TB");
+    const followed = await request("POST", `/api/discovery/candidates/${candidate.id}/follow`, { confirmed: true });
+    expect(followed.status).toBe(200);
+    expect(followed.body.status).toBe("followed");
+    const collaborationId = String((followed.body.collaboration as Json).id);
+    expect((await getConn().query("SELECT brand,mailbox_from FROM collaborations WHERE id=$1",[collaborationId])).rows[0])
+      .toEqual({ brand: "TB", mailbox_from: "" });
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
 
   it("same display handle + different platform_creator_id does not rewrite the other kol_uid", async () => {

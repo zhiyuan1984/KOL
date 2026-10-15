@@ -17,6 +17,7 @@ import { normalizeEmail } from "./identity.js";
 import { authorizedSenderBrand, resolveAuthorizedFrom } from "./pep.js";
 import { currentUser } from "./persona.js";
 import { boundMailboxEmail, starryBindingRows } from "./starry-bind.js";
+import { remoteWriteDecision, sameBrand } from "../brand-binding-policy.js";
 
 export type ComposeSenderSource =
   | "explicit"
@@ -71,17 +72,17 @@ async function mountedMailboxSet(user: Persona): Promise<Set<string>> {
   return set;
 }
 
-/** 绑定邮箱的品牌：mailbox_owners 有登记就带上，没有不阻塞。 */
-async function brandForMailbox(email: string): Promise<Awaited<string>> {
-  try {
-    const owner = (await getConn().query("SELECT brand FROM mailbox_owners WHERE lower(email)=lower($1)",[email])).rows[0] as Row | undefined;
-    return String(owner?.brand || "").trim();
-  } catch {
-    return "";
-  }
-}
-
 const emptySender = (): ComposeSender => ({ from: "", send_from: "", brand: "", source: "none", candidates: [] });
+
+/** Compose is only an early hint; PEP repeats this at the Gateway write boundary. */
+async function usableSender(email: string, user: Persona, collaborationBrand: string) {
+  const policy = remoteWriteDecision(collaborationBrand);
+  if (!policy.write_allowed) return null;
+  const owned = await authorizedSenderBrand(email, user, collaborationBrand);
+  if (!owned) return null;
+  if (collaborationBrand && !sameBrand(owned.brand, collaborationBrand)) return null;
+  return owned;
+}
 
 export async function composeSenderFor(input: {
   collaboration?: Row | null;
@@ -97,11 +98,12 @@ export async function composeSenderFor(input: {
   // 第 1 档：明确指定。
   const explicit = normalizeEmail(String(input.requested || ""));
   if (explicit) {
-    const owned = (await authorizedSenderBrand(explicit, user, brand));
+    const owned = (await usableSender(explicit, user, brand));
     if (owned) return { from: owned.email, send_from: owned.email, brand: owned.brand, source: "explicit", candidates: [] };
     const resolved = (await resolveAuthorizedFrom(explicit, user, brand));
-    return resolved.matched
-      ? { from: resolved.email, send_from: resolved.email, brand: String(resolved.brand || ""), source: "explicit", candidates: [] }
+    const resolvedOwned = resolved.matched ? (await usableSender(resolved.email, user, brand)) : null;
+    return resolvedOwned
+      ? { from: resolvedOwned.email, send_from: resolvedOwned.email, brand: resolvedOwned.brand, source: "explicit", candidates: [] }
       : { from: explicit, send_from: "", brand: "", source: "explicit", candidates: [] };
   }
 
@@ -109,17 +111,17 @@ export async function composeSenderFor(input: {
   const selected = normalizeEmail(String(input.selectedMailbox || ""));
   if (selected) {
     if (!(await mountedMailboxSet(user)).has(selected)) return emptySender();
-    const owned = (await authorizedSenderBrand(selected, user, brand));
+    const owned = (await usableSender(selected, user, brand));
     if (owned) return { from: owned.email, send_from: owned.email, brand: owned.brand, source: "selected", candidates: [] };
     return { from: selected, send_from: "", brand: "", source: "selected", candidates: [] };
   }
 
-  // 第 3 档：本人挂载的默认邮箱。绑定即授权：用户在绑定 UI 上明确绑定的邮箱
-  // 直接采用，不强求它是品牌邮箱（个人企业邮箱如 @amperetime.com 不在 BRAND_MAILBOXES 里）。
-  // 品牌能查到就带上，查不到不阻塞发件箱填充。
+  // 第 3 档：本人挂载的默认邮箱。绑定仍需匹配当前合作品牌；不能把唯一的
+  // LT/RO/PQ 邮箱静默预填给另一品牌合作。最终写入仍由 Gateway 重新检查。
   const def = (await defaultBoundMailbox(user));
   if (def) {
-    return { from: def, send_from: def, brand: (await brandForMailbox(def)), source: "user_binding", candidates: [] };
+    const owned = await usableSender(def, user, brand);
+    if (owned) return { from: owned.email, send_from: owned.email, brand: owned.brand, source: "user_binding", candidates: [] };
   }
 
   // 挂了多只又没有默认：不取第一只，返回候选让人选。
@@ -130,14 +132,16 @@ export async function composeSenderFor(input: {
       candidates: mounted.sort().map((email) => ({ email, label: email })),
     };
   }
-  // 只挂了一只：同样绑定即授权，直接采用。
+  // 只挂了一只也不因“唯一”推断跨品牌发送授权。
   if (mounted.length === 1) {
-    return { from: mounted[0], send_from: mounted[0], brand: (await brandForMailbox(mounted[0])), source: "user_binding", candidates: [] };
+    const owned = await usableSender(mounted[0], user, brand);
+    if (owned) return { from: owned.email, send_from: owned.email, brand: owned.brand, source: "user_binding", candidates: [] };
   }
   // 兜底：legacy 单绑定。
   const legacy = normalizeEmail((await boundMailboxEmail()) || "");
   if (legacy) {
-    return { from: legacy, send_from: legacy, brand: (await brandForMailbox(legacy)), source: "user_binding", candidates: [] };
+    const owned = await usableSender(legacy, user, brand);
+    if (owned) return { from: owned.email, send_from: owned.email, brand: owned.brand, source: "user_binding", candidates: [] };
   }
 
   // 第 4 档：合作记录的 mailbox_from。
@@ -145,11 +149,13 @@ export async function composeSenderFor(input: {
   const resolved = (await resolveAuthorizedFrom(from, user, brand));
   const brandAllowed = resolved.allowed.filter((row) => row.brand === brand);
   if (resolved.matched) {
-    return { from: resolved.email, send_from: resolved.email, brand: String(resolved.brand || ""), source: "collaboration", candidates: [] };
+    const owned = await usableSender(resolved.email, user, brand);
+    if (owned) return { from: owned.email, send_from: owned.email, brand: owned.brand, source: "collaboration", candidates: [] };
   }
   // 第 5 档：品牌唯一授权箱。
   if (brandAllowed.length === 1) {
-    return { from: brandAllowed[0].email, send_from: brandAllowed[0].email, brand: brandAllowed[0].brand, source: "brand_unique", candidates: [] };
+    const owned = await usableSender(brandAllowed[0].email, user, brand);
+    if (owned) return { from: owned.email, send_from: owned.email, brand: owned.brand, source: "brand_unique", candidates: [] };
   }
   return emptySender();
 }
