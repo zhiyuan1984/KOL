@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { reviewApi } from "./api";
+import { reviewApi, ReviewApiError } from "./api";
+import { REVIEW_INBOX_CHANGED_EVENT, refreshReviewInbox } from "./inbox-events";
 type Notice = {
   id: string;
   instance_id: string;
@@ -18,22 +19,43 @@ export function ReviewInbox({
     [error, setError] = useState(""), [unreadCount, setUnreadCount] = useState<number>(),
     [open, setOpen] = useState(false), [loading, setLoading] = useState(true), [opening, setOpening] = useState("");
   const root = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null), request = useRef(0);
+  const inFlight = useRef(false), refreshAgain = useRef(false), mounted = useRef(false);
   const panelId = useId();
   async function load() {
+    if (inFlight.current) { refreshAgain.current = true; return; }
+    inFlight.current = true;
     const current = ++request.current; setLoading(true);
     try {
       const inbox = await reviewApi<{ items: Notice[]; unreadCount: number }>("/approvals/v2/notifications/inbox");
       if (current !== request.current) return;
       setRows(inbox.items); setUnreadCount(inbox.unreadCount); setError("");
     } catch (e) {
-      if (current === request.current) setError((e as Error).message);
+      if (current === request.current) {
+        setError((e as Error).message);
+        if (e instanceof ReviewApiError && [401,403].includes(e.status)) { setRows([]); setUnreadCount(undefined); }
+      }
     } finally {
       if (current === request.current) setLoading(false);
+      inFlight.current = false;
+      if (mounted.current && refreshAgain.current) { refreshAgain.current = false; void load(); }
     }
   }
   useEffect(() => {
+    mounted.current = true;
     void load();
-    return () => { ++request.current; };
+    const visible = () => { if (document.visibilityState === "visible") void load(); };
+    const changed = () => { void load(); };
+    const timer = window.setInterval(visible,15000);
+    window.addEventListener("focus",visible);
+    document.addEventListener("visibilitychange",visible);
+    window.addEventListener(REVIEW_INBOX_CHANGED_EVENT,changed);
+    return () => {
+      mounted.current = false; ++request.current;
+      window.clearInterval(timer);
+      window.removeEventListener("focus",visible);
+      document.removeEventListener("visibilitychange",visible);
+      window.removeEventListener(REVIEW_INBOX_CHANGED_EVENT,changed);
+    };
   }, [refreshKey]);
   useEffect(() => {
     if (!open) return;
@@ -79,7 +101,7 @@ export function ReviewInbox({
                     `/approvals/v2/notifications/${n.id}/read`,
                     {},
                   );
-                  await load();
+                  refreshReviewInbox();
                 } catch (e) {
                   setError((e as Error).message);
                 } finally {

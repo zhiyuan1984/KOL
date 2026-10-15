@@ -10,6 +10,8 @@ import { HttpFail } from "../host/errors.js";
 import { ensureOrganizationTree } from "../runtime/organization-tree.js";
 import { guardKnowledgeReview } from "../knowledge/publication.js";
 import { reviewStarters } from "../approval/review-starters.js";
+import { getConn } from "../db.js";
+import { inApprovalBox } from "../approval/queue.js";
 
 export const reviews = new Hono();
 reviews.use("/approvals/v2/*", async (_c,next)=>{ await ensureOrganizationTree(); await next(); });
@@ -23,6 +25,18 @@ async function mutation<T>(tenant:string|undefined,action:(service:PostgresRevie
 const tenant=(c:any)=>c.req.header("X-Review-Company")||undefined;
 
 reviews.get("/approvals/v2/instance-page",async c=>c.json(await native(tenant(c),async s=>(s.instancePage({cursor:c.req.query("cursor"),q:c.req.query("q"),filter:c.req.query("filter"),limit:c.req.query("limit")?Number(c.req.query("limit")):undefined})))));
+reviews.get("/approvals/v2/badge",async c=>{
+  const summary=await native(tenant(c),async s=>({
+    nativeCount:await s.pendingCount(),
+    unreadCount:await s.unreadNotificationCount(),
+    tenant:s.ctx.tenant,
+  }));
+  const legacyRows=(await getConn().query<{status:string;chain:string;current_index:number}>(
+    "SELECT status,chain,current_index FROM approvals WHERE kind='ontology_change' AND status='pending'",[])).rows;
+  const legacyCount=legacyRows.filter(row=>inApprovalBox({...row,chain:JSON.parse(row.chain)},"inbox",scopedUser()||undefined)).length;
+  c.header("Cache-Control","no-store");
+  return c.json({...summary,legacyCount,count:summary.nativeCount+legacyCount});
+});
 reviews.get("/approvals/v2/drafts/:id/upgrade",async c=>c.json(await native(tenant(c),async s=>(s.draftUpgrade(c.req.param("id"))))));
 reviews.post("/approvals/v2/drafts/:id/upgrade",async c=>{const b=await body(c);return c.json(await mutation(tenant(c),async s=>(s.upgradeDraft(c.req.param("id"),b.expectedVersion,b.targetVersion))));});
 reviews.get("/admin/approval-types/v2/templates/:id/diff",async c=>c.json(await native(tenant(c),async s=>(s.publishDiff(c.req.param("id"))))));
