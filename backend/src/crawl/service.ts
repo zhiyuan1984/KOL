@@ -1,5 +1,6 @@
 import { postgresConnection } from "../postgres/pool.js";
 import type { PoolClient } from "pg";
+import { trackBackgroundWork } from "../background-work.js";
 import { createMediaCrawlerClient, mediaCrawlerConfigured } from "./managed-connection.js";
 import {
   CRAWL_ACTIVE_MESSAGE,
@@ -16,7 +17,7 @@ import { CRAWL_PLATFORM_SET } from "./platforms.js";
 import { rejectDiscoveryHarnessTool } from "../gateway/discovery-harness.js";
 import { withCrawlerInstanceLock, assertNoRuntimeCrawl } from "./runtime-gates.js";
 import { getConnectorConfig } from "../runtime/store.js";
-import { postgresPool, postgresTransaction } from "../postgres/pool.js";
+import { onPostgresPoolClosing, postgresPool, postgresTransaction } from "../postgres/pool.js";
 type CreatorScore = { score: number; followers: number; sample_size: number; view_median: number; view_mean: number; view_follower_ratio: number; stability: number; sample_confidence: number; };
 function calculateCreatorScore(followers: number, recentViews: number[]): CreatorScore {
   const views = recentViews.filter(value => Number.isFinite(value) && value >= 0).slice(-10);
@@ -30,6 +31,7 @@ const MODES = new Set(["search", "detail", "creator"]);
 const ACTIVE = new Set(["queued", "crawling", "uploading", "analyzing", "starting", "running", "stopping"]);
 const monitors = new Map<string, Awaited<ReturnType<typeof setTimeout>>>();
 const monitorAttempts = new Map<string, number>();
+let monitorGeneration = 0;
 let clientFactory: () => Pick<RemoteMcpClient, "callTool" | "close"> | Promise<Pick<RemoteMcpClient, "callTool" | "close">> = async () => (createMediaCrawlerClient());
 
 /** Discovery (and other hosts) subscribe without importing crawler persistence. */
@@ -47,10 +49,18 @@ async function notifySettled(jobId: string): Promise<void> {
     try { await handler(job); } catch { /* Subscribers cannot change the durable job outcome. */ }
   }
 }
+function cancelMonitor(jobId: string): void {
+  const timer = monitors.get(jobId);
+  if (timer) clearTimeout(timer);
+  monitors.delete(jobId);
+  monitorAttempts.delete(jobId);
+}
 function clearMonitors(): void {
+  monitorGeneration += 1;
   for (const timer of monitors.values()) clearTimeout(timer);
   monitors.clear(); monitorAttempts.clear();
 }
+onPostgresPoolClosing(clearMonitors);
 export function setCrawlMcpClientFactory(factory?: () => Pick<RemoteMcpClient, "callTool" | "close"> | Promise<Pick<RemoteMcpClient, "callTool" | "close">>): void {
   clientFactory = factory || (async () => (createMediaCrawlerClient()));
 }
@@ -165,22 +175,29 @@ function monitorBackoffMs(attempt: number): number { return Math.min(pollInterva
 function scheduleMonitor(jobId: string): void {
   if (monitors.has(jobId)) return;
   const attempt = monitorAttempts.get(jobId) || 0;
-  const timer = setTimeout(async () => {
+  const generation = monitorGeneration;
+  const timer = setTimeout(() => {
+    // clearTimeout cannot revoke a callback already queued on the event loop.
+    if (generation !== monitorGeneration || monitors.get(jobId) !== timer) return;
     monitors.delete(jobId); monitorAttempts.set(jobId, attempt + 1);
-    const job = (await postgresConnection().query<Row>("SELECT status,started_at,created_at FROM crawl_jobs WHERE id=$1", [jobId])).rows[0];
-    if (!job || !ACTIVE.has(String(job.status))) { monitorAttempts.delete(jobId); return; }
-    const since = Date.parse(String(job.started_at || job.created_at || ""));
-    if (Number.isFinite(since) && Date.now() - since > monitorMaxMs()) { monitorAttempts.delete(jobId); await failJob(jobId, "远程采集长时间没有结束，已停止监控。"); return; }
-    await monitorCrawlJob(jobId).catch(() => undefined);
-    const current = (await postgresConnection().query<Row>("SELECT status FROM crawl_jobs WHERE id=$1", [jobId])).rows[0];
-    if (current && ACTIVE.has(String(current.status))) scheduleMonitor(jobId); else monitorAttempts.delete(jobId);
+    void trackBackgroundWork((async () => {
+      const job = (await postgresConnection().query<Row>("SELECT status,started_at,created_at FROM crawl_jobs WHERE id=$1", [jobId])).rows[0];
+      if (generation !== monitorGeneration) return;
+      if (!job || !ACTIVE.has(String(job.status))) { monitorAttempts.delete(jobId); return; }
+      const since = Date.parse(String(job.started_at || job.created_at || ""));
+      if (Number.isFinite(since) && Date.now() - since > monitorMaxMs()) { monitorAttempts.delete(jobId); await failJob(jobId, "远程采集长时间没有结束，已停止监控。"); return; }
+      await monitorCrawlJob(jobId).catch(() => undefined);
+      if (generation !== monitorGeneration) return;
+      const current = (await postgresConnection().query<Row>("SELECT status FROM crawl_jobs WHERE id=$1", [jobId])).rows[0];
+      if (generation === monitorGeneration && current && ACTIVE.has(String(current.status))) scheduleMonitor(jobId); else monitorAttempts.delete(jobId);
+    })(), "crawl.monitor");
   }, monitorBackoffMs(attempt));
   timer.unref?.(); monitors.set(jobId, timer);
 }
 export async function monitorCrawlJob(jobId: string): Promise<Json> {
   const job = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [jobId])).rows[0];
   if (!job) throw new HttpFail(404, { code: "crawl_job_not_found", message: "未找到该采集任务。" });
-  if (!ACTIVE.has(String(job.status)) || !job.remote_task_id) return publicJob(job);
+  if (!ACTIVE.has(String(job.status)) || !job.remote_task_id) { cancelMonitor(jobId); return publicJob(job); }
   try {
     const result = await remoteCall("get_crawl_status", { task_id: String(job.remote_task_id) }, jobId); const status = statusOf(result); const nested = json(result.data);
     const remoteError = result.error_message || result.error || result.message || nested.error_message || nested.error || nested.message || null;
@@ -234,10 +251,10 @@ async function completeJob(jobId: string): Promise<void> {
   const candidateRows = (await postgresConnection().query<Row>(`SELECT c.id,c.platform,c.platform_creator_id,c.name AS nickname,c.followers,c.score,s.recent_views,s.score_details,s.collected_at FROM claw_creators c LEFT JOIN creator_snapshots s ON s.id=(SELECT latest.id FROM creator_snapshots latest WHERE latest.creator_id=c.id ORDER BY latest.created_at DESC LIMIT 1) WHERE c.platform=$1 ORDER BY c.score DESC LIMIT 100`, [job.platform])).rows;
   const candidates = candidateRows.map(row => ({ ...row, recent_views: parseArray(row.recent_views), score_details: parse(row.score_details), confidence: Number((parse(row.score_details).sample_confidence as number | undefined) || 0), contact_needed: true })); const payload: Json = { type: "task_result", title: "达人采集结果", summary: `已接收 ${ingestion.accepted} 位候选达人。`, candidates, contact_needed: true, notice: "仅提供平台 ID、昵称与基础评分；未生成或推测邮箱。", recommended_actions: ["复核候选达人", "通过既有渠道补充联系方式后再创建建联任务"], crawl_job_id: jobId }; const now = nowIso();
   await postgresTransaction(async client => { const locked = (await client.query<Row>("SELECT * FROM crawl_jobs WHERE id=$1 FOR UPDATE", [jobId])).rows[0]; if (!locked) return; let messageId: string | null = null; if (locked.session_id) { messageId = nid("msg"); await client.query("INSERT INTO messages (id,session_id,role,kind,payload,created_at) VALUES ($1,$2,'assistant','task_result_card',$3,$4)", [messageId, locked.session_id, JSON.stringify(payload), now]); await client.query("UPDATE sessions SET updated_at=$1 WHERE id=$2", [now, locked.session_id]); } await client.query(`INSERT INTO task_artifacts (id,work_item_id,run_id,artifact_type,message_id,version,payload,created_at) VALUES ($1,$2,NULL,'task_result_card',$3,1,$4,$5)`, [nid("art"), locked.work_item_id, messageId, JSON.stringify(payload), now]); const finished = (await client.query<Row>("UPDATE crawl_jobs SET status='result_ready',upload_error=NULL,completed_at=$1,updated_at=$1,data_version=data_version+1 WHERE id=$2 RETURNING *", [now, jobId])).rows[0]; await client.query("UPDATE tickets SET status='waiting',updated_at=$1,data_version=data_version+1 WHERE id=$2", [now, locked.work_item_id]); await eventIn(client, finished, "result_ready", "result_ready", `Result ready with ${candidates.length} candidates`); });
-  await notifySettled(jobId);
+  cancelMonitor(jobId); await notifySettled(jobId);
 }
-async function failJob(jobId: string, error: unknown): Promise<void> { const safe = persistableEmployeeError(error); const now = nowIso(); await postgresTransaction(async client => { const job = (await client.query<Row>("SELECT * FROM crawl_jobs WHERE id=$1 FOR UPDATE", [jobId])).rows[0]; if (!job) return; const failed = (await client.query<Row>("UPDATE crawl_jobs SET status='error',error=$1,completed_at=$2,updated_at=$2,data_version=data_version+1 WHERE id=$3 RETURNING *", [safe, now, jobId])).rows[0]; await client.query("UPDATE tickets SET status='failed',updated_at=$1,data_version=data_version+1 WHERE id=$2", [now, job.work_item_id]); await eventIn(client, failed, "error", "error", safe); }); await notifySettled(jobId); }
-export async function stopCrawl(jobId: string): Promise<Json> { const job = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [jobId])).rows[0]; if (!job) throw new HttpFail(404, { code: "crawl_job_not_found", message: "未找到该采集任务。" }); if (!ACTIVE.has(String(job.status))) return publicJob(job); if (!job.remote_task_id) throw new HttpFail(409, { code: "crawl_job_no_remote_task", message: "采集任务尚未关联远程任务。" }); await postgresConnection().query("UPDATE crawl_jobs SET status='stopping',updated_at=$1 WHERE id=$2", [nowIso(), jobId]); try { await remoteCall("stop_crawl", { task_id: String(job.remote_task_id) }, jobId); } catch (error) { await failJob(jobId, error); throw error; } const now = nowIso(); await postgresTransaction(async client => { const stopped = (await client.query<Row>("UPDATE crawl_jobs SET status='stopped',completed_at=$1,updated_at=$1,data_version=data_version+1 WHERE id=$2 RETURNING *", [now, jobId])).rows[0]; await client.query("UPDATE tickets SET status='waiting',updated_at=$1,data_version=data_version+1 WHERE id=$2", [now, job.work_item_id]); await eventIn(client, stopped, "stopped", "stopped", "Crawl stopped"); }); await notifySettled(jobId); return await requireCrawlJob(jobId); }
+async function failJob(jobId: string, error: unknown): Promise<void> { const safe = persistableEmployeeError(error); const now = nowIso(); await postgresTransaction(async client => { const job = (await client.query<Row>("SELECT * FROM crawl_jobs WHERE id=$1 FOR UPDATE", [jobId])).rows[0]; if (!job) return; const failed = (await client.query<Row>("UPDATE crawl_jobs SET status='error',error=$1,completed_at=$2,updated_at=$2,data_version=data_version+1 WHERE id=$3 RETURNING *", [safe, now, jobId])).rows[0]; await client.query("UPDATE tickets SET status='failed',updated_at=$1,data_version=data_version+1 WHERE id=$2", [now, job.work_item_id]); await eventIn(client, failed, "error", "error", safe); }); cancelMonitor(jobId); await notifySettled(jobId); }
+export async function stopCrawl(jobId: string): Promise<Json> { const job = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [jobId])).rows[0]; if (!job) throw new HttpFail(404, { code: "crawl_job_not_found", message: "未找到该采集任务。" }); if (!ACTIVE.has(String(job.status))) return publicJob(job); if (!job.remote_task_id) throw new HttpFail(409, { code: "crawl_job_no_remote_task", message: "采集任务尚未关联远程任务。" }); await postgresConnection().query("UPDATE crawl_jobs SET status='stopping',updated_at=$1 WHERE id=$2", [nowIso(), jobId]); try { await remoteCall("stop_crawl", { task_id: String(job.remote_task_id) }, jobId); } catch (error) { await failJob(jobId, error); throw error; } const now = nowIso(); await postgresTransaction(async client => { const stopped = (await client.query<Row>("UPDATE crawl_jobs SET status='stopped',completed_at=$1,updated_at=$1,data_version=data_version+1 WHERE id=$2 RETURNING *", [now, jobId])).rows[0]; await client.query("UPDATE tickets SET status='waiting',updated_at=$1,data_version=data_version+1 WHERE id=$2", [now, job.work_item_id]); await eventIn(client, stopped, "stopped", "stopped", "Crawl stopped"); }); cancelMonitor(jobId); await notifySettled(jobId); return await requireCrawlJob(jobId); }
 export async function retryUpload(jobId: string): Promise<Json> { const job = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [jobId])).rows[0]; if (!job?.remote_task_id) throw new HttpFail(409, { code: "crawl_job_no_remote_task", message: "采集任务尚未关联远程任务。" }); const result = await remoteCall("upload_creators", { task_id: job.remote_task_id }, jobId); await postgresConnection().query("UPDATE crawl_jobs SET upload_error=NULL,updated_at=$1 WHERE id=$2", [nowIso(), jobId]); await event(jobId, "upload_retried", String(job.status), "Creator upload retried"); return result; }
 export async function ingestMediacrawler(body: Json): Promise<Json> {
   const result = await postgresTransaction(async client => (ingestCreatorsIn(client, body)));

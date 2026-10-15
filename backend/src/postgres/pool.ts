@@ -12,6 +12,12 @@ let poolUrl: string | null = null;
 // pg-pool removes clients from its internal array before client.end completes.
 // Its end() Promise therefore is not the physical socket-close barrier.
 const physicalClients = new WeakMap<Pool, Set<PoolClient>>();
+const closingHooks = new Set<() => void>();
+/** Stop timer producers synchronously; their running work remains drainable. */
+export function onPostgresPoolClosing(hook: () => void): () => void {
+  closingHooks.add(hook);
+  return () => closingHooks.delete(hook);
+}
 export function requiredPostgresUrl(): string {
   const value = String(process.env.DATABASE_URL || "").trim();
   if (!value) throw new Error("DATABASE_URL is required; PostgreSQL is the only supported authority store");
@@ -130,6 +136,7 @@ export async function postgresQuery<T extends QueryResultRow = QueryResultRow>(t
 }
 export async function closePostgresPool(): Promise<void> {
   if (currentTransactionClient()) throw new Error("Cannot close the PostgreSQL pool from an active business transaction");
+  for (const hook of closingHooks) hook();
   await drainBackgroundWork();
   if (!pool) return;
   const current = pool;
