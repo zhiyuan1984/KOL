@@ -315,13 +315,15 @@ async function selectReceiptCandidateLabel(
     return existing;
   }
   if (!isLegalGeneratedMailLabelName(candidate.name)) throw new HttpFail(409, { code: "candidate_receipt_invalid" });
-  return (selectScopedLabel(
+  const label = await selectScopedLabel(
     client,
     actorId,
     mailbox,
     { name: normalizeMailLabelName(candidate.name) },
     "add",
-  ))!;
+  );
+  if (!label) throw new HttpFail(409, { code: "candidate_label_changed" });
+  return label;
 }
 
 async function consumeReceipt(client: PoolClient, receipt: MailLabelSuggestionReceipt): Promise<void> {

@@ -489,7 +489,7 @@ export class SkillExecution {
         const claim = await claimRuntimeAction(action.id, this.context.userId, snapshot, {
           agentId: this.context.agentId, skillId: this.context.skillId, connectorId: handle.connectorId, toolName: handle.remoteName,
           agentSkillVersion: Number(authorized.binding.version), connectorConfigVersion: Number(authorized.configuration.version),
-          skillConnectorVersion: Number(authorized.resourceBinding.version), toolBindingVersion: Number(authorized.toolBinding.version),
+          skillConnectorVersion: Number(authorized.resourceBinding.version), skillToolVersion: Number(authorized.toolBinding.version),
           toolPolicyVersion: Number(authorized.policy.version),
         });
         if (!claim.claimed) {

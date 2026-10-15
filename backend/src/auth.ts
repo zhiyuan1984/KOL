@@ -116,7 +116,7 @@ export function requireAdmin(): AppUser {
       manager_user_id: null,
       active: true,
       exam_passed: scopedUser()?.exam_passed ?? DEMO_USER.exam_passed,
-      exam_todo_count: scopedUser()?.exam_todo_count ?? DEMO_USER.exam_todo_count,
+      exam_todo_count: scopedUser()?.exam_todo_count ?? DEMO_USER.exam_todo_count ?? 0,
       exam_module: DEMO_USER.exam_module,
     };
   }

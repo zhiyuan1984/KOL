@@ -457,11 +457,11 @@ if (userId === undefined) userId = (await knowledgeActorId());
   };
 }
 
-async function listed(sql: string, args: unknown[], filter?: (row: Row) => boolean, effectiveOnly = false): Promise<Awaited<Json[]>> {
+async function listed(sql: string, args: unknown[], filter?: (row: Row) => boolean | Promise<boolean>, effectiveOnly = false): Promise<Awaited<Json[]>> {
   const userId = (await knowledgeActorId());
   const raw = getConn().prepare(sql).all(...args) as Row[];
-  const all = effectiveOnly ? effectivePublishedRows(raw) : raw;
-  const rows = filter ? all.filter(filter) : all;
+  const all = effectiveOnly ? await effectivePublishedRows(raw) : raw;
+  const rows = filter ? await asyncFilter(all, filter) : all;
   if (!rows.length) return [];
   const ids = rows.map((row) => String(row.id));
   const placeholders = ids.map(() => "?").join(",");
@@ -1610,7 +1610,7 @@ async function viewerHandle(userId: string): Promise<Awaited<string>> {
 async function knowledgeListFilters(opts: KnowledgeListOpts & { inMarket?: boolean } = {}): Promise<Awaited<{
   sql: string;
   args: unknown[];
-  filter: (row: Row) => boolean;
+  filter: (row: Row) => boolean | Promise<boolean>;
 }>> {
   const args: unknown[] = [];
   const clauses = ["k.status='published'"];
@@ -1940,7 +1940,7 @@ export async function resolveForSkill(
   const stage = String(opts.stageCode || "").trim();
   const handle = (await viewerHandle(userId));
   const db = getConn();
-  const published = effectivePublishedRows((await db.query("SELECT * FROM knowledge WHERE status='published'",[])).rows as Row[]);
+  const published = await effectivePublishedRows((await db.query("SELECT * FROM knowledge WHERE status='published'",[])).rows as Row[]);
   const citedIds = new Set(
     ((await db.query("SELECT knowledge_id FROM knowledge_citations WHERE user_id=$1",[userId])).rows as Row[])
       .map((row) => String(row.knowledge_id)),
@@ -2072,7 +2072,7 @@ export async function resolvePreview(input: {
   const bindings: Json[] = bindingRows(skillId).map((row) => ({ ...row, selector: parseSelectorStored(row.selector) }));
   const skipped: KnowledgeResolveSkip[] = [...result.skipped];
   const seen = new Set(skipped.map((entry) => `${entry.knowledge_id}:${entry.reason}`));
-  const published = effectivePublishedRows((await getConn().query("SELECT * FROM knowledge WHERE status='published'",[])).rows as Row[]);
+  const published = await effectivePublishedRows((await getConn().query("SELECT * FROM knowledge WHERE status='published'",[])).rows as Row[]);
   for (const binding of bindings) {
     if (Number(binding.enabled || 0)) continue;
     const selector = parseSelectorStored(binding.selector);

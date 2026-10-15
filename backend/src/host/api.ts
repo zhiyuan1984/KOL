@@ -203,8 +203,8 @@ const progressBySession = new Map<string, (progress: WorkerProgress) => void>();
 const progressWrites = new Map<string, Promise<void>>();
 const progressErrors = new Map<string, unknown>();
 function registerProgress(sid: string, sink: (progress: WorkerProgress) => Promise<void>): void {
-  progressBySession.set(sid, async (progress) => {
-    const previous = (await progressWrites.get(sid)) || (await Promise.resolve());
+  progressBySession.set(sid, (progress) => {
+    const previous = progressWrites.get(sid) || Promise.resolve();
     const next = previous.then(() => sink(progress));
     progressWrites.set(sid, next.catch((error: unknown) => {
       if (!progressErrors.has(sid)) progressErrors.set(sid, error);

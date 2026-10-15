@@ -491,7 +491,7 @@ export async function classifyWithCodexAppServer(text: string, timeoutSec = task
       outputSchema: intentOutputSchema(ids),
     });
     const completed = await rpc.waitTurn();
-    const verdict = parseIntentVerdict(parseCodexTexts(rpc, completed as { turn?: { output?: unknown } }).join("\n"), ids);
+    const verdict = await parseIntentVerdict(parseCodexTexts(rpc, completed as { turn?: { output?: unknown } }).join("\n"), ids);
     if (!verdict.task_type && !verdict.clarification_kind) {
       return { ...verdict, clarification_kind: "direction" };
     }

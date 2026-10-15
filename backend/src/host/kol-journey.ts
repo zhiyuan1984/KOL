@@ -212,7 +212,7 @@ export async function refreshMailDigestAfterChange(
 ): Promise<void> {
   const journey = await journeyPayloadWithMailMemory(collaborationId, opts);
   if (journey && sessionId) publishSession(sessionId, { type: "journey", journey });
-  void ensureCodexThreadDigest(collaborationId, mailHistoryRows(collaborationId), opts)
+  void ensureCodexThreadDigest(collaborationId, await mailHistoryRows(collaborationId), opts)
     .then(async () => (journeyPayloadWithMailMemory(collaborationId)))
     .then((next) => {
       if (next && sessionId) publishSession(sessionId, { type: "journey", journey: next });

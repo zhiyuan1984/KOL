@@ -149,7 +149,7 @@ async function startLegacyCrawl(input: { ownerUserId: string; workItemId: string
       const row = (await client.query<Row>("UPDATE crawl_jobs SET remote_task_id=$1,status='crawling',started_at=$2,updated_at=$2,data_version=data_version+1 WHERE id=$3 RETURNING *", [remoteTaskId, nowIso(), id])).rows[0];
       if (row) await eventIn(client, row, "started", "crawling", `Remote crawl started (${remoteTaskId})`, { remote_task_id: remoteTaskId });
     });
-    scheduleMonitor(id); return (crawlJob(id))!;
+    scheduleMonitor(id); return requireCrawlJob(id);
   } catch (error) {
     await failJob(id, error);
     const source = error instanceof Error ? error.message : error;
@@ -193,7 +193,7 @@ export async function monitorCrawlJob(jobId: string): Promise<Json> {
     try { const logs = await remoteCall("get_crawl_logs", { task_id: String(job.remote_task_id) }, jobId); const data = json(logs.data); const raw = logs.logs || logs.items || data.logs || data.items || []; const lines = (Array.isArray(raw) ? raw : [raw]).slice(-20).map(line => sanitize(typeof line === "object" ? JSON.stringify(line) : line)).filter(Boolean); if (lines.length) await event(jobId, "logs", status || "running", lines.join("\n")); } catch { /* older collector may not expose logs */ }
     if (["idle", "completed", "done"].includes(status) || (["error", "failed"].includes(status) && uploadError)) { try { await completeJob(jobId); } catch (error) { await failJob(jobId, error); } }
     else if (["error", "failed"].includes(status)) await failJob(jobId, remoteError || "remote crawl failed");
-    return (crawlJob(jobId))!;
+    return requireCrawlJob(jobId);
   } catch (error) { await event(jobId, "monitor_error", "running", persistableEmployeeError(error)); throw error; }
 }
 async function fetchCreators(job: Row): Promise<Json[]> {
@@ -231,7 +231,7 @@ async function completeJob(jobId: string): Promise<void> {
   await notifySettled(jobId);
 }
 async function failJob(jobId: string, error: unknown): Promise<void> { const safe = persistableEmployeeError(error); const now = nowIso(); await postgresTransaction(async client => { const job = (await client.query<Row>("SELECT * FROM crawl_jobs WHERE id=$1 FOR UPDATE", [jobId])).rows[0]; if (!job) return; const failed = (await client.query<Row>("UPDATE crawl_jobs SET status='error',error=$1,completed_at=$2,updated_at=$2,data_version=data_version+1 WHERE id=$3 RETURNING *", [safe, now, jobId])).rows[0]; await client.query("UPDATE tickets SET status='failed',updated_at=$1,data_version=data_version+1 WHERE id=$2", [now, job.work_item_id]); await eventIn(client, failed, "error", "error", safe); }); await notifySettled(jobId); }
-export async function stopCrawl(jobId: string): Promise<Json> { const job = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [jobId])).rows[0]; if (!job) throw new HttpFail(404, { code: "crawl_job_not_found", message: "未找到该采集任务。" }); if (!ACTIVE.has(String(job.status))) return publicJob(job); if (!job.remote_task_id) throw new HttpFail(409, { code: "crawl_job_no_remote_task", message: "采集任务尚未关联远程任务。" }); await postgresConnection().query("UPDATE crawl_jobs SET status='stopping',updated_at=$1 WHERE id=$2", [nowIso(), jobId]); try { await remoteCall("stop_crawl", { task_id: String(job.remote_task_id) }, jobId); } catch (error) { await failJob(jobId, error); throw error; } const now = nowIso(); await postgresTransaction(async client => { const stopped = (await client.query<Row>("UPDATE crawl_jobs SET status='stopped',completed_at=$1,updated_at=$1,data_version=data_version+1 WHERE id=$2 RETURNING *", [now, jobId])).rows[0]; await client.query("UPDATE tickets SET status='waiting',updated_at=$1,data_version=data_version+1 WHERE id=$2", [now, job.work_item_id]); await eventIn(client, stopped, "stopped", "stopped", "Crawl stopped"); }); await notifySettled(jobId); return (crawlJob(jobId))!; }
+export async function stopCrawl(jobId: string): Promise<Json> { const job = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [jobId])).rows[0]; if (!job) throw new HttpFail(404, { code: "crawl_job_not_found", message: "未找到该采集任务。" }); if (!ACTIVE.has(String(job.status))) return publicJob(job); if (!job.remote_task_id) throw new HttpFail(409, { code: "crawl_job_no_remote_task", message: "采集任务尚未关联远程任务。" }); await postgresConnection().query("UPDATE crawl_jobs SET status='stopping',updated_at=$1 WHERE id=$2", [nowIso(), jobId]); try { await remoteCall("stop_crawl", { task_id: String(job.remote_task_id) }, jobId); } catch (error) { await failJob(jobId, error); throw error; } const now = nowIso(); await postgresTransaction(async client => { const stopped = (await client.query<Row>("UPDATE crawl_jobs SET status='stopped',completed_at=$1,updated_at=$1,data_version=data_version+1 WHERE id=$2 RETURNING *", [now, jobId])).rows[0]; await client.query("UPDATE tickets SET status='waiting',updated_at=$1,data_version=data_version+1 WHERE id=$2", [now, job.work_item_id]); await eventIn(client, stopped, "stopped", "stopped", "Crawl stopped"); }); await notifySettled(jobId); return requireCrawlJob(jobId); }
 export async function retryUpload(jobId: string): Promise<Json> { const job = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [jobId])).rows[0]; if (!job?.remote_task_id) throw new HttpFail(409, { code: "crawl_job_no_remote_task", message: "采集任务尚未关联远程任务。" }); const result = await remoteCall("upload_creators", { task_id: job.remote_task_id }, jobId); await postgresConnection().query("UPDATE crawl_jobs SET upload_error=NULL,updated_at=$1 WHERE id=$2", [nowIso(), jobId]); await event(jobId, "upload_retried", String(job.status), "Creator upload retried"); return result; }
 export async function ingestMediacrawler(body: Json): Promise<Json> {
   const result = await postgresTransaction(async client => (ingestCreatorsIn(client, body)));
@@ -244,4 +244,9 @@ export async function ingestMediacrawler(body: Json): Promise<Json> {
 export async function clearRemoteHistory(): Promise<Json> { return remoteCall("clear_history", { confirm: true }); }
 export async function restoreActiveCrawlJobs(): Promise<void> { clearMonitors(); const rows = (await postgresConnection().query<Row>(`SELECT id,status,remote_task_id FROM crawl_jobs WHERE status=ANY($1::text[])`, [[...ACTIVE]])).rows; for (const row of rows) { if (!row.remote_task_id) await failJob(String(row.id), "Process restarted before remote task id was persisted"); else scheduleMonitor(String(row.id)); } }
 export async function crawlJob(id: string): Promise<Json | null> { const row = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [id])).rows[0]; return row ? (publicJob(row)) : null; }
+async function requireCrawlJob(id: string): Promise<Json> {
+  const job = await crawlJob(id);
+  if (!job) throw new HttpFail(404, { code: "crawl_job_not_found" });
+  return job;
+}
 export async function crawlEvents(id: string, after = 0): Promise<Json[]> { return (await postgresConnection().query<Row>("SELECT * FROM crawl_job_events WHERE crawl_job_id=$1 AND sequence>$2 ORDER BY sequence", [id, after])).rows.map(row => ({ ...row, payload: parse(row.payload) })); }

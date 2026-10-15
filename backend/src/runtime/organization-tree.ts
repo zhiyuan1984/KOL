@@ -537,7 +537,7 @@ async function previewBulkFromTransaction(
   const change: AgentBindingChange = { add_many: targets.map(({ target_type, target_id, company_id }) => ({ target_type, target_id, company_id })) };
   return previewAgentBindingFromBasis(
     agentId, change, bindings, coverage,
-    async (userId) => (await client.query("SELECT 1 FROM users WHERE id=$1", [userId])).rowCount > 0,
+    async (userId) => Number((await client.query("SELECT 1 FROM users WHERE id=$1", [userId])).rowCount || 0) > 0,
     async (personRef, companyId) => (simulatePersonFromSite(personRef, companyId, client)),
   );
 }

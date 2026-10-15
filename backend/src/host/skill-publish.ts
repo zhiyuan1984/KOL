@@ -300,6 +300,12 @@ export async function activateSkillForHarness(id: string): Promise<Awaited<strin
   return (await writeRuntimeSkill(id));
 }
 
+async function requireCatalogSkill(id: string): Promise<SkillEntry> {
+  const entry = await catalogSkill(id);
+  if (!entry) throw new HttpFail(404, "unknown skill");
+  return entry;
+}
+
 export async function createPublishedSkill(input: CreateSkillInput): Promise<Awaited<SkillEntry>> {
   const spec = normalizeCreate(input);
   if ((await catalogSkill(spec.id)) || isBundledSkill(spec.id)) {
@@ -317,7 +323,7 @@ export async function createPublishedSkill(input: CreateSkillInput): Promise<Awa
     runtime: runtimePath,
     extra_roots: runtimeSkillsRoot(),
   }));
-  const created = catalogSkill(spec.id);
+  const created = await catalogSkill(spec.id);
   if (!created) throw new HttpFail(500, "skill catalog did not pick up the new skill");
   return created;
 }
@@ -328,11 +334,11 @@ export async function setSkillInMarket(id: string, inMarket: boolean): Promise<A
   clearSkillCatalogCache();
   (await activateSkillForHarness(id));
   (await audit((await currentUser()).handle, "skill.market", { skill: id, in_market: inMarket }));
-  return catalogSkill(id)!;
+  return requireCatalogSkill(id);
 }
 
 export async function updatePublishedSkill(id: string, input: UpdateSkillInput): Promise<Awaited<SkillEntry>> {
-  const current = catalogSkill(id);
+  const current = await catalogSkill(id);
   if (!current) throw new HttpFail(404, "unknown skill");
   if (!hasPackPatch(input)) {
     if (typeof input.in_market !== "boolean") throw new HttpFail(400, "in_market required");
@@ -381,7 +387,7 @@ export async function updatePublishedSkill(id: string, input: UpdateSkillInput):
     in_market: spec.in_market,
     runtime: runtimePath,
   }));
-  return catalogSkill(spec.id)!;
+  return requireCatalogSkill(spec.id);
 }
 
 export type SkillDraft = { id: string; patch: Record<string, unknown>; updated_at: string | null };

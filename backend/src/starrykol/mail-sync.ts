@@ -966,7 +966,7 @@ function scheduleBackgroundSync(
   firstPageSize = 0,
 ): Promise<void> {
   if (backgroundSyncTask) return backgroundSyncTask;
-  backgroundSyncTask = (await (async () => {
+  const pending = (async () => {
     try {
       await syncRemainingConversations(remaining, mailbox, collabs, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize);
     } catch (error) {
@@ -1002,11 +1002,13 @@ function scheduleBackgroundSync(
         http_status: failure.httpStatus ?? null,
         retry_after_ms: failure.retryAfterMs ?? null,
       });
-    } finally {
-      backgroundSyncTask = null;
     }
-  })());
-  return backgroundSyncTask;
+  })();
+  const owned = pending.finally(() => {
+    if (backgroundSyncTask === owned) backgroundSyncTask = null;
+  });
+  backgroundSyncTask = owned;
+  return owned;
 }
 
 function timestampMs(value: unknown): number {

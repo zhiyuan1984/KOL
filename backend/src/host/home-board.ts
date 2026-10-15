@@ -680,7 +680,7 @@ if (definitions === undefined) definitions = (await taskDefinitionIndex());
     if (picked.length >= MAX_RECOMMENDED_TASKS) break;
     const handle = bareHandle(task.kol_name || (task.entities as { handle?: unknown } | undefined)?.handle);
     const kol = kolByHandle.get(handle);
-    const intent = insightIntent(task, kol, definitions);
+    const intent = await insightIntent(task, kol, definitions);
     if (!intent) continue;
     const days = Number(kol?.days_in_stage || 0);
     const reason = String(task.risk || task.history_summary || task.description || task.context || "").trim()

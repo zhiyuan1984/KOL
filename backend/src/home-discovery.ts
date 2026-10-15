@@ -1033,7 +1033,7 @@ async function rankHomeDiscoveryRun(run: Row, counts: { raw: number; written: nu
         work_item_id: String(run.work_item_id || ""),
         run_id: String(run.id),
       },
-      () => (await (briefRunner || defaultBriefRunner)({
+      async () => (await (briefRunner || defaultBriefRunner)({
         sessionId,
         prompt: "根据 Host 已过滤的候选人写 discovery_brief/v1。不要编造粉丝、播放或邮箱。",
         extra,
@@ -1191,7 +1191,7 @@ export async function createHomeDiscoveryPlan(body: Json): Promise<Json> {
   };
   const result = await runInDiscoveryHarness(
     { skill: "discovery_plan", session_id: sessionId, work_item_id: workItemId },
-    () => (await (planRunner || defaultPlanRunner)({
+    async () => (await (planRunner || defaultPlanRunner)({
       sessionId,
       prompt: String(body.text || body.prompt || "请把发现目标写成 spec 草稿，不要采集。"),
       extra,
