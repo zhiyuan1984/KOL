@@ -175,12 +175,18 @@ jobs:
           cd ~/kol
           # Other scoped releases may have changes on this host. A deployment
           # must never discard those files while updating the verified revision.
-          if [ -n "$(git status --porcelain)" ]; then
+          # Untracked diagnostic files are retained; merge itself refuses any
+          # untracked-file collision instead of deleting those local artifacts.
+          if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
             echo "Production checkout has local changes; preserve and reconcile them before deployment." >&2
             exit 1
           fi
           git fetch github "$DEPLOY_REVISION"
-          git reset --hard "$DEPLOY_REVISION"
+          if ! git merge-base --is-ancestor HEAD "$DEPLOY_REVISION"; then
+            echo "Production history is not included in the verified revision; reconcile it before deployment." >&2
+            exit 1
+          fi
+          git merge --ff-only "$DEPLOY_REVISION"
           if [ -d data/kol ]; then
             node backend/scripts/validate-kol-data.mjs
           else

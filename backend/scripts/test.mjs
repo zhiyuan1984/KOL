@@ -115,7 +115,7 @@ const adminUrl = String(process.env.TEST_DATABASE_URL || "").trim();
 if (!adminUrl) throw new Error("TEST_DATABASE_URL is required as the isolated PostgreSQL management connection");
 const parsedAdmin = new URL(adminUrl);
 if (!/^postgres(?:ql)?:$/.test(parsedAdmin.protocol)) throw new Error("TEST_DATABASE_URL must be PostgreSQL");
-const template = ident(String(process.env.TEST_DB_TEMPLATE || "kol_native_uiux_template").trim());
+const template = ident(String(process.env.TEST_DB_TEMPLATE || "lingong_template").trim());
 const basePrefix = ident(String(process.env.TEST_DB_PREFIX || "kol_rem_pgbase").trim());
 if (!fs.existsSync(vitest)) throw new Error("locked Vitest entry point is unavailable; install the backend lockfile before testing");
 
