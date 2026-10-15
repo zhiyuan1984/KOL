@@ -39,6 +39,7 @@ const e2ePort = allocatePort(process.env.RELEASE_GATE_E2E_PORT);
 const stubE2eEnv = {
   E2E_MODE: "stub",
   E2E_AUTH_MODE: "disabled",
+  E2E_NATIVE_AUTH_PARTITION: "1",
   CODEX_MODE: "stub",
   NODE_ENV: "test",
   DATABASE_URL: process.env.RELEASE_GATE_E2E_DATABASE_URL || process.env.DATABASE_URL || "",
