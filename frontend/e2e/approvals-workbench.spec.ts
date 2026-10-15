@@ -70,7 +70,7 @@ test("list and detail preserve search and identity, keep current actions visible
   await main.screenshot({ path: test.info().outputPath("approval-workbench.png") });
   await detail.getByRole("button", { name: "更多操作" }).click();
   await expect(detail.getByLabel("转交对象")).toBeVisible();
-  await detail.getByText("操作记录", { exact: true }).click();
+  await detail.getByRole("button", { name: "操作记录", exact: true }).click();
   await expect(detail.locator(".review-event-list li").first()).toContainText("意见：核对无误");
   await expect(detail.locator(".review-event-list li").last()).toContainText("知识已发布");
   for (const viewport of [{ width: 1024, height: 589 }, { width: 390, height: 667 }]) {

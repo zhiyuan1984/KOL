@@ -2,22 +2,20 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 
 test.skip(process.env.E2E_MODE === "real", "This suite submits only to the isolated stub mail adapter, never live SMTP.");
 
+// This is the deterministic published snapshot inserted by the native bootstrap
+// fixture. It is intentionally reused instead of calling the retired direct
+// approval endpoint. It is the sole cited applicable template in this fixture;
+// multi-candidate explicit selection is covered in mail-compose-flow.spec.ts.
+const SEEDED_TEMPLATE_ID = "kb_mail_kol";
+
 async function preparedSession(request: APIRequestContext): Promise<string> {
   const reset = await request.post("/api/demo/reset", { data: { workbench: true } });
   expect(reset.ok()).toBeTruthy();
-  const created = await request.post("/api/admin/knowledge", { data: {
-    id: "e2e_confirmed_first_touch", title: "E2E 首封建联", body: "Published knowledge source",
-    kind: "mail_template", skill_id: "email_compose", brand: "LT", stage_codes: ["INITIAL_CONTACT"],
-    subject: "Partnership with [红人]", body_en: "Hello [红人],\n\nWe would like to explore a collaboration.",
-    placeholders: ["[红人]"], status: "draft", in_market: true,
-    // 新建条目必须挂结构化库；默认库（迁移生成）跨 demo reset 保留。
-    base_id: "kbase_legacy",
-  } });
-  // Demo reset preserves knowledge governance; reuse this suite's published fixture.
-  if (!created.ok()) expect(await created.json()).toEqual({ detail: "knowledge id exists" });
-  // 审批需要携带被审版本号（后端 400 expected_version required）。
-  expect((await request.post("/api/admin/knowledge/e2e_confirmed_first_touch/approve", { data: { expected_version: 1 } })).ok()).toBeTruthy();
-  expect((await request.post("/api/knowledge/e2e_confirmed_first_touch/cite")).ok()).toBeTruthy();
+  // Citation is persona-scoped and idempotent. The template itself is a native
+  // published fixture; the test must not bypass the formal approval/publish
+  // workflow merely to manufacture a selectable mail source.
+  const cited = await request.post(`/api/knowledge/${SEEDED_TEMPLATE_ID}/cite`);
+  expect(cited.ok(), await cited.text()).toBeTruthy();
   const response = await request.post("/api/sessions", { data: { collaboration_id: "col_xiaomei" } });
   expect(response.ok(), await response.text()).toBeTruthy();
   const session = await response.json();
@@ -30,9 +28,8 @@ async function createAuthoredDraft(page: Page, sid: string): Promise<string> {
   await input.fill("/");
   await page.locator('[data-skill-option="email_compose"]').click();
   await expect(page.locator('[data-mail-compose-status="editing"]')).toBeVisible();
-  const candidate = page.locator('[data-mail-compose-candidate="e2e_confirmed_first_touch"]');
-  if (await candidate.isVisible()) await candidate.click();
-  await expect(input).toHaveValue(/We would like to explore a collaboration/);
+  await expect(page.locator("[data-mail-template-source]")).toContainText("首封建联");
+  await expect(input).toHaveValue(/We would love to send a LiTime Mini 12V/);
   await page.locator("[data-mail-compose-subject] input").fill("Employee reviewed partnership subject");
   await input.fill("Hello Xiaomei,\n\nThis exact edited body is the reviewed test draft.\n\nRegards, Test Operator");
   await page.locator("[data-send]").click();
@@ -41,9 +38,9 @@ async function createAuthoredDraft(page: Page, sid: string): Promise<string> {
   await expect(card.locator("[data-draft-body]")).toHaveValue(/This exact edited body is the reviewed test draft/);
   await expect(card.locator("[data-draft-template-source]")).toContainText("第 1 版");
   await expect(page.locator('[data-session-stream-pane] [data-kind="me"]').last()).toContainText("This exact edited body is the reviewed test draft.");
-  // 草稿卡出现在中栏时间流里（最新的贴着输入框上方），发送按钮可见且没有被输入框盖住。
+  // 邮件草稿在结果工作台展开；必须可见、在视口中且发送按钮不被输入框盖住。
   const send = card.locator('[data-email-action="send"]');
-  await expect(page.locator('[data-session-stream-pane] [data-kind="email-card"]').last()).toBeVisible();
+  await expect(card).toBeInViewport();
   await expect(send).toBeInViewport();
   await expect.poll(() => send.evaluate((element) => {
     const rect = element.getBoundingClientRect();
@@ -52,12 +49,6 @@ async function createAuthoredDraft(page: Page, sid: string): Promise<string> {
   })).toBe(true);
   return String(await card.getAttribute("data-card-id"));
 }
-
-test.afterEach(async ({ request }) => {
-  // 夹具行跨运行复用，但个人引用必须清掉：否则同库跑全量时，workbench 的
-  //「cited knowledge template」用例会把这份模板当作首选自动锁定（标题排序先于中文模板）。
-  await request.delete("/api/knowledge/e2e_confirmed_first_touch/cite").catch(() => undefined);
-});
 
 test("choose skill, edit, submit, review exact snapshot and confirm once; cancel never sends", async ({ page, request }, testInfo) => {
   const sid = await preparedSession(request);

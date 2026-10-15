@@ -6,6 +6,14 @@ async function openMode(page: Page, mode: "today" | "todo" | "discovery" | "pool
   await expect(page.locator(`[data-home-pane="${mode}"]`)).toBeVisible();
 }
 
+/** Current task-board authority: scoped result memory plus paged workbench facts. */
+async function stubEmptyTaskScopes(page: Page) {
+  await page.route(/\/api\/home\/(?:today|todo)-tasks(?:\?.*)?$/, (route) => route.fulfill({ json: { items: [] } }));
+  await page.route(/\/api\/workbench\/tasks(?:\?.*)?$/, (route) => route.fulfill({
+    json: { items: [], page: { next_cursor: null } },
+  }));
+}
+
 test.beforeEach(async ({ page, request }) => {
   await request.post("/api/demo/reset", { data: { workbench: true } });
   await request.post("/api/me/persona", { data: { persona: "sriphy" } });
@@ -13,6 +21,8 @@ test.beforeEach(async ({ page, request }) => {
 });
 
 test("home five-mode tab order and pane visibility", async ({ page }) => {
+  // Do not inherit the demo/reset task mix: this is the accepted empty-scope fact.
+  await stubEmptyTaskScopes(page);
   await page.goto("/");
   await expect(page.locator("[data-home-mode]")).toHaveCount(5);
   expect(await page.locator("[data-home-mode]").evaluateAll((els) => (
@@ -92,7 +102,10 @@ test("home five-mode tab order and pane visibility", async ({ page }) => {
 
   await openMode(page, "todo");
   await expect(page.locator("[data-today-summary], [data-home-stats]")).toHaveCount(0);
-  await expect(page.locator('[data-scope-task-rail] [data-attention-filter="due_today"]')).toBeVisible();
+  // DESIGN §8.3: zero-value filters do not render (KPI is the explicit exception).
+  // This native empty board has no due-today fact, so it must not fabricate a reminder.
+  await expect(page.locator('[data-scope-task-rail] [data-attention-filter="due_today"]')).toHaveCount(0);
+  await expect(page.locator('[data-home-pane="todo"] [data-today-list-empty="none"]')).toContainText("没有待办任务");
   await expect(page.locator("[data-home]")).not.toHaveAttribute("data-followed-chrome", "compact");
 });
 

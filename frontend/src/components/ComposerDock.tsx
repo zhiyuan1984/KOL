@@ -842,9 +842,13 @@ export default function ComposerDock({
     pushRecentSkill(s.id);
     // The + menu used to add only an internal chip, leaving the editor blank.
     // Keep the skill visible as an actionable, editable starter just like the
-    // skill catalog does; preserve any text the user has already entered.
+    // skill catalog does; preserve any text the user has already entered. Mail
+    // preparation is different: its receiver/template/context must come from
+    // the server, and its generic starter contains fake address/subject slots.
+    // Do not turn that command hint into a draft before the employee selects a
+    // deterministic template. A real typed remainder remains authoritative.
     const template = selectSkillTemplate(s);
-    const nextText = rest.trim() || starterPrompt({ id: s.id, title: s.title, ui_template: template, starter: s.starter });
+    const nextText = rest.trim() || (s.id === "email_compose" ? "" : starterPrompt({ id: s.id, title: s.title, ui_template: template, starter: s.starter }));
     if (nextText !== value) onChange(nextText);
     setSkillChips((current) => {
       if (current.some((chip) => chip.id === s.id)) return current;

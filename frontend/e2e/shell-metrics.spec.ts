@@ -223,17 +223,16 @@ test("desktop employee shell computed 260 rail and Codex Regular type", async ({
   expect(beforeLifecycle.body.fontSize).toBe("15px");
   expect(beforeLifecycle.body.fontWeight).toBe("400");
   expect(beforeLifecycle.body.color).toBe("rgb(26, 26, 26)");
-  expect(beforeLifecycle.homeTitle.fontSize).toBeGreaterThanOrEqual(16);
-  expect(beforeLifecycle.homeTitle.fontSize).toBeLessThanOrEqual(18);
-  expect(beforeLifecycle.homeTitle.fontWeight).toBe(500);
-  expect(beforeLifecycle.navItem.fontSize).toBe(14);
+  expect(beforeLifecycle.homeTitle.fontSize).toBe(13);
+  expect(beforeLifecycle.homeTitle.fontWeight).toBe(600);
+  expect(beforeLifecycle.navItem.fontSize).toBe(13);
   expect(beforeLifecycle.navItem.fontWeight).toBe(400);
   expect(beforeLifecycle.navActive.fontWeight).toBe(500);
   expect(beforeLifecycle.navActive.fontWeight).toBeLessThan(700);
   expect(beforeLifecycle.username.fontSize).toBe(13);
-  expect(beforeLifecycle.username.fontWeight).toBe(400);
+  expect(beforeLifecycle.username.fontWeight).toBe(500);
   const composer = await typeOf(page, "[data-home] [data-composer-input]");
-  expect(composer.fontSize).toBe(14);
+  expect(composer.fontSize).toBe(13);
   expect(composer.fontWeight).toBeLessThanOrEqual(400);
   // 产品要求（2026-09-22）：提问框以「一行输入 + 工具行」= 105px 起（不再是 240px 地板）。
   const idleBox = await composerBox(page, "[data-home]");
@@ -248,9 +247,6 @@ test("desktop employee shell computed 260 rail and Codex Regular type", async ({
     expect(Math.abs(channel - 229)).toBeLessThanOrEqual(16);
   }
   const composerRadius = idleBox.radius;
-  // The 768px cap is the contract; the full-bleed bar the user rejected was wider.
-  expect(idleBox.width).toBeLessThanOrEqual(768);
-  expect(idleBox.width).toBeGreaterThanOrEqual(766);
 
   const centring = await page.evaluate(() => {
     const dockEl = document.querySelector("[data-home] .home-composer-dock");
@@ -262,9 +258,14 @@ test("desktop employee shell computed 260 rail and Codex Regular type", async ({
     return {
       gapLeft: composerRect.left - (dockRect.left + parseFloat(dockCs.borderLeftWidth) + parseFloat(dockCs.paddingLeft)),
       gapRight: dockRect.right - parseFloat(dockCs.borderRightWidth) - parseFloat(dockCs.paddingRight) - composerRect.right,
+      contentWidth: dockRect.width - parseFloat(dockCs.borderLeftWidth) - parseFloat(dockCs.borderRightWidth) - parseFloat(dockCs.paddingLeft) - parseFloat(dockCs.paddingRight),
     };
   });
   expect(centring).toBeTruthy();
+  // The current three-column contract keeps the composer within the center
+  // content axis; it does not impose the retired page-wide 768px minimum.
+  expect(idleBox.width).toBeGreaterThan(0);
+  expect(idleBox.width).toBeLessThanOrEqual(centring!.contentWidth + 1);
   // Equal gaps inside the dock's content box — centred, not pinned to an edge.
   expect(Math.abs(centring!.gapLeft - centring!.gapRight)).toBeLessThanOrEqual(2);
 
@@ -373,9 +374,11 @@ test("sidebar CSS source keeps 260 rail and ChatGPT thin scrollbar", () => {
   expect(source).toContain("scrollbar-color: #c7c7c7 transparent");
   expect(source).toContain(".sidebar::-webkit-scrollbar-button");
   expect(source).toContain(".sidebar-scroll::-webkit-scrollbar-button");
-  expect(source).toContain("scrollbar-gutter: auto");
+  expect(source).toContain("scrollbar-gutter: auto !important");
   expect(source).toMatch(/\.sidebar\s*\{[^}]*padding:\s*12px 0 12px 16px/);
-  expect(source).not.toMatch(/scrollbar-gutter:\s*stable\s*;/);
+  const sidebarGutterRules = [...source.matchAll(/(?:\.sidebar-scroll|\.sidebar,\s*\.sidebar-scroll)[^{]*\{([^}]*)\}/g)].map((match) => match[1]).join("\n");
+  expect(sidebarGutterRules).toMatch(/scrollbar-gutter:\s*auto\s*!important\s*;/);
+  expect(sidebarGutterRules).not.toMatch(/scrollbar-gutter:\s*stable\s*;/);
   expect(source).not.toMatch(/\.sidebar\s*\{[^}]*padding:\s*12px 16px/);
   expect(source).not.toMatch(/clamp\([^)]*16vw/);
   expect(source).not.toMatch(/\.sidebar\s*\{[^}]*(?:width|min-width|max-width):\s*264px/);

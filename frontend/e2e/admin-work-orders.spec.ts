@@ -71,13 +71,13 @@ test("业务导航可键盘切换，状态筛选与搜索保留，无隐式写�
   await overview.focus(); await page.keyboard.press("End");
   await expect(page.getByRole("tab", { name: /AI 工单模板/ })).toBeFocused();
   await page.getByRole("group", { name: "模板生命周期筛选" }).getByRole("button", { name: "已发布 1" }).click();
-  await page.getByRole("searchbox", { name: "搜索模板" }).fill("寄样");
+  await page.getByRole("textbox", { name: "搜索模板" }).fill("寄样");
   await expect(page.locator("[data-template-table]")).toContainText("寄样跟进");
   await expect(page.locator("[data-template-table]")).not.toContainText("报价跟进");
   await page.getByRole("tab", { name: "治理概览" }).click();
   await expect(report.getByRole("button", { name: "待受理 3" })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("tab", { name: /AI 工单模板/ }).click();
-  await expect(page.getByRole("searchbox", { name: "搜索模板" })).toHaveValue("寄样");
+  await expect(page.getByRole("textbox", { name: "搜索模板" })).toHaveValue("寄样");
   expect(f.writes).toEqual([]); expect(f.errors).toEqual([]);
 });
 

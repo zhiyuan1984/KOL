@@ -101,16 +101,17 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
       pane: pane.getBoundingClientRect().width,
       dock: dockRect.width,
       composer: composerRect.width,
+      contentWidth: contentRight - contentLeft,
       gapLeft: composerRect.left - contentLeft,
       gapRight: contentRight - composerRect.right,
       overflowX: getComputedStyle(pane).overflowX,
     };
   });
   expect(layout).toBeTruthy();
-  // §10b: the ask box is a 768px centred column. The full-bleed footer bar that
-  // spanned the whole content width was rejected, so the cap is the contract.
+  // §10b: 768px is a cap, not a forced minimum inside a narrower workspace.
+  // Assert exact fit to the actual container while retaining the centred cap.
   expect(layout!.composer).toBeLessThanOrEqual(768);
-  expect(layout!.composer).toBeGreaterThanOrEqual(766);
+  expect(Math.abs(layout!.composer - Math.min(768, layout!.contentWidth))).toBeLessThanOrEqual(2);
   expect(layout!.composer).toBeLessThanOrEqual(layout!.dock);
   expect(layout!.overflowX).not.toBe("scroll");
   // ...and it is centred in the dock's content box, not pinned to one edge.
@@ -324,8 +325,10 @@ test("+ menu prefetches on hover so the first open already shows the full catalo
 });
 
 test("settings fields keep a MASTER focus ring and login error-summary uses defined tokens", async ({ page }) => {
-  await page.goto("/settings");
-  const input = page.locator(".field input").first();
+  // Managed enterprise profiles are intentionally read-only. Use the actual
+  // editable security field; no change or password submission is performed.
+  await page.goto("/settings?tab=security");
+  const input = page.getByLabel("当前密码", { exact: true });
   await expect(input).toBeVisible();
   await input.focus();
   const fieldFocus = await input.evaluate((el) => {
@@ -351,7 +354,7 @@ test("settings fields keep a MASTER focus ring and login error-summary uses defi
   near(rgb(summary.color) as number[], [196, 60, 60]);
   near(rgb(summary.bg) as number[], [242, 232, 233]);
 
-  const work = page.locator(".btn.work").first();
+  const work = page.getByRole("button", { name: "更新密码", exact: true });
   await expect(work).toBeVisible();
   const workIdle = await work.evaluate((el) => {
     const cs = getComputedStyle(el);

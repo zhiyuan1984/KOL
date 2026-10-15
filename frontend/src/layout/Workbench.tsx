@@ -40,6 +40,13 @@ export default function Workbench() {
   const [cronAlertCount, setCronAlertCount] = useState(0);
   const [mailUnread, setMailUnread] = useState(0);
   const { account } = useAccount();
+  const actorScope = [
+    account?.id || "anonymous",
+    [...new Set([...(account?.roles || []), account?.role || ""])].filter(Boolean).sort().join(","),
+    [...(account?.brands || [])].sort().join(","),
+    [...(account?.mailboxes || [])].sort().join(","),
+    [...(account?.available_modes || [])].sort().join(","),
+  ].join("|");
   const [mailNavBox, setMailNavBox] = useState<MailBox | null>(null);
   const [previousMailbox, setPreviousMailbox] = useState(() => lastMailbox(account?.id));
   const { admin, debug } = useViewMode();
@@ -54,7 +61,7 @@ export default function Workbench() {
   const sidebarScroll = useRef<HTMLDivElement | null>(null);
   useInsetScrollbar(sidebarScroll);
   // 壳层轮询闸门：上一次读取未返回前不再发下一次（多标签页各自全速轮询曾把单线程后端压到 5–6s 停顿）。
-  const pollInFlight = useRef(false);
+  const pollInFlight = useRef<{ controller: AbortController; scope: string } | null>(null);
 
   useEffect(() => {
     setPendingNav(null);
@@ -71,6 +78,13 @@ export default function Workbench() {
   }, [pendingNav]);
 
   useEffect(() => {
+    let cancelled = false;
+    // A new actor/scope inherits neither rows nor a pending request from the
+    // prior login. The collection remains eligible for its 15s poll: another
+    // tab or a cron run can create work after an idle terminal snapshot.
+    setSessions([]);
+    setTasks([]);
+    setAnalyzeItems([]);
     const applySessions = (rows: SessionRow[]) => {
       setSessions((current) => {
         const queued = current.filter((row) => row.agent_status === "queued");
@@ -95,15 +109,27 @@ export default function Workbench() {
     // 读取合并成一次 Promise.all：共用同一个闸门，也共用同一次后端时隙。
     // 同一份 api.tasks() 在两个消费者之间共享，避免一次刷新发两条相同的读。
     const refresh = () => {
+      if (cancelled) return;
       if (pollInFlight.current) return;
-      pollInFlight.current = true;
-      const taskRows = api.tasks();
-      void Promise.all([
-        api.sessions().then(applySessions).catch(() => undefined),
-        taskRows.then((rows) => kolAnalyzeInFlight(unwrapTaskRows(rows))).then(applyAnalyze).catch(() => undefined),
-        taskRows.then(applyTasks).catch(() => undefined),
-      ]).finally(() => {
-        pollInFlight.current = false;
+      const controller = new AbortController();
+      const flight = { controller, scope: actorScope };
+      pollInFlight.current = flight;
+      // One task promise serves both the task list and its KOL projection.
+      const taskRows = api.tasks(undefined, controller.signal);
+      void Promise.allSettled([
+        api.sessions(false, controller.signal),
+        taskRows,
+      ]).then(([sessionsResult, tasksResult]) => {
+        if (cancelled || controller.signal.aborted || pollInFlight.current !== flight) return;
+        const sessions = sessionsResult.status === "fulfilled" ? sessionsResult.value : null;
+        const tasks = tasksResult.status === "fulfilled" ? unwrapTaskRows(tasksResult.value) : null;
+        if (sessions) applySessions(sessions);
+        if (tasks) {
+          applyAnalyze(kolAnalyzeInFlight(tasks));
+          applyTasks(tasks);
+        }
+      }).finally(() => {
+        if (pollInFlight.current === flight) pollInFlight.current = null;
       });
     };
     // 让位首屏：侧栏会话/在飞分析延后到首帧之后再发。
@@ -116,20 +142,29 @@ export default function Workbench() {
           ? current.map((row) => (row.id === item.id ? { ...row, ...item } : row))
           : [item, ...current]
       ));
+      if (isKolAnalyzeInFlight(item.status)) {
+        refresh();
+      }
     };
     window.addEventListener(ANALYZE_WORK_EVENT, onAnalyze);
-    window.addEventListener("lingong:sessions-refresh", refresh);
+    const refreshFromEvent = refresh;
+    window.addEventListener("lingong:sessions-refresh", refreshFromEvent);
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") refresh();
     }, 15000);
     return () => {
+      cancelled = true;
       window.removeEventListener(ANALYZE_WORK_EVENT, onAnalyze);
-      window.removeEventListener("lingong:sessions-refresh", refresh);
+      window.removeEventListener("lingong:sessions-refresh", refreshFromEvent);
       cancelKickoff();
       window.clearInterval(timer);
-      pollInFlight.current = false;
+      const flight = pollInFlight.current;
+      if (flight?.scope === actorScope) {
+        flight.controller.abort();
+        pollInFlight.current = null;
+      }
     };
-  }, []);
+  }, [actorScope]);
 
   useEffect(() => {
     // 首屏让位：这些 badge 与首屏内容无关，延后到首帧之后再发。

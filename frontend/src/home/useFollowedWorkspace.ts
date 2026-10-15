@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type StarryBinding, type Task } from "../api";
 import { storePending } from "../components/ChatBlocks";
 import { rememberJourney } from "../journey";
@@ -40,6 +40,8 @@ export type FollowListCompleteness =
   | "incomplete-error";
 
 export function useFollowedWorkspace(options: {
+  /** AuthGate-derived actor/authorization scope supplied by Home. */
+  readScopeKey?: string;
   /** board may still load task/workbench data, but is never a follow-list source. */
   loadBoard: (surface: HomeSurface, force?: boolean) => Promise<boolean>;
   /** Retained caller compatibility; board KOL rows are never read by this hook. */
@@ -70,6 +72,7 @@ export function useFollowedWorkspace(options: {
   /** 释放成功后：清理选择并刷新公海面。 */
   onReleased: (kolId: string) => Promise<void>;
 }) {
+  const scopeKey = options.readScopeKey || "actor:unverified";
   const {
     followScope,
     latestFollowScope,
@@ -89,6 +92,14 @@ export function useFollowedWorkspace(options: {
   const [readsDone, setReadsDone] = useState(0);
   const readSeq = useRef(0);
   const reconcileSeq = useRef(0);
+  const readScopeRef = useRef(scopeKey);
+  const scopeVersion = useRef(0);
+  // Update during render so a completed previous-scope promise cannot paint in
+  // the interval before this effect clears the previous private projection.
+  if (readScopeRef.current !== scopeKey) {
+    readScopeRef.current = scopeKey;
+    scopeVersion.current += 1;
+  }
   const [completeness, setCompleteness] = useState<FollowListCompleteness>("loading-local");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<KolSortMode>("time");
@@ -114,6 +125,27 @@ export function useFollowedWorkspace(options: {
   /** A failed/unknown release must read B.active before a subsequent write. */
   const releaseCheckRequired = useRef(new Set<string>());
   const verifiedFollowIds = useRef(new Map<string, string>());
+
+  useEffect(() => {
+    readSeq.current += 1;
+    reconcileSeq.current += 1;
+    verifiedFollowIds.current.clear();
+    releaseCheckRequired.current.clear();
+    releaseBusyRef.current = null;
+    setRows([]);
+    setReadsInFlight(0);
+    setReadsDone(0);
+    setCompleteness("loading-local");
+    setError("");
+    setHoveredId(null);
+    setFocusedId(null);
+    setConfirmStageBusyId(null);
+    setConfirmStageFeedback(null);
+    setBatchPending(null);
+    setReleaseBusyId(null);
+    setReleaseErrorId(null);
+    setReleaseError(null);
+  }, [scopeKey]);
 
   const cards = useMemo(
     () => rows.map((kol) => projectFollowedKolCard(kol, todoItems)),
@@ -159,12 +191,14 @@ export function useFollowedWorkspace(options: {
   const readSurface = useCallback(async (): Promise<FollowedKol[] | null> => {
     // The server has already verified the authorized local and Starry-history
     // rows. Concurrent reads may overlap; only the newest response can paint.
+    const requestScope = scopeKey;
+    const requestScopeVersion = scopeVersion.current;
     readSeq.current += 1;
     const seq = readSeq.current;
     setReadsInFlight((count) => count + 1);
     try {
-      const loaded = await sharedRead("home:following", () => loadHomeFollowing());
-      if (seq !== readSeq.current) return null;
+      const loaded = await sharedRead(`home:${requestScope}:following`, () => loadHomeFollowing());
+      if (requestScope !== readScopeRef.current || requestScopeVersion !== scopeVersion.current || seq !== readSeq.current) return null;
       if (loaded.follow_scope) {
         latestFollowScope.current = loaded.follow_scope;
         setFollowScope(loaded.follow_scope);
@@ -179,15 +213,17 @@ export function useFollowedWorkspace(options: {
       setRows(nextRows);
       return nextRows;
     } catch (cause) {
-      if (seq === readSeq.current) {
+      if (requestScope === readScopeRef.current && requestScopeVersion === scopeVersion.current && seq === readSeq.current) {
         setError(cause instanceof Error ? cause.message : "跟进名单核对失败，请重试");
       }
       return null;
     } finally {
-      setReadsInFlight((count) => Math.max(0, count - 1));
-      setReadsDone((count) => count + 1);
+      if (requestScope === readScopeRef.current && requestScopeVersion === scopeVersion.current) {
+        setReadsInFlight((count) => Math.max(0, count - 1));
+        setReadsDone((count) => count + 1);
+      }
     }
-  }, [latestFollowScope, setFollowScope]);
+  }, [latestFollowScope, scopeKey, setFollowScope]);
 
   /** A direct refresh reads the unified server-authorized follow list. */
   const loadSurface = useCallback(async () => {

@@ -14,6 +14,7 @@ import {
   type SkillTemplate,
   type TaskRunResult,
 } from "../api";
+import { useAccount } from "../components/AuthGate";
 import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
 import { clearPending, storePending, runPendingAsk } from "../components/ChatBlocks";
 import { applyAddressesToText } from "../composer/addresses";
@@ -84,6 +85,7 @@ import {
 import { HOME_COMPOSER_COPY } from "../home/entryRegistry";
 import { surfaceDownView, type HomeSurface } from "../home/surfaceError";
 import { sharedRead } from "../home/sharedRead";
+import { readScopeKey } from "../home/readScopeKey";
 import { SHELL_READ_DELAY_MS } from "../home/firstPaint";
 
 import { isAnalyzeEnqueuePrefill } from "../mail/draftContent";
@@ -353,6 +355,10 @@ async function dispatchDiscoveryPendingAnalysis(taskId: string, sessionId: strin
 }
 
 export default function Home({ sessionRoute }: { sessionRoute?: { id: string; task: Task } } = {}) {
+  const { account } = useAccount();
+  // AuthGate supplies the verified identity/authorization facts; this page does
+  // not derive a scope from any display or business field.
+  const homeReadScope = readScopeKey(account);
   const homeRef = useRef<HTMLDivElement>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [definitions, setDefinitions] = useState<TaskDefinition[]>([]);
@@ -759,7 +765,15 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
   const taskCatalogRef = useRef<Task[]>([]);
   const [taskCatalog, setTaskCatalog] = useState<Task[]>([]);
   /** 进行中的 board 读：后到者共享同一 promise，不把「在途」当成「已就绪」。 */
-  const boardRequestRef = useRef<Promise<boolean> | null>(null);
+  const boardRequestRef = useRef<{ scope: string; request: Promise<boolean> } | null>(null);
+  const homeReadScopeRef = useRef(homeReadScope);
+  const boardScopeVersion = useRef(0);
+  // Ref updates during render close the tiny interval before effects clean old
+  // rows, so a just-resolved old response cannot paint after an actor change.
+  if (homeReadScopeRef.current !== homeReadScope) {
+    homeReadScopeRef.current = homeReadScope;
+    boardScopeVersion.current += 1;
+  }
   const missingAlertRef = useRef<HTMLElement | null>(null);
   const [recognizeStartedAt, setRecognizeStartedAt] = useState<number | null>(null);
   const [recognizeNow, setRecognizeNow] = useState(() => Date.now());
@@ -978,6 +992,26 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
     setFocusedId: () => {},
   });
 
+  // Do not remount AuthGate/Home: drafts and controlled Composer state remain
+  // intact. Only private rows/projections from the previous authorization
+  // scope are cleared while their old requests are made unable to paint.
+  useEffect(() => {
+    boardRequestRef.current = null;
+    boardKolsRef.current = [];
+    taskCatalogRef.current = [];
+    todoItemsRef.current = [];
+    followScopeRef.current = null;
+    setBoardWorkbench(null);
+    setLibraryCount(null);
+    setFollowScope(null);
+    setTasks([]);
+    setTaskCatalog([]);
+    setDefinitions([]);
+    setPoolTemplates({});
+    setSelectedKolIds([]);
+    setDetailTask(null);
+  }, [homeReadScope]);
+
   const setSurfaceError = (surface: HomeSurface, message: string) => {
     if (surface === "following") followedSetErrorRef.current(message);
     else poolSetErrorRef.current(message);
@@ -1011,24 +1045,36 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
     });
   };
 
-  const fetchHomeTasks = () => api.tasks().then(unwrapTaskList).then(applyTaskCatalog);
+  const fetchHomeTasks = () => {
+    const scope = homeReadScope;
+    return api.tasks().then(unwrapTaskList).then((catalog) => {
+      if (scope === homeReadScopeRef.current) applyTaskCatalog(catalog);
+      return catalog;
+    });
+  };
 
   const loadBoard = (surface: HomeSurface, force = false): Promise<boolean> => {
-    if (!force && boardRequestRef.current) return boardRequestRef.current;
+    const scope = homeReadScope;
+    const version = boardScopeVersion.current;
+    if (scope !== homeReadScopeRef.current) return Promise.resolve(false);
+    if (!force && boardRequestRef.current?.scope === scope) return boardRequestRef.current.request;
     const request = api.homeBoard({ refresh: force }).then((board) => {
+      if (scope !== homeReadScopeRef.current || version !== boardScopeVersion.current) return false;
       applyBoard(board, surface);
       return true;
     }).catch((error) => {
-      if (boardRequestRef.current === request) boardRequestRef.current = null;
+      if (scope !== homeReadScopeRef.current || version !== boardScopeVersion.current) return false;
+      if (boardRequestRef.current?.request === request) boardRequestRef.current = null;
       setSurfaceError(surface, error instanceof Error ? error.message : "工作台读取失败");
       return false;
     });
-    boardRequestRef.current = request;
+    boardRequestRef.current = { scope, request };
     return request;
   };
 
   const poolWorkspace = usePoolWorkspace({
     active: mode === "pool",
+    readScopeKey: homeReadScope,
     selectedIds: selectedKolIds,
     loadBoard,
     boardKols: () => boardKolsRef.current,
@@ -1082,6 +1128,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
 
   useEffect(() => {
     let cancelled = false;
+    const scope = homeReadScope;
     // 任务目录与任务定义只服务今日/待办与模板面板：让位首屏后再读，不与公海首读抢时隙。
     // Mount: task definitions + GET /api/tasks (full catalog).
     // Today/Todo filter buckets in FE. view=open is the memory list (compat view=todo).
@@ -1089,13 +1136,13 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
     // first「我跟进的红人」entry or the refresh control.
     const timer = window.setTimeout(() => {
       void api.taskDefinitions().then(definitionList).then((taskDefinitions) => {
-        if (!cancelled && taskDefinitions.length) {
+        if (!cancelled && scope === homeReadScopeRef.current && taskDefinitions.length) {
           setDefinitions(withHomeCommandTemplates(taskDefinitions));
         }
       }).catch(() => undefined);
       if (sessionRoute) return;
       void api.tasks().then(unwrapTaskList).then((catalog) => {
-        if (!cancelled) applyTaskCatalog(catalog);
+        if (!cancelled && scope === homeReadScopeRef.current) applyTaskCatalog(catalog);
       }).catch(() => undefined);
       // board 是「我的红人」对账（旧协作投影）与今日/待办推荐的共享来源：首屏之后再预热一次，
       // 免得首次点「我的红人」还要现场等它。
@@ -1107,7 +1154,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
     };
     // Initial requests load independently so the input and task shell render immediately.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [homeReadScope]);
 
   useEffect(() => {
     // A selected template is only meaningful while it belongs to the active
@@ -1470,7 +1517,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
     void followedWorkspaceRef.current.ensureLoaded();
     // First entry to「我跟进的红人」loads following (B.active); tab switch does not create sessions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
+  }, [mode, homeReadScope]);
 
   useEffect(() => {
     poolWorkspace.cancelClaim();
@@ -1478,10 +1525,11 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
 
   useEffect(() => {
     let alive = true;
+    const scope = homeReadScope;
     // 只读已发布的问题模板（memory 入口，零会话零模型）；缺失时入口禁用并如实提示。
-    sharedRead("home:question-templates", () => api.questionTemplates())
+    sharedRead(`home:${scope}:question-templates`, () => api.questionTemplates())
       .then((rows) => {
-        if (!alive) return;
+        if (!alive || scope !== homeReadScopeRef.current) return;
         const next: Partial<Record<PoolAnalysisKind, QuestionTemplateRow>> = {};
         for (const row of rows || []) {
           if (!(["potential", "risk", "completeness", "score"] as const).includes(row.slot as PoolAnalysisKind)) continue;
@@ -1489,10 +1537,10 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
         }
         setPoolTemplates(next);
       })
-      .catch(() => { if (alive) setPoolTemplates({}); });
+      .catch(() => { if (alive && scope === homeReadScopeRef.current) setPoolTemplates({}); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
+  }, [mode, homeReadScope]);
 
   useEffect(() => {
     if (mode !== "discovery") return;
@@ -1923,6 +1971,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
 
   // 今日任务 / 我的待办 render one workspace over one row projection; only the
   const followedWorkspace = useFollowedWorkspace({
+    readScopeKey: homeReadScope,
     loadBoard,
     boardKols: () => boardKolsRef.current,
     followScope,

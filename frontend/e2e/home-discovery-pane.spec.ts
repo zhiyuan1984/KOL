@@ -62,15 +62,43 @@ function runningCrawl(remoteTaskId = "rt_1") {
       task_id: remoteTaskId,
       complete: true,
       captured_at: "2026-10-06T09:00:00.000Z",
-      candidates: [{
-        id: "cand_rt",
-        name: "Runtime 候选",
-        platform: "youtube",
-        source_url: null,
-        followers: 12000,
-        avg_views_10: null,
-        region: null,
-      }],
+      candidates: nativeRuntimeCandidates(),
+    },
+  };
+}
+
+/** Native session projection: candidates carry the immutable snapshot required by the R3 gateway. */
+function nativeRuntimeCandidates(snapshotSuffix = "v1") {
+  return stubCandidates().map((candidate) => ({
+    id: candidate.id,
+    name: candidate.nickname || candidate.handle || candidate.id,
+    platform: candidate.platform,
+    source_url: candidate.source_url || null,
+    followers: candidate.followers || null,
+    avg_views_10: candidate.avg_views_10 || null,
+    region: null,
+    snapshot_version: `snapshot-${candidate.id}-${snapshotSuffix}`,
+    in_pool: Boolean(candidate.already_in_pool),
+    followers_evidence: {
+      state: "source_recorded",
+      raw_text: candidate.followers ? `${candidate.followers} followers` : null,
+      source_field: "fixture",
+      captured_at: "2026-10-06T09:00:00.000Z",
+      parser_version: "e2e-native-fixture",
+    },
+  }));
+}
+
+function completedCrawl(snapshotSuffix = "v1", remoteTaskId = "rt_1") {
+  return {
+    ...runningCrawl(remoteTaskId),
+    state: "succeeded",
+    result_state: "ready",
+    result_json: {
+      task_id: remoteTaskId,
+      complete: true,
+      captured_at: "2026-10-06T09:00:00.000Z",
+      candidates: nativeRuntimeCandidates(snapshotSuffix),
     },
   };
 }
@@ -92,7 +120,10 @@ async function openDiscoveryWithRun(page: Page, taskId = DISCOVERY_TASK_ID, sess
   await page.route(`**/api/tasks/${taskId}`, (route) => route.fulfill({ json: { task: resumeTask(taskId, sessionId) } }));
   await page.route(`**/api/tasks/${taskId}/events`, (route) => route.fulfill({ json: { events: [] } }));
   await page.goto(`/?tab=discovery&resume=${taskId}`);
-  await expect(page.locator("[data-discovery-search-card]")).toBeVisible();
+  // A terminal native receipt may collapse the read-only form to its submitted
+  // condition summary. The event itself, rather than the expandable editor, is
+  // the stable deep-link completion fact.
+  await expect(page.locator('[data-discovery-event="conditions"]')).toBeVisible();
 }
 
 /** ?resume= 现场的最小形态：tickets.input.discovery_workspace（brief + 提交正文 + 身份）。 */
@@ -528,12 +559,11 @@ test("a failed run keeps one business status block and folds the engine detail",
 });
 
 test("a discovery task resumes its linked run instead of a chat session", async ({ page }) => {
-  await mockExistingRun(page);
-  await stubRuntimeActions(page, () => []);
+  await stubRuntimeActions(page, () => [runtimeAction("succeeded", completedCrawl())]);
   await openDiscoveryWithRun(page);
-  // 打开的是这次运行的结果面：条件卡原位只读、右栏是这批候选，而不是聊天会话。
+  // 打开的是这次运行的原生会话结果面：条件卡原位只读、右栏是这批候选，而不是聊天会话。
   await expect(page.locator("[data-discovery-edit-conditions]")).toBeVisible();
-  await expect(page.locator('[data-discovery-candidate="TheSolarLab"]')).toBeVisible();
+  await expect(page.locator('[data-discovery-candidate="cand_solar"]')).toBeVisible();
   await expect(page.locator("[data-discovery-panel]")).not.toContainText("历史发现");
 });
 
@@ -1267,134 +1297,95 @@ test("修改条件让本次核对失效，并取消未确认的提案", async ({
   expect(posts.filter((path) => CANCEL_STOP_WRITE.test(path) && path !== "/api/actions/runtime.cancel")).toEqual([]);
 });
 
-async function mockExistingRun(page: Page) {
-  await page.route("**/api/home/discovery/runs**", (route) => {
-    const path = new URL(route.request().url()).pathname;
-    if (path.endsWith("/candidates")) {
-      void route.fulfill({ json: { run_id: "drun_e2e", candidates: stubCandidates() } });
-      return;
-    }
-    if (/\/runs\/[^/]+$/.test(path)) {
-      void route.fulfill({ json: { run: stubRun() } });
-      return;
-    }
-    void route.fulfill({ json: { runs: [stubRun()] } });
-  });
-}
-
-test("ingest 404 stays an empty-state and does not claim", async ({ page }) => {
+test("native ingest 404 retains the R3 confirmation and does not claim", async ({ page }) => {
   const claimPosts: string[] = [];
   page.on("request", (item) => {
     const path = new URL(item.url()).pathname;
     if (item.method() === "POST" && path.includes("/claim")) claimPosts.push(path);
   });
-  await mockExistingRun(page);
-  await page.route("**/api/home/discovery/ingest", (route) => route.fulfill({
+  await stubRuntimeActions(page, () => [runtimeAction("succeeded", completedCrawl())]);
+  await page.route("**/api/home/discovery/runtime/act_disc_e2e/candidates/cand_solar/ingest", (route) => route.fulfill({
     status: 404,
     contentType: "application/json",
     body: JSON.stringify({ detail: "not found" }),
   }));
   await openDiscoveryWithRun(page);
-  await page.locator('[data-discovery-select="cand_solar"]').check();
-  await page.locator("[data-discovery-select-all]").check();
-  await page.locator("[data-discovery-ingest]").click();
-  await page.locator("[data-discovery-ingest-yes]").click();
-  await expect(page.locator("[data-discovery-empty='ingest-missing']")).toBeVisible();
-  await expect(page.locator("[data-discovery-empty='ingest-missing']")).toContainText("入库接口尚未提供");
-  await expect(page.locator("[data-discovery-toast]")).toHaveCount(0);
+  const candidate = page.locator('[data-discovery-candidate="cand_solar"]');
+  await candidate.getByRole("checkbox", { name: "选择 Solar Lab" }).check();
+  await page.getByRole("button", { name: "加入公海（1）", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "确认入库公海", exact: true }).click();
+  // No receipt means this R3 decision remains open rather than inventing an empty/pool success.
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("alert")).toContainText(/404|not found/i);
+  await expect(page.locator(".discovery-batch-receipt")).toContainText("本次已确认加入公海 0 位；1 位未完成。");
   expect(claimPosts).toEqual([]);
 });
 
-test("ingest 422 keeps L3 open; 409 voids the old confirm", async ({ page }) => {
-  let ingestStatus = 422;
+test("native ingest refusal keeps R3 open and a changed snapshot voids its confirmation", async ({ page }) => {
+  let snapshot = "v1";
   const bodies: unknown[] = [];
-  await mockExistingRun(page);
-  await page.route("**/api/home/discovery/ingest", async (route) => {
+  await stubRuntimeActions(page, () => [runtimeAction("succeeded", completedCrawl(snapshot))]);
+  await page.route("**/api/home/discovery/runtime/act_disc_e2e/candidates/cand_solar/ingest", async (route) => {
     bodies.push(route.request().postDataJSON());
-    if (ingestStatus === 422) {
-      await route.fulfill({
-        status: 422,
-        contentType: "application/json",
-        body: JSON.stringify({ status: "needs_confirmation", confirmed: false, claimed: false }),
-      });
-      return;
-    }
     await route.fulfill({
-      status: 409,
+      status: 422,
       contentType: "application/json",
-      body: JSON.stringify({
-        detail: { code: "brief_version_mismatch", message: "发现 Brief 已变化，原确认作废。", brief_version: 2 },
-      }),
+      body: JSON.stringify({ detail: "gateway refused this receipt" }),
     });
   });
   await openDiscoveryWithRun(page);
-  await page.locator('[data-discovery-select="cand_solar"]').check();
-  await page.locator("[data-discovery-select-all]").check();
-  await page.locator("[data-discovery-ingest]").click();
-  await page.locator("[data-discovery-ingest-yes]").click();
-  await expect(page.locator("[data-discovery-ingest-confirm]")).toBeVisible();
-  await expect(page.locator("[data-discovery-ingest-error]")).toContainText("需要确认后才能入库公海");
+  await page.locator('[data-discovery-candidate="cand_solar"]').getByRole("checkbox", { name: "选择 Solar Lab" }).check();
+  await page.getByRole("button", { name: "加入公海（1）", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "确认入库公海", exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("alert")).toContainText(/422|gateway refused/i);
   expect(bodies[0]).toMatchObject({
-    run_id: "drun_e2e",
-    expected_brief_version: 1,
+    snapshot_version: "snapshot-cand_solar-v1",
     confirmed: true,
   });
 
-  ingestStatus = 409;
-  await page.locator("[data-discovery-ingest-yes]").click();
-  await expect(page.locator("[data-discovery-ingest-confirm]")).toHaveCount(0);
-  await expect(page.locator("[data-discovery-brief-mismatch]")).toContainText("原确认作废");
-  await expect(page.locator("[data-discovery-toast]")).toHaveCount(0);
+  snapshot = "v2";
+  await page.evaluate(() => window.dispatchEvent(new Event("discovery:candidates-refresh")));
+  await expect(dialog.getByRole("alert")).toContainText("候选资料或归属已变化");
+  await expect(dialog.getByRole("button", { name: "确认入库公海", exact: true })).toBeDisabled();
+  expect(bodies).toHaveLength(1);
 });
 
-test("L3 cancel after 422 posts cancel:true and does not claim", async ({ page }) => {
+test("native R3 cancel writes nothing, including after an unconfirmed receipt", async ({ page }) => {
   const bodies: Array<Record<string, unknown>> = [];
   const claimPosts: string[] = [];
   page.on("request", (item) => {
     const path = new URL(item.url()).pathname;
     if (item.method() === "POST" && path.includes("/claim")) claimPosts.push(path);
   });
-  await mockExistingRun(page);
-  await page.route("**/api/home/discovery/ingest", async (route) => {
-    const body = route.request().postDataJSON() as Record<string, unknown>;
-    bodies.push(body);
-    if (body.cancel === true) {
-      await route.fulfill({
-        json: { status: "cancelled", cancelled: true, claimed: false, items: [] },
-      });
-      return;
-    }
+  await stubRuntimeActions(page, () => [runtimeAction("succeeded", completedCrawl())]);
+  await page.route("**/api/home/discovery/runtime/act_disc_e2e/candidates/cand_solar/ingest", async (route) => {
+    bodies.push(route.request().postDataJSON() as Record<string, unknown>);
     await route.fulfill({
       status: 422,
       contentType: "application/json",
-      body: JSON.stringify({ status: "needs_confirmation", confirmed: false, claimed: false }),
+      body: JSON.stringify({ detail: "gateway receipt pending" }),
     });
   });
   await openDiscoveryWithRun(page);
-  await page.locator('[data-discovery-select="cand_solar"]').check();
-  await page.locator("[data-discovery-select-all]").check();
-  await page.locator("[data-discovery-ingest]").click();
-  await page.locator("[data-discovery-ingest-no]").click();
+  await page.locator('[data-discovery-candidate="cand_solar"]').getByRole("checkbox", { name: "选择 Solar Lab" }).check();
+  await page.getByRole("button", { name: "加入公海（1）", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "取消", exact: true }).click();
   expect(bodies).toEqual([]);
 
-  await page.locator("[data-discovery-ingest]").click();
-  await page.locator("[data-discovery-ingest-yes]").click();
-  await expect(page.locator("[data-discovery-ingest-error]")).toContainText("需要确认后才能入库公海");
-  await page.locator("[data-discovery-ingest-no]").click();
-  await expect.poll(() => bodies.length).toBe(2);
+  await page.getByRole("button", { name: "加入公海（1）", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "确认入库公海", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toContainText(/422|gateway receipt pending/i);
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect.poll(() => bodies.length).toBe(1);
   expect(bodies[0]).toMatchObject({
-    run_id: "drun_e2e",
-    expected_brief_version: 1,
+    snapshot_version: "snapshot-cand_solar-v1",
     confirmed: true,
   });
-  expect(bodies[1]).toMatchObject({
-    run_id: "drun_e2e",
-    expected_brief_version: 1,
-    cancel: true,
-  });
-  expect(bodies[1].confirmed).toBeUndefined();
-  await expect(page.locator("[data-discovery-ingest-confirm]")).toHaveCount(0);
-  await expect(page.locator("[data-discovery-toast]")).toHaveCount(0);
   expect(claimPosts).toEqual([]);
 });
 

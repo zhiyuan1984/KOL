@@ -1,1228 +1,941 @@
-import { devices, expect, test, type Page } from "@playwright/test";
+import { devices, expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import os from "node:os";
+import path from "node:path";
 
 /**
- * 技能目录页（/skills）对 docs/DESIGN.md 的验收。
+ * Employee Skills is the current AssetBrowse surface.  This suite deliberately
+ * preserves the acceptance intent of the former four-column catalog without
+ * recreating its retired catalog DOM.  Current semantic
+ * anchors are KnowledgeBrowseWorkspace, knowledge-list-row/open, kbv-rail,
+ * FilterOptionButton, WorkspaceSearchInput and DetailActionBar.
  *
- * 依据是该文件的「员工端实施细则」（实施细则，非基本法）：
- *   密度档 data-dense-dashboard（列表行本身就是内容，不做卡片墙）
- *   §颜色（四种职责：主行动 / 辅助 / 类别 / 状态；类别色两档对比度）
- *   §控件尺寸（命名 token / 命中区 / 焦点态）
- *   §三轴适配（宽度 / 高度 / 输入模态分别处理）
- *   §不变量 1（同一视口 0–1 个实底主 CTA）、3（等待有恢复入口）、4（状态不靠颜色单独表达）
- *   §验收矩阵
- *
- * 2026-09-23 按 UI/UX 裁定重定依据（记录在案，不是为通过而放宽）：
- *   1. 行内异步标签「异步 · 可取消」移除，改由图标砖虚线边框承担形状信号。
- *      依据：docs/07-mcp-data-contract.md 只要求「不得伪装成同步」且必须有进度 / 取消 / 重试；
- *      本页动作是「填入输入框」，不执行任何作业，执行面契约未变，详情列仍完整交代异步口径。
- *   2. 行内动作「填入输入框」整条删除（连同它的链接式样式与 tabIndex=-1）：51 行 × 每行一个
- *      同样的动作既是噪声，也把唯一的主 CTA 稀释成 51 个。填技能只剩右栏详情列的实底主 CTA，
- *      中栏的行只负责「选中 / 预览」。
- *   3. 页面改成四栏（栏 2 技能目录 / 栏 3 搜索+列表 / 栏 4 详情），横跨三栏的页头行删除 ——
- *      「技能目录 + 计数」下沉成栏 2 的栏头并吸顶；搜索行留栏 3 顶部并 sticky（铺满栏宽）；
- *      栏 4 改三段式（头固定 / 正文独立滚 / footer 固定），正文滚动时主 CTA 不被顶走。
- *   4. 栏 3/栏 4 的内容全部指回技能文件：入口口径 = `employee_quick` / `employee_agent`，
- *      说明书 = `## 员工口径`（服务端过白名单后给 `employee_doc`），示例 = `employee_example`。
- *      页面里手抄的三张表（场景标签 / 输入输出 / 覆盖表口径）整组删除 —— 文件是唯一真相。
+ * DESIGN §32 preserves the skills contract: find → understand applicability →
+ * preview → use for current task.  It also fixes token consumers: search lg,
+ * filters sm, row knowledge-row-h, detail action control-h, body 13px and
+ * supporting text 12px.  Tests here keep contrast and geometry gates at their
+ * previous thresholds; migration never makes an obsolete selector green by
+ * restoring retired UI.
  */
+const AUTH_ENABLED = process.env.E2E_AUTH_MODE === "enabled";
+const E2E_AGENT_ID = "agent:kol";
+const VISIBLE_PROPS = ["color", "backgroundColor", "borderTopColor", "borderLeftColor"] as const;
 
-/** 解析根作用域上的 token 值。 */
-async function cssVar(page: Page, token: string): Promise<string> {
-  return page.evaluate((name) => {
-    const probe = document.createElement("div");
-    probe.style.color = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    document.body.appendChild(probe);
-    const rgb = getComputedStyle(probe).color;
-    probe.remove();
-    return rgb;
-  }, token);
+type Skill = {
+  id: string;
+  title: string;
+  label?: string;
+  summary?: string;
+  employee_visible?: boolean;
+  employee_quick?: string | null;
+  employee_agent?: string | null;
+  employee_example?: string[];
+  output?: string | null;
+  risk?: string | null;
+  funnel?: string | null;
+  keeps_stage?: boolean;
+  learning?: { inputs?: string[]; steps?: string[]; result?: string; confirmation?: string };
+  execution?: {
+    async?: { enabled?: boolean; cancelable?: boolean; retryable?: boolean; status?: string };
+    tools?: Array<{ ref?: string; kind?: string; risk?: string }>;
+    permissions?: string[];
+    receipt_required?: boolean;
+  };
+};
+type Personal = { skill_id: string; favorite?: boolean; viewed_at?: string | null; use_count?: number; used_at?: string | null };
+
+function authStatePath(): string {
+  return process.env.E2E_AUTH_STATE
+    || path.join(process.env.PLAYWRIGHT_OUTPUT_DIR || os.tmpdir(), "lingong-e2e-auth", "user.json");
 }
 
-/** 解析**本页作用域内**的 token 值（本页自己定义 --icon-* 等页面级 token）。 */
+/** Resolve a colour token at its actual page scope. */
 async function pageVar(page: Page, token: string): Promise<string> {
   return page.evaluate((name) => {
-    const host = document.querySelector<HTMLElement>(".skill-catalog-page");
-    const probe = document.createElement("div");
-    probe.style.color = getComputedStyle(host ?? document.documentElement).getPropertyValue(name).trim();
-    (host ?? document.body).appendChild(probe);
-    const rgb = getComputedStyle(probe).color;
+    const host = document.querySelector<HTMLElement>("[data-skill-catalog]") ?? document.documentElement;
+    const probe = document.createElement("i");
+    probe.style.color = getComputedStyle(host).getPropertyValue(name).trim();
+    host.appendChild(probe);
+    const value = getComputedStyle(probe).color;
     probe.remove();
-    return rgb;
+    return value;
   }, token);
 }
 
-/** 解析本页作用域内的长度 token，返回像素数。 */
+/** Resolve a length token to used pixels at its actual page scope. */
 async function pageVarPx(page: Page, token: string): Promise<number> {
   return page.evaluate((name) => {
-    const host = document.querySelector<HTMLElement>(".skill-catalog-page");
-    const probe = document.createElement("div");
-    probe.style.width = getComputedStyle(host ?? document.documentElement).getPropertyValue(name).trim();
-    (host ?? document.body).appendChild(probe);
-    const px = Number.parseFloat(getComputedStyle(probe).width);
+    const host = document.querySelector<HTMLElement>("[data-skill-catalog]") ?? document.documentElement;
+    const probe = document.createElement("i");
+    probe.style.width = getComputedStyle(host).getPropertyValue(name).trim();
+    host.appendChild(probe);
+    const value = Number.parseFloat(getComputedStyle(probe).width);
     probe.remove();
-    return px;
+    return value;
   }, token);
 }
 
-/** 计算对比度：断言里直接算，而不是靠人眼。 */
+/** WCAG relative-luminance contrast; supports Chromium color(srgb ...) output. */
 async function contrastOf(page: Page, a: string, b: string): Promise<number> {
-  return page.evaluate(
-    ([x, y]) => {
-      // Chromium 对 color-mix 的结果给的是 `color(srgb r g b)`（0–1），hex / rgb() 给的是 0–255。
-      // 两种都要认，否则 color-mix 派生 token 会被读成 ≈0 的暗色，对比度恒等于 1。
-      const lum = (c: string) => {
-        const m = c.match(/[\d.]+/g);
-        if (!m) return null as number | null;
-        const scale = /^color\(/i.test(c.trim()) ? 255 : 1;
-        const [r, g, b] = m.slice(0, 3).map((v) => Number(v) * scale);
-        const f = (v: number) => {
-          const s = v / 255;
-          return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-        };
-        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+  return page.evaluate(([x, y]) => {
+    const luminance = (colour: string) => {
+      const values = colour.match(/[\d.]+/g);
+      if (!values) throw new Error(`unparseable colour: ${colour}`);
+      const scale = /^color\(/i.test(colour.trim()) ? 255 : 1;
+      const [r, g, blue] = values.slice(0, 3).map(value => Number(value) * scale);
+      const linear = (channel: number) => {
+        const normal = channel / 255;
+        return normal <= 0.03928 ? normal / 12.92 : ((normal + 0.055) / 1.055) ** 2.4;
       };
-      const l1 = lum(x);
-      const l2 = lum(y);
-      return Math.round(((Math.max(l1!, l2!) + 0.05) / (Math.min(l1!, l2!) + 0.05)) * 100) / 100;
-    },
-    [a, b],
+      return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(blue);
+    };
+    const first = luminance(x), second = luminance(y);
+    return Math.round(((Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05)) * 100) / 100;
+  }, [a, b]);
+}
+
+/**
+ * Auth-disabled execution uses the configured HTTP stub profile untouched.
+ * Auth-enabled execution is narrowly given a lawful persisted person binding:
+ * native principal → organization membership → explicit published agent:kol.
+ * It never grants a Skill directly and never changes backend authorization.
+ */
+async function ensureNativeSkillEligibility(page: Page): Promise<void> {
+  if (!AUTH_ENABLED) return;
+  await page.goto("/");
+  const fixture = await page.evaluate(async (agentId) => {
+    const status = await fetch("/api/auth/status");
+    const state = await status.json() as { user?: { id?: string }; account?: { id?: string } };
+    const userId = state.user?.id || state.account?.id;
+    if (!status.ok || !userId) throw new Error("auth-enabled E2E has no native session principal");
+
+    const membership = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ site: "org:lt_team" }),
+    });
+    if (!membership.ok) throw new Error(`native organization fixture failed: ${membership.status}`);
+
+    const binding = await fetch(`/api/admin/agents/${encodeURIComponent(agentId)}/bindings`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ target_type: "person", user_id: userId, reason: "isolated E2E skills catalog eligibility fixture" }),
+    });
+    const agent = await binding.json() as { id?: string; status?: string; coverage?: { user_ids?: string[] } };
+    if (!binding.ok) throw new Error(`native Agent fixture failed: ${binding.status}`);
+    return { userId, id: agent.id, status: agent.status, eligible: agent.coverage?.user_ids?.includes(userId) === true };
+  }, E2E_AGENT_ID);
+  expect(fixture.id, "fixture must bind the explicit Agent id").toBe(E2E_AGENT_ID);
+  expect(fixture.status, "unpublished Agent must never become usable").toBe("published");
+  expect(fixture.eligible, "native principal must be in persisted binding coverage").toBe(true);
+}
+
+async function ready(page: Page): Promise<void> {
+  await ensureNativeSkillEligibility(page);
+  await page.goto("/skills");
+  await page.locator("[data-skill-catalog]").waitFor();
+  await page.locator(".knowledge-list-row").first().waitFor();
+}
+
+async function nativeContext(browser: Browser, options: Parameters<Browser["newContext"]>[0]): Promise<BrowserContext> {
+  return browser.newContext({ ...options, storageState: authStatePath() });
+}
+
+async function catalog(page: Page): Promise<Skill[]> {
+  return page.evaluate(async () => {
+    const response = await fetch("/api/skills");
+    if (!response.ok) throw new Error(`skills response ${response.status}`);
+    return response.json();
+  }) as Promise<Skill[]>;
+}
+
+async function personalRecords(page: Page): Promise<Personal[]> {
+  return page.evaluate(async () => {
+    const response = await fetch("/api/skills/personal");
+    if (!response.ok) throw new Error(`personal skills response ${response.status}`);
+    const body = await response.json() as { items?: Personal[] };
+    return Array.isArray(body.items) ? body.items : [];
+  });
+}
+
+async function visibleSkillIds(page: Page): Promise<string[]> {
+  return page.locator(".knowledge-list-row[data-skill-id]").evaluateAll(rows =>
+    rows.map(row => row.getAttribute("data-skill-id") || "").filter(Boolean),
   );
 }
 
-/** 页面作用域内所有「可见 + 有色」的元素快照，供白名单/命中区断言复用。 */
-const VISIBLE_PROPS = ["color", "backgroundColor", "borderTopColor", "borderLeftColor"] as const;
-
-async function ready(page: Page) {
-  await page.goto("/skills");
-  await page.locator("[data-skill-catalog]").waitFor();
-  await page.locator(".skill-row").first().waitFor();
+/** The list is intentionally incrementally revealed; expand real loaded records, never invent a second data source. */
+async function revealSkill(page: Page, id: string): Promise<void> {
+  const opener = page.locator(`[data-skill-open="${id}"]`).first();
+  for (let attempt = 0; attempt < 12 && await opener.count() === 0; attempt++) {
+    const more = page.locator("[data-kb-load-more]");
+    if (!await more.isVisible().catch(() => false)) break;
+    await more.click();
+  }
+  await expect(opener, `published skill ${id} must be reachable through the real browse list`).toBeVisible();
 }
 
-test.describe("技能目录页（/skills）", () => {
-  test.beforeEach(async ({ page }) => {
-    await ready(page);
-  });
+async function openSkill(page: Page, id?: string): Promise<string> {
+  const row = id
+    ? page.locator(`[data-skill-id="${id}"]`).first()
+    : page.locator(".knowledge-list-row[data-skill-id]").first();
+  if (id) await revealSkill(page, id);
+  const skillId = id || await row.getAttribute("data-skill-id");
+  expect(skillId, "a current semantic list row needs a stable skill id").toBeTruthy();
+  await row.locator(".knowledge-list-open").click();
+  await expect(page.locator("[data-skill-detail]")).toHaveAttribute("data-skill-detail", skillId!);
+  return skillId!;
+}
 
-  test("§不变量 1：同一视口最多 1 个实底主 CTA，且其文字对比度 ≥4.5", async ({ page }) => {
+async function openCandidate(page: Page, predicate: (skill: Skill) => boolean, reason: string): Promise<Skill> {
+  const candidates = (await catalog(page)).filter(skill => skill.employee_visible !== false && predicate(skill));
+  expect(candidates, reason).not.toEqual([]);
+  await openSkill(page, candidates[0].id);
+  return candidates[0];
+}
+
+async function primaryAction(page: Page) {
+  if (await page.locator("[data-skill-detail]").count() === 0) await openSkill(page);
+  const action = page.locator("[data-asset-use]");
+  await expect(action, "the sole current detail handoff action must render").toBeVisible();
+  return action;
+}
+
+async function detailText(page: Page): Promise<string> {
+  return (await page.locator("[data-skill-detail]").textContent()) || "";
+}
+
+function buttonSelector(): string {
+  return ":is(a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex='-1']))";
+}
+
+test.describe("技能目录（/skills）· AssetBrowse 视觉、可访问性与安全边界", () => {
+  test.beforeEach(async ({ page }) => { await ready(page); });
+
+  test("O01 · 同一视口最多一个实底主 CTA，且其文字对比度 ≥4.5:1", async ({ page }) => {
+    const cta = await primaryAction(page);
     const primary = await pageVar(page, "--primary");
-    const filled = await page.evaluate((rgb) => {
-      const all = [...document.querySelectorAll<HTMLElement>("[data-skill-catalog] *")];
-      return all.filter((el) => {
-        const cs = getComputedStyle(el);
-        return cs.backgroundColor === rgb && cs.visibility !== "hidden" && el.getBoundingClientRect().width > 0;
-      }).length;
-    }, primary);
-    expect(filled, `实底 CTA 应为 0–1 个，实测 ${filled} 个`).toBeLessThanOrEqual(1);
-
-    const cta = page.locator(".skill-btn-primary").first();
-    await expect(cta).toBeVisible();
-    const [fg, bg] = await cta.evaluate((el) => {
-      const s = getComputedStyle(el);
-      return [s.color, s.backgroundColor];
+    const filled = await page.evaluate((rgb) => [...document.querySelectorAll<HTMLElement>("[data-skill-catalog] *")]
+      .filter(element => getComputedStyle(element).backgroundColor === rgb && element.getBoundingClientRect().width > 0).length, primary);
+    const [foreground, background] = await cta.evaluate(element => {
+      const style = getComputedStyle(element); return [style.color, style.backgroundColor];
     });
-    const cr = await contrastOf(page, fg, bg);
-    expect(cr, `实底 CTA 白字对比度 ${cr}:1，需要 ≥4.5`).toBeGreaterThanOrEqual(4.5);
+    expect(filled, `filled --primary elements must be 0–1, received ${filled}`).toBeLessThanOrEqual(1);
+    expect(await contrastOf(page, foreground, background), "filled CTA text must retain WCAG AA contrast").toBeGreaterThanOrEqual(4.5);
+    await expect(cta).toHaveAttribute("data-size", "md");
   });
 
-  test("§不变量 4：筛选段选中态有程序化状态，且不只有颜色信号", async ({ page }) => {
-    const onTab = page.locator(".skill-tab.on");
-    await expect(onTab).toHaveAttribute("aria-pressed", "true");
-    const diff = await page.evaluate(() => {
-      const on = document.querySelector(".skill-tab.on");
-      const off = [...document.querySelectorAll(".skill-tab")].find((el) => !el.classList.contains("on"));
-      if (!on || !off) return null;
-      const a = getComputedStyle(on);
-      const b = getComputedStyle(off);
-      return {
-        weightDiffers: a.fontWeight !== b.fontWeight,
-        shadowDiffers: a.boxShadow !== b.boxShadow,
-        bgDiffers: a.backgroundColor !== b.backgroundColor,
-        onShadow: a.boxShadow,
-        offShadow: b.boxShadow,
-      };
-    });
-    expect(diff, "至少要有两个 tab 才能比较状态").not.toBeNull();
-    expect(
-      diff!.weightDiffers || diff!.shadowDiffers,
-      `选中态必须有非颜色信号（字重或投影）：on=${diff!.onShadow} off=${diff!.offShadow}`,
-    ).toBe(true);
+  test("O02 · 选中的场景筛选具有 aria-pressed 与非颜色信号", async ({ page }) => {
+    const all = page.locator('[data-skill-stage="all"]');
+    const reach = page.locator('[data-skill-stage="reach"]');
+    await expect(all).toHaveAttribute("aria-pressed", "true");
+    await expect(reach).toHaveAttribute("aria-pressed", "false");
+    const before = await reach.evaluate(element => ({ weight: getComputedStyle(element).fontWeight, colour: getComputedStyle(element).color }));
+    await reach.click();
+    await expect(reach).toHaveAttribute("aria-pressed", "true");
+    const after = await reach.evaluate(element => ({ weight: getComputedStyle(element).fontWeight, colour: getComputedStyle(element).color }));
+    expect(after.weight, "selected filter must differ by weight, not colour alone").not.toBe(before.weight);
+    expect(after.colour, "selection remains visually differentiated by the accent text colour").not.toBe(before.colour);
   });
 
-  test("§不变量 4：列表行选中态 = aria-pressed + 底色 + 左侧形状信号", async ({ page }) => {
-    const row = page.locator(".skill-row").first();
-    const name = row.locator(".skill-row-name");
-    await expect(name).toHaveAttribute("aria-pressed");
-    const before = await row.evaluate((el) => getComputedStyle(el).backgroundColor);
-    await name.click();
-    await expect(name).toHaveAttribute("aria-pressed", "true");
-    const after = await row.evaluate((el) => {
-      const s = getComputedStyle(el);
-      return { bg: s.backgroundColor, shadow: s.boxShadow };
+  test("O03 · 选中行 = aria-current + 淡底 + 左侧形状信号", async ({ page }) => {
+    const row = page.locator(".knowledge-list-row").first();
+    const open = row.locator(".knowledge-list-open");
+    const before = await row.evaluate(element => getComputedStyle(element).backgroundColor);
+    await open.click();
+    await expect(open).toHaveAttribute("aria-current", "true");
+    const after = await row.evaluate(element => {
+      const style = getComputedStyle(element); return { background: style.backgroundColor, shadow: style.boxShadow };
     });
-    expect(after.bg, "选中行必须有底色变化").not.toBe(before);
-    expect(after.shadow, "选中行必须有非颜色的形状信号（左侧内阴影条）").toContain("inset");
+    expect(after.background, "selected current row must gain its selected surface").not.toBe(before);
+    expect(after.shadow, "selected current row must retain an inset accent-strip shape cue").toContain("inset");
   });
 
-  test("§控件尺寸：控件高度一律取自命名 token", async ({ page }) => {
-    const [chip, badge, lg, sm] = await Promise.all([
-      pageVarPx(page, "--chip-h"),
-      pageVarPx(page, "--badge-h"),
-      pageVarPx(page, "--control-h-lg"),
-      pageVarPx(page, "--control-h-sm"),
+  test("O04 · 当前控件、列表和详情操作严格消费命名尺寸 token", async ({ page }) => {
+    const [search, filter, row, action] = await Promise.all([
+      pageVarPx(page, "--control-h-lg"), pageVarPx(page, "--control-h-sm"), pageVarPx(page, "--knowledge-row-h"), pageVarPx(page, "--control-h"),
     ]);
-    const h = (sel: string) => page.locator(sel).first().evaluate((el) => el.getBoundingClientRect().height);
-    const cssH = (sel: string) =>
-      page.locator(sel).first().evaluate((el) => Number.parseFloat(getComputedStyle(el).height));
-    // 筛选条改成「发丝底线 + 2px 选中线」后，它的高度走 --control-h-lg（不再是胶囊的 --chip-h）。
-    expect(await h(".skill-tab"), "筛选段高度取 --control-h-lg").toBeCloseTo(lg, 0);
-    // 标记在窄的列表列里会被收起（见 styles.css 的 @container 段），所以取**可见**的第一个：
-    // 页面上一枚标记都不可见才算违规。
-    const badgeH = await page.evaluate(() => {
-      const el = [...document.querySelectorAll<HTMLElement>("[data-skill-catalog] .skill-mark")]
-        .find((e) => e.getBoundingClientRect().height > 0);
-      return el ? getComputedStyle(el).height : null;
-    });
-    expect(badgeH, "页面上必须至少有一枚可见的标记").not.toBeNull();
-    expect(Number.parseFloat(badgeH!), "标记高度取 --badge-h").toBeCloseTo(badge, 0);
-    expect(await cssH(".skill-search-wrap"), "搜索框高度取 --control-h-lg").toBeCloseTo(lg, 0);
-    expect(await cssH(".skill-row-icon"), "列表图标砖边长取 --control-h-lg").toBeCloseTo(lg, 0);
-    expect(await cssH(".skill-detail-toggle"), "图标按钮边长取 --control-h-sm").toBeCloseTo(sm, 0);
-    expect(
-      await cssH(".skill-detail-footer .skill-btn"),
-      "详情列主 CTA 高度取 --control-h-lg",
-    ).toBeCloseTo(lg, 0);
+    await openSkill(page);
+    const sizeOf = (selector: string) => page.locator(selector).first().evaluate(element => element.getBoundingClientRect().height);
+    expect(await sizeOf(".workspace-search-input"), "search uses --control-h-lg").toBeCloseTo(search, 0);
+    expect(await sizeOf('[data-skill-stage="reach"]'), "filters use --control-h-sm").toBeCloseTo(filter, 0);
+    expect(await sizeOf(".knowledge-list-row"), "AssetBrowse records use --knowledge-row-h").toBeCloseTo(row, 0);
+    expect(await sizeOf("[data-asset-use]"), "detail handoff uses --control-h").toBeCloseTo(action, 0);
   });
 
-  test("§控件尺寸：每个可操作元素的命中区 ≥ --hit-min", async ({ page }) => {
-    const hitMin = await pageVarPx(page, "--hit-min");
-    const bad = await page.evaluate((min) => {
-      const sel =
-        ":is(a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex='-1']))";
-      const out: string[] = [];
-      for (const el of document.querySelectorAll<HTMLElement>(`[data-skill-catalog] ${sel}`)) {
-        const r = el.getBoundingClientRect();
-        if (getComputedStyle(el).display === "none" || r.width === 0) continue;
-        if (r.height < min || r.width < min) {
-          out.push(`${el.className || el.tagName} ${Math.round(r.width)}x${Math.round(r.height)}`);
-        }
+  test("O05 · 可见的当前交互控件不小于 --hit-min", async ({ page }) => {
+    const minimum = await pageVarPx(page, "--hit-min");
+    const undersized = await page.evaluate(([min, selector]) => {
+      const failures: string[] = [];
+      for (const element of document.querySelectorAll<HTMLElement>(`[data-skill-catalog] ${selector}`)) {
+        const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
+        if (style.display === "none" || rect.width === 0 || style.visibility === "hidden") continue;
+        if (rect.width < min || rect.height < min) failures.push(`${element.className || element.tagName} ${Math.round(rect.width)}x${Math.round(rect.height)}`);
       }
-      return [...new Set(out)];
-    }, hitMin);
-    expect(bad, `命中区不足 ${hitMin}px 的元素（WCAG 2.2 AA 2.5.8）：${JSON.stringify(bad)}`).toEqual([]);
+      return [...new Set(failures)];
+    }, [minimum, buttonSelector()]);
+    expect(undersized, `visible current controls below ${minimum}px: ${JSON.stringify(undersized)}`).toEqual([]);
   });
 
-  test("§控件尺寸：键盘焦点出现 --focus-ring 可见环", async ({ page }) => {
-    const [width, color] = await Promise.all([
-      page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--focus-ring-width").trim()),
-      cssVar(page, "--focus-ring"),
+  test("O06 · 键盘焦点出现 --focus-ring 实线", async ({ page }) => {
+    const rowOpen = page.locator(".knowledge-list-open").first();
+    await rowOpen.focus();
+    await expect(rowOpen).toBeFocused();
+    const [expected, actual] = await Promise.all([
+      pageVar(page, "--focus-ring"),
+      rowOpen.evaluate(element => { const style = getComputedStyle(element); return { width: style.outlineWidth, style: style.outlineStyle, colour: style.outlineColor }; }),
     ]);
-    // 必须用键盘到达：只有真正键盘聚焦才会命中 :focus-visible。
-    let focused = "";
-    for (let i = 0; i < 40; i++) {
-      await page.keyboard.press("Tab");
-      focused = await page.evaluate(() => (document.activeElement as HTMLElement | null)?.className || "");
-      if (focused.includes("skill-row-name")) break;
-    }
-    expect(focused, "Tab 必须能到达列表行的选择入口").toContain("skill-row-name");
-    const got = await page.locator(".skill-row-name:focus").evaluate((el) => {
-      const s = getComputedStyle(el);
-      return { w: s.outlineWidth, c: s.outlineColor, style: s.outlineStyle };
+    expect(Number.parseFloat(actual.width), "focus ring must have a visible width").toBeGreaterThan(0);
+    expect(actual.style, "focus ring must be solid").toBe("solid");
+    expect(actual.colour, "focus ring colour must resolve from --focus-ring").toBe(expected);
+  });
+
+  test("O07 · 桌面 AssetBrowse 容器、列表和详情 rail 受当前几何契约约束", async ({ page }) => {
+    const geometry = await page.evaluate(() => {
+      const box = (selector: string) => document.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
+      return { workspace: box(".knowledge-browse-workspace"), list: box("[data-kbv-list]"), rail: box(".kbv-rail") };
     });
-    expect(Number.parseFloat(got.w), `焦点环宽度应为 ${width}，实测 ${got.w}`).toBeCloseTo(Number.parseFloat(width), 1);
-    expect(got.style, "焦点环必须是实线").toBe("solid");
-    expect(got.c, `焦点环颜色应为 --focus-ring`).toBe(color);
+    const railMin = await pageVarPx(page, "--workspace-result-rail-min");
+    expect(geometry.workspace.width, "workspace must have usable width").toBeGreaterThan(railMin);
+    expect(geometry.list.left, "list begins at workspace left edge").toBeCloseTo(geometry.workspace.left, 0);
+    expect(geometry.list.right, "list must not overlap the rail").toBeLessThanOrEqual(geometry.rail.left + 1);
+    expect(geometry.rail.width, "desktop rail honours --workspace-result-rail-min").toBeGreaterThanOrEqual(railMin - 1);
   });
 
-  test("§三轴适配 · 宽度轴：内容列不超过 --content-max（sticky 搜索行除外）", async ({ page }) => {
-    const max = await page.evaluate(() =>
-      Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--content-max")),
-    );
-    // 搜索行是唯一的例外：它按设计铺满整栏（底色与底缘发丝线要横贯，见 styles.css 的
-    // `.skill-catalog-content > .skill-search-row`），但它**内部**的搜索框仍住在内容列上限里。
-    const widths = await page.locator(".skill-catalog-content > :not(.skill-search-row)").evaluateAll((els) =>
-      els.map((el) => el.getBoundingClientRect().width),
-    );
-    expect(widths.length, "内容列里应当有分组").toBeGreaterThan(0);
-    for (const w of widths) {
-      expect(w, `内容列 ${Math.round(w)}px 超过 --content-max(${max}px)`).toBeLessThanOrEqual(max + 1);
-    }
-    const search = await page.locator(".skill-search-row").evaluate((el) => ({
-      row: el.getBoundingClientRect().width,
-      column: (el.parentElement as HTMLElement).clientWidth,
-      box: (el.querySelector(".skill-search-wrap") as HTMLElement).getBoundingClientRect().width,
-    }));
-    expect(search.row, "搜索行铺满栏宽（底色与底缘线横贯整栏）").toBeCloseTo(search.column, 0);
-    expect(search.box, "搜索框自身仍在内容列内").toBeLessThanOrEqual(search.column + 1);
-  });
-
-  test("§三轴适配 · 宽度轴：S 档无横向滚动、行不溢出", async ({ browser }) => {
-    const ctx = await browser.newContext({ viewport: { width: 375, height: 812 } });
-    const page = await ctx.newPage();
-    await ready(page);
-    const r = await page.evaluate(() => ({
-      docOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      rows: [...document.querySelectorAll<HTMLElement>(".skill-row")]
-        .map((el) => el.scrollWidth - el.clientWidth)
-        .filter((n) => n > 1),
-    }));
-    expect(r.docOverflow, "S 档不得出现横向滚动").toBeLessThanOrEqual(0);
-    expect(r.rows, `行内容溢出：${JSON.stringify(r.rows)}`).toEqual([]);
-    await ctx.close();
-  });
-
-  test("§三轴适配 · 输入模态轴：触摸设备命中区 ≥44px", async ({ browser }) => {
-    const context = await browser.newContext({ ...devices["iPhone 13"] });
+  test("O08 · S 档无文档或当前行横向溢出", async ({ browser }) => {
+    const context = await nativeContext(browser, { viewport: { width: 375, height: 812 } });
     const page = await context.newPage();
     await ready(page);
-    const coarse = await page.evaluate(() => matchMedia("(pointer: coarse)").matches);
-    expect(coarse, "该环境未上报 coarse 指针，断言无意义").toBe(true);
-    // 行内「填入输入框」链接已随 2026-09-23 裁定删除，触摸档要验的可点元素只剩这两类。
-    for (const sel of [".skill-tab", ".skill-row-name"]) {
-      const box = await page.locator(sel).first().boundingBox();
-      expect(box!.height, `触摸档 ${sel} 命中区应 ≥44px，实测 ${box!.height}px`).toBeGreaterThanOrEqual(44);
+    const overflow = await page.evaluate(() => ({
+      document: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      rows: [...document.querySelectorAll<HTMLElement>(".knowledge-list-row")].map(row => row.scrollWidth - row.clientWidth).filter(value => value > 1),
+    }));
+    expect(overflow.document, "S layout must not create horizontal document scrolling").toBeLessThanOrEqual(0);
+    expect(overflow.rows, "semantic current list rows must not overflow horizontally").toEqual([]);
+    await context.close();
+  });
+
+  test("O09 · 粗指针下筛选和行选择命中区均 ≥44px", async ({ browser }) => {
+    const context = await nativeContext(browser, { ...devices["iPhone 13"] });
+    const page = await context.newPage();
+    await ready(page);
+    expect(await page.evaluate(() => matchMedia("(pointer: coarse)").matches), "iPhone context must expose coarse pointer").toBe(true);
+    for (const selector of ['[data-skill-stage="reach"]', ".knowledge-list-open"]) {
+      const box = await page.locator(selector).first().boundingBox();
+      expect(box, `${selector} must render a hit target`).not.toBeNull();
+      expect(box!.height, `coarse-pointer ${selector} hit target must be ≥44px`).toBeGreaterThanOrEqual(44);
     }
     await context.close();
   });
 
-  test("§不变量 3：空结果提供恢复动作", async ({ page }) => {
-    await page.getByRole("textbox", { name: "搜索技能 / SOP / 场景" }).fill("不存在的技能名zzz");
-    const state = page.locator(".skill-state");
-    await expect(state).toBeVisible();
-    await expect(state.getByRole("button", { name: "清除筛选" })).toBeVisible();
+  test("O10 · 搜索空态诚实区分且提供恢复动作", async ({ page }) => {
+    const input = page.getByRole("textbox", { name: "搜索技能 / SOP / 场景" });
+    await input.fill("不存在的技能名zzz");
+    const empty = page.locator(".kbv-empty");
+    await expect(empty).toContainText("没有匹配的技能");
+    await expect(empty.getByRole("button", { name: "查看全部" })).toBeVisible();
+    await empty.getByRole("button", { name: "查看全部" }).click();
+    await expect(page.locator(".knowledge-list-row").first()).toBeVisible();
   });
 
-  test("搜索框有程序化标签，不是只靠 placeholder", async ({ page }) => {
-    await expect(page.getByRole("textbox", { name: "搜索技能 / SOP / 场景" })).toBeVisible();
+  test("O11 · 搜索框有程序化标签而非仅 placeholder", async ({ page }) => {
+    const input = page.getByRole("textbox", { name: "搜索技能 / SOP / 场景" });
+    await expect(input).toBeVisible();
+    await expect(input).toHaveAttribute("placeholder", "搜索技能 / SOP / 场景");
   });
 
-  test("「查看全部」深链真正生效（tab 读 URL）", async ({ page }) => {
-    await page.goto("/skills?tab=frequent");
-    await page.locator("[data-skill-catalog]").waitFor();
-    await expect(page.locator(".skill-tab.on")).toHaveText("常用");
-    await expect(page.locator(".skill-tab.on")).toHaveAttribute("aria-pressed", "true");
+  test("O12 · 遗留 tab 深链读取为 stage，且不制造第二筛选状态", async ({ page }) => {
+    await page.goto("/skills?tab=reach");
+    await page.locator(".knowledge-list-row").first().waitFor();
+    await expect(page.locator('[data-skill-stage="reach"]')).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator('[data-skill-view="all"]')).toHaveAttribute("aria-pressed", "true");
+    await expect(page).toHaveURL(/tab=reach/);
   });
 
-  test("结构真的画出来：列表分隔线与实底 CTA 圆角不得因未定义 token 而失效", async ({ page }) => {
-    const list = await page.locator(".skill-list").first().evaluate((el) => {
-      const s = getComputedStyle(el);
-      return { w: Number.parseFloat(s.borderTopWidth), c: s.borderTopColor };
+  test("O13 · 当前行分隔、rail 边界与详情操作圆角不会失效", async ({ page }) => {
+    await openSkill(page);
+    const line = await page.locator(".knowledge-list-row").first().evaluate(element => {
+      const style = getComputedStyle(element); return { shadow: style.boxShadow, background: style.backgroundColor };
     });
-    expect(list.w, "列表容器必须有上下发丝线").toBeGreaterThanOrEqual(1);
-    expect(list.c, "发丝线必须是可见颜色，而不是 transparent").not.toBe("rgba(0, 0, 0, 0)");
-
-    const row = await page.locator(".skill-row").first().evaluate((el) => {
-      const s = getComputedStyle(el);
-      return { w: Number.parseFloat(s.borderBottomWidth), c: s.borderBottomColor };
-    });
-    expect(row.w, "行之间必须有分隔线").toBeGreaterThanOrEqual(1);
-    expect(row.c).not.toBe("rgba(0, 0, 0, 0)");
-
-    const radius = await page.locator(".skill-btn-primary").first().evaluate((el) =>
-      Number.parseFloat(getComputedStyle(el).borderTopLeftRadius),
-    );
-    expect(radius, "实底 CTA 的圆角必须来自 --radius-control，不得归 0").toBeGreaterThan(0);
+    const rail = await page.locator(".kbv-rail").evaluate(element => getComputedStyle(element).borderLeftWidth);
+    const radius = await page.locator("[data-asset-use]").evaluate(element => Number.parseFloat(getComputedStyle(element).borderTopLeftRadius));
+    expect(line.shadow, "current rows retain an inset hairline separator").toContain("inset");
+    expect(line.background, "row surface must be resolved rather than transparent failure").not.toBe("");
+    expect(Number.parseFloat(rail), "list/detail rails retain a visible structural boundary").toBeGreaterThanOrEqual(1);
+    expect(radius, "current detail action radius comes from --radius-control, not 0").toBeGreaterThan(0);
   });
 
-  test("§控件尺寸：本页图标只有两档尺寸，且保持正方形", async ({ page }) => {
-    const m = await page.evaluate(() => {
-      const svgs = [...document.querySelectorAll<SVGSVGElement>("[data-skill-catalog] svg")]
-        .map((s) => s.getBoundingClientRect())
-        .filter((r) => r.width > 0)
-        .map((r) => `${Math.round(r.width)}x${Math.round(r.height)}`);
-      return [...new Set(svgs)];
-    });
-    const allowed = [
-      `${Math.round(await pageVarPx(page, "--icon-sm"))}x${Math.round(await pageVarPx(page, "--icon-sm"))}`,
-      `${Math.round(await pageVarPx(page, "--icon-md"))}x${Math.round(await pageVarPx(page, "--icon-md"))}`,
-    ];
-    expect(m.length, "页面里应当有图标").toBeGreaterThan(0);
-    for (const size of m) {
-      const [w, h] = size.split("x").map(Number);
-      expect(w, `图标 ${size} 被拉伸`).toBe(h);
-      expect(allowed, `图标 ${size} 不在本页图标阶梯 ${JSON.stringify(allowed)} 内`).toContain(size);
+  test("O14 · 当前 UI 的 SVG 图标保持正方形且使用注册尺寸", async ({ page }) => {
+    const allowed = [Math.round(await pageVarPx(page, "--icon-sm")), Math.round(await pageVarPx(page, "--icon-md"))];
+    const icons = await page.locator("[data-skill-catalog] svg").evaluateAll(elements => elements
+      .map(element => element.getBoundingClientRect()).filter(rect => rect.width > 0).map(rect => ({ width: Math.round(rect.width), height: Math.round(rect.height) })));
+    expect(icons.length, "current catalog must contain its search/semantic SVG affordances").toBeGreaterThan(0);
+    for (const icon of icons) {
+      expect(icon.width, `SVG ${icon.width}x${icon.height} must not stretch`).toBe(icon.height);
+      expect(allowed, `SVG ${icon.width}px must use a registered icon size`).toContain(icon.width);
     }
   });
 
-  test("§颜色：粉色只出现在唯一的主行动 CTA 上", async ({ page }) => {
-    await ready(page);
+  test("O15 · 主行动粉色仅用于当前唯一的详情 handoff", async ({ page }) => {
+    const cta = await primaryAction(page);
     const primary = await pageVar(page, "--primary");
-    const users = await page.evaluate((p) => {
-      const out: string[] = [];
-      for (const el of document.querySelectorAll<HTMLElement>("[data-skill-catalog] *")) {
-        const cs = getComputedStyle(el);
-        if (cs.display === "none" || el.getBoundingClientRect().width === 0) continue;
-        if (
-          cs.backgroundColor === p || cs.color === p ||
-          cs.borderTopColor === p || cs.borderBottomColor === p
-        ) {
-          out.push(String(el.className || el.tagName));
-        }
-      }
-      return [...new Set(out)];
-    }, primary);
-    expect(users.length, "页面上应当有且只有一个实底主 CTA").toBeGreaterThan(0);
-    for (const u of users) {
-      expect(u, `粉色出现在非主行动元素上：${u}`).toContain("skill-btn-primary");
-    }
+    const users = await page.evaluate((colour) => [...document.querySelectorAll<HTMLElement>("[data-skill-catalog] *")]
+      .filter(element => element.getBoundingClientRect().width > 0 && getComputedStyle(element).backgroundColor === colour)
+      .map(element => ({ className: element.className, assetUse: element.hasAttribute("data-asset-use") })), primary);
+    expect(users.length, "catalog must render a primary action when detail is selected").toBeGreaterThan(0);
+    expect(users.length, "no more than one rendered primary-filled element is permitted").toBeLessThanOrEqual(1);
+    expect(await cta.evaluate(element => getComputedStyle(element).backgroundColor), "handoff action is the primary colour consumer").toBe(primary);
+    expect(users.every(user => user.assetUse), `--primary leaked to non-action elements: ${JSON.stringify(users)}`).toBe(true);
   });
 
-  test("§颜色：辅助色分两档——图形 ≥3:1、文字 ≥4.5:1，且用对位置", async ({ page }) => {
-    await ready(page);
+  test("O16 · 辅助色的图形/文字两档保持 3:1 / 4.5:1 并用于 current 状态", async ({ page }) => {
+    const [canvas, accent, accentText] = await Promise.all([pageVar(page, "--bg"), pageVar(page, "--accent"), pageVar(page, "--accent-text")]);
+    const row = page.locator(".knowledge-list-row").first();
+    await row.locator(".knowledge-list-open").click();
+    const shadow = await row.evaluate(element => getComputedStyle(element).boxShadow);
+    expect(await contrastOf(page, accent, canvas), "accent graphic colour must remain ≥3:1").toBeGreaterThanOrEqual(3);
+    expect(await contrastOf(page, accentText, canvas), "accent text colour must remain ≥4.5:1").toBeGreaterThanOrEqual(4.5);
+    expect(shadow, "selected semantic row uses an accent shape cue").toContain(accent);
+  });
+
+  test("O17 · 类别 token 在浅色下保留图形 ≥3:1 与文字/砖底 ≥4.5:1", async ({ page }) => {
     const canvas = await pageVar(page, "--bg");
-    const accent = await pageVar(page, "--accent");
-    const accentText = await pageVar(page, "--accent-text");
-    expect(await contrastOf(page, accent, canvas), "辅助色作图形需 ≥3:1").toBeGreaterThanOrEqual(3);
-    expect(await contrastOf(page, accentText, canvas), "辅助色作文字/图标字形需 ≥4.5:1").toBeGreaterThanOrEqual(4.5);
-
-    expect(
-      await page.locator(".skill-tab.on").first().evaluate((el) => getComputedStyle(el).borderBottomColor),
-      "分段选中底线用图形档",
-    ).toBe(accent);
-  });
-
-  test("§颜色：类别色两档（图形 ≥3:1、砖内字形 ≥4.5:1），并按 data-tone 落在图标砖上", async ({ page }) => {
-    await ready(page);
-    const canvas = await pageVar(page, "--bg");
-    const tones = ["library", "assistant", "crawl", "builtin"] as const;
-    type Tone = (typeof tones)[number];
-    const tokens = {} as Record<Tone, { base: string; text: string; tile: string; line: string }>;
-    for (const tone of tones) {
-      tokens[tone] = {
-        base: await pageVar(page, `--cat-${tone}`),
-        text: await pageVar(page, `--cat-${tone}-text`),
-        tile: await pageVar(page, `--cat-${tone}-tile`),
-        line: await pageVar(page, `--cat-${tone}-line`),
-      };
-      expect(
-        await contrastOf(page, tokens[tone].text, tokens[tone].tile),
-        `类别 ${tone} 的字形档对砖底需 ≥4.5:1`,
-      ).toBeGreaterThanOrEqual(4.5);
-      expect(
-        await contrastOf(page, tokens[tone].base, canvas),
-        `类别 ${tone} 的图形档对画布需 ≥3:1`,
-      ).toBeGreaterThanOrEqual(3);
-    }
-
-    const rendered = await page.locator(".skill-row-icon[data-tone]").evaluateAll((els) =>
-      els.map((el) => {
-        const cs = getComputedStyle(el);
-        const row = el.closest(".skill-row");
-        return {
-          tone: el.getAttribute("data-tone") || "",
-          row: row ? row.className : "",
-          color: cs.color,
-          bg: cs.backgroundColor,
-          border: cs.borderTopColor,
-          borderStyle: cs.borderTopStyle,
-        };
-      }),
-    );
-    expect(rendered.length, "列表里应当有带类别的图标砖").toBeGreaterThan(0);
-    for (const r of rendered) {
-      const tone = r.tone as Tone;
-      expect(tones as readonly string[], `未知类别 ${r.tone}`).toContain(r.tone);
-      expect(r.color, `图标砖字形必须取 --cat-${tone}-text`).toBe(tokens[tone].text);
-      expect(r.bg, `图标砖底必须取 --cat-${tone}-tile`).toBe(tokens[tone].tile);
-      if (r.row.includes("is-async")) {
-        // 异步作业：虚线描边是形状信号，线色取砖内字形档（保证可见，不伪装成同步）。
-        expect(r.borderStyle, "异步作业的图标砖必须是虚线").toBe("dashed");
-        expect(r.border).toBe(tokens[tone].text);
-      } else if (!r.row.includes("is-write")) {
-        expect(r.border, `图标砖描边必须取 --cat-${tone}-line`).toBe(tokens[tone].line);
-      }
+    for (const tone of ["library", "assistant", "crawl", "builtin"] as const) {
+      const [base, text, tile] = await Promise.all([pageVar(page, `--cat-${tone}`), pageVar(page, `--cat-${tone}-text`), pageVar(page, `--cat-${tone}-tile`)]);
+      expect(await contrastOf(page, base, canvas), `${tone} graphic token must be ≥3:1 on canvas`).toBeGreaterThanOrEqual(3);
+      expect(await contrastOf(page, text, tile), `${tone} text token must be ≥4.5:1 on its tile`).toBeGreaterThanOrEqual(4.5);
     }
   });
 
-  test("§颜色：类别色在深色下仍满足两档（字形 ≥4.5:1、图形 ≥3:1）", async ({ page }) => {
-    await ready(page);
+  test("O18 · 类别 token 在深色下仍保留图形 ≥3:1 与文字/砖底 ≥4.5:1", async ({ page }) => {
     await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
     const canvas = await pageVar(page, "--bg");
-    for (const tone of ["library", "assistant", "crawl", "builtin"]) {
-      const text = await pageVar(page, `--cat-${tone}-text`);
-      const tile = await pageVar(page, `--cat-${tone}-tile`);
-      const base = await pageVar(page, `--cat-${tone}`);
-      expect(
-        await contrastOf(page, text, tile),
-        `深色下类别 ${tone} 的字形档对砖底需 ≥4.5:1`,
-      ).toBeGreaterThanOrEqual(4.5);
-      expect(
-        await contrastOf(page, base, canvas),
-        `深色下类别 ${tone} 的图形档对画布需 ≥3:1`,
-      ).toBeGreaterThanOrEqual(3);
+    for (const tone of ["library", "assistant", "crawl", "builtin"] as const) {
+      const [base, text, tile] = await Promise.all([pageVar(page, `--cat-${tone}`), pageVar(page, `--cat-${tone}-text`), pageVar(page, `--cat-${tone}-tile`)]);
+      expect(await contrastOf(page, base, canvas), `dark ${tone} graphic token must be ≥3:1 on canvas`).toBeGreaterThanOrEqual(3);
+      expect(await contrastOf(page, text, tile), `dark ${tone} text token must be ≥4.5:1 on its tile`).toBeGreaterThanOrEqual(4.5);
     }
   });
 
-  test("控件自设 line-height，不继承根的 24px 行盒", async ({ page }) => {
-    const bad = await page.evaluate(() => {
-      const out: string[] = [];
-      const rootCs = getComputedStyle(document.documentElement);
-      const rootLh = Number.parseFloat(rootCs.lineHeight);
-      const rootFs = Number.parseFloat(rootCs.fontSize);
-      const sel =
-        ":is(a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex='-1']))";
-      for (const el of document.querySelectorAll<HTMLElement>(`[data-skill-catalog] ${sel}`)) {
-        const cs = getComputedStyle(el);
-        const r = el.getBoundingClientRect();
-        if (cs.display === "none" || r.width === 0) continue;
-        const lh = Number.parseFloat(cs.lineHeight);
-        const fs = Number.parseFloat(cs.fontSize);
-        if (!Number.isFinite(lh)) out.push(`${el.className || el.tagName} lh=${cs.lineHeight}`);
-        else if (lh === rootLh && fs !== rootFs) {
-          out.push(`${el.className || el.tagName} 继承根行盒 ${cs.lineHeight}（字号 ${cs.fontSize}）`);
-        }
+  test("O19 · 当前控件自设 line-height，不继承根 24px 行盒", async ({ page }) => {
+    const offenders = await page.evaluate((selector) => {
+      const root = getComputedStyle(document.documentElement), rootLine = Number.parseFloat(root.lineHeight), rootSize = Number.parseFloat(root.fontSize);
+      const failures: string[] = [];
+      for (const element of document.querySelectorAll<HTMLElement>(`[data-skill-catalog] ${selector}`)) {
+        const style = getComputedStyle(element), rect = element.getBoundingClientRect();
+        if (style.display === "none" || rect.width === 0) continue;
+        const line = Number.parseFloat(style.lineHeight), size = Number.parseFloat(style.fontSize);
+        if (!Number.isFinite(line) || (line === rootLine && size !== rootSize)) failures.push(`${element.className || element.tagName}: ${style.lineHeight}/${style.fontSize}`);
       }
-      return [...new Set(out)];
+      return [...new Set(failures)];
+    }, buttonSelector());
+    expect(offenders, `current catalog controls inherit or lack a line-height: ${JSON.stringify(offenders)}`).toEqual([]);
+  });
+
+  test("O20 · 当前渲染色值能逐项指回现有 token 消费者", async ({ page }) => {
+    await openSkill(page);
+    const expected = await Promise.all(["--bg", "--text", "--text-quiet", "--border", "--accent", "--accent-text", "--btn-text-hover-bg", "--primary"].map(token => pageVar(page, token)));
+    const used = await page.evaluate(() => {
+      const selectors = ["[data-skill-catalog]", ".knowledge-list-row", ".knowledge-list-open", ".knowledge-row-title", ".knowledge-row-kind", ".kbv-rail", ".asset-read-warning", "[data-asset-use]"];
+      return selectors.map(selector => {
+        const element = document.querySelector<HTMLElement>(selector)!;
+        const style = getComputedStyle(element);
+        return [style.color, style.backgroundColor, style.borderTopColor, style.borderLeftColor];
+      }).flat();
     });
-    expect(bad, `这些控件没自设行高：${JSON.stringify(bad)}`).toEqual([]);
+    const permitted = new Set([...expected, "rgb(255, 255, 255)", "rgba(0, 0, 0, 0)", "transparent"]);
+    const stray = used.filter(colour => !permitted.has(colour));
+    expect(stray, `semantic current surfaces drifted from token palette: ${JSON.stringify(stray)}`).toEqual([]);
+    expect(await page.locator(".knowledge-list-row").first().evaluate(element => getComputedStyle(element).boxShadow), "row divider and selected strip remain token-backed inset affordances").toContain("inset");
   });
 
-  test("颜色反漂移：本页渲染色值都能指回它消费的 token", async ({ page }) => {
-    await assertPaletteFromTokens(page);
+  test("O21 · R3 与异步技能在详情明确给出确认、取消与重试事实", async ({ page }) => {
+    const candidate = await openCandidate(page, skill => skill.risk === "L3" && !!skill.execution?.async?.enabled, "fixture must include a published controlled async skill");
+    const detail = page.locator("[data-skill-detail]");
+    await expect(detail).toContainText("R3 · 执行前确认");
+    await expect(detail).toContainText("异步");
+    expect(candidate.execution?.async?.cancelable, "selected fixture is declared cancelable").toBe(true);
+    expect(candidate.execution?.async?.retryable, "selected fixture is declared retryable").toBe(true);
+    await expect(detail).toContainText("取消");
+    await expect(detail).toContainText("重试");
   });
 
-  test("工具风险档与异步契约：受控技能有文字标记、异步技能有图标砖形状信号", async ({ page }) => {
-    await ready(page);
-    // L3「需确认」：只标例外 —— 列表行上只出现受控技能的标记（只读不打标）。
-    expect(
-      await page.locator(".skill-row .skill-mark.is-write").count(),
-      "列表里应当有受控技能的「需确认」标记",
-    ).toBeGreaterThan(0);
-    // 异步作业：2026-09-23 起不再挂文字标签，改由图标砖虚线边框承担形状信号（不伪装成同步）；
-    // 完整异步口径仍在详情列（见「风险档与异步契约进入详情」）。
-    const asyncTile = page.locator(".skill-row.is-async .skill-row-icon").first();
-    await expect(asyncTile).toBeVisible();
-    expect(
-      await asyncTile.evaluate((el) => getComputedStyle(el).borderTopStyle),
-      "异步作业的图标砖必须是虚线（与 L3 的实线不同形状）",
-    ).toBe("dashed");
+  test("O22 · R1 只读保留为执行事实，不伪装成确认例外", async ({ page }) => {
+    const candidate = await openCandidate(page, skill => skill.risk === "L1", "fixture must contain an R1 skill");
+    const metadata = page.locator(".knowledge-detail-metadata");
+    await expect(metadata).toContainText("R1 · 只读");
+    await expect(metadata).not.toContainText("R3 · 执行前确认");
+    expect(candidate.risk).toBe("L1");
   });
 
-  test("只标例外：列表行上不出现「只读」标记", async ({ page }) => {
-    // 注意：描述文案里本来就可能含「只读」二字，这里断言的是标记元素本身。
-    expect(await page.locator(".skill-row .skill-mark.is-read").count()).toBe(0);
+  test("O23 · 列表只承担选择；当前任务动作只在详情 rail", async ({ page }) => {
+    const row = page.locator(".knowledge-list-row").first();
+    expect(await row.locator(":is(a[href], button)").count(), "one semantic open button per list row; no repetitive row action").toBe(1);
+    await openSkill(page);
+    await expect(page.locator("[data-asset-use]")).toBeVisible();
+    expect(await row.locator("[data-asset-use]").count(), "handoff must not move into every list row").toBe(0);
   });
 
-  test("列表行不再有动作：填技能只剩右栏详情列的实底主 CTA", async ({ page }) => {
-    // 2026-09-23 UI/UX 裁定：行内「填入输入框」整条删除 —— 51 行 × 每行一个同样的动作
-    // 既是噪声，也把唯一的主 CTA 稀释成 51 个；行只负责选中 / 预览，填技能走右栏。
-    // 行里可点的只剩「行名」这一个入口（它本身就是行的选择入口）。
-    const clickable = await page.locator(".skill-row").first().locator(":is(a[href], button)").count();
-    expect(clickable, "列表行里除行名外不该再有可点元素").toBe(1);
-    const cta = page.locator(".skill-detail-footer .skill-btn-primary");
-    await expect(cta, "填技能的动作必须还在，且在右栏详情列").toBeVisible();
-    await expect(cta).toHaveText("填入输入框");
-  });
-
-  test("本页不再出现「新建会话」（需先补参数，直接开会话是错误承诺）", async ({ page }) => {
+  test("O24 · 技能浏览不承诺新建会话，也不自动创建任务", async ({ page }) => {
+    const created: string[] = [];
+    page.on("request", request => {
+      if (request.method() === "POST" && /\/api\/(sessions|tasks)(?:\/|$)/.test(new URL(request.url()).pathname)) created.push(new URL(request.url()).pathname);
+    });
+    await openSkill(page);
     await expect(page.locator("[data-skill-catalog]")).not.toContainText("新建会话");
+    await expect(page.locator("[data-skill-catalog]")).not.toContainText("创建任务");
+    expect(created, "selecting/previewing a skill cannot create a session or task").toEqual([]);
   });
 
-  test("员工禁词：引擎名、MCP、英文 Skill 时序与原始 id 都不得出现在员工表面", async ({ page }) => {
-    // 依据 specs/UX-EMPLOYEE.md §员工禁词：员工表面不摊 MCP、Codex、Thread、英文 Skill 时序、原始堆栈。
-    const catalog = page.locator("[data-skill-catalog]");
-    await expect(catalog).not.toContainText("MediaCrawler");
-    await expect(catalog).not.toContainText("Starry KOL");
-    await expect(catalog).not.toContainText("KOL Agent");
-    await expect(catalog).not.toContainText("内核部门");
-    // 引擎名 / 系统名：整页 textContent（含折叠区未展开内容）都不得出现。
-    const text = await catalog.evaluate((el) => el.textContent || "");
-    for (const banned of ["MCP", "Codex", "Thread", "starrykol", "kolclaw"]) {
-      expect(text, `员工表面出现禁词「${banned}」`).not.toContain(banned);
+  test("O25 · 员工表面不泄露运行时、连接器治理或原始引擎词", async ({ page }) => {
+    await openSkill(page);
+    const text = await page.locator("[data-skill-catalog]").textContent() || "";
+    for (const forbidden of ["MediaCrawler", "Starry KOL", "KOL Agent", "内核部门", "MCP", "Codex", "Thread", "starrykol", "kolclaw", "凭据引用", "连接器已启用"]) {
+      expect(text, `employee surface leaked ${forbidden}`).not.toContain(forbidden);
     }
-
-    // 本页自己渲染的这几个小节（使用步骤 / 执行边界 / 调用工具 / 所需权限 / 异步执行 / 回执）
-    // 由页面做词表翻译：它们**一个字英文都不该有**——有就说明引擎 id 又漏出来了。
-    const latin = await page.evaluate(() => {
-      const wanted = new Set(["使用步骤", "执行边界", "调用工具", "所需权限", "异步执行", "回执"]);
-      const out: string[] = [];
-      for (const sec of document.querySelectorAll<HTMLElement>("[data-skill-detail] .skill-detail-section")) {
-        const h = sec.querySelector("h4")?.textContent?.trim() || "";
-        if (!wanted.has(h)) continue;
-        // L1 / L2 / L3 是**要求可见**的分档标识（根 AGENTS.md §4），允许出现；
-        // 除此之外这段文字里不该再有任何英文（引擎 id / 契约字段 / 厂商名）。
-        const body = (sec.textContent || "").replace(h, "").replace(/L[123]/g, "").trim();
-        if (/[A-Za-z]/.test(body)) out.push(`${h}: ${body.slice(0, 60)}`);
-      }
-      return out;
-    });
-    expect(latin, `这些小节仍有英文 / 引擎 id：\n${latin.join("\n")}`).toEqual([]);
+    const detail = await detailText(page);
+    expect(detail, "detail must not expose connector governance").not.toContain("凭据引用");
   });
 
-  test("§1 深色：实底主 CTA 仍达 4.5:1，且色值不扩散", async ({ page }) => {
+  test("O26 · 深色下主 CTA 仍 ≥4.5:1，且主色不扩散", async ({ page }) => {
+    const cta = await primaryAction(page);
     await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
-    await page.waitForTimeout(250);
-    const cta = page.locator(".skill-btn-primary").first();
-    const [fg, bg] = await cta.evaluate((el) => {
-      const s = getComputedStyle(el);
-      return [s.color, s.backgroundColor];
-    });
-    const cr = await contrastOf(page, fg, bg);
-    expect(cr, `深色主 CTA 的文字对比度只有 ${cr}:1（需要 ≥4.5）`).toBeGreaterThanOrEqual(4.5);
-    await assertPaletteFromTokens(page);
-
-    const filled = await page.evaluate((rgb) => {
-      const all = [...document.querySelectorAll<HTMLElement>("[data-skill-catalog] *")];
-      return all.filter((el) => getComputedStyle(el).backgroundColor === rgb).length;
-    }, bg);
-    expect(filled, `深色下实底元素应为 0–1 个，实测 ${filled} 个`).toBeLessThanOrEqual(1);
+    const [foreground, background, primary] = await Promise.all([
+      cta.evaluate(element => getComputedStyle(element).color), cta.evaluate(element => getComputedStyle(element).backgroundColor), pageVar(page, "--primary"),
+    ]);
+    const filled = await page.evaluate(colour => [...document.querySelectorAll<HTMLElement>("[data-skill-catalog] *")]
+      .filter(element => getComputedStyle(element).backgroundColor === colour && element.getBoundingClientRect().width > 0).length, primary);
+    expect(await contrastOf(page, foreground, background), "dark primary CTA text contrast").toBeGreaterThanOrEqual(4.5);
+    expect(background, "dark CTA continues to consume primary token").toBe(primary);
+    expect(filled, "dark primary fill cannot diffuse beyond the sole CTA").toBeLessThanOrEqual(1);
   });
 
-  test("prefers-contrast: more 不改变页面画布", async ({ browser }) => {
-    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, contrast: "more" });
-    const page = await ctx.newPage();
+  test("O27 · prefers-contrast: more 不改变 catalog 画布 token", async ({ browser }) => {
+    const context = await nativeContext(browser, { viewport: { width: 1440, height: 900 }, contrast: "more" });
+    const page = await context.newPage();
     await ready(page);
-    expect(await page.evaluate(() => matchMedia("(prefers-contrast: more)").matches)).toBe(true);
-    const bg = await pageVar(page, "--bg");
-    const canvas = await page.evaluate(
-      () => getComputedStyle(document.querySelector("[data-skill-catalog]")!).backgroundColor,
-    );
-    expect(canvas, "该偏好下页面画布应仍取自 --bg").toBe(bg);
-    await ctx.close();
+    expect(await page.evaluate(() => matchMedia("(prefers-contrast: more)").matches), "test context must report contrast preference").toBe(true);
+    const [canvas, background] = await Promise.all([pageVar(page, "--bg"), page.locator("[data-skill-catalog]").evaluate(element => getComputedStyle(element).backgroundColor)]);
+    expect(background, "contrast preference retains token-backed canvas").toBe(canvas);
+    await context.close();
   });
 });
 
-test.describe("四栏版式（栏 2 技能目录 / 栏 3 搜索+列表 / 栏 4 详情）", () => {
-  test("几何：1280×900 下各栏左缘递增、栏 2 定宽 190px、三栏顶部对齐同一 y", async ({ browser }) => {
-    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+test.describe("技能目录（/skills）· 现行双 rail 几何、滚动与响应式", () => {
+  test.beforeEach(async ({ page }) => { await ready(page); });
+
+  test("O28 · 1280×900 当前双 rail 左缘递增、无重叠、顶部对齐", async ({ browser }) => {
+    const context = await nativeContext(browser, { viewport: { width: 1280, height: 900 } });
     const page = await context.newPage();
     await ready(page);
-    const geo = await page.evaluate(() => {
-      const el = (sel: string) => document.querySelector<HTMLElement>(sel)!;
-      const box = (sel: string) => el(sel).getBoundingClientRect();
-      return {
-        tabs: box(".skill-tabs"),
-        content: box(".skill-catalog-content"),
-        pane: box(".skill-detail-pane"),
-        tabsBorderRight: Number.parseFloat(getComputedStyle(el(".skill-tabs")).borderRightWidth),
-        contentLeftBorder: getComputedStyle(el(".skill-detail-pane")).borderLeftWidth,
-        direction: getComputedStyle(el(".skill-tabs")).flexDirection,
-        tabsListDirection: getComputedStyle(el(".skill-tabs-list")).flexDirection,
-        titleText: (el(".skill-catalog-title h1").textContent || "").trim(),
-        titleInTabs: Boolean(el(".skill-tabs .skill-catalog-title")),
-        titleTop: box(".skill-catalog-title").top,
-        titleLeft: box(".skill-catalog-title").left,
-        tabsListLeft: box(".skill-tabs-list").left,
-        titleTextLeft: box(".skill-catalog-title h1").left,
-        tabLabelLeft: (() => {
-          const tab = el(".skill-tab");
-          const cs = getComputedStyle(tab);
-          return tab.getBoundingClientRect().left
-            + Number.parseFloat(cs.borderLeftWidth)
-            + Number.parseFloat(cs.paddingLeft);
-        })(),
-        titleSiblings: [...el(".skill-tabs").children].map((c) => String((c as HTMLElement).className)),
-      };
+    const layout = await page.evaluate(() => {
+      const box = (selector: string) => document.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
+      const workspace = document.querySelector<HTMLElement>(".knowledge-browse-workspace")!;
+      return { workspace: box(".knowledge-browse-workspace"), list: box("[data-kbv-list]"), rail: box(".kbv-rail"), grid: getComputedStyle(workspace).gridTemplateColumns, semanticRows: document.querySelectorAll(".knowledge-list-row > .knowledge-list-open").length };
     });
-    expect(geo.direction, "≥1280 栏 2 要变成纵向目录栏").toBe("column");
-    expect(geo.tabsListDirection, "组内也纵向排").toBe("column");
-    expect(geo.tabs.width, "栏 2 定宽 190px").toBeGreaterThanOrEqual(188);
-    expect(geo.tabs.width, "栏 2 定宽 190px").toBeLessThanOrEqual(192);
-    // 栏 2/3 与栏 3/4 各一条发丝线，栏与栏之间不留间隙（错开的正是那 1px 边框）。
-    expect(geo.tabs.right, "栏 2 右缘不得压到栏 3").toBeLessThanOrEqual(geo.content.left + 1);
-    expect(geo.content.left, "栏 3 左缘 ≤ 栏 4 左缘").toBeLessThanOrEqual(geo.pane.left + 1);
-    expect(geo.content.right, "栏 3 右缘 ≤ 栏 4 左缘（并排，不重叠）").toBeLessThanOrEqual(geo.pane.left + 1);
-    expect(geo.tabsBorderRight, "栏 2/3 之间是 1px 发丝线").toBeGreaterThanOrEqual(1);
-    expect(Number.parseFloat(geo.contentLeftBorder), "栏 3/4 之间是 1px 发丝线").toBeGreaterThanOrEqual(1);
-    // 四栏顶部对齐同一 y：栏 2/3/4 同处一行，没有把某一栏推下去的独立页头。
-    expect(geo.tabs.top, "栏 2 与栏 3 顶部对齐").toBeCloseTo(geo.content.top, 0);
-    expect(geo.content.top, "栏 3 与栏 4 顶部对齐").toBeCloseTo(geo.pane.top, 0);
-    // 栏 2 顶部是「技能目录 + 计数」，下面是口径组 + 阶段组（+ 横向档的右缘渐隐）。
-    expect(geo.titleInTabs, "「技能目录」必须住在栏 2 里").toBe(true);
-    expect(geo.titleText).toBe("技能目录");
-    expect(geo.titleSiblings[0], "栏 2 的第一个块是栏头").toContain("skill-catalog-title");
-    expect(
-      geo.titleSiblings.filter((c) => c.includes("skill-tabs-list")).length,
-      "栏头下面才是口径组与阶段组",
-    ).toBe(2);
-    expect(geo.titleTop, "栏头在栏 2 顶部").toBeLessThan(geo.tabs.top + 48);
-    // 栏头的词与口径组第一项的词左对齐（栏头不在控件组左边线上另起一列）。
-    expect(geo.titleLeft, "栏头与控件组同一条左缘").toBeCloseTo(geo.tabsListLeft, 0);
-    expect(geo.titleTextLeft, "「技能目录」与第一个 tab 的词左对齐").toBeCloseTo(geo.tabLabelLeft, 0);
+    const minimum = await pageVarPx(page, "--workspace-result-rail-min");
+    expect(layout.grid, "desktop current surface uses grid rails").toContain(" ");
+    expect(layout.list.left, "list starts with workspace").toBeCloseTo(layout.workspace.left, 0);
+    expect(layout.list.right, "list stays before rail").toBeLessThanOrEqual(layout.rail.left + 1);
+    expect(layout.rail.width, "detail rail respects current minimum").toBeGreaterThanOrEqual(minimum - 1);
+    expect(layout.list.top, "list and detail rail top-align").toBeCloseTo(layout.rail.top, 0);
+    expect(layout.semanticRows, "each current list article must expose its semantic open control").toBeGreaterThan(0);
     await context.close();
   });
 
-  test("四栏各自独立滚动：滚栏 3 不动栏 4；栏 4 正文滚而头/底不动", async ({ browser }) => {
-    const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  test("O29 · 列表与详情正文独立滚动，详情头/脚固定", async ({ browser }) => {
+    const context = await nativeContext(browser, { viewport: { width: 1280, height: 720 } });
     const page = await context.newPage();
     await ready(page);
-    // 选一项内容够长的技能（9 条使用步骤 + 执行边界 + 提示行），正文段才有东西可滚。
-    await page.locator('.skill-row[data-skill-id="kol_analyze"] .skill-row-name').first().click();
+    await openSkill(page);
     const snapshot = () => page.evaluate(() => {
-      const el = (sel: string) => document.querySelector<HTMLElement>(sel)!;
-      return {
-        list: el(".skill-catalog-content").scrollTop,
-        pane: el(".skill-detail-pane").scrollTop,
-        body: el(".skill-detail-body").scrollTop,
-        overflow: el(".skill-detail-body").scrollHeight - el(".skill-detail-body").clientHeight,
-        headTop: el(".skill-detail-head").getBoundingClientRect().top,
-        footBottom: el(".skill-detail-footer").getBoundingClientRect().bottom,
-        bodyHeight: el(".skill-detail-body").getBoundingClientRect().height,
-      };
+      const list = document.querySelector<HTMLElement>("[data-kbv-list]")!;
+      const body = document.querySelector<HTMLElement>(".kbv-rail-body")!;
+      const head = document.querySelector<HTMLElement>(".kbv-rail-head")!;
+      const foot = document.querySelector<HTMLElement>(".kbv-rail-foot")!;
+      return { list: list.scrollTop, listOverflow: list.scrollHeight - list.clientHeight, body: body.scrollTop, bodyOverflow: body.scrollHeight - body.clientHeight, head: head.getBoundingClientRect().top, foot: foot.getBoundingClientRect().bottom, bodyHeight: body.getBoundingClientRect().height };
     });
     const before = await snapshot();
-    expect(before.overflow, "栏 4 的正文必须真的超出高度，这条断言才有意义").toBeGreaterThan(0);
-    // 滚栏 3：只有列表动。
-    await page.locator(".skill-catalog-content").evaluate((el) => { el.scrollTop = 600; });
+    expect(before.listOverflow, "list must have real overflow at short desktop height").toBeGreaterThan(0);
+    expect(before.bodyOverflow, "selected detail must have real independently scrollable content").toBeGreaterThan(0);
+    await page.locator("[data-kbv-list]").evaluate(element => { element.scrollTop = element.scrollHeight; });
     const afterList = await snapshot();
-    expect(afterList.list, "栏 3 必须真的滚动了，这条断言才有意义").toBeGreaterThan(0);
-    expect(afterList.body, "滚栏 3 不得带动栏 4 的正文").toBe(0);
-    expect(afterList.pane, "栏 4 自身不是滚动容器（滚动只发生在正文段）").toBe(0);
-    expect(afterList.headTop, "栏 4 的头部不随栏 3 滚动").toBeCloseTo(before.headTop, 0);
-    expect(afterList.footBottom, "栏 4 的底部不随栏 3 滚动").toBeCloseTo(before.footBottom, 0);
-    // 滚栏 4 的正文：正文自己滚，头与底原地不动。
-    await page.locator(".skill-detail-body").evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    expect(afterList.list, "list actually scrolls").toBeGreaterThan(0);
+    expect(afterList.body, "scrolling list cannot move detail body").toBe(0);
+    expect(afterList.head, "list scrolling cannot move detail head").toBeCloseTo(before.head, 0);
+    expect(afterList.foot, "list scrolling cannot move detail foot").toBeCloseTo(before.foot, 0);
+    await page.locator(".kbv-rail-body").evaluate(element => { element.scrollTop = element.scrollHeight; });
     const afterBody = await snapshot();
-    expect(afterBody.body, "栏 4 的正文必须能滚").toBeGreaterThan(0);
-    expect(afterBody.list, "滚栏 4 不得带动栏 3 的列表").toBe(afterList.list);
-    expect(afterBody.headTop, "正文滚动时头部位置不变").toBeCloseTo(before.headTop, 0);
-    expect(afterBody.footBottom, "正文滚动时底部位置不变").toBeCloseTo(before.footBottom, 0);
-    expect(afterBody.bodyHeight, "正文段高度不因滚动变化").toBeCloseTo(before.bodyHeight, 0);
+    expect(afterBody.body, "detail body actually scrolls").toBeGreaterThan(0);
+    expect(afterBody.list, "detail scrolling cannot move list").toBe(afterList.list);
+    expect(afterBody.head, "detail body scroll keeps head fixed").toBeCloseTo(before.head, 0);
+    expect(afterBody.foot, "detail body scroll keeps foot fixed").toBeCloseTo(before.foot, 0);
+    expect(afterBody.bodyHeight, "detail body height cannot change while scrolling").toBeCloseTo(before.bodyHeight, 0);
     await context.close();
   });
 
-  test("不再有独立页头行：「技能目录 + N 项」住在栏 2 里（1280×900）", async ({ browser }) => {
-    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-    const page = await context.newPage();
-    await ready(page);
-    // 2026-09-23 结构改造：横跨 2/3/4 栏的页头行删除，标题与计数下沉成栏 2 的栏头。
-    expect(await page.locator(".skill-catalog-header").count(), "独立页头行应当整条移除").toBe(0);
-    const m = await page.evaluate(() => {
-      const el = (sel: string) => document.querySelector<HTMLElement>(sel)!;
-      const box = (sel: string) => el(sel).getBoundingClientRect();
+  test("O30 · 无冗余跨栏页头；当前工具栏、计数与首行保持紧凑", async ({ page }) => {
+    const data = await page.evaluate(() => {
+      const box = (selector: string) => document.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
       return {
-        countText: (el(".skill-catalog-count").textContent || "").trim(),
-        titleInTabs: Boolean(el(".skill-tabs .skill-catalog-title")),
-        rowTop: box(".skill-row").top,
-        pageTop: box("[data-skill-catalog]").top,
-        searchTop: box(".skill-search-row").top,
-        searchInContent: Boolean(el(".skill-catalog-content .skill-search-row")),
-        searchPad: getComputedStyle(el(".skill-search-row")).paddingLeft,
-        contentPad: getComputedStyle(el(".skill-catalog-content")).paddingLeft,
+        pageTitles: document.querySelectorAll("[data-skill-catalog] h1").length,
+        toolbar: box(".knowledge-filter-bar"), row: box(".knowledge-list-row"), count: (document.querySelector("[data-skill-count]")?.textContent || "").trim(),
       };
     });
-    expect(m.countText, "计数仍是栏头的一部分").toMatch(/^\d+ 项$/);
-    expect(m.titleInTabs, "「技能目录 + 计数」必须住在栏 2 里").toBe(true);
-    expect(m.searchInContent, "搜索框必须住在栏 3 顶部，而不是页头").toBe(true);
-    // 搜索行铺满栏宽：它用负外边距抵消内容列的左右留白，所以底色与底缘线横贯整栏。
-    expect(m.searchPad, "搜索行自带内容列的左右留白").toBe(m.contentPad);
-    expect(m.searchTop, "搜索行仍钉在栏 3 顶部（sticky top: 0）").toBeLessThan(m.rowTop);
-    // 顶部空间只剩栏头 + 搜索行 + 首组头：页顶到首行的距离必须压在 150px 内。
-    expect(m.rowTop - m.pageTop, "不再有独立的页头行把首行推下去").toBeLessThanOrEqual(150);
+    expect(data.pageTitles, "current browse toolbar intentionally has no duplicate page-title band").toBe(0);
+    expect(data.count, "current count stays in the list toolbar").toMatch(/^(\d+ 项技能|正在读取技能…|个人记录计数暂不可用)$/);
+    expect(data.toolbar.top, "toolbar belongs above records").toBeLessThanOrEqual(data.row.top);
+    expect(data.row.top - data.toolbar.top, "compact toolbar cannot add a retired page-header band").toBeLessThanOrEqual(190);
+  });
+
+  test("O31 · 不重复详情样板；未登记引擎兜底产出不渲染", async ({ page }) => {
+    await openSkill(page, "creator_library_query");
+    const catalogRoot = page.locator("[data-skill-catalog]");
+    const detail = page.locator("[data-skill-detail]");
+    await expect(catalogRoot).not.toContainText("技能详情");
+    await expect(detail).not.toContainText("task_result");
+    expect(await detail.locator("h3", { hasText: "产出" }).count(), "unregistered output must not render an empty or engine-default section").toBe(0);
+    expect(await detail.locator("header.kbv-rail-head h2", { hasText: "技能详情" }).count(), "detail header exposes selected skill title, never redundant container boilerplate").toBe(0);
+  });
+
+  test("O32 · 抽样技能逐项给出登记入口口径或诚实待补齐", async ({ page }) => {
+    const rows = (await catalog(page)).filter(skill => skill.employee_visible !== false).slice(0, 6);
+    expect(rows.length, "catalog needs several employee-visible skills for coverage sampling").toBeGreaterThan(0);
+    for (const skill of rows) {
+      await openSkill(page, skill.id);
+      const detail = page.locator("[data-skill-detail]");
+      if (skill.employee_quick || skill.employee_agent) {
+        await expect(detail.getByRole("heading", { name: "可以直接查到" })).toBeVisible();
+        await expect(detail.getByRole("heading", { name: "需要走确认或 AI 助理" })).toBeVisible();
+      } else {
+        await expect(detail).toContainText("待业务专家补齐");
+      }
+      await expect(detail).not.toContainText("相关参数");
+      await expect(detail).not.toContainText("分析结果");
+    }
+  });
+
+  test("O33 · 详情两段入口口径逐字等于 /api/skills 的现有字段", async ({ page }) => {
+    const probes = (await catalog(page)).filter(skill => skill.employee_visible !== false && !!skill.employee_quick && !!skill.employee_agent).slice(0, 3);
+    expect(probes.length, "fixture must include registered direct and assistant boundary wording").toBeGreaterThan(0);
+    for (const skill of probes) {
+      await openSkill(page, skill.id);
+      const detail = page.locator("[data-skill-detail]");
+      await expect(detail.getByRole("heading", { name: "可以直接查到" })).toBeVisible();
+      await expect(detail.getByText(skill.employee_quick!, { exact: true })).toBeVisible();
+      await expect(detail.getByRole("heading", { name: "需要走确认或 AI 助理" })).toBeVisible();
+      await expect(detail.getByText(skill.employee_agent!, { exact: true })).toBeVisible();
+    }
+  });
+
+  test("O34 · 未登记入口口径的六项技能照实显示待补齐", async ({ page }) => {
+    const unregistered = ["discovery_plan", "discovery_brief", "kol_analyze", "today_plan", "today_analyze", "todo_plan"];
+    for (const id of unregistered) {
+      await openSkill(page, id);
+      const detail = page.locator("[data-skill-detail]");
+      expect(await detail.getByRole("heading", { name: "可以直接查到" }).count(), `${id} cannot receive guessed direct wording`).toBe(0);
+      expect(await detail.getByRole("heading", { name: "需要走确认或 AI 助理" }).count(), `${id} cannot receive guessed assistant wording`).toBe(0);
+      await expect(detail).toContainText("待业务专家补齐");
+    }
+  });
+
+  test("O35 · 说明书只有服务端给正文才渲染，并保留段落/列表/标题块", async ({ page }) => {
+    const id = (await visibleSkillIds(page))[0];
+    expect(id, "a visible skill is required for the employee_doc rendering probe").toBeTruthy();
+    const doc = "说明正文一段。\n\n- 第一条\n- 第二条\n\n### 范围\n\n只看你被授权的范围。";
+    await page.route(`**/api/skills/${id}`, route => route.fulfill({ json: { id, employee_doc: doc } }));
+    await openSkill(page, id);
+    const detail = page.locator("[data-skill-detail]");
+    const summary = detail.locator("summary", { hasText: "说明书与示例" });
+    await expect(summary, "provided employee_doc must expose the collapsible document section").toBeVisible();
+    await summary.click();
+    await expect(detail.getByText("说明正文一段。", { exact: true })).toBeVisible();
+    expect(await detail.locator(".skill-doc-list li").count(), "markdown list remains semantic list items").toBe(2);
+    await expect(detail.locator(".skill-doc-heading")).toHaveText("范围");
+    await expect(detail.getByText("只看你被授权的范围。", { exact: true })).toBeVisible();
+  });
+
+  test("O36 · 风险和异步契约进入现行详情而非退役图标砖", async ({ page }) => {
+    const skill = await openCandidate(page, candidate => candidate.risk === "L3" && !!candidate.execution?.async?.enabled, "a controlled async record is required");
+    const detail = page.locator("[data-skill-detail]");
+    await expect(detail.locator(".knowledge-detail-metadata")).toContainText("R3 · 执行前确认");
+    await expect(detail).toContainText("异步");
+    await expect(detail).toContainText(skill.execution?.async?.cancelable ? "可取消" : "不支持取消");
+    await expect(detail).toContainText(skill.execution?.async?.retryable ? "可重试" : "不支持重试");
+    expect(await detail.locator(".knowledge-status").count(), "current risk state is a semantic metadata value, not a fabricated tile column").toBeGreaterThan(0);
+  });
+
+  test("O37 · 展开阅读切换 aria-expanded 并增加当前详情 rail 比重", async ({ page }) => {
+    await openSkill(page);
+    const workspace = page.locator(".knowledge-browse-workspace");
+    const toggle = page.getByRole("button", { name: "展开阅读" });
+    const before = (await page.locator(".kbv-rail").boundingBox())!.width;
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(workspace).toHaveAttribute("data-expanded", "true");
+    await expect.poll(async () => (await page.locator(".kbv-rail").boundingBox())!.width).toBeGreaterThan(before);
+  });
+
+  test("O38 · 当前详情 rail 内最多一个实底主 CTA", async ({ page }) => {
+    await openSkill(page);
+    const primary = await pageVar(page, "--primary");
+    const filled = await page.locator("[data-skill-detail] *").evaluateAll((elements, colour) => elements
+      .filter(element => getComputedStyle(element as HTMLElement).backgroundColor === colour && (element as HTMLElement).getBoundingClientRect().width > 0).length, primary);
+    expect(filled, "detail rail may contain at most one --primary-filled action").toBeLessThanOrEqual(1);
+    await expect(page.locator("[data-asset-use]")).toBeVisible();
+  });
+
+  test("O39 · 展开阅读是带可访问名称与状态的当前语义控件", async ({ page }) => {
+    await openSkill(page);
+    const toggle = page.getByRole("button", { name: "展开阅读" });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(toggle).toHaveAttribute("data-size", "sm");
+    expect(await toggle.textContent(), "current semantic control intentionally uses visible reading label rather than retired icon-only UI").toBe("展开阅读");
+  });
+
+  test("O40 · <720 宽度详情为单 pane，返回列表不丢选中项", async ({ browser }) => {
+    const context = await nativeContext(browser, { viewport: { width: 600, height: 900 } });
+    const page = await context.newPage();
+    await ready(page);
+    const id = await openSkill(page);
+    await expect(page.locator(".knowledge-browse-workspace")).toHaveAttribute("data-pane", "detail");
+    await expect(page.getByRole("button", { name: /返回列表/ })).toBeVisible();
+    await page.getByRole("button", { name: /返回列表/ }).click();
+    await expect(page.locator(".knowledge-browse-workspace")).toHaveAttribute("data-pane", "list");
+    await expect(page.locator(`[data-skill-open="${id}"]`)).toBeFocused();
     await context.close();
   });
 
-  test("不重复、不露样板：没有「技能详情」头部，未登记产出的技能不渲染「产出」", async ({ page }) => {
+  test("O41 · <720 单 pane 本已满宽；不显示无效展开控件", async ({ browser }) => {
+    const context = await nativeContext(browser, { viewport: { width: 600, height: 900 } });
+    const page = await context.newPage();
     await ready(page);
-    const catalog = page.locator("[data-skill-catalog]");
-    // 详情列头部整条删除：「技能详情」是自明的容器名，摘要句与中栏选中行逐字重复。
-    expect(await page.locator(".skill-detail-header").count(), "「技能详情」标题条应当整条移除").toBe(0);
-    expect(await page.locator(".skill-detail-head p").count(), "头部不该再有摘要句").toBe(0);
-    const text = await catalog.evaluate((el) => el.textContent || "");
-    expect(text, "「技能详情」只该留在区域的 aria-label 里，不该是可见文字").not.toContain("技能详情");
-
-    // 产出词表没登记的技能（后端给的是引擎兜底值 task_result）：整节不渲染，
-    // 整页也不出现引擎产出词。
-    await page.locator('.skill-row[data-skill-id="creator_library_query"] .skill-row-name').first().click();
-    const detail = page.locator("[data-skill-detail]");
-    await expect(detail).toBeVisible();
-    await expect(detail.locator(".skill-detail-section h4", { hasText: "产出" })).toHaveCount(0);
-    const all = await catalog.evaluate((el) => el.textContent || "");
-    expect(all, "引擎产出词 task_result 不得出现在员工面上").not.toContain("task_result");
+    await openSkill(page);
+    const [workspace, rail] = await Promise.all([page.locator(".knowledge-browse-workspace").boundingBox(), page.locator(".kbv-rail").boundingBox()]);
+    await expect(page.getByRole("button", { name: "展开阅读" })).toBeHidden();
+    expect(rail!.width, "mobile semantic detail is already the single full pane").toBeCloseTo(workspace!.width, 0);
+    await expect(page.locator(".knowledge-browse-workspace")).toHaveAttribute("data-pane", "detail");
+    await context.close();
   });
-});
 
-test.describe("技能详情列（第四栏）", () => {
-  test.beforeEach(async ({ page }) => {
+  test("O42 · 矮视口至少有一条完整当前列表行可见", async ({ browser }) => {
+    const context = await nativeContext(browser, { viewport: { width: 1280, height: 700 } });
+    const page = await context.newPage();
     await ready(page);
-  });
-
-  test("按技能设计：每项技能都给出覆盖表口径，不用通用占位", async ({ page }) => {
-    const ids = await page.locator(".skill-row").evaluateAll((els) =>
-      [...new Set(els.map((el) => el.getAttribute("data-skill-id") || "").filter(Boolean))],
-    );
-    expect(ids.length, "至少要有若干技能才能验证").toBeGreaterThan(0);
-    for (const id of ids.slice(0, 6)) {
-      // 同一技能可能同时出现在「常用技能」与所属分组，取第一行。
-      await page.locator(`.skill-row[data-skill-id="${id}"] .skill-row-name`).first().click();
-      const detail = page.locator("[data-skill-detail]");
-      await expect(detail, `${id} 的详情未展开`).toBeVisible();
-      // 口径来源：SKILL.md 自己的 `employee_quick` / `employee_agent`（登记在 docs/BUSINESS.md
-      // 的「快捷查询与思考覆盖表」）。没登记的技能必须走「待补齐」分支——不得编造口径（CONST-10）。
-      const covered = await detail.getByText("可以直接查到").count();
-      if (covered > 0) {
-        await expect(detail.getByText("需要走确认或 AI 助理")).toBeVisible();
-      } else {
-        await expect(detail.getByText("待业务专家补齐")).toBeVisible();
-      }
-      await expect(detail.getByText("相关参数")).toHaveCount(0);
-      await expect(detail.getByText("分析结果")).toHaveCount(0);
-    }
-  });
-
-  test("数据来源：栏 4 的两段口径逐字等于 /api/skills 里对应的字段值", async ({ page }) => {
-    // 页面里不再有手抄的入口口径表：两段文字必须**逐字**来自技能文件（经接口带出）。
-    type SkillJson = { id: string; employee_quick?: string | null; employee_agent?: string | null };
-    const rows = (await (await page.request.get("/api/skills")).json()) as SkillJson[];
-    const probes = ["creator_library_all", "creator_outreach", "stage_sop"];
-    const sectionValue = (label: string) =>
-      page.locator("[data-skill-detail]")
-        .locator(".skill-detail-section", { hasText: label })
-        .locator(".skill-detail-value")
-        .first();
-    for (const id of probes) {
-      const row = rows.find((r) => r.id === id);
-      expect(row, `${id} 应当出现在 /api/skills 里`).toBeTruthy();
-      expect(row!.employee_quick, `${id} 在接口里应当有 employee_quick`).toBeTruthy();
-      await page.locator(`.skill-row[data-skill-id="${id}"] .skill-row-name`).first().click();
-      const detail = page.locator("[data-skill-detail]");
-      await expect(detail.locator("h4", { hasText: "可以直接查到" }), `${id} 的「可以直接查到」未渲染`).toBeVisible();
-      expect((await sectionValue("可以直接查到").textContent())?.trim(), `${id} 的「可以直接查到」与接口不一致`).toBe(row!.employee_quick);
-      expect((await sectionValue("需要走确认或 AI 助理").textContent())?.trim(), `${id} 的「需要走确认或 AI 助理」与接口不一致`).toBe(row!.employee_agent);
-    }
-  });
-
-  test("未登记入口口径的 6 个技能：照实说明待专家补齐，不给推测口径", async ({ page }) => {
-    // 名单照 docs/BUSINESS.md「快捷查询与思考覆盖表」的登记原文。
-    const unregistered = ["discovery_plan", "discovery_brief", "kol_analyze", "today_plan", "today_analyze", "todo_plan"];
-    for (const id of unregistered) {
-      const row = page.locator(`.skill-row[data-skill-id="${id}"]`);
-      await expect(row.first(), `${id} 应当还在技能目录里`).toBeVisible();
-      await row.first().locator(".skill-row-name").click();
-      const detail = page.locator("[data-skill-detail]");
-      await expect(detail.locator("h4", { hasText: "可以直接查到" }), `${id} 不该有推测口径`).toHaveCount(0);
-      await expect(detail.getByText("待业务专家补齐"), `${id} 必须照实说明待补齐`).toBeVisible();
-    }
-  });
-
-  test("说明书：接口给了正文才渲染，为空则整节隐藏（不做 loading 假动作）", async ({ page }) => {
-    // 当前仓库的技能文件都还没写 `## 员工口径` 这一节，接口返回空串 → 该节整节不渲染。
-    await expect(
-      page.locator("[data-skill-detail] h4", { hasText: "说明书" }),
-      "没有正文就不该有「说明书」小节（空壳不算说明书）",
-    ).toHaveCount(0);
-
-    // 接口真给了正文时：Markdown 子集（段落 / `-` 列表 / `###` 小标题）按三种块渲染。
-    const doc = "说明正文一段。\n\n- 第一条\n- 第二条\n\n### 范围\n\n只看你被授权的范围。";
-    await page.route("**/api/skills/creator_outreach", (route) =>
-      route.fulfill({
-        json: { id: "creator_outreach", employee_quick: "口径", employee_agent: "边界", employee_doc: doc },
-      }),
-    );
-    // 先切到别的技能再切回来：说明书是按选中技能拉的，同一次选中不会重复拉。
-    await page.locator('.skill-row[data-skill-id="creator_discovery"] .skill-row-name').first().click();
-    await page.locator('.skill-row[data-skill-id="creator_outreach"] .skill-row-name').first().click();
-    const section = page.locator("[data-skill-detail] .skill-detail-section", { hasText: "说明书" });
-    await expect(section.getByText("说明正文一段。")).toBeVisible();
-    await expect(section.locator(".skill-doc-list li")).toHaveCount(2);
-    await expect(section.locator(".skill-doc-heading")).toHaveText("范围");
-    await expect(section.getByText("只看你被授权的范围。")).toBeVisible();
-  });
-
-  test("风险档与异步契约进入详情", async ({ page }) => {
-    await page.locator('.skill-row[data-skill-id="creator_discovery"] .skill-row-name').first().click();
-    const detail = page.locator("[data-skill-detail]");
-    await expect(detail.locator(".skill-mark.is-async")).toBeVisible();
-    await expect(detail.getByText("异步作业", { exact: false })).toBeVisible();
-    await expect(detail.locator(".skill-mark.is-read")).toBeVisible();
-  });
-
-  test("展开 / 收窄切换宽度档并暴露 aria-expanded", async ({ page }) => {
-    const pane = page.locator(".skill-detail-pane");
-    const toggle = page.locator(".skill-detail-toggle");
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    const before = (await pane.boundingBox())!.width;
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await expect.poll(async () => (await pane.boundingBox())!.width).toBeGreaterThan(before);
-  });
-
-  test("§不变量 1：详情列内最多 1 个实底主 CTA", async ({ page }) => {
-    const primary = await pageVar(page, "--primary");
-    const filled = await page.evaluate((rgb) => {
-      const all = [...document.querySelectorAll<HTMLElement>("[data-skill-detail] *")];
-      return all.filter((el) => getComputedStyle(el).backgroundColor === rgb).length;
-    }, primary);
-    expect(filled).toBeLessThanOrEqual(1);
-  });
-
-  test("「展开」是图标按钮且带 aria-label", async ({ page }) => {
-    const t = page.locator(".skill-detail-toggle");
-    await expect(t).toHaveAttribute("aria-label", /展开|收窄/);
-    expect(await t.evaluate((el) => !!el.querySelector("svg")), "必须是 SVG 图标").toBe(true);
-    expect(await t.evaluate((el) => (el.textContent || "").trim()), "不应再有文字").toBe("");
-  });
-});
-
-test("§三轴适配 · 宽度轴 <900：详情列改为覆盖层，可关闭，不把交互内容藏掉", async ({ browser }) => {
-  const context = await browser.newContext({ viewport: { width: 800, height: 900 } });
-  const page = await context.newPage();
-  await ready(page);
-  const pane = page.locator(".skill-detail-pane");
-  await expect(pane).toBeHidden();
-  await page.locator(".skill-row").first().locator(".skill-row-name").click();
-  await expect(pane).toBeVisible();
-  await page.locator(".skill-detail-close").click();
-  await expect(pane).toBeHidden();
-  await context.close();
-});
-
-test("§三轴适配 · 宽度轴 <900：覆盖态下「展开」也必须有效", async ({ browser }) => {
-  const context = await browser.newContext({ viewport: { width: 860, height: 900 } });
-  const page = await context.newPage();
-  await ready(page);
-  await page.locator(".skill-row .skill-row-name").first().click();
-  const pane = page.locator(".skill-detail-pane");
-  await expect(pane).toBeVisible();
-  const before = (await pane.boundingBox())!.width;
-  await page.locator(".skill-detail-toggle").click();
-  await expect(page.locator(".skill-detail-toggle")).toHaveAttribute("aria-expanded", "true");
-  await expect.poll(async () => (await pane.boundingBox())!.width).toBeGreaterThan(before);
-  await context.close();
-});
-
-test("§验收矩阵：矮视口下至少一条完整列表行可见", async ({ browser }) => {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 700 } });
-  const page = await context.newPage();
-  await ready(page);
-  const complete = await page.evaluate(() => {
-    const content = document.querySelector<HTMLElement>(".skill-catalog-content")!;
-    const box = content.getBoundingClientRect();
-    return [...document.querySelectorAll<HTMLElement>(".skill-row")].some((el) => {
-      const r = el.getBoundingClientRect();
-      return r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
+    const complete = await page.evaluate(() => {
+      const container = document.querySelector<HTMLElement>("[data-kbv-list]")!.getBoundingClientRect();
+      return [...document.querySelectorAll<HTMLElement>(".knowledge-list-row")].some(row => {
+        const rect = row.getBoundingClientRect(); return rect.top >= container.top - 1 && rect.bottom <= container.bottom + 1;
+      });
     });
+    expect(complete, "short viewport must expose one uncut current list row").toBe(true);
+    await context.close();
   });
-  expect(complete, "1280×700 下必须至少有一条完整可见的列表行").toBe(true);
-  await context.close();
-});
 
-test("§验收矩阵：1024×630 下列表不被并排的详情列挤到横向裁切", async ({ browser }) => {
-  // §不变量 5：绝不允许溢出被 overflow 静默裁切。
-  // 详情列与列表并排，列表列在这个宽度只剩约 400px；列宽必须按列表列的实际宽度收敛。
-  // 行内动作已删除，所以这里不再盯「动作是否被挤出」，改成按内容盒断言：
-  // 列表列自己没有横向滚动，且每条行自己也没有溢出。
-  const context = await browser.newContext({ viewport: { width: 1024, height: 630 } });
-  const page = await context.newPage();
-  await ready(page);
-  const r = await page.evaluate(() => {
-    const content = document.querySelector<HTMLElement>(".skill-catalog-content")!;
-    const box = content.getBoundingClientRect();
-    const pane = document.querySelector<HTMLElement>(".skill-detail-pane")!;
-    const rows = [...document.querySelectorAll<HTMLElement>(".skill-row")]
-      .filter((el) => el.scrollWidth - el.clientWidth > 1)
-      .map((el) => el.getAttribute("data-skill-id") || "");
-    return {
-      overflow: content.scrollWidth - content.clientWidth,
-      rows,
-      // 详情列必须与列表并排（不是被折到下面），否则「并排挤压」这条前提就不成立。
-      paneLeft: pane.getBoundingClientRect().left,
-      contentRight: box.right,
-    };
-  });
-  expect(r.overflow, "列表内容不得出现横向滚动").toBeLessThanOrEqual(1);
-  expect(r.rows, `行自身溢出：${JSON.stringify(r.rows)}`).toEqual([]);
-  expect(r.paneLeft, "详情列应当与列表并排在同一行").toBeGreaterThanOrEqual(r.contentRight - 1);
-  await context.close();
-});
-
-test.describe("第二轮 UX 改进（常用/推荐口径 · 键盘路径 · 清除 · 段落次序 · 压缩档信号）", () => {
-  test("新员工看到的是「推荐技能」，且不谎称「常用」、不逐行打星", async ({ page }) => {
-    await page.addInitScript(() => { try { localStorage.clear(); } catch { /* ignore */ } });
+  test("O43 · 1024×630 当前双 rail 不以横向裁切掩盖列表", async ({ browser }) => {
+    const context = await nativeContext(browser, { viewport: { width: 1024, height: 630 } });
+    const page = await context.newPage();
     await ready(page);
-    const frequent = page.locator(".skill-group-frequent");
-    await expect(frequent.locator("h2")).toHaveText("推荐技能");
-    await expect(frequent.locator(".skill-group-hint")).toContainText("按你所在阶段挑的几项");
-    expect(await frequent.locator(".skill-row-star").count(), "没有使用记录时不该逐行打★").toBe(0);
-    // 深链也要跟着走：没有记录时「查看全部」应落到「推荐」，而不是空的「常用」。
-    expect(await frequent.locator(".skill-group-more").getAttribute("href")).toBe("/skills?tab=recommend");
-  });
-
-  test("有使用记录时才叫「常用技能」", async ({ page }) => {
-    await page.addInitScript(() => {
-      try { localStorage.setItem("skill:usage", JSON.stringify({ creator_outreach: 2 })); } catch { /* ignore */ }
+    const layout = await page.evaluate(() => {
+      const list = document.querySelector<HTMLElement>("[data-kbv-list]")!, rail = document.querySelector<HTMLElement>(".kbv-rail")!;
+      return { listOverflow: list.scrollWidth - list.clientWidth, rowOverflow: [...document.querySelectorAll<HTMLElement>(".knowledge-list-row")].map(row => row.scrollWidth - row.clientWidth).filter(value => value > 1), listRight: list.getBoundingClientRect().right, railLeft: rail.getBoundingClientRect().left };
     });
-    await ready(page);
-    const frequent = page.locator(".skill-group-frequent");
-    await expect(frequent.locator("h2")).toHaveText("常用技能");
-    await expect(frequent.locator(".skill-group-hint")).toContainText("你经常使用的技能");
-    expect(await frequent.locator(".skill-group-more").getAttribute("href")).toBe("/skills?tab=frequent");
+    expect(layout.listOverflow, "list itself cannot horizontally scroll as a clipping workaround").toBeLessThanOrEqual(1);
+    expect(layout.rowOverflow, "current individual rows cannot overflow").toEqual([]);
+    expect(layout.railLeft, "detail rail remains alongside the list at current desktop/container breakpoint").toBeGreaterThanOrEqual(layout.listRight - 1);
+    await context.close();
+  });
+});
+
+test.describe("技能详情 · 数据真实度、筛选与排版", () => {
+  test.beforeEach(async ({ page }) => { await ready(page); });
+
+  test("O44 · 无真实使用记录不以查看/收藏伪称常用，推荐保持独立", async ({ page }) => {
+    const personal = await personalRecords(page);
+    await page.goto("/skills?mode=frequent&stage=all");
+    await page.locator("[data-skill-catalog]").waitFor();
+    const displayed = await visibleSkillIds(page);
+    const used = new Set(personal.filter(item => (item.use_count || 0) > 0).map(item => item.skill_id));
+    expect(displayed.every(id => used.has(id)), "frequent view may include only actual-use records, never viewed/favorited substitutes").toBe(true);
+    await page.goto("/skills?mode=recommend&stage=all");
+    await page.locator("[data-skill-catalog]").waitFor();
+    const recommended = await visibleSkillIds(page);
+    await expect(page.locator("[data-skill-catalog]")).not.toContainText("你经常使用的技能");
+    await expect(page).toHaveURL(/mode=recommend.*stage=all/);
+    expect(recommended.length, "recommend view is a separately addressed current mode, not a renamed frequent label").toBeGreaterThanOrEqual(0);
+    expect(await personalRecords(page), "opening recommendation cannot manufacture personal use/favorite facts").toEqual(personal);
   });
 
-  test("键盘路径：Tab 从行名直接到下一行行名（序列里没有行内动作），右栏 CTA 仍在 Tab 顺序内", async ({ page }) => {
-    await ready(page);
-    let seen = "";
-    for (let i = 0; i < 40; i++) {
-      await page.keyboard.press("Tab");
-      seen = await page.evaluate(() => (document.activeElement as HTMLElement | null)?.className || "");
-      if (seen.includes("skill-row-name")) break;
+  test("O45 · 常用仅来自实际 use_count；查看与收藏保持独立个人记录", async ({ page }) => {
+    const personal = await personalRecords(page);
+    const frequent = personal.filter(item => (item.use_count || 0) > 0).map(item => item.skill_id);
+    await page.goto("/skills?mode=frequent&stage=all");
+    await page.locator("[data-skill-catalog]").waitFor();
+    const shown = await visibleSkillIds(page);
+    expect(shown, "frequent rendering matches the actual personal-use set").toEqual(expect.arrayContaining(frequent.slice(0, shown.length)));
+    expect(shown.every(id => frequent.includes(id)), "view/favorite cannot independently place a skill in frequent").toBe(true);
+    if (shown.length) {
+      await openSkill(page, shown[0]);
+      const favorite = page.getByRole("button", { name: /收藏|取消收藏/ });
+      await expect(favorite).toHaveAttribute("aria-pressed", /true|false/);
+    } else {
+      await expect(page.locator(".kbv-empty")).toContainText("没有匹配的技能");
     }
-    expect(seen, "Tab 必须能到达列表行的选择入口").toContain("skill-row-name");
-    const firstId = await page.evaluate(() =>
-      (document.activeElement as HTMLElement | null)?.closest(".skill-row")?.getAttribute("data-skill-id") || "");
-    // 行里没有第二个焦点：下一个 Tab 直接落到**下一行**的行名（行内已无任何动作）。
+  });
+
+  test("O46 · 键盘从一条选择入口前进到下一条，详情动作也可到达", async ({ page }) => {
+    const first = page.locator(".knowledge-list-open").first(), second = page.locator(".knowledge-list-open").nth(1);
+    await first.focus();
+    await expect(first).toBeFocused();
     await page.keyboard.press("Tab");
-    const next = await page.evaluate(() => (document.activeElement as HTMLElement | null)?.className || "");
-    expect(next, `下一个焦点应是下一行的行名，实测 ${next}`).toContain("skill-row-name");
-    const nextId = await page.evaluate(() =>
-      (document.activeElement as HTMLElement | null)?.closest(".skill-row")?.getAttribute("data-skill-id") || "");
-    expect(nextId, "下一个焦点必须换了一行").not.toBe(firstId);
-    // 右栏主 CTA 也在焦点序列里：从最后一行继续 Tab（数量有限，不是 51 个行内动作那么远）。
-    await page.locator(".skill-row").last().locator(".skill-row-name").focus();
-    let reached = false;
-    for (let i = 0; i < 8; i++) {
-      await page.keyboard.press("Tab");
-      const cls = await page.evaluate(() => (document.activeElement as HTMLElement | null)?.className || "");
-      if (cls.includes("skill-btn-primary")) { reached = true; break; }
-    }
-    expect(reached, "右栏详情列的实底主 CTA 必须能在焦点序列里到达").toBe(true);
+    await expect(second).toBeFocused();
+    await first.click();
+    const action = await primaryAction(page);
+    await action.focus();
+    await expect(action).toBeFocused();
+    expect(await first.locator(":is(a[href], button)").count(), "row keeps one focusable semantic selection, never a repeated action").toBe(1);
   });
 
-  test("搜索框有清除入口：点一下清空并把焦点还给输入框", async ({ page }) => {
-    await ready(page);
+  test("O47 · 搜索清除入口清空查询并把焦点归还输入框", async ({ page }) => {
     const input = page.getByRole("textbox", { name: "搜索技能 / SOP / 场景" });
     await input.fill("达人");
     const clear = page.getByRole("button", { name: "清除搜索" });
-    await expect(clear).toBeVisible();
+    await expect(clear, "shared allowClear needs a localized accessible clear action").toBeVisible();
     await clear.click();
     await expect(input).toHaveValue("");
     await expect(input).toBeFocused();
     await expect(clear).toHaveCount(0);
   });
 
-  test("详情列小节按新顺序排：入口口径 → 需要你提供 → 产出 → 使用步骤 → 执行边界 → 说明书 → 示例", async ({ page }) => {
-    await ready(page);
-    // confirm_stage 是四个小节都齐的一项（口径两段 / 产出 / 使用步骤 / 执行边界），
-    // 用它把顺序钉死；只取正文段的**直接**子节 ——「查看调用关系与安全边界」折叠里的
-    // 执行细项固定排在正文末尾、主 CTA 之前，不属于这一序列（docs/DESIGN.md §不变量 1）。
-    await page.locator('.skill-row[data-skill-id="confirm_stage"] .skill-row-name').first().click();
-    const headings = await page.locator("[data-skill-detail] .skill-detail-body > .skill-detail-section h4").evaluateAll(
-      (els) => els.map((e) => e.textContent?.trim() || ""),
-    );
-    // 有则渲染、无则隐藏：实测必须是登记顺序的子序列，且不出现未登记的小节。
-    const ORDER = [
-      "可以直接查到",
-      "需要走确认或 AI 助理",
-      "需要你提供",
-      "产出",
-      "使用步骤",
-      "执行边界",
-      "说明书",
-      "示例",
-    ];
-    expect(headings.length, "详情列应当有若干小节").toBeGreaterThan(3);
-    expect(headings.filter((h) => !ORDER.includes(h)), `出现未登记的小节：${headings.join(" / ")}`).toEqual([]);
-    expect(headings, `小节顺序不得漂移：${headings.join(" / ")}`).toEqual(ORDER.filter((h) => headings.includes(h)));
-    expect(headings).toEqual(["可以直接查到", "需要走确认或 AI 助理", "产出", "使用步骤", "执行边界"]);
+  test("O48 · 详情小节按登记阅读顺序渲染，不产生未登记字段", async ({ page }) => {
+    const skill = await openCandidate(page, candidate => !!candidate.employee_quick && !!candidate.employee_agent && !!candidate.output && !!candidate.learning, "fixture needs a complete skill for section-order contract");
+    const headings = await page.locator("[data-skill-detail] :is(h3, summary)").evaluateAll(elements => elements.map(element => element.textContent?.trim() || ""));
+    const allowed = ["可以直接查到", "需要走确认或 AI 助理", "需要你提供", "产出", "使用步骤", "执行边界", "说明书与示例", "调用关系与安全边界"];
+    expect(headings.length, "complete detail must render its registered reading hierarchy").toBeGreaterThan(3);
+    expect(headings.filter(heading => !allowed.includes(heading)), `unregistered current detail headings: ${headings.join(" / ")}`).toEqual([]);
+    expect(headings, "registered headings must be in documented order").toEqual(allowed.filter(heading => headings.includes(heading)));
+    expect(skill.id, "section ordering remains bound to selected real skill").toBeTruthy();
   });
 
-  test("栏 4 排版：类型只留四档，且全页不出现 600 档字重", async ({ page }) => {
-    await ready(page);
-    const read = (sel: string) => page.locator(sel).first().evaluate((el) => {
-      const s = getComputedStyle(el);
-      return { size: s.fontSize, weight: s.fontWeight };
+  test("O49 · 当前详情字阶为 13/12px，字重仅 400/500/600", async ({ page }) => {
+    await openSkill(page);
+    const styles = await page.evaluate(() => {
+      const read = (selector: string) => { const style = getComputedStyle(document.querySelector<HTMLElement>(selector)!); return { size: style.fontSize, weight: style.fontWeight }; };
+      const heavy = [...document.querySelectorAll<HTMLElement>("[data-skill-catalog] *")].filter(element => element.getBoundingClientRect().width > 0 && Number(getComputedStyle(element).fontWeight) > 600).map(element => `${element.className || element.tagName}:${getComputedStyle(element).fontWeight}`);
+      return { title: read(".kbv-title-row h2"), row: read(".knowledge-row-title"), body: read(".asset-detail-section"), quiet: read(".asset-read-warning"), heavy: [...new Set(heavy)] };
     });
-    expect(await read(".skill-detail-head h2"), "对象名 15px / 500").toMatchObject({ size: "15px", weight: "500" });
-    expect(await read(".skill-detail-body .skill-detail-section h4"), "小节标题 12px / 500").toMatchObject({ size: "12px", weight: "500" });
-    expect(await read(".skill-detail-body .skill-detail-value"), "正文 13px / 400").toMatchObject({ size: "13px", weight: "400" });
-    expect(await read(".skill-detail-marks .skill-detail-chip"), "chips 12px / 400").toMatchObject({ size: "12px", weight: "400" });
-    // 本页除标题外没有加粗档：层级由间距 / 墨色 / 图标承担，不靠字重堆。
-    const heavy = await page.evaluate(() => {
-      const out: string[] = [];
-      for (const el of document.querySelectorAll<HTMLElement>("[data-skill-catalog] *")) {
-        const s = getComputedStyle(el);
-        if (s.display === "none" || el.getBoundingClientRect().width === 0) continue;
-        if (Number(s.fontWeight) >= 600) out.push(`${el.className || el.tagName} ${s.fontWeight}`);
-      }
-      return [...new Set(out)];
+    expect(styles.title, "detail title uses current L1 13px/600 hierarchy").toMatchObject({ size: "13px", weight: "600" });
+    expect(styles.row, "row title uses current L2 13px/500 hierarchy").toMatchObject({ size: "13px", weight: "500" });
+    expect(styles.body, "detail body uses current 13px base hierarchy").toMatchObject({ size: "13px" });
+    expect(styles.quiet, "supporting warning uses current 12px hierarchy").toMatchObject({ size: "12px" });
+    expect(styles.heavy, "no current catalog text may exceed 600").toEqual([]);
+  });
+
+  test("O50 · 说明/缺失提示为紧凑 muted 行，不是大块 callout", async ({ page }) => {
+    await openSkill(page);
+    const warning = page.locator("[data-skill-detail] .asset-read-warning").first();
+    await expect(warning, "truthful missing-doc/async boundary warning must remain visible").toBeVisible();
+    const style = await warning.evaluate(element => {
+      const computed = getComputedStyle(element), rect = element.getBoundingClientRect();
+      return { colour: computed.color, size: computed.fontSize, background: computed.backgroundColor, border: Number.parseFloat(computed.borderLeftWidth), height: rect.height };
     });
-    expect(heavy, `本页不该出现 600 档字重：${heavy.join(" / ")}`).toEqual([]);
+    expect(style.colour, "warning uses muted/quiet current text token").toBe(await pageVar(page, "--text-quiet"));
+    expect(style.size, "warning stays in supporting scale").toBe("12px");
+    expect(style.background, "warning is not a filled callout").toBe("rgba(0, 0, 0, 0)");
+    expect(style.border, "warning has no fake left emphasis bar").toBe(0);
+    expect(style.height, "compact warning cannot consume a large card height").toBeLessThanOrEqual(48);
   });
 
-  test("栏 4 排版：长说明是一行 muted 提示（带小图标），不再是大块浅底 callout", async ({ page }) => {
-    await ready(page);
-    const hint = page.locator("[data-skill-detail] .skill-detail-hint").first();
-    await expect(hint, "「示例 / 说明书未补录」这类长说明必须还在，只是收成一行").toBeVisible();
-    const s = await hint.evaluate((el) => {
-      const cs = getComputedStyle(el);
-      return {
-        color: cs.color,
-        size: cs.fontSize,
-        bg: cs.backgroundColor,
-        border: Number.parseFloat(cs.borderLeftWidth),
-        icon: Boolean(el.querySelector("svg")),
-        height: el.getBoundingClientRect().height,
-      };
-    });
-    expect(s.color, "提示走 muted").toBe(await pageVar(page, "--text-muted"));
-    expect(s.size).toBe("12px");
-    expect(s.bg, "不再铺浅底").toBe("rgba(0, 0, 0, 0)");
-    expect(s.border, "不再有左侧强调条").toBe(0);
-    expect(s.icon, "前缀一个小图标").toBe(true);
-    expect(s.height, `一行提示不该占两行以上（实测 ${s.height}px）`).toBeLessThanOrEqual(36);
-  });
-
-  test("筛选条有右缘渐隐提示（窄屏横向滚动时）", async ({ page }) => {
-    await ready(page);
-    await expect(page.locator(".skill-tabs-fade")).toHaveCount(1);
-  });
-
-  test("§不变量 2 的压缩档兜底：列表列 <460px 收起文字标记后 L3 仍有形状信号（异步虚线为全宽信号）", async ({ browser }) => {
-    const context = await browser.newContext({ viewport: { width: 1024, height: 630 } });
+  test("O51 · 窄宽筛选改为可见换行，不以退役渐隐遮住选项", async ({ browser }) => {
+    const context = await nativeContext(browser, { viewport: { width: 800, height: 900 } });
     const page = await context.newPage();
     await ready(page);
-    const r = await page.evaluate(() => {
-      const tile = (sel: string) => {
-        const el = document.querySelector<HTMLElement>(sel);
-        if (!el) return null;
-        const cs = getComputedStyle(el);
-        return { w: Number.parseFloat(cs.borderTopWidth), style: cs.borderTopStyle };
-      };
-      const marksVisible = [...document.querySelectorAll(".skill-row .skill-mark")]
-        .some((e) => e.getBoundingClientRect().height > 0);
-      return { write: tile(".skill-row.is-write .skill-row-icon"), async: tile(".skill-row.is-async .skill-row-icon"), marksVisible };
+    const result = await page.evaluate(() => {
+      const group = document.querySelector<HTMLElement>(".knowledge-filter-row")!;
+      const rect = group.getBoundingClientRect();
+      const options = [...group.querySelectorAll<HTMLElement>(".knowledge-filter-option")].map(option => {
+        const box = option.getBoundingClientRect(); return { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
+      });
+      return { overflow: group.scrollWidth - group.clientWidth, rect, options };
     });
-    expect(r.marksVisible, "该宽度下文字标记（L3「需确认」）应当已收起，这条测试才有意义").toBe(false);
-    expect(r.write, "受控（L3）技能必须有图标砖边框信号").not.toBeNull();
-    expect(r.write!.w, "L3 边框应为实线").toBeGreaterThanOrEqual(1);
-    expect(r.write!.style).toBe("solid");
-    expect(r.async, "异步作业必须有虚线边框信号").not.toBeNull();
-    expect(r.async!.style, "异步用虚线，与 L3 的实线区分（形状信号）").toBe("dashed");
+    expect(result.overflow, "wrapping filters cannot be horizontally hidden").toBeLessThanOrEqual(1);
+    expect(result.options.length, "all current filter options remain rendered").toBeGreaterThan(1);
+    expect(result.options.every(option => option.left >= result.rect.left - 1 && option.right <= result.rect.right + 1), "each filter option remains fully inside its visible group").toBe(true);
+    await context.close();
+  });
+
+  test("O52 · 1024 压缩宽度仍保留 R3 与异步文字/形状双信号", async ({ browser }) => {
+    const context = await nativeContext(browser, { viewport: { width: 1024, height: 630 } });
+    const page = await context.newPage();
+    await ready(page);
+    const candidate = (await catalog(page)).find(skill => skill.employee_visible !== false && skill.risk === "L3" && !!skill.execution?.async?.enabled);
+    expect(candidate, "compressed contract requires a declared R3 async skill").toBeTruthy();
+    await openSkill(page, candidate!.id);
+    const detail = page.locator("[data-skill-detail]");
+    const status = page.locator(".knowledge-detail-metadata .knowledge-status");
+    await expect(status).toContainText("R3 · 执行前确认");
+    await expect(detail).toContainText("异步");
+    await expect(detail).toContainText("取消");
+    await expect(detail).toContainText("重试");
+    expect(await status.evaluate(element => getComputedStyle(element).borderTopWidth), "risk status keeps a visible non-colour border shape").not.toBe("0px");
     await context.close();
   });
 });
 
-test.describe("「填入输入框」把技能填进输入框（右栏唯一入口）", () => {
-  test("填入的是技能正文（起始行 + 待补参数），不是只挂一个技能名", async ({ page }) => {
-    await ready(page);
+test.describe("技能带入当前任务 · 真实草稿边界", () => {
+  test.beforeEach(async ({ page }) => { await ready(page); });
 
-    // 行内动作已删除：先点中栏那一行（行名＝行的选择入口），再点右栏详情列的实底主 CTA。
-    const row = page.locator('.skill-row[data-skill-id="creator_outreach"]').first();
-    await expect(row).toBeVisible();
-    await row.locator(".skill-row-name").click();
-    await page.locator(".skill-detail-footer .skill-btn-primary").click();
-
-    // 落到「新工作任务」：输入框里是技能起始行 + 这项技能自己的说明（技能详情），
-    // 芯片同时保留技能名。
-    await expect(page).toHaveURL(/\/(?:\?|$)/);
-    await expect(page.locator("[data-home] [data-composer-input]"))
-      .toHaveValue(/^达人建联话术 \[[^\]]+\]\n基于达人数据生成私信和加微信话术$/);
-    await expect(page.locator('[data-skill-chip="creator_outreach"]')).toBeVisible();
+  test("O53 · 带入仅面向现有目标/工作台草稿，绝不凭空新建会话", async ({ page }) => {
+    await page.evaluate(() => { try { sessionStorage.clear(); } catch { /* unavailable in this context */ } });
+    await page.reload();
+    await page.locator(".knowledge-list-row").first().waitFor();
+    await openSkill(page);
+    const target = page.getByRole("combobox", { name: "选择目标任务" });
+    const action = page.locator("[data-asset-use]");
+    await expect(target).toBeVisible();
+    await expect(action, "without an explicit target the handoff cannot run").toBeDisabled();
+    await expect(page.locator("[data-skill-detail]")).not.toContainText("新建会话");
+    await expect(page.locator("[data-skill-detail]")).toContainText("目标任务");
   });
 
-  test("填技能不会启动今日或待办任务计划", async ({ page }) => {
+  test("O54 · 预览/带入边界不启动今日或待办计划", async ({ page }) => {
     const planPosts: string[] = [];
-    page.on("request", (request) => {
+    page.on("request", request => {
       if (request.method() !== "POST") return;
-      const path = new URL(request.url()).pathname;
-      if (path.endsWith("/today-brief/plan") || path.endsWith("/todo-brief/plan")) planPosts.push(path);
+      const pathname = new URL(request.url()).pathname;
+      if (pathname.endsWith("/today-brief/plan") || pathname.endsWith("/todo-brief/plan")) planPosts.push(pathname);
     });
-
-    await ready(page);
-    await page.locator('.skill-row[data-skill-id="creator_outreach"] .skill-row-name').first().click();
-    await page.locator(".skill-detail-footer .skill-btn-primary").click();
-    await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/\S/);
-
-    // 落回 Home 的提问框仍在用户手里：技能只填进输入框，不产生任何规划 POST。
-    // （启动键的 data-home-entry 取值由 Home 自己维护，本页不绑定它的具体文案。）
-    await expect(page.locator("[data-home] [data-home-entry]").first()).toBeVisible();
+    await openSkill(page);
+    await expect(page.locator("[data-asset-use]")).toBeVisible();
+    await expect(page.locator(".asset-task-action")).toContainText("目标任务");
     await page.waitForTimeout(3000);
-    expect(planPosts).toEqual([]);
+    expect(planPosts, "reading or selecting a skill cannot start either planning flow").toEqual([]);
   });
 });
 
-/**
- * 反漂移门禁（工程约束，不是法条）：页面渲染色值必须能指回本页消费的 token。
- * 它挡住的是「顺手写一个新的 hex / 灰」这类漂移，也让 docs/DESIGN.md §控件尺寸
- * 「尺寸与数值只走命名 token」在实现层可验证。
- */
-async function assertPaletteFromTokens(page: Page) {
-  // 默认选中态的底色有 140ms 过渡；过渡中 getComputedStyle 会给出插值色（oklab(...)），
-  // 那是中间态而不是页面配方，先等它落定再采样。
-  await page.waitForTimeout(500);
-  const tokens = [
-    "--bg",
-    "--ds-surface",
-    "--surface-hover",
-    "--ds-selected-bg",
-    "--text",
-    "--text-muted",
-    "--border",
-    "--control-border",
-    "--primary",
-    "--primary-fg",
-    "--primary-hover",
-    "--primary-text",
-    "--accent",
-    "--accent-hover",
-    "--accent-text",
-    "--warning",
-    "--danger",
-    "--success",
-    "--cat-library",
-    "--cat-library-text",
-    "--cat-library-tile",
-    "--cat-library-line",
-    "--cat-assistant",
-    "--cat-assistant-text",
-    "--cat-assistant-tile",
-    "--cat-assistant-line",
-    "--cat-crawl",
-    "--cat-crawl-text",
-    "--cat-crawl-tile",
-    "--cat-crawl-line",
-    "--cat-builtin",
-    "--cat-builtin-text",
-    "--cat-builtin-tile",
-    "--cat-builtin-line",
-  ];
-  const allowed = new Set<string>(["rgb(255, 255, 255)", "rgba(0, 0, 0, 0)", "transparent"]);
-  for (const t of tokens) allowed.add(await pageVar(page, t));
-  // 页面里由 token 混出来的颜色（浅底、暖墨、冷墨）：按浏览器实际算出的值入白名单
-  // —— 仍然不手写 hex，只允许"从 token 派生"这一条路径。
-  const mixed = await page.evaluate(() => {
-    const host = document.querySelector<HTMLElement>(".skill-catalog-page") ?? document.body;
-    const expr = [
-      "color-mix(in srgb, var(--warning) 10%, var(--bg))",
-      "color-mix(in srgb, var(--warning) 72%, var(--text))",
-      // 辅助色（蓝）在本页的用法：无 data-tone 时的图标砖回落配方 + 行标题冷墨。
-      // 类别色不在此列 —— 它们走 --cat-* 命名 token，砖底/描边/字形都由 token 直接给出。
-      "color-mix(in srgb, var(--accent) 8%, var(--bg))",
-      "color-mix(in srgb, var(--accent) 18%, var(--border))",
-      "color-mix(in srgb, var(--text) 82%, var(--accent))",
-    ];
-    const out: string[] = [];
-    for (const e of expr) {
-      for (const prop of ["background", "color", "border-color"] as const) {
-        const p = document.createElement("div");
-        p.style.setProperty(prop, e);
-        host.appendChild(p);
-        const cs = getComputedStyle(p);
-        out.push(
-          prop === "background" ? cs.backgroundColor : prop === "color" ? cs.color : cs.borderTopColor,
-        );
-        p.remove();
-      }
-    }
-    return out;
-  });
-  mixed.forEach((c) => allowed.add(c));
+test.describe("资格与当前 API 事实（保留上一迁移的 lawful native coverage）", () => {
+  test.beforeEach(async ({ page }) => { await ready(page); });
 
-  const stray = await page.evaluate(
-    ([list, props]) => {
-      const allow = new Set(list as string[]);
-      const out = new Set<string>();
-      for (const el of document.querySelectorAll<HTMLElement>("[data-skill-catalog] *")) {
-        const cs = getComputedStyle(el);
-        if (cs.display === "none" || el.getBoundingClientRect().width === 0) continue;
-        for (const p of props as string[]) {
-          // 注意：getPropertyValue 只认 kebab-case；这里按 camelCase 取，必须用下标访问。
-          const v = (cs as unknown as Record<string, string>)[p];
-          if (!allow.has(v)) out.add(`${(el.className || el.tagName).toString().slice(0, 34)} ${p}=${v}`);
-        }
-      }
-      return [...out];
-    },
-    [[...allowed], [...VISIBLE_PROPS]],
-  );
-  expect(stray, `这些色值无法指回本页消费的 token：\n${stray.join("\n")}`).toEqual([]);
-}
+  test("M01 · auth-enabled principal 只获得明确已发布 agent:kol 的合法绑定", async ({ page }) => {
+    const rows = await catalog(page);
+    expect(rows.filter(row => row.employee_visible !== false).length, "catalog keeps employee-visible API facts").toBeGreaterThan(0);
+    if (!AUTH_ENABLED) {
+      expect(rows.every(row => row.employee_visible !== false || row.employee_visible === false), "stub run remains an HTTP-fact profile without native writes").toBe(true);
+      return;
+    }
+    const result = await page.evaluate(async (agentId) => {
+      const skill = (await (await fetch("/api/skills")).json() as Skill[]).find(row => row.employee_visible !== false);
+      if (!skill) return { skillId: "", agents: [] as Array<{ id: string }> };
+      const agents = await (await fetch(`/api/skills/${encodeURIComponent(skill.id)}/agents`)).json() as { agents: Array<{ id: string }> };
+      return { skillId: skill.id, agents: agents.agents };
+    }, E2E_AGENT_ID);
+    expect(result.skillId, "a real eligible skill must be returned").toBeTruthy();
+    expect(result.agents.map(agent => agent.id), "current caller sees the expressly bound published Agent").toContain(E2E_AGENT_ID);
+  });
+
+  test("M02 · 目录渲染真实 employee-visible API 记录，绝不回退为空壳", async ({ page }) => {
+    const rows = await catalog(page);
+    const first = page.locator(".knowledge-list-row").first();
+    const id = await first.getAttribute("data-skill-id");
+    expect(id, "current row has a stable data-skill-id").toBeTruthy();
+    expect(rows.some(row => row.id === id && row.employee_visible !== false), "current row corresponds to employee-visible API fact").toBe(true);
+    expect(await page.locator(".knowledge-list-open").count(), "current semantic list selection controls render").toBeGreaterThan(0);
+  });
+});

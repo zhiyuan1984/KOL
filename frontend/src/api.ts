@@ -2757,8 +2757,8 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ persona }),
     }).then((r) => r.json()),
-  sessions: (includeArchived = false) =>
-    request<SessionRow[]>(`/api/sessions${includeArchived ? "?include_archived=1" : ""}`),
+  sessions: (includeArchived = false, signal?: AbortSignal) =>
+    request<SessionRow[]>(`/api/sessions${includeArchived ? "?include_archived=1" : ""}`, { signal }),
   session: (id: string, opts?: { sync?: boolean; force?: boolean }) =>
     request<{
       messages: Message[];
