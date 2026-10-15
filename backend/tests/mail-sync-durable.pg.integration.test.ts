@@ -258,7 +258,7 @@ describe("durable PostgreSQL mail sync", () => {
       idempotency_key: "mail-sync-native-revoked", object_ref: { mailbox: MAILBOX }, payload: { mailbox: MAILBOX }, max_attempts: 3,
     });
     const claimed = await pgClaimExecutionJobById(String(queued.job.id), "mail-native-worker-revoked");
-    const dispatched = (await dispatchClaimedExecutionJob(claimed!));
+    const dispatched = dispatchClaimedExecutionJob(claimed!);
     try {
       await bodyStartedPromise;
       await postgresPool().query("UPDATE user_starry_bindings SET status='expired' WHERE user_id=$1 AND mailbox_email=$2", [ACTOR_ID, MAILBOX]);
