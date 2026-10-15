@@ -196,21 +196,23 @@ export async function assessPublicKolWithJev(
   };
 }
 
-function eligibleProfiles(companyId: string, limit: number, db: DatabaseConnection, kolUids: string[] = []): Row[] {
-  const scoped = kolUids.length
-    ? ` AND kol_uid IN (${kolUids.map(() => "?").join(",")})`
-    : "";
-  return db.prepare(
+async function eligibleProfiles(companyId: string, limit: number, db: DatabaseConnection, kolUids: string[] = []): Promise<Row[]> {
+  const scoped = kolUids.length ? " AND kol_uid = ANY($3::text[])" : "";
+  const limitParam = kolUids.length ? "$4" : "$3";
+  const params: unknown[] = kolUids.length
+    ? [companyId, "open", kolUids, limit]
+    : [companyId, "open", limit];
+  return (await db.query(
     `SELECT *
        FROM kol_profile_index
-      WHERE company_id=? AND pool_status='open'${scoped}
+      WHERE company_id=$1 AND pool_status=$2${scoped}
       ORDER BY CASE WHEN potential_score IS NULL THEN 0 ELSE 1 END,
                CASE WHEN assessed_at IS NULL OR trim(assessed_at)='' THEN 0 ELSE 1 END,
                assessed_at ASC, ingested_at DESC, kol_uid
-      LIMIT ?`,
-  ).all(companyId, ...kolUids, limit) as Row[];
+      LIMIT ${limitParam}`,
+    params,
+  )).rows as Row[];
 }
-
 /** 去空、去重、限长：调用方不能借 kol_uids 绕过批量上限。 */
 export const JEV_MAX_TARGETS = 12;
 export function normalizeJevTargets(value: unknown): string[] {
@@ -255,7 +257,7 @@ export async function assessPublicKolsWithJev(input: {
     ? kolUids.length
     : Math.max(1, Math.min(12, Math.floor(Number(input.limit || 12))));
   const criteria = input.criteria || null;
-  const profiles = eligibleProfiles(companyId, limit, db, kolUids);
+  const profiles = await eligibleProfiles(companyId, limit, db, kolUids);
   let assessed = 0;
   let highPotential = 0;
   let highRisk = 0;
