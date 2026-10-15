@@ -9,7 +9,7 @@
 
 ## A：原生可恢复结构
 
-1. PostgreSQL `kol_mail_memory_progress` 按 mailbox scope 持久保存 phase/cursor/cycle；每轮从前一轮留下的阶段开始，按 items→threads→persons 轮转，不让长正文永远占尽后续阶段。
+1. PostgreSQL `kol_mail_memory_progress` 按 mailbox scope 持久保存 next_phase 和 item/thread/person 三个 cursor；每轮从前一轮留下的阶段开始，每个候选处理后按 items→threads→persons 轮转，不让长正文永远占尽后续阶段。不存在额外 cycle 列或 phase_progress 回执；自然阶段证据使用真实 scanned/digested/persons 计数。
 2. `kol_mail_memory_chunk_progress` 保存完整成功 chunk 前缀。以精确原文 MD5、mailbox、chunk_count 和预期 prefix CAS 校验来源。来源变化不复用旧 actor/chunk，可从当前版本第 0 片安全重建；同源 append 不允许倒退或竞争覆盖。
 3. 模型调用不长持 PG 事务。每片检查点独立短事务真实提交；完整译文、最终 checkpoint 清理、phase cursor 和 native run 计数在同一物理 PG client 事务内提交。失败或审计错误不产生假成功。
 4. 仅明确纯中文原文标 `source_zh`，不生成假译文，`translated` 不增。含实质 Latin/混合文字仍走真实模型。短全英文合法中文可为 2 个汉字，正常/长正文仍 >=8；真实姓名、品牌和 URL 不因单个英文 token 被误拒。全文/连续英文句回显、占位和不完整 chunk 仍拒绝。
