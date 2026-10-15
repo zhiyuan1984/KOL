@@ -90,7 +90,9 @@ test("cost governance shows the month, honest gaps, and budget states without in
   const costs = page.locator("[data-admin-page='costs']");
   await expect(costs).toBeVisible();
   await expect(costs.getByRole("heading", { name: "成本与预算" })).toBeVisible();
-  await expect(costs.locator("[data-cost-window]")).toContainText("2026-09 · Asia/Shanghai");
+  // The deployed native surface localizes IANA timezone labels without changing
+  // the summary's source timezone or monthly accounting window.
+  await expect(costs.locator("[data-cost-window]")).toContainText("2026-09 · 北京时间（UTC+8）");
   await expect(costs.locator("[data-cost-window]")).toContainText("不显示金额");
 
   // 缺口如实呈现：估计值 / 辅助未计量 / 无金额，三条都在。
