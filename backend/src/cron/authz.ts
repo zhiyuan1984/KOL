@@ -34,8 +34,10 @@ export function assertCanMutateJob(job: Row, viewer = ticketPrincipal()): Ticket
  * formal-ticket scanners are native read-only projections; discovery-search
  * enqueues a crawl demand into the PG crawl queue (ADR-2026-10-08). */
 export function assertHandlerGates(handlerKey: string): void {
-  // ownership-release/mail-memory-increment/ai-task are quarantined by their
-  // handler contracts and return needs_takeover; no legacy privilege is used.
+  // Published native handlers evaluate their real capability/permission and
+  // side-effect contracts during execution. There is no quarantine placeholder
+  // for ownership-release, mail-memory-increment or ai-task; takeover is an
+  // actual runtime exception outcome, never a fallback scheduling privilege.
   void handlerKey;
 }
 

@@ -66,6 +66,23 @@ afterEach(async () => {
 });
 
 describe("real Codex HTTP flow", () => {
+  it("does not let an admin bypass a revoked Agent qualification", async () => {
+    const { createApp } = await import("../src/app.js");
+    const app = authenticatedTestApp(await createApp(), runtimeCookie);
+    const created = await app.request("/api/sessions", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "qualification revoked" }),
+    });
+    const { id } = await created.json() as { id: string };
+    const removed = await getConn().query(`DELETE FROM agent_bindings WHERE target_type='person'
+      AND target_id IN (SELECT person_ref FROM organization_people WHERE user_id=$1) RETURNING id`, ["usr_runtime_fixture"]);
+    expect(removed.rows.length).toBeGreaterThan(0);
+    const response = await app.request(`/api/sessions/${id}/messages`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "搜索 YouTube 露营达人", intent: "creator_discovery", act: "ask" }),
+    });
+    expect(response.status).toBe(403);
+  });
+
   it("acknowledges creator discovery immediately and publishes the background outcome", async () => {
     const { createApp } = await import("../src/app.js");
     const app = authenticatedTestApp((await createApp()), runtimeCookie);

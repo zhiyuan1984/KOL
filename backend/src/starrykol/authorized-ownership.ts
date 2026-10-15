@@ -61,9 +61,9 @@ export async function readAuthorizedOwnershipSnapshot(employeeId: string, option
       // also bounds connection setup and rejects late responses, even if an
       // adapter fails to apply its own timeout. Never authorize a late result.
       const result = await Promise.race([
-        (await pageKolProfiles({ requestJson: JSON.stringify({
+        pageKolProfiles({ requestJson: JSON.stringify({
           pageNo, pageSize: PAGE_SIZE, sortField: 'created_time', sortOrder: 'asc',
-        }) }, { timeoutMs: remaining })),
+        }) }, { timeoutMs: remaining }),
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => reject(new Error('starry_ownership_authorization_timeout')), remaining);
         }),

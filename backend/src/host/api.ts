@@ -1976,7 +1976,7 @@ async function execWorker(sid: string, skill: string, text: string, extra: Json)
       }, sec * 1000);
     });
     const result = await Promise.race([
-      (await Promise.resolve((await runWorker(sid, definition, text, extra, controller.signal, progressBySession.get(sid))))),
+      runWorker(sid, definition, text, extra, controller.signal, progressBySession.get(sid)),
       timed,
     ]);
     await drainProgress(sid);
@@ -3815,6 +3815,21 @@ async function recognizeBoxOrAsk(
         || (await runtimeAgentForSkill(locked, userId, { employeeChoice: true })));
       await assertRuntimeSkill({ agentId, skillId: locked, userId, runId: "submission", sessionId: sid });
     }
+  }
+  // An explicit, declared task has already passed the submit-time Runtime PEP
+  // above. Do not re-enumerate every eligible Agent merely to rediscover that
+  // same task: it makes the 202 acknowledgement wait on discovery routing.
+  // `classify` preserves Host-local fields, and the common post-selection path
+  // still extracts task entities, resolves the selected Agent, rechecks its
+  // publication/person binding, applies the capability gate, and persists the
+  // running state before the acknowledgement.
+  if (locked && body.intent) {
+    const intent = (await classify(text, locked, body.collaboration_id as string | undefined));
+    intent.type = locked;
+    intent.skill = locked;
+    intent.needs_worker = true;
+    intent.extras = { ...intent.extras, derive_child: false };
+    return intent;
   }
   const resolution = await recognizeTaskIntent({
     text,
