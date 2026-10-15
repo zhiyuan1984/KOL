@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import { analyzeMailBody, analyzeThreadDigest, digestMailBody, ensureCodexThreadDigest, mailHistoryRows, mailMemoryLines, mailSummaryOf, needsRemoteThreadDigest, readThreadDigest, stickyFailReady } from "../src/host/mail-summary.js";
 import { ingestKolMail, journeyPayload } from "../src/host/kol-journey.js";
+import { drainBackgroundWork } from "../src/background-work.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { codexRecognizeThreadConfig, setIntentLlmFetch } from "../src/tasks/openai-intent.js";
@@ -226,6 +227,11 @@ describe("Codex mail memory", () => {
 
     const still = await ensureCodexThreadDigest("col_xiaomei");
     expect(still.source).toBe("analysis_failed");
+    expect(calls).toBe(1);
+
+    // Ingest is index-first: settle its registered automatic refresh while the
+    // failure is still fresh before aging the durable receipt for this case.
+    await drainBackgroundWork();
     expect(calls).toBe(1);
 
     const stored = (await readThreadDigest("col_xiaomei"))!;

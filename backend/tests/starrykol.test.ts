@@ -735,6 +735,16 @@ describe("Email MCP task run path", () => {
       expect(task.task_type).toBe(taskType);
       const queued = await request("POST", `/api/tasks/${task.id}/run`, {});
       expect(queued.status, `${taskType}: queue`).toBe(202);
+      let hasContextGap = false;
+      if ((await taskDefinition(taskType))?.context?.requires.length) {
+        const context = await request("POST", "/api/actions/context.resolve", {
+          ...queued.body.pending_message as Json,
+          skill_id: taskType,
+          text: prompts[taskType],
+        });
+        expect(context.status, `${taskType}: authorized context query`).toBe(200);
+        hasContextGap = context.body.status !== "ready";
+      }
       const beforeCalls = calls.length;
       const executed = await request(
         "POST",
@@ -743,10 +753,10 @@ describe("Email MCP task run path", () => {
       );
       expect(executed.status, `${taskType}: run`).toBe(200);
       const messages = executed.body.messages as Json[];
-      if ((await taskDefinition(taskType))?.context?.requires.some((key) => key === "creator" || key === "conversation")) {
-        // A name or bare UID in prose is not current object authorization.
-        // Without an explicit authorized selection, preserve a recoverable
-        // context gap and do not start a tool turn or persist a fake result.
+      if (hasContextGap) {
+        // A declared requirement is not automatically missing: native PG may
+        // verify an ID against the current bound mailbox. Unresolved objects
+        // must still stop before a tool turn and cannot invent a result.
         expect(executed.body.worker ?? null, `${taskType}: missing selected context`).toBeNull();
         expect(messages.some((message) => message.kind === "supplement_card"), `${taskType}: gap`).toBe(true);
         expect(messages.some((message) => message.kind === "task_result_card"), `${taskType}: no invented artifact`).toBe(false);
@@ -761,6 +771,22 @@ describe("Email MCP task run path", () => {
       expect((detail.body.artifacts as Json[]).some((artifact) => artifact.artifact_type === "task_result_card")).toBe(true);
     }
   }, 120_000); // Exercises every catalog task through multiple PostgreSQL-backed HTTP requests.
+
+  it("does not run or call remote mail tools without a conversation selection", async () => {
+    const created = await request("POST", "/api/tasks", { task_type: "email_conversation_read", title: "读取邮件会话" });
+    expect(created.status).toBe(201);
+    const task = created.body.task as Json || created.body;
+    const queued = await request("POST", `/api/tasks/${task.id}/run`, { text: "读取邮件会话" });
+    expect(queued.status).toBe(202);
+    const beforeCalls = calls.length;
+    const executed = await request("POST", `/api/sessions/${queued.body.session_id}/messages`, queued.body.pending_message);
+    expect(executed.status).toBe(200);
+    expect(executed.body.worker ?? null).toBeNull();
+    const messages = executed.body.messages as Json[];
+    expect(messages.some((message) => message.kind === "supplement_card")).toBe(true);
+    expect(messages.some((message) => message.kind === "task_result_card")).toBe(false);
+    expect(calls.length).toBe(beforeCalls);
+  });
 
   it("blocks real employee submission when the publish gate is stubbed unpublished", async () => {
     const previous = process.env.CODEX_MODE;

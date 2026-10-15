@@ -38,6 +38,10 @@ async function request(
   const init: RequestInit = { method, headers: {} };
   const headers = init.headers as Record<string, string>;
   if (cookie) headers.Cookie = cookie;
+  // Publication fixture deliberately gives these actors more than one company.
+  // Management knowledge mutations must name the fixture tenant; mail/session
+  // APIs keep their own scope and must not inherit this header.
+  if (url.startsWith("/api/admin/knowledge")) headers["X-Review-Company"] = "knowledge_fixture_company";
   if (body instanceof FormData) {
     init.body = body;
   } else if (body !== undefined) {
@@ -157,21 +161,27 @@ describe("knowledge domains and bases (P2)", () => {
     const list = (await (await request("GET", "/api/admin/knowledge/domains")).json()) as { domains: Json[] };
     expect(list.domains[0].level).toBe("family");
 
-    const edited = (await (await request("PUT", `/api/admin/knowledge/domains/${dom.id}`, {
-      name: "模板域（改）", sort: 5,
-    })).json()) as { domain: Json };
+    const editedResponse = await request("PUT", `/api/admin/knowledge/domains/${dom.id}`, {
+      name: "模板域（改）", sort: 5, expected_updated_at: dom.updated_at,
+    });
+    expect(editedResponse.status, await editedResponse.text()).toBe(200);
+    const edited = (await editedResponse.json()) as { domain: Json };
     expect(edited.domain.name).toBe("模板域（改）");
     // 不允许改 code/level/parent_id（PUT 只接受 name/sort/status/note）
     expect(edited.domain.code).toBe("templates");
 
     // 归档仍有子域的族 → 409
-    const archFamily = await request("PUT", `/api/admin/knowledge/domains/${fam.id}`, { status: "archived" });
+    const archFamily = await request("PUT", `/api/admin/knowledge/domains/${fam.id}`, {
+      status: "archived", confirmed: true, expected_updated_at: fam.updated_at,
+    });
     expect(archFamily.status).toBe(409);
     expect(await detailCode(archFamily)).toBe("knowledge_domain_in_use");
 
     // 归档仍有库的域 → 409
     await createBase({ code: "tmpl", name: "模板库", domain_id: dom.id as string, kind: "structured" });
-    const archDomain = await request("PUT", `/api/admin/knowledge/domains/${dom.id}`, { status: "archived" });
+    const archDomain = await request("PUT", `/api/admin/knowledge/domains/${dom.id}`, {
+      status: "archived", confirmed: true, expected_updated_at: edited.domain.updated_at,
+    });
     expect(archDomain.status).toBe(409);
     expect(await detailCode(archDomain)).toBe("knowledge_domain_in_use");
 

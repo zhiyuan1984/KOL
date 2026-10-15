@@ -41,7 +41,9 @@ beforeEach(async () => {
   setAgentSubmissionOverride();
   (await resetConn());
   (await seedAll());
-  runtimeCookie = (await seedRuntimeTestActor(["creator_discovery"]));
+  // The real-mode Host PEP requires a current person→published Agent binding;
+  // a session cookie or admin role must not bypass that runtime qualification.
+  runtimeCookie = (await seedRuntimeTestActor(["creator_discovery"], true));
   (await getConn().query("INSERT INTO claw_creators\n     (id, handle, name, platform, followers, score, status, outreach_script, payload)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,name=EXCLUDED.name,platform=EXCLUDED.platform,followers=EXCLUDED.followers,score=EXCLUDED.score,status=EXCLUDED.status,outreach_script=EXCLUDED.outreach_script,payload=EXCLUDED.payload",["cr_async_kol","async-creator","async-creator","youtube",1000,8,"discovered","Hi, LiTime would like to collaborate.",JSON.stringify({ email: "async.creator@example.com" })]));
 });
 

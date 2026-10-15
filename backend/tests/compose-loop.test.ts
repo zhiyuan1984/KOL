@@ -151,10 +151,12 @@ describe("KOL stage-mail communication", () => {
   });
 
   async function composeOn(colId: string, text: string) {
+    const bound = (await getConn().query("SELECT email FROM collaborations WHERE id=$1", [colId])).rows[0] as { email: string } | undefined;
+    if (!bound?.email) throw new Error("compose fixture requires the current collaboration's bound contact");
     (await ingestKolMail(colId, {
       subject: "LiTime 合作沟通",
       body: "Thanks, I am interested. Please send the next letter.",
-      from: "creator.desk@gmail.com",
+      from: bound.email,
       to: "larry.zhao@amperetime.com",
       mailbox: "larry.zhao@amperetime.com",
       direction: "inbound",

@@ -40,6 +40,9 @@ async function request(
   const init: RequestInit = { method, headers: {} };
   const headers = init.headers as Record<string, string>;
   if (cookie) headers.Cookie = cookie;
+  // This fixture's native document/publication chain belongs to the seeded
+  // Amperetime tenant. Do not add the header to unrelated mail/session APIs.
+  if (url.startsWith("/api/admin/knowledge")) headers["X-Review-Company"] = "company:amperetime";
   if (body instanceof FormData) {
     init.body = body;
   } else if (body !== undefined) {
@@ -112,6 +115,14 @@ async function waitStatus(id: string, statuses: string[], timeoutMs = 8000): Pro
 
 async function auditCount(eventType: string): Promise<number> {
   const row = (await getConn().query("SELECT COUNT(*) AS n FROM audit_events WHERE event_type=$1",[eventType])).rows[0] as { n: unknown };
+  return Number(row.n || 0);
+}
+
+async function nativePublicationEventCount(action: string): Promise<number> {
+  const row = (await getConn().query(
+    "SELECT COUNT(*) AS n FROM review_events WHERE tenant=$1 AND action=$2",
+    ["company:amperetime", action],
+  )).rows[0] as { n: unknown };
   return Number(row.n || 0);
 }
 
@@ -506,7 +517,10 @@ describe("knowledge documents (P1 pipeline)", () => {
     expect(citations[0].document_id).toBe(doc.id);
     expect(citations[0].page).toBe(1);
 
-    expect(await auditCount("knowledge.document.publish")).toBe(1);
+    // The native submission/reviewer/execution chain records its durable
+    // publication receipt in review_events rather than fabricating the retired
+    // direct-publish audit event.
+    expect(await nativePublicationEventCount("knowledge.published")).toBe(1);
     expect(await auditCount("knowledge.search")).toBe(1);
   });
 
@@ -614,8 +628,10 @@ describe("knowledge documents (P1 pipeline)", () => {
     await approveAndPublish(String(doc.id),String(base.id));
 
     const blocked = await request("DELETE", `/api/admin/knowledge/documents/${doc.id}`);
-    expect(blocked.status).toBe(409);
-    expect(await detailCode(blocked)).toBe("knowledge_document_frozen");
+    expect(blocked.status, await blocked.text()).toBe(409);
+    // A native publication application freezes this material through the
+    // approval-retention guard (not the legacy review_status error code).
+    expect(await blocked.text()).toContain("审批留痕");
 
     const archived = (await (await request("POST", `/api/admin/knowledge/documents/${doc.id}/archive`)).json()).document as Json;
     expect(archived.status).toBe("archived");

@@ -29,6 +29,26 @@ const UNLABELED = `首封建联 发送给 ${LARRY} ${QIYOU}`;
 const calls: Array<{ name: string; args: Json }> = [];
 
 describe("first-touch Skill required_inputs: 发件 / 收件 / 主题", () => {
+  let extractionTmp = "";
+
+  beforeEach(async () => {
+    await freshTestDatabase();
+    extractionTmp = fs.mkdtempSync(path.join(os.tmpdir(), "ft-extraction-"));
+    Object.assign(process.env, {
+      LINGONG_DATA: extractionTmp,
+      LINGONG_DB: path.join(extractionTmp, "t.db"),
+      LG_DATA_DIR: extractionTmp,
+      CODEX_MODE: "stub",
+    });
+    await resetConn();
+    await seedAll();
+  });
+
+  afterEach(async () => {
+    await resetConn();
+    fs.rmSync(extractionTmp, { recursive: true, force: true });
+  });
+
   it("extracts labeled 发件箱 / 发给 / 主题 and does not ask for 会话编号", async () => {
     const entities = (await extractTaskEntities(LABELED));
     expect(entities.mailboxEmail).toBe(LARRY);

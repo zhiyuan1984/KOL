@@ -24,6 +24,7 @@ import {
 import { audit, nowIso } from "../db.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
 import { isPostgresClosedError, isPostgresForeignKeyError } from "./postgres-errors.js";
+import { trackBackgroundWork } from "../background-work.js";
 import { sendDraft } from "../gateway/send.js";
 import { mailSendAction, claimMailSend, assertDraftEditable, validateMailSend, markMailSendUnknown } from "./mail-send-confirmation.js";
 import { replySendView, bindReplySend } from "../mail/reply-send.js";
@@ -1523,13 +1524,13 @@ async function applyResultRevision(sid: string, me: Json, intent: Intent, text: 
 async function resolveFollowStyleCollaboration(collaborationId?: string | null, handle?: string | null): Promise<Row> {
   if (collaborationId) {
     const row = (await postgresConnection().query("SELECT * FROM collaborations WHERE id=$1", [collaborationId])).rows[0] as Row | undefined;
-    if (row) return row;
+    if (row) return await assertCollaborationInScope(String(row.id));
   }
   if (handle) {
     const row = (await postgresConnection().query("SELECT * FROM collaborations WHERE handle=$1 OR display_name=$2", [handle, handle])).rows[0] as
       | Row
       | undefined;
-    if (row) return row;
+    if (row) return await assertCollaborationInScope(String(row.id));
   }
   throw new HttpFail(400, "还需要指定红人。");
 }
@@ -3631,14 +3632,15 @@ host.post("/sessions", async (c) => {
 
 host.post("/collaborations/:id/session", async (c) => {
   const { openKolSession, syncKolSessionMail, isMailSyncing, journeyPayloadWithMailMemory, journeyPayload } = await import("./kol-journey.js");
+  await assertCollaborationInScope(c.req.param("id"));
   const opened = (await openKolSession(c.req.param("id")));
   const cid = c.req.param("id");
-  void syncKolSessionMail(String(opened.id), cid)
-    .then(async () => (journeyPayloadWithMailMemory(cid, { retryFailed: true })))
+  void trackBackgroundWork(syncKolSessionMail(String(opened.id), cid)
+    .then(async () => (journeyPayloadWithMailMemory(cid)))
     .then((journey) => {
       if (journey) publishSession(String(opened.id), { type: "journey", journey });
     })
-    .catch(() => 0);
+    .catch(() => 0), "mail.session.sync");
   opened.journey = {
     ...((await journeyPayload(cid)) || {}),
     // Mail collection is started in the background. Expose its actual state in
@@ -3925,23 +3927,6 @@ host.post("/sessions/:sid/messages", async (c) => {
   const session = (await sessionRow(sid));
   if (!isSessionRunning(sid)) beginSessionAsk(sid);
   const body = (await c.req.json()) as Json;
-  // Explicit task selection is authorized before recognition can return a clarification.
-  // An unavailable task must not receive an accepted=true early-return receipt.
-  const explicitSkill = typeof body.intent === "string" && (await taskDefinition(body.intent)) ? body.intent : null;
-  const explicitActor = scopedUser();
-  if (explicitSkill && !authDisabled() && explicitActor && !isAdmin(explicitActor)
-    && !explicitActor.authority_skills?.includes(explicitSkill)) {
-    throw new HttpFail(403, { code: "runtime_agent_not_usable" });
-  }
-  // A named real submission must receive its actual Runtime rejection before
-  // capability-filtered recognition can downgrade it into accepted clarification.
-  if (explicitSkill && explicitActor && !authDisabled() && codexMode() !== "stub") {
-    const explicitAgent = String(body.agent_id
-      || (await sessionAgentDefault(sid, explicitSkill, explicitActor.id))
-      || (await runtimeAgentForSkill(explicitSkill, explicitActor.id, { employeeChoice: true })));
-    await assertRuntimeSkill({ agentId: explicitAgent, skillId: explicitSkill,
-      userId: explicitActor.id, runId: "submission", sessionId: sid });
-  }
 
   if (workspace && ((body.intent && body.intent !== "kol_analyze") || body.collaboration_id || body.work_item_id || body.task_id || body.compose_input)) {
     throw new HttpFail(409,{code:"task_workspace_analysis_only"});
@@ -3962,6 +3947,26 @@ host.post("/sessions/:sid/messages", async (c) => {
   if (boundTask?.agentId) {
     if (body.agent_id && body.agent_id !== boundTask.agentId) throw new HttpFail(409, "任务已绑定其他智能体");
     body.agent_id = boundTask.agentId;
+  }
+  // Resolve and authorize the existing task first so a rejected accepted run
+  // can be closed durably. Eligibility still precedes recognition and execution.
+  try {
+    const explicitSkill = boundTask?.taskType || (typeof body.intent === "string" && (await taskDefinition(body.intent)) ? body.intent : null);
+    const explicitActor = scopedUser();
+    if (explicitSkill && !authDisabled() && explicitActor && !isAdmin(explicitActor)
+      && !explicitActor.authority_skills?.includes(explicitSkill)) {
+      throw new HttpFail(403, { code: "runtime_agent_not_usable" });
+    }
+    if (explicitSkill && explicitActor && !authDisabled() && codexMode() !== "stub") {
+      const explicitAgent = String(body.agent_id
+        || (await sessionAgentDefault(sid, explicitSkill, explicitActor.id))
+        || (await runtimeAgentForSkill(explicitSkill, explicitActor.id, { employeeChoice: true })));
+      await assertRuntimeSkill({ agentId: explicitAgent, skillId: explicitSkill,
+        userId: explicitActor.id, runId: "submission", sessionId: sid });
+    }
+  } catch (error) {
+    await failBoundTask(boundTask, error);
+    throw error;
   }
   const text = String(body.text || body.content || "").trim();
   const attachments = (await sanitizeAttachments(body.attachments));
@@ -4017,7 +4022,9 @@ host.post("/sessions/:sid/messages", async (c) => {
   const submittingUser = scopedUser();
   if (!authDisabled() && submittingUser && !isAdmin(submittingUser)
     && (!requestedSkill || !submittingUser.authority_skills?.includes(requestedSkill))) {
-    throw new HttpFail(403, { code: "runtime_agent_not_usable" });
+    const denial = new HttpFail(403, { code: "runtime_agent_not_usable" });
+    await failBoundTask(boundTask, denial);
+    throw denial;
   }
   // Only truly anonymous stub fixtures may avoid a harness. A logged-in employee
   // must always resolve the current Agent→Skill assembly, even when tests use the
@@ -4061,7 +4068,7 @@ host.post("/sessions/:sid/messages", async (c) => {
   const skill = intent.skill || intent.type || "creator_discovery";
   let col: Row | null = null;
   try {
-    if (startsWorker && taskDefinition(skill)?.runtime_agent_id === "agent:kol" && !agentSubmissionAllowed()) {
+    if (startsWorker && (await taskDefinition(skill))?.runtime_agent_id === "agent:kol" && !agentSubmissionAllowed()) {
       throw new HttpFail(409, {
         code: "agent_not_published",
         message: "KOL Agent 尚未发布，员工端暂不可提交任务",
@@ -4275,10 +4282,10 @@ export const sendMailDraft: Operation["handle"] = async (c, payload) => {
     sent: true, status: "sent", draft_id: did, request_id: input.request_id,
   }));
   if (col) {
-    void rememberOutboundAndRefreshDigest({
+    void trackBackgroundWork(rememberOutboundAndRefreshDigest({
       collaborationId: String(col.id), sessionId: String(d.session_id), subject: String(d.subject || ""), body: String(d.body_en || ""),
       from: String(d.from_addr || ""), to: String(d.to_addr || ""), conversationId: String(col.conversation_id || ""), providerMessageId: String(d.id),
-    }).catch(async () => (audit("host", "host.send.digest_pending", { draft_id: did })));
+    }).catch(async () => (audit("host", "host.send.digest_pending", { draft_id: did }))), "mail.send.digest");
   }
   return c.json({ ok: true, status: "sent", result, official_stage: stageNow, stage_changed: false, toast_success: false, message: msg, keep_stage: true });
 };

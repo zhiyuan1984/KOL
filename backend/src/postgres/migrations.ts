@@ -1103,6 +1103,7 @@ const migrations: SchemaMigration[] = [
   { id: "20261015_043_mail_send_native", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "043_mail_send_native.sql"), "utf8")] },
   { id: "20261015_045_skill_presentation_overlays", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "045_skill_presentation_overlays.sql"), "utf8")] },
   { id: "20261015_046_knowledge_legacy_backfill", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "046_knowledge_legacy_backfill.sql"), "utf8")] },
+  { id: "20261015_049_mail_reply_stale_status", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "20261015_049_mail_reply_stale_status.sql"), "utf8")] },
 ];
 
 const { replyContextSchema } = await import("../mail/reply-context-schema.js");

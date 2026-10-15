@@ -1,24 +1,22 @@
-import { createHash } from "node:crypto";
 import type { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { closePostgresPool, postgresPool } from "../src/postgres/pool.js";
-import { applyPostgresMigrations } from "../src/postgres/migrations.js";
+import { tokenDigest } from "../src/auth.js";
+import { visibleSkillIdsForUser, syncUserOrganization } from "../src/runtime/organization-tree.js";
+import { seedPublishedAgent, seedRuntimeTestActor } from "./fixtures/runtime-auth.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 const isolatedPostgres = Boolean(process.env.TEST_DATABASE_URL);
 const AID = "appr_eb5335a2b424";
 const TARGET = "usr_org_zhang_huiling";
-const ADMIN = "usr_assignment_test_admin";
+const TARGET_PERSON = `person:user:${TARGET}`;
+const ADMIN = "usr_runtime_fixture";
 const SAME_NAME = "usr_assignment_same_name";
-const PASSWORD = "assignment-test-password";
 
 let app: Hono;
 let adminCookie = "";
 let targetCookie = "";
 let sameNameCookie = "";
-
-function tokenDigest(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
-}
 
 async function call(method: string, url: string, body?: unknown, cookie = adminCookie) {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -71,12 +69,11 @@ async function seedTestAccounts(): Promise<void> {
      ON CONFLICT (id) DO UPDATE SET username=EXCLUDED.username,name=EXCLUDED.name,roles=EXCLUDED.roles,active=1,email=EXCLUDED.email,updated_at=EXCLUDED.updated_at`,
     [TARGET, "willa.zhang@amperetime.com", "张慧玲", "not-used-in-session-test", JSON.stringify(["employee", "admin"]), now],
   );
-  await postgresPool().query(
-    `INSERT INTO organization_people (person_ref,display_name,user_ref,user_id,email,status,source,created_at,updated_at)
-     VALUES ('person:zhang_huiling','张慧玲',$1,$1,'willa.zhang@amperetime.com','active','test',$2,$2)
-     ON CONFLICT (person_ref) DO UPDATE SET display_name=EXCLUDED.display_name,user_ref=EXCLUDED.user_ref,user_id=EXCLUDED.user_id,email=EXCLUDED.email,status='active',updated_at=EXCLUDED.updated_at`,
-    [TARGET, now],
-  );
+  // The native organization synchronizer is the only fixture path that gives
+  // local actors a canonical, same-company person identity.  In particular it
+  // must not rely on a similarly named registry row or an admin cross-tenant
+  // shortcut.
+  await syncUserOrganization(TARGET, "org:lt_team");
   await postgresPool().query(
     `INSERT INTO approvals
       (id,draft_id,brand,amount_usd,status,chain,current_index,uses_left,fingerprint,need_manual_band,wecom_card_id,created_at,chain_id,kind,payload,title,submitted_by,version,updated_at)
@@ -97,14 +94,9 @@ async function seedTestAccounts(): Promise<void> {
     `INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at,email)
      VALUES ($1,$2,$3,$4,$5,'[]','',1,$6,$6,$2)
      ON CONFLICT (id) DO UPDATE SET username=EXCLUDED.username,name=EXCLUDED.name,roles=EXCLUDED.roles,active=1,email=EXCLUDED.email,updated_at=EXCLUDED.updated_at`,
-    [ADMIN, "assignment-admin@example.test", "审批指派管理员", "not-used-in-session-test", JSON.stringify(["employee", "admin"]), now],
-  );
-  await postgresPool().query(
-    `INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at,email)
-     VALUES ($1,$2,$3,$4,$5,'[]','',1,$6,$6,$2)
-     ON CONFLICT (id) DO UPDATE SET username=EXCLUDED.username,name=EXCLUDED.name,roles=EXCLUDED.roles,active=1,email=EXCLUDED.email,updated_at=EXCLUDED.updated_at`,
     [SAME_NAME, "same-name@example.test", "张慧玲", "not-used-in-session-test", JSON.stringify(["employee"]), now],
   );
+  await syncUserOrganization(SAME_NAME, "org:lt_team");
   await postgresPool().query(
     `INSERT INTO approvals
       (id,draft_id,brand,amount_usd,status,chain,current_index,uses_left,fingerprint,need_manual_band,wecom_card_id,created_at,chain_id,kind,payload,title,submitted_by,version,updated_at)
@@ -134,21 +126,25 @@ async function assign(extra: Record<string, unknown> = {}) {
 
 describe.skipIf(!isolatedPostgres)("approval current-owner assignment (isolated PostgreSQL)", () => {
   beforeEach(async () => {
-    // parent_test_runner creates one uniquely named database and drops it in finally.
-    // Reuse that native PostgreSQL fixture: this test must never clone a second DB
-    // or target the production connection.  Reset only pooled clients before seed.
-    await closePostgresPool();
+    // Keep each mutation, audit-failure trigger and concurrent write on a fresh
+    // helper-owned native clone.  The helper only accepts TEST_DATABASE_URL for
+    // management and applies the complete current PostgreSQL manifest to this
+    // clone; it never points the app at the production database.
+    await freshTestDatabase({ reclaimPrevious: true });
     process.env.CODEX_MODE = "real";
     process.env.AUTH_MODE = "enabled";
-    const { resetConn } = await import("../src/db.js");
-    await resetConn();
-    if (!/^kolnative_resolution_suite_[0-9]+$/.test(new URL(process.env.DATABASE_URL!).pathname.slice(1))) throw new Error("Owned suite database required");
-    const migrationClient = await postgresPool().connect();
-    try { await applyPostgresMigrations(migrationClient); } finally { migrationClient.release(); }
+    const databaseName = new URL(process.env.DATABASE_URL!).pathname.slice(1);
+    const prefix = String(process.env.TEST_DB_PREFIX || "lingong_t").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (!(new RegExp(`^${prefix}_[0-9]+_[0-9]+$`)).test(databaseName)) throw new Error("Owned suite database required");
+    // This fixture creates an authenticated admin with a published KOL Agent,
+    // enabled approval skill, an active organization membership and a binding.
+    // It is deliberately a real local session, not AUTH_MODE bypass.
+    await seedPublishedAgent("agent:kol", "当前审批人指派测试 Agent");
+    adminCookie = await seedRuntimeTestActor(["business_approval"], true);
+    expect(await visibleSkillIdsForUser(ADMIN)).toContain("business_approval");
     await seedTestAccounts();
     const { createApp } = await import("../src/app.js");
     app = await createApp();
-    adminCookie = await sessionFor(ADMIN);
     targetCookie = await sessionFor(TARGET);
     sameNameCookie = await sessionFor(SAME_NAME);
   });
@@ -185,12 +181,12 @@ describe.skipIf(!isolatedPostgres)("approval current-owner assignment (isolated 
     expect(payload.original_node).toBe("emp_zhang");
     expect(payload.original_step).toMatchObject({ employee_id: "emp_zhang", name: "张总" });
     expect(payload.steps[0]).toMatchObject({
-      employee_id: `user:${TARGET}`, user_id: TARGET, person_ref: "person:zhang_huiling", name: "张慧玲",
+      employee_id: `user:${TARGET}`, user_id: TARGET, person_ref: TARGET_PERSON, name: "张慧玲",
       role: "本体变更 objects 单张授权终审人",
     });
     expect(payload.assignment_history).toHaveLength(1);
     expect(payload.assignment_history[0]).toMatchObject({
-      from_node: "emp_zhang", target_user_id: TARGET, person_ref: "person:zhang_huiling",
+      from_node: "emp_zhang", target_user_id: TARGET, person_ref: TARGET_PERSON,
       reason: "用户明确授权张慧玲仅终审此 objects 变更单",
     });
 

@@ -10,6 +10,8 @@ import { markSessionRunning, publicQueue, resetRunControl } from "../src/host/ru
 import { seedAll } from "../src/seed.js";
 import type { Json } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
+import { setAgentSkill } from "../src/runtime/store.js";
 
 let tmp: string;
 let app: Hono;
@@ -140,8 +142,11 @@ describe("task run lifecycle honesty", () => {
       expect(login.status, login.text).toBe(200);
       const cookie = login.cookie;
       // 先绑定 Agent，任务才能创建并排队；随后的 ask 才代表「有资格之后被撤权」。
+      const agentId = "agent:recovery-eligibility";
+      await seedPublishedAgent(agentId, "恢复撤权测试 Agent");
+      await setAgentSkill(agentId, "risk_scan", true, 0);
       const binding = (await createAgentBinding({
-        agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
+        agent_id: agentId, target_type: "organization_unit", target_id: "org:lt_team",
         company_id: "company:amperetime", source: "test",
       }));
       (await getConn().query("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2", [String(employee.body.id), "person:ye_guanwang"]));

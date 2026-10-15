@@ -8,7 +8,7 @@ import { seedAll } from "../src/seed.js";
 import { mapUser, withScopedUser } from "../src/auth.js";
 import { createManagedAgent, updateManagedAgent } from "../src/runtime/managed-agents.js";
 import { setAgentSkill } from "../src/runtime/store.js";
-import { createAgentBinding, revokeAgentBinding } from "../src/runtime/organization-tree.js";
+import { createAgentBinding, revokeAgentBinding, syncUserOrganization, visibleSkillIdsForUser } from "../src/runtime/organization-tree.js";
 import { clearTaskRegistryCache, requireTaskDefinition, taskDefinitions } from "../src/tasks/registry.js";
 import { skillTemplate } from "../src/tasks/skill-template.js";
 import { resolveTaskIntent } from "../src/tasks/resolver.js";
@@ -152,22 +152,35 @@ describe("one Skill / one knowledge interaction template", () => {
   it("filters ungranted skills and rechecks detail access after the Agent binding is revoked", async () => {
     process.env.AUTH_MODE = "enabled";
     const now = new Date().toISOString();
-    (await getConn().query("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",["template-user","template-user","Template user","no-login",'["employee"]','[]',"",1,now,now]));
-    const user = (await mapUser((await getConn().query("SELECT * FROM users WHERE id=$1",["template-user"])).rows[0] as Json));
-    const scoped = async (url: string) => (await withScopedUser(user, async () => (knowledge.request(url))));
+    const companyId = "company:amperetime";
+    const userId = "template-user";
+    const site = "org:lt_team";
+    (await getConn().query("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",[userId,userId,"Template user","no-login",'["employee"]','[]',site,1,now,now]));
+    // A test-only account must become an active, same-company organization member
+    // through the native synchronizer; it may not borrow a seeded person's identity.
+    const person = await syncUserOrganization(userId, site);
+    expect((await getConn().query("SELECT company_id FROM organization_memberships WHERE person_ref=$1 AND org_unit_id=$2 AND status='active'", [person, site])).rows)
+      .toEqual([{ company_id: companyId }]);
+    // The production auth middleware rebuilds authority_skills for every request.
+    // This direct-router test must do the same rather than retaining a stale AppUser
+    // or relying on the retired user_skill_grants table.
+    const directoryUser = async () => ({
+      ...(await mapUser((await getConn().query("SELECT * FROM users WHERE id=$1", [userId])).rows[0] as Json)),
+      authority_skills: await visibleSkillIdsForUser(userId),
+    });
+    const scoped = async (url: string) => (await withScopedUser((await directoryUser()), async () => (knowledge.request(url))));
     expect(await (await scoped("/knowledge/skill-templates")).json()).toEqual([]);
     // 旧的逐人技能授权表不再放行：写入后该技能依然不可见。
-    (await getConn().query("INSERT INTO user_skill_grants(user_id,skill_id,created_at) VALUES($1,$2,$3)",[user.id,skillId,now]));
+    (await getConn().query("INSERT INTO user_skill_grants(user_id,skill_id,created_at) VALUES($1,$2,$3)",[userId,skillId,now]));
     expect(await (await scoped("/knowledge/skill-templates")).json()).toEqual([]);
     // 资格来自「人 → Agent → 技能」装配（ADR-2026-10-03）：Agent 必须先发布，
     // 技能装在 Agent 上，再把 Agent 绑定到该人员所在的三级组。
     const agent = (await createManagedAgent({ name: "模板测试 Agent" }));
-    (await updateManagedAgent(agent.id, { status: "published", expected_version: 1 }));
     (await setAgentSkill(agent.id, skillId, true, 0));
-    (await getConn().query("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2",[user.id,"person:ye_guanwang"]));
+    expect((await updateManagedAgent(agent.id, { status: "published", expected_version: 1 }))).toMatchObject({ status: "published", version: 2 });
     const binding = (await createAgentBinding({
-      agent_id: agent.id, target_type: "organization_unit", target_id: "org:lt_team",
-      company_id: "company:amperetime", source: "test",
+      agent_id: agent.id, target_type: "person", target_id: person,
+      company_id: companyId, source: "test",
     }));
     expect((await (await scoped("/knowledge/skill-templates")).json() as Json[]).map((item) => item.skill_id)).toEqual([skillId]);
     (await revokeAgentBinding(binding.id));
@@ -177,7 +190,7 @@ describe("one Skill / one knowledge interaction template", () => {
     const deniedApp = new Hono();
     deniedApp.onError((error: any, c) => c.json({ error: error.message }, error.status || 500));
     deniedApp.route("/", knowledge);
-    expect((await withScopedUser(user, async () => (deniedApp.request(`/knowledge/skill-templates/${skillId}`)))).status).toBe(403);
+    expect((await withScopedUser((await directoryUser()), async () => (deniedApp.request(`/knowledge/skill-templates/${skillId}`)))).status).toBe(403);
   });
 });
 

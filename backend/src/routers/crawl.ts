@@ -8,6 +8,7 @@ import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import { postgresPool } from "../postgres/pool.js";
 import type { Json, Row } from "../types.js";
+import { runtimeAgentForSkill } from "../runtime/execution.js";
 
 export const crawlRouter = new Hono();
 function owner(): string { return scopedUser()?.id || (authDisabled() ? DEMO_USER.id : ""); }
@@ -24,7 +25,9 @@ async function jobForTask(taskId: string): Promise<Row> {
 function requireAdmin(): void { if (!isAdmin()) throw new HttpFail(403, "admin required"); }
 
 crawlRouter.post("/tasks/:id/actions/start-crawl", async (c) => {
-  requireConnector("claw", "write"); const item = await task(c.req.param("id")); const body = await c.req.json().catch(() => ({})) as Json;
+  requireConnector("claw", "write"); const item = await task(c.req.param("id"));
+  await runtimeAgentForSkill("creator_discovery", owner());
+  const body = await c.req.json().catch(() => ({})) as Json;
   const parameters = body.parameters && typeof body.parameters === "object" ? body.parameters as Json : Object.fromEntries(["keywords", "specified_ids", "creator_ids"].filter(key => body[key] !== undefined).map(key => [key, body[key]]));
   const idempotencyKey = String(c.req.header("Idempotency-Key") || body.idempotency_key || nid("idem"));
   const result = await startCrawl({ ownerUserId: String(item.owner_user_id), workItemId: String(item.id), sessionId: item.session_id ? String(item.session_id) : null, platform: String(body.platform || parameters.platform || ""), mode: String(body.mode || parameters.mode || ""), parameters, idempotencyKey });

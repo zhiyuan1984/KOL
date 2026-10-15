@@ -7,9 +7,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setCrawlMcpClientFactory } from "../src/crawl/service.js";
 import { getConn, resetConn } from "../src/db.js";
 import { setDiscoveryBriefRunner } from "../src/home-discovery.js";
-import { createAgentBinding } from "../src/runtime/organization-tree.js";
+import { createAgentBinding, syncUserOrganization } from "../src/runtime/organization-tree.js";
 import { seedAll } from "../src/seed.js";
 import type { Json } from "../src/types.js";
+import { pgVisibleSkillIdsForUser } from "../src/postgres/auth-pg.js";
+import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
 import { freshTestDatabase } from "./support/pg.js";
 
 /**
@@ -70,9 +72,10 @@ async function createEmployee(username: string): Promise<string> {
 }
 
 beforeEach(async () => {
-  await freshTestDatabase();
+  await freshTestDatabase({ reclaimPrevious: true });
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-discovery-auth-"));
-  process.env.LINGONG_DB = path.join(tmp, "t.db");
+  // Native tests must not select a retired SQLite-shaped database path.
+  delete process.env.LINGONG_DB;
   process.env.LINGONG_DATA = tmp;
   process.env.AUTH_MODE = "enabled";
   process.env.CODEX_MODE = "real";
@@ -96,6 +99,22 @@ beforeEach(async () => {
   }, "");
   expect(setup.status).toBe(201);
   adminCookie = setup.cookie;
+  const adminId = String((setup.json.user as Json | undefined)?.id || "");
+  expect(adminId).toMatch(/^usr_/);
+
+  // Runtime access is the intersection of a published Agent, its assembled
+  // skill and a current authoritative organization binding.  Admin role alone
+  // is deliberately not a discovery permission bypass.
+  await seedPublishedAgent("agent:kol", "本地发现授权测试 Agent");
+  await syncUserOrganization(adminId, "org:lt_team");
+  await createAgentBinding({
+    agent_id: "agent:kol",
+    target_type: "organization_unit",
+    target_id: "org:lt_team",
+    company_id: "company:amperetime",
+    source: "isolated-native-test",
+  });
+  expect(await pgVisibleSkillIdsForUser(adminId, new Date().toISOString())).toContain("creator_discovery");
 });
 
 afterEach(async () => {
@@ -104,6 +123,7 @@ afterEach(async () => {
   (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
+  delete process.env.LINGONG_DB;
   process.env.CODEX_MODE = "stub";
   delete process.env.MEDIACRAWLER_MCP_URL;
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
@@ -144,13 +164,14 @@ describe("home discovery submit authorization", () => {
     expect(denied.status).toBe(403);
     expect(denied.json.detail).toMatchObject({ code: "agent_not_usable", skill_id: "creator_discovery" });
 
-    (await getConn().query("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2",[userId,"person:ye_guanwang"]));
-    (await createAgentBinding({
-      agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
-      company_id: "company:amperetime", source: "test",
-    }));
+    const personRef = await syncUserOrganization(userId, "org:lt_team");
+    expect(personRef).toBe(`person:user:${userId}`);
+    expect(await pgVisibleSkillIdsForUser(userId, new Date().toISOString())).toContain("creator_discovery");
+    // Login once more after authoritative membership projection; no manually
+    // edited person row, skill grant, or admin cross-tenant bypass is used.
+    const refreshedEmployeeCookie = await login("disc_nogrant");
 
-    const allowed = await call("POST", "/api/home/discovery/run", RUN_BODY, employeeCookie);
+    const allowed = await call("POST", "/api/home/discovery/run", RUN_BODY, refreshedEmployeeCookie);
     expect(allowed.status, JSON.stringify(allowed.json)).toBe(202);
     expect(String(allowed.json.id || "")).toMatch(/^drun_/);
   });

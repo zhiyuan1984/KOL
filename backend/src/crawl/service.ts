@@ -189,6 +189,12 @@ export async function monitorCrawlJob(jobId: string): Promise<Json> {
     await postgresTransaction(async client => {
       const updated = (await client.query<Row>("UPDATE crawl_jobs SET status=$1,upload_error=$2,last_checked_at=$3,updated_at=$3,data_version=data_version+1 WHERE id=$4 RETURNING *", [persistedStatus, uploadError ? sanitize(uploadError) : null, checkedAt, jobId])).rows[0];
       if (updated) await eventIn(client, updated, "status", persistedStatus, `Remote status: ${status || "running"}`, uploadError ? { upload_error: sanitize(uploadError) } : {});
+      if (updated && ["error", "failed"].includes(status) && uploadError) {
+        const prior = await client.query("SELECT 1 FROM crawl_job_events WHERE crawl_job_id=$1 AND event_type='upload_fallback' LIMIT 1", [jobId]);
+        if (!prior.rowCount) await eventIn(client, updated, "upload_fallback", persistedStatus,
+          "远端上传失败，正在由本系统拉取结果；入库尚未确认。",
+          { upload_error: sanitizeSecret(uploadError), fallback: "host_pull", imported: false });
+      }
     });
     try { const logs = await remoteCall("get_crawl_logs", { task_id: String(job.remote_task_id) }, jobId); const data = json(logs.data); const raw = logs.logs || logs.items || data.logs || data.items || []; const lines = (Array.isArray(raw) ? raw : [raw]).slice(-20).map(line => sanitize(typeof line === "object" ? JSON.stringify(line) : line)).filter(Boolean); if (lines.length) await event(jobId, "logs", status || "running", lines.join("\n")); } catch { /* older collector may not expose logs */ }
     if (["idle", "completed", "done"].includes(status) || (["error", "failed"].includes(status) && uploadError)) { try { await completeJob(jobId); } catch (error) { await failJob(jobId, error); } }

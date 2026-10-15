@@ -2,6 +2,7 @@ import { postgresConnection, postgresPool } from "../postgres/pool.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { starryKolMcpConfigured } from "../starrykol/connection.js";
 import { audit, getConn, nowIso, onConnReset } from "../db.js";
+import { trackBackgroundWork } from "../background-work.js";
 import { mailPreview } from "../host/mail-preview.js";
 import {
   itemsForCollaboration,
@@ -1028,9 +1029,9 @@ function scheduleBackgroundSync(
       });
     }
   })();
-  const owned = pending.finally(() => {
+  const owned = trackBackgroundWork(pending.finally(() => {
     if (backgroundSyncTask === owned) backgroundSyncTask = null;
-  });
+  }), "mail.sync.background");
   backgroundSyncTask = owned;
   return owned;
 }
@@ -1280,7 +1281,9 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
       await persistStatus(completed);
       return completed;
     } else {
-      (await scheduleBackgroundSync(detailCandidates, mailbox, collabs, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize));
+      // scheduleBackgroundSync owns and drains this task. The first committed
+      // index must not wait for background remote bodies or later pages.
+      void scheduleBackgroundSync(detailCandidates, mailbox, collabs, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize);
     }
     return partial;
   } catch (error) {

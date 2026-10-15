@@ -36,7 +36,8 @@ export async function confirmFixtureDocumentScope(id: string, actor: string, ten
   });
   try {
     const before = await scopeDetail(actor, tenant, id);
-    const { jobId } = await enqueueScope(actor, tenant, id, before.revision);
+    const { jobId } = await enqueueScope(actor, tenant, id, before.revision, { mode: "manual" });
+    if (!jobId) throw new Error("scope fixture did not create or reuse an execution job");
     const outcome = await processExecutionJobById(jobId, "scope-fixture-worker");
     if (outcome?.outcome !== "processed") throw new Error(`scope fixture generation failed: ${outcome?.outcome}`);
     const candidate = await scopeDetail(actor, tenant, id);

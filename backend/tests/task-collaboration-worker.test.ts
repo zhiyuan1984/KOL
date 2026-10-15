@@ -50,7 +50,7 @@ describe("fixed native Task evidence in the existing app-server protocol",()=>{
     expect((await postgresPool().query("SELECT status FROM tickets WHERE id=$1",[taskId])).rows[0].status).toBe("open");
   });
   it("marks changed source basis as stale and suppresses a result after Task revocation",async()=>{
-    const run=(await execute());
+    const run=execute();
     // The protocol fixture writes this only after thread/start: evidence was
     // already captured, and the delayed turn has not completed yet.
     for(let i=0;i<100&&!fs.existsSync(path.join(tmp,"thread.json"));i++) await new Promise(resolve=>setTimeout(resolve,20));
@@ -58,7 +58,7 @@ describe("fixed native Task evidence in the existing app-server protocol",()=>{
     await postgresPool().query("UPDATE tickets SET data_version=data_version+1 WHERE id=$1",[taskId]);
     expect((await run).items[0].task_context_stale).toBe(true);
     fs.unlinkSync(path.join(tmp,"thread.json"));
-    const revoked=(await execute());
+    const revoked=execute();
     for(let i=0;i<100&&!fs.existsSync(path.join(tmp,"thread.json"));i++) await new Promise(resolve=>setTimeout(resolve,20));
     await postgresPool().query("UPDATE ticket_accounts SET active=false WHERE id='usr_runtime_fixture'");
     await expect(revoked).rejects.toThrow("任务访问权限已变化");

@@ -33,10 +33,15 @@ async function request(
   actor: AppUser | undefined = admin,
 ): Promise<{ status: number; json: () => Promise<Json>; text: () => Promise<string> }> {
   const init: RequestInit = { method, headers: {} };
+  const headers = init.headers as Record<string, string>;
+  // The publication fixture makes the test actors valid in two companies.
+  // Only management knowledge mutations declare their intended tenant; regular
+  // mail/session APIs must retain their independent request scope.
+  if (url.startsWith("/api/admin/knowledge")) headers["X-Review-Company"] = "knowledge_fixture_company";
   if (body instanceof FormData) {
     init.body = body;
   } else if (body !== undefined) {
-    (init.headers as Record<string, string>)["Content-Type"] = "application/json";
+    headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
   const res = actor ? await withScopedUser(actor, () => app.request(url, init)) : await app.request(url, init);
@@ -209,8 +214,21 @@ describe("WikiSkill knowledge", () => {
   });
 
   it("blocks brand transfer outside the From whitelist", async () => {
-    const r = await request("POST", "/api/admin/knowledge/kb_mail_followup/transfer", { to_brand: "XX" });
-    expect(r.status).toBe(400);
+    const created = await request("POST", "/api/admin/knowledge", {
+      title: "当前组织移交测试模板",
+      body: "current tenant transfer fixture",
+      kind: "mail_template",
+      base_id: "kbase_legacy",
+      skill_id: "email_compose",
+      brand: "LT",
+      subject: "Tenant transfer fixture",
+      body_en: "Tenant transfer fixture body.",
+      status: "draft",
+    });
+    expect(created.status, await created.text()).toBe(201);
+    const entry = await created.json();
+    const r = await request("POST", `/api/admin/knowledge/${entry.id}/transfer`, { to_brand: "XX" });
+    expect(r.status, await r.text()).toBe(400);
   });
 
   it("extracts an eml upload into a pending page without publishing", async () => {
@@ -229,18 +247,36 @@ describe("WikiSkill knowledge", () => {
   });
 
   it("refuses to physically delete knowledge cited by sent mail", async () => {
-    await request("POST", "/api/knowledge/kb_mail_followup/cite", {});
+    const created = await request("POST", "/api/admin/knowledge", {
+      title: "当前组织阶段跟进",
+      body: "Current tenant stage follow-up template.",
+      kind: "mail_template",
+      base_id: "kbase_legacy",
+      skill_id: "email_compose",
+      brand: "LT",
+      subject: "Current tenant follow-up",
+      body_en: "Hi,\n\nCurrent tenant follow-up.\n\nBest,\nLiTime Creator Desk",
+      stage_codes: ["INITIAL_CONTACT"],
+      status: "draft",
+    });
+    expect(created.status, await created.text()).toBe(201);
+    const entry = await created.json();
+    await publishKnowledgeEntry(String(entry.id));
+    await request("POST", `/api/knowledge/${entry.id}/cite`, {});
     const [, data] = await ask("给@小美妆日记 写阶段跟进", {
       intent: "email_compose",
       collaboration_id: "col_xiaomei",
-      knowledge_id: "kb_mail_followup",
+      knowledge_id: entry.id,
     });
     const draft = data.draft as Json;
-    expect((await confirmAndSendDraft(request, String(draft.id), {})).status).toBe(200);
-    const archived = await request("POST", "/api/admin/knowledge/kb_mail_followup/archive", {});
-    expect(archived.status).toBe(200);
-    const del = await request("DELETE", "/api/admin/knowledge/kb_mail_followup");
+    const sent = await confirmAndSendDraft(request, String(draft.id), {});
+    expect(sent.status, await sent.text()).toBe(200);
+    const archived = await request("POST", `/api/admin/knowledge/${entry.id}/archive`, {});
+    expect(archived.status, await archived.text()).toBe(200);
+    const del = await request("DELETE", `/api/admin/knowledge/${entry.id}`);
     expect(del.status).toBe(403);
+    const retained = await (await request("GET", `/api/knowledge/${entry.id}`)).json();
+    expect(retained.status).toBe("archived");
   });
 
   it("records quote PEP failures into Raw", async () => {

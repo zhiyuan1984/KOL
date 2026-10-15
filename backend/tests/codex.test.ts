@@ -29,7 +29,7 @@ beforeEach(async () => {
   (await resetConn());
   (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = authenticatedTestApp((await createApp()), (await seedRuntimeTestActor(["creator_discovery"])));
+  app = authenticatedTestApp((await createApp()), (await seedRuntimeTestActor(["creator_discovery"], true)));
   (await seedWorkbenchFixtures());
 });
 

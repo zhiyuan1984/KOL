@@ -5,17 +5,25 @@ import { setEmailMcpClientFactory } from "../src/starrykol/service.js";
 import { syncFollowedKolMail, type MailSyncAuthorizedScope, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
 import type { Json } from "../src/types.js";
 import { closePostgresPool, postgresPool } from "../src/postgres/pool.js";
+import { pgVisibleSkillIdsForUser } from "../src/postgres/auth-pg.js";
+import { createAgentBinding, syncUserOrganization } from "../src/runtime/organization-tree.js";
+import { getAgentSkills, setAgentSkill } from "../src/runtime/store.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
 
 let conversationId = 1000;
 const ACTOR_ID = "mail-sync-perf-actor";
 const MAILBOX = "larry.zhao@amperetime.com";
 const CREDENTIAL = "cred_native_mail_sync_12345678";
+const AGENT_ID = "agent:mail-perf";
+const ORG_UNIT_ID = "org:lt_team";
+const COMPANY_ID = "company:amperetime";
+const MAIL_SYNC_SKILLS = ["email_conversation_list", "email_conversation_read"] as const;
 
 function actor(): AppUser {
   return {
     id: ACTOR_ID, username: ACTOR_ID, name: "Native mail performance actor", handle: ACTOR_ID,
-    email: MAILBOX, phone: "", roles: ["employee"], role: "employee", brands: [], site: "",
+    email: MAILBOX, phone: "", roles: ["employee"], role: "employee", brands: ["LT"], site: ORG_UNIT_ID,
     manager_user_id: null, active: true, exam_passed: true, exam_todo_count: 0, exam_module: "",
   };
 }
@@ -25,33 +33,56 @@ async function seedNativeAuthorization(): Promise<void> {
   const pool = postgresPool();
   await pool.query(
     `INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at,email)
-     VALUES ($1,$2,$3,'test-only',$4,'[]','',1,$5,$5,$6)`,
-    [ACTOR_ID, ACTOR_ID, "Native mail performance actor", JSON.stringify(["employee"]), now, MAILBOX],
+     VALUES ($1,$2,$3,'test-only',$4,$5,$6,1,$7,$7,$8)`,
+    [ACTOR_ID, ACTOR_ID, "Native mail performance actor", JSON.stringify(["employee"]), JSON.stringify(["LT"]), ORG_UNIT_ID, now, MAILBOX],
   );
-  await pool.query(
-    `INSERT INTO managed_agents(id,name,description,status,version,created_at,updated_at)
-     VALUES ('agent:mail-perf','Native mail performance agent','test-only','published',1,$1,$1)`, [now],
-  );
-  for (const skill of ["email_conversation_list", "email_conversation_read"]) {
-    await pool.query(
-      "INSERT INTO runtime_agent_skills(agent_id,skill_id,enabled,version,updated_at) VALUES ('agent:mail-perf',$1,1,1,$2)",
-      [skill, now],
-    );
+  await seedPublishedAgent(AGENT_ID, "Native mail performance agent");
+  for (const skill of MAIL_SYNC_SKILLS) {
+    const current = (await getAgentSkills(AGENT_ID)).find((row) => row.skill_id === skill);
+    await setAgentSkill(AGENT_ID, skill, true, Number(current?.version || 0));
   }
-  await pool.query(
-    `INSERT INTO organization_people(person_ref,display_name,user_ref,user_id,status,source,created_at,updated_at)
-     VALUES ('person:mail-perf','Native mail performance actor',$1,$1,'active','test',$2,$2)`, [ACTOR_ID, now],
-  );
-  await pool.query(
-    `INSERT INTO agent_bindings
-     (id,agent_id,target_type,target_id,company_id,status,binding_version,org_version,created_at,updated_at)
-     VALUES ('binding:mail-perf','agent:mail-perf','person','person:mail-perf','company:test','active',1,1,$1,$1)`,
-    [now],
-  );
+  const personRef = await syncUserOrganization(ACTOR_ID, ORG_UNIT_ID);
+  await createAgentBinding({
+    agent_id: AGENT_ID,
+    target_type: "person",
+    target_id: personRef,
+    company_id: COMPANY_ID,
+    source: "isolated-native-test",
+  });
+  const visibleSkills = await pgVisibleSkillIdsForUser(ACTOR_ID, new Date().toISOString());
+  for (const skill of MAIL_SYNC_SKILLS) expect(visibleSkills).toContain(skill);
   await pool.query(
     `INSERT INTO user_starry_bindings(user_id,mailbox_email,is_default,bearer_token,status,updated_at)
      VALUES ($1,$2,1,$3,'connected',$4)`, [ACTOR_ID, MAILBOX, CREDENTIAL, now],
   );
+}
+
+/** The index-first receipt is not hydration completion; observe the durable PG result instead. */
+async function waitForFollowedMailSync(expectedItems: number): Promise<void> {
+  await expect.poll(async () => {
+    const result = await postgresPool().query<{ item_count: number; sync_page_no: number }>(
+      `SELECT (SELECT count(*)::int FROM kol_mail_items) AS item_count, sync_page_no
+         FROM user_starry_bindings WHERE user_id=$1 AND mailbox_email=$2`,
+      [ACTOR_ID, MAILBOX],
+    );
+    return {
+      item_count: Number(result.rows[0]?.item_count || 0),
+      sync_page_no: Number(result.rows[0]?.sync_page_no || 0),
+    };
+  }, { timeout: 30_000 }).toEqual({ item_count: expectedItems, sync_page_no: 1 });
+  await waitForBackgroundSync();
+}
+
+/** A partial remote body failure is complete only after its durable failure audit is committed. */
+async function waitForPartialBackgroundFailure(): Promise<void> {
+  await expect.poll(async () => {
+    const result = await postgresPool().query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM mail_sync_audit
+       WHERE event_type='starrykol.followed_mail_sync_background_failed'`,
+    );
+    return Number(result.rows[0]?.n || 0);
+  }, { timeout: 30_000 }).toBe(1);
+  await waitForBackgroundSync();
 }
 
 async function nativeSync(): Promise<Awaited<ReturnType<typeof syncFollowedKolMail>>> {
@@ -129,7 +160,7 @@ function mockMcp(readMs: number, totalCount: number, pageSize = 10) {
 
 describe("mail sync performance", () => {
   beforeEach(async () => {
-    await freshTestDatabase();
+    await freshTestDatabase({ reclaimPrevious: true });
     await seedNativeAuthorization();
   });
 
@@ -161,7 +192,7 @@ describe("mail sync performance", () => {
     expect(result).toMatchObject({ ok: true, index_updated: 10, body_pending: 10 });
     const indexed = await postgresPool().query<{ n: number }>("SELECT count(*)::int AS n FROM kol_mail_threads");
     expect(Number(indexed.rows[0].n)).toBe(10);
-    await waitForBackgroundSync();
+    await waitForFollowedMailSync(12);
     expect(mcp.counters.getEmailConversation).toBe(12);
     const items = await postgresPool().query<{ n: number }>("SELECT count(*)::int AS n FROM kol_mail_items");
     expect(Number(items.rows[0].n)).toBeGreaterThanOrEqual(12);
@@ -183,17 +214,18 @@ describe("mail sync performance", () => {
     };
     setEmailMcpClientFactory(() => mcp);
 
+    const sync = nativeSync();
     try {
-      const result = await nativeSync();
       await bodyStartedPromise;
-      expect(result).toMatchObject({ ok: true, index_updated: 10, body_pending: 10 });
       const indexed = await postgresPool().query<{ n: number }>("SELECT count(*)::int AS n FROM kol_mail_threads");
       expect(Number(indexed.rows[0].n)).toBe(10);
       const bodiesBeforeRelease = await postgresPool().query<{ n: number }>("SELECT count(*)::int AS n FROM kol_mail_items");
       expect(Number(bodiesBeforeRelease.rows[0].n)).toBe(0);
     } finally {
       releaseBody();
-      await waitForBackgroundSync();
+      const result = await sync;
+      expect(result).toMatchObject({ ok: true, index_updated: 10, body_pending: 10 });
+      await waitForFollowedMailSync(10);
     }
     expect(mcp.counters.getEmailConversation).toBe(10);
   });
@@ -202,7 +234,9 @@ describe("mail sync performance", () => {
     const mcp = mockMcp(0, 10);
     const original = mcp.callTool.bind(mcp);
     let failuresLeft = 2; // one read plus its one safe session-rebuild retry
+    const detailAttempts: string[] = [];
     mcp.callTool = async (name: string, args: Json = {}) => {
+      if (name === "getEmailConversation") detailAttempts.push(String(args.conversationId));
       if (name === "getEmailConversation" && String(args.conversationId) === "1000" && failuresLeft > 0) {
         failuresLeft -= 1;
         throw Object.assign(new Error("fixture upstream unavailable"), { remoteStatus: 503 });
@@ -213,17 +247,18 @@ describe("mail sync performance", () => {
 
     const first = await nativeSync();
     expect(first).toMatchObject({ ok: true, index_updated: 10 });
-    await waitForBackgroundSync();
+    await waitForPartialBackgroundFailure();
     const afterFailure = await postgresPool().query<{ n: number }>("SELECT count(*)::int AS n FROM kol_mail_threads");
     expect(afterFailure.rows[0].n).toBe(10);
     const partialItems = await postgresPool().query<{ n: number }>("SELECT count(*)::int AS n FROM kol_mail_items");
     expect(partialItems.rows[0].n).toBeLessThan(10);
 
     await nativeSync();
-    await waitForBackgroundSync();
+    await waitForFollowedMailSync(10);
     const itemCounts = await postgresPool().query<{ total: number; distinct_count: number }>(
       "SELECT count(*)::int AS total,count(DISTINCT provider_message_id)::int AS distinct_count FROM kol_mail_items",
     );
+    expect(detailAttempts.filter((conversationId) => conversationId === "1000")).toHaveLength(3);
     expect(itemCounts.rows[0].total).toBe(itemCounts.rows[0].distinct_count);
     expect(itemCounts.rows[0].total).toBeGreaterThanOrEqual(10);
   });
@@ -237,7 +272,7 @@ describe("mail sync performance", () => {
     expect(result.conversations).toBe(10); // first page list length
     expect(elapsed).toBeLessThan(1000);    // foreground only
 
-    await waitForBackgroundSync();
+    await waitForFollowedMailSync(30);
     expect(mcp.counters.getEmailConversation).toBe(30);
 
     const items = await postgresPool().query<{ n: number }>("SELECT count(*)::int AS n FROM kol_mail_items");
@@ -256,7 +291,7 @@ describe("mail sync performance", () => {
     const resumed = await nativeSync();
     expect(resumed.conversations).toBe(10); // second page is the committed foreground index
 
-    await waitForBackgroundSync();
+    await waitForFollowedMailSync(20);
     // page 2 remainder (5) + page 3 (10)
     expect(mcp.counters.getEmailConversation).toBe(20);
   });

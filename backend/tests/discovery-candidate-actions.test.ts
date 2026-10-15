@@ -6,6 +6,7 @@ import { freshTestDatabase } from "./support/pg.js";
 import { getConn, resetConn } from "../src/db.js";
 import { postgresPool } from "../src/postgres/pool.js";
 import { mapUser, withScopedUser, type AppUser } from "../src/auth.js";
+import { pgVisibleSkillIdsForUser } from "../src/postgres/auth-pg.js";
 import { setAgentSkill, setSkillConnector, setConnectorConfig, setSkillTool, setToolPolicy } from "../src/runtime/store.js";
 import { createAgentBinding } from "../src/runtime/organization-tree.js";
 import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
@@ -27,7 +28,7 @@ vi.mock("../src/gateway/import-creator.js", () => ({
 }));
 const COMPANY = "company:amperetime";
 const candidate = { id: "stable-channel", name: "Camping channel", platform: "youtube", source_url: "https://youtube.com/channel/stable-channel", followers: 3000000, avg_views_10: null, region: null };
-let temp: string;
+let temp: string | undefined;
 let users: AppUser[];
 const ctx = (id: string): RuntimeContext => ({ agentId: "agent:discovery-test", skillId: "crawler_collect", userId: id, runId: "test", sessionId: `session-${id}` });
 const acting = <T>(id: number, action: () => T) => withScopedUser(users[id], action);
@@ -37,13 +38,8 @@ async function command(id: number, verb: string, snapshot: unknown, confirmed = 
 }
 beforeEach(async () => {
   await freshTestDatabase();
-  // 旧模板可能早于线索/公海品牌迁移；只在独立测试库补齐真实 schema。
-  const schema = fs.readFileSync(new URL("../scripts/apply-postgres-schema.ts", import.meta.url), "utf8");
-  const leadCreate = schema.match(/`(CREATE TABLE IF NOT EXISTS kol_leads \([\s\S]*?\n    \))`/);
-  if (!leadCreate) throw new Error("kol_leads schema not found");
-  await postgresPool().query(leadCreate[1]);
-  await postgresPool().query(fs.readFileSync(new URL("../migrations/029_discovery_dedup_score.sql", import.meta.url), "utf8"));
-  await postgresPool().query(fs.readFileSync(new URL("../migrations/030_pool_brand_visibility.sql", import.meta.url), "utf8"));
+  // The owned clone is upgraded through the native migration manifest; do not
+  // reconstruct retired applyKolReadModel schema fragments in a test fixture.
   temp = fs.mkdtempSync(path.join(os.tmpdir(), "discovery-candidate-actions-"));
   process.env.LINGONG_DATA = temp; process.env.AUTH_MODE = "enabled"; process.env.NODE_ENV = "test";
   (await resetConn());
@@ -55,9 +51,14 @@ beforeEach(async () => {
   expect(people.length).toBe(2);
   for (let i = 0; i < 2; i++) {
     (await db.query("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n      VALUES($1,$2,$3,'test-password','[\"employee\"]','[\"LT\"]','',1,'now','now')",[`employee-${i}`,`employee-${i}`,`employee-${i}`]));
+    (await db.query("INSERT INTO ticket_accounts(id,username,name,password_hash,roles,active,created_at,updated_at)\n      VALUES($1,$2,$3,'not-a-login-password','[\"employee\"]',true,now(),now())",[`employee-${i}`,`employee-${i}`,`employee-${i}`]));
     (await db.query("UPDATE organization_people SET user_id=$1 WHERE person_ref=$2",[`employee-${i}`,people[i].person_ref]));
   }
-  users = (await Promise.all([0, 1].map(async i => (mapUser((await db.query("SELECT * FROM users WHERE id=$1",[`employee-${i}`])).rows[0] as never)))));
+  users = (await Promise.all([0, 1].map(async i => {
+    const user = await mapUser((await db.query("SELECT * FROM users WHERE id=$1",[`employee-${i}`])).rows[0] as never);
+    return { ...user, authority_skills: await pgVisibleSkillIdsForUser(user.id, new Date().toISOString()) };
+  })));
+  expect(users.every(user => user.authority_skills?.includes("creator_discovery"))).toBe(true);
   const credential = (await configureCrawlerFixture("http://crawler.example.test/mcp"));
   (await setSkillConnector("crawler_collect", "claw", true, 0));
   (await db.query("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('starrykol','Starry',1,'configured','now')\n    ON CONFLICT(id) DO UPDATE SET label=EXCLUDED.label,enabled=EXCLUDED.enabled,status=EXCLUDED.status,updated_at=EXCLUDED.updated_at",[]));
@@ -74,12 +75,12 @@ beforeEach(async () => {
   vi.mocked(importKolProfilesFromCrawlerConfirmed).mockReset();
   vi.mocked(lookupImportedKolUid).mockReset();
 });
-afterEach(async () => { setKolJevFetch(); delete process.env.OPENROUTER_API_KEY; (await resetConn()); fs.rmSync(temp, { recursive: true, force: true }); });
+afterEach(async () => { setKolJevFetch(); delete process.env.OPENROUTER_API_KEY; (await resetConn()); if (temp) fs.rmSync(temp, { recursive: true, force: true }); temp = undefined; });
 
 it("atomically assigns one employee, hides other employees, and does not repeat a successful import", async () => {
   vi.mocked(importKolProfilesFromCrawlerConfirmed).mockResolvedValue({ kol_uid: "KOLCLAIM001" });
   const versions = await Promise.all([(await version(0)), (await version(1))]);
-  const results = await Promise.allSettled([(await command(0, "follow", versions[0])), (await command(1, "follow", versions[1]))]);
+  const results = await Promise.allSettled([command(0, "follow", versions[0]), command(1, "follow", versions[1])]);
   expect(results.filter(r => r.status === "fulfilled")).toHaveLength(1);
   const winner = results[0].status === "fulfilled" ? 0 : 1, loser = 1 - winner;
   expect(await command(winner, "follow", versions[winner])).toMatchObject({ ok: true, reused: true });
@@ -246,6 +247,9 @@ it("re-follow keeps ownership and uncertain state when Starry reconciliation fai
   expect(audits).toHaveLength(1);
   const payload = typeof audits[0].payload === "string" ? JSON.parse(audits[0].payload) : audits[0].payload;
   expect(payload.error_detail).toBe("listAll unavailable");
+  expect(payload.retried_import).toBe(false);
+  expect(String(retried.starry_error || "")).toContain("入库状态核对失败");
+  expect(String(retried.starry_error || "")).not.toContain("listAll unavailable");
 });
 
 it("re-follow reconciles with a pre-existing formal profile and links the original follow", async () => {

@@ -274,8 +274,8 @@ describe("employee Agent routing", () => {
     process.env.OPENROUTER_API_KEY = "fixture-only";
     const routes = (await asUser(async () => (availableAgentRoutes(agentId))));
     await withAgentRoutes(routes, async () => {
-      expect(intentSystemPrompt()).toContain(`agent_id=${agentId}`);
-      expect(intentSystemPrompt()).not.toContain("- email_compose:");
+      expect(await intentSystemPrompt()).toContain(`agent_id=${agentId}`);
+      expect(await intentSystemPrompt()).not.toContain("- email_compose:");
       expect((intentOutputSchema([skillId]).properties as Record<string, unknown>).agent_id).toEqual({ type: "string", enum: ["", agentId] });
       setJevIntentFetch(async (_url, init) => {
         expect(String(init?.body)).toContain("产品专家");

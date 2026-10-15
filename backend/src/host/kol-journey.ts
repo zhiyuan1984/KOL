@@ -1,6 +1,7 @@
 import { scopedUser } from "../auth.js";
 import { audit, getConn, nowIso, onConnReset, tx } from "../db.js";
 import { assertSessionRowExists, insertSessionMessage } from "./session-messages.js";
+import { trackBackgroundWork } from "../background-work.js";
 import { nid } from "../ids.js";
 import { judgeCollaborationStage, type StageJudgment, type StageJudgmentInput } from "../stage-judgment.js";
 import {
@@ -184,7 +185,7 @@ const mailAnalysisJobs = new Map<string, Promise<unknown>>();
 const mailSyncJobs = new Map<string, Promise<number>>();
 const mailSyncAt = new Map<string, number>();
 const mailSyncFailed = new Set<string>();
-const mailDigestRefreshTimers = new Map<string, Awaited<ReturnType<typeof setTimeout>>>();
+const mailDigestRefreshTimers = new Map<string, { timer: ReturnType<typeof setTimeout>; cancel: () => void }>();
 const MAIL_SYNC_COALESCE_MS = 20_000;
 
 export function isMailSyncing(collaborationId: string): boolean {
@@ -195,7 +196,7 @@ export function resetKolMailSync(): void {
   mailSyncJobs.clear();
   mailSyncAt.clear();
   mailSyncFailed.clear();
-  for (const timer of mailDigestRefreshTimers.values()) clearTimeout(timer);
+  for (const entry of mailDigestRefreshTimers.values()) entry.cancel();
   mailDigestRefreshTimers.clear();
 }
 
@@ -212,22 +213,32 @@ export async function refreshMailDigestAfterChange(
 ): Promise<void> {
   const journey = await journeyPayloadWithMailMemory(collaborationId, opts);
   if (journey && sessionId) publishSession(sessionId, { type: "journey", journey });
-  void ensureCodexThreadDigest(collaborationId, await mailHistoryRows(collaborationId), opts)
-    .then(async () => (journeyPayloadWithMailMemory(collaborationId)))
+  const analysis = mailAnalysisJobs.get(collaborationId);
+  if (!analysis) return;
+  void trackBackgroundWork(analysis
+    .then(async () => (journeyPayload(collaborationId)))
     .then((next) => {
       if (next && sessionId) publishSession(sessionId, { type: "journey", journey: next });
     })
-    .catch(() => undefined);
+    .catch(() => undefined), "mail.digest.publish");
 }
 
 function scheduleMailDigestRefresh(collaborationId: string, sessionId: string): void {
   const prev = mailDigestRefreshTimers.get(collaborationId);
-  if (prev) clearTimeout(prev);
-  const timer = setTimeout(() => {
-    if (mailDigestRefreshTimers.get(collaborationId) === timer) mailDigestRefreshTimers.delete(collaborationId);
-    void refreshMailDigestAfterChange(collaborationId, sessionId, { retryFailed: true });
-  }, 0);
-  mailDigestRefreshTimers.set(collaborationId, timer);
+  if (prev) prev.cancel();
+  const work = new Promise<void>((resolve, reject) => {
+    const entry = {
+      timer: setTimeout(() => {
+        if (mailDigestRefreshTimers.get(collaborationId) === entry) mailDigestRefreshTimers.delete(collaborationId);
+        // Automatic refresh respects the fingerprint/failure cooldown. Only an
+        // explicit caller retry may bypass a fresh analysis_failed receipt.
+        refreshMailDigestAfterChange(collaborationId, sessionId).then(resolve, reject);
+      }, 0),
+      cancel: () => { clearTimeout(entry.timer); resolve(); },
+    };
+    mailDigestRefreshTimers.set(collaborationId, entry);
+  });
+  void trackBackgroundWork(work, "mail.digest.refresh.timer");
 }
 
 export async function journeyPayloadWithMailMemory(
@@ -239,13 +250,15 @@ export async function journeyPayloadWithMailMemory(
   const history = Array.isArray(first.mail_history) ? first.mail_history as Json[] : [];
   if (!history.length) return first;
   const colId = String(first.collaboration_id);
-  const existing = (await mailAnalysisJobs.get(colId));
+  const existing = mailAnalysisJobs.get(colId);
   if (existing) {
     return { ...first, mail_analysis_pending: true };
   }
   const pending = needsRemoteThreadDigest(history, (await readThreadDigest(colId)), opts);
   if (!pending) return first;
-  const work = (ensureCodexThreadDigest(colId, history, opts)
+  // A sibling caller may have registered while readThreadDigest awaited PG.
+  if (mailAnalysisJobs.has(colId)) return { ...first, mail_analysis_pending: true };
+  const work = trackBackgroundWork(ensureCodexThreadDigest(colId, history, opts)
     .then(async () => {
       const next = (await journeyPayload(colId));
       if (!next) return;
@@ -254,7 +267,7 @@ export async function journeyPayloadWithMailMemory(
     })
     .finally(async () => {
       if ((mailAnalysisJobs.get(colId)) === work) mailAnalysisJobs.delete(colId);
-    }));
+    }), "mail.digest.analysis");
   mailAnalysisJobs.set(colId, work);
   return { ...first, mail_analysis_pending: true };
 }
@@ -527,17 +540,17 @@ export async function syncKolSessionMail(
   opts?: { force?: boolean },
 ): Promise<number> {
   const key = collaborationId;
-  const inflight = (await mailSyncJobs.get(key));
+  const inflight = mailSyncJobs.get(key);
   if (inflight) return inflight;
   if (!opts?.force) {
     const last = mailSyncAt.get(key);
     if (last && Date.now() - last < MAIL_SYNC_COALESCE_MS) return 0;
   }
-  const work = (pullKolSessionMail(sessionId, collaborationId)
+  const work = trackBackgroundWork(pullKolSessionMail(sessionId, collaborationId)
     .then((added) => {
       mailSyncAt.set(key, Date.now());
       mailSyncFailed.delete(key);
-      void refreshMailDigestAfterChange(collaborationId, sessionId, { retryFailed: true });
+      void trackBackgroundWork(refreshMailDigestAfterChange(collaborationId, sessionId), "mail.session.digest");
       return added;
     })
     .catch(() => {
@@ -547,7 +560,7 @@ export async function syncKolSessionMail(
     .finally(async () => {
       if ((mailSyncJobs.get(key)) === work) mailSyncJobs.delete(key);
       (await publishMailSyncJourney(sessionId, collaborationId));
-    }));
+    }), "mail.session.pull");
   mailSyncJobs.set(key, work);
   (await publishMailSyncJourney(sessionId, collaborationId));
   return work;

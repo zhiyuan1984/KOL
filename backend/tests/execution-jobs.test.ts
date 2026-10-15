@@ -1,6 +1,3 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import {
@@ -17,22 +14,15 @@ import {
 } from "../src/execution-jobs/store.js";
 import { freshTestDatabase } from "./support/pg.js";
 
-let tmp = "";
-
 beforeEach(async () => {
-  await freshTestDatabase();
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-execution-jobs-"));
-  process.env.LINGONG_DB = path.join(tmp, "jobs.db");
-  process.env.LINGONG_DATA = tmp;
-  (await resetConn());
+  await freshTestDatabase({ reclaimPrevious: true });
 });
 
 afterEach(async () => {
-  (await resetConn());
-  fs.rmSync(tmp, { recursive: true, force: true });
+  await resetConn();
 });
 
-describe("SQLite transition execution jobs", () => {
+describe("PostgreSQL execution jobs", () => {
   it("persists one idempotent job and its outbox fact atomically", async () => {
     const input = {
       job_type: "cron.run",
@@ -51,7 +41,7 @@ describe("SQLite transition execution jobs", () => {
     expect(outbox).toMatchObject({ status: "pending", event_type: "execution_job.queued" });
   });
 
-  it("claims once, publishes the local handoff, and records a terminal receipt", async () => {
+  it("claims once, records delivery only for the publisher lease, and records a terminal receipt", async () => {
     const queued = (await enqueueExecutionJob({
       job_type: "cron.run", tenant_ref: "company:amperetime", actor_ref: "system",
       idempotency_key: "cron-run:test-002", payload: { cron_run_id: "crun_test_002" },
@@ -59,7 +49,19 @@ describe("SQLite transition execution jobs", () => {
     const claimed = (await claimNextExecutionJob("test-worker", { job_types: ["cron.run"], now: new Date("2030-10-02T00:00:00.000Z") }));
     expect(claimed?.id).toBe(queued.job.id);
     expect((await claimExecutionJobById(String(queued.job.id), "second-worker"))).toBeNull();
-    expect((await publishExecutionOutboxForJob(String(queued.job.id), "test-worker", new Date("2030-10-02T00:00:01.000Z")))).toBe(1);
+    const handoffAt = new Date("2030-10-02T00:00:01.000Z");
+    const publisher = "test-outbox-publisher";
+    expect((await publishExecutionOutboxForJob(String(queued.job.id), publisher, handoffAt))).toBe(0);
+    const handoff = await getConn().query(
+      `UPDATE execution_outbox
+       SET status='publishing',attempts=attempts+1,publisher_id=$1,publisher_lease_until=$2,updated_at=$3
+       WHERE job_id=$4 AND status='pending'
+       RETURNING id`,
+      [publisher, new Date(handoffAt.getTime() + 60_000).toISOString(), handoffAt.toISOString(), queued.job.id],
+    );
+    expect(handoff.rowCount).toBe(1);
+    expect((await publishExecutionOutboxForJob(String(queued.job.id), "second-publisher", handoffAt))).toBe(0);
+    expect((await publishExecutionOutboxForJob(String(queued.job.id), publisher, handoffAt))).toBe(1);
     const completed = (await completeExecutionJob(String(queued.job.id), { cron_run_id: "crun_test_002", cron_status: "succeeded" }, new Date("2030-10-02T00:00:02.000Z")));
     expect(completed).toMatchObject({ status: "succeeded", lease_until: null });
     expect(((await getConn().query("SELECT status FROM execution_outbox WHERE job_id=$1",[queued.job.id])).rows[0] as { status: string }).status).toBe("published");

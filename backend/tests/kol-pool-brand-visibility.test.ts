@@ -1,14 +1,10 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import { resolveLeadBrand } from "../src/ticket-domain/kol-leads.js";
 import { isGroupLeader, leaderMemberUserIds, poolViewerBrands } from "../src/host/inbound-scope.js";
-import { ensureOrganizationTree, leaderScopeForUser } from "../src/runtime/organization-tree.js";
+import { ensureOrganizationTree, leaderScopeForUser, syncUserOrganization } from "../src/runtime/organization-tree.js";
 import type { AppUser } from "../src/auth.js";
-
-let tmp = "";
+import { freshTestDatabase } from "./support/pg.js";
 
 function user(id: string, overrides: Partial<AppUser> = {}): AppUser {
   return {
@@ -28,29 +24,17 @@ function user(id: string, overrides: Partial<AppUser> = {}): AppUser {
 
 async function insertUser(id: string, name: string, brands: string[] = []) {
   (await getConn().query("INSERT INTO users (id,username,name,password_hash,roles,brands,active,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,1,'now','now')",[id,id,name,"x",JSON.stringify(["employee"]),JSON.stringify(brands)]));
-  const personRef = `person:${id}`;
-  (await getConn().query("INSERT INTO organization_people (person_ref,display_name,user_id,status,created_at,updated_at) VALUES ($1,$2,$3,'active','now','now')",[personRef,name,id]));
-  return personRef;
+  return `person:user:${id}`;
 }
 
 async function insertUnit(id: string, displayName: string, level: number, parentId: string | null, headPersonRef: string | null) {
   (await getConn().query("INSERT INTO organization_units\n       (id,company_id,display_name,type,parent_id,level,head_person_ref,head_display_name,status,created_at,updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8, 'active','now','now')",[id,"company:amperetime",displayName,"department",parentId,level,headPersonRef,headPersonRef]));
 }
 
-async function addMember(personRef: string, unitId: string) {
-  (await getConn().query("INSERT INTO organization_memberships\n       (id,person_ref,company_id,org_unit_id,relation,status,created_at,updated_at)\n     VALUES ($1,$2,$3,$4, 'primary','active','now','now')",[`m:${personRef}:${unitId}`,personRef,"company:amperetime",unitId]));
-}
-
 beforeEach(async () => {
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-pool-brand-"));
-  Object.assign(process.env, {
-    LINGONG_DB: path.join(tmp, "db.sqlite"),
-    LINGONG_DATA: tmp,
-    AUTH_MODE: "disabled",
-    NODE_ENV: "test",
-  });
-  (await resetConn());
-  getConn();
+  // A fresh native clone is required for the fixed fixture ids below. Reclaim
+  // only this worker's completed clone; never replay retired SQLite DDL.
+  await freshTestDatabase({ reclaimPrevious: true });
   (await ensureOrganizationTree());
   // 四级组织：一级中心 → 二级推广部 → 三级LT组 → 四级投放小组
   const zhang = (await insertUser("u_zhang", "张慧玲"));
@@ -62,17 +46,13 @@ beforeEach(async () => {
   (await insertUnit("org:l2", "推广部", 2, "org:l1", zhong));
   (await insertUnit("org:l3", "LT组", 3, "org:l2", ye));
   (await insertUnit("org:l4", "投放小组", 4, "org:l3", null));
-  (await addMember(zhang, "org:l1"));
-  (await addMember(zhong, "org:l2"));
-  (await addMember(ye, "org:l3"));
-  (await addMember(a, "org:l3"));
-  (await addMember(b, "org:l4"));
+  for (const [id, unitId] of [["u_zhang", "org:l1"], ["u_zhong", "org:l2"], ["u_ye", "org:l3"], ["u_a", "org:l3"], ["u_b", "org:l4"]] as const) {
+    await syncUserOrganization(id, unitId);
+  }
 });
 
 afterEach(async () => {
   (await resetConn());
-  fs.rmSync(tmp, { recursive: true, force: true });
-  for (const key of ["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "NODE_ENV"]) delete process.env[key];
 });
 
 describe("resolveLeadBrand", () => {

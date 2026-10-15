@@ -32,18 +32,6 @@ async function request(method: string, url: string, body?: unknown): Promise<Rep
   return { status: response.status, text, body: text ? JSON.parse(text) as Json : {} };
 }
 
-async function removeSeededMailTemplates(): Promise<Awaited<void>> {
-  const conn = getConn();
-  const ids = ((await conn.query("SELECT id FROM knowledge WHERE kind='mail_template'",[])).rows as Array<{ id: string }>)
-    .map((row) => row.id);
-  for (const id of ids) {
-    (await conn.query("DELETE FROM knowledge_deprecations WHERE knowledge_id=$1",[id]));
-    (await conn.query("DELETE FROM knowledge_citations WHERE knowledge_id=$1",[id]));
-    (await conn.query("DELETE FROM knowledge_versions WHERE knowledge_id=$1",[id]));
-    (await conn.query("DELETE FROM knowledge WHERE id=$1",[id]));
-  }
-}
-
 /** 发布必须经过真实的独立审批；该夹具不会绕过数据库发布守卫。 */
 async function approveCurrentVersion(id: string): Promise<void> {
   await publishKnowledgeEntry(id);
@@ -57,6 +45,7 @@ async function addPublishedTemplate(input: {
   subject?: string;
   body?: string;
   placeholders?: string[];
+  cited?: boolean;
 }): Promise<void> {
   await createKnowledge({
     id: input.id,
@@ -73,7 +62,7 @@ async function addPublishedTemplate(input: {
     status: "draft",
   });
   await approveCurrentVersion(input.id);
-  await cite(input.id);
+  if (input.cited !== false) await cite(input.id);
 }
 
 async function prepare(input: Json = {}): Promise<Reply> {
@@ -133,7 +122,6 @@ beforeEach(async () => {
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
   (await seedWorkbenchFixtures());
-  (await removeSeededMailTemplates());
 });
 
 afterEach(async () => {
@@ -266,7 +254,7 @@ describe("POST /api/actions/mail.prepare", () => {
   });
 
   it("does not offer disabled, archived, hidden, or uncited templates", async () => {
-    const scenarios: Array<{ id: string; disable: () => Promise<void>; code: string }> = [
+    const scenarios: Array<{ id: string; cited?: boolean; disable?: () => Promise<void>; code: string }> = [
       {
         id: "mail_disabled",
         disable: async () => { await getConn().query("UPDATE knowledge SET in_market=0 WHERE id=$1",["mail_disabled"]); },
@@ -284,15 +272,14 @@ describe("POST /api/actions/mail.prepare", () => {
       },
       {
         id: "mail_uncited",
-        disable: async () => { await getConn().query("DELETE FROM knowledge_citations WHERE user_id=$1 AND knowledge_id=$2",[DEMO_USER.id,"mail_uncited"]); },
+        cited: false,
         code: "knowledge_uncited",
       },
     ];
 
-    for (const scenario of scenarios) {
-      (await removeSeededMailTemplates());
-      (await addPublishedTemplate({ id: scenario.id }));
-      await scenario.disable();
+  for (const scenario of scenarios) {
+    await addPublishedTemplate({ id: scenario.id, cited: scenario.cited });
+    if (scenario.disable) await scenario.disable();
       const response = await prepare({ knowledge_id: scenario.id });
       expect(response.status, `${scenario.id}: ${response.text}`).toBe(403);
       expect(detailCode(response)).toBe(scenario.code);

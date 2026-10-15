@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
-import { mapUser, withScopedUser, type AppUser } from "../src/auth.js";
+import { hashPassword, mapUser, withScopedUser, type AppUser } from "../src/auth.js";
 import { DEMO_USER, PERSONAS } from "../src/config.js";
 import type { Row } from "../src/types.js";
 import { seedAll } from "../src/seed.js";
@@ -38,6 +38,10 @@ async function request(
   const init: RequestInit = { method, headers: {} };
   const headers = init.headers as Record<string, string>;
   if (cookie) headers.Cookie = cookie;
+  // Fixture publication provisions a second valid company for the same users.
+  // Every management-knowledge request must therefore select its actual tenant;
+  // ordinary mail and employee routes deliberately receive no such override.
+  if (url.startsWith("/api/admin/knowledge")) headers["X-Review-Company"] = "knowledge_fixture_company";
   if (body instanceof FormData) {
     init.body = body;
   } else if (body !== undefined) {
@@ -492,16 +496,26 @@ describe("knowledge governance", () => {
   });
 
   it("handles employee feedback with an audited decision", async () => {
+    const owned = await createPublished({
+      title: "发货通知",
+      body: "当前组织的发货通知正文",
+      kind: "mail_template",
+      skill_id: "email_compose",
+      brand: "LT",
+      subject: "Fixture shipment notice",
+      body_en: "A current-organization shipment notice.",
+      stage_codes: ["SHIPPED"],
+    });
     (await setPersona("employee"));
-    await request("POST", "/api/knowledge/kb_mail_ship/deprecate", { reason: "过时", note: "已过季" }, "", employee);
+    await request("POST", `/api/knowledge/${owned.id}/deprecate`, { reason: "过时", note: "已过季" }, "", employee);
 
     const feedback = await rows("/api/admin/knowledge/feedback");
-    const entry = feedback.find((row) => row.knowledge_id === "kb_mail_ship");
+    const entry = feedback.find((row) => row.knowledge_id === owned.id);
     expect(entry?.user_id).toBe("usr_lingong");
     expect(entry?.title).toBe("发货通知");
     expect(entry?.handled_at).toBeFalsy();
 
-    const handled = await request("POST", "/api/admin/knowledge/kb_mail_ship/feedback-handle", {
+    const handled = await request("POST", `/api/admin/knowledge/${owned.id}/feedback-handle`, {
       user_id: "usr_lingong",
       action: "to_revision",
       note: "转修订",
@@ -512,16 +526,16 @@ describe("knowledge governance", () => {
     expect(record.handle_note).toBe("转修订");
     expect(record.handled_by).toBeTruthy();
 
-    const page = await (await request("GET", "/api/knowledge/kb_mail_ship")).json();
+    const page = await (await request("GET", `/api/knowledge/${owned.id}`)).json();
     expect(page.status).toBe("draft");
     expect(page.current_version).toBe(2);
 
-    const again = await request("POST", "/api/admin/knowledge/kb_mail_ship/feedback-handle", {
+    const again = await request("POST", `/api/admin/knowledge/${owned.id}/feedback-handle`, {
       user_id: "usr_lingong",
       action: "ignore",
     });
     expect(again.status).toBe(409);
-    const unknown = await request("POST", "/api/admin/knowledge/kb_mail_ship/feedback-handle", {
+    const unknown = await request("POST", `/api/admin/knowledge/${owned.id}/feedback-handle`, {
       user_id: "usr_sriphy",
       action: "ignore",
     });
@@ -545,11 +559,21 @@ describe("knowledge governance", () => {
     await request("POST", "/api/knowledge/kb_mail_followup/cite", {});
     const picked = (await resolveMailTemplate({ skillId: "email_compose", stageCode: "INITIAL_CONTACT" }));
     expect(picked?.id).toBe("kb_mail_followup");
-    await request("POST", "/api/knowledge/kb_mail_followup/deprecate", { reason: "内容过时" });
+    const feedbackEntry = await createPublished({
+      title: "审计反馈模板",
+      body: "current organization feedback audit",
+      kind: "mail_template",
+      skill_id: "email_compose",
+      brand: "LT",
+      subject: "Audit feedback",
+      body_en: "Current organization feedback audit template.",
+      stage_codes: ["INITIAL_CONTACT"],
+    });
+    await request("POST", `/api/knowledge/${feedbackEntry.id}/deprecate`, { reason: "内容过时" });
     // 反馈归属人取真实记录：usr_sriphy 已在 2d2a1bb 退役，写死字面量会静默 404。
     const [feedback] = (await rows("/api/admin/knowledge/feedback"))
-      .filter((row) => row.knowledge_id === "kb_mail_followup");
-    const handled = await request("POST", "/api/admin/knowledge/kb_mail_followup/feedback-handle", {
+      .filter((row) => row.knowledge_id === feedbackEntry.id);
+    const handled = await request("POST", `/api/admin/knowledge/${feedbackEntry.id}/feedback-handle`, {
       user_id: String(feedback?.user_id || ""),
       action: "ignore",
       note: "保持现状",
@@ -567,13 +591,18 @@ describe("knowledge governance", () => {
     defaultActor = undefined;
     process.env.AUTH_MODE = "enabled";
     try {
-      const setup = await request("POST", "/api/auth/setup", {
-        username: "admin",
-        name: "Admin",
-        password: "admin-password",
-        brands: ["LT", "RO", "PQ"],
+      // freshTestDatabase starts from a seeded native template, so setup is
+      // correctly closed. Establish a real cookie session for the active
+      // fixture administrator instead of pretending this is first install.
+      const password = "admin-password";
+      await getConn().query("UPDATE users SET password_hash=$1 WHERE id=$2", [
+        await hashPassword(password), DEMO_USER.id,
+      ]);
+      const setup = await request("POST", "/api/auth/login", {
+        username: DEMO_USER.handle,
+        password,
       });
-      expect(setup.status).toBe(201);
+      expect(setup.status).toBe(200);
       const adminCookie = setup.cookie;
       const created = await request("POST", "/api/admin/users", {
         username: "employee",

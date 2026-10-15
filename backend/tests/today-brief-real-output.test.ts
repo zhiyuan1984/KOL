@@ -73,7 +73,7 @@ describe("today_brief real codex output", () => {
     expect(Object.keys(items?.properties || {}).sort()).toEqual([...(items?.required || [])].sort());
   });
 
-  it("display coverage: every unfinished work item must have its own row", () => {
+  it("display coverage: every unfinished work item must have a display_tasks row", () => {
     const pack = {
       history: {
         unfinished_tasks: [
@@ -86,8 +86,11 @@ describe("today_brief real codex output", () => {
     expect(missingDisplayCoverage(full, pack)).toEqual([]);
     const partial = { display_tasks: [{ work_item_id: "tsk_c29224c0b37d" }] };
     expect(missingDisplayCoverage(partial, pack)).toEqual(["tsk_other"]);
+    // `todo_layout` is no longer a valid worker result. It must not be used to
+    // hide missing display coverage or be normalized into a durable brief.
     const legacy = { todo_layout: [{ work_item_id: "tsk_c29224c0b37d" }, { work_item_id: "tsk_other" }] };
-    expect(missingDisplayCoverage(legacy, pack)).toEqual([]);
+    expect(missingDisplayCoverage(legacy, pack)).toEqual(["tsk_c29224c0b37d", "tsk_other"]);
+    expect(validateTodayBrief(legacy)).toEqual({ ok: false, reason: "missing or malformed sections", brief: null });
   });
 
   it("prefers the latest brief candidate carrying display_tasks", () => {

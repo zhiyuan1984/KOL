@@ -1,35 +1,40 @@
 import { configureCrawlerFixture } from "./helpers/crawler-vault.js";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { audit, getConn, resetConn } from "../src/db.js";
+import { authMiddleware } from "../src/auth.js";
+import { audit, getConn, nowIso, resetConn } from "../src/db.js";
 import { HttpFail } from "../src/host/errors.js";
+import { pgVisibleSkillIdsForUser } from "../src/postgres/auth-pg.js";
 import { runtimeErrorCode } from "../src/runtime/execution.js";
 import { setConnectorConfig } from "../src/runtime/store.js";
 import { createConnectorOperationsRouter } from "../src/routers/connector-operations.js";
+import { authenticatedTestApp, seedPublishedAgent, seedRuntimeTestActor } from "./fixtures/runtime-auth.js";
 import { freshTestDatabase } from "./support/pg.js";
-let tmp: string;
+
 let env: Record<string, string | undefined>;
+let cookie = "";
+
 beforeEach(async () => {
-  await freshTestDatabase();
-  env = Object.fromEntries(["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "NODE_ENV", "MEDIACRAWLER_MCP_URL"].map(k => [k, process.env[k]]));
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), "connector-probe-"));
-  Object.assign(process.env, { LINGONG_DB: path.join(tmp, "db.sqlite"), LINGONG_DATA: tmp, AUTH_MODE: "disabled", NODE_ENV: "test" });
+  env = Object.fromEntries(["AUTH_MODE", "NODE_ENV", "MEDIACRAWLER_MCP_URL", "RUNTIME_CREDENTIAL_MASTER_KEY"].map(k => [k, process.env[k]]));
+  Object.assign(process.env, { AUTH_MODE: "enabled", NODE_ENV: "test" });
+  await freshTestDatabase({ reclaimPrevious: true });
   (await resetConn());
+  await seedPublishedAgent("agent:kol");
+  cookie = await seedRuntimeTestActor(["creator_discovery"], true);
+  expect(await pgVisibleSkillIdsForUser("usr_runtime_fixture", nowIso())).toContain("creator_discovery");
   (await getConn().query("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('probe_fixture','Fixture',1,'configured','now')",[]));
   (await setConnectorConfig("probe_fixture", { url: "https://fixture.example/mcp", allow_unauthenticated: true }, 0));
 });
 afterEach(async () => {
-  (await resetConn()); fs.rmSync(tmp, { recursive: true, force: true });
+  (await resetConn());
   for (const [k, v] of Object.entries(env)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
 });
-function app(inspect = async () => [{ name: "lookup", inputSchema: { type: "object" } }], startProbe?: () => Promise<void>) {
+function app(inspect = async () => [{ name: "lookup", inputSchema: { type: "object" } }], startProbe?: () => Promise<void>, authenticated = true) {
   const a = new Hono();
-  a.onError((e,c) => e instanceof HttpFail ? c.json({detail:e.detail}, e.status as 400|403|404|409|502) : c.json({detail:"unexpected"},500));
+  a.use("/api/*", authMiddleware);
+  a.onError((e,c) => e instanceof HttpFail ? c.json({detail:e.detail}, e.status as 400|401|403|404|409|502) : c.json({detail:"unexpected"},500));
   a.route("/api", createConnectorOperationsRouter(inspect, startProbe));
-  return a;
+  return authenticated ? authenticatedTestApp(a, cookie) : a;
 }
 const root = "/api/admin/runtime/connectors/probe_fixture";
 describe("connector operations (isolated inspector, no external service)", () => {
@@ -98,7 +103,11 @@ describe("connector operations (isolated inspector, no external service)", () =>
   it("invalidates probe success when configuration changes during inspection", async () => {
     const a = app(async () => { (await setConnectorConfig("probe_fixture", {url:"https://changed.example/mcp", allow_unauthenticated:true},1)); return []; });
     const response = await a.request(root + "/probe", {method:"POST"});
-    expect(await response.json()).toMatchObject({status:"failed", error_code:"runtime_binding_changed",live_verified:false});
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({detail:{code:"runtime_binding_changed"}});
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM runtime_connector_probes WHERE connector_id='probe_fixture'",[])).rows[0] as { n: unknown }).n)).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM runtime_tool_policies WHERE connector_id='probe_fixture'",[])).rows[0] as { n: unknown }).n)).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM audit_events WHERE event_type LIKE 'runtime.%' AND (payload::jsonb ->> 'connector_id')='probe_fixture'",[])).rows[0] as { n: unknown }).n)).toBe(0);
   });
   it("blocks disabled connectors and rejects anonymous production governance", async () => {
     let called = false;
@@ -106,7 +115,8 @@ describe("connector operations (isolated inspector, no external service)", () =>
     (await getConn().query("UPDATE connectors SET enabled=0 WHERE id='probe_fixture'",[]));
     expect((await a.request(root + "/probe", {method:"POST"})).status).toBe(403); expect(called).toBe(false);
     process.env.NODE_ENV = "production";
-    expect((await a.request(root + "/activity")).status).toBe(403);
+    expect((await app(async () => { called = true; return []; }, undefined, false).request(root + "/activity")).status).toBe(401);
+    expect(called).toBe(false);
   });
   it("filters connector audit histories and only exposes permitted trace fields", async () => {
     (await audit("tester", "runtime.tool.completed", {connector_id:"probe_fixture", tool:"lookup", run_id:"run-1", input:{secret:"do-not-leak"}, config:{url:"private-endpoint"}, headers:{Authorization:"secret"}}));

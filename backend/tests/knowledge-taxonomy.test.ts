@@ -26,6 +26,10 @@ afterEach(async () => {
 describe("knowledge taxonomy native PostgreSQL", () => {
   it("backfills current legacy entry fields once and preserves every historical version field", async () => {
     const conn = getConn(), now = new Date().toISOString();
+    // The current-schema clone has already recorded this migration. Reopen only
+    // this owned clone's two ledgers before seeding rows that existed beforehand.
+    await conn.query("DELETE FROM app_schema_migrations WHERE id=$1", [MIGRATION]);
+    await conn.query("DELETE FROM schema_migrations WHERE id=$1", [MIGRATION]);
     await conn.query("INSERT INTO knowledge (id,title,body,tags,kind,status,in_market,current_version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,1,1,$7,$7)", ["k_legacy_1","历史制度","正文","extracted","policy","draft",now]);
     await conn.query("INSERT INTO knowledge_versions (id,knowledge_id,version,title,body,kind,status,created_at,note) VALUES($1,$2,1,$3,$4,$5,$6,$7,$8)", ["kv_1","k_legacy_1","历史制度","原始版本正文","policy","draft",now,"create"]);
     const originalVersion = (await conn.query("SELECT * FROM knowledge_versions WHERE id=$1", ["kv_1"])).rows[0];

@@ -43,6 +43,12 @@ beforeEach(async () => {
 });
 
 describe("reply confirmation dependencies before provider IO", () => {
+  async function insertSendingAttempt(draftId: string, requestId: string, confirmationVersion: string) {
+    const now = new Date().toISOString();
+    await postgresPool().query(`INSERT INTO mail_send_attempts
+      (draft_id,request_id,actor_id,confirmation_version,status,created_at,updated_at)
+      VALUES ($1,$2,$3,$4,'sending',$5,$5)`, [draftId,requestId,actor.id,confirmationVersion,now]);
+  }
   async function prepare() {
     await observeReplyMail(input);
     const db = postgresPool();
@@ -50,15 +56,14 @@ describe("reply confirmation dependencies before provider IO", () => {
       VALUES ('reply-draft','reply-session','col_xiaomei','email_compose','owned@example.test','creator@example.test','Reply','Human draft','内部','English') RETURNING *`)).rows[0];
     const base = { draft_id: draft.id, snapshot: {from: draft.from_addr,to: draft.to_addr,cc: "",subject: draft.subject,body: draft.body_en},
       action: hostRegisteredActionView({actionId: "mail.draft.send",label: "发送",riskLevel: "L3",allowed: true,enabled: true,confirmationPayload: {draft: draft.id}}) };
-    await db.query(`CREATE TABLE IF NOT EXISTS mail_send_attempts(draft_id TEXT PRIMARY KEY,request_id TEXT UNIQUE,actor_id TEXT,confirmation_version TEXT,status TEXT,result_json TEXT,error TEXT,created_at TEXT,updated_at TEXT)`);
     return {draft,base};
   }
   async function claim(requestId = "reply-request-01") {
     const {draft,base} = await prepare();
     const view = await withScopedUser(actor, async () => (replySendView(draft,base)));
     const input = {request_id: requestId,confirmation_version: view.action.confirmation_version!};
-    await withScopedUser(actor, async () => (bindReplySend(draft,base,input)));
-    await postgresPool().query("INSERT INTO mail_send_attempts(draft_id,request_id,actor_id,status) VALUES ($1,$2,$3,'sending')", [draft.id,requestId,actor.id]);
+    const gatewayInput = await withScopedUser(actor, async () => (bindReplySend(draft,base,input)));
+    await insertSendingAttempt(String(draft.id),requestId,String(gatewayInput.confirmation_version));
     await postgresPool().query("UPDATE drafts SET status='sending' WHERE id=$1", [draft.id]);
     return {draft,base,input};
   }
@@ -73,9 +78,9 @@ describe("reply confirmation dependencies before provider IO", () => {
     const {draft,base} = await prepare();
     const view = await withScopedUser(actor, async () => (replySendView(draft,base)));
     const confirmed = {request_id: "reply-concurrent-01",confirmation_version: view.action.confirmation_version!};
-    await Promise.all([1,2].map(async () => (withScopedUser(actor, async () => (await bindReplySend(draft,base,confirmed))))));
+    const [gatewayInput] = await Promise.all([1,2].map(async () => (withScopedUser(actor, async () => (await bindReplySend(draft,base,confirmed))))));
     expect((await postgresPool().query("SELECT count(*)::int AS n FROM reply_send_basis")).rows[0].n).toBe(1);
-    await postgresPool().query("INSERT INTO mail_send_attempts(draft_id,request_id,actor_id,status) VALUES ($1,$2,$3,'sending')", [draft.id,confirmed.request_id,actor.id]);
+    await insertSendingAttempt(String(draft.id),confirmed.request_id,String(gatewayInput.confirmation_version));
     await observeReplyMail({...input,body: "New reply",source_updated_at: "2026-10-05T02:00:00Z"});
     await expect(withScopedUser(actor, async () => (assertReplySendCurrent(draft,confirmed.request_id)))).rejects.toThrow(/未调用发送接口/);
     const audit = (await postgresPool().query("SELECT rejected_at,rejected_attempt FROM reply_send_basis WHERE request_id=$1", [confirmed.request_id])).rows[0];
@@ -124,8 +129,8 @@ describe("reply confirmation dependencies before provider IO", () => {
     await postgresPool().query("DELETE FROM reply_mail_revisions");
     await postgresPool().query("DELETE FROM kol_mail_items WHERE thread_id='reply-thread'");
     await postgresPool().query("DELETE FROM kol_mail_threads WHERE id='reply-thread'");
-    await withScopedUser(actor, async () => (bindReplySend(draft,base,{request_id: "reply-empty-01",confirmation_version: base.action.confirmation_version!})));
-    await postgresPool().query("INSERT INTO mail_send_attempts(draft_id,request_id,actor_id,status) VALUES ($1,'reply-empty-01',$2,'sending')", [draft.id,actor.id]);
+    const gatewayInput = await withScopedUser(actor, async () => (bindReplySend(draft,base,{request_id: "reply-empty-01",confirmation_version: base.action.confirmation_version!})));
+    await insertSendingAttempt(String(draft.id),"reply-empty-01",String(gatewayInput.confirmation_version));
     const at = new Date().toISOString();
     await postgresPool().query(`INSERT INTO kol_mail_threads(id,collaboration_id,conversation_id,subject,mailbox,created_at,updated_at,match_state)
       VALUES ('reply-thread','col_xiaomei','reply-conversation','Reply','owned@example.test',$1,$1,'matched')`, [at]);

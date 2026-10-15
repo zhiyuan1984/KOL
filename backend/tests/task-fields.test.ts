@@ -33,6 +33,24 @@ function localDatePlus(days: number): string {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
+/** A task-result artifact updates an existing native today-brief pointer. */
+async function seedTodayBriefPointer(owner: string, workItemId: string): Promise<void> {
+  const artifactId = `art_today_brief_${workItemId}`;
+  const now = new Date().toISOString();
+  await getConn().query(
+    `INSERT INTO task_artifacts
+     (id,work_item_id,run_id,artifact_type,message_id,version,payload,created_at)
+     VALUES ($1,$2,NULL,'today_brief',NULL,1,$3,$4)`,
+    [artifactId, workItemId, JSON.stringify({ lead: "测试今日简报", display_tasks: [], source_cursor: { cursor_from: null, cursor_to: "", added: [], removed: [], unchanged: [] } }), now],
+  );
+  await getConn().query(
+    `INSERT INTO employee_today_briefs
+     (owner_user_id,artifact_id,work_item_id,result_artifact_id,updated_at)
+     VALUES ($1,$2,$3,NULL,$4)`,
+    [owner, artifactId, workItemId, now],
+  );
+}
+
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-task-fields-"));
@@ -262,6 +280,7 @@ describe("today task display rows", () => {
     const done = await request("POST", "/api/tasks", { task_type: "risk_scan", title: "已了结" });
     const openId = String(open.body.id);
     const doneId = String(done.body.id);
+    await seedTodayBriefPointer(DEMO_USER.id, openId);
     const written = (await writeTodayTaskResults({
       owner: DEMO_USER.id,
       workItemId: openId,
@@ -276,7 +295,6 @@ describe("today task display rows", () => {
     }));
     expect(written.ok).toBe(true);
     if (!written.ok) return;
-    (await getConn().query("INSERT INTO employee_today_briefs (owner_user_id, artifact_id, work_item_id, result_artifact_id, updated_at) VALUES ($1,$2,$3,$4,$5)",[DEMO_USER.id,written.artifact_id,openId,written.artifact_id,new Date().toISOString()]));
     const completed = await request("PATCH", `/api/tasks/${doneId}`, { status: "completed" });
     expect(completed.status).toBe(200);
     const loaded = (await loadTodayTaskResults(DEMO_USER.id));
@@ -286,6 +304,7 @@ describe("today task display rows", () => {
   it("passes icon and group through write and load", async () => {
     const created = await request("POST", "/api/tasks", { task_type: "risk_scan", title: "展示行" });
     const id = String(created.body.id);
+    await seedTodayBriefPointer(DEMO_USER.id, id);
     const written = (await writeTodayTaskResults({
       owner: DEMO_USER.id,
       workItemId: id,
@@ -296,7 +315,6 @@ describe("today task display rows", () => {
     }));
     expect(written.ok).toBe(true);
     if (!written.ok) return;
-    (await getConn().query("INSERT INTO employee_today_briefs (owner_user_id, artifact_id, work_item_id, result_artifact_id, updated_at) VALUES ($1,$2,$3,$4,$5)",[DEMO_USER.id,written.artifact_id,id,written.artifact_id,new Date().toISOString()]));
     const loaded = (await loadTodayTaskResults(DEMO_USER.id));
     expect(loaded?.items[0]).toMatchObject({ work_item_id: id, icon: "📋", group: "重要" });
     const listed = await request("GET", "/api/home/today-tasks");

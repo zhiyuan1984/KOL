@@ -1,6 +1,7 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { audit, getConn } from "../src/db.js";
 import { closePostgresPool, currentTransactionClient, postgresConnection, postgresPool, postgresQuery, postgresTransaction } from "../src/postgres/pool.js";
+import { freshTestDatabase } from "./support/pg.js";
 
 const schema = `native_tx_context_${process.pid}`;
 const table = `${schema}.probe`;
@@ -8,18 +9,20 @@ const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 const count = async (id: string) => (await postgresQuery<{ n: number }>(`SELECT count(*)::int AS n FROM ${table} WHERE id=$1`, [id]))[0]!.n;
 const injectedConflict = () => Object.assign(new Error("injected serialization failure"), { code: "40001" });
 
-beforeAll(async () => {
+beforeEach(async () => {
+  const database = await freshTestDatabase({ reclaimPrevious: true });
   const url = new URL(String(process.env.DATABASE_URL || ""));
-  if (process.env.NODE_ENV !== "test" || !/^\/kolnative_resolution_suite_[0-9]+$/.test(url.pathname) || process.env.TEST_POSTGRES_URL !== process.env.DATABASE_URL) {
-    throw new Error("This integration test requires the dedicated isolated suite runner; production is forbidden");
+  if (process.env.NODE_ENV !== "test" || url.pathname !== `/${database}`) {
+    throw new Error("This integration test requires the dedicated isolated PostgreSQL clone; production is forbidden");
   }
   await postgresPool().query(`CREATE SCHEMA ${schema}`);
   await postgresPool().query(`CREATE TABLE ${table} (id TEXT PRIMARY KEY, value INTEGER NOT NULL DEFAULT 0)`);
 });
-afterAll(async () => {
+afterEach(async () => {
   await postgresPool().query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
   await closePostgresPool();
 });
+afterAll(async () => { await closePostgresPool(); });
 
 describe("native PostgreSQL transaction ownership and truthful completion", () => {
   it("uses one physical client and serializable snapshot for every native access path", async () => {

@@ -11,9 +11,52 @@ import { employeeByMailbox, getManagerChain, OrgError, roleHolder } from "../src
 import { defaultOrgSnapshot } from "../src/approval/snapshot.js";
 import { listAudit, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
+import { declaredAgentSubmissionAllowed, kolAgentScopeContext } from "../src/contract-scope.js";
+import { runtimeAgentCandidates } from "../src/runtime/execution.js";
 import { stubResolveTaskIntent } from "../src/tasks/resolver.js";
 import type { OrgSnapshot } from "../src/approval/types.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { seedRuntimeTestActor } from "./fixtures/runtime-auth.js";
+
+const APPROVAL_COMPANY_ID = "company:amperetime";
+const APPROVAL_AGENT_ID = "agent:kol";
+const APPROVAL_FIXTURE_USER_ID = "usr_runtime_fixture";
+
+/**
+ * The native catalog is asynchronous and has no SQLite/synchronous fallback.
+ * Keep every DB-backed assertion on a fresh PostgreSQL clone and create a
+ * real, company-scoped, published Agent eligibility before it reads the
+ * catalog. The test's anonymous CODEX stub remains its original local-only
+ * execution mode; this fixture does not grant an admin bypass or call MCP.
+ */
+async function nativeApprovalFixture(label: string): Promise<string> {
+  await freshTestDatabase();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `lingong-${label}-`));
+  process.env.LINGONG_DATA = tmp;
+  process.env.CODEX_MODE = "stub";
+  await resetConn();
+  await seedAll();
+
+  const scope = await kolAgentScopeContext();
+  if (scope.agent_id !== APPROVAL_AGENT_ID || !scope.company_ids.includes(APPROVAL_COMPANY_ID)) {
+    throw new Error("approval fixture requires the registered KOL Agent company scope");
+  }
+  if (!declaredAgentSubmissionAllowed(scope.agent_id, "real")) {
+    throw new Error("approval fixture requires an Agent with an open published submission gate");
+  }
+  await seedRuntimeTestActor(["business_approval"], true);
+  const eligible = await runtimeAgentCandidates("business_approval", APPROVAL_FIXTURE_USER_ID);
+  if (!eligible.includes(scope.agent_id)) {
+    throw new Error("approval fixture requires a current published Agent binding for its test actor");
+  }
+  return tmp;
+}
+
+async function disposeNativeApprovalFixture(tmp: string): Promise<void> {
+  await resetConn();
+  fs.rmSync(tmp, { recursive: true, force: true });
+  if (process.env.LINGONG_DATA === tmp) delete process.env.LINGONG_DATA;
+}
 
 function cloneOrg(): OrgSnapshot {
   return JSON.parse(JSON.stringify(defaultOrgSnapshot())) as OrgSnapshot;
@@ -263,6 +306,16 @@ describe("expense approval plan · personnel cases", () => {
 });
 
 describe("cited search plan (not TypeScript constants)", () => {
+  let tmp = "";
+
+  beforeEach(async () => {
+    tmp = await nativeApprovalFixture("approval-cited");
+  });
+
+  afterEach(async () => {
+    await disposeNativeApprovalFixture(tmp);
+  });
+
   const searchedUsd = {
     type: "create_approval",
     amount: 50000,
@@ -378,6 +431,16 @@ describe("worker item sanitization", () => {
 });
 
 describe("Skill aliases route; quote language does not", () => {
+  let tmp = "";
+
+  beforeEach(async () => {
+    tmp = await nativeApprovalFixture("approval-aliases");
+  });
+
+  afterEach(async () => {
+    await disposeNativeApprovalFixture(tmp);
+  });
+
   it.each([
     ["费用审批", "business_approval"],
     ["黎玉燕申请 USD 50,000 广告费", "business_approval"],
@@ -439,20 +502,13 @@ describe("expense approval host path", () => {
   }
 
   beforeEach(async () => {
-    await freshTestDatabase();
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-approval-"));
-    process.env.LINGONG_DB = path.join(tmp, "t.db");
-    process.env.LINGONG_DATA = tmp;
-    process.env.CODEX_MODE = "stub";
-    (await resetConn());
-    (await seedAll());
+    tmp = await nativeApprovalFixture("approval");
     const { createApp } = await import("../src/app.js");
-    app = (await createApp());
+    app = await createApp();
   });
 
   afterEach(async () => {
-    (await resetConn());
-    fs.rmSync(tmp, { recursive: true, force: true });
+    await disposeNativeApprovalFixture(tmp);
   });
 
   it("computes 黎玉燕 5万 on the Host and cites FIN-EXP-003", async () => {

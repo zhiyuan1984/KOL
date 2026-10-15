@@ -518,22 +518,22 @@ describe(
         ),
         second = await preparePublication("admin", "company", docId, command());
       const results = await Promise.allSettled([
-        (await submitPublication(
+        submitPublication(
           "admin",
           "company",
           docId,
           command(),
           first.confirmationId,
           randomUUID(),
-        )),
-        (await submitPublication(
+        ),
+        submitPublication(
           "admin",
           "company",
           docId,
           command(),
           second.confirmationId,
           randomUUID(),
-        )),
+        ),
       ]);
       expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
       expect(

@@ -1,6 +1,12 @@
 import fs from "node:fs";
 import { afterAll } from "vitest";
-import { dropTestDatabases } from "./support/pg.js";
+import { dropTestDatabases, freshTestDatabase } from "./support/pg.js";
+
+// Native catalog and parser modules read the authority store even in otherwise
+// pure tests, sometimes at import time. Give each isolated worker/file an owned
+// current-schema clone before loading it. Case-specific fresh/empty fixtures can
+// replace this clone; missing or unsafe management configuration still fails closed.
+await freshTestDatabase();
 
 // PostgreSQL 测试库的清理：每个用例从模板库拷出来的新库在本文件结束后统一 DROP。
 afterAll(async () => {

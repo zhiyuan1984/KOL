@@ -10,7 +10,6 @@ import { insertSessionMessage, isSessionNotFound } from "../src/host/session-mes
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import type { Json } from "../src/types.js";
-import { freshTestDatabase } from "./support/pg.js";
 
 let tmp: string;
 let app: Hono;
@@ -36,7 +35,9 @@ async function rawInsertMessage(sid: string): Promise<Awaited<void>> {
 }
 
 beforeEach(async () => {
-  await freshTestDatabase();
+  // tests/setup.ts has already created this file's isolated native-PG clone
+  // before this module loads. These cases only create random session rows or
+  // reject their writes, so reseeding it preserves case independence.
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-msg-fk-"));
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";

@@ -27,8 +27,12 @@ import {
 } from "../src/crawl/service.js";
 import { getConn, resetConn } from "../src/db.js";
 import { RemoteMcpClient } from "../src/mcp/remote.js";
+import { assertRuntimeSkill } from "../src/runtime/execution.js";
+import { canUseAgent, syncUserOrganization } from "../src/runtime/organization-tree.js";
 import { seedAll } from "../src/seed.js";
 import type { Row } from "../src/types.js";
+import { pgVisibleSkillIdsForUser } from "../src/postgres/auth-pg.js";
+import { authenticatedTestApp, seedPublishedAgent, seedRuntimeTestActor } from "./fixtures/runtime-auth.js";
 import { freshTestDatabase } from "./support/pg.js";
 
 type Json = Record<string, unknown>;
@@ -41,6 +45,48 @@ const statusCallArgs: Json[] = [];
 const logCallArgs: Json[] = [];
 const stopCallArgs: Json[] = [];
 let crawlStatus: Json = { task_id: "remote-1", status: "idle" };
+const NATIVE_FIXTURE_USER = "usr_runtime_fixture";
+const NATIVE_FIXTURE_AGENT = "agent:kol";
+let nativeCrawlerCookie = "";
+
+/**
+ * The legacy route must execute as its task-owning employee.  Seed a real
+ * local session, a published Agent, and an authoritative organization
+ * membership; neither an anonymous DEMO fixture nor an administrator bypass
+ * can satisfy runtimeAgentForSkill.
+ */
+async function seedNativeCrawlerAuthority(): Promise<void> {
+  const now = new Date().toISOString();
+  await seedPublishedAgent(NATIVE_FIXTURE_AGENT, "MediaCrawler native fixture Agent");
+  nativeCrawlerCookie = await seedRuntimeTestActor(["creator_discovery"], true);
+  // The shared runtime fixture starts as an admin so admin-only cases can use
+  // it. This route fixture deliberately exercises the ordinary employee path.
+  await getConn().query(
+    "UPDATE users SET roles='[\"employee\"]',updated_at=$1 WHERE id=$2",
+    [now, NATIVE_FIXTURE_USER],
+  );
+  const personRef = await syncUserOrganization(NATIVE_FIXTURE_USER, "org:lt_team");
+  expect(personRef).toBe(`person:user:${NATIVE_FIXTURE_USER}`);
+  // Binding effective_from is written during fixture setup. Query at the
+  // current instant rather than the timestamp captured before that write.
+  expect(await pgVisibleSkillIdsForUser(NATIVE_FIXTURE_USER, new Date().toISOString())).toContain("creator_discovery");
+  expect(await canUseAgent(NATIVE_FIXTURE_USER, NATIVE_FIXTURE_AGENT)).toBe(true);
+  await getConn().query(
+    "INSERT INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES ($1,'claw','write',$2) ON CONFLICT (user_id,connector_id) DO UPDATE SET access=EXCLUDED.access,created_at=EXCLUDED.created_at",
+    [NATIVE_FIXTURE_USER, now],
+  );
+  await expect(assertRuntimeSkill({
+    agentId: NATIVE_FIXTURE_AGENT,
+    skillId: "creator_discovery",
+    userId: NATIVE_FIXTURE_USER,
+    runId: "mediacrawler-native-fixture-preflight",
+  })).resolves.toMatchObject({ user: { id: NATIVE_FIXTURE_USER } });
+}
+
+async function crawlerApp() {
+  const { createApp } = await import("../src/app.js");
+  return authenticatedTestApp((await createApp()), nativeCrawlerCookie);
+}
 
 async function startMockMcp(): Promise<void> {
   const app = createMcpExpressApp();
@@ -124,9 +170,8 @@ async function startMockMcp(): Promise<void> {
 }
 
 beforeEach(async () => {
-  await freshTestDatabase();
+  await freshTestDatabase({ reclaimPrevious: true });
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-mediacrawler-"));
-  process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.CLAW_MODE = "mock";
@@ -138,6 +183,7 @@ beforeEach(async () => {
   crawlStatus = { task_id: "remote-1", status: "idle" };
   (await resetConn());
   (await seedAll());
+  await seedNativeCrawlerAuthority();
   await startMockMcp();
   (await configureCrawlerFixture(baseUrl));
   process.env.MEDIACRAWLER_MCP_URL = baseUrl;
@@ -150,6 +196,8 @@ afterEach(async () => {
   httpServer = null;
   (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
+  delete process.env.LINGONG_DB;
+  delete process.env.LINGONG_DATA;
   delete process.env.MEDIACRAWLER_MCP_URL;
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
   delete process.env.MEDIACRAWLER_INGEST_TOKEN;
@@ -157,6 +205,7 @@ afterEach(async () => {
   delete process.env.MEDIACRAWLER_AUTO_START;
   delete process.env.MEDIACRAWLER_CREATOR_PAGE_SIZE;
   delete process.env.AUTH_MODE;
+  nativeCrawlerCookie = "";
 });
 
 describe("remote Streamable HTTP MCP", () => {
@@ -291,7 +340,15 @@ describe("creator ingestion and scoring", () => {
       }),
     });
     expect(response.status).toBe(202);
-    expect(await response.json()).toMatchObject({ accepted: 1, inserted: 1, rejected: 0 });
+    // Native HTTP ingestion returns committed counts, not the legacy adapter's
+    // rejection counter. The direct adapter test above retains that accounting.
+    expect(await response.json()).toEqual({ ok: true, batch_id: null, accepted: 1, inserted: 1, updated: 0 });
+    const audit = (await getConn().query<{ payload: string }>(
+      "SELECT payload FROM audit_events WHERE actor='claw' AND event_type='claw.ingest.mediacrawler' ORDER BY ts DESC LIMIT 1", [],
+    )).rows[0];
+    expect(JSON.parse(String(audit?.payload || "{}"))).toMatchObject({
+      accepted: 1, inserted: 1, updated: 0, source: "mediacrawler",
+    });
   });
 
   it("rejects anonymous ingest when auth is enabled", async () => {
@@ -329,15 +386,21 @@ describe("creator ingestion and scoring", () => {
       }),
     });
     expect(response.status).toBe(202);
-    expect(await response.json()).toMatchObject({ accepted: 1, inserted: 1, rejected: 0 });
+    expect(await response.json()).toEqual({ ok: true, batch_id: null, accepted: 1, inserted: 1, updated: 0 });
   });
 });
 
 describe("crawl lifecycle", () => {
+  beforeEach(() => {
+    // The route now calls runtimeAgentForSkill; authenticate only this suite
+    // so unrelated remote-client tests retain their intentionally anonymous
+    // transport fixtures.
+    process.env.AUTH_MODE = "enabled";
+  });
+
   it("rejects missing remote configuration before creating a crawl job", async () => {
     (await getConn().query("DELETE FROM runtime_connector_config WHERE connector_id='claw'",[]));
-    const { createApp } = await import("../src/app.js");
-    const app = (await createApp());
+    const app = await crawlerApp();
     const created = await app.request("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -357,8 +420,7 @@ describe("crawl lifecycle", () => {
   });
 
   it("routes creator-discovery text to the dedicated discovery workspace", async () => {
-    const { createApp } = await import("../src/app.js");
-    const app = (await createApp());
+    const app = await crawlerApp();
     const response = await app.request("/api/tasks/from-text", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -375,8 +437,7 @@ describe("crawl lifecycle", () => {
   });
 
   it("pulls creators when only the remote auto-upload step failed", async () => {
-    const { createApp } = await import("../src/app.js");
-    const app = (await createApp());
+    const app = await crawlerApp();
     const created = await app.request("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -414,8 +475,7 @@ describe("crawl lifecycle", () => {
 
   it("enforces one active job, emits task events, persists result artifact, and supports admin tools", async () => {
     process.env.CODEX_MODE = "stub";
-    const { createApp } = await import("../src/app.js");
-    const app = (await createApp());
+    const app = await crawlerApp();
     const createTask = async () => {
       const response = await app.request("/api/tasks", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -514,8 +574,7 @@ describe("crawl lifecycle", () => {
   }
 
   async function runCreatorCrawl(): Promise<Json> {
-    const { createApp } = await import("../src/app.js");
-    const app = (await createApp());
+    const app = await crawlerApp();
     const created = await app.request("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -575,8 +634,7 @@ describe("crawl lifecycle", () => {
   });
 
   it("calls remote stop_crawl and releases the active lock", async () => {
-    const { createApp } = await import("../src/app.js");
-    const app = (await createApp());
+    const app = await crawlerApp();
     const created = await app.request("/api/tasks", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ task_type: "creator_discovery" }),

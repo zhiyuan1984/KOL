@@ -155,7 +155,7 @@ describe("KOL Claw task run path", () => {
       );
       expect(executed.status, `${taskType}: run`).toBe(200);
       const messages = executed.body.messages as Json[];
-      if (taskDefinition(taskType)?.context?.requires.length) {
+      if ((await taskDefinition(taskType))?.context?.requires.length) {
         expect(executed.body.worker ?? null, `${taskType}: no selected creator`).toBeNull();
         expect(messages.some((message) => message.kind === "supplement_card"), `${taskType}: recoverable gap`).toBe(true);
         expect(messages.some((message) => message.kind === "task_result_card"), `${taskType}: no fake result`).toBe(false);

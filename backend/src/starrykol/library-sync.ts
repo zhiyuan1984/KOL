@@ -3,6 +3,7 @@ import { syncStarryOwnershipIndex } from "./ownership-sync.js";
 import { BRAND_MAILBOXES } from "../config.js";
 import { audit, getConn, nowIso, onConnReset, tx } from "../db.js";
 import { parseFollowStyleTags, serializeFollowStyleTags } from "../follow-style-tags.js";
+import { trackBackgroundWork } from "../background-work.js";
 import { codeFromLabel, mergeRemoteLibraryStage, normalizeStage, preferLaterMainStage } from "../stages.js";
 import type { Json, Row } from "../types.js";
 import { avgPlaysOf, engagementOf, followersOf, geoOf } from "./remote-metrics.js";
@@ -32,12 +33,12 @@ export function resetStarryHomeLibrarySync(): void {
 }
 
 export async function startStarryHomeLibrarySync(): Promise<StarryLibrarySync> {
-  inFlight = (syncStarryHomeLibrary());
+  inFlight = trackBackgroundWork(syncStarryHomeLibrary(), "library.sync");
   return inFlight;
 }
 
 export async function ensureStarryHomeLibrary(): Promise<StarryLibrarySync> {
-  if (!inFlight) inFlight = (syncStarryHomeLibrary());
+  if (!inFlight) inFlight = trackBackgroundWork(syncStarryHomeLibrary(), "library.sync");
   return inFlight;
 }
 

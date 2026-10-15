@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { Pool, types, type PoolClient, type QueryResultRow } from "pg";
+import { drainBackgroundWork } from "../background-work.js";
 
 // Preserve large integers; normalize safe flags so PostgreSQL 0 is never truthy.
 types.setTypeParser(20, (value: string) => {
@@ -122,6 +123,7 @@ export async function postgresQuery<T extends QueryResultRow = QueryResultRow>(t
 }
 export async function closePostgresPool(): Promise<void> {
   if (currentTransactionClient()) throw new Error("Cannot close the PostgreSQL pool from an active business transaction");
+  await drainBackgroundWork();
   if (!pool) return;
   const current = pool;
   pool = null;
