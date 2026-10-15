@@ -106,36 +106,34 @@ export async function appendBusinessEvent(
   return { id, inserted: (result.rowCount ?? 0) === 1 };
 }
 
-export function listBusinessEvents(filters: {
+export async function listBusinessEvents(filters: {
   objectType?: string;
   objectId?: string;
   eventType?: string;
   before?: string;
   limit?: number;
-} = {}): Json[] {
+} = {}): Promise<Json[]> {
   const clauses: string[] = [];
   const values: unknown[] = [];
-  if (filters.objectType) {
-    clauses.push("object_type=?");
-    values.push(filters.objectType);
-  }
-  if (filters.objectId) {
-    clauses.push("object_id=?");
-    values.push(filters.objectId);
-  }
-  if (filters.eventType) {
-    clauses.push("event_type=?");
-    values.push(filters.eventType);
-  }
+  const addFilter = (column: string, value: string): void => {
+    values.push(value);
+    clauses.push(`${column} = $${values.length}`);
+  };
+  if (filters.objectType) addFilter("object_type", filters.objectType);
+  if (filters.objectId) addFilter("object_id", filters.objectId);
+  if (filters.eventType) addFilter("event_type", filters.eventType);
   if (filters.before) {
-    clauses.push("created_at < ?");
     values.push(filters.before);
+    clauses.push(`created_at < $${values.length}`);
   }
   const limit = Math.min(Math.max(1, Math.floor(filters.limit ?? 50)), 200);
+  values.push(limit);
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-  const rows = getConn().prepare(
-    `SELECT * FROM business_events ${where} ORDER BY created_at DESC, id DESC LIMIT ?`,
-  ).all(...values, limit) as Row[];
+  const result = await getConn().query<Row>(
+    `SELECT * FROM business_events ${where} ORDER BY created_at DESC, id DESC LIMIT $${values.length}`,
+    values,
+  );
+  const rows = result.rows;
   return rows.map((row) => ({
     id: row.id,
     event_type: row.event_type,
