@@ -6,7 +6,7 @@ import type { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setCrawlMcpClientFactory } from "../src/crawl/service.js";
 import { getConn, resetConn } from "../src/db.js";
-import { setDiscoveryBriefRunner } from "../src/home-discovery.js";
+import { awaitHomeDiscoveryWork, setDiscoveryBriefRunner } from "../src/home-discovery.js";
 import { createAgentBinding, syncUserOrganization } from "../src/runtime/organization-tree.js";
 import { seedAll } from "../src/seed.js";
 import type { Json } from "../src/types.js";
@@ -152,6 +152,7 @@ describe("home discovery submit authorization", () => {
       | undefined;
     expect(job?.crawl_job_id).toBeFalsy();
     expect(remoteCalls).toBe(0);
+    await awaitHomeDiscoveryWork();
     const run = await call("GET", `/api/home/discovery/runs/${runId}`);
     expect(run.json.run).toMatchObject({ status: "crawl_failed" });
   });
@@ -185,6 +186,7 @@ describe("home discovery submit authorization", () => {
     const started = await call("POST", "/api/home/discovery/run", RUN_BODY);
     expect(started.status, JSON.stringify(started.json)).toBe(202);
     const runId = String(started.json.id || "");
+    await awaitHomeDiscoveryWork();
     const run = await call("GET", `/api/home/discovery/runs/${runId}`);
     const row = run.json.run as Json;
     expect(String(row.status)).toBe("crawl_failed");

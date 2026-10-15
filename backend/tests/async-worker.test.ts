@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { drainBackgroundWork } from "../src/background-work.js";
 import { setAgentSubmissionOverride } from "../src/contract-scope.js";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
@@ -192,6 +193,7 @@ describe("real Codex HTTP flow", () => {
       body: JSON.stringify({ text: "搜索 YouTube 露营达人", intent: "creator_discovery", act: "ask" }),
     });
     expect(response.status).toBe(202);
+    await drainBackgroundWork();
 
     let session: {
       agent_status?: string;

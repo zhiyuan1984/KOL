@@ -9,6 +9,9 @@ types.setTypeParser(20, (value: string) => {
 });
 let pool: Pool | null = null;
 let poolUrl: string | null = null;
+// pg-pool removes clients from its internal array before client.end completes.
+// Its end() Promise therefore is not the physical socket-close barrier.
+const physicalClients = new WeakMap<Pool, Set<PoolClient>>();
 export function requiredPostgresUrl(): string {
   const value = String(process.env.DATABASE_URL || "").trim();
   if (!value) throw new Error("DATABASE_URL is required; PostgreSQL is the only supported authority store");
@@ -26,6 +29,10 @@ export function postgresPool(): Pool {
     idleTimeoutMillis: Math.max(1_000, Number(process.env.POSTGRES_POOL_IDLE_MS || 30_000)),
     connectionTimeoutMillis: Math.max(1_000, Number(process.env.POSTGRES_CONNECT_TIMEOUT_MS || 10_000)),
   });
+  const connected = new Set<PoolClient>();
+  physicalClients.set(pool, connected);
+  pool.on("connect", (client) => connected.add(client));
+  pool.on("remove", (client) => connected.delete(client));
   pool.on("error", (error) => console.error("[postgres-pool] unexpected idle client error", error));
   return pool;
 }
@@ -129,4 +136,17 @@ export async function closePostgresPool(): Promise<void> {
   pool = null;
   poolUrl = null;
   await current.end();
+  const connected = physicalClients.get(current);
+  if (connected?.size) {
+    await new Promise<void>((resolve) => {
+      const removed = () => {
+        if (connected.size) return;
+        current.off("remove", removed);
+        resolve();
+      };
+      current.on("remove", removed);
+      removed();
+    });
+  }
+  physicalClients.delete(current);
 }
