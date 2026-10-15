@@ -1,6 +1,6 @@
 import WorkspaceActions from "./WorkspaceActions";
 import LegacyPublicationPanel from "./LegacyPublicationPanel";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import type {
   KnowledgePublicationCommand,
@@ -10,8 +10,14 @@ import { reviewApi, reviewCompany, ReviewApiError } from "../../reviews/api";
 import { ReviewForm } from "../../reviews/ReviewForm";
 import { useAdminConfirm } from "../../components/ConfirmDialog";
 import { errorMessage, useKbData } from "./shared";
-import KbvIcon from "../../knowledgeIcons";
+import type { ReviewIssue } from "../../../../shared/review";
+import { PublicationNoteField, PublicationValidationNotice } from "./PublicationFormFeedback";
 import { randomUuid } from "../../uuid";
+
+function publicationError(cause: unknown): string {
+  return cause instanceof ReviewApiError && typeof cause.detail !== "string"
+    ? cause.detail.message || errorMessage(cause) : errorMessage(cause);
+}
 
 export const stateLabel: Record<string, string> = {
   reviewing: "审批中",
@@ -73,15 +79,30 @@ export default function PublicationPanel({
       allowed: boolean;
       reason: string;
       reviewers: string[];
+      issues?: ReviewIssue[];
     } | null>(null),
     [checking, setChecking] = useState(false),
     [checkVersion, setCheckVersion] = useState(0);
   const [busy, setBusy] = useState(false),
     [uploadBusy, setUploadBusy] = useState(false),
     [actionError, setActionError] = useState("");
+  const [actionIssues, setActionIssues] = useState<ReviewIssue[]>([]);
+  const panelRef = useRef<HTMLElement>(null);
+  const noteId = `${useId()}-publication-note`;
   const confirm = useAdminConfirm(),
     lock = useRef(false);
   const template = data?.templates?.find((t) => t.id === templateId);
+  const issues = actionIssues.length ? actionIssues : check?.issues || [];
+  const noteRequired = Boolean(template?.definition.fields.find(field => field.id === "publication_note")?.required);
+  const focusIssue = (issuePath: string) => {
+    if (issuePath === "publication_note" || issuePath.startsWith("publication_note.")) {
+      document.getElementById(noteId)?.focus();
+      return;
+    }
+    const field = [...(panelRef.current?.querySelectorAll<HTMLElement>("[data-review-field]") || [])]
+      .find(element => issuePath === element.dataset.reviewField || issuePath.startsWith(`${element.dataset.reviewField}.`));
+    (field?.querySelector<HTMLElement>("input,textarea,select,button") || field)?.focus();
+  };
   const p = data?.publication;
   const waiting = p?.status === "waiting";
   useEffect(()=>{onDirty?.(mode==="review" && Boolean(releaseNote || Object.keys(values).length));},[mode,releaseNote,values,onDirty]);
@@ -101,6 +122,7 @@ export default function PublicationPanel({
           allowed: boolean;
           reason: string;
           reviewers: string[];
+          issues?: ReviewIssue[];
         }>(
           `/admin/knowledge/${resource}/${encodeURIComponent(id)}/publication-v2/check`,
           {
@@ -117,8 +139,9 @@ export default function PublicationPanel({
             if (!cancelled)
               setCheck({
                 allowed: false,
-                reason: errorMessage(cause),
+                reason: publicationError(cause),
                 reviewers: [],
+                issues: cause instanceof ReviewApiError ? cause.issues : [],
               });
           })
           .finally(() => {
@@ -164,6 +187,7 @@ export default function PublicationPanel({
     lock.current = true;
     setBusy(true);
     setActionError("");
+    setActionIssues([]);
     const command: KnowledgePublicationCommand = {
       templateId: template.id,
       templateVersion: template.version,
@@ -219,8 +243,9 @@ export default function PublicationPanel({
         },
       );
     } catch (cause) {
-      setActionError(errorMessage(cause));
-      if(cause instanceof ReviewApiError && typeof cause.detail!=="string" && cause.detail.issues?.length) { const field=document.getElementsByName(cause.detail.issues[0].path)[0] as HTMLElement|undefined; field?.focus(); }
+      setActionError(publicationError(cause));
+      setActionIssues(cause instanceof ReviewApiError ? cause.issues : []);
+      if (cause instanceof ReviewApiError && cause.issues.length) focusIssue(cause.issues[0].path);
     } finally {
       lock.current = false;
       setBusy(false);
@@ -254,6 +279,7 @@ export default function PublicationPanel({
     lock.current = true;
     setBusy(true);
     setActionError("");
+    setActionIssues([]);
     try {
       const r = await publicationApi<{ confirmationId: string; title: string }>(
           `/admin/knowledge/${resource}/${encodeURIComponent(id)}/publication-v2/${operation}/prepare`,
@@ -281,8 +307,9 @@ export default function PublicationPanel({
         },
       );
     } catch (cause) {
-      setActionError(errorMessage(cause));
-      if(cause instanceof ReviewApiError && typeof cause.detail!=="string" && cause.detail.issues?.length) { const field=document.getElementsByName(cause.detail.issues[0].path)[0] as HTMLElement|undefined; field?.focus(); }
+      setActionError(publicationError(cause));
+      setActionIssues(cause instanceof ReviewApiError ? cause.issues : []);
+      if (cause instanceof ReviewApiError && cause.issues.length) focusIssue(cause.issues[0].path);
     } finally {
       setBusy(false);
       lock.current = false;
@@ -293,6 +320,7 @@ export default function PublicationPanel({
     <section
       className="kbv-publication"
       aria-label="知识发布审批"
+      ref={panelRef}
       aria-busy={busy || loading}
     >
       {confirm.dialog}
@@ -318,6 +346,7 @@ export default function PublicationPanel({
               setValues({});
               setCheck(null);
               setActionError("");
+              setActionIssues([]);
               reload();
             }}
           >
@@ -331,20 +360,9 @@ export default function PublicationPanel({
         </label>
       )}
       {(error || actionError) && (
-        <div className="kbv-document-notice" role="alert">
-          <KbvIcon name="status" />
-          <span>{error || actionError}</span>
-          <button
-            className="kbv-text-action"
-            disabled={busy || loading || confirm.open}
-            onClick={() => {
-              setActionError("");
-              reload();
-            }}
-          >
-            重新检查
-          </button>
-        </div>
+        <PublicationValidationNotice reason={error || actionError} issues={error ? [] : actionIssues}
+          onLocate={focusIssue} disabled={busy || loading || confirm.open}
+          onRecheck={() => { setActionError(""); setActionIssues([]); setCheckVersion(value => value + 1); reload(); }} />
       )}
       {loading && !data && <p role="status">正在检查发布流程与组织配置…</p>}
       {p && (
@@ -426,6 +444,7 @@ export default function PublicationPanel({
                       setTemplateId(e.target.value);
                       setValues({});
                       setActionError("");
+                      setActionIssues([]);
                     }}
                   >
                     <option value="">请选择已发布流程</option>
@@ -444,34 +463,20 @@ export default function PublicationPanel({
                   <ReviewForm
                     fields={template.definition.fields.filter(f=>template.definition.subjectType !== "knowledge_publication" || !["knowledge_request","publication_note"].includes(f.id))}
                     values={values}
-                    onChange={setValues}
+                    onChange={next => { setValues(next); setActionError(""); setActionIssues([]); }}
+                    issues={issues}
                     disabled={blocked}
                     onUploadBusy={setUploadBusy}
                   />
                 )}
-              <label className="kbv-release-note">
-                发布说明
-                <textarea
-                  maxLength={2000}
-                  value={releaseNote}
-                  disabled={blocked}
-                  onChange={(e) => setReleaseNote(e.target.value)}
-                  placeholder="说明本次发布内容与适用范围"
-                />
-              </label>
+              <PublicationNoteField id={noteId} value={releaseNote} required={noteRequired}
+                issues={issues} disabled={blocked}
+                onChange={value => { setReleaseNote(value); setActionError(""); setActionIssues([]); }} />
               {checking && <p role="status">正在检查评审人与材料版本…</p>}
               {check && !check.allowed && (
-                <div className="kbv-document-notice" role="alert">
-                  <KbvIcon name="status" />
-                  <span>{check.reason}</span>
-                  <button
-                    className="kbv-text-action"
-                    disabled={blocked || checking}
-                    onClick={() => setCheckVersion((v) => v + 1)}
-                  >
-                    重新检查
-                  </button>
-                </div>
+                <PublicationValidationNotice reason={check.reason} issues={check.issues || []}
+                  onLocate={focusIssue} disabled={blocked || checking}
+                  onRecheck={() => setCheckVersion(value => value + 1)} />
               )}
               {check?.allowed && (
                 <p>当前评审人：{check.reviewers.join("、")}</p>
