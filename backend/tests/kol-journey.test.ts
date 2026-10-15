@@ -32,45 +32,15 @@ async function request(
   };
 }
 
-function insertCollab(id: string, handle: string, stageCode: string, extra: Record<string, string> = {}): void {
-  getConn().prepare(
-    `INSERT OR REPLACE INTO collaborations
-     (id, handle, display_name, brand, platform, followers, email, mailbox_from,
-      lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,
-      stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    id,
-    handle,
-    handle,
-    extra.brand || "LT",
-    extra.platform || "YouTube",
-    extra.followers || "8万",
-    extra.email || `${id}@litime.example`,
-    BRAND_MAILBOXES.LT,
-    `lc_${id}`,
-    `conv_${id}`,
-    stageCode,
-    3,
-    extra.notes || "",
-    0,
-    0,
-    extra.recipient_name || "",
-    extra.phone || "",
-    extra.address_line || "",
-    extra.country || "美国",
-    extra.postal || "",
-    extra.sku || "LT-MINI-12",
-    extra.qty || "1",
-    0,
-  );
+async function insertCollab(id: string, handle: string, stageCode: string, extra: Record<string, string> = {}): Promise<Awaited<void>> {
+  (await getConn().query("INSERT INTO collaborations\n     (id, handle, display_name, brand, platform, followers, email, mailbox_from,\n      lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,\n      stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,display_name=EXCLUDED.display_name,brand=EXCLUDED.brand,platform=EXCLUDED.platform,followers=EXCLUDED.followers,email=EXCLUDED.email,mailbox_from=EXCLUDED.mailbox_from,lifecycle_id=EXCLUDED.lifecycle_id,conversation_id=EXCLUDED.conversation_id,stage_code=EXCLUDED.stage_code,days_in_stage=EXCLUDED.days_in_stage,notes=EXCLUDED.notes,overdue=EXCLUDED.overdue,stage_version=EXCLUDED.stage_version,recipient_name=EXCLUDED.recipient_name,phone=EXCLUDED.phone,address_line=EXCLUDED.address_line,country=EXCLUDED.country,postal=EXCLUDED.postal,sku=EXCLUDED.sku,qty=EXCLUDED.qty,locked=EXCLUDED.locked",[id,handle,handle,extra.brand || "LT",extra.platform || "YouTube",extra.followers || "8万",extra.email || `${id}@litime.example`,BRAND_MAILBOXES.LT,`lc_${id}`,`conv_${id}`,stageCode,3,extra.notes || "",0,0,extra.recipient_name || "",extra.phone || "",extra.address_line || "",extra.country || "美国",extra.postal || "",extra.sku || "LT-MINI-12",extra.qty || "1",0]));
   if (extra.kol_uid) {
-    getConn().prepare("UPDATE collaborations SET kol_uid=? WHERE id=?").run(extra.kol_uid, id);
+    (await getConn().query("UPDATE collaborations SET kol_uid=$1 WHERE id=$2",[extra.kol_uid,id]));
   }
 }
 
-function stageOf(id: string): string {
-  const row = getConn().prepare("SELECT stage_code FROM collaborations WHERE id=?").get(id) as { stage_code: string };
+async function stageOf(id: string): Promise<Awaited<string>> {
+  const row = (await getConn().query("SELECT stage_code FROM collaborations WHERE id=$1",[id])).rows[0] as { stage_code: string };
   return row.stage_code;
 }
 
@@ -91,16 +61,16 @@ beforeEach(async () => {
     },
     async close() { /* noop */ },
   }));
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
-  seedWorkbenchFixtures();
+  (await seedWorkbenchFixtures());
 });
 
-afterEach(() => {
+afterEach(async () => {
   setStarryKolClientFactory();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -155,7 +125,7 @@ describe("KOL persistent session and fact-advance", () => {
     });
     expect(rate.status, await rate.text()).toBe(200);
     expect((await rate.json()).advanced).toBeNull();
-    expect(stageOf("col_trip")).toBe("DISPUTED");
+    expect((await stageOf("col_trip"))).toBe("DISPUTED");
     const viaCreate = await request("POST", "/api/sessions", { title: "ignored", collaboration_id: "col_xiaomei" });
     expect((await viaCreate.json()).id).toBe(a.id);
   });
@@ -172,7 +142,7 @@ describe("KOL persistent session and fact-advance", () => {
     expect((body.judgment as Json).flags).toContain("thank_you_only");
     expect((body.judgment as Json).suggested_stage).toBeNull();
     expect(body.advanced).toBeNull();
-    expect(stageOf("col_xiaomei")).toBe("INITIAL_CONTACT");
+    expect((await stageOf("col_xiaomei"))).toBe("INITIAL_CONTACT");
     const cards = (await messages(String(body.session_id))).filter((m) => m.kind === "kol_mail_card");
     expect(cards).toHaveLength(1);
     expect(((cards[0].payload as Json).judgment as Json).flags).toContain("thank_you_only");
@@ -198,7 +168,7 @@ describe("KOL persistent session and fact-advance", () => {
     expect((body.judgment as Json).suggested_stage).toBe("INTERESTED");
     expect((body.judgment as Json).auto_propose).toBe(true);
     expect(body.advanced).toBeNull();
-    expect(stageOf("col_xiaomei")).toBe("INITIAL_CONTACT");
+    expect((await stageOf("col_xiaomei"))).toBe("INITIAL_CONTACT");
     const card = (await messages(String(body.session_id))).find((m) => m.kind === "kol_mail_card")!;
     expect((card.payload as Json).auto_advanced).toBeNull();
     expect((card.payload as Json).expected_version).toBe(0);
@@ -218,7 +188,7 @@ describe("KOL persistent session and fact-advance", () => {
       reason_code: "REPLY_EVIDENCE",
     });
     expect(confirm.status, await confirm.text()).toBe(200);
-    expect(stageOf("col_xiaomei")).toBe("INTERESTED");
+    expect((await stageOf("col_xiaomei"))).toBe("INTERESTED");
     const afterWrite = await (await request("GET", `/api/sessions/${body.session_id}`)).json();
     const intro = (afterWrite.messages as Json[]).find((m) => String((m.payload as Json).text || "").includes("的合作会话"));
     expect(String((intro?.payload as Json | undefined)?.text || "")).toContain("当前阶段：已回复-有兴趣（意向）");
@@ -256,13 +226,13 @@ describe("KOL persistent session and fact-advance", () => {
     expect(againBody.already_there).toBe(true);
     expect(againBody.stage_changed).toBe(false);
     expect(againBody.message).toBeNull();
-    expect(stageOf("col_xiaomei")).toBe("INTERESTED");
+    expect((await stageOf("col_xiaomei"))).toBe("INTERESTED");
     const afterAgain = await messages(String(body.session_id));
     expect(afterAgain.filter((m) => String((m.payload as Json).text || "").includes("正式阶段已按你的确认更新"))).toHaveLength(1);
   });
 
   it("auto-advances SAMPLE_PENDING to SHIPPED from logistics facts, not from send", async () => {
-    insertCollab("col_ship", "Wendell Fishing", "SAMPLE_PENDING", { kol_uid: "KOLA58D2B0B4445431A9655" });
+    (await insertCollab("col_ship", "Wendell Fishing", "SAMPLE_PENDING", { kol_uid: "KOLA58D2B0B4445431A9655" }));
     const listed = await request("POST", "/api/collaborations/col_ship/ingest-mail", {
       subject: "Your LiTime Product Has Shipped",
       body: "The sample shipped via UPS. Tracking number 1Z999AA10123456784.",
@@ -271,7 +241,7 @@ describe("KOL persistent session and fact-advance", () => {
     const body = await listed.json();
     expect((body.judgment as Json).suggested_stage).toBe("SHIPPED");
     expect((body.advanced as Json).advanced).toBe(true);
-    expect(stageOf("col_ship")).toBe("SHIPPED");
+    expect((await stageOf("col_ship"))).toBe("SHIPPED");
     const card = (await messages(String(body.session_id))).find((m) => m.kind === "kol_mail_card")!;
     expect((card.payload as Json).auto_advanced).toMatchObject({ to_stage: "SHIPPED" });
 
@@ -286,7 +256,7 @@ describe("KOL persistent session and fact-advance", () => {
     });
     expect(draftAsk.status, await draftAsk.text()).toBe(200);
     const { persistDraft } = await import("../src/host/api.js");
-    const draft = persistDraft(sid, {
+    const draft = (await persistDraft(sid, {
       skill: "email_compose",
       template_id: "ship_notice.v1",
       from: BRAND_MAILBOXES.LT,
@@ -296,17 +266,17 @@ describe("KOL persistent session and fact-advance", () => {
       keep_stage: true,
       official_stage: "SHIPPED",
       collaboration_id: "col_ship",
-    });
+    }));
     const sent = await confirmAndSendDraft(request, String(draft.id), {});
     expect([200, 400, 403]).toContain(sent.status);
     const sj = await sent.json();
     const detail = (sj.detail && typeof sj.detail === "object" ? sj.detail : sj) as Json;
     expect(detail.stage_changed).toBe(false);
-    expect(stageOf("col_ship")).toBe("SHIPPED");
+    expect((await stageOf("col_ship"))).toBe("SHIPPED");
   });
 
   it("exposes stage-driven actions for any collaboration, not only demo handles", async () => {
-    insertCollab("col_wendell", "Wendell Fishing", "INITIAL_CONTACT", { kol_uid: "KOLA58D2B0B4445431A9655" });
+    (await insertCollab("col_wendell", "Wendell Fishing", "INITIAL_CONTACT", { kol_uid: "KOLA58D2B0B4445431A9655" }));
     const pipe = await (await request("GET", "/api/pipeline")).json();
     const card = Object.values(pipe.groups as Record<string, Json[]>)
       .flat()
@@ -329,11 +299,11 @@ describe("KOL persistent session and fact-advance", () => {
     expect(again.id).not.toBe(opened.id);
     const kinds = (await messages(String(again.id))).map((m) => m.kind);
     expect(kinds).not.toContain("kol_mail_card");
-    expect(stageOf("col_xiaomei")).toBe("INITIAL_CONTACT");
+    expect((await stageOf("col_xiaomei"))).toBe("INITIAL_CONTACT");
   });
 
   it("writes session_id onto the home board after the KOL thread is opened", async () => {
-    insertCollab("col_wendell", "Wendell Fishing", "INITIAL_CONTACT", { kol_uid: "KOLA58D2B0B4445431A9655" });
+    (await insertCollab("col_wendell", "Wendell Fishing", "INITIAL_CONTACT", { kol_uid: "KOLA58D2B0B4445431A9655" }));
     const opened = await (await request("POST", "/api/collaborations/col_wendell/session", {})).json();
     const board = (await buildHomeBoard());
     const card = ((board.kols as Json[]) || []).find((row) => row.id === "col_wendell");
@@ -341,11 +311,11 @@ describe("KOL persistent session and fact-advance", () => {
   });
 
   it("keeps inbound and draft cards, requires right-rail confirmation, and never invents 收件", async () => {
-    insertCollab("col_qiyou", "灵工连通测试-qiyou1984", "INITIAL_CONTACT", {
+    (await insertCollab("col_qiyou", "灵工连通测试-qiyou1984", "INITIAL_CONTACT", {
       email: "qiyou1984@gmail.com",
       kol_uid: "KOLQIYOU1984",
-    });
-    expect(getConn().prepare("SELECT mailbox_from FROM collaborations WHERE id='col_qiyou'").get())
+    }));
+    expect((await getConn().query("SELECT mailbox_from FROM collaborations WHERE id='col_qiyou'",[])).rows[0])
       .toMatchObject({ mailbox_from: BRAND_MAILBOXES.LT });
     setStarryKolClientFactory(() => ({
       async callTool(name: string, args: Json = {}) {
@@ -471,7 +441,7 @@ describe("KOL persistent session and fact-advance", () => {
     expect((inbound.judgment as Json).suggested_stage).toBe("INTERESTED");
     expect(inbound.auto_advanced).toBeNull();
     expect(JSON.stringify(cards)).not.toMatch(/kol\.lt@litime\.example/);
-    expect(stageOf("col_qiyou")).toBe("INITIAL_CONTACT");
+    expect((await stageOf("col_qiyou"))).toBe("INITIAL_CONTACT");
 
     const followup = await request("POST", `/api/sessions/${sid}/messages`, {
       text: "给@灵工连通测试-qiyou1984 写跟进邮件",
@@ -486,7 +456,7 @@ describe("KOL persistent session and fact-advance", () => {
       subject: "Re: KOL合作",
     });
     expect(JSON.stringify(followupMsgs.filter((m) => m.kind === "sys_msg"))).not.toMatch(/黄条无确认按钮|正式阶段建议保持/);
-    expect(stageOf("col_qiyou")).toBe("INITIAL_CONTACT");
+    expect((await stageOf("col_qiyou"))).toBe("INITIAL_CONTACT");
 
     const replied = await request("POST", `/api/sessions/${sid}/messages`, {
       text: "回复会话 320 发件: larry.zhao@amperetime.com 收件: qiyou1984@gmail.com 主题: Re: KOL合作",
@@ -516,7 +486,7 @@ describe("KOL persistent session and fact-advance", () => {
       to: "qiyou1984@gmail.com",
       subject: "Re: KOL合作",
     });
-    expect(stageOf("col_qiyou")).toBe("INITIAL_CONTACT");
+    expect((await stageOf("col_qiyou"))).toBe("INITIAL_CONTACT");
 
     const sent = await request("POST", `/api/sessions/${sid}/messages`, {
       text: "确认发送",
@@ -526,12 +496,12 @@ describe("KOL persistent session and fact-advance", () => {
     expect(await sent.json()).toMatchObject({ needs_confirmation: true, sent: false });
     const afterSend = await messages(sid);
     expect(JSON.stringify(afterSend)).toContain("请在右栏草稿");
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: unknown }).n)).toBe(0);
-    expect(stageOf("col_qiyou")).toBe("INITIAL_CONTACT");
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM starry_sends",[])).rows[0] as { n: unknown }).n)).toBe(0);
+    expect((await stageOf("col_qiyou"))).toBe("INITIAL_CONTACT");
   });
 
   it("lets a person skip 寄样测评 and correct a wrong stage, while fact auto stays adjacent", async () => {
-    insertCollab("col_skip_sample", "不寄样达人", "CONTRACTING", { kol_uid: "KOLSKIP001" });
+    (await insertCollab("col_skip_sample", "不寄样达人", "CONTRACTING", { kol_uid: "KOLSKIP001" }));
     const opened = await request("POST", "/api/collaborations/col_skip_sample/session", {});
     const sid = String((await opened.json()).id);
     const skip = await request("POST", `/api/sessions/${sid}/confirm-stage`, {
@@ -541,10 +511,8 @@ describe("KOL persistent session and fact-advance", () => {
       reason: "这次不寄样，直接内容策划",
     });
     expect(skip.status, await skip.text()).toBe(200);
-    expect(stageOf("col_skip_sample")).toBe("CONTENT_PLANNING");
-    const skipRow = getConn().prepare(
-      "SELECT last_skip_kind, last_skip_reason, last_skipped_stages FROM collaborations WHERE id='col_skip_sample'",
-    ).get() as { last_skip_kind?: string; last_skip_reason?: string; last_skipped_stages?: string };
+    expect((await stageOf("col_skip_sample"))).toBe("CONTENT_PLANNING");
+    const skipRow = (await getConn().query("SELECT last_skip_kind, last_skip_reason, last_skipped_stages FROM collaborations WHERE id='col_skip_sample'",[])).rows[0] as { last_skip_kind?: string; last_skip_reason?: string; last_skipped_stages?: string };
     expect(skipRow.last_skip_kind).toBe("skip");
     expect(skipRow.last_skip_reason).toBe("这次不寄样，直接内容策划");
     expect(JSON.parse(String(skipRow.last_skipped_stages))).toEqual(["SAMPLE_PENDING", "SHIPPED", "TESTING"]);
@@ -564,15 +532,15 @@ describe("KOL persistent session and fact-advance", () => {
       reason: "前面把阶段记错了，回到意向",
     });
     expect(correct.status, await correct.text()).toBe(200);
-    expect(stageOf("col_skip_sample")).toBe("INTERESTED");
+    expect((await stageOf("col_skip_sample"))).toBe("INTERESTED");
 
-    insertCollab("col_fact_adj", "物流达人", "SAMPLE_PENDING", { kol_uid: "KOLFACT001" });
+    (await insertCollab("col_fact_adj", "物流达人", "SAMPLE_PENDING", { kol_uid: "KOLFACT001" }));
     const fact = await request("POST", "/api/collaborations/col_fact_adj/ingest-mail", {
       subject: "Your LiTime Product Has Shipped",
       body: "The sample shipped via UPS. Tracking number 1Z999AA10123456784.",
       from: "ops@litime.example",
     });
     expect((await fact.json()).advanced).toMatchObject({ advanced: true, target: "SHIPPED" });
-    expect(stageOf("col_fact_adj")).toBe("SHIPPED");
+    expect((await stageOf("col_fact_adj"))).toBe("SHIPPED");
   });
 });

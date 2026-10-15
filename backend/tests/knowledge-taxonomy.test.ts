@@ -9,7 +9,7 @@ import type { Row } from "../src/types.js";
 let tmp: string;
 let databaseUrl: string | undefined;
 
-beforeEach(() => {
+beforeEach(async () => {
   databaseUrl = process.env.DATABASE_URL;
   delete process.env.DATABASE_URL; // This suite verifies the SQLite legacy migration.
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-kb-taxonomy-"));
@@ -17,13 +17,13 @@ beforeEach(() => {
   process.env.LINGONG_DATA = tmp;
   process.env.NODE_ENV = "test";
   resetKnowledgeKindsCache();
-  resetConn();
+  (await resetConn());
   getConn();
 });
 
-afterEach(() => {
+afterEach(async () => {
   resetKnowledgeKindsCache();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   if (databaseUrl === undefined) delete process.env.DATABASE_URL;
   else process.env.DATABASE_URL = databaseUrl;
@@ -32,7 +32,7 @@ afterEach(() => {
 describe("knowledge taxonomy (P1)", () => {
   it("merges a legacy knowledge table: default family/domain/base + backfills", async () => {
     const dbPath = path.join(tmp, "legacy.db");
-    resetConn();
+    (await resetConn());
     const { DatabaseSync } = await import("node:sqlite");
     const raw = new DatabaseSync(dbPath);
     raw.exec(`
@@ -48,35 +48,31 @@ describe("knowledge taxonomy (P1)", () => {
       );
     `);
     const now = new Date().toISOString();
-    raw.prepare(
-      "INSERT INTO knowledge (id,title,body,tags,kind,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
-    ).run("k_legacy_1", "历史制度", "正文", "extracted", "policy", "published", now, now);
-    raw.prepare(
-      "INSERT INTO knowledge_versions (id,knowledge_id,version,title,body,kind,status,created_at,note) VALUES (?,?,?,?,?,?,?,?,?)",
-    ).run("kv_1", "k_legacy_1", 1, "历史制度", "正文", "policy", "published", now, "create");
+    (await raw.query("INSERT INTO knowledge (id,title,body,tags,kind,status,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",["k_legacy_1","历史制度","正文","extracted","policy","published",now,now]));
+    (await raw.query("INSERT INTO knowledge_versions (id,knowledge_id,version,title,body,kind,status,created_at,note) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",["kv_1","k_legacy_1",1,"历史制度","正文","policy","published",now,"create"]));
     raw.close();
 
     process.env.LINGONG_DB = dbPath;
-    resetConn();
+    (await resetConn());
     const conn = getConn();
 
-    const family = conn.prepare("SELECT * FROM knowledge_domains WHERE code='uncategorized'").get() as Row | undefined;
+    const family = (await conn.query("SELECT * FROM knowledge_domains WHERE code='uncategorized'",[])).rows[0] as Row | undefined;
     expect(family).toBeTruthy();
     expect(String(family!.level)).toBe("family");
-    const domain = conn.prepare("SELECT * FROM knowledge_domains WHERE code='legacy'").get() as Row | undefined;
+    const domain = (await conn.query("SELECT * FROM knowledge_domains WHERE code='legacy'",[])).rows[0] as Row | undefined;
     expect(domain).toBeTruthy();
     expect(String(domain!.level)).toBe("domain");
     expect(String(domain!.parent_id)).toBe("kdom_uncategorized");
-    const base = conn.prepare("SELECT * FROM knowledge_bases WHERE code='legacy'").get() as Row | undefined;
+    const base = (await conn.query("SELECT * FROM knowledge_bases WHERE code='legacy'",[])).rows[0] as Row | undefined;
     expect(base).toBeTruthy();
     expect(String(base!.kind)).toBe("structured");
 
-    const row = conn.prepare("SELECT base_id, source_body, structured FROM knowledge WHERE id='k_legacy_1'").get() as Row;
+    const row = (await conn.query("SELECT base_id, source_body, structured FROM knowledge WHERE id='k_legacy_1'",[])).rows[0] as Row;
     expect(String(row.base_id)).toBe("kbase_legacy");
     expect(String(row.source_body)).toBe("正文");
     expect(row.structured).toBeNull();
 
-    const version = conn.prepare("SELECT tags, in_market FROM knowledge_versions WHERE id='kv_1'").get() as Row;
+    const version = (await conn.query("SELECT tags, in_market FROM knowledge_versions WHERE id='kv_1'",[])).rows[0] as Row;
     expect(String(version.tags)).toBe("extracted");
     expect(Number(version.in_market)).toBe(1);
   });

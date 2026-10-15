@@ -51,48 +51,48 @@ describePostgres("native PostgreSQL scheduling rule governance", () => {
   afterAll(async () => { await closePostgresPool(); });
 
   it("requires an audited simulation before publishing and never mutates the matched ticket", async () => {
-    const denied = await withTicketPrincipal(EMPLOYEE, () => tickets.fetch(post("/admin/scheduling/rules/drafts", {
+    const denied = await withTicketPrincipal(EMPLOYEE, async () => (await tickets.fetch(post("/admin/scheduling/rules/drafts", {
       id: RULE_ID, rule_type: "ticket_assignment", title: "人工分派建议", scope: { company_id: "company:amperetime" },
       definition: { execution_mode: "manual_confirmation", requires_human_confirmation: true, proposed_action: "assignment_suggestion" }, reason: "测试",
-    }, "rule-governance-denied-0001")));
+    }, "rule-governance-denied-0001"))));
     expect(denied.status).toBe(403);
 
-    const created = await withTicketPrincipal(ADMIN, () => tickets.fetch(post("/admin/scheduling/rules/drafts", {
+    const created = await withTicketPrincipal(ADMIN, async () => (await tickets.fetch(post("/admin/scheduling/rules/drafts", {
       id: RULE_ID, rule_type: "ticket_assignment", title: "重要任务人工分派建议", scope: { company_id: "company:amperetime" },
       definition: {
         execution_mode: "manual_confirmation", requires_human_confirmation: true, proposed_action: "assignment_suggestion",
         trigger_event_types: ["deadline.quote"], conditions: { ticket_statuses: ["pending"], priorities: ["important"] },
       }, reason: "先创建草稿并进行安全模拟",
-    }, "rule-governance-create-0001")));
+    }, "rule-governance-create-0001"))));
     expect(created.status).toBe(201);
     const draft = await created.json() as { rule: { id: string; version: number; status: string } };
     expect(draft.rule).toMatchObject({ id: RULE_ID, version: 1, status: "draft" });
 
-    const publishWithoutSimulation = await withTicketPrincipal(ADMIN, () => tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/1/publish`, {
+    const publishWithoutSimulation = await withTicketPrincipal(ADMIN, async () => (await tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/1/publish`, {
       expected_version: 1, simulation_id: "missing", reason: "不应发布",
-    }, "rule-governance-publish-missing-0001")));
+    }, "rule-governance-publish-missing-0001"))));
     expect(publishWithoutSimulation.status).toBe(409);
 
-    const simulated = await withTicketPrincipal(ADMIN, () => tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/1/simulate`, {
+    const simulated = await withTicketPrincipal(ADMIN, async () => (await tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/1/simulate`, {
       sample_limit: 10, reason: "验证正式工单命中范围",
-    }, "rule-governance-simulate-0001")));
+    }, "rule-governance-simulate-0001"))));
     expect(simulated.status).toBe(201);
     const simulation = await simulated.json() as { simulation_id: string; execution_effect: string; human_confirmation_required: boolean; tickets: Array<{ ticket_id: string }> };
     expect(simulation).toMatchObject({ execution_effect: "none", human_confirmation_required: true });
     expect(simulation.tickets).toEqual(expect.arrayContaining([expect.objectContaining({ ticket_id: "rule-simulation-ticket" })]));
 
-    const published = await withTicketPrincipal(ADMIN, () => tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/1/publish`, {
+    const published = await withTicketPrincipal(ADMIN, async () => (await tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/1/publish`, {
       expected_version: 1, simulation_id: simulation.simulation_id, reason: "模拟已审阅，仅发布人工确认建议",
-    }, "rule-governance-publish-0001")));
+    }, "rule-governance-publish-0001"))));
     expect(published.status).toBe(200);
     expect(await published.json()).toMatchObject({ rule: { status: "published", version: 1 }, execution_effect: "none", manual_confirmation_only: true });
 
-    const evaluated = await withTicketPrincipal(ADMIN, () => tickets.fetch(post("/admin/scheduling/events/evaluate", {
+    const evaluated = await withTicketPrincipal(ADMIN, async () => (await tickets.fetch(post("/admin/scheduling/events/evaluate", {
       source_system: "integration_test", source_event_id: "quote-deadline-rule-eval-0001", source_version: "v1",
       event_type: "deadline.quote", company_id: "company:amperetime", ticket_id: "rule-simulation-ticket",
       occurred_at: "2031-01-01T00:00:00.000Z", summary: "报价已到人工复核期限", evidence_ref: "test://quote/deadline/0001",
       evidence: { source: "integration_test", verified: true }, payload: { deadline_kind: "quote" },
-    }, "rule-event-evaluate-0001")));
+    }, "rule-event-evaluate-0001"))));
     expect(evaluated.status).toBe(201);
     const evaluatedPayload = await evaluated.json() as { evaluations: Array<{ id: string }> };
     expect(evaluatedPayload).toMatchObject({
@@ -101,18 +101,18 @@ describePostgres("native PostgreSQL scheduling rule governance", () => {
     });
     const evaluationId = evaluatedPayload.evaluations[0]?.id;
     expect(evaluationId).toBeTruthy();
-    const eventReplay = await withTicketPrincipal(ADMIN, () => tickets.fetch(post("/admin/scheduling/events/evaluate", {
+    const eventReplay = await withTicketPrincipal(ADMIN, async () => (await tickets.fetch(post("/admin/scheduling/events/evaluate", {
       source_system: "integration_test", source_event_id: "quote-deadline-rule-eval-0001", source_version: "v1",
       event_type: "deadline.quote", company_id: "company:amperetime", ticket_id: "rule-simulation-ticket",
       occurred_at: "2031-01-01T00:00:00.000Z", summary: "报价已到人工复核期限", evidence_ref: "test://quote/deadline/0001",
       evidence: { source: "integration_test", verified: true }, payload: { deadline_kind: "quote" },
-    }, "rule-event-evaluate-0001")));
+    }, "rule-event-evaluate-0001"))));
     expect(eventReplay.status).toBe(200);
     expect(await eventReplay.json()).toMatchObject({ replayed: true, execution_effect: "none" });
-    const evaluations = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request("http://test.local/admin/scheduling/rule-evaluations")));
+    const evaluations = await withTicketPrincipal(ADMIN, async () => (await tickets.fetch(new Request("http://test.local/admin/scheduling/rule-evaluations"))));
     expect(evaluations.status).toBe(200);
     expect(await evaluations.json()).toMatchObject({ items: [expect.objectContaining({ rule_id: RULE_ID, outcome: "matched", event: expect.objectContaining({ event_type: "deadline.quote" }) })] });
-    const effectiveness = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request("http://test.local/admin/scheduling/rule-effectiveness")));
+    const effectiveness = await withTicketPrincipal(ADMIN, async () => (await tickets.fetch(new Request("http://test.local/admin/scheduling/rule-effectiveness"))));
     expect(effectiveness.status).toBe(200);
     expect(await effectiveness.json()).toMatchObject({
       report_version: "scheduling-rule-effectiveness-raw.v1",
@@ -124,29 +124,29 @@ describePostgres("native PostgreSQL scheduling rule governance", () => {
         execution_effect: "none",
       })],
     });
-    const employeeTicket = await withTicketPrincipal(EMPLOYEE, () => tickets.fetch(new Request("http://test.local/tickets/rule-simulation-ticket")));
+    const employeeTicket = await withTicketPrincipal(EMPLOYEE, async () => (await tickets.fetch(new Request("http://test.local/tickets/rule-simulation-ticket"))));
     expect(employeeTicket.status).toBe(200);
     expect(await employeeTicket.json()).toMatchObject({
       business_events: [expect.objectContaining({ event_type: "deadline.quote", evidence_ref: "test://quote/deadline/0001" })],
     });
-    const employeeTimeline = await withTicketPrincipal(EMPLOYEE, () => tickets.fetch(new Request("http://test.local/tickets/rule-simulation-ticket/timeline")));
+    const employeeTimeline = await withTicketPrincipal(EMPLOYEE, async () => (await tickets.fetch(new Request("http://test.local/tickets/rule-simulation-ticket/timeline"))));
     expect(employeeTimeline.status).toBe(200);
     expect(await employeeTimeline.json()).toMatchObject({
       related_business_events: [expect.objectContaining({ event_type: "deadline.quote" })],
     });
-    const confirmed = await withTicketPrincipal(ADMIN, () => tickets.fetch(post(`/admin/scheduling/rule-evaluations/${evaluationId}/confirmation`, {
+    const confirmed = await withTicketPrincipal(ADMIN, async () => (await tickets.fetch(post(`/admin/scheduling/rule-evaluations/${evaluationId}/confirmation`, {
       decision: "confirmed", reason: "管理员已审阅证据并同意后续由人工处理",
-    }, "rule-evaluation-confirm-0001")));
+    }, "rule-evaluation-confirm-0001"))));
     expect(confirmed.status).toBe(201);
     expect(await confirmed.json()).toMatchObject({
       replayed: false, confirmation: { evaluation_id: evaluationId, decision: "confirmed", execution_effect: "none", automatic_action: "disabled" },
     });
-    const confirmationReplay = await withTicketPrincipal(ADMIN, () => tickets.fetch(post(`/admin/scheduling/rule-evaluations/${evaluationId}/confirmation`, {
+    const confirmationReplay = await withTicketPrincipal(ADMIN, async () => (await tickets.fetch(post(`/admin/scheduling/rule-evaluations/${evaluationId}/confirmation`, {
       decision: "confirmed", reason: "管理员已审阅证据并同意后续由人工处理",
-    }, "rule-evaluation-confirm-0001")));
+    }, "rule-evaluation-confirm-0001"))));
     expect(confirmationReplay.status).toBe(200);
     expect(await confirmationReplay.json()).toMatchObject({ replayed: true, confirmation: { decision: "confirmed", execution_effect: "none" } });
-    const decidedEffectiveness = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request("http://test.local/admin/scheduling/rule-effectiveness")));
+    const decidedEffectiveness = await withTicketPrincipal(ADMIN, async () => (await tickets.fetch(new Request("http://test.local/admin/scheduling/rule-effectiveness"))));
     expect(decidedEffectiveness.status).toBe(200);
     expect(await decidedEffectiveness.json()).toMatchObject({
       rules: [expect.objectContaining({
@@ -156,9 +156,9 @@ describePostgres("native PostgreSQL scheduling rule governance", () => {
       })],
     });
 
-    const replay = await withTicketPrincipal(ADMIN, () => tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/1/simulate`, {
+    const replay = await withTicketPrincipal(ADMIN, async () => (await tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/1/simulate`, {
       sample_limit: 10, reason: "验证正式工单命中范围",
-    }, "rule-governance-simulate-0001")));
+    }, "rule-governance-simulate-0001"))));
     expect(replay.status).toBe(200);
     expect(await replay.json()).toMatchObject({ replayed: true });
 
@@ -174,18 +174,18 @@ describePostgres("native PostgreSQL scheduling rule governance", () => {
     );
     expect(facts.rows[0]).toEqual({ status: "published", assignments: "0", events: "0", audits: "3", simulations: "1", evaluations: "1" });
 
-    const detail = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request(`http://test.local/admin/scheduling/rules/${RULE_ID}`)));
+    const detail = await withTicketPrincipal(ADMIN, async () => (await tickets.fetch(new Request(`http://test.local/admin/scheduling/rules/${RULE_ID}`))));
     expect(detail.status).toBe(200);
     expect(await detail.json()).toMatchObject({ rule: { id: RULE_ID, status: "published" }, simulations: [expect.objectContaining({ id: simulation.simulation_id })] });
 
-    const restored = await withTicketPrincipal(ADMIN, () => tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/1/restore-draft`, {
+    const restored = await withTicketPrincipal(ADMIN, async () => (await tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/1/restore-draft`, {
       reason: "恢复已审阅的历史版本，重新验证后再发布",
-    }, "rule-governance-restore-0001")));
+    }, "rule-governance-restore-0001"))));
     expect(restored.status).toBe(201);
     expect(await restored.json()).toMatchObject({ rule: { id: RULE_ID, version: 2, status: "draft" }, restored_from_version: 1, execution_effect: "none" });
-    const restoredPublish = await withTicketPrincipal(ADMIN, () => tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/2/publish`, {
+    const restoredPublish = await withTicketPrincipal(ADMIN, async () => (await tickets.fetch(post(`/admin/scheduling/rules/${RULE_ID}/versions/2/publish`, {
       expected_version: 2, simulation_id: simulation.simulation_id, reason: "不能复用旧版本模拟",
-    }, "rule-governance-restore-publish-0001")));
+    }, "rule-governance-restore-publish-0001"))));
     expect(restoredPublish.status).toBe(409);
   });
 });

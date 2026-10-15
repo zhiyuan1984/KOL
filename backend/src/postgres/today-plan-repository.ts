@@ -172,7 +172,7 @@ async function nativePlanTerminalIn(client: PoolClient, workItemId: string, runI
 }
 
 async function nativePlanTerminal(workItemId: string, runId: string, ok: boolean, reason?: string): Promise<void> {
-  await postgresTransaction((client) => nativePlanTerminalIn(client, workItemId, runId, ok, reason));
+  await postgresTransaction(async (client) => (await nativePlanTerminalIn(client, workItemId, runId, ok, reason)));
 }
 
 /** PostgreSQL durable executor. The model is authoritative in normal runtime;
@@ -200,7 +200,7 @@ export async function executeNativeClaimedPlanningJob(claimed: ClaimedExecutionJ
   try {
     if (String(claimed.job_type) === "today_analyze.run") {
       const taskPayload = payload.task_payload && typeof payload.task_payload === "object" && !Array.isArray(payload.task_payload) ? payload.task_payload as Json : {};
-      const result = await Promise.resolve(runWorker(claimedRun.sessionId, "today_analyze", String(payload.prompt || "分析所选对象并建议下一步，不要改状态。"), { ...taskPayload, work_item_id: workItemId, task_run_id: runId, actor_user_id: owner }));
+      const result = await Promise.resolve((await runWorker(claimedRun.sessionId, "today_analyze", String(payload.prompt || "分析所选对象并建议下一步，不要改状态。"), { ...taskPayload, work_item_id: workItemId, task_run_id: runId, actor_user_id: owner })));
       await nativePlanTerminal(workItemId, runId, true);
       return { work_item_id: workItemId, run_id: runId, mode: "agent_plan", side_effect: "none", worker_id: result.worker_id };
     }
@@ -208,7 +208,7 @@ export async function executeNativeClaimedPlanningJob(claimed: ClaimedExecutionJ
     const packRaw = payload.pack;
     const pack = packRaw && typeof packRaw === "object" && !Array.isArray(packRaw) ? packRaw as TodayPlanPack : await nativeTodayPlanContext(owner, scope);
     const extra = planningRunInput(pack, { work_item_id: workItemId, task_run_id: runId, actor_user_id: owner }, scope);
-    const result = await Promise.resolve(runWorker(claimedRun.sessionId, planTaskType(scope), scope === "todo" ? "规划待办工作。只输出 today_brief JSON。" : "规划今天的工作。只输出 today_brief JSON。", extra));
+    const result = await Promise.resolve((await runWorker(claimedRun.sessionId, planTaskType(scope), scope === "todo" ? "规划待办工作。只输出 today_brief JSON。" : "规划今天的工作。只输出 today_brief JSON。", extra)));
     const brief = briefFromWorkerItems(result.items);
     const missing = missingDisplayCoverage(brief, pack);
     if (!brief || missing.length) {

@@ -38,11 +38,11 @@ beforeEach(async () => {
     NODE_ENV: "test",
   });
   publishFixtureSkills(tmp, ["declared_fixture", "declared_defined_fixture"]);
-  resetConn();
+  (await resetConn());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) delete process.env[key];
@@ -154,12 +154,9 @@ describe("skillCoverage read model", () => {
     const now = nowIso();
     // 运行目录表由 store 惰性建；直接写表前先显式建表。
     (await ensureRuntimeSchema());
-    getConn().prepare("INSERT INTO skill_lifecycle (skill_id,stage,origin,updated_at) VALUES (?,?,?,?)")
-      .run("declared_fixture", "published", "official", now);
-    getConn().prepare("INSERT INTO runtime_agent_skills (agent_id,skill_id,enabled,version,updated_at) VALUES (?,?,?,?,?)")
-      .run("agent:kol", "declared_fixture", 1, 1, now);
-    getConn().prepare("INSERT INTO skill_versions (id,skill_id,version,status,published_at) VALUES (?,?,?,?,?)")
-      .run("sv_fixture", "declared_fixture", 3, "published", now);
+    (await getConn().query("INSERT INTO skill_lifecycle (skill_id,stage,origin,updated_at) VALUES ($1,$2,$3,$4)",["declared_fixture","published","official",now]));
+    (await getConn().query("INSERT INTO runtime_agent_skills (agent_id,skill_id,enabled,version,updated_at) VALUES ($1,$2,$3,$4,$5)",["agent:kol","declared_fixture",1,1,now]));
+    (await getConn().query("INSERT INTO skill_versions (id,skill_id,version,status,published_at) VALUES ($1,$2,$3,$4,$5)",["sv_fixture","declared_fixture",3,"published",now]));
 
     const coverage = (await skillCoverage({ root: SKILL_FIXTURES_ROOT, connectorId: "starrykol" }));
     expect(coverage.skills.find((entry) => entry.skill_id === "declared_fixture")).toMatchObject({

@@ -505,7 +505,7 @@ function mockCall(name: string, args: Json): Json {
 
 export async function callStarryKolTool(name: string, args: Json = {}, options: { timeoutMs?: number } = {}): Promise<Json> {
   const { rejectDiscoveryHarnessTool } = await import("../gateway/discovery-harness.js");
-  rejectDiscoveryHarnessTool(name);
+  (await rejectDiscoveryHarnessTool(name));
   return call(name, args, options.timeoutMs);
 }
 
@@ -1081,7 +1081,7 @@ export async function listStarryMailboxes(opts?: { bearer?: string }): Promise<J
     // mailbox probe would silently re-enable a broken per-user bearer during
     // an otherwise organization-authenticated mail synchronization.
     return rows(await callScope.run({ ...callScope.getStore(), ...(credential ? { credentialAccountId: credential.id } : {}) },
-      () => call("pageMailboxes", { pageNo: 1, pageSize: 50 })));
+      async () => (await call("pageMailboxes", { pageNo: 1, pageSize: 50 }))));
   } finally { if (credential) await deleteCredential(credential.id, credential.version); }
 }
 
@@ -1336,9 +1336,7 @@ async function pickContactProfile(list: Json[], email: string, opts?: { allowSin
 async function localFollowedProfile(email: string, fromAddr?: string): Promise<Json | undefined> {
   if (!email) return undefined;
   try {
-    const found = getConn().prepare(
-      "SELECT * FROM collaborations WHERE lower(trim(email)) = ?",
-    ).all(normalizeEmail(email)) as Array<Record<string, unknown>>;
+    const found = (await getConn().query("SELECT * FROM collaborations WHERE lower(trim(email)) = $1",[normalizeEmail(email)])).rows as Array<Record<string, unknown>>;
     const withUid = found.filter((row) => String(row.kol_uid || "").trim());
     if (!withUid.length) return undefined;
     const scope = await profileFollowScope(fromAddr);
@@ -1415,9 +1413,7 @@ function profileFromTaken(source: unknown): Json | undefined {
 
 async function localFollowedCandidates(fromAddr?: string): Promise<Json[]> {
   try {
-    const found = getConn().prepare(
-      "SELECT * FROM collaborations WHERE kol_uid IS NOT NULL AND trim(kol_uid) != ''",
-    ).all() as Array<Record<string, unknown>>;
+    const found = (await getConn().query("SELECT * FROM collaborations WHERE kol_uid IS NOT NULL AND trim(kol_uid) != ''",[])).rows as Array<Record<string, unknown>>;
     const scope = (await profileFollowScope(fromAddr));
     return found.filter((row) => matchesFollowedMailbox(row, scope)).map((row) => ({
       kolUid: String(row.kol_uid || ""),
@@ -1450,7 +1446,7 @@ async function findProfileByContact(
   const keywords = [email, localPart.length >= 5 && localPart !== email ? localPart : ""].filter(Boolean);
   const fromPage = async () => {
     for (const keyword of keywords) {
-      const run = () => invokeOptional("pageKolProfiles", requestJson({ pageNo: 1, pageSize: 20, keyword }));
+      const run = async () => (await invokeOptional("pageKolProfiles", requestJson({ pageNo: 1, pageSize: 20, keyword })));
       const payload = await run();
       const hit = (await pickContactProfile(rows(payload), email, { allowSingle: true, fromAddr }));
       if (hit) return hit;
@@ -1458,17 +1454,17 @@ async function findProfileByContact(
     return undefined;
   };
   const fromAll = async () => {
-    const run = () => invokeOptional("listAllKolProfiles", {});
+    const run = async () => (await invokeOptional("listAllKolProfiles", {}));
     const payload = await run();
     return (await pickContactProfile(rows(payload), email, { allowSingle: false, fromAddr }));
   };
   const fromConversations = async () => {
-    const run = () => invokeOptional("pageEmailConversations", {
+    const run = async () => (await invokeOptional("pageEmailConversations", {
       pageNo: 1,
       pageSize: 20,
       keyword: email,
       ...(fromAddr ? { mailboxEmail: fromAddr } : {}),
-    });
+    }));
     const payload = await run();
     const hits = rows(payload).map((row) => conversationProfile(row, email)).filter(Boolean) as Json[];
     if (!hits.length) return undefined;
@@ -1487,7 +1483,7 @@ async function findProfileByContact(
     };
     for (const row of (await localFollowedCandidates(fromAddr))) (await push(row));
     const listed = async (tool: "pageKolProfiles" | "listAllKolProfiles", body: Json) => {
-      const run = () => invokeOptional(tool, tool === "pageKolProfiles" ? requestJson(body) : body);
+      const run = async () => (await invokeOptional(tool, tool === "pageKolProfiles" ? requestJson(body) : body));
       const payload = await run();
       for (const row of rows(payload)) (await push(row));
     };
@@ -1500,7 +1496,7 @@ async function findProfileByContact(
     await listed("listAllKolProfiles", {});
     const matches: Json[] = [];
     for (const row of candidates.slice(0, 20)) {
-      const run = () => invokeOptional("getKolProfileDetail", { kolUid: kolUidOf(row) });
+      const run = async () => (await invokeOptional("getKolProfileDetail", { kolUid: kolUidOf(row) }));
       const detail = await run();
       const merged = { ...row, ...json(detail) };
       if ((await pickContactProfile([merged], email, { allowSingle: false, fromAddr }))) matches.push(merged);
@@ -2216,7 +2212,7 @@ export async function executeStarryKolTask(
     });
     const nylas = await invoke("listNylasAccounts");
     data = { ...mailboxes, nylas: Array.isArray(nylas.items) ? nylas.items : rows(nylas) };
-    const localOwners = getConn().prepare("SELECT * FROM mailbox_owners ORDER BY brand, email").all() as Json[];
+    const localOwners = (await getConn().query("SELECT * FROM mailbox_owners ORDER BY brand, email",[])).rows as Json[];
     if (localOwners.length) {
       data = {
         ...data,
@@ -2429,9 +2425,7 @@ export async function executeStarryKolTask(
     const summary = await invokeOptional("summarizeRiskConversations", {});
     data = { ...listed, summary: summary.summary || listed.summary, list: rows(listed) };
     if (task === "risk_scan") {
-      const overdue = (getConn()
-        .prepare("SELECT handle, stage_code, days_in_stage, brand FROM collaborations WHERE overdue = 1")
-        .all() as Array<{ handle: string; stage_code: string; days_in_stage: number; brand: string }>)
+      const overdue = ((await getConn().query("SELECT handle, stage_code, days_in_stage, brand FROM collaborations WHERE overdue = 1",[])).rows as Array<{ handle: string; stage_code: string; days_in_stage: number; brand: string }>)
         .map((row) => ({
           ...row,
           stage_label: label(row.stage_code),
@@ -2517,7 +2511,7 @@ export async function executeStarryKolTask(
       const recipient = firstEmail(conversation.recipientEmail || conversation.to || keyword);
       const handle = firstString(entities.handle, profile.kolName, profile.nickname);
       const local = handle
-        ? getConn().prepare("SELECT * FROM collaborations WHERE handle=? OR display_name=?").get(handle, handle) as
+        ? (await getConn().query("SELECT * FROM collaborations WHERE handle=$1 OR display_name=$2",[handle,handle])).rows[0] as
           | { follow_style_tags?: unknown; handle?: string } | undefined
         : undefined;
       const currentTags = readFollowStyleTags(local || {});
@@ -2608,14 +2602,14 @@ export async function executeStarryKolTask(
             || isEmailTakenByOtherKol(resultError(result))
             || !number(result.conversationId || result.id);
           const createOnce = async (uid: string, kolId = 0) => {
-            const run = () => invoke("createEmailConversation", {
+            const run = async () => (await invoke("createEmailConversation", {
               requestJson: JSON.stringify(conversationCreateBody({
                 mailboxEmail: fromAddr,
                 recipientEmail: to[0],
                 ...(kolId ? { kolId } : uid ? { kolUid: uid } : {}),
                 subject,
               })),
-            });
+            }));
             try {
               return await run();
             } catch (error) {
@@ -2805,13 +2799,13 @@ export async function executeStarryKolTask(
     }
   }
 
-  audit(actor, `starrykol.${task}`, {
+  (await audit(actor, `starrykol.${task}`, {
     task,
     operations: operations.map((item) => item.name),
     sent: Boolean(data.sent),
     write: ["email_compose", "creator_library_sync", "creator_owner_update", "creator_status_update", "creator_contact_decrypt"].includes(task),
     decrypted: Boolean(data.decrypted),
-  });
+  }));
   return { data, operations };
 }
 

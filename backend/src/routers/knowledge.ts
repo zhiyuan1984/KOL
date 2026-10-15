@@ -153,44 +153,44 @@ knowledge.get("/approvals/v2/instances/:id/knowledge/file", async c => {
 // manifests, not mail bodies or another independently editable execution source.
 knowledge.get("/knowledge/skill-templates", (c) => {
   c.header("Cache-Control", "private, no-store");
-  return c.json(taskDefinitions().flatMap((definition) => {
+  return c.json(taskDefinitions().flatMap(async (definition) => {
     if (!definition.employee_visible) return [];
     try {
       requireSkill(definition.id);
-      return [skillTemplate(definition)];
+      return [(await skillTemplate(definition))];
     } catch (error) {
       if (error instanceof HttpFail && error.status === 403) return [];
       throw error;
     }
   }));
 });
-knowledge.get("/knowledge/skill-templates/:skillId", (c) => {
+knowledge.get("/knowledge/skill-templates/:skillId", async (c) => {
   c.header("Cache-Control", "private, no-store");
   const definition = taskDefinition(c.req.param("skillId"));
   if (!definition || !definition.employee_visible) throw new HttpFail(404, "skill template not found");
   requireSkill(definition.id);
-  return c.json(skillTemplate(definition));
+  return c.json((await skillTemplate(definition)));
 });
 
-knowledge.get("/knowledge/composer", (c) => c.json(composerItems()));
-knowledge.get("/knowledge/market", (c) => c.json(listMarket()));
-knowledge.get("/knowledge/question-templates", (c) => c.json(questionTemplates()));
-knowledge.get("/knowledge/taxonomy", (c) => c.json(publicKnowledgeTaxonomy()));
-knowledge.get("/knowledge/:id/versions", (c) => c.json(listVersions(c.req.param("id"))));
-knowledge.get("/knowledge/:id", (c) => {
-  const row = knowledgeRow(c.req.param("id"));
+knowledge.get("/knowledge/composer", async (c) => c.json((await composerItems())));
+knowledge.get("/knowledge/market", async (c) => c.json((await listMarket())));
+knowledge.get("/knowledge/question-templates", async (c) => c.json((await questionTemplates())));
+knowledge.get("/knowledge/taxonomy", async (c) => c.json((await publicKnowledgeTaxonomy())));
+knowledge.get("/knowledge/:id/versions", async (c) => c.json((await listVersions(c.req.param("id")))));
+knowledge.get("/knowledge/:id", async (c) => {
+  const row = (await knowledgeRow(c.req.param("id")));
   if (String(row.status) !== "published") {
     requireAdmin();
   }
-  return c.json(isAdmin()?publicKnowledge(row):employeeKnowledge(row));
+  return c.json(isAdmin()?(await publicKnowledge(row)):(await employeeKnowledge(row)));
 });
-knowledge.get("/knowledge", (c) => {
+knowledge.get("/knowledge", async (c) => {
   const num = (value: string | undefined): number | undefined => {
     if (value == null || value === "") return undefined;
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : undefined;
   };
-  return c.json(listPublishedForOps({
+  return c.json((await listPublishedForOps({
     q: c.req.query("q"),
     kind: c.req.query("kind"),
     stage: c.req.query("stage"),
@@ -200,41 +200,41 @@ knowledge.get("/knowledge", (c) => {
     family: c.req.query("family"),
     limit: num(c.req.query("limit")),
     offset: num(c.req.query("offset")),
-  }));
+  })));
 });
 
-knowledge.post("/knowledge/:id/cite", (c) => c.json(cite(c.req.param("id"))));
-knowledge.delete("/knowledge/:id/cite", (c) => c.json(uncite(c.req.param("id"))));
-knowledge.post("/knowledge/:id/favorite", (c) => c.json(favorite(c.req.param("id"))));
-knowledge.delete("/knowledge/:id/favorite", (c) => c.json(unfavorite(c.req.param("id"))));
+knowledge.post("/knowledge/:id/cite", async (c) => c.json((await cite(c.req.param("id")))));
+knowledge.delete("/knowledge/:id/cite", async (c) => c.json((await uncite(c.req.param("id")))));
+knowledge.post("/knowledge/:id/favorite", async (c) => c.json((await favorite(c.req.param("id")))));
+knowledge.delete("/knowledge/:id/favorite", async (c) => c.json((await unfavorite(c.req.param("id")))));
 knowledge.post("/knowledge/:id/deprecate", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Json;
-  return c.json(deprecate(
+  return c.json((await deprecate(
     c.req.param("id"),
     mapDeprecateReason(String(body.reason || "")),
     String(body.note || body.reason_note || ""),
-  ));
+  )));
 });
-knowledge.delete("/knowledge/:id/deprecate", (c) => c.json(undeprecate(c.req.param("id"))));
+knowledge.delete("/knowledge/:id/deprecate", async (c) => c.json((await undeprecate(c.req.param("id")))));
 
-knowledge.get("/admin/knowledge/raw", (c) => c.json(listRaw()));
-knowledge.get("/admin/knowledge/extract-jobs", (c) => c.json(listExtractJobs()));
+knowledge.get("/admin/knowledge/raw", async (c) => c.json((await listRaw())));
+knowledge.get("/admin/knowledge/extract-jobs", async (c) => c.json((await listExtractJobs())));
 knowledge.get("/admin/knowledge/review", (c) => c.json(reviewQueue()));
-knowledge.get("/admin/knowledge/deprecate-stats", (c) => c.json(deprecateStats()));
-knowledge.get("/admin/knowledge/proposals", (c) => c.json(listProposals()));
+knowledge.get("/admin/knowledge/deprecate-stats", async (c) => c.json((await deprecateStats())));
+knowledge.get("/admin/knowledge/proposals", async (c) => c.json((await listProposals())));
 
 // 知识分层（主题域族 → 主题域 → 知识库）；分类只做业务归类，不承载权限。
-knowledge.get("/admin/knowledge/domains", (c) => c.json({ domains: listDomains() }));
-knowledge.post("/admin/knowledge/domains", async (c) => c.json(createDomain((await c.req.json()) as Json), 201));
+knowledge.get("/admin/knowledge/domains", async (c) => c.json({ domains: (await listDomains()) }));
+knowledge.post("/admin/knowledge/domains", async (c) => c.json((await createDomain((await c.req.json()) as Json)), 201));
 knowledge.get("/admin/knowledge/bases", async (c) => c.json({
   bases: await listBases({ domain_id: c.req.query("domain_id"), kind: c.req.query("kind") }),
 }));
-knowledge.post("/admin/knowledge/bases", async (c) => c.json(createBase((await c.req.json()) as Json), 201));
+knowledge.post("/admin/knowledge/bases", async (c) => c.json((await createBase((await c.req.json()) as Json)), 201));
 
 // 非结构化资料（P1，2026-10-02）：上传 → 规整 → 索引 → 待审 → 发布 → 试算。
 // 设计 docs/superpowers/specs/2026-10-02-knowledge-unstructured-pageindex-design.md §10。
 knowledge.get("/admin/knowledge/documents", async (c) => {
-  const documents=listDocuments({ base: c.req.query("base"), status: c.req.query("status") });
+  const documents=(await listDocuments({ base: c.req.query("base"), status: c.req.query("status") }));
   const user=scopedUser();
   const labels=process.env.DATABASE_URL && user ? await publicationLabels(user.id) : new Map<string,string>();
   return c.json({documents:documents.map(document=>({...document,publication_label:document.status==='pending_review'?(labels.get(String(document.id)) || '解析完成 · 待提交审批'):undefined}))});
@@ -258,27 +258,27 @@ knowledge.post("/admin/knowledge/documents", async (c) => {
   const explanation = String(body.explanation || "").trim();
   if (scopeFlow && explanation.length > 4000) throw new HttpFail(422, { code: "knowledge_scope_invalid", message: "资料用途解释最多 4000 字" });
   const buf = Buffer.from(await (file as File).arrayBuffer());
-  const result=uploadDocument(
+  const result=(await uploadDocument(
     { name: (file as File).name || "upload.pdf", type: (file as File).type || "", buf },
     baseId,
     undefined,
     { draft: body.draft === "true" },
-  );
+  ));
   // Explicit use of the new scope flow; older upload clients keep their existing contract.
   if(scopeFlow)await saveScope(ctx.actor,ctx.tenant,String((result.document as Row).id),{expectedRevision:0,explanation});
   return c.json(result,201);
 });
-knowledge.get("/admin/knowledge/documents/:id", (c) => c.json(getDocumentDetail(c.req.param("id"))));
-knowledge.get("/admin/knowledge/documents/:id/preview", (c) => {
-  const ref = documentPreviewFile(c.req.param("id"));
+knowledge.get("/admin/knowledge/documents/:id", async (c) => c.json((await getDocumentDetail(c.req.param("id")))));
+knowledge.get("/admin/knowledge/documents/:id/preview", async (c) => {
+  const ref = (await documentPreviewFile(c.req.param("id")));
   c.header("Content-Type", ref.mime);
   c.header("Cache-Control", "private, no-store");
   c.header("X-Content-Type-Options", "nosniff");
   c.header("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(ref.name)}`);
   return c.body(new Uint8Array(fs.readFileSync(ref.path)));
 });
-knowledge.get("/admin/knowledge/documents/:id/file", (c) => {
-  const ref = documentSourceFile(c.req.param("id"));
+knowledge.get("/admin/knowledge/documents/:id/file", async (c) => {
+  const ref = (await documentSourceFile(c.req.param("id")));
   c.header("Content-Type", ref.mime || "application/pdf");
   c.header("Content-Disposition", `${ref.mime.includes("presentationml") ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(ref.name)}`);
   return c.body(new Uint8Array(fs.readFileSync(ref.path)));
@@ -291,36 +291,36 @@ knowledge.get("/knowledge/documents/:id/file", async (c) => {
   if (!hasDocumentTool(skillId)) throw new HttpFail(403, "文档查询技能未启用");
   const manifest=await runtimeKnowledgeManifest(skillId,user.id);
   if(!manifest.bases.some(base=>base.documents.some(doc=>doc.id===c.req.param('id')))) throw new HttpFail(403,'资料不在当前技能的有效版本范围内');
-  const ref = publishedDocumentSourceFile(c.req.param("id"), documentDependencies(skillId).map((base) => String(base.id)));
+  const ref = (await publishedDocumentSourceFile(c.req.param("id"), (await documentDependencies(skillId)).map((base) => String(base.id))));
   c.header("Content-Type", "application/pdf");
   c.header("X-Content-Type-Options", "nosniff");
   c.header("Cache-Control", "private, no-store");
   c.header("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(ref.name)}`);
   return c.body(new Uint8Array(fs.readFileSync(ref.path)));
 });
-knowledge.post("/admin/knowledge/documents/:id/retry", (c) => c.json(retryDocument(c.req.param("id"))));
-knowledge.post("/admin/knowledge/documents/:id/start", (c) => c.json(startDocument(c.req.param("id"))));
-knowledge.post("/admin/knowledge/documents/:id/cancel", (c) => c.json(cancelDocument(c.req.param("id"))));
-knowledge.post("/admin/knowledge/documents/:id/reprocess", (c) => c.json(reprocessDocument(c.req.param("id"))));
-knowledge.post("/admin/knowledge/documents/:id/publish", (c) => c.json(publishDocument(c.req.param("id"))));
-knowledge.post("/admin/knowledge/documents/:id/archive", (c) => c.json(archiveDocument(c.req.param("id"))));
+knowledge.post("/admin/knowledge/documents/:id/retry", async (c) => c.json((await retryDocument(c.req.param("id")))));
+knowledge.post("/admin/knowledge/documents/:id/start", async (c) => c.json((await startDocument(c.req.param("id")))));
+knowledge.post("/admin/knowledge/documents/:id/cancel", async (c) => c.json((await cancelDocument(c.req.param("id")))));
+knowledge.post("/admin/knowledge/documents/:id/reprocess", async (c) => c.json((await reprocessDocument(c.req.param("id")))));
+knowledge.post("/admin/knowledge/documents/:id/publish", async (c) => c.json((await publishDocument(c.req.param("id")))));
+knowledge.post("/admin/knowledge/documents/:id/archive", async (c) => c.json((await archiveDocument(c.req.param("id")))));
 knowledge.delete("/admin/knowledge/documents/:id", async (c) => {
   requireAdmin();
   if (process.env.DATABASE_URL && (await postgresQuery("SELECT instance_id FROM knowledge_publications WHERE document_id=$1 UNION ALL SELECT instance_id FROM knowledge_publication_applications WHERE document_id=$1 LIMIT 1", [c.req.param("id")])).length) {
     throw new HttpFail(409, "该资料已有审批留痕，请归档并保留审批原件与记录");
   }
-  return c.json(deleteDocument(c.req.param("id")));
+  return c.json((await deleteDocument(c.req.param("id"))));
 });
 knowledge.post("/admin/knowledge/search", async (c) => c.json(await searchDocuments((await c.req.json()) as Json)));
 knowledge.get("/admin/knowledge/index-health", async (c) => c.json(await documentIndexHealth()));
 
-knowledge.get("/admin/knowledge", (c) => {
+knowledge.get("/admin/knowledge", async (c) => {
   const num = (value: string | undefined): number | undefined => {
     if (value == null || value === "") return undefined;
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : undefined;
   };
-  return c.json(adminList({
+  return c.json((await adminList({
     q: c.req.query("q"),
     kind: c.req.query("kind"),
     status: c.req.query("status"),
@@ -329,10 +329,10 @@ knowledge.get("/admin/knowledge", (c) => {
     family: c.req.query("family"),
     limit: num(c.req.query("limit")),
     offset: num(c.req.query("offset")),
-  }));
+  })));
 });
-knowledge.get("/admin/knowledge/assets", (c) => c.json(adminAssets()));
-knowledge.get("/admin/knowledge/feedback", (c) => c.json(listFeedback()));
+knowledge.get("/admin/knowledge/assets", async (c) => c.json((await adminAssets())));
+knowledge.get("/admin/knowledge/feedback", async (c) => c.json((await listFeedback())));
 knowledge.get("/admin/knowledge/bindings", (c) => c.json(listBindings()));
 knowledge.post("/admin/knowledge/bindings", async (c) => c.json(await saveBinding((await c.req.json()) as Json)));
 knowledge.patch("/admin/knowledge/bindings/:id", async (c) => {
@@ -340,22 +340,22 @@ knowledge.patch("/admin/knowledge/bindings/:id", async (c) => {
   return c.json(await saveBinding({ ...body, id: c.req.param("id") }));
 });
 knowledge.delete("/admin/knowledge/bindings/:id", async (c) => c.json(await deleteBinding(c.req.param("id"))));
-knowledge.post("/admin/knowledge/resolve-preview", async (c) => c.json(resolvePreview((await c.req.json()) as Json)));
-knowledge.get("/admin/knowledge/:id/versions/:v", (c) => c.json(getKnowledgeVersion(c.req.param("id"), Number(c.req.param("v")))));
-knowledge.get("/admin/knowledge/:id/grants", (c) => c.json(grantsForKnowledge(c.req.param("id"))));
-knowledge.put("/admin/knowledge/:id/grants", async (c) => c.json(setKnowledgeGrants(c.req.param("id"), (await c.req.json()) as Json)));
+knowledge.post("/admin/knowledge/resolve-preview", async (c) => c.json((await resolvePreview((await c.req.json()) as Json))));
+knowledge.get("/admin/knowledge/:id/versions/:v", async (c) => c.json((await getKnowledgeVersion(c.req.param("id"), Number(c.req.param("v"))))));
+knowledge.get("/admin/knowledge/:id/grants", async (c) => c.json((await grantsForKnowledge(c.req.param("id")))));
+knowledge.put("/admin/knowledge/:id/grants", async (c) => c.json((await setKnowledgeGrants(c.req.param("id"), (await c.req.json()) as Json))));
 knowledge.post("/admin/knowledge/:id/rollback", async (c) => {
   const body = (await c.req.json()) as { version?: number };
-  return c.json(rollbackKnowledge(c.req.param("id"), Number(body.version)));
+  return c.json((await rollbackKnowledge(c.req.param("id"), Number(body.version))));
 });
 knowledge.post("/admin/knowledge/:id/feedback-handle", async (c) => {
   const body = (await c.req.json()) as { user_id?: string; action?: string; note?: string };
-  return c.json(handleFeedback(
+  return c.json((await handleFeedback(
     c.req.param("id"),
     String(body.user_id || ""),
     String(body.action || "") as "to_revision" | "archive" | "ignore",
     String(body.note || ""),
-  ));
+  )));
 });
 
 knowledge.post("/admin/knowledge/upload", async (c) => {
@@ -370,22 +370,22 @@ knowledge.post("/admin/knowledge/upload", async (c) => {
     buf,
   }));
 });
-knowledge.post("/admin/knowledge/extract/:raw_id", (c) => c.json(extractFromRaw(c.req.param("raw_id"))));
+knowledge.post("/admin/knowledge/extract/:raw_id", async (c) => c.json((await extractFromRaw(c.req.param("raw_id")))));
 knowledge.post("/admin/knowledge/evolve/propose", async (c) => {
   const body = (await c.req.json()) as Json;
-  return c.json(proposeEvolve(body));
+  return c.json((await proposeEvolve(body)));
 });
 knowledge.post("/admin/knowledge/evolve/:id/review", async (c) => {
   const body = (await c.req.json()) as { action?: string; reject_reason?: string };
   const action = body.action === "reject" ? "reject" : "approve";
-  return c.json(reviewProposal(c.req.param("id"), action, String(body.reject_reason || "")));
+  return c.json((await reviewProposal(c.req.param("id"), action, String(body.reject_reason || ""))));
 });
 knowledge.post("/admin/knowledge/:id/transfer", async (c) => {
   const body = (await c.req.json()) as { to_brand?: string };
   return c.json(transferBrand(c.req.param("id"), String(body.to_brand || "")));
 });
 knowledge.post("/admin/knowledge/:id/approve", () => { throw new HttpFail(409,"请从当前知识提交审批，审批通过后独立发布"); });
-knowledge.post("/admin/knowledge/:id/archive", (c) => c.json(archiveKnowledge(c.req.param("id"))));
-knowledge.post("/admin/knowledge", async (c) => { const b=await c.req.json(); if(b.status && b.status!=="draft") throw new HttpFail(422,"新建只能保存草稿"); return c.json(createKnowledge({...b,status:"draft"}),201); });
-knowledge.put("/admin/knowledge/:id", async (c) => c.json(editKnowledge(c.req.param("id"), (await c.req.json()) as { title: string; body: string })));
-knowledge.delete("/admin/knowledge/:id", (c) => c.json(hardDeleteKnowledge(c.req.param("id"))));
+knowledge.post("/admin/knowledge/:id/archive", async (c) => c.json((await archiveKnowledge(c.req.param("id")))));
+knowledge.post("/admin/knowledge", async (c) => { const b=await c.req.json(); if(b.status && b.status!=="draft") throw new HttpFail(422,"新建只能保存草稿"); return c.json((await createKnowledge({...b,status:"draft"})),201); });
+knowledge.put("/admin/knowledge/:id", async (c) => c.json((await editKnowledge(c.req.param("id"), (await c.req.json()) as { title: string; body: string }))));
+knowledge.delete("/admin/knowledge/:id", async (c) => c.json((await hardDeleteKnowledge(c.req.param("id")))));

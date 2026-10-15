@@ -181,9 +181,9 @@ async function hydrateNativeAuthority(user: AppUser): Promise<AppUser> {
   await ensureOrganizationTree();
   const now = nowIso();
   const [authority_skills, authority_connectors, authority_approval_roles] = await Promise.all([
-    pgVisibleSkillIdsForUser(user.id, now),
-    pgConnectorPermissions(user.id),
-    pgApprovalRoles(user.id, now),
+    (await pgVisibleSkillIdsForUser(user.id, now)),
+    (await pgConnectorPermissions(user.id)),
+    (await pgApprovalRoles(user.id, now)),
   ]);
   return { ...user, authority_skills, authority_connectors, authority_approval_roles };
 }
@@ -196,7 +196,7 @@ async function sessionUser(c: Context): Promise<AppUser | undefined> {
       WHERE s.id_hash = $1 AND s.expires_at > $2 AND u.active = 1`,
     [hashToken(token), nowIso()],
   );
-  return row ? hydrateNativeAuthority((await mapUser(row))) : undefined;
+  return row ? (await hydrateNativeAuthority((await mapUser(row)))) : undefined;
 }
 
 function publicPath(path: string): boolean {
@@ -224,11 +224,11 @@ export const authMiddleware: MiddlewareHandler = async (c, next) => {
   }
   const user = await sessionUser(c);
   if (!user && !publicPath(new URL(c.req.url).pathname)) throw new HttpFail(401, "authentication required");
-  return user ? requestUser.run(user, next) : next();
+  return user ? (await requestUser.run(user, next)) : (await next());
 };
 
 async function userPublic(user: AppUser): Promise<Json> {
-  const [bind, avatar_url] = await Promise.all([pgDefaultBinding(user.id), pgAvatarUrlForUser(user.id)]);
+  const [bind, avatar_url] = await Promise.all([(await pgDefaultBinding(user.id)), (await pgAvatarUrlForUser(user.id))]);
   const { authority_skills: _skills, authority_connectors: _connectors, authority_approval_roles: _approvalRoles, ...publicUser } = user;
   return {
     ...publicUser,
@@ -254,9 +254,9 @@ async function permissions(user: AppUser): Promise<Json> {
   const admin = isAdmin(user);
   const now = nowIso();
   const [skills, connectors, approvalRoles] = await Promise.all([
-    user.authority_skills ? Promise.resolve(user.authority_skills) : pgVisibleSkillIdsForUser(user.id, now),
-    user.authority_connectors ? Promise.resolve(user.authority_connectors) : pgConnectorPermissions(user.id),
-    user.authority_approval_roles ? Promise.resolve(user.authority_approval_roles) : pgApprovalRoles(user.id, now),
+    user.authority_skills ? (await Promise.resolve(user.authority_skills)) : (await pgVisibleSkillIdsForUser(user.id, now)),
+    user.authority_connectors ? (await Promise.resolve(user.authority_connectors)) : (await pgConnectorPermissions(user.id)),
+    user.authority_approval_roles ? (await Promise.resolve(user.authority_approval_roles)) : (await pgApprovalRoles(user.id, now)),
   ]);
   return { admin, skills, connectors, approval_roles: admin ? ["*"] : approvalRoles };
 }
@@ -273,7 +273,7 @@ export const authRouter = new Hono();
 authRouter.get("/auth/status", async (c) => {
   if (authDisabled()) {
     const access = personaAccess();
-    const persona = PERSONAS[getPersonaKey()] || PERSONAS.sriphy;
+    const persona = PERSONAS[(await getPersonaKey())] || PERSONAS.sriphy;
     const demo = {
       ...persona,
       username: persona.handle,

@@ -360,15 +360,15 @@ export async function pgSchedulingAdminReadModel(limit: number, status?: string)
   const asOf = stamp();
   const staleAfterMs = Math.max(5_000, Number(process.env.EXECUTION_WORKER_STALE_MS || 45_000));
   const [jobs, statusCounts, outboxCounts, stalePublishing, workerRows, backlog, ruleRows] = await Promise.all([
-    pgListExecutionJobs({ status, limit }),
-    postgresPool().query<{ status: string; count: string }>("SELECT status,COUNT(*) AS count FROM execution_jobs GROUP BY status ORDER BY status"),
-    postgresPool().query<{ status: string; count: string }>("SELECT status,COUNT(*) AS count FROM execution_outbox GROUP BY status ORDER BY status"),
-    postgresPool().query<{ count: string; oldest_updated_at: string | null }>(
+    (await pgListExecutionJobs({ status, limit })),
+    (await postgresPool().query<{ status: string; count: string }>("SELECT status,COUNT(*) AS count FROM execution_jobs GROUP BY status ORDER BY status")),
+    (await postgresPool().query<{ status: string; count: string }>("SELECT status,COUNT(*) AS count FROM execution_outbox GROUP BY status ORDER BY status")),
+    (await postgresPool().query<{ count: string; oldest_updated_at: string | null }>(
       "SELECT COUNT(*) AS count,MIN(updated_at) AS oldest_updated_at FROM execution_outbox WHERE status='publishing' AND publisher_lease_until IS NOT NULL AND publisher_lease_until<=$1", [asOf],
-    ),
-    postgresPool().query<Row>("SELECT worker_id,worker_kind,status,details_json,started_at,heartbeat_at,stopped_at FROM execution_worker_heartbeats ORDER BY heartbeat_at DESC LIMIT 100"),
-    postgresPool().query<{ count: string; oldest_created_at: string | null }>("SELECT COUNT(*) AS count,MIN(created_at) AS oldest_created_at FROM execution_jobs WHERE status IN ('queued','retrying')"),
-    postgresPool().query<Row>("SELECT id,version,rule_type,title,status,scope_json,definition_json,created_by,published_by,created_at,published_at,updated_at FROM scheduling_rules ORDER BY CASE status WHEN 'published' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END,updated_at DESC LIMIT 100"),
+    )),
+    (await postgresPool().query<Row>("SELECT worker_id,worker_kind,status,details_json,started_at,heartbeat_at,stopped_at FROM execution_worker_heartbeats ORDER BY heartbeat_at DESC LIMIT 100")),
+    (await postgresPool().query<{ count: string; oldest_created_at: string | null }>("SELECT COUNT(*) AS count,MIN(created_at) AS oldest_created_at FROM execution_jobs WHERE status IN ('queued','retrying')")),
+    (await postgresPool().query<Row>("SELECT id,version,rule_type,title,status,scope_json,definition_json,created_by,published_by,created_at,published_at,updated_at FROM scheduling_rules ORDER BY CASE status WHEN 'published' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END,updated_at DESC LIMIT 100")),
   ]);
   const workers = workerRows.rows.map((row) => {
     const heartbeat = Date.parse(String(row.heartbeat_at));

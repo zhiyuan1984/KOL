@@ -18,8 +18,8 @@ describe('request-local Starry authorization snapshot', () => {
   it('bounds a hung upstream and never starts the anchor after timeout', async () => {
     vi.useFakeTimers();
     state.page.mockImplementation(() => new Promise(() => {}));
-    const pending = readAuthorizedOwnershipSnapshot('employee', { timeoutMs: 100 });
-    const checked = expect(pending).rejects.toThrow('authorization_timeout');
+    const pending = (await readAuthorizedOwnershipSnapshot('employee', { timeoutMs: 100 }));
+    const checked = (await expect(pending).rejects.toThrow('authorization_timeout'));
     await vi.advanceTimersByTimeAsync(100);
     await checked;
     expect(state.page).toHaveBeenCalledTimes(1);
@@ -29,8 +29,8 @@ describe('request-local Starry authorization snapshot', () => {
   it('shares the overall deadline with the anchor rather than resetting each page', async () => {
     vi.useFakeTimers();
     state.page.mockImplementation(() => new Promise(resolve => setTimeout(() => resolve({total:1,list:[row('A')]}), 60)));
-    const pending = readAuthorizedOwnershipSnapshot('employee', { timeoutMs: 100 });
-    const checked = expect(pending).rejects.toThrow('authorization_timeout');
+    const pending = (await readAuthorizedOwnershipSnapshot('employee', { timeoutMs: 100 }));
+    const checked = (await expect(pending).rejects.toThrow('authorization_timeout'));
     await vi.advanceTimersByTimeAsync(100);
     await checked;
     expect(state.page).toHaveBeenCalledTimes(2);

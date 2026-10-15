@@ -7,18 +7,18 @@ import { getConn, resetConn } from "../src/db.js";
 let tmp = "";
 let databaseUrl: string | undefined;
 
-beforeEach(() => {
+beforeEach(async () => {
   databaseUrl = process.env.DATABASE_URL;
   delete process.env.DATABASE_URL; // The reconnect migration only runs for SQLite.
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-managed-connectors-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;
   process.env.NODE_ENV = "test";
-  resetConn();
+  (await resetConn());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.LINGONG_DB;
   delete process.env.LINGONG_DATA;
@@ -28,29 +28,24 @@ afterEach(() => {
 });
 
 describe("managed MCP connector catalog", () => {
-  it("removes legacy connector records and canonicalizes sriphy on the next database open", () => {
+  it("removes legacy connector records and canonicalizes sriphy on the next database open", async () => {
     const db = getConn();
-    db.prepare(
-      "INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-    ).run("usr_sriphy", "sriphy", "鄢棽", "x", '["employee","admin"]', "[]", "", 1, "now", "now");
-    db.prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES (?,?,?,?,?)")
-      .run("enterprise_mail", "企业邮箱", 1, "configured", "now");
-    db.prepare("INSERT INTO user_connector_grants(user_id,connector_id,access,created_at) VALUES (?,?,?,?)")
-      .run("usr_sriphy", "enterprise_mail", "admin", "now");
-    db.prepare("INSERT INTO audit_events(ts,actor,event_type,payload) VALUES (?,?,?,?)")
-      .run("now", "usr_sriphy", "admin.connector.update", '{"connector_id":"enterprise_mail","actor":"usr_sriphy"}');
+    (await db.query("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",["usr_sriphy","sriphy","鄢棽","x",'["employee","admin"]',"[]","",1,"now","now"]));
+    (await db.query("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES ($1,$2,$3,$4,$5)",["enterprise_mail","企业邮箱",1,"configured","now"]));
+    (await db.query("INSERT INTO user_connector_grants(user_id,connector_id,access,created_at) VALUES ($1,$2,$3,$4)",["usr_sriphy","enterprise_mail","admin","now"]));
+    (await db.query("INSERT INTO audit_events(ts,actor,event_type,payload) VALUES ($1,$2,$3,$4)",["now","usr_sriphy","admin.connector.update",'{"connector_id":"enterprise_mail","actor":"usr_sriphy"}']));
 
-    resetConn();
+    (await resetConn());
     const migrated = getConn();
-    expect((migrated.prepare("SELECT id,label FROM connectors ORDER BY id").all() as Array<{ id: string; label: string }>)).toEqual([
+    expect(((await migrated.query("SELECT id,label FROM connectors ORDER BY id",[])).rows as Array<{ id: string; label: string }>)).toEqual([
       { id: "claw", label: "MediaCrawler MCP" },
       { id: "starrykol", label: "Starry KOL MCP" },
     ]);
-    expect(migrated.prepare("SELECT id FROM users WHERE id='usr_sriphy'").get()).toBeUndefined();
-    expect(migrated.prepare("SELECT id FROM users WHERE id='sriphy'").get()).toBeTruthy();
-    expect(migrated.prepare("SELECT access FROM user_connector_grants WHERE user_id='sriphy' AND connector_id='starrykol'").get())
+    expect((await migrated.query("SELECT id FROM users WHERE id='usr_sriphy'",[])).rows[0]).toBeUndefined();
+    expect((await migrated.query("SELECT id FROM users WHERE id='sriphy'",[])).rows[0]).toBeTruthy();
+    expect((await migrated.query("SELECT access FROM user_connector_grants WHERE user_id='sriphy' AND connector_id='starrykol'",[])).rows[0])
       .toMatchObject({ access: "write" });
-    expect(migrated.prepare("SELECT actor,payload FROM audit_events WHERE event_type='admin.connector.update'").get())
+    expect((await migrated.query("SELECT actor,payload FROM audit_events WHERE event_type='admin.connector.update'",[])).rows[0])
       .toMatchObject({ actor: "sriphy", payload: expect.stringContaining("sriphy") });
   });
 });

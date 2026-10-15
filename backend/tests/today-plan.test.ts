@@ -48,7 +48,7 @@ function owner() {
   return DEMO_USER.id;
 }
 
-function insertWorkItem(row: {
+async function insertWorkItem(row: {
   id: string;
   title: string;
   task_type?: string;
@@ -58,19 +58,10 @@ function insertWorkItem(row: {
   priority?: string;
 }) {
   const now = nowIso();
-  getConn().prepare(
-    `INSERT INTO tickets
-     (id,owner_user_id,task_type,title,source,status,priority,skill,profile,project_id,
-      collaboration_id,session_id,due_at,input,entities,data_version,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    row.id, owner(), row.task_type || "email_compose", row.title, row.source || "manual",
-    row.status || "pending", row.priority || "normal", row.task_type || "email_compose", "lead",
-    null, null, row.session_id || null, null, "{}", "{}", 1, now, now,
-  );
+  (await getConn().query("INSERT INTO tickets\n     (id,owner_user_id,task_type,title,source,status,priority,skill,profile,project_id,\n      collaboration_id,session_id,due_at,input,entities,data_version,created_at,updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)",[row.id,owner(),row.task_type || "email_compose",row.title,row.source || "manual",row.status || "pending",row.priority || "normal",row.task_type || "email_compose","lead",null,null,row.session_id || null,null,"{}","{}",1,now,now]));
 }
 
-function insertDiscoveryBatch(row: {
+async function insertDiscoveryBatch(row: {
   id: string;
   platform: string;
   runStatus: "failed" | "succeeded";
@@ -78,25 +69,8 @@ function insertDiscoveryBatch(row: {
 }) {
   const now = nowIso();
   const runId = `${row.id}_run`;
-  getConn().prepare(
-    `INSERT INTO discovery_requests
-     (id,owner_user_id,keywords,platforms,mode,filters,brand,scope,status,latest_run_id,error,data_version,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    row.id, owner(), JSON.stringify([row.platform, "camping"]), JSON.stringify([row.platform]),
-    "search", "{}", null, "{}", row.runStatus === "failed" ? "failed" : "succeeded",
-    runId, row.runStatus === "failed" ? JSON.stringify({ message: "crawl fail" }) : null,
-    1, now, now,
-  );
-  getConn().prepare(
-    `INSERT INTO discovery_runs
-     (id,request_id,owner_user_id,crawl_job_id,work_item_id,platform,mode,parameters,remote_task_id,idempotency_key,status,error,candidate_count,data_version,created_at,started_at,updated_at,completed_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    runId, row.id, owner(), null, null, row.platform, "search", "{}", null, `idem_${row.id}`,
-    row.runStatus, row.runStatus === "failed" ? JSON.stringify({ message: "crawl fail" }) : null,
-    row.candidates, 1, now, now, now, now,
-  );
+  (await getConn().query("INSERT INTO discovery_requests\n     (id,owner_user_id,keywords,platforms,mode,filters,brand,scope,status,latest_run_id,error,data_version,created_at,updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",[row.id,owner(),JSON.stringify([row.platform, "camping"]),JSON.stringify([row.platform]),"search","{}",null,"{}",row.runStatus === "failed" ? "failed" : "succeeded",runId,row.runStatus === "failed" ? JSON.stringify({ message: "crawl fail" }) : null,1,now,now]));
+  (await getConn().query("INSERT INTO discovery_runs\n     (id,request_id,owner_user_id,crawl_job_id,work_item_id,platform,mode,parameters,remote_task_id,idempotency_key,status,error,candidate_count,data_version,created_at,started_at,updated_at,completed_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)",[runId,row.id,owner(),null,null,row.platform,"search","{}",null,`idem_${row.id}`,row.runStatus,row.runStatus === "failed" ? JSON.stringify({ message: "crawl fail" }) : null,row.candidates,1,now,now,now,now]));
 }
 
 function validBrief(overrides: Json = {}): Json {
@@ -120,15 +94,15 @@ beforeEach(async () => {
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.PLANNING_FAST_MODE = "0";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.PLANNING_FAST_MODE;
 });
@@ -142,7 +116,7 @@ describe("today_plan harness", () => {
         side_effects: "none",
         mcp: [],
       });
-      const lifecycle = getConn().prepare("SELECT stage FROM skill_lifecycle WHERE skill_id=?").get(id) as { stage: string };
+      const lifecycle = (await getConn().query("SELECT stage FROM skill_lifecycle WHERE skill_id=$1",[id])).rows[0] as { stage: string };
       expect(lifecycle.stage).toBe("published");
     }
     const mounted = (await getAgentSkills("agent:workspace-planner"));
@@ -151,15 +125,12 @@ describe("today_plan harness", () => {
     ]);
     expect((await getAgentSkills("agent:kol")).some((row) => row.skill_id === "today_plan")).toBe(false);
     const plannerUser = "user_workspace_planner";
-    getConn().prepare(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?)`).run(
-      plannerUser, "workspace-planner", "工作规划员工", "not-for-login", JSON.stringify(["employee"]), "[]", "", 1, "now", "now",
-    );
+    (await getConn().query("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",[plannerUser,"workspace-planner","工作规划员工","not-for-login",JSON.stringify(["employee"]),"[]","",1,"now","now"]));
     // 人员资格锚点是 Agent（ADR-2026-10-03）：未绑定的账号即使技能是 authenticated 也不放行。
     await expect((async () => (await assertRuntimeSkill({
       agentId: "agent:workspace-planner", skillId: "today_plan", userId: plannerUser, runId: "planning-preflight-denied",
     })))()).rejects.toThrow(/runtime_agent_not_usable/);
-    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(plannerUser, "person:ye_guanwang");
+    (await getConn().query("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2",[plannerUser,"person:ye_guanwang"]));
     (await createAgentBinding({
       agent_id: "agent:workspace-planner", target_type: "organization_unit", target_id: "org:lt_team",
       company_id: "company:amperetime", source: "test",
@@ -167,7 +138,7 @@ describe("today_plan harness", () => {
     await expect((async () => (await assertRuntimeSkill({
       agentId: "agent:workspace-planner", skillId: "today_plan", userId: plannerUser, runId: "planning-preflight",
     })))()).resolves.not.toBeInstanceOf(Error);
-    const audit = getConn().prepare("SELECT payload FROM audit_events WHERE event_type='runtime.workspace_planner.migrated'").get() as { payload: string };
+    const audit = (await getConn().query("SELECT payload FROM audit_events WHERE event_type='runtime.workspace_planner.migrated'",[])).rows[0] as { payload: string };
     expect(JSON.parse(audit.payload)).toMatchObject({ agent_id: "agent:workspace-planner" });
   });
 
@@ -191,8 +162,8 @@ describe("today_plan harness", () => {
 
     it("GET brief creates no session and does not call run", async () => {
       const run = vi.spyOn(runner, "runWorker");
-      const beforeSessions = Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n);
-      const beforeItems = Number((getConn().prepare("SELECT COUNT(*) AS n FROM tickets WHERE task_type=?").get(taskType) as { n: number }).n);
+      const beforeSessions = Number(((await getConn().query("SELECT COUNT(*) AS n FROM sessions",[])).rows[0] as { n: number }).n);
+      const beforeItems = Number(((await getConn().query("SELECT COUNT(*) AS n FROM tickets WHERE task_type=$1",[taskType])).rows[0] as { n: number }).n);
       const res = await request("GET", briefPath);
       expect(res.status).toBe(200);
       expect(res.body.planning).toBe(false);
@@ -200,8 +171,8 @@ describe("today_plan harness", () => {
       expect(res.body.creates_session).toBe(false);
       expect(res.body.calls_model).toBe(false);
       expect(run).not.toHaveBeenCalled();
-      expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n)).toBe(beforeSessions);
-      expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM tickets WHERE task_type=?").get(taskType) as { n: number }).n)).toBe(beforeItems);
+      expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM sessions",[])).rows[0] as { n: number }).n)).toBe(beforeSessions);
+      expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM tickets WHERE task_type=$1",[taskType])).rows[0] as { n: number }).n)).toBe(beforeItems);
     });
 
     it("POST plan atomically creates work_item+session+durable job and skips from-text recognition", async () => {
@@ -213,7 +184,7 @@ describe("today_plan harness", () => {
       expect(res.body.session_id).toBeTruthy();
       expect(res.body.run_id).toBeTruthy();
       expect(res.body.execution_job_id).toBeTruthy();
-      const item = getConn().prepare("SELECT * FROM tickets WHERE id=?").get(res.body.work_item_id) as {
+      const item = (await getConn().query("SELECT * FROM tickets WHERE id=$1",[res.body.work_item_id])).rows[0] as {
         task_type: string;
         source: string;
         session_id: string;
@@ -221,41 +192,37 @@ describe("today_plan harness", () => {
       expect(item.task_type).toBe(taskType);
       expect(item.source).toBe("planning");
       expect(item.session_id).toBe(res.body.session_id);
-      const session = getConn().prepare("SELECT * FROM sessions WHERE id=?").get(res.body.session_id) as {
+      const session = (await getConn().query("SELECT * FROM sessions WHERE id=$1",[res.body.session_id])).rows[0] as {
         expert_id: string;
         kind: string;
       };
       expect(session.expert_id).toBe("platform:workspace-planner");
       expect(session.kind).toBe(taskType);
       expect(recognizeSpy).not.toHaveBeenCalled();
-      expect(getConn().prepare("SELECT status FROM task_runs WHERE id=?").get(res.body.run_id)).toMatchObject({ status: "queued" });
-      expect(getConn().prepare("SELECT status FROM execution_jobs WHERE id=?").get(res.body.execution_job_id)).toMatchObject({ status: "queued" });
-      expect(getConn().prepare("SELECT status FROM execution_outbox WHERE job_id=?").get(res.body.execution_job_id)).toMatchObject({ status: "pending" });
+      expect((await getConn().query("SELECT status FROM task_runs WHERE id=$1",[res.body.run_id])).rows[0]).toMatchObject({ status: "queued" });
+      expect((await getConn().query("SELECT status FROM execution_jobs WHERE id=$1",[res.body.execution_job_id])).rows[0]).toMatchObject({ status: "queued" });
+      expect((await getConn().query("SELECT status FROM execution_outbox WHERE job_id=$1",[res.body.execution_job_id])).rows[0]).toMatchObject({ status: "pending" });
     });
 
     it("second POST plan while the plan is running returns the same session", async () => {
       const now = nowIso();
-      getConn().prepare(
-        "INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id) VALUES (?,?,?,?,?,?,?,?)",
-      ).run("ses_running_plan", "规划", now, now, taskType, 0, owner(), "platform:workspace-planner");
-      insertWorkItem({
+      (await getConn().query("INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",["ses_running_plan","规划",now,now,taskType,0,owner(),"platform:workspace-planner"]));
+      (await insertWorkItem({
         id: "tsk_running_plan",
         title: "规划",
         task_type: taskType,
         status: "running",
         source: "planning",
         session_id: "ses_running_plan",
-      });
-      getConn().prepare(
-        "INSERT INTO task_runs (id,work_item_id,session_id,status,input,entities,created_at,started_at) VALUES (?,?,?,?,?,?,?,?)",
-      ).run("run_running_plan", "tsk_running_plan", "ses_running_plan", "running", "{}", "{}", now, now);
+      }));
+      (await getConn().query("INSERT INTO task_runs (id,work_item_id,session_id,status,input,entities,created_at,started_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",["run_running_plan","tsk_running_plan","ses_running_plan","running","{}","{}",now,now]));
       const first = await request("POST", planPath);
       const second = await request("POST", planPath);
       expect(first.body.session_id).toBe("ses_running_plan");
       expect(second.body.session_id).toBe("ses_running_plan");
       expect(first.body.work_item_id).toBe("tsk_running_plan");
       expect(second.body.work_item_id).toBe(first.body.work_item_id);
-      expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM tickets WHERE task_type=?").get(taskType) as { n: number }).n)).toBe(1);
+      expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM tickets WHERE task_type=$1",[taskType])).rows[0] as { n: number }).n)).toBe(1);
     });
   });
 
@@ -285,7 +252,7 @@ describe("today_plan harness", () => {
   });
 
   it("rejects missing sections or batch follow and keeps the old brief", async () => {
-    insertWorkItem({ id: "tsk_y", title: "昨日未完成报价" });
+    (await insertWorkItem({ id: "tsk_y", title: "昨日未完成报价" }));
     const first = (await writeTodayBriefArtifact({
       owner: owner(),
       workItemId: "tsk_y",
@@ -320,15 +287,15 @@ describe("today_plan harness", () => {
     }));
     expect(keptFollow.ok).toBe(false);
     if (keptFollow.ok === false) expect(keptFollow.kept_artifact_id).toBe(first.ok ? first.artifact_id : null);
-    const pointer = getConn().prepare("SELECT artifact_id FROM employee_today_briefs WHERE owner_user_id=?").get(owner()) as { artifact_id: string };
+    const pointer = (await getConn().query("SELECT artifact_id FROM employee_today_briefs WHERE owner_user_id=$1",[owner()])).rows[0] as { artifact_id: string };
     expect(first.ok && pointer.artifact_id).toBe(first.ok ? first.artifact_id : pointer.artifact_id);
   });
 
   it("packs IG fail + YT empty batches and allows retry_crawl but not follow", async () => {
-    insertDiscoveryBatch({ id: "disc_ig_1", platform: "instagram", runStatus: "failed", candidates: 0 });
-    insertDiscoveryBatch({ id: "disc_ig_2", platform: "instagram", runStatus: "failed", candidates: 0 });
-    insertDiscoveryBatch({ id: "disc_yt_1", platform: "youtube", runStatus: "succeeded", candidates: 0 });
-    insertDiscoveryBatch({ id: "disc_yt_2", platform: "youtube", runStatus: "succeeded", candidates: 0 });
+    (await insertDiscoveryBatch({ id: "disc_ig_1", platform: "instagram", runStatus: "failed", candidates: 0 }));
+    (await insertDiscoveryBatch({ id: "disc_ig_2", platform: "instagram", runStatus: "failed", candidates: 0 }));
+    (await insertDiscoveryBatch({ id: "disc_yt_1", platform: "youtube", runStatus: "succeeded", candidates: 0 }));
+    (await insertDiscoveryBatch({ id: "disc_yt_2", platform: "youtube", runStatus: "succeeded", candidates: 0 }));
     const pack = (await packTodayPlanContext(owner()));
     const batchIds = pack.catalog.filter((item) => item.kind === "discovery_batch").map((item) => item.id);
     expect(batchIds).toEqual(expect.arrayContaining([
@@ -348,7 +315,7 @@ describe("today_plan harness", () => {
   });
 
   it("keeps yesterday unfinished tasks in history when delta is empty", async () => {
-    insertWorkItem({ id: "tsk_yesterday", title: "昨日未完成报价" });
+    (await insertWorkItem({ id: "tsk_yesterday", title: "昨日未完成报价" }));
     const first = (await packTodayPlanContext(owner()));
     expect(first.history.unfinished_tasks.some((item) => item.work_item_id === "tsk_yesterday")).toBe(true);
     (await writeTodayBriefArtifact({
@@ -372,7 +339,7 @@ describe("today_plan harness", () => {
     expect(mount.skills).toEqual(["today_plan"]);
     expect(mount.forbidden).toEqual(expect.arrayContaining(["follow", "send", "confirm-stage"]));
     const res = await request("POST", "/api/home/today-brief/plan");
-    const item = getConn().prepare("SELECT input FROM tickets WHERE id=?").get(res.body.work_item_id) as { input: string };
+    const item = (await getConn().query("SELECT input FROM tickets WHERE id=$1",[res.body.work_item_id])).rows[0] as { input: string };
     const input = JSON.parse(item.input) as Json;
     expect(input.mode).toBe("today_plan");
     expect(input.expert_id).toBe("platform:workspace-planner");
@@ -389,13 +356,9 @@ describe("today_plan harness", () => {
     const sessionId = "ses_preflight_failure";
     const workItemId = "tsk_preflight_failure";
     const runId = "run_preflight_failure";
-    getConn().prepare(
-      "INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id) VALUES (?,?,?,?,?,?,?,?)",
-    ).run(sessionId, "规划", now, now, "today_plan", 0, owner(), "platform:workspace-planner");
-    insertWorkItem({ id: workItemId, title: "规划", task_type: "today_plan", status: "running", source: "planning", session_id: sessionId });
-    getConn().prepare(
-      "INSERT INTO task_runs (id,work_item_id,session_id,status,input,entities,created_at,started_at) VALUES (?,?,?,?,?,?,?,?)",
-    ).run(runId, workItemId, sessionId, "running", "{}", "{}", now, now);
+    (await getConn().query("INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",[sessionId,"规划",now,now,"today_plan",0,owner(),"platform:workspace-planner"]));
+    (await insertWorkItem({ id: workItemId, title: "规划", task_type: "today_plan", status: "running", source: "planning", session_id: sessionId }));
+    (await getConn().query("INSERT INTO task_runs (id,work_item_id,session_id,status,input,entities,created_at,started_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",[runId,workItemId,sessionId,"running","{}","{}",now,now]));
     const pack = (await packTodayPlanContext(owner()));
     vi.spyOn(todayPlanContext, "planningRunInput").mockImplementation(() => {
       throw new Error("skill registry preflight failed");
@@ -404,12 +367,12 @@ describe("today_plan harness", () => {
     const result = await executeTodayPlanRun({ owner: owner(), workItemId, sessionId, runId, pack });
 
     expect(result).toEqual({ ok: false, reason: "skill registry preflight failed" });
-    expect(getConn().prepare("SELECT status FROM tickets WHERE id=?").get(workItemId)).toMatchObject({ status: "failed" });
-    expect(getConn().prepare("SELECT status,error FROM task_runs WHERE id=?").get(runId)).toMatchObject({
+    expect((await getConn().query("SELECT status FROM tickets WHERE id=$1",[workItemId])).rows[0]).toMatchObject({ status: "failed" });
+    expect((await getConn().query("SELECT status,error FROM task_runs WHERE id=$1",[runId])).rows[0]).toMatchObject({
       status: "failed",
       error: expect.stringContaining("skill registry preflight failed"),
     });
-    expect(getConn().prepare("SELECT status,label FROM task_events WHERE work_item_id=? ORDER BY sequence DESC LIMIT 1").get(workItemId)).toMatchObject({
+    expect((await getConn().query("SELECT status,label FROM task_events WHERE work_item_id=$1 ORDER BY sequence DESC LIMIT 1",[workItemId])).rows[0]).toMatchObject({
       status: "failed",
       label: PLAN_EMPLOYEE_EVENTS.today.failed,
     });
@@ -492,7 +455,7 @@ describe("today_plan harness", () => {
 
   it("POST today-brief/enqueue persists a session usable by the retained planning adapter", async () => {
     const run = vi.spyOn(runner, "runWorker");
-    const beforeSessions = Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n);
+    const beforeSessions = Number(((await getConn().query("SELECT COUNT(*) AS n FROM sessions",[])).rows[0] as { n: number }).n);
     const res = await request("POST", "/api/home/today-brief/enqueue", { objects: [] });
     expect(res.status).toBe(202);
     expect(res.body.kind).toBe("think");
@@ -504,7 +467,7 @@ describe("today_plan harness", () => {
     expect(run).not.toHaveBeenCalled();
     await executeRetiredPlanningAdapter(String(res.body.execution_job_id), "test-analysis-worker");
     expect(run).toHaveBeenCalled();
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n)).toBe(beforeSessions + 1);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM sessions",[])).rows[0] as { n: number }).n)).toBe(beforeSessions + 1);
   });
 
   it("compatibility dispatch executes queued planning jobs", async () => {
@@ -523,7 +486,7 @@ describe("today_plan harness", () => {
     const events = PLAN_EMPLOYEE_EVENTS.today;
 
     it("emits employee-facing mid events while planning and on complete", async () => {
-      insertWorkItem({ id: "tsk_open_quote", title: "未了结报价" });
+      (await insertWorkItem({ id: "tsk_open_quote", title: "未了结报价" }));
       let release!: (value: WorkerResult) => void;
       const held = new Promise<WorkerResult>((resolve) => {
         release = resolve;
@@ -531,7 +494,7 @@ describe("today_plan harness", () => {
       vi.spyOn(runner, "runWorker").mockReturnValue(held);
       const plan = await request("POST", planPath);
       expect([200, 202]).toContain(plan.status);
-      const processor = executeRetiredPlanningAdapter(String(plan.body.execution_job_id), "test-plan-worker");
+      const processor = (await executeRetiredPlanningAdapter(String(plan.body.execution_job_id), "test-plan-worker"));
       await vi.waitFor(() => expect(runner.runWorker).toHaveBeenCalled());
       const mid = await request("GET", briefPath);
       expect(mid.body.planning).toBe(true);
@@ -582,7 +545,7 @@ describe("today_plan harness", () => {
     });
 
     it("does not list planning work items as open todos", async () => {
-      insertWorkItem({ id: "tsk_open_quote", title: "未了结报价" });
+      (await insertWorkItem({ id: "tsk_open_quote", title: "未了结报价" }));
       const plan = await request("POST", planPath);
       const listed = await request("GET", "/api/tasks?view=open");
       const ids = ((listed.body.tasks as Json[]) || []).map((row) => String(row.id));
@@ -593,31 +556,27 @@ describe("today_plan harness", () => {
 });
 
 describe("stale planning watchdog", () => {
-  function insertPlanRun(id: string, status: string, at: string, taskType = "today_plan") {
+  async function insertPlanRun(id: string, status: string, at: string, taskType = "today_plan") {
     const now = nowIso();
-    getConn().prepare(
-      "INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id) VALUES (?,?,?,?,?,?,?,?)",
-    ).run(`ses_${id}`, "规划", now, now, taskType, 0, owner(), "platform:workspace-planner");
-    insertWorkItem({
+    (await getConn().query("INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",[`ses_${id}`,"规划",now,now,taskType,0,owner(),"platform:workspace-planner"]));
+    (await insertWorkItem({
       id: `tsk_${id}`,
       title: "规划",
       task_type: taskType,
       status,
       source: "planning",
       session_id: `ses_${id}`,
-    });
-    getConn().prepare(
-      "INSERT INTO task_runs (id,work_item_id,session_id,status,input,entities,created_at,started_at) VALUES (?,?,?,?,?,?,?,?)",
-    ).run(`run_${id}`, `tsk_${id}`, `ses_${id}`, status, "{}", "{}", at, at);
-    getConn().prepare("UPDATE tickets SET created_at=?, updated_at=? WHERE id=?").run(at, at, `tsk_${id}`);
+    }));
+    (await getConn().query("INSERT INTO task_runs (id,work_item_id,session_id,status,input,entities,created_at,started_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",[`run_${id}`,`tsk_${id}`,`ses_${id}`,status,"{}","{}",at,at]));
+    (await getConn().query("UPDATE tickets SET created_at=$1, updated_at=$2 WHERE id=$3",[at,at,`tsk_${id}`]));
   }
 
   const statusOf = (table: "tickets" | "task_runs", id: string) =>
     String((getConn().prepare(`SELECT status FROM ${table} WHERE id=?`).get(id) as { status: string }).status);
 
-  it("fails a planning run past the watchdog instead of capturing every later entry", () => {
+  it("fails a planning run past the watchdog instead of capturing every later entry", async () => {
     const stale = new Date(Date.now() - 30 * 60 * 1_000).toISOString();
-    insertPlanRun("stuck", "running", stale);
+    (await insertPlanRun("stuck", "running", stale));
 
     // The dead run must not be returned: returning it is what left the card
     // polling a plan that could never finish.
@@ -626,27 +585,27 @@ describe("stale planning watchdog", () => {
     expect(statusOf("task_runs", "run_stuck")).toBe("failed");
     // Failing it first is what frees `one_running_today_plan`, so a new plan can
     // actually be created afterwards.
-    insertWorkItem({
+    (await insertWorkItem({
       id: "tsk_after_stuck",
       title: "今日规划",
       task_type: "today_plan",
       status: "running",
       source: "planning",
-    });
+    }));
     expect(runningTodayPlan(owner(), "today")?.work_item_id).toBe("tsk_after_stuck");
   });
 
-  it("still attaches to a plan that is genuinely running", () => {
-    insertPlanRun("live", "running", nowIso());
+  it("still attaches to a plan that is genuinely running", async () => {
+    (await insertPlanRun("live", "running", nowIso()));
     expect(runningTodayPlan(owner(), "today")?.work_item_id).toBe("tsk_live");
     expect(statusOf("tickets", "tsk_live")).toBe("running");
   });
 
-  it("boot reconcile fails open planning rows only", () => {
-    insertPlanRun("boot_open", "running", nowIso());
-    insertPlanRun("boot_pending", "pending", nowIso(), "todo_plan");
-    insertPlanRun("boot_done", "completed", nowIso());
-    insertWorkItem({ id: "tsk_boot_other", title: "普通任务", task_type: "email_compose", status: "running" });
+  it("boot reconcile fails open planning rows only", async () => {
+    (await insertPlanRun("boot_open", "running", nowIso()));
+    (await insertPlanRun("boot_pending", "pending", nowIso(), "todo_plan"));
+    (await insertPlanRun("boot_done", "completed", nowIso()));
+    (await insertWorkItem({ id: "tsk_boot_other", title: "普通任务", task_type: "email_compose", status: "running" }));
 
     const failed = failStuckPlans("Host 重启时该规划仍在运行");
     expect(failed).toContain("tsk_boot_open");
@@ -664,7 +623,7 @@ describe("stale planning watchdog", () => {
 describe("previous plan snapshot", () => {
   it.each(["today", "todo"] as const)("reports the version before the current one for %s, never the current run twice", async (scope) => {
     const taskType = "today_plan";
-    insertWorkItem({ id: "tsk_prev", title: "上一版规划", task_type: taskType, status: "completed" });
+    (await insertWorkItem({ id: "tsk_prev", title: "上一版规划", task_type: taskType, status: "completed" }));
     expect((await writeTodayBriefArtifact({
       owner: owner(),
       workItemId: "tsk_prev",
@@ -673,7 +632,7 @@ describe("previous plan snapshot", () => {
       scope,
     })).ok).toBe(true);
 
-    insertWorkItem({ id: "tsk_now", title: "本轮规划", task_type: taskType, status: "completed" });
+    (await insertWorkItem({ id: "tsk_now", title: "本轮规划", task_type: taskType, status: "completed" }));
     expect((await writeTodayBriefArtifact({
       owner: owner(),
       workItemId: "tsk_now",
@@ -702,7 +661,7 @@ describe("previous plan snapshot", () => {
   });
 
   it("binds folded history to the latest failed trace instead of mixing it with an older brief", async () => {
-    insertWorkItem({ id: "tsk_prev_ok", title: "较早规划", task_type: "today_plan", status: "completed" });
+    (await insertWorkItem({ id: "tsk_prev_ok", title: "较早规划", task_type: "today_plan", status: "completed" }));
     expect((await writeTodayBriefArtifact({
       owner: owner(),
       workItemId: "tsk_prev_ok",
@@ -710,7 +669,7 @@ describe("previous plan snapshot", () => {
       brief: validBrief({ lead: "较早规划" }),
     })).ok).toBe(true);
 
-    insertWorkItem({ id: "tsk_last_ok", title: "最近成功规划", task_type: "today_plan", status: "completed" });
+    (await insertWorkItem({ id: "tsk_last_ok", title: "最近成功规划", task_type: "today_plan", status: "completed" }));
     expect((await writeTodayBriefArtifact({
       owner: owner(),
       workItemId: "tsk_last_ok",
@@ -718,8 +677,8 @@ describe("previous plan snapshot", () => {
       brief: validBrief({ lead: "最近成功规划" }),
     })).ok).toBe(true);
 
-    insertWorkItem({ id: "tsk_failed_now", title: "本轮失败规划", task_type: "today_plan", status: "failed" });
-    getConn().prepare("UPDATE tickets SET created_at='2099-01-01T00:00:00.000Z' WHERE id='tsk_failed_now'").run();
+    (await insertWorkItem({ id: "tsk_failed_now", title: "本轮失败规划", task_type: "today_plan", status: "failed" }));
+    (await getConn().query("UPDATE tickets SET created_at='2099-01-01T00:00:00.000Z' WHERE id='tsk_failed_now'",[]));
 
     const snapshot = (await todayBriefSnapshot(owner(), "today"));
     // The result pane keeps its last valid brief, while the folded row must be
@@ -735,8 +694,8 @@ describe("scope catalog split", () => {
   it("todo catalog excludes today-scheduled formal tasks but keeps plain todos", async () => {
     // task_type outside the correspondence/follow collectors so the rows
     // appear only as formal_task entries.
-    insertWorkItem({ id: "tsk_today_imp", title: "今日重要报价", task_type: "manual_work", priority: "important" });
-    insertWorkItem({ id: "tsk_todo_plain", title: "普通待办", task_type: "manual_work" });
+    (await insertWorkItem({ id: "tsk_today_imp", title: "今日重要报价", task_type: "manual_work", priority: "important" }));
+    (await insertWorkItem({ id: "tsk_todo_plain", title: "普通待办", task_type: "manual_work" }));
     const todayCatalog = (await collectSourceCatalog(owner(), "today"));
     const todoCatalog = (await collectSourceCatalog(owner(), "todo"));
     const formalIds = (catalog: Awaited<ReturnType<typeof collectSourceCatalog>>) =>
@@ -754,7 +713,7 @@ describe("scope catalog split", () => {
  */
 describe("plan trace rows", () => {
   it("persists harness reasoning and steps as run.think / run.step rows", async () => {
-    insertWorkItem({ id: "tsk_trace", title: "未了结报价" });
+    (await insertWorkItem({ id: "tsk_trace", title: "未了结报价" }));
     vi.spyOn(runner, "runWorker").mockImplementation(async (_sessionId, _task, _prompt, _extra, _signal, onProgress) => {
       onProgress?.({
         phase: "preparing",
@@ -770,21 +729,17 @@ describe("plan trace rows", () => {
     expect([200, 202]).toContain(plan.status);
     await executeRetiredPlanningAdapter(String(plan.body.execution_job_id), "test-trace-worker");
     const workItemId = String(plan.body.work_item_id);
-    const rowFor = (eventType: string) =>
-      getConn().prepare(
-        "SELECT * FROM task_events WHERE work_item_id=? AND event_type=?",
-      ).get(workItemId, eventType) as Row | undefined;
-    await vi.waitFor(() => expect(rowFor("run.think")).toBeTruthy());
-    const thinking = rowFor("run.think") as Row;
+    const rowFor = async (eventType: string) =>
+      (await getConn().query("SELECT * FROM task_events WHERE work_item_id=$1 AND event_type=$2",[workItemId,eventType])).rows[0] as Row | undefined;
+    await vi.waitFor(async () => expect((await rowFor("run.think"))).toBeTruthy());
+    const thinking = (await rowFor("run.think")) as Row;
     expect(thinking).toMatchObject({
       item_key: "reasoning:r1",
       label: "Codex 推理",
       safe_summary: "先看未了结的报价",
       status: "done",
     });
-    const stepRow = getConn().prepare(
-      "SELECT * FROM task_events WHERE work_item_id=? AND item_key='host:preparing'",
-    ).get(workItemId) as Row;
+    const stepRow = (await getConn().query("SELECT * FROM task_events WHERE work_item_id=$1 AND item_key='host:preparing'",[workItemId])).rows[0] as Row;
     // 简报校验失败发生在 worker 返回之后：已经收尾的 host 步骤保持 done，
     // 推理行也已收尾，保持 done；工作项失败由最终失败事件表达。
     expect(stepRow).toMatchObject({

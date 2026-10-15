@@ -164,8 +164,8 @@ export async function pgEnqueueExecutionJob(input: ExecutionJobInput, options: {
     );
     return { job, created: true };
   };
-  return options.client ? enqueue(options.client)
-    : postgresTransaction(enqueue, { isolation: options.deduplicate_active ? "READ COMMITTED" : "SERIALIZABLE" });
+  return options.client ? (await enqueue(options.client))
+    : (await postgresTransaction(enqueue, { isolation: options.deduplicate_active ? "READ COMMITTED" : "SERIALIZABLE" }));
 }
 
 function claimed(row: Row): ClaimedExecutionJob {

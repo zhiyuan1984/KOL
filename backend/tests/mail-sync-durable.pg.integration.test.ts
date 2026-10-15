@@ -123,7 +123,7 @@ describe("durable PostgreSQL mail sync", () => {
     let dispatched: Promise<Awaited<ReturnType<typeof dispatchClaimedExecutionJob>>> | undefined;
     let dispatchedResult: Awaited<ReturnType<typeof dispatchClaimedExecutionJob>> | undefined;
     try {
-      dispatched = dispatchClaimedExecutionJob(claimed!);
+      dispatched = (await dispatchClaimedExecutionJob(claimed!));
       await bodyStartedPromise;
       expect(reads[0]).toBe("7302");
       const running = await postgresPool().query<{ status: string; receipt_json: { index: Json; body: Json } }>(
@@ -161,7 +161,7 @@ describe("durable PostgreSQL mail sync", () => {
     const app = operationJobsRouter({ "mail.sync": async (payload) => {
       await authorizeMailSync(String(payload.mailbox || ""));
     } });
-    const response = await withScopedUser(actor(), () => app.request(`/jobs/${String(queued.job.id)}`));
+    const response = await withScopedUser(actor(), async () => (await app.request(`/jobs/${String(queued.job.id)}`)));
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       job: { progress: {
@@ -258,7 +258,7 @@ describe("durable PostgreSQL mail sync", () => {
       idempotency_key: "mail-sync-native-revoked", object_ref: { mailbox: MAILBOX }, payload: { mailbox: MAILBOX }, max_attempts: 3,
     });
     const claimed = await pgClaimExecutionJobById(String(queued.job.id), "mail-native-worker-revoked");
-    const dispatched = dispatchClaimedExecutionJob(claimed!);
+    const dispatched = (await dispatchClaimedExecutionJob(claimed!));
     try {
       await bodyStartedPromise;
       await postgresPool().query("UPDATE user_starry_bindings SET status='expired' WHERE user_id=$1 AND mailbox_email=$2", [ACTOR_ID, MAILBOX]);

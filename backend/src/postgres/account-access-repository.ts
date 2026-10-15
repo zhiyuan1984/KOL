@@ -189,13 +189,13 @@ function accountReport(
 async function planCopy(client: Reader, input: AccountAccessInput): Promise<AccountAccessReport> {
   const { fromId, toId } = normalizedInput(input);
   const { from, to } = await lockedUsers(client, fromId, toId);
-  const [fromPerson, toPerson] = await Promise.all([personRef(client, fromId), personRef(client, toId)]);
+  const [fromPerson, toPerson] = await Promise.all([(await personRef(client, fromId)), (await personRef(client, toId))]);
   const actions: AccountAccessAction[] = [];
 
   const [fromBindings, targetBindings] = await Promise.all([
-    rows<BindingRow>(client, `SELECT mailbox_email,is_default,mailbox_id,owner_name,bearer_token,status,updated_at,sync_cursor_at,sync_cursor_id,sync_page_no,synced_at
-      FROM user_starry_bindings WHERE user_id=$1 ORDER BY is_default DESC,updated_at ASC,mailbox_email ASC`, [fromId]),
-    rows<{ mailbox_email: string }>(client, "SELECT mailbox_email FROM user_starry_bindings WHERE user_id=$1", [toId]),
+    (await rows<BindingRow>(client, `SELECT mailbox_email,is_default,mailbox_id,owner_name,bearer_token,status,updated_at,sync_cursor_at,sync_cursor_id,sync_page_no,synced_at
+      FROM user_starry_bindings WHERE user_id=$1 ORDER BY is_default DESC,updated_at ASC,mailbox_email ASC`, [fromId])),
+    (await rows<{ mailbox_email: string }>(client, "SELECT mailbox_email FROM user_starry_bindings WHERE user_id=$1", [toId])),
   ]);
   const targetMailboxes = new Set(targetBindings.map((row) => text(row.mailbox_email)));
   for (const binding of fromBindings) {
@@ -220,12 +220,12 @@ async function planCopy(client: Reader, input: AccountAccessInput): Promise<Acco
     : { section: "brands", action: "copy", key: JSON.stringify(nextBrands), detail: `${JSON.stringify(toBrands)} → ${JSON.stringify(nextBrands)}` });
 
   const [fromApprovals, targetApprovals, fromConnectors, targetConnectors, fromSkills, targetSkills] = await Promise.all([
-    rows<ApprovalRow>(client, "SELECT approval_role,role_kind,valid_from,valid_to FROM approval_role_bindings WHERE user_id=$1 ORDER BY approval_role", [fromId]),
-    rows<{ approval_role: string }>(client, "SELECT approval_role FROM approval_role_bindings WHERE user_id=$1", [toId]),
-    rows<ConnectorGrantRow>(client, "SELECT connector_id,access FROM user_connector_grants WHERE user_id=$1 ORDER BY connector_id", [fromId]),
-    rows<{ connector_id: string }>(client, "SELECT connector_id FROM user_connector_grants WHERE user_id=$1", [toId]),
-    rows<SkillGrantRow>(client, "SELECT skill_id FROM user_skill_grants WHERE user_id=$1 ORDER BY skill_id", [fromId]),
-    rows<{ skill_id: string }>(client, "SELECT skill_id FROM user_skill_grants WHERE user_id=$1", [toId]),
+    (await rows<ApprovalRow>(client, "SELECT approval_role,role_kind,valid_from,valid_to FROM approval_role_bindings WHERE user_id=$1 ORDER BY approval_role", [fromId])),
+    (await rows<{ approval_role: string }>(client, "SELECT approval_role FROM approval_role_bindings WHERE user_id=$1", [toId])),
+    (await rows<ConnectorGrantRow>(client, "SELECT connector_id,access FROM user_connector_grants WHERE user_id=$1 ORDER BY connector_id", [fromId])),
+    (await rows<{ connector_id: string }>(client, "SELECT connector_id FROM user_connector_grants WHERE user_id=$1", [toId])),
+    (await rows<SkillGrantRow>(client, "SELECT skill_id FROM user_skill_grants WHERE user_id=$1 ORDER BY skill_id", [fromId])),
+    (await rows<{ skill_id: string }>(client, "SELECT skill_id FROM user_skill_grants WHERE user_id=$1", [toId])),
   ]);
   const targetApprovalRoles = new Set(targetApprovals.map((row) => text(row.approval_role)));
   for (const grant of fromApprovals) actions.push(targetApprovalRoles.has(text(grant.approval_role))
@@ -245,9 +245,9 @@ async function planCopy(client: Reader, input: AccountAccessInput): Promise<Acco
     actions.push({ section: "agent_binding", action: "skip", key: fromPerson || toPerson || "", detail: "人员锚点缺失（organization_people.user_id），跳过 Agent 绑定复制" });
   } else {
     const [sourceBindings, targetAgentBindings] = await Promise.all([
-      rows<AgentBindingRow>(client, `SELECT id,agent_id,company_id,effective_from,effective_to,org_version
-        FROM agent_bindings WHERE status='active' AND target_type='person' AND target_id=$1 ORDER BY agent_id,id`, [fromPerson]),
-      rows<{ id: string; agent_id: string }>(client, "SELECT id,agent_id FROM agent_bindings WHERE target_type='person' AND target_id=$1", [toPerson]),
+      (await rows<AgentBindingRow>(client, `SELECT id,agent_id,company_id,effective_from,effective_to,org_version
+        FROM agent_bindings WHERE status='active' AND target_type='person' AND target_id=$1 ORDER BY agent_id,id`, [fromPerson])),
+      (await rows<{ id: string; agent_id: string }>(client, "SELECT id,agent_id FROM agent_bindings WHERE target_type='person' AND target_id=$1", [toPerson])),
     ]);
     const targetAgentIds = new Set(targetAgentBindings.map((row) => text(row.agent_id)));
     for (const binding of sourceBindings) actions.push(targetAgentIds.has(text(binding.agent_id))
@@ -261,14 +261,14 @@ async function copyInTransaction(client: PoolClient, input: AccountAccessInput):
   const { fromId, toId, actor } = normalizedInput(input);
   const stamp = nowIso();
   const { from, to } = await lockedUsers(client, fromId, toId);
-  const [fromPerson, toPerson] = await Promise.all([personRef(client, fromId), personRef(client, toId)]);
+  const [fromPerson, toPerson] = await Promise.all([(await personRef(client, fromId)), (await personRef(client, toId))]);
   const actions: AccountAccessAction[] = [];
 
   const [fromBindings, targetBindingRows] = await Promise.all([
-    rows<BindingRow>(client, `SELECT mailbox_email,is_default,mailbox_id,owner_name,bearer_token,status,updated_at,sync_cursor_at,sync_cursor_id,sync_page_no,synced_at
-      FROM user_starry_bindings WHERE user_id=$1 ORDER BY is_default DESC,updated_at ASC,mailbox_email ASC`, [fromId]),
-    rows<{ mailbox_email: string; is_default: number | string }>(client,
-      "SELECT mailbox_email,is_default FROM user_starry_bindings WHERE user_id=$1 FOR UPDATE", [toId]),
+    (await rows<BindingRow>(client, `SELECT mailbox_email,is_default,mailbox_id,owner_name,bearer_token,status,updated_at,sync_cursor_at,sync_cursor_id,sync_page_no,synced_at
+      FROM user_starry_bindings WHERE user_id=$1 ORDER BY is_default DESC,updated_at ASC,mailbox_email ASC`, [fromId])),
+    (await rows<{ mailbox_email: string; is_default: number | string }>(client,
+      "SELECT mailbox_email,is_default FROM user_starry_bindings WHERE user_id=$1 FOR UPDATE", [toId])),
   ]);
   const targetMailboxes = new Set(targetBindingRows.map((row) => text(row.mailbox_email)));
   let targetHasDefault = targetBindingRows.some((row) => Number(row.is_default) === 1);
@@ -343,8 +343,8 @@ async function copyInTransaction(client: PoolClient, input: AccountAccessInput):
   }
 
   const [fromApprovals, targetApprovals] = await Promise.all([
-    rows<ApprovalRow>(client, "SELECT approval_role,role_kind,valid_from,valid_to FROM approval_role_bindings WHERE user_id=$1 ORDER BY approval_role", [fromId]),
-    rows<{ approval_role: string }>(client, "SELECT approval_role FROM approval_role_bindings WHERE user_id=$1 FOR UPDATE", [toId]),
+    (await rows<ApprovalRow>(client, "SELECT approval_role,role_kind,valid_from,valid_to FROM approval_role_bindings WHERE user_id=$1 ORDER BY approval_role", [fromId])),
+    (await rows<{ approval_role: string }>(client, "SELECT approval_role FROM approval_role_bindings WHERE user_id=$1 FOR UPDATE", [toId])),
   ]);
   const targetApprovalRoles = new Set(targetApprovals.map((row) => text(row.approval_role)));
   for (const grant of fromApprovals) {
@@ -365,8 +365,8 @@ async function copyInTransaction(client: PoolClient, input: AccountAccessInput):
   }
 
   const [fromConnectors, targetConnectors] = await Promise.all([
-    rows<ConnectorGrantRow>(client, "SELECT connector_id,access FROM user_connector_grants WHERE user_id=$1 ORDER BY connector_id", [fromId]),
-    rows<{ connector_id: string }>(client, "SELECT connector_id FROM user_connector_grants WHERE user_id=$1 FOR UPDATE", [toId]),
+    (await rows<ConnectorGrantRow>(client, "SELECT connector_id,access FROM user_connector_grants WHERE user_id=$1 ORDER BY connector_id", [fromId])),
+    (await rows<{ connector_id: string }>(client, "SELECT connector_id FROM user_connector_grants WHERE user_id=$1 FOR UPDATE", [toId])),
   ]);
   const targetConnectorIds = new Set(targetConnectors.map((row) => text(row.connector_id)));
   for (const grant of fromConnectors) {
@@ -387,8 +387,8 @@ async function copyInTransaction(client: PoolClient, input: AccountAccessInput):
   }
 
   const [fromSkills, targetSkills] = await Promise.all([
-    rows<SkillGrantRow>(client, "SELECT skill_id FROM user_skill_grants WHERE user_id=$1 ORDER BY skill_id", [fromId]),
-    rows<{ skill_id: string }>(client, "SELECT skill_id FROM user_skill_grants WHERE user_id=$1 FOR UPDATE", [toId]),
+    (await rows<SkillGrantRow>(client, "SELECT skill_id FROM user_skill_grants WHERE user_id=$1 ORDER BY skill_id", [fromId])),
+    (await rows<{ skill_id: string }>(client, "SELECT skill_id FROM user_skill_grants WHERE user_id=$1 FOR UPDATE", [toId])),
   ]);
   const targetSkillIds = new Set(targetSkills.map((row) => text(row.skill_id)));
   for (const grant of fromSkills) {
@@ -412,9 +412,9 @@ async function copyInTransaction(client: PoolClient, input: AccountAccessInput):
     actions.push({ section: "agent_binding", action: "skip", key: fromPerson || toPerson || "", detail: "人员锚点缺失（organization_people.user_id），跳过 Agent 绑定复制" });
   } else {
     const [sourceBindings, targetBindings] = await Promise.all([
-      rows<AgentBindingRow>(client, `SELECT id,agent_id,company_id,effective_from,effective_to,org_version
-        FROM agent_bindings WHERE status='active' AND target_type='person' AND target_id=$1 ORDER BY agent_id,id`, [fromPerson]),
-      rows<{ agent_id: string }>(client, "SELECT agent_id FROM agent_bindings WHERE target_type='person' AND target_id=$1 FOR UPDATE", [toPerson]),
+      (await rows<AgentBindingRow>(client, `SELECT id,agent_id,company_id,effective_from,effective_to,org_version
+        FROM agent_bindings WHERE status='active' AND target_type='person' AND target_id=$1 ORDER BY agent_id,id`, [fromPerson])),
+      (await rows<{ agent_id: string }>(client, "SELECT agent_id FROM agent_bindings WHERE target_type='person' AND target_id=$1 FOR UPDATE", [toPerson])),
     ]);
     const targetAgentIds = new Set(targetBindings.map((row) => text(row.agent_id)));
     for (const sourceBinding of sourceBindings) {
@@ -424,8 +424,8 @@ async function copyInTransaction(client: PoolClient, input: AccountAccessInput):
         continue;
       }
       const [sourceInCompany, targetInCompany] = await Promise.all([
-        personIsActiveMemberOfCompany(client, fromPerson, text(sourceBinding.company_id), stamp),
-        personIsActiveMemberOfCompany(client, toPerson, text(sourceBinding.company_id), stamp),
+        (await personIsActiveMemberOfCompany(client, fromPerson, text(sourceBinding.company_id), stamp)),
+        (await personIsActiveMemberOfCompany(client, toPerson, text(sourceBinding.company_id), stamp)),
       ]);
       if (!sourceInCompany || !targetInCompany) {
         actions.push({ section: "agent_binding", action: "skip", key: agentId, detail: "人员不在来源公司有效成员范围内" });
@@ -465,7 +465,7 @@ async function copyInTransaction(client: PoolClient, input: AccountAccessInput):
  */
 export async function pgCopyAccountAccess(input: AccountAccessInput): Promise<AccountAccessReport> {
   if (!input.apply) return planCopy(undefined, input);
-  return postgresTransaction((client) => copyInTransaction(client, input), { isolation: "SERIALIZABLE" });
+  return postgresTransaction(async (client) => (await copyInTransaction(client, input)), { isolation: "SERIALIZABLE" });
 }
 
 // Existing enterprise-account repository functions remain native PostgreSQL and

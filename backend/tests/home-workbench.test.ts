@@ -30,26 +30,24 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "home.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
-  seedWorkbenchFixtures();
+  (await seedWorkbenchFixtures());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
 describe("home workbench", () => {
   it("enriches current workbench rows linked only by collaboration_id", async () => {
-    const source = getConn().prepare("SELECT project_id, collaboration_id FROM tickets WHERE id=?")
-      .get("tsk_home_laozhang_quote") as { project_id?: string; collaboration_id?: string };
+    const source = (await getConn().query("SELECT project_id, collaboration_id FROM tickets WHERE id=$1",["tsk_home_laozhang_quote"])).rows[0] as { project_id?: string; collaboration_id?: string };
     const collaborationId = source.collaboration_id || source.project_id;
     expect(collaborationId).toBeTruthy();
-    getConn().prepare("UPDATE tickets SET collaboration_id=?, project_id=NULL WHERE id=?")
-      .run(collaborationId, "tsk_home_laozhang_quote");
+    (await getConn().query("UPDATE tickets SET collaboration_id=$1, project_id=NULL WHERE id=$2",[collaborationId,"tsk_home_laozhang_quote"]));
 
     for (const view of ["todo", "today"]) {
       const listed = await request("GET", `/api/workbench/tasks?view=${view}`);
@@ -86,15 +84,7 @@ describe("home workbench", () => {
   });
 
   it("does not load full planner input snapshots into the home board", async () => {
-    getConn().prepare(
-      `INSERT INTO tickets
-       (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,data_version,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      "tsk_large_planner_input", DEMO_USER.id, "today_plan", "今日规划", "planning", "completed", "normal",
-      "today_plan", "platform:workspace-planner", JSON.stringify({ snapshot: "x".repeat(1_000_000) }), "{}", 1,
-      "2099-01-01T00:00:00.000Z", "2099-01-01T00:00:00.000Z",
-    );
+    (await getConn().query("INSERT INTO tickets\n       (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,data_version,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",["tsk_large_planner_input",DEMO_USER.id,"today_plan","今日规划","planning","completed","normal","today_plan","platform:workspace-planner",JSON.stringify({ snapshot: "x".repeat(1_000_000) }),"{}",1,"2099-01-01T00:00:00.000Z","2099-01-01T00:00:00.000Z"]));
 
     const board = (await buildHomeBoard()) as Json;
     const tasks = board.tasks as Json[];
@@ -158,50 +148,25 @@ describe("home workbench", () => {
     expect(((afterDismiss.workbench as Json).todo as Json[]).some((row) => row.id === "tsk_home_outdoor_profile")).toBe(false);
   });
 
-  it("seedAll does not plant demo KOL work items", () => {
+  it("seedAll does not plant demo KOL work items", async () => {
     const count = (table: "tickets" | "collaborations", prefix: string) => Number((getConn()
       .prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE id LIKE ?`).get(prefix) as { c: number }).c);
     const ticketsBefore = count("tickets", "tsk_home_%");
     const collaborationsBefore = count("collaborations", "col_%");
-    seedAll();
+    (await seedAll());
     // PostgreSQL preserves already inserted fixture facts; SQLite demo cleanup removes them.
     expect(count("tickets", "tsk_home_%")).toBe(databaseEngine() === "postgres" ? ticketsBefore : 0);
     expect(count("collaborations", "col_%")).toBe(databaseEngine() === "postgres" ? collaborationsBefore : 0);
   });
 
   it("demo reset drops leftover Starry library rows before stub listAll re-syncs", async () => {
-    getConn().prepare(
-      `INSERT INTO collaborations
-       (id, handle, display_name, brand, platform, followers, email, mailbox_from,
-        lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue, stage_version, locked)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      "col_KOLSTALE001",
-      "过期全量达人",
-      "过期全量达人",
-      "LT",
-      "YouTube",
-      "1万",
-      "stale.kol@example.com",
-      "kol.lt@litime.example",
-      "lc_KOLSTALE001",
-      "conv_KOLSTALE001",
-      "TESTING",
-      3,
-      "leftover from a prior real-mode library sync",
-      0,
-      0,
-      0,
-    );
-    getConn().prepare("UPDATE collaborations SET kol_uid=?, source='starry' WHERE id=?").run(
-      "KOLSTALE001",
-      "col_KOLSTALE001",
-    );
-    expect(getConn().prepare("SELECT id FROM collaborations WHERE kol_uid=?").get("KOLSTALE001")).toBeTruthy();
+    (await getConn().query("INSERT INTO collaborations\n       (id, handle, display_name, brand, platform, followers, email, mailbox_from,\n        lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue, stage_version, locked)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",["col_KOLSTALE001","过期全量达人","过期全量达人","LT","YouTube","1万","stale.kol@example.com","kol.lt@litime.example","lc_KOLSTALE001","conv_KOLSTALE001","TESTING",3,"leftover from a prior real-mode library sync",0,0,0]));
+    (await getConn().query("UPDATE collaborations SET kol_uid=$1, source='starry' WHERE id=$2",["KOLSTALE001","col_KOLSTALE001"]));
+    expect((await getConn().query("SELECT id FROM collaborations WHERE kol_uid=$1",["KOLSTALE001"])).rows[0]).toBeTruthy();
 
     const reset = await request("POST", "/api/demo/reset", { workbench: true });
     expect(reset.status).toBe(200);
-    expect(getConn().prepare("SELECT id FROM collaborations WHERE kol_uid=?").get("KOLSTALE001")).toBeUndefined();
+    expect((await getConn().query("SELECT id FROM collaborations WHERE kol_uid=$1",["KOLSTALE001"])).rows[0]).toBeUndefined();
 
     const board = await request("GET", "/api/home/board");
     const kols = (board.body.kols as Json[]) || [];
@@ -211,29 +176,16 @@ describe("home workbench", () => {
   });
 
   it("demo reset wipes leftover official writes and extra tasks before fixtures", async () => {
-    getConn().prepare("INSERT INTO starry_stage_writes (lifecycle_id, stage_code, actor, ts) VALUES (?,?,?,?)").run(
-      "lc_xiaomei",
-      "INTERESTED",
-      "test",
-      "2026-09-01T00:00:00+00:00",
-    );
-    getConn().prepare(
-      `INSERT INTO tickets
-       (id,owner_user_id,task_type,title,source,status,priority,skill,profile,project_id,
-        collaboration_id,session_id,due_at,promoted_at,dismissed_at,input,entities,data_version,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      "tsk_leak", DEMO_USER.id, "email_compose", "leftover", "manual", "waiting", "high", "email_compose",
-      "lead", null, null, null, null, null, null, "{}", "{}", 1, "2026-09-01T00:00:00+00:00", "2026-09-01T00:00:00+00:00",
-    );
+    (await getConn().query("INSERT INTO starry_stage_writes (lifecycle_id, stage_code, actor, ts) VALUES ($1,$2,$3,$4)",["lc_xiaomei","INTERESTED","test","2026-09-01T00:00:00+00:00"]));
+    (await getConn().query("INSERT INTO tickets\n       (id,owner_user_id,task_type,title,source,status,priority,skill,profile,project_id,\n        collaboration_id,session_id,due_at,promoted_at,dismissed_at,input,entities,data_version,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)",["tsk_leak",DEMO_USER.id,"email_compose","leftover","manual","waiting","high","email_compose","lead",null,null,null,null,null,null,"{}","{}",1,"2026-09-01T00:00:00+00:00","2026-09-01T00:00:00+00:00"]));
     const reset = await request("POST", "/api/demo/reset", { workbench: true });
     expect(reset.status).toBe(200);
-    expect(getConn().prepare("SELECT COUNT(*) AS c FROM starry_stage_writes").get() as { c: number }).toEqual({ c: 0 });
-    expect(getConn().prepare("SELECT id FROM tickets WHERE id=?").get("tsk_leak")).toBeUndefined();
-    expect(getConn().prepare("SELECT stage_code FROM collaborations WHERE id=?").get("col_xiaomei") as { stage_code: string })
+    expect((await getConn().query("SELECT COUNT(*) AS c FROM starry_stage_writes",[])).rows[0] as { c: number }).toEqual({ c: 0 });
+    expect((await getConn().query("SELECT id FROM tickets WHERE id=$1",["tsk_leak"])).rows[0]).toBeUndefined();
+    expect((await getConn().query("SELECT stage_code FROM collaborations WHERE id=$1",["col_xiaomei"])).rows[0] as { stage_code: string })
       .toEqual({ stage_code: "INITIAL_CONTACT" });
-    resetDemoRuntimeState();
-    seedWorkbenchFixtures();
+    (await resetDemoRuntimeState());
+    (await seedWorkbenchFixtures());
     expect(((await buildHomeBoard()) as Json).workbench).toMatchObject({
       summary: { open: 4, insights: 2 },
     });
@@ -301,7 +253,7 @@ describe("home workbench", () => {
   });
 
   it("acknowledge writes memory without creating a session", async () => {
-    const before = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const before = (await getConn().query("SELECT COUNT(*) AS c FROM sessions",[])).rows[0] as { c: number };
     const first = await request("POST", "/api/tasks/tsk_home_laozhang_quote/acknowledge", {});
     expect(first.status).toBe(200);
     expect(first.body.creates_session).toBe(false);
@@ -313,7 +265,7 @@ describe("home workbench", () => {
     expect(again.status).toBe(200);
     expect(String(again.body.acknowledged_at)).toBe(String(first.body.acknowledged_at));
     expect(String(again.body.last_acted_at) >= String(first.body.last_acted_at)).toBe(true);
-    const after = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const after = (await getConn().query("SELECT COUNT(*) AS c FROM sessions",[])).rows[0] as { c: number };
     expect(after.c).toBe(before.c);
     const reread = await request("GET", `/api/tasks/tsk_home_laozhang_quote`);
     expect(reread.status).toBe(200);
@@ -322,7 +274,7 @@ describe("home workbench", () => {
   });
 
   it("GET board / tasks / following never insert sessions", async () => {
-    const before = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const before = (await getConn().query("SELECT COUNT(*) AS c FROM sessions",[])).rows[0] as { c: number };
     const board = await request("GET", "/api/home/board");
     expect(board.status).toBe(200);
     expect(board.body.creates_session).toBe(false);
@@ -341,7 +293,7 @@ describe("home workbench", () => {
     expect(following.body.creates_session).toBe(false);
     expect(following.body.index).toBe("我的跟进");
     expect(Array.isArray(following.body.kols)).toBe(true);
-    const after = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const after = (await getConn().query("SELECT COUNT(*) AS c FROM sessions",[])).rows[0] as { c: number };
     expect(after.c).toBe(before.c);
   });
 

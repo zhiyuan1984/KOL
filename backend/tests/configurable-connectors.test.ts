@@ -24,10 +24,9 @@ beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "configurable-connectors-"));
   Object.assign(process.env, { LINGONG_DB: path.join(tmp, "test.db"), LINGONG_DATA: tmp, AUTH_MODE: "enabled", NODE_ENV: "test" });
-  resetConn();
+  (await resetConn());
   const db = getConn();
-  for (const [id, role] of [["user-a", "employee"], ["admin-a", "admin"]]) db.prepare(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-    VALUES(?,?,?,?,?,?,?,?,?,?)`).run(id, id, id, "hash", JSON.stringify([role]), "[]", "", 1, "now", "now");
+  for (const [id, role] of [["user-a", "employee"], ["admin-a", "admin"]]) (await db.query("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",[id,id,id,"hash",JSON.stringify([role]),"[]","",1,"now","now"]));
   // 人员资格锚点是「人 → Agent」绑定（CONST-05 / ADR-2026-10-03）：Agent 先发布，
   // 账号挂到组织人员上，再把被测 Agent 绑定到该人员所在的三级组。
   (await seedPublishedAgent(context.agentId, "运行时测试 Agent"));
@@ -35,14 +34,14 @@ beforeEach(async () => {
     agent_id: context.agentId, target_type: "organization_unit", target_id: "org:lt_team",
     company_id: "company:amperetime", source: "test",
   }));
-  db.prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(context.userId, "person:ye_guanwang");
-  db.prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('http_fixture','HTTP Fixture',1,'configured','now')").run();
+  (await db.query("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2",[context.userId,"person:ye_guanwang"]));
+  (await db.query("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('http_fixture','HTTP Fixture',1,'configured','now')",[]));
   (await setAgentSkill(context.agentId, context.skillId, true, 0));
   (await setSkillConnector(context.skillId, "http_fixture", true, 0));
 });
 afterEach(async () => {
   if (server) await new Promise<void>((resolve) => server!.close(() => resolve()));
-  server = undefined; resetConn(); fs.rmSync(tmp, { recursive: true, force: true });
+  server = undefined; (await resetConn()); fs.rmSync(tmp, { recursive: true, force: true });
   for (const key of ["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "NODE_ENV", "RUNTIME_CREDENTIAL_MASTER_KEY"]) delete process.env[key];
 });
 async function localApi() {

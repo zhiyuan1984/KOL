@@ -56,7 +56,7 @@ discovery.get("/discovery/runs/:id/candidates", async (c) => {
   })));
 });
 
-discovery.get("/discovery/candidates/:id", (c) => c.json(getCandidate(c.req.param("id"))));
+discovery.get("/discovery/candidates/:id", async (c) => c.json((await getCandidate(c.req.param("id")))));
 
 discovery.post("/discovery/candidates/follow-batch", async (c) => {
   const body = await c.req.json().catch(() => ({})) as Json;
@@ -68,4 +68,4 @@ discovery.post("/discovery/candidates/:id/follow", async (c) => {
   return c.json(await followCandidate(c.req.param("id"), body));
 });
 
-discovery.post("/discovery/candidates/:id/dismiss", (c) => c.json(dismissCandidate(c.req.param("id"))));
+discovery.post("/discovery/candidates/:id/dismiss", async (c) => c.json((await dismissCandidate(c.req.param("id")))));

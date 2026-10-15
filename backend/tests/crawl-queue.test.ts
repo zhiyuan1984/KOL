@@ -82,7 +82,7 @@ async function runMonitor(crawlId: string, sequence = 0) {
 beforeEach(async () => {
   previous = Object.fromEntries(["AUTH_MODE", "RUNTIME_CREDENTIAL_MASTER_KEY"].map(key => [key, process.env[key]]));
   process.env.AUTH_MODE = "enabled";
-  await freshTestDatabase(); resetConn();
+  await freshTestDatabase(); (await resetConn());
   calls = []; remoteTasks = 0; statusByTask = {};
   server = http.createServer(async (req, res) => {
     if (req.method !== "POST") { res.writeHead(405).end(); return; }
@@ -113,11 +113,10 @@ beforeEach(async () => {
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   url = `http://127.0.0.1:${(server.address() as { port: number }).port}/mcp`;
   const db = getConn();
-  db.prepare("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES(?,?,?,'fixture','[\"employee\"]','[]','',1,'now','now')")
-    .run(context.userId, context.userId, "Queue fixture");
+  (await db.query("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES($1,$2,$3,'fixture','[\"employee\"]','[]','',1,'now','now')",[context.userId,context.userId,"Queue fixture"]));
   (await seedPublishedAgent(context.agentId, "Queue fixture"));
   (await createAgentBinding({ agent_id: context.agentId, target_type: "organization_unit", target_id: "org:lt_team", company_id: "company:amperetime", source: "test" }));
-  db.prepare("UPDATE organization_people SET user_id=? WHERE person_ref='person:ye_guanwang'").run(context.userId);
+  (await db.query("UPDATE organization_people SET user_id=$1 WHERE person_ref='person:ye_guanwang'",[context.userId]));
   (await configureCrawlerFixture(url));
   (await setAgentSkill(context.agentId, context.skillId, true, 0));
   (await setSkillConnector(context.skillId, "claw", true, 0));
@@ -131,7 +130,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   if (server) await new Promise<void>(resolve => { server.close(() => resolve()); server.closeAllConnections(); });
-  resetConn();
+  (await resetConn());
   for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
 });
 
@@ -207,15 +206,15 @@ it("dequeue cancels a queued job through the operation", async () => {
   await insertJob(actionId, "queued");
   const app = new Hono();
   app.route("/api", operationRouter(runtimeActionOperations));
-  const owner = mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get(context.userId) as Json);
-  const response = await withScopedUser(owner, () => app.request("/api/actions/runtime.crawl.dequeue", {
+  const owner = (await mapUser((await getConn().query("SELECT * FROM users WHERE id=$1",[context.userId])).rows[0] as Json));
+  const response = await withScopedUser(owner, async () => (await app.request("/api/actions/runtime.crawl.dequeue", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action_id: actionId }),
-  }));
+  })));
   expect(response.status).toBe(200);
   expect(await jobState(actionId)).toMatchObject({ state: "cancelled", error_code: "queue_cancelled_by_user" });
   // 重复取消幂等失败（已非 queued/uncertain）。
-  const again = await withScopedUser(owner, () => app.request("/api/actions/runtime.crawl.dequeue", {
+  const again = await withScopedUser(owner, async () => (await app.request("/api/actions/runtime.crawl.dequeue", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action_id: actionId }),
-  }));
+  })));
   expect(again.status).toBe(409);
 });

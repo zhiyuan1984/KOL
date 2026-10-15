@@ -58,21 +58,21 @@ function requireSkill(id: string): void {
   if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
 }
 
-function lifecycleRow(id: string): { skill_id: string; stage: string; origin: SkillOrigin | null; owner: string | null; business_stage: string | null; tags: string | null; biz_family: string | null; biz_domain: string | null; updated_at: string } | undefined {
-  return getConn().prepare("SELECT * FROM skill_lifecycle WHERE skill_id = ?").get(id) as
+async function lifecycleRow(id: string): Promise<Awaited<{ skill_id: string; stage: string; origin: SkillOrigin | null; owner: string | null; business_stage: string | null; tags: string | null; biz_family: string | null; biz_domain: string | null; updated_at: string } | undefined>> {
+  return (await getConn().query("SELECT * FROM skill_lifecycle WHERE skill_id = $1",[id])).rows[0] as
     | { skill_id: string; stage: string; origin: SkillOrigin | null; owner: string | null; business_stage: string | null; tags: string | null; biz_family: string | null; biz_domain: string | null; updated_at: string }
     | undefined;
 }
 
-function currentStage(id: string): SkillStage {
-  const row = lifecycleRow(id);
+async function currentStage(id: string): Promise<Awaited<SkillStage>> {
+  const row = (await lifecycleRow(id));
   const stage = (row?.stage || "draft") as SkillStage;
   return SKILL_STAGES.includes(stage) ? stage : "draft";
 }
 
 /** 待发布的「所需工具」：有草稿改动时以草稿为准（发布会应用草稿），否则取现行技能声明。 */
-function pendingDeclaredTools(id: string): string[] {
-  const drafted = getSkillDraft(id).patch.mcp;
+async function pendingDeclaredTools(id: string): Promise<Awaited<string[]>> {
+  const drafted = (await getSkillDraft(id)).patch.mcp;
   if (Array.isArray(drafted)) return drafted.map(String);
   if (typeof drafted === "string") return drafted.split(/[,，]/).map((tool) => tool.trim()).filter(Boolean);
   return [...(taskDefinition(id)?.mcp || [])];
@@ -83,11 +83,11 @@ function pendingDeclaredTools(id: string): string[] {
  * 保证「工具风险变了，技能风险自动跟着变」的单一事实源。
  */
 export async function skillRiskLevel(id: string): Promise<"L1" | "L2" | "L3" | null> {
-  return (await skillToolProfile(id, pendingDeclaredTools(id))).risk;
+  return (await skillToolProfile(id, (await pendingDeclaredTools(id)))).risk;
 }
 
 export async function skillDependencyIssues(id: string): Promise<{ unregistered: string[]; unmounted: string[] }> {
-  const tools = pendingDeclaredTools(id);
+  const tools = (await pendingDeclaredTools(id));
   return {
     unregistered: (await unregisteredDeclaredTools(tools)).map((tool) => tool.declared_as),
     unmounted: (await unmountedDeclaredTools(id, tools)).map((tool) => tool.declared_as),
@@ -136,21 +136,15 @@ export async function skillLifecycleMeta(id: string): Promise<{
   test_summary: { total: number; pass_rate: number | null; failing: number; last_run_at: string | null };
 }> {
   requireSkill(id);
-  const stage = currentStage(id);
-  const row = lifecycleRow(id);
+  const stage = (await currentStage(id));
+  const row = (await lifecycleRow(id));
   const tags = row?.tags ? (JSON.parse(row.tags) as string[]) : [];
   const conn = getConn();
-  const version = conn
-    .prepare("SELECT MAX(version) AS v FROM skill_versions WHERE skill_id = ? AND status = 'published'")
-    .get(id) as { v: number | null };
-  const tests = conn.prepare("SELECT COUNT(*) AS n FROM skill_tests WHERE skill_id = ?").get(id) as { n: number };
-  const lastRuns = conn
-    .prepare(
-      "SELECT passed, ran_at FROM skill_test_runs WHERE skill_id = ? AND id IN (SELECT MAX(id) FROM skill_test_runs WHERE skill_id = ? GROUP BY test_id)",
-    )
-    .all(id, id) as { passed: number; ran_at: string }[];
+  const version = (await conn.query("SELECT MAX(version) AS v FROM skill_versions WHERE skill_id = $1 AND status = 'published'",[id])).rows[0] as { v: number | null };
+  const tests = (await conn.query("SELECT COUNT(*) AS n FROM skill_tests WHERE skill_id = $1",[id])).rows[0] as { n: number };
+  const lastRuns = (await conn.query("SELECT passed, ran_at FROM skill_test_runs WHERE skill_id = $1 AND id IN (SELECT MAX(id) FROM skill_test_runs WHERE skill_id = $2 GROUP BY test_id)",[id,id])).rows as { passed: number; ran_at: string }[];
   const lastRunAt = (
-    conn.prepare("SELECT MAX(ran_at) AS t FROM skill_test_runs WHERE skill_id = ?").get(id) as { t: string | null }
+    (await conn.query("SELECT MAX(ran_at) AS t FROM skill_test_runs WHERE skill_id = $1",[id])).rows[0] as { t: string | null }
   ).t;
   const failing = lastRuns.filter((r) => !r.passed).length;
   return {
@@ -179,31 +173,25 @@ export async function skillLifecycleMeta(id: string): Promise<{
   };
 }
 
-export function setSkillOrigin(id: string, origin: SkillOrigin): void {
+export async function setSkillOrigin(id: string, origin: SkillOrigin): Promise<Awaited<void>> {
   requireSkill(id);
-  const row = lifecycleRow(id);
+  const row = (await lifecycleRow(id));
   const previous = row?.origin || (row?.tags?.includes("第三方") ? "third_party" : "official");
   if (previous === origin) return;
-  const operator = currentUser().handle;
-  getConn().prepare(
-    `INSERT INTO skill_lifecycle (skill_id, stage, origin, owner, business_stage, tags, updated_at)
-     VALUES (?,?,?,?,?,?,?)
-     ON CONFLICT(skill_id) DO UPDATE SET origin=excluded.origin, updated_at=excluded.updated_at`,
-  ).run(id, row?.stage || "draft", origin, row?.owner || null, row?.business_stage || null, row?.tags || "[]", nowIso());
-  audit(operator, "skill.origin.change", { skill: id, from: previous, to: origin });
+  const operator = (await currentUser()).handle;
+  (await getConn().query("INSERT INTO skill_lifecycle (skill_id, stage, origin, owner, business_stage, tags, updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7)\n     ON CONFLICT(skill_id) DO UPDATE SET origin=excluded.origin, updated_at=excluded.updated_at",[id,row?.stage || "draft",origin,row?.owner || null,row?.business_stage || null,row?.tags || "[]",nowIso()]));
+  (await audit(operator, "skill.origin.change", { skill: id, from: previous, to: origin }));
 }
 
-export function skillStageHistory(id: string): Json[] {
-  return getConn()
-    .prepare("SELECT * FROM skill_stage_history WHERE skill_id = ? ORDER BY at DESC")
-    .all(id) as Json[];
+export async function skillStageHistory(id: string): Promise<Awaited<Json[]>> {
+  return (await getConn().query("SELECT * FROM skill_stage_history WHERE skill_id = $1 ORDER BY at DESC",[id])).rows as Json[];
 }
 
 export async function transitionSkillStage(id: string, toStage: string, reason?: string): Promise<{ stage: SkillStage }> {
   requireSkill(id);
   const to = toStage as SkillStage;
   if (!SKILL_STAGES.includes(to)) throw new HttpFail(400, `unknown stage ${toStage}`);
-  const from = currentStage(id);
+  const from = (await currentStage(id));
   if (from === to) return { stage: from };
   if (!ALLOWED_TRANSITIONS[from].includes(to)) {
     throw new HttpFail(400, `cannot move from ${from} to ${to}`);
@@ -213,30 +201,20 @@ export async function transitionSkillStage(id: string, toStage: string, reason?:
   }
   if (to === "testing" || to === "published") (await assertDeclaredToolsReady(id));
   if (to === "published") (await assertSkillPublishAllowed(id));
-  if (to === "published") applySkillDraft(id);
+  if (to === "published") (await applySkillDraft(id));
   const conn = getConn();
-  const operator = currentUser().handle;
-  conn
-    .prepare(
-      "INSERT INTO skill_stage_history (id, skill_id, from_stage, to_stage, operator, reason, at) VALUES (?,?,?,?,?,?,?)",
-    )
-    .run(nid("ssh"), id, from, to, operator, reason || null, nowIso());
-  conn
-    .prepare(
-      "INSERT INTO skill_lifecycle (skill_id, stage, updated_at) VALUES (?,?,?) ON CONFLICT(skill_id) DO UPDATE SET stage=excluded.stage, updated_at=excluded.updated_at",
-    )
-    .run(id, to, nowIso());
+  const operator = (await currentUser()).handle;
+  (await conn.query("INSERT INTO skill_stage_history (id, skill_id, from_stage, to_stage, operator, reason, at) VALUES ($1,$2,$3,$4,$5,$6,$7)",[nid("ssh"),id,from,to,operator,reason || null,nowIso()]));
+  (await conn.query("INSERT INTO skill_lifecycle (skill_id, stage, updated_at) VALUES ($1,$2,$3) ON CONFLICT(skill_id) DO UPDATE SET stage=excluded.stage, updated_at=excluded.updated_at",[id,to,nowIso()]));
   if (to === "published") {
     (await publishSkillVersion(id, reason));
   }
-  audit(operator, "skill.stage", { skill: id, from, to, reason: reason || null });
+  (await audit(operator, "skill.stage", { skill: id, from, to, reason: reason || null }));
   return { stage: to };
 }
 
-function currentPublishedVersion(id: string): number {
-  const row = getConn()
-    .prepare("SELECT MAX(version) AS v FROM skill_versions WHERE skill_id = ? AND status = 'published'")
-    .get(id) as { v: number | null };
+async function currentPublishedVersion(id: string): Promise<Awaited<number>> {
+  const row = (await getConn().query("SELECT MAX(version) AS v FROM skill_versions WHERE skill_id = $1 AND status = 'published'",[id])).rows[0] as { v: number | null };
   return row.v || 0;
 }
 
@@ -252,10 +230,8 @@ export function approvalStatusLabel(status: string): string {
 }
 
 /** 该技能最新一条技能发布审批（走统一审批引擎，kind=skill_publish，CEO 终审链）。 */
-export function latestSkillPublishApproval(id: string): SkillPublishApprovalSummary {
-  const rows = getConn()
-    .prepare("SELECT id, status, payload FROM approvals WHERE kind = 'skill_publish' ORDER BY created_at DESC")
-    .all() as { id: string; status: string; payload: string | null }[];
+export async function latestSkillPublishApproval(id: string): Promise<Awaited<SkillPublishApprovalSummary>> {
+  const rows = (await getConn().query("SELECT id, status, payload FROM approvals WHERE kind = 'skill_publish' ORDER BY created_at DESC",[])).rows as { id: string; status: string; payload: string | null }[];
   for (const row of rows) {
     let payload: { skill_id?: string; base_version?: number } = {};
     try {
@@ -279,13 +255,13 @@ export function latestSkillPublishApproval(id: string): SkillPublishApprovalSumm
  */
 export async function assertSkillPublishAllowed(id: string): Promise<void> {
   requireSkill(id);
-  const row = lifecycleRow(id);
+  const row = (await lifecycleRow(id));
   if (!row?.owner || !row.owner.trim()) {
     throw new HttpFail(400, { code: "skill_owner_required", message: "请先设置技能负责人，再发布。" });
   }
   if ((await skillRiskLevel(id)) !== "L3") return;
-  const base = currentPublishedVersion(id);
-  const approval = latestSkillPublishApproval(id);
+  const base = (await currentPublishedVersion(id));
+  const approval = (await latestSkillPublishApproval(id));
   if (approval && approval.status === "consumed" && approval.base_version === base) return;
   throw new HttpFail(403, {
     code: "skill_publish_approval_required",
@@ -328,9 +304,7 @@ export async function skillPublishCheck(id: string): Promise<SkillPublishCheck> 
 
   let knowledgeOk = true;
   let knowledgeDetail = "无知识依赖";
-  const kc = getConn()
-    .prepare("SELECT revision, published_revision, update_policy FROM skill_knowledge_configs WHERE skill_id = ?")
-    .get(id) as { revision: number; published_revision: number | null; update_policy: string } | undefined;
+  const kc = (await getConn().query("SELECT revision, published_revision, update_policy FROM skill_knowledge_configs WHERE skill_id = $1",[id])).rows[0] as { revision: number; published_revision: number | null; update_policy: string } | undefined;
   if (kc) {
     if (kc.published_revision == null) {
       knowledgeOk = false;
@@ -346,8 +320,8 @@ export async function skillPublishCheck(id: string): Promise<SkillPublishCheck> 
   }
 
   const needApproval = meta.risk === "L3";
-  const approval = latestSkillPublishApproval(id);
-  const base = currentPublishedVersion(id);
+  const approval = (await latestSkillPublishApproval(id));
+  const base = (await currentPublishedVersion(id));
   // 审批引擎终态：consumed=链走完（通过），rejected=驳回，pending=待审批。
   const approvalOk = !needApproval || Boolean(approval && approval.status === "consumed" && approval.base_version === base);
   if (!approvalOk) {
@@ -400,42 +374,26 @@ export async function skillPublishCheck(id: string): Promise<SkillPublishCheck> 
   };
 }
 
-export function updateSkillLifecycleMeta(
+export async function updateSkillLifecycleMeta(
   id: string,
   patch: { owner?: string; business_stage?: string; tags?: string[]; biz_family?: string; biz_domain?: string },
-): void {
+): Promise<Awaited<void>> {
   requireSkill(id);
-  const row = lifecycleRow(id);
+  const row = (await lifecycleRow(id));
   const stage = row?.stage || "draft";
   const owner = patch.owner ?? row?.owner ?? null;
   const businessStage = patch.business_stage ?? row?.business_stage ?? null;
   const tags = JSON.stringify(patch.tags ?? (row?.tags ? JSON.parse(row.tags) : []));
   const bizFamily = patch.biz_family ?? row?.biz_family ?? null;
   const bizDomain = patch.biz_domain ?? row?.biz_domain ?? null;
-  getConn()
-    .prepare(
-      "INSERT INTO skill_lifecycle (skill_id, stage, origin, owner, business_stage, tags, biz_family, biz_domain, updated_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(skill_id) DO UPDATE SET owner=excluded.owner, business_stage=excluded.business_stage, tags=excluded.tags, biz_family=excluded.biz_family, biz_domain=excluded.biz_domain, updated_at=excluded.updated_at",
-    )
-    .run(
-      id,
-      stage,
-      row?.origin || (row?.tags?.includes("第三方") ? "third_party" : "official"),
-      owner,
-      businessStage,
-      tags,
-      bizFamily,
-      bizDomain,
-      nowIso(),
-    );
+  (await getConn().query("INSERT INTO skill_lifecycle (skill_id, stage, origin, owner, business_stage, tags, biz_family, biz_domain, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(skill_id) DO UPDATE SET owner=excluded.owner, business_stage=excluded.business_stage, tags=excluded.tags, biz_family=excluded.biz_family, biz_domain=excluded.biz_domain, updated_at=excluded.updated_at",[id,stage,row?.origin || (row?.tags?.includes("第三方") ? "third_party" : "official"),owner,businessStage,tags,bizFamily,bizDomain,nowIso()]));
 }
 
 // ---------------------------------------------------------------- versions
 
-export function listSkillVersions(id: string): Json[] {
+export async function listSkillVersions(id: string): Promise<Awaited<Json[]>> {
   requireSkill(id);
-  return getConn()
-    .prepare("SELECT * FROM skill_versions WHERE skill_id = ? ORDER BY version DESC")
-    .all(id) as Json[];
+  return (await getConn().query("SELECT * FROM skill_versions WHERE skill_id = $1 ORDER BY version DESC",[id])).rows as Json[];
 }
 
 export async function publishSkillVersion(id: string, description?: string, version?: number): Promise<{ version: number }> {
@@ -446,7 +404,7 @@ export async function publishSkillVersion(id: string, description?: string, vers
   const dir = bundled ? packagedSkillDir(id) : skillDir(id);
   if (!dir || !fs.existsSync(path.join(dir, "SKILL.md"))) throw new HttpFail(400, "skill pack not found");
   const conn = getConn();
-  const maxRow = conn.prepare("SELECT MAX(version) AS v FROM skill_versions WHERE skill_id = ?").get(id) as {
+  const maxRow = (await conn.query("SELECT MAX(version) AS v FROM skill_versions WHERE skill_id = $1",[id])).rows[0] as {
     v: number | null;
   };
   const next = version ?? (maxRow.v || 0) + 1;
@@ -454,31 +412,16 @@ export async function publishSkillVersion(id: string, description?: string, vers
   fs.rmSync(snapshot, { recursive: true, force: true });
   fs.cpSync(dir, snapshot, { recursive: true });
   if (bundled) {
-    fs.writeFileSync(path.join(snapshot, ".skill-sop-overlay.json"), JSON.stringify(overlayRow(id)), "utf8");
+    fs.writeFileSync(path.join(snapshot, ".skill-sop-overlay.json"), JSON.stringify((await overlayRow(id))), "utf8");
   }
-  conn
-    .prepare(
-      "INSERT INTO skill_versions (id, skill_id, version, status, description, snapshot_path, published_by, published_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(skill_id, version) DO UPDATE SET status='published', description=excluded.description, snapshot_path=excluded.snapshot_path, published_by=excluded.published_by, published_at=excluded.published_at",
-    )
-    .run(
-      nid("sv"),
-      id,
-      next,
-      "published",
-      description || null,
-      snapshot,
-      currentUser().handle,
-      nowIso(),
-    );
-  audit(currentUser().handle, "skill.version.publish", { skill: id, version: next });
+  (await conn.query("INSERT INTO skill_versions (id, skill_id, version, status, description, snapshot_path, published_by, published_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(skill_id, version) DO UPDATE SET status='published', description=excluded.description, snapshot_path=excluded.snapshot_path, published_by=excluded.published_by, published_at=excluded.published_at",[nid("sv"),id,next,"published",description || null,snapshot,(await currentUser()).handle,nowIso()]));
+  (await audit((await currentUser()).handle, "skill.version.publish", { skill: id, version: next }));
   return { version: next };
 }
 
-export function rollbackSkillVersion(id: string, version: number): { version: number } {
+export async function rollbackSkillVersion(id: string, version: number): Promise<Awaited<{ version: number }>> {
   requireSkill(id);
-  const row = getConn()
-    .prepare("SELECT * FROM skill_versions WHERE skill_id = ? AND version = ?")
-    .get(id, version) as { snapshot_path: string } | undefined;
+  const row = (await getConn().query("SELECT * FROM skill_versions WHERE skill_id = $1 AND version = $2",[id,version])).rows[0] as { snapshot_path: string } | undefined;
   if (!row || !row.snapshot_path || !fs.existsSync(path.join(row.snapshot_path, "SKILL.md"))) {
     throw new HttpFail(404, `version ${version} snapshot not found`);
   }
@@ -487,11 +430,9 @@ export function rollbackSkillVersion(id: string, version: number): { version: nu
     if (fs.existsSync(overlayFile)) {
       const overlay = JSON.parse(fs.readFileSync(overlayFile, "utf8")) as { summary?: string; body?: string; updated_at?: string } | null;
       if (overlay?.summary && overlay.body) {
-        getConn().prepare(
-          "INSERT INTO skill_sops (id,summary,body,updated_at) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET summary=excluded.summary,body=excluded.body,updated_at=excluded.updated_at",
-        ).run(id, overlay.summary, overlay.body, overlay.updated_at || nowIso());
+        (await getConn().query("INSERT INTO skill_sops (id,summary,body,updated_at) VALUES ($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET summary=excluded.summary,body=excluded.body,updated_at=excluded.updated_at",[id,overlay.summary,overlay.body,overlay.updated_at || nowIso()]));
       } else {
-        getConn().prepare("DELETE FROM skill_sops WHERE id=?").run(id);
+        (await getConn().query("DELETE FROM skill_sops WHERE id=$1",[id]));
       }
     }
   } else {
@@ -500,7 +441,7 @@ export function rollbackSkillVersion(id: string, version: number): { version: nu
     fs.cpSync(row.snapshot_path, dir, { recursive: true });
   }
   activateSkillForHarness(id);
-  audit(currentUser().handle, "skill.version.rollback", { skill: id, version });
+  (await audit((await currentUser()).handle, "skill.version.rollback", { skill: id, version }));
   return { version };
 }
 
@@ -512,14 +453,12 @@ export function deleteSkillVersionSnapshots(id: string): void {
 
 export type SkillTestInput = { name?: string; input?: string; expected?: string };
 
-export function listSkillTests(id: string): Json[] {
+export async function listSkillTests(id: string): Promise<Awaited<Json[]>> {
   requireSkill(id);
-  return getConn()
-    .prepare("SELECT * FROM skill_tests WHERE skill_id = ? ORDER BY created_at DESC")
-    .all(id) as Json[];
+  return (await getConn().query("SELECT * FROM skill_tests WHERE skill_id = $1 ORDER BY created_at DESC",[id])).rows as Json[];
 }
 
-export function createSkillTest(id: string, input: SkillTestInput): Json {
+export async function createSkillTest(id: string, input: SkillTestInput): Promise<Awaited<Json>> {
   requireSkill(id);
   const name = String(input.name || "").trim();
   if (!name) throw new HttpFail(400, "test name required");
@@ -529,19 +468,17 @@ export function createSkillTest(id: string, input: SkillTestInput): Json {
     name,
     input: String(input.input || ""),
     expected: String(input.expected || ""),
-    created_by: currentUser().handle,
+    created_by: (await currentUser()).handle,
     created_at: nowIso(),
   };
-  getConn()
-    .prepare("INSERT INTO skill_tests (id, skill_id, name, input, expected, created_by, created_at) VALUES (?,?,?,?,?,?,?)")
-    .run(row.id, row.skill_id, row.name, row.input, row.expected, row.created_by, row.created_at);
+  (await getConn().query("INSERT INTO skill_tests (id, skill_id, name, input, expected, created_by, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)",[row.id,row.skill_id,row.name,row.input,row.expected,row.created_by,row.created_at]));
   return row as unknown as Json;
 }
 
-export function deleteSkillTest(id: string, testId: string): { ok: true } {
+export async function deleteSkillTest(id: string, testId: string): Promise<Awaited<{ ok: true }>> {
   requireSkill(id);
-  getConn().prepare("DELETE FROM skill_tests WHERE id = ? AND skill_id = ?").run(testId, id);
-  getConn().prepare("DELETE FROM skill_test_runs WHERE test_id = ?").run(testId);
+  (await getConn().query("DELETE FROM skill_tests WHERE id = $1 AND skill_id = $2",[testId,id]));
+  (await getConn().query("DELETE FROM skill_test_runs WHERE test_id = $1",[testId]));
   return { ok: true };
 }
 
@@ -549,74 +486,45 @@ export function deleteSkillTest(id: string, testId: string): { ok: true } {
  * Record a test run. v1 records the operator's verdict per case; wiring the
  * agent runtime for automatic grading is a follow-up.
  */
-export function recordSkillTestRun(
+export async function recordSkillTestRun(
   id: string,
   results: { test_id: string; passed: boolean; fail_reason?: string; duration_ms?: number }[],
   version?: number,
-): { total: number; passed: number; failed: number } {
+): Promise<Awaited<{ total: number; passed: number; failed: number }>> {
   requireSkill(id);
   const conn = getConn();
-  const operator = currentUser().handle;
-  const tx = conn.transaction(() => {
+  const operator = (await currentUser()).handle;
+  const tx = conn.transaction(async () => {
     for (const r of results) {
-      const test = conn.prepare("SELECT name FROM skill_tests WHERE id = ? AND skill_id = ?").get(r.test_id, id) as
+      const test = (await conn.query("SELECT name FROM skill_tests WHERE id = $1 AND skill_id = $2",[r.test_id,id])).rows[0] as
         | { name: string }
         | undefined;
       if (!test) throw new HttpFail(404, `unknown test ${r.test_id}`);
-      conn
-        .prepare(
-          "INSERT INTO skill_test_runs (id, skill_id, test_id, test_name, version, passed, fail_reason, ran_by, ran_at, duration_ms) VALUES (?,?,?,?,?,?,?,?,?,?)",
-        )
-        .run(
-          nid("str"),
-          id,
-          r.test_id,
-          test.name,
-          version ?? null,
-          r.passed ? 1 : 0,
-          r.passed ? null : String(r.fail_reason || "未通过"),
-          operator,
-          nowIso(),
-          r.duration_ms ?? null,
-        );
+      (await conn.query("INSERT INTO skill_test_runs (id, skill_id, test_id, test_name, version, passed, fail_reason, ran_by, ran_at, duration_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",[nid("str"),id,r.test_id,test.name,version ?? null,r.passed ? 1 : 0,r.passed ? null : String(r.fail_reason || "未通过"),operator,nowIso(),r.duration_ms ?? null]));
     }
   });
   tx();
-  audit(operator, "skill.test.run", { skill: id, total: results.length });
+  (await audit(operator, "skill.test.run", { skill: id, total: results.length }));
   const passed = results.filter((r) => r.passed).length;
   return { total: results.length, passed, failed: results.length - passed };
 }
 
-export function listSkillTestRuns(id: string, limit = 50): Json[] {
+export async function listSkillTestRuns(id: string, limit = 50): Promise<Awaited<Json[]>> {
   requireSkill(id);
-  return getConn()
-    .prepare("SELECT * FROM skill_test_runs WHERE skill_id = ? ORDER BY ran_at DESC LIMIT ?")
-    .all(id, limit) as Json[];
+  return (await getConn().query("SELECT * FROM skill_test_runs WHERE skill_id = $1 ORDER BY ran_at DESC LIMIT $2",[id,limit])).rows as Json[];
 }
 
 // ---------------------------------------------------------------- metrics
 
-export function skillMetrics(id: string, days = 7): Json {
+export async function skillMetrics(id: string, days = 7): Promise<Awaited<Json>> {
   requireSkill(id);
   const since = new Date(Date.now() - days * 86400_000).toISOString();
   const conn = getConn();
-  const totals = conn
-    .prepare(
-      "SELECT COUNT(*) AS calls, SUM(CASE WHEN status IN ('completed','approved','done','succeeded') THEN 1 ELSE 0 END) AS ok, SUM(CASE WHEN status IN ('failed','error') THEN 1 ELSE 0 END) AS failed FROM tickets WHERE skill = ? AND created_at >= ?",
-    )
-    .get(id, since) as { calls: number; ok: number | null; failed: number | null };
+  const totals = (await conn.query("SELECT COUNT(*) AS calls, SUM(CASE WHEN status IN ('completed','approved','done','succeeded') THEN 1 ELSE 0 END) AS ok, SUM(CASE WHEN status IN ('failed','error') THEN 1 ELSE 0 END) AS failed FROM tickets WHERE skill = $1 AND created_at >= $2",[id,since])).rows[0] as { calls: number; ok: number | null; failed: number | null };
   const calls = totals.calls || 0;
   const ok = totals.ok || 0;
-  const daily = conn
-    .prepare(
-      "SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS n FROM tickets WHERE skill = ? AND created_at >= ? GROUP BY day ORDER BY day",
-    )
-    .all(id, since) as { day: string; n: number }[];
-  const durationRows = conn
-    .prepare(
-      "SELECT r.created_at AS created_at, r.completed_at AS completed_at FROM task_runs r JOIN tickets w ON w.id = r.work_item_id WHERE w.skill = ? AND r.created_at >= ? AND r.completed_at IS NOT NULL",
-    )
-    .all(id, since) as { created_at: string; completed_at: string }[];
+  const daily = (await conn.query("SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS n FROM tickets WHERE skill = $1 AND created_at >= $2 GROUP BY day ORDER BY day",[id,since])).rows as { day: string; n: number }[];
+  const durationRows = (await conn.query("SELECT r.created_at AS created_at, r.completed_at AS completed_at FROM task_runs r JOIN tickets w ON w.id = r.work_item_id WHERE w.skill = $1 AND r.created_at >= $2 AND r.completed_at IS NOT NULL",[id,since])).rows as { created_at: string; completed_at: string }[];
   // 在 TS 侧求平均：SQLite 的 julianday() 在 PostgreSQL 不存在，避免引擎分支。
   const durationSamples = durationRows
     .map((row) => Date.parse(row.completed_at) - Date.parse(row.created_at))
@@ -624,11 +532,7 @@ export function skillMetrics(id: string, days = 7): Json {
   const avgDurationMs = durationSamples.length
     ? durationSamples.reduce((total, ms) => total + ms, 0) / durationSamples.length
     : null;
-  const alerts = conn
-    .prepare(
-      "SELECT COUNT(*) AS n FROM tickets WHERE skill = ? AND created_at >= ? AND status IN ('failed','error','blocked')",
-    )
-    .get(id, since) as { n: number };
+  const alerts = (await conn.query("SELECT COUNT(*) AS n FROM tickets WHERE skill = $1 AND created_at >= $2 AND status IN ('failed','error','blocked')",[id,since])).rows[0] as { n: number };
   return {
     days,
     calls,

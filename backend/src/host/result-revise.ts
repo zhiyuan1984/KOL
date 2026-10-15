@@ -194,17 +194,17 @@ function leadingSkillId(text: string): string | null {
   return best?.id || null;
 }
 
-export function isResultRevision(
+export async function isResultRevision(
   text: string,
   last: LastUnsentResult | null,
   opts?: { lockedIntent?: string | null; boundTask?: boolean },
-): boolean {
+): Promise<Awaited<boolean>> {
   const raw = String(text || "").trim();
   if (!raw || !last || last.sent) return false;
   if (opts?.boundTask) return false;
   if (opts?.lockedIntent && taskDefinitions().some((row) => row.id === opts.lockedIntent)) return false;
   if (CONFIRM_SEND_RE.test(raw) || ANOTHER_LETTER_RE.test(raw) || RESTART_RE.test(raw)) return false;
-  const handle = String(extractTaskEntities(raw).handle || "");
+  const handle = String((await extractTaskEntities(raw)).handle || "");
   if (handle && last.handle && handle !== last.handle) return false;
   if (leadingSkillId(raw)) return false;
   return true;
@@ -228,9 +228,9 @@ function replaceToken(body: string, from: string, to: string): string {
   return body.split(from).join(to);
 }
 
-export function stubReviseFields(text: string, snapshot: ResultSnapshot): Json {
+export async function stubReviseFields(text: string, snapshot: ResultSnapshot): Promise<Awaited<Json>> {
   const fields: Json = {};
-  const extracted = extractTaskEntities(text);
+  const extracted = (await extractTaskEntities(text));
   const offer = parseQuoteOffer(text);
   const amountMatch = extracted.amount_usd != null && Number.isFinite(Number(extracted.amount_usd))
     ? Number(extracted.amount_usd)
@@ -372,7 +372,7 @@ export async function collectReviseFields(
   text: string,
 ): Promise<{ fields: Json; thread_id: string | null }> {
   if (codexMode() === "stub") {
-    return { fields: stubReviseFields(text, snapshot), thread_id: snapshot.thread_id || null };
+    return { fields: (await stubReviseFields(text, snapshot)), thread_id: snapshot.thread_id || null };
   }
   return reviseWithCodex(snapshot, text);
 }

@@ -55,13 +55,13 @@ function judgmentInput(extra: Json, evidence: Json = {}, current?: string | null
   };
 }
 
-function writeBox(wid: string, skill: string, prompt: string, extra: Json): string {
+async function writeBox(wid: string, skill: string, prompt: string, extra: Json): Promise<Awaited<string>> {
   const profile = profileFor(skill);
   const definition = requireTaskDefinition(skill);
   fs.mkdirSync(boxDir(), { recursive: true });
   const box = path.join(boxDir(), wid);
   fs.mkdirSync(box, { recursive: true });
-  writeSkillIntoBox(box, skill);
+  (await writeSkillIntoBox(box, skill));
   const planning = extra.mode === "today_plan" || extra.mode === "today_analyze" || extra.mode === "todo_plan" || extra.skip_user_memory === true;
   const planningMount = planning ? planningHarnessMount(skill) : null;
   fs.writeFileSync(
@@ -537,8 +537,8 @@ export async function runStub(
   log.push({ method: "initialize", params: { protocol: "codex-app-server", worker_id: wid } });
   log.push({ method: "profile/select", params: { id: profile.id, name: profile.name, harness: profile.harness } });
   log.push({ method: "model/tier", params: { tier: extra.model_tier || "balanced" } });
-  const box = writeBox(wid, skill, prompt, extra);
-  const skillPath = writeRuntimeSkill(skill);
+  const box = (await writeBox(wid, skill, prompt, extra));
+  const skillPath = (await writeRuntimeSkill(skill));
   const skillsRoot = runtimeSkillsRoot();
   log.push({ method: "skills/extraRoots/set", params: { extraRoots: [skillsRoot] } });
   log.push({ method: "skills/config/write", params: { path: skillPath, enabled: true } });
@@ -548,10 +548,10 @@ export async function runStub(
   log.push({ method: "thread/start", params: { resume: false, mcp: mcpNames } });
   log.push({ method: "turn/start", params: { prompt, skill } });
   const items = await produceItems(log, skill, { ...extra, raw: extra.raw || extra.text || prompt, text: extra.text || prompt }, onProgress);
-  assertKolAnalyzeVerbsSafe(skill, { items }, extra.work_item_id ? String(extra.work_item_id) : null);
-  audit("worker", "skill.invoked", {
+  (await assertKolAnalyzeVerbsSafe(skill, { items }, extra.work_item_id ? String(extra.work_item_id) : null));
+  (await audit("worker", "skill.invoked", {
     session_id: sessionId, worker_id: wid, skill, profile: profile.id,
-  });
+  }));
   log.push({ method: "turn/completed", params: { items: items.map((i) => i.type) } });
   for (const i of items) {
     if (["send_mail", "wecom_send", "confirm_stage", "starry_stage"].includes(String(i.type))) {
@@ -568,13 +568,13 @@ export async function runStub(
     items,
     box_path: box,
   };
-  persistWorker(result, sessionId);
-  audit("worker", "skill.result", {
+  (await persistWorker(result, sessionId));
+  (await audit("worker", "skill.result", {
     session_id: sessionId,
     worker_id: wid,
     skill,
     profile: profile.id,
     item_types: items.map((item) => String(item.type)),
-  });
+  }));
   return result;
 }

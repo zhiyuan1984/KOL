@@ -861,18 +861,15 @@ export async function buildHomeBoard(options: { restoreOfficialStages?: boolean 
   const owner = ownerId();
   const followScope = (await currentFollowScope());
   const definitions = taskDefinitionIndex();
-  const ownershipByUid=new Map((conn.prepare(`SELECT o.kol_uid,o.owner_open_id,o.owner_mailbox FROM starry_profile_ownership o
-    JOIN starry_ownership_sync_state health ON health.company_id=o.company_id AND health.state='ready' WHERE o.company_id=?`).all(memoryCompanyId()) as Row[])
+  const ownershipByUid=new Map(((await conn.query("SELECT o.kol_uid,o.owner_open_id,o.owner_mailbox FROM starry_profile_ownership o\n    JOIN starry_ownership_sync_state health ON health.company_id=o.company_id AND health.state='ready' WHERE o.company_id=$1",[memoryCompanyId()])).rows as Row[])
     .map(row=>[String(row.kol_uid),row]));
-  const collabs = (conn.prepare(
-    "SELECT * FROM collaborations WHERE kol_uid IS NOT NULL AND trim(kol_uid) != '' ORDER BY display_name",
-  ).all() as Row[]).filter((row) => {
+  const collabs = ((await conn.query("SELECT * FROM collaborations WHERE kol_uid IS NOT NULL AND trim(kol_uid) != '' ORDER BY display_name",[])).rows as Row[]).filter((row) => {
     if (!followScope.required) return true;
     if (!followScope.bound || followScope.status === "expired") return false;
     const ownership=ownershipByUid.get(String(row.kol_uid));
     return matchesFollowedMailbox({...row,owner_open_id:ownership?.owner_open_id,verified_owner_mailbox:ownership?.owner_mailbox,ownership_source_ready:Boolean(ownership)}, followScope);
   });
-  const allCollabs = conn.prepare("SELECT * FROM collaborations").all() as Row[];
+  const allCollabs = (await conn.query("SELECT * FROM collaborations",[])).rows as Row[];
   // A creator can have more than one Collaboration. Keep the count in the
   // home projection so the assistant can describe the relationship without
   // leaking internal IDs into the employee surface.
@@ -882,8 +879,8 @@ export async function buildHomeBoard(options: { restoreOfficialStages?: boolean 
     if (!key) continue;
     collaborationCounts.set(key, (collaborationCounts.get(key) || 0) + 1);
   }
-  if (options.restoreOfficialStages !== false) restoreOfficialCollaborationStages([...allCollabs, ...collabs]);
-  const creators = conn.prepare("SELECT * FROM claw_creators ORDER BY name").all() as Row[];
+  if (options.restoreOfficialStages !== false) (await restoreOfficialCollaborationStages([...allCollabs, ...collabs]));
+  const creators = (await conn.query("SELECT * FROM claw_creators ORDER BY name",[])).rows as Row[];
   const creatorByHandle = new Map(creators.map((row) => [String(row.handle || row.name || ""), row]));
 
   const planningTypePlaceholders = PLANNING_TASK_TYPES.map(() => "?").join(",");

@@ -189,17 +189,17 @@ beforeEach(async () => {
   process.env.CODEX_MODE = "stub";
   calls.length = 0;
   setEmailMcpClientFactory(mockClient);
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
-  seedWorkbenchFixtures();
+  (await seedWorkbenchFixtures());
 });
 
-afterEach(() => {
+afterEach(async () => {
   setAgentSubmissionOverride();
   setEmailMcpClientFactory();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -294,14 +294,14 @@ describe("Email MCP Host orchestration", () => {
     expect((await emailMcpResultCard("email_compose", preview.data)).recommended_actions).toContain("核对预览后回复「确认发送」");
 
     calls.length = 0;
-    const sent = await withMailSendAuthority("adapter-test-draft", "adapter-test-confirmed", () => executeEmailMcpTask("email_compose", {
+    const sent = await withMailSendAuthority("adapter-test-draft", "adapter-test-confirmed", async () => (await executeEmailMcpTask("email_compose", {
       conversationId: 101,
       to: "qiyou1984@gmail.com",
       confirm_send: true,
-    }));
+    })));
     expect(calls.map((item) => item.name)).toEqual(["previewEmailDraft", "sendEmailNow"]);
     expect(sent.data).toMatchObject({ sent: true, conversationId: 101 });
-    const audits = getConn().prepare("SELECT event_type, payload FROM audit_events WHERE event_type=?").all("starrykol.email_compose") as Array<{ payload: string }>;
+    const audits = (await getConn().query("SELECT event_type, payload FROM audit_events WHERE event_type=$1",["starrykol.email_compose"])).rows as Array<{ payload: string }>;
     expect(JSON.parse(audits.at(-1)?.payload || "{}")).toMatchObject({ sent: true });
   });
 

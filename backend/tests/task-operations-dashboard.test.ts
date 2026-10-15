@@ -81,9 +81,7 @@ async function createOperationalTask(input: {
   });
   expect(created.status).toBe(201);
   const id = String(created.body.id);
-  getConn().prepare(
-    "UPDATE tickets SET status=?,created_at=?,completed_at=?,due_at=?,updated_at=? WHERE id=?",
-  ).run(input.status, input.created_at, input.completed_at || null, input.due_at || null, input.created_at, id);
+  (await getConn().query("UPDATE tickets SET status=$1,created_at=$2,completed_at=$3,due_at=$4,updated_at=$5 WHERE id=$6",[input.status,input.created_at,input.completed_at || null,input.due_at || null,input.created_at,id]));
   return id;
 }
 
@@ -94,14 +92,14 @@ describe.skipIf(!hasPostgresTestDatabase)("GET task operations query contract", 
     process.env.LINGONG_DB = path.join(tmp, "tasks.db");
     process.env.LINGONG_DATA = tmp;
     process.env.CODEX_MODE = "stub";
-    resetConn();
-    seedAll();
+    (await resetConn());
+    (await seedAll());
     const { createApp } = await import("../src/app.js");
     app = (await createApp());
   });
 
-  afterEach(() => {
-    resetConn();
+  afterEach(async () => {
+    (await resetConn());
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
@@ -168,10 +166,7 @@ describe.skipIf(!hasPostgresTestDatabase)("GET task operations query contract", 
 
   it("retains the existing personal authorization boundary for pages and dashboard aggregates", async () => {
     const stamp = "2026-10-07T00:00:00.000Z";
-    getConn().prepare(
-      `INSERT INTO tickets (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run("tsk_operations_foreign", "usr_foreign", "risk_scan", "operations-foreign-private", "manual", "queued", "normal", "risk_scan", "general", "{}", "{}", stamp, stamp);
+    (await getConn().query("INSERT INTO tickets (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",["tsk_operations_foreign","usr_foreign","risk_scan","operations-foreign-private","manual","queued","normal","risk_scan","general","{}","{}",stamp,stamp]));
 
     const page = await request("GET", "/api/tasks?view=history&limit=10&q=operations-foreign-private");
     expect(page.status).toBe(200);

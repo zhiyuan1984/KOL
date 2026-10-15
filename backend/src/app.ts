@@ -79,12 +79,12 @@ export async function createApp(): Promise<Hono> {
   getConn();
   await seedIfEmpty();
   await reconcileTickets();
-  reconcileDocumentJobs();
+  (await reconcileDocumentJobs());
   (await ensureRuntimeSchema());
   ensureDemoAdmin();
   await restoreActiveCrawlJobs();
-  restoreActiveDiscoveryRuns();
-  restoreActiveHomeDiscoveryRuns();
+  (await restoreActiveDiscoveryRuns());
+  (await restoreActiveHomeDiscoveryRuns());
 
   const app = new Hono();
   const configuredOrigin = process.env.APP_ORIGIN || process.env.CORS_ORIGIN;

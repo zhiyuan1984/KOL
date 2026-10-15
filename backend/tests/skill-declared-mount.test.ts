@@ -96,7 +96,7 @@ beforeEach(async () => {
   process.env.RUNTIME_CREDENTIAL_MASTER_KEY = "34".repeat(32);
   // 夹具技能只能经数据目录下的 published-skills 进入 taskDefinitions。
   publishFixtureSkills(tmp, [SKILL, DEFINED_SKILL]);
-  resetConn();
+  (await resetConn());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
   const setup = await app.request("/api/auth/setup", {
@@ -127,14 +127,13 @@ beforeEach(async () => {
     enabled: true, expected_version: 0,
   });
   expect(bound.status, JSON.stringify(bound.body)).toBe(200);
-  getConn().prepare("INSERT INTO skill_lifecycle (skill_id,stage,origin,updated_at) VALUES (?,?,?,?)")
-    .run(SKILL, "published", "official", new Date().toISOString());
+  (await getConn().query("INSERT INTO skill_lifecycle (skill_id,stage,origin,updated_at) VALUES ($1,$2,$3,$4)",[SKILL,"published","official",new Date().toISOString()]));
 });
 
-afterEach(() => {
+afterEach(async () => {
   if (previousMasterKey === undefined) delete process.env.RUNTIME_CREDENTIAL_MASTER_KEY;
   else process.env.RUNTIME_CREDENTIAL_MASTER_KEY = previousMasterKey;
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
   delete process.env.LINGONG_DB;
@@ -180,9 +179,7 @@ describe("skill coverage over declared MCP tools", () => {
     expect(all.body.connectors.map((connector: Record<string, unknown>) => connector.id)).not.toContain("starry");
 
     // 管理员显式禁用的 L3 目录行，覆盖率不得把它算作可挂载。
-    const disabled = getConn().prepare(
-      "SELECT risk,enabled FROM runtime_tool_policies WHERE connector_id=? AND tool_name='sendEmailNow'",
-    ).get(CONNECTOR);
+    const disabled = (await getConn().query("SELECT risk,enabled FROM runtime_tool_policies WHERE connector_id=$1 AND tool_name='sendEmailNow'",[CONNECTOR])).rows[0];
     expect(numericEnabled(disabled)).toMatchObject({ risk: "L3", enabled: 0 });
   });
 
@@ -212,24 +209,16 @@ describe("skill coverage over declared MCP tools", () => {
       }],
     });
 
-    expect(numericEnabled(getConn().prepare(
-      "SELECT enabled FROM runtime_skill_connectors WHERE skill_id=? AND connector_id=?",
-    ).get(SKILL, CONNECTOR))).toMatchObject({ enabled: 1 });
-    expect(getConn().prepare(
-      "SELECT tool_name,enabled FROM runtime_skill_tools WHERE skill_id=? AND connector_id=? ORDER BY tool_name",
-    ).all(SKILL, CONNECTOR).map(numericEnabled)).toEqual([
+    expect(numericEnabled((await getConn().query("SELECT enabled FROM runtime_skill_connectors WHERE skill_id=$1 AND connector_id=$2",[SKILL,CONNECTOR])).rows[0])).toMatchObject({ enabled: 1 });
+    expect((await getConn().query("SELECT tool_name,enabled FROM runtime_skill_tools WHERE skill_id=$1 AND connector_id=$2 ORDER BY tool_name",[SKILL,CONNECTOR])).rows.map(numericEnabled)).toEqual([
       { tool_name: "pageKolProfiles", enabled: 1 },
       { tool_name: "previewEmailDraft", enabled: 1 },
     ]);
     // 挂载不放行策略行，也不启用连接器本体。
-    expect(numericEnabled(getConn().prepare(
-      "SELECT enabled FROM runtime_tool_policies WHERE connector_id=? AND tool_name='decryptKolContact'",
-    ).get(CONNECTOR))).toMatchObject({ enabled: 0 });
-    expect(numericEnabled(getConn().prepare("SELECT enabled FROM connectors WHERE id=?").get(CONNECTOR))).toMatchObject({ enabled: 0 });
+    expect(numericEnabled((await getConn().query("SELECT enabled FROM runtime_tool_policies WHERE connector_id=$1 AND tool_name='decryptKolContact'",[CONNECTOR])).rows[0])).toMatchObject({ enabled: 0 });
+    expect(numericEnabled((await getConn().query("SELECT enabled FROM connectors WHERE id=$1",[CONNECTOR])).rows[0])).toMatchObject({ enabled: 0 });
 
-    const events = getConn().prepare(
-      "SELECT event_type,payload FROM audit_events WHERE event_type='runtime.skill_mount.declared' ORDER BY id",
-    ).all() as { payload: string }[];
+    const events = (await getConn().query("SELECT event_type,payload FROM audit_events WHERE event_type='runtime.skill_mount.declared' ORDER BY id",[])).rows as { payload: string }[];
     expect(events).toHaveLength(1);
     expect(JSON.parse(events[0].payload)).toEqual({
       connector_id: CONNECTOR,
@@ -287,9 +276,7 @@ describe("skill coverage over declared MCP tools", () => {
     const malformed = await mount({ skill_ids: "declared_fixture" });
     expect(malformed.status).toBe(400);
 
-    expect(Number((getConn().prepare(
-      "SELECT COUNT(*) AS n FROM runtime_skill_connectors WHERE skill_id=?",
-    ).get(SKILL) as { n: unknown }).n)).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM runtime_skill_connectors WHERE skill_id=$1",[SKILL])).rows[0] as { n: unknown }).n)).toBe(0);
   });
 
   it("skips every declared tool when the connector is absent from the catalog", async () => {
@@ -307,8 +294,6 @@ describe("skill coverage over declared MCP tools", () => {
         skipped: [UNKNOWN_CONNECTOR],
       }],
     });
-    expect(Number((getConn().prepare(
-      "SELECT COUNT(*) AS n FROM runtime_skill_connectors WHERE connector_id='starry'",
-    ).get() as { n: unknown }).n)).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM runtime_skill_connectors WHERE connector_id='starry'",[])).rows[0] as { n: unknown }).n)).toBe(0);
   });
 });

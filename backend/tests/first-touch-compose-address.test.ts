@@ -29,16 +29,16 @@ const UNLABELED = `首封建联 发送给 ${LARRY} ${QIYOU}`;
 const calls: Array<{ name: string; args: Json }> = [];
 
 describe("first-touch Skill required_inputs: 发件 / 收件 / 主题", () => {
-  it("extracts labeled 发件箱 / 发给 / 主题 and does not ask for 会话编号", () => {
-    const entities = extractTaskEntities(LABELED);
+  it("extracts labeled 发件箱 / 发给 / 主题 and does not ask for 会话编号", async () => {
+    const entities = (await extractTaskEntities(LABELED));
     expect(entities.mailboxEmail).toBe(LARRY);
     expect(entities.to).toEqual([QIYOU]);
     expect(entities.subject).toBe("LiTime Mini 12V — weekend van test");
     expect(entities.handle).toBeUndefined();
-    expect(extractTaskEntities(OPERATOR).handle).toBeUndefined();
-    expect(extractTaskEntities("加一封")).toMatchObject({ another_letter: true });
-    expect(stubResolveTaskIntent({ text: "加一封" }).task_type).toBe("email_compose");
-    const resolved = stubResolveTaskIntent({ text: LABELED });
+    expect((await extractTaskEntities(OPERATOR)).handle).toBeUndefined();
+    expect((await extractTaskEntities("加一封"))).toMatchObject({ another_letter: true });
+    expect((await stubResolveTaskIntent({ text: "加一封" })).task_type).toBe("email_compose");
+    const resolved = (await stubResolveTaskIntent({ text: LABELED }));
     expect(resolved).toMatchObject({
       task_type: "email_compose",
       needs_clarification: false,
@@ -47,31 +47,31 @@ describe("first-touch Skill required_inputs: 发件 / 收件 / 主题", () => {
     expect(resolved.missing_fields).not.toContain("conversationId");
   });
 
-  it("keeps unlabeled emails as To and asks for 发件邮箱 + 主题", () => {
-    const entities = extractTaskEntities(UNLABELED);
+  it("keeps unlabeled emails as To and asks for 发件邮箱 + 主题", async () => {
+    const entities = (await extractTaskEntities(UNLABELED));
     expect(entities.mailboxEmail).toBeUndefined();
     expect(entities.to).toEqual([LARRY, QIYOU]);
-    const resolved = stubResolveTaskIntent({ text: UNLABELED });
+    const resolved = (await stubResolveTaskIntent({ text: UNLABELED }));
     expect(resolved.task_type).toBe("email_compose");
     expect(resolved.needs_clarification).toBe(true);
     expect(resolved.missing_fields).toEqual(["mailboxEmail", "subject"]);
     expect(resolved.missing_fields).not.toContain("conversationId");
   });
 
-  it("keeps two personal inboxes as To and still requires 发件箱", () => {
-    const entities = extractTaskEntities(`写合作邮件 ${QIYOU} qiyouhuang@163.com`);
+  it("keeps two personal inboxes as To and still requires 发件箱", async () => {
+    const entities = (await extractTaskEntities(`写合作邮件 ${QIYOU} qiyouhuang@163.com`));
     expect(entities.mailboxEmail).toBeUndefined();
     expect(entities.to).toEqual([QIYOU, "qiyouhuang@163.com"]);
-    expect(stubResolveTaskIntent({ text: `写合作邮件 ${QIYOU} qiyouhuang@163.com` }).missing_fields)
+    expect((await stubResolveTaskIntent({ text: `写合作邮件 ${QIYOU} qiyouhuang@163.com` })).missing_fields)
       .toEqual(["mailboxEmail", "subject"]);
   });
 
-  it("extracts 发件: / 收件: / 主题: from the operator sentence", () => {
-    const entities = extractTaskEntities(OPERATOR);
+  it("extracts 发件: / 收件: / 主题: from the operator sentence", async () => {
+    const entities = (await extractTaskEntities(OPERATOR));
     expect(entities.mailboxEmail).toBe(LARRY);
     expect(entities.to).toEqual([QQ]);
     expect(entities.subject).toBe("LiTime MCP 连通测试");
-    const resolved = stubResolveTaskIntent({ text: OPERATOR });
+    const resolved = (await stubResolveTaskIntent({ text: OPERATOR }));
     expect(resolved).toMatchObject({
       task_type: "email_compose",
       needs_clarification: false,
@@ -80,18 +80,18 @@ describe("first-touch Skill required_inputs: 发件 / 收件 / 主题", () => {
     });
   });
 
-  it("does not put a lone 发件箱 address into To", () => {
-    const entities = extractTaskEntities(`首封建联 发件箱 ${LARRY}`);
+  it("does not put a lone 发件箱 address into To", async () => {
+    const entities = (await extractTaskEntities(`首封建联 发件箱 ${LARRY}`));
     expect(entities.mailboxEmail).toBe(LARRY);
     expect(entities.to).toBeUndefined();
-    expect(stubResolveTaskIntent({ text: `首封建联 发件箱 ${LARRY}` }).missing_fields)
+    expect((await stubResolveTaskIntent({ text: `首封建联 发件箱 ${LARRY}` })).missing_fields)
       .toEqual(["to", "subject"]);
   });
 
-  it("does not treat @写合作邮件 as a bound KOL handle", () => {
-    expect(extractTaskEntities("@写合作邮件").handle).toBeUndefined();
-    expect(extractTaskEntities("@写合作邮件 @小美妆日记").handle).toBe("小美妆日记");
-    const resolved = stubResolveTaskIntent({ text: "@写合作邮件", task_type: "email_compose" });
+  it("does not treat @写合作邮件 as a bound KOL handle", async () => {
+    expect((await extractTaskEntities("@写合作邮件")).handle).toBeUndefined();
+    expect((await extractTaskEntities("@写合作邮件 @小美妆日记")).handle).toBe("小美妆日记");
+    const resolved = (await stubResolveTaskIntent({ text: "@写合作邮件", task_type: "email_compose" }));
     expect(resolved.task_type).toBe("email_compose");
     expect(resolved.needs_clarification).toBe(true);
     expect(resolved.missing_fields).toEqual(["mailboxEmail", "to", "subject"]);
@@ -106,8 +106,8 @@ describe("compose never asks first-touch for a conversation id", () => {
     process.env.LINGONG_DB = path.join(tmp, "t.db");
     process.env.LG_DATA_DIR = tmp;
     process.env.CODEX_MODE = "stub";
-    resetConn();
-    seedAll();
+    (await resetConn());
+    (await seedAll());
     calls.length = 0;
     setEmailMcpClientFactory(() => ({
       async callTool(name, args: Json = {}) {
@@ -137,7 +137,7 @@ describe("compose never asks first-touch for a conversation id", () => {
   });
 
   it("previews labeled 首封建联 through the mailbox the operator named", async () => {
-    const entities = extractTaskEntities(LABELED);
+    const entities = (await extractTaskEntities(LABELED));
     const preview = await executeEmailMcpTask("email_compose", { ...entities, prompt: LABELED, raw: LABELED });
     expect(JSON.parse(String(calls.find((row) => row.name === "createEmailConversation")?.args.requestJson))).toMatchObject({
       mailboxEmail: LARRY,
@@ -224,7 +224,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       async close() { /* noop */ },
     }));
     const compose = await executeEmailMcpTask("email_compose", {
-      ...extractTaskEntities(OPERATOR),
+      ...(await extractTaskEntities(OPERATOR)),
       prompt: OPERATOR,
     });
     const card = (await emailMcpResultCard("email_compose", compose.data));
@@ -272,7 +272,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       async close() { /* noop */ },
     }));
     const compose = await executeEmailMcpTask("email_compose", {
-      ...extractTaskEntities(OPERATOR),
+      ...(await extractTaskEntities(OPERATOR)),
       prompt: OPERATOR,
     });
     expect(compose.data).toMatchObject({ sent: false, conversationId: 707, mailboxEmail: LARRY, to: [QQ] });
@@ -311,7 +311,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       async close() { /* noop */ },
     }));
     const compose = await executeEmailMcpTask("email_compose", {
-      ...extractTaskEntities(OPERATOR),
+      ...(await extractTaskEntities(OPERATOR)),
       prompt: OPERATOR,
     });
     expect(calls.some((row) => row.name === "pageKolProfiles")).toBe(true);
@@ -361,7 +361,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       async close() { /* noop */ },
     }));
     const compose = await executeEmailMcpTask("email_compose", {
-      ...extractTaskEntities(OPERATOR),
+      ...(await extractTaskEntities(OPERATOR)),
       prompt: OPERATOR,
     });
     expect(calls.some((row) => row.name === "decryptKolContact")).toBe(false);
@@ -419,7 +419,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       async close() { /* noop */ },
     }));
     const compose = await executeEmailMcpTask("email_compose", {
-      ...extractTaskEntities(OPERATOR),
+      ...(await extractTaskEntities(OPERATOR)),
       prompt: OPERATOR,
     });
     expect(uidCreates).toBe(2);
@@ -482,7 +482,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       async close() { /* noop */ },
     }));
     const compose = await executeEmailMcpTask("email_compose", {
-      ...extractTaskEntities(OPERATOR),
+      ...(await extractTaskEntities(OPERATOR)),
       prompt: OPERATOR,
     });
     expect(bound).toBe(true);
@@ -544,7 +544,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       async close() { /* noop */ },
     }));
     const compose = await executeEmailMcpTask("email_compose", {
-      ...extractTaskEntities(OPERATOR),
+      ...(await extractTaskEntities(OPERATOR)),
       prompt: OPERATOR,
     });
     const created = calls.filter((row) => row.name === "createEmailConversation").at(-1);
@@ -588,7 +588,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       async close() { /* noop */ },
     }));
     const compose = await executeEmailMcpTask("email_compose", {
-      ...extractTaskEntities(OPERATOR),
+      ...(await extractTaskEntities(OPERATOR)),
       prompt: OPERATOR,
     });
     expect(calls.some((row) => row.name === "createEmailConversation")).toBe(false);
@@ -597,40 +597,8 @@ describe("compose never asks first-touch for a conversation id", () => {
   });
 
   it("prefers Starry kolId over a local fixture kolUid for the same QQ", async () => {
-    getConn().prepare(
-      `INSERT OR REPLACE INTO collaborations
-       (id, handle, display_name, brand, platform, followers, email, mailbox_from,
-        lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,
-        stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      "col_qq_fixture",
-      "测试网红-qq-01",
-      "测试网红-qq-01",
-      "LT",
-      "",
-      "",
-      QQ,
-      LARRY,
-      "lc_qq_fixture",
-      "conv_qq_fixture",
-      "INITIAL_CONTACT",
-      1,
-      "",
-      0,
-      0,
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      0,
-    );
-    getConn().prepare(
-      "UPDATE collaborations SET owner_name=?, owner_mailbox=?, kol_uid=? WHERE id=?",
-    ).run("赵良玉", LARRY, "KOL9D62420657814F6BAEC8", "col_qq_fixture");
+    (await getConn().query("INSERT INTO collaborations\n       (id, handle, display_name, brand, platform, followers, email, mailbox_from,\n        lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,\n        stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,display_name=EXCLUDED.display_name,brand=EXCLUDED.brand,platform=EXCLUDED.platform,followers=EXCLUDED.followers,email=EXCLUDED.email,mailbox_from=EXCLUDED.mailbox_from,lifecycle_id=EXCLUDED.lifecycle_id,conversation_id=EXCLUDED.conversation_id,stage_code=EXCLUDED.stage_code,days_in_stage=EXCLUDED.days_in_stage,notes=EXCLUDED.notes,overdue=EXCLUDED.overdue,stage_version=EXCLUDED.stage_version,recipient_name=EXCLUDED.recipient_name,phone=EXCLUDED.phone,address_line=EXCLUDED.address_line,country=EXCLUDED.country,postal=EXCLUDED.postal,sku=EXCLUDED.sku,qty=EXCLUDED.qty,locked=EXCLUDED.locked",["col_qq_fixture","测试网红-qq-01","测试网红-qq-01","LT","","",QQ,LARRY,"lc_qq_fixture","conv_qq_fixture","INITIAL_CONTACT",1,"",0,0,"","","","","","","",0]));
+    (await getConn().query("UPDATE collaborations SET owner_name=$1, owner_mailbox=$2, kol_uid=$3 WHERE id=$4",["赵良玉",LARRY,"KOL9D62420657814F6BAEC8","col_qq_fixture"]));
     setEmailMcpClientFactory(() => ({
       async callTool(name, args: Json = {}) {
         calls.push({ name, args });
@@ -662,7 +630,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       async close() { /* noop */ },
     }));
     const compose = await executeEmailMcpTask("email_compose", {
-      ...extractTaskEntities(OPERATOR),
+      ...(await extractTaskEntities(OPERATOR)),
       prompt: OPERATOR,
     });
     const created = calls.filter((row) => row.name === "createEmailConversation").at(-1);
@@ -676,40 +644,8 @@ describe("compose never asks first-touch for a conversation id", () => {
   });
 
   it("previews from a local followed collaboration when Starry lists omit the email", async () => {
-    getConn().prepare(
-      `INSERT OR REPLACE INTO collaborations
-       (id, handle, display_name, brand, platform, followers, email, mailbox_from,
-        lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,
-        stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      "col_qq01",
-      "测试网红-qq-01",
-      "测试网红-qq-01",
-      "LT",
-      "",
-      "",
-      QQ,
-      LARRY,
-      "lc_qq01",
-      "conv_qq01",
-      "INITIAL_CONTACT",
-      1,
-      "",
-      0,
-      0,
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "",
-      0,
-    );
-    getConn().prepare(
-      "UPDATE collaborations SET owner_name=?, owner_mailbox=?, kol_uid=? WHERE id=?",
-    ).run("赵良玉", LARRY, "KOL9D62420657814F6BAEC8", "col_qq01");
+    (await getConn().query("INSERT INTO collaborations\n       (id, handle, display_name, brand, platform, followers, email, mailbox_from,\n        lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,\n        stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,display_name=EXCLUDED.display_name,brand=EXCLUDED.brand,platform=EXCLUDED.platform,followers=EXCLUDED.followers,email=EXCLUDED.email,mailbox_from=EXCLUDED.mailbox_from,lifecycle_id=EXCLUDED.lifecycle_id,conversation_id=EXCLUDED.conversation_id,stage_code=EXCLUDED.stage_code,days_in_stage=EXCLUDED.days_in_stage,notes=EXCLUDED.notes,overdue=EXCLUDED.overdue,stage_version=EXCLUDED.stage_version,recipient_name=EXCLUDED.recipient_name,phone=EXCLUDED.phone,address_line=EXCLUDED.address_line,country=EXCLUDED.country,postal=EXCLUDED.postal,sku=EXCLUDED.sku,qty=EXCLUDED.qty,locked=EXCLUDED.locked",["col_qq01","测试网红-qq-01","测试网红-qq-01","LT","","",QQ,LARRY,"lc_qq01","conv_qq01","INITIAL_CONTACT",1,"",0,0,"","","","","","","",0]));
+    (await getConn().query("UPDATE collaborations SET owner_name=$1, owner_mailbox=$2, kol_uid=$3 WHERE id=$4",["赵良玉",LARRY,"KOL9D62420657814F6BAEC8","col_qq01"]));
     setEmailMcpClientFactory(() => ({
       async callTool(name, args: Json = {}) {
         calls.push({ name, args });
@@ -742,7 +678,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       async close() { /* noop */ },
     }));
     const compose = await executeEmailMcpTask("email_compose", {
-      ...extractTaskEntities(OPERATOR),
+      ...(await extractTaskEntities(OPERATOR)),
       prompt: OPERATOR,
     });
     expect(calls.some((row) => row.name === "decryptKolContact")).toBe(false);
@@ -792,7 +728,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       async close() { /* noop */ },
     }));
     const compose = await executeEmailMcpTask("email_compose", {
-      ...extractTaskEntities(OPERATOR),
+      ...(await extractTaskEntities(OPERATOR)),
       prompt: OPERATOR,
     });
     expect(JSON.parse(String(calls.filter((row) => row.name === "createEmailConversation").at(-1)?.args.requestJson))).toMatchObject({
@@ -828,7 +764,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       async close() { /* noop */ },
     }));
     const compose = await executeEmailMcpTask("email_compose", {
-      ...extractTaskEntities(OPERATOR),
+      ...(await extractTaskEntities(OPERATOR)),
       prompt: OPERATOR,
     });
     const created = calls.filter((row) => row.name === "createEmailConversation");
@@ -878,7 +814,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       async close() { /* noop */ },
     }));
     const compose = await executeEmailMcpTask("email_compose", {
-      ...extractTaskEntities(OPERATOR),
+      ...(await extractTaskEntities(OPERATOR)),
       prompt: OPERATOR,
     });
     expect(calls.some((row) => row.name === "getKolProfileDetail")).toBe(true);
@@ -921,7 +857,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       async close() { /* noop */ },
     }));
     const compose = await executeEmailMcpTask("email_compose", {
-      ...extractTaskEntities(OPERATOR),
+      ...(await extractTaskEntities(OPERATOR)),
       prompt: OPERATOR,
     });
     expect(JSON.parse(String(calls.filter((row) => row.name === "createEmailConversation").at(-1)?.args.requestJson))).toMatchObject({
@@ -954,7 +890,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       async close() { /* noop */ },
     }));
     const compose = await executeEmailMcpTask("email_compose", {
-      ...extractTaskEntities(OPERATOR),
+      ...(await extractTaskEntities(OPERATOR)),
       prompt: OPERATOR,
     });
     expect(calls.map((row) => row.name).filter((name) => !["pageMailboxes", "pageKolProfiles", "listAllKolProfiles", "pageEmailConversations", "getKolProfileDetail"].includes(name))).toEqual([
@@ -996,7 +932,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       async close() { /* noop */ },
     }));
     const compose = await executeEmailMcpTask("email_compose", {
-      ...extractTaskEntities(OPERATOR),
+      ...(await extractTaskEntities(OPERATOR)),
       prompt: OPERATOR,
     });
     const added = calls.find((row) => row.name === "addKolProfile");
@@ -1322,7 +1258,7 @@ describe("compose never asks first-touch for a conversation id", () => {
 
   it("sends the last preview only inside the confirmed gateway authority", async () => {
     const preview = await executeEmailMcpTask("email_compose", {
-      ...extractTaskEntities(OPERATOR),
+      ...(await extractTaskEntities(OPERATOR)),
       prompt: OPERATOR,
     });
     const card = (await emailMcpResultCard("email_compose", preview.data));
@@ -1335,10 +1271,10 @@ describe("compose never asks first-touch for a conversation id", () => {
     });
     expect(String(followup.body || "")).toContain("Preview");
     calls.length = 0;
-    const sent = await withMailSendAuthority("adapter-first-touch", "adapter-confirmed-first-touch", () => executeEmailMcpTask("email_compose", {
-      ...extractTaskEntities("确认发送"),
+    const sent = await withMailSendAuthority("adapter-first-touch", "adapter-confirmed-first-touch", async () => (await executeEmailMcpTask("email_compose", {
+      ...(await extractTaskEntities("确认发送")),
       ...followup,
-    }));
+    })));
     expect(calls.map((row) => row.name)).toEqual(["sendEmailNow"]);
     expect(JSON.parse(String(calls[0].args.requestJson))).toMatchObject({
       recipientEmail: QQ,

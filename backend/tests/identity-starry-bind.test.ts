@@ -38,7 +38,7 @@ beforeEach(async () => {
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.AUTH_MODE = "enabled";
-  resetConn();
+  (await resetConn());
   resetStarryHomeLibrarySync();
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
@@ -50,11 +50,11 @@ beforeEach(async () => {
   }, "");
   expect(setup.status).toBe(201);
   cookie = setup.cookie;
-  getConn().prepare("UPDATE users SET phone=? WHERE username=?").run("13800138000", DEMO_ADMIN.handle);
+  (await getConn().query("UPDATE users SET phone=$1 WHERE username=$2",["13800138000",DEMO_ADMIN.handle]));
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   resetStarryHomeLibrarySync();
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
@@ -75,7 +75,7 @@ describe("admin identity and Starry mailbox bind", () => {
       expect(user.username).toBe(DEMO_ADMIN.handle);
       expect(user.email).toBe(DEMO_ADMIN.email);
     }
-    getConn().prepare("UPDATE users SET email='' WHERE username=?").run(DEMO_ADMIN.handle);
+    (await getConn().query("UPDATE users SET email='' WHERE username=$1",[DEMO_ADMIN.handle]));
     const withoutColumn = await call("POST", "/api/auth/login", {
       email: DEMO_ADMIN.email,
       password: "123456789",
@@ -96,12 +96,9 @@ describe("admin identity and Starry mailbox bind", () => {
 
   it("logs in by unique display name after account/email/phone lookup", async () => {
     const { hashPassword } = await import("../src/auth.js");
-    const insert = getConn().prepare(
-      `INSERT INTO users (id,username,name,password_hash,roles,brands,active,email,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
-    );
-    insert.run("sriphy", "sriphy", "鄢棽", await hashPassword("123456789"), JSON.stringify(["employee", "admin"]), "[]", 1, "sriphy.yan@amperetime.com", "now", "now");
-    insert.run("usr_org_ye_guanwang", "robertson.ye@amperetime.com", "叶观旺", await hashPassword("123456789"), JSON.stringify(["employee"]), "[]", 1, "robertson.ye@amperetime.com", "now", "now");
+    const insert = "INSERT INTO users (id,username,name,password_hash,roles,brands,active,email,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)";
+    (await getConn().query(insert,["sriphy","sriphy","鄢棽",await hashPassword("123456789"),JSON.stringify(["employee", "admin"]),"[]",1,"sriphy.yan@amperetime.com","now","now"]));
+    (await getConn().query(insert,["usr_org_ye_guanwang","robertson.ye@amperetime.com","叶观旺",await hashPassword("123456789"),JSON.stringify(["employee"]),"[]",1,"robertson.ye@amperetime.com","now","now"]));
     const cases: Array<[string, string]> = [
       ["鄢棽", "sriphy"],
       ["sriphy", "sriphy"],
@@ -116,7 +113,7 @@ describe("admin identity and Starry mailbox bind", () => {
       expect((status.json.user as Json).id).toBe(expected);
     }
     // 同名不唯一时姓名登录不生效（防止误登入他人账号），账号/邮箱路径不受影响。
-    insert.run("usr_dup_name", "dup_name", "鄢棽", await hashPassword("123456789"), JSON.stringify(["employee"]), "[]", 1, "", "now", "now");
+    (await getConn().query(insert,["usr_dup_name","dup_name","鄢棽",await hashPassword("123456789"),JSON.stringify(["employee"]),"[]",1,"","now","now"]));
     const ambiguous = await call("POST", "/api/auth/login", { email: "鄢棽", password: "123456789" }, "");
     expect(ambiguous.status).toBe(401);
     const stillById = await call("POST", "/api/auth/login", { email: "sriphy", password: "123456789" }, "");
@@ -197,7 +194,7 @@ describe("admin identity and Starry mailbox bind", () => {
       bearer: "user-jwt-does-not-echo",
     });
     expect(bound.status).toBe(200);
-    const user = getConn().prepare("SELECT id FROM users WHERE username=?").get(DEMO_ADMIN.handle) as { id: string };
+    const user = (await getConn().query("SELECT id FROM users WHERE username=$1",[DEMO_ADMIN.handle])).rows[0] as { id: string };
     (await saveStarryBinding(user.id, {
       mailbox_email: "second.mailbox@amperetime.com",
       owner_name: "赵良玉",
@@ -225,7 +222,7 @@ describe("admin identity and Starry mailbox bind", () => {
       mailbox_email: "second.mailbox@amperetime.com",
     });
     expect(removed.status).toBe(200);
-    const remaining = getConn().prepare("SELECT mailbox_email FROM user_starry_bindings").all() as Json[];
+    const remaining = (await getConn().query("SELECT mailbox_email FROM user_starry_bindings",[])).rows as Json[];
     expect(remaining).toEqual([{ mailbox_email: "larry.zhao@amperetime.com" }]);
   });
 });

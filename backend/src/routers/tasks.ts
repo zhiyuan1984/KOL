@@ -128,14 +128,14 @@ async function publicWorkItem(row: Row, collab?: Row | null, definitions?: TaskD
   const definition = definitions ? definitions.get(String(row.task_type)) : taskDefinition(String(row.task_type));
   const input = parseJson(row.input) as Json;
   const templateId = String(row.task_type);
-  const fallbackTemplate = () => {
+  const fallbackTemplate = async () => {
     if (!definition) return null;
     if (!listReads) return skillTemplate(definition);
-    if (!listReads.templates.has(templateId)) listReads.templates.set(templateId, skillTemplate(definition));
-    return listReads.templates.get(templateId)!;
+    if (!listReads.templates.has(templateId)) listReads.templates.set(templateId, (await skillTemplate(definition)));
+    return (await listReads.templates.get(templateId))!;
   };
   const template = isSkillTemplateSnapshot(input._skill_template, templateId)
-    ? input._skill_template : fallbackTemplate();
+    ? input._skill_template : (await fallbackTemplate());
   const { _skill_template: _internalTemplate, ...publicInput } = input;
   let project: string | null = collab?.display_name ? String(collab.display_name) : null;
   if (!project && row.project_id && !collab && listReads) {
@@ -413,17 +413,17 @@ async function createWorkItem(body: Json, source: string): Promise<Json> {
     input.agent_id = String(input.agent_id || (await runtimeAgentForSkill(definition.id, ownerId(), { employeeChoice: true })));
     (await assertRuntimeSkill({ agentId: String(input.agent_id), skillId: definition.id, userId: ownerId(), runId: "task-submission" }));
   }
-  const template = skillTemplate(definition);
+  const template = (await skillTemplate(definition));
   if (input.skill_template_version && input.skill_template_version !== template.version) {
     throw new HttpFail(409, { code: "skill_template_version_conflict", message: "技能模板已更新，请刷新模板并检查参数后再提交。" });
   }
   input._skill_template = template;
-  const resolution = resolveTaskIntent({
+  const resolution = (await resolveTaskIntent({
     text: String(body.text || body.title || ""),
     task_type: definition.id,
     entities: body.entities as Record<string, unknown> | undefined,
     input,
-  });
+  }));
   if (definition.input_schema?.length && resolution.needs_clarification) {
     throw new HttpFail(422, {
       code: "task_input_invalid",
@@ -481,7 +481,7 @@ tasks.get("/task-definitions", async (c) => {
         ((await pgVisibleSkillIdsForUser(user?.id || "", nowIso())).map((skill_id) => ({ skill_id })))
           .map((row) => String(row.skill_id)),
       );
-  return c.json(taskDefinitions().map((definition) => {
+  return c.json((await Promise.all(taskDefinitions().map(async (definition) => {
     const { path: _path, ...publicDefinition } = definition;
     return {
       ...publicDefinition,
@@ -491,9 +491,9 @@ tasks.get("/task-definitions", async (c) => {
       // Built-in workspace context is readable even when its planner is not a
       // catalog/picker item. This does not change grants or execution routing.
       ...(granted.has(definition.id) && (definition.employee_visible || definition.id === "todo_plan")
-        ? { ui_template: skillTemplate(definition) } : {}),
+        ? { ui_template: (await skillTemplate(definition)) } : {}),
     };
-  }));
+  }))));
 });
 
 tasks.get("/agent-manifest", async (c) => {
@@ -1453,7 +1453,7 @@ tasks.post("/tasks/:id/run", async (c) => {
   requireSkill(definition.id);
   const body = await c.req.json().catch(() => ({})) as Json;
   const storedInput = parseJson(item.input) as Json;
-  const template = skillTemplate(definition);
+  const template = (await skillTemplate(definition));
   if (isSkillTemplateSnapshot(storedInput._skill_template, definition.id)
     && storedInput._skill_template.version !== template.version) {
     throw new HttpFail(409, { code: "skill_template_version_conflict", message: "此任务的技能模板已更新，请重新选用模板并检查参数后创建任务。" });
@@ -1473,12 +1473,12 @@ tasks.post("/tasks/:id/run", async (c) => {
     (await assertRuntimeSkill({ agentId: runAgentId, skillId: definition.id, userId: ownerId(), runId: "task-run" }));
     (runInput as Json).agent_id = runAgentId;
   }
-  const resolution = resolveTaskIntent({
+  const resolution = (await resolveTaskIntent({
     text: runText,
     task_type: definition.id,
     entities: { ...(parseJson(item.entities) as Json), ...((body.entities as Json) || {}) },
     input: runInput,
-  });
+  }));
   if (resolution.needs_clarification) {
     (await getConn().query("UPDATE tickets SET status='needs_clarification',updated_at=$1 WHERE id=$2", [nowIso(), item.id]));
     // 422 响应必须带 message：前端 submit 链路直接展示 error.message，

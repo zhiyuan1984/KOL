@@ -28,21 +28,13 @@ async function get(url: string): Promise<{ response: Response; json: Json }> {
   return { response, json: (text ? JSON.parse(text) : {}) as Json };
 }
 
-function bindSkill(agentId: string, skillId: string, enabled = 1): void {
-  getConn()
-    .prepare(
-      "INSERT INTO runtime_agent_skills (agent_id, skill_id, enabled, version, updated_at) VALUES (?,?,?,?,?)",
-    )
-    .run(agentId, skillId, enabled, 1, nowIso());
+async function bindSkill(agentId: string, skillId: string, enabled = 1): Promise<Awaited<void>> {
+  (await getConn().query("INSERT INTO runtime_agent_skills (agent_id, skill_id, enabled, version, updated_at) VALUES ($1,$2,$3,$4,$5)",[agentId,skillId,enabled,1,nowIso()]));
 }
 
-function insertAgent(id: string, name: string, status: string): void {
+async function insertAgent(id: string, name: string, status: string): Promise<Awaited<void>> {
   const now = nowIso();
-  getConn()
-    .prepare(
-      "INSERT INTO managed_agents (id,name,description,status,version,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
-    )
-    .run(id, name, "", status, 1, now, now);
+  (await getConn().query("INSERT INTO managed_agents (id,name,description,status,version,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)",[id,name,"",status,1,now,now]));
 }
 
 beforeEach(async () => {
@@ -50,14 +42,14 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
+  (await resetConn());
   (await ensureManagedAgents());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   for (const key of ["LINGONG_DB", "LINGONG_DATA", "CODEX_MODE"]) delete process.env[key];
 });
@@ -74,12 +66,12 @@ describe("GET /api/skills/:id/agents", () => {
   });
 
   it("多 Agent 装配都返回；未启用装配 / 草稿 Agent 不返回", async () => {
-    insertAgent("agent:test2", "测试智能体二", "published");
-    bindSkill("agent:test2", "creator_discovery", 1);
-    insertAgent("agent:disabled-bind", "停用装配智能体", "published");
-    bindSkill("agent:disabled-bind", "creator_discovery", 0);
-    insertAgent("agent:draft1", "草稿智能体", "draft");
-    bindSkill("agent:draft1", "creator_discovery", 1);
+    (await insertAgent("agent:test2", "测试智能体二", "published"));
+    (await bindSkill("agent:test2", "creator_discovery", 1));
+    (await insertAgent("agent:disabled-bind", "停用装配智能体", "published"));
+    (await bindSkill("agent:disabled-bind", "creator_discovery", 0));
+    (await insertAgent("agent:draft1", "草稿智能体", "draft"));
+    (await bindSkill("agent:draft1", "creator_discovery", 1));
     const { response, json } = await get("/api/skills/creator_discovery/agents");
     expect(response.status).toBe(200);
     expect(json.agents).toEqual([
@@ -89,7 +81,7 @@ describe("GET /api/skills/:id/agents", () => {
   });
 
   it("没有 Agent 装配时返回空数组（不伪造）", async () => {
-    getConn().prepare("DELETE FROM runtime_agent_skills WHERE skill_id=?").run("creator_discovery");
+    (await getConn().query("DELETE FROM runtime_agent_skills WHERE skill_id=$1",["creator_discovery"]));
     const { response, json } = await get("/api/skills/creator_discovery/agents");
     expect(response.status).toBe(200);
     expect(json.agents).toEqual([]);

@@ -124,6 +124,6 @@ export async function collectCrawlResults(executionJob: ClaimedExecutionJob, che
   } catch (error) {
     await postgresPool().query("UPDATE runtime_crawl_jobs SET result_state='failed',result_error=$2,updated_at=now() WHERE id=$1", [id, runtimeErrorCode(error)]);
     throw error;
-  } finally { runtime.close(); }
+  } finally { (await runtime.close()); }
 }
 registerExecutionHandler("crawler.results", collectCrawlResults);

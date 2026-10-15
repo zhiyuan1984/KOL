@@ -16,7 +16,7 @@ function nowIso(): string { return new Date().toISOString(); }
 export async function ensureManagedAgents(): Promise<void> {
   const database = String(process.env.DATABASE_URL || "");
   if (initializedFor === database) return;
-  if (!initializing) initializing = postgresTransaction(async (client) => {
+  if (!initializing) initializing = (await postgresTransaction(async (client) => {
     const now = nowIso();
     for (const [id, name, description] of [
       ["agent:kol", "KOL 智能体", "KOL 合作与跟进能力"],
@@ -27,7 +27,7 @@ export async function ensureManagedAgents(): Promise<void> {
         VALUES($1,$2,$3,'published',1,$4,$4) ON CONFLICT(id) DO NOTHING`, [id, name, description, now]);
     }
     initializedFor = database;
-  }, { isolation: "SERIALIZABLE" }).finally(() => { initializing = null; });
+  }, { isolation: "SERIALIZABLE" }).finally(() => { initializing = null; }));
   await initializing;
 }
 

@@ -114,8 +114,8 @@ function clearSkillLookupCache(): void {
 async function skillLookup(): Promise<SkillLookup> {
   const now = Date.now();
   const [originResult, overlayResult] = await Promise.all([
-    postgresPool().query<{ skill_id: string; origin: string | null; tags: string | null }>("SELECT skill_id, origin, tags FROM skill_lifecycle"),
-    postgresPool().query<{ id: string; summary: string; updated_at: string }>("SELECT id, summary, updated_at FROM skill_sops"),
+    (await postgresPool().query<{ skill_id: string; origin: string | null; tags: string | null }>("SELECT skill_id, origin, tags FROM skill_lifecycle")),
+    (await postgresPool().query<{ id: string; summary: string; updated_at: string }>("SELECT id, summary, updated_at FROM skill_sops")),
   ]);
   const origins = new Map<string, "official" | "third_party">();
   for (const row of originResult.rows) {
@@ -130,7 +130,7 @@ async function skillLookup(): Promise<SkillLookup> {
   const defs = new Map<string, ReturnType<typeof taskDefinition>>();
   for (const definition of source) defs.set(definition.id, definition);
   const cats = new Map<string, ReturnType<typeof skillCatalog>[number]>();
-  for (const entry of skillCatalog()) cats.set(entry.id, entry);
+  for (const entry of (await skillCatalog())) cats.set(entry.id, entry);
   skillDefinitionCache = { expiresAt: now + SKILL_LOOKUP_TTL_MS, defs, cats, source };
   return { defs, cats, overlays, origins };
 }
@@ -368,16 +368,16 @@ misc.put("/skills/:id/sop", async (c) => {
   const id = c.req.param("id");
   const body = (await c.req.json()) as { summary?: string; body?: string };
   if (isBundledSkill(id)) {
-    saveSkillDraft(id, { _sop_summary: body.summary, _sop_body: body.body });
+    (await saveSkillDraft(id, { _sop_summary: body.summary, _sop_body: body.body }));
   } else {
-    saveSkillDraft(id, { description: body.summary, body: body.body });
+    (await saveSkillDraft(id, { description: body.summary, body: body.body }));
   }
   if ((await skillLifecycleMeta(id)).origin === "third_party") {
     await setSkillOrigin(id, "official");
     clearSkillLookupCache();
   }
   const live = await getSkillSop(id);
-  const draft = getSkillDraft(id);
+  const draft = (await getSkillDraft(id));
   return c.json({ ...live, summary: String(draft.patch._sop_summary ?? draft.patch.description ?? live.summary), body: String(draft.patch._sop_body ?? draft.patch.body ?? live.body), draft: true, updated_at: draft.updated_at });
 });
 misc.delete("/skills/:id/sop", async (c) => {
@@ -386,8 +386,8 @@ misc.delete("/skills/:id/sop", async (c) => {
   const definition = taskDefinition(id);
   const summary = String(definition?.employee_summary || definition?.description || "");
   const body = readBundledSkill(id);
-  if (isBundledSkill(id)) saveSkillDraft(id, { _sop_summary: summary, _sop_body: body });
-  else saveSkillDraft(id, { description: summary, body });
+  if (isBundledSkill(id)) (await saveSkillDraft(id, { _sop_summary: summary, _sop_body: body }));
+  else (await saveSkillDraft(id, { description: summary, body }));
   if ((await skillLifecycleMeta(id)).origin === "third_party") {
     await setSkillOrigin(id, "official");
     clearSkillLookupCache();
@@ -397,12 +397,12 @@ misc.delete("/skills/:id/sop", async (c) => {
 misc.get("/admin/skills", async (c) => {
   await requirePm();
   return c.json({
-    directory: directory(),
+    directory: (await directory()),
     funnel: FUNNEL_STAGES,
     meta: { ...(await skillAdminMeta()), stages: SKILL_STAGES, stage_labels: SKILL_STAGE_LABELS },
-    skills: (await Promise.all(skillCatalog().map(async (s) => ({
+    skills: (await Promise.all((await skillCatalog()).map(async (s) => ({
       ...(await skillMeta(s.id)),
-      grants: grantsForSkill(s.id),
+      grants: (await grantsForSkill(s.id)),
       lifecycle: (await skillLifecycleMeta(s.id)),
     })))),
   });
@@ -411,12 +411,12 @@ misc.get("/admin/skills/:id/sop", async (c) => {
   await requirePm();
   const id = c.req.param("id");
   const live = await getSkillSop(id);
-  const draft = getSkillDraft(id);
+  const draft = (await getSkillDraft(id));
   return c.json({ ...live, summary: String(draft.patch._sop_summary ?? draft.patch.description ?? live.summary), body: String(draft.patch._sop_body ?? draft.patch.body ?? live.body), draft: Object.keys(draft.patch).length > 0, updated_at: draft.updated_at || live.updated_at });
 });
 misc.get("/admin/skills/:id/draft", async (c) => {
   await requirePm();
-  return c.json(getSkillDraft(c.req.param("id")));
+  return c.json((await getSkillDraft(c.req.param("id"))));
 });
 misc.get("/admin/skills/:id/template", async (c) => {
   await requirePm();
@@ -428,7 +428,7 @@ misc.put("/admin/skills/:id/draft", async (c) => {
   await requirePm();
   const id = c.req.param("id");
   const body = (await c.req.json()) as Record<string, unknown>;
-  const result = saveSkillDraft(id, body);
+  const result = (await saveSkillDraft(id, body));
   if (Object.keys(body).some((key) => key !== "in_market") && (await skillLifecycleMeta(id)).origin === "third_party") {
     await setSkillOrigin(id, "official");
     clearSkillLookupCache();
@@ -438,10 +438,10 @@ misc.put("/admin/skills/:id/draft", async (c) => {
 misc.post("/admin/skills", async (c) => {
   await requirePm();
   const body = (await c.req.json()) as Record<string, unknown>;
-  const created = createPublishedSkill(body);
+  const created = (await createPublishedSkill(body));
   await updateSkillLifecycleMeta(created.id, { tags: [] });
   clearSkillLookupCache();
-  return c.json({ ...(await skillMeta(created.id)), grants: grantsForSkill(created.id), lifecycle: (await skillLifecycleMeta(created.id)) }, 201);
+  return c.json({ ...(await skillMeta(created.id)), grants: (await grantsForSkill(created.id)), lifecycle: (await skillLifecycleMeta(created.id)) }, 201);
 });
 misc.post("/admin/skills/import", async (c) => {
   await requirePm();
@@ -466,17 +466,17 @@ misc.post("/admin/skills/import", async (c) => {
   }
   const secretPattern = /(api[_-]?key|access[_-]?token|client[_-]?secret|private[_-]?key)\s*[:=]\s*["']?(?!\$\{|env:|secret:)[A-Za-z0-9_\-/.+=]{12,}/i;
   if (secretPattern.test(markdown)) throw new HttpFail(400, "文件疑似包含明文密钥，请改为环境变量或 Secret 引用");
-  const created = createPublishedSkill({
+  const created = (await createPublishedSkill({
     ...meta,
     body: match[2].trim(),
     grant_org: false,
-  });
+  }));
   await updateSkillLifecycleMeta(created.id, { tags: ["本地导入"] });
   await setSkillOrigin(created.id, "third_party");
   clearSkillLookupCache();
   return c.json({
     ...(await skillMeta(created.id)),
-    grants: grantsForSkill(created.id),
+    grants: (await grantsForSkill(created.id)),
     lifecycle: (await skillLifecycleMeta(created.id)),
     import_receipt: { filename: name, status: "draft", source: "third_party" },
   }, 201);
@@ -488,22 +488,22 @@ misc.patch("/admin/skills/:id", async (c) => {
   const { in_market, ...draftPatch } = body;
   let updated = (await skillMeta(id));
   if (Object.keys(draftPatch).length) {
-    saveSkillDraft(id, draftPatch);
+    (await saveSkillDraft(id, draftPatch));
     if ((await skillLifecycleMeta(id)).origin === "third_party") {
       await setSkillOrigin(id, "official");
       clearSkillLookupCache();
     }
   }
   if (typeof in_market === "boolean") {
-    const changed = updatePublishedSkill(id, { in_market });
+    const changed = (await updatePublishedSkill(id, { in_market }));
     clearSkillLookupCache();
     updated = (await skillMeta(changed.id));
   }
-  return c.json({ ...updated, grants: grantsForSkill(id), draft: getSkillDraft(id), lifecycle: (await skillLifecycleMeta(id)) });
+  return c.json({ ...updated, grants: (await grantsForSkill(id)), draft: (await getSkillDraft(id)), lifecycle: (await skillLifecycleMeta(id)) });
 });
 misc.delete("/admin/skills/:id", async (c) => {
   await requirePm();
-  const deleted = deletePublishedSkill(c.req.param("id"));
+  const deleted = (await deletePublishedSkill(c.req.param("id")));
   clearSkillLookupCache();
   return c.json(deleted);
 });
@@ -516,7 +516,7 @@ misc.post("/admin/skills/:id/stage", async (c) => {
   const id = c.req.param("id");
   const body = (await c.req.json()) as { stage?: string; reason?: string };
   const release=async ()=>(await transitionSkillStage(id,String(body.stage || ''),body.reason));
-  const result = (body.stage==='published'?await publishKnowledgeConfig(currentUser().id,id,release):(await release())) as {stage:string};
+  const result = (body.stage==='published'?await publishKnowledgeConfig((await currentUser()).id,id,release):(await release())) as {stage:string};
   if (result.stage === "published") clearSkillLookupCache();
   return c.json({ id, ...result });
 });
@@ -550,7 +550,7 @@ misc.post("/admin/skills/:id/publish-approvals", async (c) => {
   if (pending && pending.status === "pending") {
     return c.json({ id, approval_id: pending.approval_id, status: "pending", reused: true });
   }
-  const me = currentUser();
+  const me = (await currentUser());
   const org = defaultOrgSnapshot();
   // roleHolder 的 gm 分支不使用 requester，这里仅为满足类型传入占位。
   const placeholder = {
@@ -568,7 +568,7 @@ misc.post("/admin/skills/:id/publish-approvals", async (c) => {
   if (!ceo) throw new HttpFail(400, { code: "ceo_not_found", message: "组织架构中未找到 CEO，无法发起发布审批。" });
   const base = meta.current_version || 0;
   const skillLabel = taskDefinition(id)?.title || id;
-  const approval = createWorkApproval({
+  const approval = (await createWorkApproval({
     kind: "skill_publish",
     title: `技能发布审批：${skillLabel}（v${base + 1}）`,
     chain: [ceo.id],
@@ -580,11 +580,11 @@ misc.post("/admin/skills/:id/publish-approvals", async (c) => {
       requester_name: me.name || me.handle,
       steps: [{ employee_id: ceo.id, name: ceo.name, role: "CEO" }],
     },
-  });
+  }));
   if (!approval?.id) {
     throw new HttpFail(400, { code: "empty_approval_chain", message: "审批链为空，无法发起发布审批。" });
   }
-  audit("host", "skill.publish.approval.created", { skill: id, approval_id: approval.id, base_version: base });
+  (await audit("host", "skill.publish.approval.created", { skill: id, approval_id: approval.id, base_version: base }));
   return c.json({ id, approval_id: approval.id, status: "pending", base_version: base, chain: [ceo.id] }, 201);
 });
 /**
@@ -599,7 +599,7 @@ misc.get("/admin/skills/legacy-grants", async (c) => {
        ORDER BY g.created_at DESC`,
   );
   const labels = new Map<string, string>();
-  for (const entry of skillCatalog()) labels.set(entry.id, entry.label || entry.id);
+  for (const entry of (await skillCatalog())) labels.set(entry.id, entry.label || entry.id);
   return c.json({
     deprecated: true,
     notice: "user_skill_grants 已退役：不再被任何装配路径读取。请按清单在 Agent 页为对应人员重新绑定，确认生效后可删除本表记录。",
@@ -630,7 +630,7 @@ misc.post("/admin/skills/:id/versions", async (c) => {
   (await assertSkillPublishAllowed(id));
   if ((await postgresPool().query("SELECT 1 FROM skill_knowledge_configs WHERE skill_id=$1", [id])).rowCount) throw new HttpFail(409, "知识技能须通过真实试算和生命周期发布；不能直接发布版本。");
   const body = (await c.req.json()) as { description?: string };
-  applySkillDraft(id);
+  (await applySkillDraft(id));
   clearSkillLookupCache();
   return c.json({ id, ...(await publishSkillVersion(id, body.description)) });
 });
@@ -754,7 +754,7 @@ misc.post("/attachments", async (c) => {
 // /cron/risks and /cron/risk-scan live in routers/cron.ts (overdue-scan view / manual run).
 
 misc.get("/me", async (c) => {
-  const user = currentUser();
+  const user = (await currentUser());
   const appUser = scopedUser();
   return c.json({
     ...user,
@@ -776,7 +776,7 @@ misc.get("/me", async (c) => {
 });
 
 misc.patch("/me", async (c) => {
-  if (authDisabled()) return c.json(currentUser());
+  if (authDisabled()) return c.json((await currentUser()));
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
   const body = (await c.req.json()) as Record<string, unknown>;
@@ -879,14 +879,14 @@ misc.post("/me/persona", async (c) => {
   if (!authDisabled()) throw new HttpFail(404, "not found");
   const body = (await c.req.json()) as { persona: string };
   try {
-    return c.json(setPersona(body.persona));
+    return c.json((await setPersona(body.persona)));
   } catch {
     throw new HttpFail(400, "unknown persona");
   }
 });
 
-misc.get("/exam", (c) => {
-  const u = currentUser();
+misc.get("/exam", async (c) => {
+  const u = (await currentUser());
   return c.json(await examDemoStatus(u.id, u.name, u.brands || []));
 });
 
@@ -929,10 +929,10 @@ misc.get("/admin", async (c) => {
   });
 });
 
-misc.get("/audit", (c) => {
+misc.get("/audit", async (c) => {
   if (!authDisabled()) requireAdmin();
   const limit = Math.min(Math.max(1, Number(c.req.query("limit") || 200)), 500);
-  return c.json(listAudit(c.req.query("event_type"), { limit }));
+  return c.json((await listAudit(c.req.query("event_type"), { limit })));
 });
 
 /** Bounded admin audit reader; raw `/audit` remains only for existing screens. */
@@ -1004,14 +1004,14 @@ misc.get("/stage-transitions", async (c) => {
 misc.post("/demo/reset", async (c) => {
   if (!authDisabled()) throw new HttpFail(404, "not found");
   const body = (await c.req.json().catch(() => ({}))) as { workbench?: boolean };
-  seedAll();
-  resetDemoRuntimeState();
+  (await seedAll());
+  (await resetDemoRuntimeState());
   if (body.workbench) {
     const { seedWorkbenchFixtures } = await import("../seed-fixtures.js");
-    seedWorkbenchFixtures();
+    (await seedWorkbenchFixtures());
   }
   const { resetKolJourneyThreads } = await import("../host/kol-journey.js");
-  resetKolJourneyThreads();
+  (await resetKolJourneyThreads());
   await logout();
   resetStarryHomeLibrarySync();
   resetFollowedMailSync();
@@ -1027,7 +1027,7 @@ misc.get("/home/board", async (c) => {
   // the background and never blocks this response (including ?refresh=1).
   // Poll a later GET or read library/mail.synced_at when fresh remote data is required.
   const board = (await buildHomeBoard());
-  const library = starryLibraryStatus();
+  const library = (await starryLibraryStatus());
   const mail = await followedMailStatus();
   if (refresh) {
     void startStarryHomeLibrarySync().catch(() => undefined);
@@ -1064,7 +1064,7 @@ misc.get("/home/entries", (c) => {
 misc.get("/home", async (c) => {
   c.header("Cache-Control", "no-store");
   const user = scopedUser();
-  const catalog = skillCatalog();
+  const catalog = (await skillCatalog());
   const granted = authDisabled() || (user && isAdmin(user))
     ? new Set(catalog.map((skill) => skill.id))
     : new Set((await visibleSkillIdsForUser(user?.id)));

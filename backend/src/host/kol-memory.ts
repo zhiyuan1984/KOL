@@ -12,7 +12,7 @@
  */
 import { authDisabled, scopedUser } from "../auth.js";
 import { DEMO_USER } from "../config.js";
-import { audit, getConn, nowIso, txImmediate, type SqliteConn } from "../db.js";
+import { audit, getConn, nowIso, tx, type DatabaseConnection } from "../db.js";
 import { publicProfileFields } from "./public-profile.js";
 export { publicProfileFields } from "./public-profile.js";
 import { nid } from "../ids.js";
@@ -68,14 +68,14 @@ export function memoryCompanyId(): string {
   return DEFAULT_COMPANY_ID;
 }
 
-export function currentMemoryEmployee(): MemoryEmployee {
+export async function currentMemoryEmployee(): Promise<Awaited<MemoryEmployee>> {
   const user = scopedUser();
   if (user) {
     return { id: user.id, name: user.name, brands: [...(user.brands || [])] };
   }
   if (authDisabled()) {
     try {
-      const persona = currentUser();
+      const persona = (await currentUser());
       return { id: persona.id, name: persona.name, brands: [...(persona.brands || [])] };
     } catch {
       return { id: DEMO_USER.id, name: DEMO_USER.name, brands: [...DEMO_USER.brands] };
@@ -84,7 +84,7 @@ export function currentMemoryEmployee(): MemoryEmployee {
   throw new HttpFail(401, "authentication required");
 }
 
-export function resolveScopeBrand(requested?: string, employee = currentMemoryEmployee()): string {
+export function resolveScopeBrand(requested?: string, employee = (await currentMemoryEmployee())): string {
   const brand = String(requested || "").trim();
   if (brand) return brand;
   return employee.brands[0] || "LT";
@@ -166,13 +166,11 @@ export function isEffectiveCorrespondence(input: {
   return kind === "human";
 }
 
-export function getProfile(kolUid: string, companyId = memoryCompanyId(), db: SqliteConn = getConn()): Row | undefined {
-  return db.prepare(
-    "SELECT * FROM kol_profile_index WHERE company_id=? AND kol_uid=?",
-  ).get(companyId, text(kolUid)) as Row | undefined;
+export async function getProfile(kolUid: string, companyId = memoryCompanyId(), db: DatabaseConnection = getConn()): Promise<Awaited<Row | undefined>> {
+  return (await db.query("SELECT * FROM kol_profile_index WHERE company_id=$1 AND kol_uid=$2",[companyId,text(kolUid)])).rows[0] as Row | undefined;
 }
 
-export function upsertPublicProfile(input: {
+export async function upsertPublicProfile(input: {
  company_id?: string;
  kol_uid: string;
  handle?: string;
@@ -195,65 +193,15 @@ export function upsertPublicProfile(input: {
   source_version?: string;
   source_batch?: string;
   platform_creator_id?: string;
-}, db: SqliteConn = getConn()): Row {
+}, db: DatabaseConnection = getConn()): Promise<Awaited<Row>> {
   const companyId = text(input.company_id) || memoryCompanyId();
   const kolUid = text(input.kol_uid);
   if (!kolUid) throw new HttpFail(400, { code: "kol_uid_required", message: "需要正式红人编号" });
   const now = nowIso();
-  const existing = getProfile(kolUid, companyId, db);
+  const existing = (await getProfile(kolUid, companyId, db));
   const id = String(existing?.id || nid("kpi"));
-  db.prepare(
-    `INSERT INTO kol_profile_index
-     (id,company_id,kol_uid,handle,display_name,platform,homepage_url,avatar_url,followers,avg_plays,
-      engagement,engagement_source,direction,region,style,ingest_source,ingested_at,public_stage,pool_status,
-      idle,source_version,source_batch,platform_creator_id,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-     ON CONFLICT(company_id, kol_uid) DO UPDATE SET
-       handle=COALESCE(NULLIF(excluded.handle,''), kol_profile_index.handle),
-       display_name=COALESCE(NULLIF(excluded.display_name,''), kol_profile_index.display_name),
-       platform=COALESCE(NULLIF(excluded.platform,''), kol_profile_index.platform),
-       homepage_url=COALESCE(NULLIF(excluded.homepage_url,''), kol_profile_index.homepage_url),
-       avatar_url=COALESCE(NULLIF(excluded.avatar_url,''), kol_profile_index.avatar_url),
-       followers=COALESCE(NULLIF(excluded.followers,''), kol_profile_index.followers),
-       avg_plays=COALESCE(NULLIF(excluded.avg_plays,''), kol_profile_index.avg_plays),
-       engagement=COALESCE(NULLIF(excluded.engagement,''), kol_profile_index.engagement),
-       engagement_source=COALESCE(NULLIF(excluded.engagement_source,''), kol_profile_index.engagement_source),
-       direction=COALESCE(NULLIF(excluded.direction,''), kol_profile_index.direction),
-       region=COALESCE(NULLIF(excluded.region,''), kol_profile_index.region),
-       style=COALESCE(NULLIF(excluded.style,''), kol_profile_index.style),
-       ingest_source=COALESCE(NULLIF(excluded.ingest_source,''), kol_profile_index.ingest_source),
-       ingested_at=COALESCE(kol_profile_index.ingested_at, excluded.ingested_at),
-       public_stage=COALESCE(NULLIF(excluded.public_stage,''), kol_profile_index.public_stage),
-       source_version=COALESCE(excluded.source_version, kol_profile_index.source_version),
-       source_batch=COALESCE(NULLIF(excluded.source_batch,''), kol_profile_index.source_batch),
-       platform_creator_id=COALESCE(NULLIF(excluded.platform_creator_id,''), kol_profile_index.platform_creator_id),
-       updated_at=excluded.updated_at`,
-  ).run(
-    id, companyId, kolUid,
-    text(input.handle),
-    text(input.display_name) || text(input.handle),
-    text(input.platform),
-    text(input.homepage_url),
-    text(input.avatar_url),
-    text(input.followers),
-    text(input.avg_plays),
-    text(input.engagement),
-    text(input.engagement_source),
-    text(input.direction),
-    text(input.region),
-    text(input.style),
-    text(input.ingest_source) || "starry",
-    existing?.ingested_at || input.ingested_at || now,
-    text(input.public_stage),
-    text(input.pool_status) || existing?.pool_status || "open",
-    Number(input.idle ?? existing?.idle ?? 0),
-    text(input.source_version),
-    text(input.source_batch),
-    text(input.platform_creator_id),
-    existing?.created_at || now,
-    now,
-  );
-  return getProfile(kolUid, companyId, db)!;
+  (await db.query("INSERT INTO kol_profile_index\n     (id,company_id,kol_uid,handle,display_name,platform,homepage_url,avatar_url,followers,avg_plays,\n      engagement,engagement_source,direction,region,style,ingest_source,ingested_at,public_stage,pool_status,\n      idle,source_version,source_batch,platform_creator_id,created_at,updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)\n     ON CONFLICT(company_id, kol_uid) DO UPDATE SET\n       handle=COALESCE(NULLIF(excluded.handle,''), kol_profile_index.handle),\n       display_name=COALESCE(NULLIF(excluded.display_name,''), kol_profile_index.display_name),\n       platform=COALESCE(NULLIF(excluded.platform,''), kol_profile_index.platform),\n       homepage_url=COALESCE(NULLIF(excluded.homepage_url,''), kol_profile_index.homepage_url),\n       avatar_url=COALESCE(NULLIF(excluded.avatar_url,''), kol_profile_index.avatar_url),\n       followers=COALESCE(NULLIF(excluded.followers,''), kol_profile_index.followers),\n       avg_plays=COALESCE(NULLIF(excluded.avg_plays,''), kol_profile_index.avg_plays),\n       engagement=COALESCE(NULLIF(excluded.engagement,''), kol_profile_index.engagement),\n       engagement_source=COALESCE(NULLIF(excluded.engagement_source,''), kol_profile_index.engagement_source),\n       direction=COALESCE(NULLIF(excluded.direction,''), kol_profile_index.direction),\n       region=COALESCE(NULLIF(excluded.region,''), kol_profile_index.region),\n       style=COALESCE(NULLIF(excluded.style,''), kol_profile_index.style),\n       ingest_source=COALESCE(NULLIF(excluded.ingest_source,''), kol_profile_index.ingest_source),\n       ingested_at=COALESCE(kol_profile_index.ingested_at, excluded.ingested_at),\n       public_stage=COALESCE(NULLIF(excluded.public_stage,''), kol_profile_index.public_stage),\n       source_version=COALESCE(excluded.source_version, kol_profile_index.source_version),\n       source_batch=COALESCE(NULLIF(excluded.source_batch,''), kol_profile_index.source_batch),\n       platform_creator_id=COALESCE(NULLIF(excluded.platform_creator_id,''), kol_profile_index.platform_creator_id),\n       updated_at=excluded.updated_at",[id,companyId,kolUid,text(input.handle),text(input.display_name) || text(input.handle),text(input.platform),text(input.homepage_url),text(input.avatar_url),text(input.followers),text(input.avg_plays),text(input.engagement),text(input.engagement_source),text(input.direction),text(input.region),text(input.style),text(input.ingest_source) || "starry",existing?.ingested_at || input.ingested_at || now,text(input.public_stage),text(input.pool_status) || existing?.pool_status || "open",Number(input.idle ?? existing?.idle ?? 0),text(input.source_version),text(input.source_batch),text(input.platform_creator_id),existing?.created_at || now,now]));
+  return (await getProfile(kolUid, companyId, db))!;
 }
 
 export function ingestFormalProfile(input: {
@@ -285,37 +233,20 @@ export function ingestFormalProfile(input: {
   });
 }
 
-export function activeFollow(input: {
+export async function activeFollow(input: {
   company_id?: string;
   kol_uid: string;
   scope_brand: string;
-}, db: SqliteConn = getConn()): Row | undefined {
-  return db.prepare(
-    `SELECT * FROM kol_follow_index
-      WHERE company_id=? AND kol_uid=? AND scope_brand=? AND status='active'`,
-  ).get(text(input.company_id) || memoryCompanyId(), text(input.kol_uid), text(input.scope_brand)) as Row | undefined;
+}, db: DatabaseConnection = getConn()): Promise<Awaited<Row | undefined>> {
+  return (await db.query("SELECT * FROM kol_follow_index\n      WHERE company_id=$1 AND kol_uid=$2 AND scope_brand=$3 AND status='active'",[text(input.company_id) || memoryCompanyId(),text(input.kol_uid),text(input.scope_brand)])).rows[0] as Row | undefined;
 }
 
-export function followById(followId: string, db: SqliteConn = getConn()): Row | undefined {
-  return db.prepare("SELECT * FROM kol_follow_index WHERE id=?").get(followId) as Row | undefined;
+export async function followById(followId: string, db: DatabaseConnection = getConn()): Promise<Awaited<Row | undefined>> {
+  return (await db.query("SELECT * FROM kol_follow_index WHERE id=$1",[followId])).rows[0] as Row | undefined;
 }
 
-export function listOpenPool(companyId = memoryCompanyId(), db: SqliteConn = getConn()): Json[] {
-  const rows = db.prepare(
-    `SELECT p.*,
-       (SELECT f.release_reason FROM kol_follow_index f
-         WHERE f.company_id=p.company_id AND f.kol_uid=p.kol_uid AND f.status='released'
-         ORDER BY f.released_at DESC, f.id DESC LIMIT 1) AS latest_release_reason
-      FROM kol_profile_index p
-      WHERE p.company_id=? AND p.pool_status='open'
-        AND p.ingest_source IS DISTINCT FROM 'discovery-candidate'
-        AND NOT EXISTS (SELECT 1 FROM kol_follow_index f JOIN kol_profile_index owned
-          ON owned.company_id=f.company_id AND owned.kol_uid=f.kol_uid
-          WHERE f.company_id=p.company_id AND f.status='active' AND
-            (f.kol_uid=p.kol_uid OR (lower(owned.platform)=lower(p.platform)
-              AND NULLIF(owned.platform_creator_id,'')=NULLIF(p.platform_creator_id,''))))
-      ORDER BY p.ingested_at DESC, p.display_name`,
-  ).all(companyId) as Row[];
+export async function listOpenPool(companyId = memoryCompanyId(), db: DatabaseConnection = getConn()): Promise<Awaited<Json[]>> {
+  const rows = (await db.query("SELECT p.*,\n       (SELECT f.release_reason FROM kol_follow_index f\n         WHERE f.company_id=p.company_id AND f.kol_uid=p.kol_uid AND f.status='released'\n         ORDER BY f.released_at DESC, f.id DESC LIMIT 1) AS latest_release_reason\n      FROM kol_profile_index p\n      WHERE p.company_id=$1 AND p.pool_status='open'\n        AND p.ingest_source IS DISTINCT FROM 'discovery-candidate'\n        AND NOT EXISTS (SELECT 1 FROM kol_follow_index f JOIN kol_profile_index owned\n          ON owned.company_id=f.company_id AND owned.kol_uid=f.kol_uid\n          WHERE f.company_id=p.company_id AND f.status='active' AND\n            (f.kol_uid=p.kol_uid OR (lower(owned.platform)=lower(p.platform)\n              AND NULLIF(owned.platform_creator_id,'')=NULLIF(p.platform_creator_id,''))))\n      ORDER BY p.ingested_at DESC, p.display_name",[companyId])).rows as Row[];
   return rows.map((row) => trimPrivate(publicProfileFields({
     ...row,
     public_stage: row.latest_release_reason === "ownership-release" ? "14天无回复" : row.public_stage,
@@ -323,28 +254,9 @@ export function listOpenPool(companyId = memoryCompanyId(), db: SqliteConn = get
 }
 
 /** Counts only unclaimed public-pool rows. Active follows are not cleanup candidates. */
-export function previewProfilesWithoutHomepage(companyId = memoryCompanyId(), db: SqliteConn = getConn()): Json {
-  const candidate = db.prepare(
-    `SELECT COUNT(*) AS count
-       FROM kol_profile_index p
-      WHERE p.company_id=?
-        AND p.pool_status='open'
-        AND trim(COALESCE(p.homepage_url,''))=''
-        AND NOT EXISTS (
-          SELECT 1 FROM kol_follow_index f
-           WHERE f.company_id=p.company_id AND f.kol_uid=p.kol_uid AND f.status='active'
-        )`,
-  ).get(companyId) as { count?: number } | undefined;
-  const protectedRows = db.prepare(
-    `SELECT COUNT(*) AS count
-       FROM kol_profile_index p
-      WHERE p.company_id=?
-        AND trim(COALESCE(p.homepage_url,''))=''
-        AND EXISTS (
-          SELECT 1 FROM kol_follow_index f
-           WHERE f.company_id=p.company_id AND f.kol_uid=p.kol_uid AND f.status='active'
-        )`,
-  ).get(companyId) as { count?: number } | undefined;
+export async function previewProfilesWithoutHomepage(companyId = memoryCompanyId(), db: DatabaseConnection = getConn()): Promise<Awaited<Json>> {
+  const candidate = (await db.query("SELECT COUNT(*) AS count\n       FROM kol_profile_index p\n      WHERE p.company_id=$1\n        AND p.pool_status='open'\n        AND trim(COALESCE(p.homepage_url,''))=''\n        AND NOT EXISTS (\n          SELECT 1 FROM kol_follow_index f\n           WHERE f.company_id=p.company_id AND f.kol_uid=p.kol_uid AND f.status='active'\n        )",[companyId])).rows[0] as { count?: number } | undefined;
+  const protectedRows = (await db.query("SELECT COUNT(*) AS count\n       FROM kol_profile_index p\n      WHERE p.company_id=$1\n        AND trim(COALESCE(p.homepage_url,''))=''\n        AND EXISTS (\n          SELECT 1 FROM kol_follow_index f\n           WHERE f.company_id=p.company_id AND f.kol_uid=p.kol_uid AND f.status='active'\n        )",[companyId])).rows[0] as { count?: number } | undefined;
   return {
     scope: "public_pool_only",
     candidate_count: Number(candidate?.count || 0),
@@ -357,12 +269,12 @@ export function previewProfilesWithoutHomepage(companyId = memoryCompanyId(), db
  * The caller must re-submit the preview count so a stale preview cannot delete
  * a different set of records.
  */
-export function deleteProfilesWithoutHomepage(input: {
+export async function deleteProfilesWithoutHomepage(input: {
   expectedCount: number;
   confirm: boolean;
   companyId?: string;
   actor?: string;
-}): Json {
+}): Promise<Awaited<Json>> {
   if (!input.confirm) {
     throw new HttpFail(422, { code: "cleanup_confirmation_required", message: "清理无主页档案需要明确确认。" });
   }
@@ -371,18 +283,8 @@ export function deleteProfilesWithoutHomepage(input: {
     throw new HttpFail(400, { code: "cleanup_expected_count_required", message: "需要有效的 expected_count。" });
   }
   const companyId = input.companyId || memoryCompanyId();
-  const deleted = txImmediate((db) => {
-    const current = db.prepare(
-      `SELECT COUNT(*) AS count
-         FROM kol_profile_index p
-        WHERE p.company_id=?
-          AND p.pool_status='open'
-          AND trim(COALESCE(p.homepage_url,''))=''
-          AND NOT EXISTS (
-            SELECT 1 FROM kol_follow_index f
-             WHERE f.company_id=p.company_id AND f.kol_uid=p.kol_uid AND f.status='active'
-          )`,
-    ).get(companyId) as { count?: number } | undefined;
+  const deleted = (await tx(async (db) => {
+    const current = (await db.query("SELECT COUNT(*) AS count\n         FROM kol_profile_index p\n        WHERE p.company_id=$1\n          AND p.pool_status='open'\n          AND trim(COALESCE(p.homepage_url,''))=''\n          AND NOT EXISTS (\n            SELECT 1 FROM kol_follow_index f\n             WHERE f.company_id=p.company_id AND f.kol_uid=p.kol_uid AND f.status='active'\n          )",[companyId])).rows[0] as { count?: number } | undefined;
     const actual = Number(current?.count || 0);
     if (actual !== expected) {
       throw new HttpFail(409, {
@@ -392,25 +294,14 @@ export function deleteProfilesWithoutHomepage(input: {
         actual_count: actual,
       });
     }
-    return Number(db.prepare(
-      `DELETE FROM kol_profile_index
-        WHERE company_id=?
-          AND pool_status='open'
-          AND trim(COALESCE(homepage_url,''))=''
-          AND NOT EXISTS (
-            SELECT 1 FROM kol_follow_index f
-             WHERE f.company_id=kol_profile_index.company_id
-               AND f.kol_uid=kol_profile_index.kol_uid
-               AND f.status='active'
-          )`,
-    ).run(companyId).changes || 0);
-  });
-  audit(input.actor || "system", "kol.memory.cleanup_missing_homepage", {
+    return Number((await db.query("DELETE FROM kol_profile_index\n        WHERE company_id=$1\n          AND pool_status='open'\n          AND trim(COALESCE(homepage_url,''))=''\n          AND NOT EXISTS (\n            SELECT 1 FROM kol_follow_index f\n             WHERE f.company_id=kol_profile_index.company_id\n               AND f.kol_uid=kol_profile_index.kol_uid\n               AND f.status='active'\n          )",[companyId])).changes || 0);
+  }));
+  (await audit(input.actor || "system", "kol.memory.cleanup_missing_homepage", {
     scope: "public_pool_only",
     expected_count: expected,
     deleted,
-  });
-  return { ok: true, scope: "public_pool_only", deleted, ...previewProfilesWithoutHomepage(companyId) };
+  }));
+  return { ok: true, scope: "public_pool_only", deleted, ...(await previewProfilesWithoutHomepage(companyId)) };
 }
 
 /** 一条 IN 查询最多绑多少个 id：远低于 SQLite 的变量上限，只是给超长名单留安全余量。 */
@@ -428,7 +319,7 @@ function idBatches(ids: string[]): string[][] {
  * 跟进名单的线程记忆按批取回。逐人查（每人 2 条 SQL）在 200+ 人在跟时要跑 400+ 次查询，
  * 把首屏读取窗口拖长；这里最多查两次再分组。合并口径与逐人版本逐字一致。
  */
-function followedThreadMemoryByFollow(follows: Row[], db: SqliteConn): Map<string, Json[]> {
+function followedThreadMemoryByFollow(follows: Row[], db: DatabaseConnection): Map<string, Json[]> {
   const summariesByFollow = new Map<string, Row[]>();
   const threadsByCollaboration = new Map<string, Row[]>();
   const followIds = [...new Set(follows.map((follow) => text(follow.id)).filter(Boolean))];
@@ -523,23 +414,8 @@ function refusalIn(value: string): boolean {
  * It combines B ownership, the C thread summary index, and locally synchronized
  * mail threads; it never calls Starry, creates a session, or invokes a model.
  */
-export function listEmployeeFollowing(employeeId: string, companyId = memoryCompanyId(), db: SqliteConn = getConn()): Json[] {
-  const rows = db.prepare(
-    `SELECT f.*, p.handle, p.display_name, p.platform, p.homepage_url, p.avatar_url, p.followers,
-            p.avg_plays, p.engagement, p.engagement_source, p.direction, p.region, p.style,
-            p.ingest_source, p.ingested_at, p.public_stage, p.idle, p.pool_status,
-            p.potential_score, p.potential_probabilities, p.potential_confidence,
-            p.risk_score, p.risk_probabilities, p.risk_confidence,
-            p.assessment_model, p.assessment_version, p.assessed_at, p.assessment_error, p.assessment_criteria,
-            c.stage_code AS collaboration_stage_code, c.days_in_stage AS days_in_stage
-       FROM kol_follow_index f
-       LEFT JOIN kol_profile_index p
-         ON p.company_id=f.company_id AND p.kol_uid=f.kol_uid
-       LEFT JOIN collaborations c
-         ON c.id=f.collaboration_id
-      WHERE f.company_id=? AND f.employee_id=? AND f.status='active'
-      ORDER BY f.claimed_at DESC`,
-  ).all(companyId, employeeId) as Row[];
+export async function listEmployeeFollowing(employeeId: string, companyId = memoryCompanyId(), db: DatabaseConnection = getConn()): Promise<Awaited<Json[]>> {
+  const rows = (await db.query("SELECT f.*, p.handle, p.display_name, p.platform, p.homepage_url, p.avatar_url, p.followers,\n            p.avg_plays, p.engagement, p.engagement_source, p.direction, p.region, p.style,\n            p.ingest_source, p.ingested_at, p.public_stage, p.idle, p.pool_status,\n            p.potential_score, p.potential_probabilities, p.potential_confidence,\n            p.risk_score, p.risk_probabilities, p.risk_confidence,\n            p.assessment_model, p.assessment_version, p.assessed_at, p.assessment_error, p.assessment_criteria,\n            c.stage_code AS collaboration_stage_code, c.days_in_stage AS days_in_stage\n       FROM kol_follow_index f\n       LEFT JOIN kol_profile_index p\n         ON p.company_id=f.company_id AND p.kol_uid=f.kol_uid\n       LEFT JOIN collaborations c\n         ON c.id=f.collaboration_id\n      WHERE f.company_id=$1 AND f.employee_id=$2 AND f.status='active'\n      ORDER BY f.claimed_at DESC",[companyId,employeeId])).rows as Row[];
   const threadsByFollow = followedThreadMemoryByFollow(rows, db);
   return rows.map((row) => {
     const clock = followClock(row.last_effective_mail_at ? String(row.last_effective_mail_at) : null);
@@ -595,38 +471,34 @@ export function listEmployeeFollowing(employeeId: string, companyId = memoryComp
   });
 }
 
-function dualWriteOwner(db: SqliteConn, input: {
+async function dualWriteOwner(db: DatabaseConnection, input: {
   kol_uid: string;
   scope_brand: string;
   owner_name: string | null;
   employee_id?: string;
-}): void {
-  const existing = db.prepare(
-    "SELECT id, stage_code FROM collaborations WHERE kol_uid=? AND (brand=? OR brand='')",
-  ).all(input.kol_uid, input.scope_brand) as Row[];
+}): Promise<Awaited<void>> {
+  const existing = (await db.query("SELECT id, stage_code FROM collaborations WHERE kol_uid=$1 AND (brand=$2 OR brand='')",[input.kol_uid,input.scope_brand])).rows as Row[];
   const fallback = existing.length
     ? existing
-    : db.prepare("SELECT id, stage_code FROM collaborations WHERE kol_uid=?").all(input.kol_uid) as Row[];
+    : (await db.query("SELECT id, stage_code FROM collaborations WHERE kol_uid=$1",[input.kol_uid])).rows as Row[];
   for (const row of fallback) {
-    db.prepare("UPDATE collaborations SET owner_name=? WHERE id=?").run(input.owner_name, row.id);
+    (await db.query("UPDATE collaborations SET owner_name=$1 WHERE id=$2",[input.owner_name,row.id]));
   }
 }
 
-function collaborationIdFor(db: SqliteConn, kolUid: string, scopeBrand: string): string | null {
-  const row = db.prepare(
-    "SELECT id FROM collaborations WHERE kol_uid=? AND brand=? LIMIT 1",
-  ).get(kolUid, scopeBrand) as { id?: string } | undefined;
+async function collaborationIdFor(db: DatabaseConnection, kolUid: string, scopeBrand: string): Promise<Awaited<string | null>> {
+  const row = (await db.query("SELECT id FROM collaborations WHERE kol_uid=$1 AND brand=$2 LIMIT 1",[kolUid,scopeBrand])).rows[0] as { id?: string } | undefined;
   if (row?.id) return String(row.id);
-  const any = db.prepare("SELECT id FROM collaborations WHERE kol_uid=? LIMIT 1").get(kolUid) as { id?: string } | undefined;
+  const any = (await db.query("SELECT id FROM collaborations WHERE kol_uid=$1 LIMIT 1",[kolUid])).rows[0] as { id?: string } | undefined;
   return any?.id ? String(any.id) : null;
 }
 
-export function claimFollow(input: {
+export async function claimFollow(input: {
   kolUid: string;
   scopeBrand?: string;
   confirm?: boolean;
   actor?: MemoryEmployee;
-}): Json {
+}): Promise<Awaited<Json>> {
   if (!input.confirm) {
     throw new HttpFail(422, {
       code: "l3_confirm_required",
@@ -634,12 +506,12 @@ export function claimFollow(input: {
       risk: "L3",
     });
   }
-  const actor = input.actor || currentMemoryEmployee();
+  const actor = input.actor || (await currentMemoryEmployee());
   const companyId = memoryCompanyId();
   const kolUid = text(input.kolUid);
   const scopeBrand = resolveScopeBrand(input.scopeBrand, actor);
-  return txImmediate((db) => {
-    const profile = getProfile(kolUid, companyId, db);
+  return tx(async (db) => {
+    const profile = (await getProfile(kolUid, companyId, db));
     if (!profile) {
       throw new HttpFail(404, {
         code: "profile_not_in_index",
@@ -647,14 +519,14 @@ export function claimFollow(input: {
         kol_uid: kolUid,
       });
     }
-    const existing = activeFollow({ company_id: companyId, kol_uid: kolUid, scope_brand: scopeBrand }, db);
+    const existing = (await activeFollow({ company_id: companyId, kol_uid: kolUid, scope_brand: scopeBrand }, db));
     if (existing) {
       if (String(existing.employee_id) === actor.id) {
         return {
           ok: true,
           reused: true,
           created: false,
-          follow: listEmployeeFollowing(actor.id, companyId, db).find((row) => row.follow_id === existing.id),
+          follow: (await listEmployeeFollowing(actor.id, companyId, db)).find((row) => row.follow_id === existing.id),
         };
       }
       throw new HttpFail(409, {
@@ -668,17 +540,9 @@ export function claimFollow(input: {
     }
     const now = nowIso();
     const followId = nid("kfi");
-    const collaborationId = collaborationIdFor(db, kolUid, scopeBrand);
+    const collaborationId = (await collaborationIdFor(db, kolUid, scopeBrand));
     try {
-      db.prepare(
-        `INSERT INTO kol_follow_index
-         (id,company_id,kol_uid,scope_brand,employee_id,employee_name,status,claimed_at,
-          last_effective_mail_at,release_due_at,collaboration_id,data_version,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      ).run(
-        followId, companyId, kolUid, scopeBrand, actor.id, actor.name, "active", now,
-        null, null, collaborationId, 1, now, now,
-      );
+      (await db.query("INSERT INTO kol_follow_index\n         (id,company_id,kol_uid,scope_brand,employee_id,employee_name,status,claimed_at,\n          last_effective_mail_at,release_due_at,collaboration_id,data_version,created_at,updated_at)\n         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",[followId,companyId,kolUid,scopeBrand,actor.id,actor.name,"active",now,null,null,collaborationId,1,now,now]));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (/UNIQUE|kol_follow_index_active_uniq|discovery_follow_conflict/i.test(message)) {
@@ -691,32 +555,30 @@ export function claimFollow(input: {
       }
       throw error;
     }
-    db.prepare(
-      "UPDATE kol_profile_index SET pool_status='claimed', idle=0, updated_at=? WHERE company_id=? AND kol_uid=?",
-    ).run(now, companyId, kolUid);
-    dualWriteOwner(db, { kol_uid: kolUid, scope_brand: scopeBrand, owner_name: actor.name, employee_id: actor.id });
-    audit(actor.id, "kol.claim", {
+    (await db.query("UPDATE kol_profile_index SET pool_status='claimed', idle=0, updated_at=$1 WHERE company_id=$2 AND kol_uid=$3",[now,companyId,kolUid]));
+    (await dualWriteOwner(db, { kol_uid: kolUid, scope_brand: scopeBrand, owner_name: actor.name, employee_id: actor.id }));
+    (await audit(actor.id, "kol.claim", {
       follow_id: followId,
       kol_uid: kolUid,
       scope_brand: scopeBrand,
       claimed_at_not_effective: true,
       last_effective_mail_at: null,
-    });
+    }));
     return {
       ok: true,
       reused: false,
       created: true,
-      follow: listEmployeeFollowing(actor.id, companyId, db).find((row) => row.follow_id === followId),
+      follow: (await listEmployeeFollowing(actor.id, companyId, db)).find((row) => row.follow_id === followId),
     };
   });
 }
 
-export function releaseFollow(input: {
+export async function releaseFollow(input: {
   followId: string;
   confirm?: boolean;
   reason?: string;
   actor?: MemoryEmployee;
-}): Json {
+}): Promise<Awaited<Json>> {
   if (!input.confirm) {
     throw new HttpFail(422, {
       code: "l3_confirm_required",
@@ -724,9 +586,9 @@ export function releaseFollow(input: {
       risk: "L3",
     });
   }
-  const actor = input.actor || currentMemoryEmployee();
-  return txImmediate((db) => {
-    const follow = followById(input.followId, db);
+  const actor = input.actor || (await currentMemoryEmployee());
+  return tx(async (db) => {
+    const follow = (await followById(input.followId, db));
     if (!follow || follow.status !== "active") {
       throw new HttpFail(404, { code: "follow_not_found", message: "跟进关系不存在或已释放" });
     }
@@ -740,43 +602,31 @@ export function releaseFollow(input: {
   });
 }
 
-export function applyFollowRelease(
-  db: SqliteConn,
+export async function applyFollowRelease(
+  db: DatabaseConnection,
   follow: Row,
   actor: string,
   reason: string,
-): Json {
+): Promise<Awaited<Json>> {
   const now = nowIso();
-  const stageBefore = db.prepare(
-    "SELECT stage_code FROM collaborations WHERE kol_uid=? LIMIT 1",
-  ).get(follow.kol_uid) as { stage_code?: string } | undefined;
-  const changed = db.prepare(
-    `UPDATE kol_follow_index
-        SET status='released', released_at=?, release_reason=?, updated_at=?, data_version=data_version+1
-      WHERE id=? AND status='active'`,
-  ).run(now, reason, now, follow.id);
+  const stageBefore = (await db.query("SELECT stage_code FROM collaborations WHERE kol_uid=$1 LIMIT 1",[follow.kol_uid])).rows[0] as { stage_code?: string } | undefined;
+  const changed = (await db.query("UPDATE kol_follow_index\n        SET status='released', released_at=$1, release_reason=$2, updated_at=$3, data_version=data_version+1\n      WHERE id=$4 AND status='active'",[now,reason,now,follow.id]));
   if (!changed.changes) {
     return { ok: false, action: "skip", reason: "already_released", follow_id: follow.id };
   }
-  db.prepare(
-    `UPDATE kol_profile_index
-        SET pool_status='open', idle=1, updated_at=?
-      WHERE company_id=? AND kol_uid=?`,
-  ).run(now, follow.company_id, follow.kol_uid);
-  dualWriteOwner(db, {
+  (await db.query("UPDATE kol_profile_index\n        SET pool_status='open', idle=1, updated_at=$1\n      WHERE company_id=$2 AND kol_uid=$3",[now,follow.company_id,follow.kol_uid]));
+  (await dualWriteOwner(db, {
     kol_uid: String(follow.kol_uid),
     scope_brand: String(follow.scope_brand),
     owner_name: null,
-  });
-  const stageAfter = db.prepare(
-    "SELECT stage_code FROM collaborations WHERE kol_uid=? LIMIT 1",
-  ).get(follow.kol_uid) as { stage_code?: string } | undefined;
-  audit(actor, "kol.release", {
+  }));
+  const stageAfter = (await db.query("SELECT stage_code FROM collaborations WHERE kol_uid=$1 LIMIT 1",[follow.kol_uid])).rows[0] as { stage_code?: string } | undefined;
+  (await audit(actor, "kol.release", {
     follow_id: follow.id,
     kol_uid: follow.kol_uid,
     reason,
     stage_unchanged: stageBefore?.stage_code || stageAfter?.stage_code || null,
-  });
+  }));
   return {
     ok: true,
     action: "release",
@@ -786,7 +636,7 @@ export function applyFollowRelease(
   };
 }
 
-export function recordEffectiveCorrespondence(input: {
+export async function recordEffectiveCorrespondence(input: {
   kolUid?: string;
   followId?: string;
   companyId?: string;
@@ -800,7 +650,7 @@ export function recordEffectiveCorrespondence(input: {
   body?: string;
   from?: string;
   status?: string;
-}): { renewed: boolean; effective: boolean; reason: string; follow_id?: string } {
+}): Promise<Awaited<{ renewed: boolean; effective: boolean; reason: string; follow_id?: string }>> {
   const effective = isEffectiveCorrespondence(input);
   if (!effective) {
     return { renewed: false, effective: false, reason: classifyCorrespondenceKind(input) };
@@ -808,19 +658,15 @@ export function recordEffectiveCorrespondence(input: {
   const companyId = text(input.companyId) || memoryCompanyId();
   const db = getConn();
   let follow: Row | undefined;
-  if (input.followId) follow = followById(input.followId, db);
+  if (input.followId) follow = (await followById(input.followId, db));
   if (!follow && input.kolUid) {
     const brand = text(input.scopeBrand);
     follow = brand
-      ? activeFollow({ company_id: companyId, kol_uid: text(input.kolUid), scope_brand: brand }, db)
-      : db.prepare(
-        `SELECT * FROM kol_follow_index WHERE company_id=? AND kol_uid=? AND status='active' ORDER BY claimed_at DESC LIMIT 1`,
-      ).get(companyId, text(input.kolUid)) as Row | undefined;
+      ? (await activeFollow({ company_id: companyId, kol_uid: text(input.kolUid), scope_brand: brand }, db))
+      : (await db.query("SELECT * FROM kol_follow_index WHERE company_id=$1 AND kol_uid=$2 AND status='active' ORDER BY claimed_at DESC LIMIT 1",[companyId,text(input.kolUid)])).rows[0] as Row | undefined;
   }
   if (!follow && input.collaborationId) {
-    follow = db.prepare(
-      "SELECT * FROM kol_follow_index WHERE collaboration_id=? AND status='active' LIMIT 1",
-    ).get(input.collaborationId) as Row | undefined;
+    follow = (await db.query("SELECT * FROM kol_follow_index WHERE collaboration_id=$1 AND status='active' LIMIT 1",[input.collaborationId])).rows[0] as Row | undefined;
   }
   if (!follow) {
     return { renewed: false, effective: true, reason: "no_active_follow" };
@@ -837,12 +683,7 @@ export function recordEffectiveCorrespondence(input: {
     return { renewed: false, effective: true, reason: "occurred_at_invalid", follow_id: String(follow.id) };
   }
   const clock = followClock(new Date(occurredAtMs).toISOString());
-  const changed = db.prepare(
-    `UPDATE kol_follow_index
-        SET last_effective_mail_at=?, release_due_at=?, updated_at=?, data_version=data_version+1
-      WHERE id=? AND status='active'
-        AND (last_effective_mail_at IS NULL OR trim(last_effective_mail_at)='' OR last_effective_mail_at<?)`,
-  ).run(clock.last_effective_mail_at, clock.release_due_at, nowIso(), follow.id, clock.last_effective_mail_at);
+  const changed = (await db.query("UPDATE kol_follow_index\n        SET last_effective_mail_at=$1, release_due_at=$2, updated_at=$3, data_version=data_version+1\n      WHERE id=$4 AND status='active'\n        AND (last_effective_mail_at IS NULL OR trim(last_effective_mail_at)='' OR last_effective_mail_at<$5)",[clock.last_effective_mail_at,clock.release_due_at,nowIso(),follow.id,clock.last_effective_mail_at]));
   if (!changed.changes) {
     return { renewed: false, effective: true, reason: "out_of_order", follow_id: String(follow.id) };
   }
@@ -855,7 +696,7 @@ export function recordEffectiveCorrespondence(input: {
  * /api/home/following reads the updated local memory immediately. It is an
  * idempotent upsert keyed by (follow_id, conversation_id), never a remote call.
  */
-export function recordFollowedMailMemory(input: {
+export async function recordFollowedMailMemory(input: {
   kolUid?: string;
   followId?: string;
   companyId?: string;
@@ -871,23 +712,19 @@ export function recordFollowedMailMemory(input: {
   gatewaySuccess?: boolean;
   kind?: string;
   sourceVersion?: string;
-}): { recorded: boolean; effective: boolean; follow_id?: string; conversation_id?: string } {
+}): Promise<Awaited<{ recorded: boolean; effective: boolean; follow_id?: string; conversation_id?: string }>> {
   const db = getConn();
   const companyId = text(input.companyId) || memoryCompanyId();
   let follow: Row | undefined;
-  if (input.followId) follow = followById(input.followId, db);
+  if (input.followId) follow = (await followById(input.followId, db));
   if (!follow && input.kolUid) {
     const brand = text(input.scopeBrand);
     follow = brand
-      ? activeFollow({ company_id: companyId, kol_uid: text(input.kolUid), scope_brand: brand }, db)
-      : db.prepare(
-        `SELECT * FROM kol_follow_index WHERE company_id=? AND kol_uid=? AND status='active' ORDER BY claimed_at DESC LIMIT 1`,
-      ).get(companyId, text(input.kolUid)) as Row | undefined;
+      ? (await activeFollow({ company_id: companyId, kol_uid: text(input.kolUid), scope_brand: brand }, db))
+      : (await db.query("SELECT * FROM kol_follow_index WHERE company_id=$1 AND kol_uid=$2 AND status='active' ORDER BY claimed_at DESC LIMIT 1",[companyId,text(input.kolUid)])).rows[0] as Row | undefined;
   }
   if (!follow && input.collaborationId) {
-    follow = db.prepare(
-      "SELECT * FROM kol_follow_index WHERE collaboration_id=? AND status='active' LIMIT 1",
-    ).get(input.collaborationId) as Row | undefined;
+    follow = (await db.query("SELECT * FROM kol_follow_index WHERE collaboration_id=$1 AND status='active' LIMIT 1",[input.collaborationId])).rows[0] as Row | undefined;
   }
   if (!follow) return { recorded: false, effective: false };
 
@@ -901,7 +738,7 @@ export function recordFollowedMailMemory(input: {
     subject: input.subject,
     body: input.body,
   });
-  upsertThreadSummary({
+  (await upsertThreadSummary({
     follow_id: String(follow.id),
     company_id: String(follow.company_id),
     kol_uid: String(follow.kol_uid),
@@ -914,7 +751,7 @@ export function recordFollowedMailMemory(input: {
     next_step: "",
     mail_refs: conversationId,
     source_version: text(input.sourceVersion) || "local.increment",
-  }, db);
+  }, db));
   return {
     recorded: true,
     effective,
@@ -923,7 +760,7 @@ export function recordFollowedMailMemory(input: {
   };
 }
 
-export function upsertThreadSummary(input: {
+export async function upsertThreadSummary(input: {
   follow_id: string;
   company_id?: string;
   kol_uid: string;
@@ -938,55 +775,25 @@ export function upsertThreadSummary(input: {
   next_step?: string;
   mail_refs?: string;
   source_version?: string;
-}, db: SqliteConn = getConn()): Row {
+}, db: DatabaseConnection = getConn()): Promise<Awaited<Row>> {
   const now = nowIso();
   const conversationId = text(input.conversation_id) || "unknown";
-  const existing = db.prepare(
-    "SELECT * FROM kol_thread_summary WHERE follow_id=? AND conversation_id=?",
-  ).get(input.follow_id, conversationId) as Row | undefined;
+  const existing = (await db.query("SELECT * FROM kol_thread_summary WHERE follow_id=$1 AND conversation_id=$2",[input.follow_id,conversationId])).rows[0] as Row | undefined;
   const id = String(existing?.id || nid("kts"));
   if (existing) {
-    db.prepare(
-      `UPDATE kol_thread_summary
-          SET subject=?, participants=?, time_range=?, last_at=?, effective=?,
-              key_agreements=?, open_questions=?, next_step=?, mail_refs=?,
-              source_version=?, updated_at=?
-        WHERE id=?`,
-    ).run(
-      text(input.subject), text(input.participants), text(input.time_range),
-      text(input.last_at), input.effective, text(input.key_agreements),
-      text(input.open_questions), text(input.next_step), text(input.mail_refs),
-      text(input.source_version), now, id,
-    );
+    (await db.query("UPDATE kol_thread_summary\n          SET subject=$1, participants=$2, time_range=$3, last_at=$4, effective=$5,\n              key_agreements=$6, open_questions=$7, next_step=$8, mail_refs=$9,\n              source_version=$10, updated_at=$11\n        WHERE id=$12",[text(input.subject),text(input.participants),text(input.time_range),text(input.last_at),input.effective,text(input.key_agreements),text(input.open_questions),text(input.next_step),text(input.mail_refs),text(input.source_version),now,id]));
   } else {
-    db.prepare(
-      `INSERT INTO kol_thread_summary
-       (id,company_id,follow_id,kol_uid,conversation_id,subject,participants,time_range,
-        last_at,effective,key_agreements,open_questions,next_step,mail_refs,source_version,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      id, text(input.company_id) || memoryCompanyId(), input.follow_id, input.kol_uid,
-      conversationId, text(input.subject), text(input.participants), text(input.time_range),
-      text(input.last_at), input.effective, text(input.key_agreements),
-      text(input.open_questions), text(input.next_step), text(input.mail_refs),
-      text(input.source_version), now, now,
-    );
+    (await db.query("INSERT INTO kol_thread_summary\n       (id,company_id,follow_id,kol_uid,conversation_id,subject,participants,time_range,\n        last_at,effective,key_agreements,open_questions,next_step,mail_refs,source_version,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)",[id,text(input.company_id) || memoryCompanyId(),input.follow_id,input.kol_uid,conversationId,text(input.subject),text(input.participants),text(input.time_range),text(input.last_at),input.effective,text(input.key_agreements),text(input.open_questions),text(input.next_step),text(input.mail_refs),text(input.source_version),now,now]));
   }
-  return db.prepare("SELECT * FROM kol_thread_summary WHERE id=?").get(id) as Row;
+  return (await db.query("SELECT * FROM kol_thread_summary WHERE id=$1",[id])).rows[0] as Row;
 }
 
-export function listActiveFollows(db: SqliteConn = getConn()): Row[] {
-  return db.prepare(
-    "SELECT * FROM kol_follow_index WHERE status='active' ORDER BY claimed_at",
-  ).all() as Row[];
+export async function listActiveFollows(db: DatabaseConnection = getConn()): Promise<Awaited<Row[]>> {
+  return (await db.query("SELECT * FROM kol_follow_index WHERE status='active' ORDER BY claimed_at",[])).rows as Row[];
 }
 
-export function countKolAnalyzeInFlight(ownerUserId: string, db: SqliteConn = getConn()): number {
-  const row = db.prepare(
-    `SELECT COUNT(*) AS n FROM tickets
-      WHERE owner_user_id=? AND task_type=?
-        AND status IN ('queued','running','pending','waiting')`,
-  ).get(ownerUserId, KOL_ANALYZE_TASK_TYPE) as { n: number };
+export async function countKolAnalyzeInFlight(ownerUserId: string, db: DatabaseConnection = getConn()): Promise<Awaited<number>> {
+  const row = (await db.query("SELECT COUNT(*) AS n FROM tickets\n      WHERE owner_user_id=$1 AND task_type=$2\n        AND status IN ('queued','running','pending','waiting')",[ownerUserId,KOL_ANALYZE_TASK_TYPE])).rows[0] as { n: number };
   return Number(row?.n || 0);
 }
 
@@ -1038,25 +845,19 @@ export function illegalKolAnalyzeVerbs(payload: unknown): string[] {
   return extractKolAnalyzeVerbs(payload).filter((verb) => !isAllowedKolAnalyzeVerb(verb));
 }
 
-export function failKolAnalyzeIllegalVerb(workItemId: string | null | undefined, verbs: string[]): Json {
+export async function failKolAnalyzeIllegalVerb(workItemId: string | null | undefined, verbs: string[]): Promise<Awaited<Json>> {
   const now = nowIso();
   const illegal = [...new Set(verbs.map(text).filter(Boolean))];
   if (workItemId) {
     const db = getConn();
-    db.prepare(
-      "UPDATE tickets SET status='failed',updated_at=?,data_version=data_version+1 WHERE id=?",
-    ).run(now, workItemId);
-    db.prepare(
-      `UPDATE task_runs
-          SET status='failed', error=?, completed_at=COALESCE(completed_at,?)
-        WHERE work_item_id=?`,
-    ).run(JSON.stringify({ code: "illegal_kol_analyze_verb", illegal_verbs: illegal, applied: false }), now, workItemId);
+    (await db.query("UPDATE tickets SET status='failed',updated_at=$1,data_version=data_version+1 WHERE id=$2",[now,workItemId]));
+    (await db.query("UPDATE task_runs\n          SET status='failed', error=$1, completed_at=COALESCE(completed_at,$2)\n        WHERE work_item_id=$3",[JSON.stringify({ code: "illegal_kol_analyze_verb", illegal_verbs: illegal, applied: false }),now,workItemId]));
   }
-  audit("host", "kol.analyze.illegal_verb", {
+  (await audit("host", "kol.analyze.illegal_verb", {
     work_item_id: workItemId || null,
     illegal_verbs: illegal,
     applied: false,
-  });
+  }));
   return {
     ok: false,
     applied: false,
@@ -1067,11 +868,11 @@ export function failKolAnalyzeIllegalVerb(workItemId: string | null | undefined,
   };
 }
 
-export function assertKolAnalyzeVerbsSafe(skill: string, payload: unknown, workItemId?: string | null): void {
+export async function assertKolAnalyzeVerbsSafe(skill: string, payload: unknown, workItemId?: string | null): Promise<Awaited<void>> {
   if (skill !== KOL_ANALYZE_TASK_TYPE) return;
   const illegal = illegalKolAnalyzeVerbs(payload);
   if (!illegal.length) return;
-  failKolAnalyzeIllegalVerb(workItemId, illegal);
+  (await failKolAnalyzeIllegalVerb(workItemId, illegal));
   throw new HttpFail(422, {
     code: "illegal_kol_analyze_verb",
     message: `kol_analyze 不允许动词：${illegal.join(", ")}`,
@@ -1082,19 +883,19 @@ export function assertKolAnalyzeVerbsSafe(skill: string, payload: unknown, workI
 }
 
 /** Runtime gate for a kol_analyze artifact or action payload. */
-export function enforceKolAnalyzeArtifact(workItemId: string | null | undefined, payload: unknown): void {
-  assertKolAnalyzeVerbsSafe(KOL_ANALYZE_TASK_TYPE, payload, workItemId);
+export async function enforceKolAnalyzeArtifact(workItemId: string | null | undefined, payload: unknown): Promise<Awaited<void>> {
+  (await assertKolAnalyzeVerbsSafe(KOL_ANALYZE_TASK_TYPE, payload, workItemId));
 }
 
 /** Legal verbs stay suggestions. Illegal verbs fail the task and are not applied. */
-export function applyKolAnalyzeAction(input: {
+export async function applyKolAnalyzeAction(input: {
   workItemId: string;
   verb?: string;
   action?: string;
   artifact?: Json;
-}): Json {
+}): Promise<Awaited<Json>> {
   const db = getConn();
-  const item = db.prepare("SELECT * FROM tickets WHERE id=?").get(input.workItemId) as Row | undefined;
+  const item = (await db.query("SELECT * FROM tickets WHERE id=$1",[input.workItemId])).rows[0] as Row | undefined;
   if (!item) throw new HttpFail(404, { code: "task_not_found", message: "task not found" });
   if (String(item.task_type) !== KOL_ANALYZE_TASK_TYPE) {
     throw new HttpFail(409, { code: "not_kol_analyze", message: "only kol_analyze tasks enforce this verb whitelist" });
@@ -1106,7 +907,7 @@ export function applyKolAnalyzeAction(input: {
   };
   const illegal = illegalKolAnalyzeVerbs(payload);
   if (illegal.length) {
-    const failed = failKolAnalyzeIllegalVerb(String(item.id), illegal);
+    const failed = (await failKolAnalyzeIllegalVerb(String(item.id), illegal));
     throw new HttpFail(422, {
       ...failed,
       message: `kol_analyze 不允许动词：${illegal.join(", ")}`,
@@ -1114,17 +915,17 @@ export function applyKolAnalyzeAction(input: {
   }
   const verb = text(input.verb || input.action) || "none";
   if (verb && !isAllowedKolAnalyzeVerb(verb) && VERB_TOKEN.test(verb)) {
-    const failed = failKolAnalyzeIllegalVerb(String(item.id), [verb]);
+    const failed = (await failKolAnalyzeIllegalVerb(String(item.id), [verb]));
     throw new HttpFail(422, {
       ...failed,
       message: `kol_analyze 不允许动词：${verb}`,
     });
   }
-  audit("host", "kol.analyze.action.suggested", {
+  (await audit("host", "kol.analyze.action.suggested", {
     work_item_id: item.id,
     verb,
     applied: false,
-  });
+  }));
   return {
     ok: true,
     applied: false,

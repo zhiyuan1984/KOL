@@ -184,74 +184,50 @@ export function threadsForCollaboration(collaborationId: string): Json[] {
   return threadsByCollaborationIds([collaborationId]).get(collaborationId) || [];
 }
 
-export function itemsForCollaboration(collaborationId: string): Json[] {
-  return getConn()
-    .prepare(
-      `SELECT id, conversation_id, provider_message_id, subject, direction, snippet, unread, occurred_at, created_at,
-              from_addr, from_name, to_addr, body_text, summary, summary_zh, summary_source, receipt_status, receipt_at, effective
-       FROM kol_mail_items WHERE collaboration_id=?`,
-    )
-    .all(collaborationId) as Json[];
+export async function itemsForCollaboration(collaborationId: string): Promise<Awaited<Json[]>> {
+  return (await getConn().query("SELECT id, conversation_id, provider_message_id, subject, direction, snippet, unread, occurred_at, created_at,\n              from_addr, from_name, to_addr, body_text, summary, summary_zh, summary_source, receipt_status, receipt_at, effective\n       FROM kol_mail_items WHERE collaboration_id=$1",[collaborationId])).rows as Json[];
 }
 
-export function itemsForConversation(conversationId: string, mailbox?: string): Json[] {
+export async function itemsForConversation(conversationId: string, mailbox?: string): Promise<Awaited<Json[]>> {
   if (!conversationId) return [];
   if (mailbox) {
-    return getConn()
-      .prepare(
-        `SELECT i.* FROM kol_mail_items i
-         JOIN kol_mail_threads t ON t.id = i.thread_id
-         WHERE i.conversation_id=? AND IFNULL(t.mailbox,'')=?
-         ORDER BY i.occurred_at ASC, i.created_at ASC`,
-      )
-      .all(conversationId, mailbox) as Json[];
+    return (await getConn().query("SELECT i.* FROM kol_mail_items i\n         JOIN kol_mail_threads t ON t.id = i.thread_id\n         WHERE i.conversation_id=$1 AND COALESCE(t.mailbox,'')=$2\n         ORDER BY i.occurred_at ASC, i.created_at ASC",[conversationId,mailbox])).rows as Json[];
   }
-  return getConn()
-    .prepare(
-      `SELECT * FROM kol_mail_items WHERE conversation_id=? ORDER BY occurred_at ASC, created_at ASC`,
-    )
-    .all(conversationId) as Json[];
+  return (await getConn().query("SELECT * FROM kol_mail_items WHERE conversation_id=$1 ORDER BY occurred_at ASC, created_at ASC",[conversationId])).rows as Json[];
 }
 
-export function unreadCountForCollaboration(collaborationId: string): number {
-  const row = getConn()
-    .prepare("SELECT COALESCE(SUM(unread_count),0) AS n FROM kol_mail_threads WHERE collaboration_id=?")
-    .get(collaborationId) as { n: number };
+export async function unreadCountForCollaboration(collaborationId: string): Promise<Awaited<number>> {
+  const row = (await getConn().query("SELECT COALESCE(SUM(unread_count),0) AS n FROM kol_mail_threads WHERE collaboration_id=$1",[collaborationId])).rows[0] as { n: number };
   return Number(row?.n || 0);
 }
 
-export function unreadCountForMailbox(mailbox: string): number {
+export async function unreadCountForMailbox(mailbox: string): Promise<Awaited<number>> {
   if (!mailbox) {
-    const row = getConn().prepare("SELECT COALESCE(SUM(unread_count),0) AS n FROM kol_mail_threads").get() as { n: number };
+    const row = (await getConn().query("SELECT COALESCE(SUM(unread_count),0) AS n FROM kol_mail_threads",[])).rows[0] as { n: number };
     return Number(row?.n || 0);
   }
-  const row = getConn()
-    .prepare("SELECT COALESCE(SUM(unread_count),0) AS n FROM kol_mail_threads WHERE mailbox=?")
-    .get(mailbox) as { n: number };
+  const row = (await getConn().query("SELECT COALESCE(SUM(unread_count),0) AS n FROM kol_mail_threads WHERE mailbox=$1",[mailbox])).rows[0] as { n: number };
   return Number(row?.n || 0);
 }
 
-export function markCollaborationMailRead(collaborationId: string): void {
-  tx((db) => {
-    db.prepare("UPDATE kol_mail_threads SET unread_count=0, updated_at=? WHERE collaboration_id=?")
-      .run(nowIso(), collaborationId);
-    db.prepare("UPDATE kol_mail_items SET unread=0 WHERE collaboration_id=?").run(collaborationId);
-  });
+export async function markCollaborationMailRead(collaborationId: string): Promise<Awaited<void>> {
+  (await tx(async (db) => {
+    (await db.query("UPDATE kol_mail_threads SET unread_count=0, updated_at=$1 WHERE collaboration_id=$2",[nowIso(),collaborationId]));
+    (await db.query("UPDATE kol_mail_items SET unread=0 WHERE collaboration_id=$1",[collaborationId]));
+  }));
 }
 
-export function markConversationMailRead(threadId: string): void {
+export async function markConversationMailRead(threadId: string): Promise<Awaited<void>> {
   if (!threadId) return;
-  tx((db) => {
-    db.prepare("UPDATE kol_mail_threads SET unread_count=0, updated_at=? WHERE id=?")
-      .run(nowIso(), threadId);
-    db.prepare("UPDATE kol_mail_items SET unread=0 WHERE thread_id=?").run(threadId);
-  });
+  (await tx(async (db) => {
+    (await db.query("UPDATE kol_mail_threads SET unread_count=0, updated_at=$1 WHERE id=$2",[nowIso(),threadId]));
+    (await db.query("UPDATE kol_mail_items SET unread=0 WHERE thread_id=$1",[threadId]));
+  }));
 }
 
-export function setConversationStarred(threadId: string, starred: boolean): void {
+export async function setConversationStarred(threadId: string, starred: boolean): Promise<Awaited<void>> {
   if (!threadId) return;
-  getConn().prepare("UPDATE kol_mail_threads SET starred=?, updated_at=? WHERE id=?")
-    .run(starred ? 1 : 0, nowIso(), threadId);
+  (await getConn().query("UPDATE kol_mail_threads SET starred=$1, updated_at=$2 WHERE id=$3",[starred ? 1 : 0,nowIso(),threadId]));
 }
 
 /**
@@ -273,11 +249,7 @@ const LIST_JOINS = `FROM kol_mail_threads t
 export async function listMailboxConversations(mailbox?: string): Promise<ConversationRow[]> {
   const box = mailbox === undefined ? (await currentMailbox()) : mailbox;
   if (!box) return [];
-  const rows = getConn().prepare(
-    `SELECT ${LIST_COLUMNS}
-       ${LIST_JOINS}
-      WHERE t.mailbox=? ORDER BY t.last_at DESC, t.updated_at DESC`,
-  ).all(box) as Row[];
+  const rows = (await getConn().query("SELECT t.id, t.mailbox, t.conversation_id, t.collaboration_id, t.match_state, t.subject,\n       t.peer_email, t.peer_name, t.last_from, t.last_from_name, t.last_at, t.last_direction, t.last_preview,\n       t.unread_count, t.starred, t.last_receipt, t.digest_source,\n       c.kol_uid, c.handle, c.stage_code, COALESCE(mc.message_count, 0) AS message_count\n       FROM kol_mail_threads t\n         LEFT JOIN collaborations c ON c.id=t.collaboration_id\n         LEFT JOIN (SELECT thread_id, COUNT(*) AS message_count FROM kol_mail_items GROUP BY thread_id) mc\n                ON mc.thread_id = t.id\n      WHERE t.mailbox=$1 ORDER BY t.last_at DESC, t.updated_at DESC",[box])).rows as Row[];
   return rows.map(conversationRowOf);
 }
 
@@ -287,12 +259,10 @@ export async function findMailThread(id: string, mailbox?: string): Promise<Row 
   const box = mailbox === undefined ? (await currentMailbox()) : mailbox;
   const allowed = (await mailboxBindings()).map((binding) => normalizeEmail(binding.mailbox));
   if (!allowed.length || (box && !allowed.includes(normalizeEmail(box)))) return undefined;
-  const byId = getConn().prepare("SELECT * FROM kol_mail_threads WHERE id=?").get(raw) as Row | undefined;
+  const byId = (await getConn().query("SELECT * FROM kol_mail_threads WHERE id=$1",[raw])).rows[0] as Row | undefined;
   if (byId && allowed.includes(normalizeEmail(String(byId.mailbox || ""))) && (!box || normalizeEmail(String(byId.mailbox || "")) === normalizeEmail(box))) return byId;
   if (box) {
-    return getConn().prepare(
-      "SELECT * FROM kol_mail_threads WHERE conversation_id=? AND lower(mailbox)=lower(?)",
-    ).get(raw, box) as Row | undefined;
+    return (await getConn().query("SELECT * FROM kol_mail_threads WHERE conversation_id=$1 AND lower(mailbox)=lower($2)",[raw,box])).rows[0] as Row | undefined;
   }
   return getConn().prepare(
     `SELECT * FROM kol_mail_threads WHERE conversation_id=? AND lower(mailbox) IN (${allowed.map(() => "?").join(",")}) ORDER BY updated_at DESC LIMIT 1`,
@@ -306,19 +276,17 @@ export async function findMailThread(id: string, mailbox?: string): Promise<Row 
 export async function findMailItem(id: string): Promise<Row | undefined> {
   const raw = String(id || "").trim();
   if (!raw) return undefined;
-  const item = getConn().prepare("SELECT * FROM kol_mail_items WHERE id=?").get(raw) as Row | undefined;
+  const item = (await getConn().query("SELECT * FROM kol_mail_items WHERE id=$1",[raw])).rows[0] as Row | undefined;
   if (!item) return undefined;
   // 核对：item → thread → mailbox 必须在本人挂载范围内。
   const threadId = String(item.thread_id || "");
   const convId = String(item.conversation_id || "");
   let thread: Row | undefined;
   if (threadId) {
-    thread = getConn().prepare("SELECT * FROM kol_mail_threads WHERE id=?").get(threadId) as Row | undefined;
+    thread = (await getConn().query("SELECT * FROM kol_mail_threads WHERE id=$1",[threadId])).rows[0] as Row | undefined;
   }
   if (!thread && convId) {
-    thread = getConn().prepare(
-      "SELECT * FROM kol_mail_threads WHERE conversation_id=? ORDER BY updated_at DESC LIMIT 1",
-    ).get(convId) as Row | undefined;
+    thread = (await getConn().query("SELECT * FROM kol_mail_threads WHERE conversation_id=$1 ORDER BY updated_at DESC LIMIT 1",[convId])).rows[0] as Row | undefined;
   }
   if (!thread) return undefined;
   const mailbox = String(thread.mailbox || "");
@@ -332,9 +300,9 @@ export async function findMailItem(id: string): Promise<Row | undefined> {
 
 export async function mailboxBoxStatus(mailbox?: string): Promise<MailBoxStatus> {
   const box = mailbox === undefined ? (await currentMailbox()) : mailbox;
-  const userId = safeEmployeeId();
+  const userId = (await safeEmployeeId());
   const bind = userId ? (await starryBindingRow(userId, box || undefined)) as StarryBindingRow | undefined : undefined;
-  const unread = box ? unreadCountForMailbox(box) : 0;
+  const unread = box ? (await unreadCountForMailbox(box)) : 0;
   return {
     mailbox: box || String(bind?.mailbox_email || ""),
     bound: Boolean(box || bind?.mailbox_email),
@@ -366,12 +334,12 @@ export type MailboxBinding = {
  * and none may be invented from the address.
  */
 export async function mailboxBindings(): Promise<MailboxBinding[]> {
-  const userId = safeEmployeeId();
+  const userId = (await safeEmployeeId());
   const rows = userId ? (await starryBindingRows(userId)) : [];
-  return rows.map((row) => {
+  return (await Promise.all(rows.map(async (row) => {
     const mailbox = String(row.mailbox_email || "").trim();
     const owner = mailbox
-      ? getConn().prepare("SELECT brand, owner_name FROM mailbox_owners WHERE email=?").get(mailbox) as Row | undefined
+      ? (await getConn().query("SELECT brand, owner_name FROM mailbox_owners WHERE email=$1",[mailbox])).rows[0] as Row | undefined
       : undefined;
     const ownerName = String(row.owner_name || owner?.owner_name || "");
     return {
@@ -380,12 +348,12 @@ export async function mailboxBindings(): Promise<MailboxBinding[]> {
       owner_name: ownerName,
       brand: String(owner?.brand || ""),
       region: "",
-      unread: unreadCountForMailbox(mailbox),
+      unread: (await unreadCountForMailbox(mailbox)),
       bound: Boolean(mailbox),
       synced_at: row.synced_at ? String(row.synced_at) : null,
       error: row.last_error ? String(row.last_error) : null,
     };
-  });
+  })));
 }
 
 export async function updateBindingSyncCursor(input: {
@@ -398,29 +366,15 @@ export async function updateBindingSyncCursor(input: {
   error?: string;
   tool?: string;
 }): Promise<void> {
-  const userId = String(input.userId || safeEmployeeId() || "");
+  const userId = String(input.userId || (await safeEmployeeId()) || "");
   if (!userId) return;
   const box = String(input.mailbox || "").trim();
   const existing = (await starryBindingRow(userId, box || undefined)) as StarryBindingRow | undefined;
   if (!existing) return;
-  getConn().prepare(
-    `UPDATE user_starry_bindings
-     SET sync_cursor_at=?, sync_cursor_id=?, sync_page_no=?, synced_at=?, last_error=?, last_tool=?, updated_at=?
-     WHERE user_id=? AND mailbox_email=?`,
-  ).run(
-    input.cursorAt || existing.sync_cursor_at || "",
-    input.cursorId || existing.sync_cursor_id || "",
-    Number.isFinite(input.pageNo) ? input.pageNo : (existing.sync_page_no ?? 1),
-    input.syncedAt,
-    input.error || "",
-    input.tool || "pageEmailConversations",
-    nowIso(),
-    userId,
-    String(existing.mailbox_email || ""),
-  );
+  (await getConn().query("UPDATE user_starry_bindings\n     SET sync_cursor_at=$1, sync_cursor_id=$2, sync_page_no=$3, synced_at=$4, last_error=$5, last_tool=$6, updated_at=$7\n     WHERE user_id=$8 AND mailbox_email=$9",[input.cursorAt || existing.sync_cursor_at || "",input.cursorId || existing.sync_cursor_id || "",Number.isFinite(input.pageNo) ? input.pageNo : (existing.sync_page_no ?? 1),input.syncedAt,input.error || "",input.tool || "pageEmailConversations",nowIso(),userId,String(existing.mailbox_email || "")]));
 }
 
-export function persistThreadDigest(threadId: string, digest: {
+export async function persistThreadDigest(threadId: string, digest: {
   text?: string;
   source?: string;
   fingerprint?: string;
@@ -428,21 +382,9 @@ export function persistThreadDigest(threadId: string, digest: {
   error?: string;
   failed_at?: string;
   mail_count?: number;
-}): void {
+}): Promise<Awaited<void>> {
   if (!threadId) return;
-  getConn().prepare(
-    `UPDATE kol_mail_threads
-     SET digest_text=?, digest_source=?, digest_fingerprint=?, digest_error=?, digest_failed_at=?, digest_mail_count=?
-     WHERE id=?`,
-  ).run(
-    String(digest.text || ""),
-    String(digest.source || ""),
-    String(digest.fingerprint || ""),
-    digest.error ? String(digest.error) : "",
-    digest.failed_at ? String(digest.failed_at) : "",
-    Number(digest.mail_count || 0),
-    threadId,
-  );
+  (await getConn().query("UPDATE kol_mail_threads\n     SET digest_text=$1, digest_source=$2, digest_fingerprint=$3, digest_error=$4, digest_failed_at=$5, digest_mail_count=$6\n     WHERE id=$7",[String(digest.text || ""),String(digest.source || ""),String(digest.fingerprint || ""),digest.error ? String(digest.error) : "",digest.failed_at ? String(digest.failed_at) : "",Number(digest.mail_count || 0),threadId]));
 }
 
 export function persistItemMemory(itemId: string, memory: {
@@ -474,26 +416,17 @@ export function persistItemMemory(itemId: string, memory: {
   getConn().prepare(`UPDATE kol_mail_items SET ${fields.join(", ")} WHERE id=?`).run(...values, itemId);
 }
 
-export function markItemMemoryPending(itemId: string): void {
+export async function markItemMemoryPending(itemId: string): Promise<Awaited<void>> {
   if (!itemId) return;
-  getConn().prepare(
-    `UPDATE kol_mail_items
-     SET memory_source='pending', memory_generated_at=NULL, memory_error=''
-     WHERE id=? AND IFNULL(memory_source,'') != 'pending'`,
-  ).run(itemId);
+  (await getConn().query("UPDATE kol_mail_items\n     SET memory_source='pending', memory_generated_at=NULL, memory_error=''\n     WHERE id=$1 AND COALESCE(memory_source,'') != 'pending'",[itemId]));
 }
 
-export function markThreadTranslationsPending(threadId: string): void {
+export async function markThreadTranslationsPending(threadId: string): Promise<Awaited<void>> {
   if (!threadId) return;
-  getConn().prepare(
-    `UPDATE kol_mail_items
-     SET translation_source='pending', memory_source='pending', memory_generated_at=NULL, memory_error=''
-     WHERE thread_id=? AND translation_zh IS NULL AND IFNULL(body_text,'') != ''
-       AND IFNULL(translation_source,'') = ''`,
-  ).run(threadId);
+  (await getConn().query("UPDATE kol_mail_items\n     SET translation_source='pending', memory_source='pending', memory_generated_at=NULL, memory_error=''\n     WHERE thread_id=$1 AND translation_zh IS NULL AND COALESCE(body_text,'') != ''\n       AND COALESCE(translation_source,'') = ''",[threadId]));
 }
 
-export function projectUnboundInbound(input: {
+export async function projectUnboundInbound(input: {
   mailbox: string;
   conversationId: string;
   providerMessageId?: string;
@@ -503,7 +436,7 @@ export function projectUnboundInbound(input: {
   snippet?: string;
   body?: string;
   occurredAt?: string;
-}): void {
+}): Promise<Awaited<void>> {
   const identity = inboundIdentity({
     provider_message_id: input.providerMessageId,
     collaboration_id: "",
@@ -511,30 +444,9 @@ export function projectUnboundInbound(input: {
     body: input.body || input.snippet,
     conversation_id: input.conversationId,
   });
-  if (inboundByIdentity({
+  if ((await inboundByIdentity({
     provider_message_id: identity.provider_message_id,
     identity_hash: identity.identity_hash,
-  })) return;
-  getConn().prepare(
-    `INSERT INTO inbound
-     (id, from_addr, from_name, subject, snippet, summary, bound, deferred, collaboration_id, session_id, confidence, candidates, ts, provider_message_id, identity_hash, mailbox)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    nid("inb"),
-    input.fromAddr || "",
-    input.fromName || "",
-    input.subject || "",
-    (input.snippet || input.body || "").slice(0, 280),
-    "",
-    0,
-    0,
-    null,
-    null,
-    "low",
-    "[]",
-    input.occurredAt || nowIso(),
-    identity.provider_message_id || null,
-    identity.identity_hash,
-    input.mailbox || "",
-  );
+  }))) return;
+  (await getConn().query("INSERT INTO inbound\n     (id, from_addr, from_name, subject, snippet, summary, bound, deferred, collaboration_id, session_id, confidence, candidates, ts, provider_message_id, identity_hash, mailbox)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",[nid("inb"),input.fromAddr || "",input.fromName || "",input.subject || "",(input.snippet || input.body || "").slice(0, 280),"",0,0,null,null,"low","[]",input.occurredAt || nowIso(),identity.provider_message_id || null,identity.identity_hash,input.mailbox || ""]));
 }

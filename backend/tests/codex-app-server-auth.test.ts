@@ -73,7 +73,7 @@ describe("CodexAppServer.requireAuth", () => {
   it("rejects an in-flight request when the worker is cancelled", async () => {
     const server = boot("already-chatgpt");
     await server.handshake();
-    const pending = server.request("test/hang", {}, 10);
+    const pending = (await server.request("test/hang", {}, 10));
     setTimeout(() => server.close(), 20);
     await expect(pending).rejects.toThrow(/已停止/);
   });

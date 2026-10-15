@@ -40,8 +40,8 @@ export async function pgRuntimeGetSkillConnectors(skillId: string): Promise<Row[
 
 export async function pgRuntimeGetSkillTools(skillId: string, connectorId?: string): Promise<Row[]> {
   return connectorId === undefined
-    ? query(undefined, "SELECT * FROM runtime_skill_tools WHERE skill_id=$1 ORDER BY connector_id,tool_name", [skillId])
-    : query(undefined, "SELECT * FROM runtime_skill_tools WHERE skill_id=$1 AND connector_id=$2 ORDER BY tool_name", [skillId, connectorId]);
+    ? (await query(undefined, "SELECT * FROM runtime_skill_tools WHERE skill_id=$1 ORDER BY connector_id,tool_name", [skillId]))
+    : (await query(undefined, "SELECT * FROM runtime_skill_tools WHERE skill_id=$1 AND connector_id=$2 ORDER BY tool_name", [skillId, connectorId]));
 }
 
 export async function pgRuntimeGetSkillTool(skillId: string, connectorId: string, toolName: string): Promise<Row | undefined> {

@@ -7,8 +7,8 @@ import { taskDefinition } from "../src/tasks/registry.js";
 import { kolAgentManifest } from "../src/contract-scope.js";
 
 describe("constitutional redlines", () => {
-  it("does not select the first mailbox when several are authorized", () => {
-    const resolved = resolveAuthorizedFrom("", PERSONAS.sriphy, null);
+  it("does not select the first mailbox when several are authorized", async () => {
+    const resolved = (await resolveAuthorizedFrom("", PERSONAS.sriphy, null));
     expect(resolved.allowed.length).toBeGreaterThan(1);
     expect(resolved.email).toBe("");
   });
@@ -29,14 +29,14 @@ describe("constitutional redlines", () => {
     expect(frontend).not.toContain('targets.find((item) => item.kind === "adjacent")?.code');
   });
 
-  it("gives confirmed department heads all configured brand mailboxes", () => {
+  it("gives confirmed department heads all configured brand mailboxes", async () => {
     const head = { ...PERSONAS.permission_blocked, name: "钟剑奎" };
-    expect(resolveAuthorizedFrom("", head, null).allowed.map((item) => item.brand)).toEqual(["LT", "RO", "PQ"]);
+    expect((await resolveAuthorizedFrom("", head, null)).allowed.map((item) => item.brand)).toEqual(["LT", "RO", "PQ"]);
   });
 
-  it("does not keep the outgoing head on company-wide scope after a handover", () => {
+  it("does not keep the outgoing head on company-wide scope after a handover", async () => {
     const outgoing = { ...PERSONAS.permission_blocked, name: "刘敏" };
-    expect(resolveAuthorizedFrom("", outgoing, null).allowed).toEqual([]);
+    expect((await resolveAuthorizedFrom("", outgoing, null)).allowed).toEqual([]);
   });
 
   it("serves employee Agent entries and teams from the publish manifest", () => {

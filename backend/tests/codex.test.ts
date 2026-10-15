@@ -26,16 +26,16 @@ beforeEach(async () => {
   fs.mkdirSync(path.join(tmp, "emptybin"));
   delete process.env.CODEX_BIN;
   setAgentSubmissionOverride();
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   app = authenticatedTestApp((await createApp()), (await seedRuntimeTestActor(["creator_discovery"])));
-  seedWorkbenchFixtures();
+  (await seedWorkbenchFixtures());
 });
 
-afterEach(() => {
+afterEach(async () => {
   setAgentSubmissionOverride();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
 });

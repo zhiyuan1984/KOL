@@ -160,7 +160,7 @@ async function httpHostUp(url: string, timeoutMs: number): Promise<boolean> {
 async function mcpInitializeOk(timeoutMs: number): Promise<boolean> {
   const client = (await clientFactory());
   try {
-    const tools = await withTimeout(client.listTools(), timeoutMs, "collector probe");
+    const tools = await withTimeout((await client.listTools()), timeoutMs, "collector probe");
     return Array.isArray(tools);
   } finally {
     await client.close().catch(() => undefined);
@@ -186,7 +186,7 @@ export async function probeMediaCrawlerConnection(): Promise<CollectorConnection
   const timeoutMs = probeTimeoutMs();
   const url = (await mediaCrawlerUrl());
   try {
-    const httpUp = await withTimeout(httpHostUp(url, timeoutMs), timeoutMs, "collector http");
+    const httpUp = await withTimeout((await httpHostUp(url, timeoutMs)), timeoutMs, "collector http");
     if (!httpUp) {
       warnProbe("http_unreachable");
       lastProbe = (await snapshot("unreachable", { credentials_present: true, reachable: false, connected: false, checked_at: checkedAt }));

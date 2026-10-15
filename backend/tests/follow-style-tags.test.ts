@@ -38,15 +38,15 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
-  seedWorkbenchFixtures();
+  (await seedWorkbenchFixtures());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -88,7 +88,7 @@ describe("follow-style tags", () => {
     const opened = await request("POST", "/api/collaborations/col_xiaomei/session", {});
     expect(((opened.body.journey as Json).follow_style_tags as Json[])[0]).toMatchObject({ label: "犹豫谨慎" });
 
-    getConn().prepare("UPDATE collaborations SET kol_uid='KOLXIAOMEI' WHERE id='col_xiaomei'").run();
+    (await getConn().query("UPDATE collaborations SET kol_uid='KOLXIAOMEI' WHERE id='col_xiaomei'",[]));
     const board = (await buildHomeBoard());
     const card = ((board.kols as Json[]) || []).find((row) => row.handle === "小美妆日记");
     expect(card).toBeTruthy();
@@ -102,8 +102,8 @@ describe("follow-style tags", () => {
     expect(facts.items.join(" ")).toContain("犹豫谨慎");
     const prompt = composePreviewPrompt("写跟进邮件", "", facts);
     expect(prompt).toContain("跟进不要催");
-    resetDemoRuntimeState();
-    const cleared = getConn().prepare("SELECT follow_style_tags FROM collaborations WHERE id='col_xiaomei'").get() as {
+    (await resetDemoRuntimeState());
+    const cleared = (await getConn().query("SELECT follow_style_tags FROM collaborations WHERE id='col_xiaomei'",[])).rows[0] as {
       follow_style_tags: string | null;
     };
     expect(cleared.follow_style_tags).toBeNull();
@@ -119,7 +119,7 @@ describe("follow-style tags", () => {
     expect(asked.body.worker).toBeNull();
     const msgs = asked.body.messages as Json[];
     expect(msgs.some((row) => row.kind === "task_result_card" && String((row.payload as Json).summary || "").includes("犹豫谨慎"))).toBe(true);
-    const row = getConn().prepare("SELECT follow_style_tags FROM collaborations WHERE id='col_xiaomei'").get() as { follow_style_tags: string };
+    const row = (await getConn().query("SELECT follow_style_tags FROM collaborations WHERE id='col_xiaomei'",[])).rows[0] as { follow_style_tags: string };
     expect(row.follow_style_tags).toContain("cautious");
   });
 });

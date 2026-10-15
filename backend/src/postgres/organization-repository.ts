@@ -151,12 +151,12 @@ export async function pgOrganizationCoverageSource(stamp = new Date().toISOStrin
   versions: Array<{ company_id: string; version: number }>;
 }> {
   const [units, people, memberships, versions] = await Promise.all([
-    pgListOrganizationUnits(),
-    pgListOrganizationPeople(),
-    pgListOrganizationMemberships(undefined, stamp),
-    postgresQuery<{ company_id: string; version: number }>(
+    (await pgListOrganizationUnits()),
+    (await pgListOrganizationPeople()),
+    (await pgListOrganizationMemberships(undefined, stamp)),
+    (await postgresQuery<{ company_id: string; version: number }>(
       "SELECT DISTINCT ON (company_id) company_id,version FROM org_versions ORDER BY company_id,version DESC",
-    ),
+    )),
   ]);
   return { units, people, memberships, versions };
 }
@@ -250,7 +250,7 @@ export async function pgCreateAgentBindingInTransaction(client: PoolClient, inpu
 }
 
 export async function pgCreateAgentBinding(input: AgentBindingInput, stamp = new Date().toISOString()): Promise<AgentBindingRow> {
-  return postgresTransaction((client) => pgCreateAgentBindingInTransaction(client, input, stamp), { isolation: "SERIALIZABLE" });
+  return postgresTransaction(async (client) => (await pgCreateAgentBindingInTransaction(client, input, stamp)), { isolation: "SERIALIZABLE" });
 }
 
 export async function pgRevokeAgentBinding(bindingId: string, reason: string, stamp = new Date().toISOString()): Promise<boolean> {

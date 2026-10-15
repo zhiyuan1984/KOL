@@ -9,7 +9,7 @@ try {
   const result = await processExecutionJobById(process.argv[2], `recovery-child:${process.pid}`, { lease_ms: 1000, renew_ms: 500 });
   process.send?.({ result });
 } finally {
-  resetConn();
+  (await resetConn());
   await closePostgresPool();
   process.disconnect?.();
 }

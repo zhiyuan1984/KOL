@@ -56,15 +56,15 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
-  seedWorkbenchFixtures();
+  (await seedWorkbenchFixtures());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -111,9 +111,7 @@ describe("WikiSkill knowledge", () => {
     expect((draft.extra as Json).knowledge_id).toBe("kb_mail_followup");
     expect((draft.extra as Json).knowledge_version).toBe(1);
     expect(String(draft.body_en)).not.toContain("secret wiki");
-    const cardMsg = getConn()
-      .prepare("SELECT payload FROM messages WHERE session_id=? AND kind='email_card' ORDER BY created_at DESC, id DESC LIMIT 1")
-      .get(sid) as { payload: string } | undefined;
+    const cardMsg = (await getConn().query("SELECT payload FROM messages WHERE session_id=$1 AND kind='email_card' ORDER BY created_at DESC, id DESC LIMIT 1",[sid])).rows[0] as { payload: string } | undefined;
     expect(cardMsg, "草稿卡消息应写入会话").toBeTruthy();
     const card = JSON.parse(String(cardMsg?.payload || "{}")) as Json;
     expect(card.draft_id).toBe(draft.id);
@@ -255,10 +253,10 @@ describe("WikiSkill knowledge", () => {
     for (const id of ["kb_mail_kol", "kb_mail_followup", "kb_mail_quote", "kb_mail_addr", "kb_mail_nudge", "kb_mail_ship"]) {
       await request("POST", `/api/knowledge/${id}/cite`, {});
     }
-    const quote = resolveMailTemplate({ skillId: "email_compose", stageCode: "QUOTE_PENDING" });
+    const quote = (await resolveMailTemplate({ skillId: "email_compose", stageCode: "QUOTE_PENDING" }));
     expect(quote?.id).toBe("kb_mail_quote");
     expect(String(quote?.subject || "")).not.toMatch(/Outline check-in|family camping/);
-    expect(resolveMailTemplate({ skillId: "email_compose", stageCode: "CONTENT_PLANNING" })?.id).toBe("kb_mail_nudge");
+    expect((await resolveMailTemplate({ skillId: "email_compose", stageCode: "CONTENT_PLANNING" }))?.id).toBe("kb_mail_nudge");
   });
 
   it("seeds four policies and six published KOL mail templates", async () => {

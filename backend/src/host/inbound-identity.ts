@@ -35,37 +35,35 @@ export function inboundIdentity(input: {
   return { provider_message_id, fingerprint, identity_hash, seen_keys };
 }
 
-export function inboundByIdentity(keys: {
+export async function inboundByIdentity(keys: {
   provider_message_id?: string;
   identity_hash?: string;
   fingerprint?: string;
-}): Row | undefined {
+}): Promise<Awaited<Row | undefined>> {
   const db = getConn();
   if (keys.provider_message_id) {
-    const byMid = db.prepare("SELECT * FROM inbound WHERE provider_message_id = ?").get(keys.provider_message_id) as Row | undefined;
+    const byMid = (await db.query("SELECT * FROM inbound WHERE provider_message_id = $1",[keys.provider_message_id])).rows[0] as Row | undefined;
     if (byMid) return byMid;
   }
   if (keys.identity_hash) {
-    const byHash = db.prepare("SELECT * FROM inbound WHERE identity_hash = ?").get(keys.identity_hash) as Row | undefined;
+    const byHash = (await db.query("SELECT * FROM inbound WHERE identity_hash = $1",[keys.identity_hash])).rows[0] as Row | undefined;
     if (byHash) return byHash;
   }
   return undefined;
 }
 
-export function mailAlreadySeen(keys: { seen_keys: string[] }): boolean {
+export async function mailAlreadySeen(keys: { seen_keys: string[] }): Promise<Awaited<boolean>> {
   const db = getConn();
   for (const key of keys.seen_keys) {
-    if (db.prepare("SELECT 1 FROM kol_mail_seen WHERE fingerprint = ?").get(key)) return true;
+    if ((await db.query("SELECT 1 FROM kol_mail_seen WHERE fingerprint = $1",[key])).rows[0]) return true;
   }
-  return Boolean(inboundByIdentity({
+  return Boolean((await inboundByIdentity({
     provider_message_id: keys.seen_keys.find((key) => key.startsWith("mid:"))?.slice(4),
-  }));
+  })));
 }
 
-export function markMailSeen(keys: { seen_keys: string[] }, sessionId: string, collaborationId: string, createdAt: string): void {
+export async function markMailSeen(keys: { seen_keys: string[] }, sessionId: string, collaborationId: string, createdAt: string): Promise<Awaited<void>> {
   const db = getConn();
-  const stmt = db.prepare(
-    "INSERT OR IGNORE INTO kol_mail_seen (fingerprint, session_id, collaboration_id, created_at) VALUES (?,?,?,?)",
-  );
-  for (const key of keys.seen_keys) stmt.run(key, sessionId, collaborationId, createdAt);
+  const stmt = "INSERT INTO kol_mail_seen (fingerprint, session_id, collaboration_id, created_at) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING";
+  for (const key of keys.seen_keys) (await db.query(stmt,[key,sessionId,collaborationId,createdAt]));
 }

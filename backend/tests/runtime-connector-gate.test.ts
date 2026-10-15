@@ -49,11 +49,9 @@ async function policiesFor(skillId: string, connectorId = "starrykol"): Promise<
   }
 }
 
-function session(sid: string): void {
+async function session(sid: string): Promise<Awaited<void>> {
   const now = new Date().toISOString();
-  getConn().prepare(
-    "INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id) VALUES (?,?,?,?,?,?,?)",
-  ).run(sid, "连接缺口", now, now, "kol", 0, null);
+  (await getConn().query("INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id) VALUES ($1,$2,$3,$4,$5,$6,$7)",[sid,"连接缺口",now,now,"kol",0,null]));
 }
 
 function intentFor(skill: string): Intent {
@@ -83,12 +81,12 @@ beforeEach(async () => {
     NODE_ENV: "test",
   });
   publishFixtureSkills(tmp, ["declared_fixture"]);
-  resetConn();
+  (await resetConn());
   await ensureRuntimeSchema();
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) delete process.env[key];
@@ -182,7 +180,7 @@ describe("unusableDiscoveredConnector", () => {
 
 describe("连接缺口卡（Host 闸门）", () => {
   it("真实模式命中缺口：不落 steps、不起箱，只落业务语言的连接缺口卡", async () => {
-    session("ses_connector_gap");
+    (await session("ses_connector_gap"));
     setMode("real");
     (await policiesFor("creator_library_query"));
     const response = (await connectorGapResponse("ses_connector_gap", {}, intentFor("creator_library_query"), "creator_library_query"));
@@ -211,7 +209,7 @@ describe("连接缺口卡（Host 闸门）", () => {
     // code 是机器字段，员工文案单独校验。
     expectBusinessCopy(card);
 
-    const audited = listAudit("runtime.connector_gap");
+    const audited = (await listAudit("runtime.connector_gap"));
     expect(audited).toHaveLength(1);
     expect(audited[0].payload).toMatchObject({
       skill_id: "creator_library_query",
@@ -221,14 +219,14 @@ describe("连接缺口卡（Host 闸门）", () => {
   });
 
   it("stub 模式不拦截：不落卡、不写审计", async () => {
-    session("ses_stub_no_gate");
+    (await session("ses_stub_no_gate"));
     setMode("stub");
     expect((await connectorGapResponse("ses_stub_no_gate", {}, intentFor("creator_library_query"), "creator_library_query"))).toBeNull();
-    expect(listAudit("runtime.connector_gap")).toHaveLength(0);
+    expect((await listAudit("runtime.connector_gap"))).toHaveLength(0);
   });
 
   it("工具绑定齐备时不拦截", async () => {
-    session("ses_connector_ready");
+    (await session("ses_connector_ready"));
     (await policy("starrykol", "pageKolProfiles"));
     (await setSkillConnector("creator_library_query", "starrykol", true, 0));
     (await setSkillTool("creator_library_query", "starrykol", "pageKolProfiles", true, 0));
@@ -237,13 +235,13 @@ describe("连接缺口卡（Host 闸门）", () => {
   });
 
   it("任务协作分析（kol_analyze）本轮不挂载业务工具，不按声明工具拦截", async () => {
-    session("ses_task_analysis");
+    (await session("ses_task_analysis"));
     setMode("real");
     expect((await connectorGapResponse("ses_task_analysis", {}, intentFor("kol_analyze"), "kol_analyze"))).toBeNull();
   });
 
   it("只声明 legacy 别名的技能不被拦截", async () => {
-    session("ses_stage_write");
+    (await session("ses_stage_write"));
     setMode("real");
     expect((await connectorGapResponse("ses_stage_write", {}, intentFor("confirm_stage"), "confirm_stage"))).toBeNull();
   });
@@ -266,10 +264,10 @@ describe("运行路径的连接缺口闸门（需要 PostgreSQL）", () => {
     await freshTestDatabase();
     setMode("real");
     process.env.AUTH_MODE = "enabled";
-    resetConn();
-    seedAll();
+    (await resetConn());
+    (await seedAll());
     // 新建的权威库没有连接器目录行；线上 starrykol 由参考数据灌入。
-    getConn().prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('starrykol','Starry KOL',1,'configured','2026-10-06') ON CONFLICT(id) DO UPDATE SET enabled=1").run();
+    (await getConn().query("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('starrykol','Starry KOL',1,'configured','2026-10-06') ON CONFLICT(id) DO UPDATE SET enabled=1",[]));
   });
 
   async function ask(app: Hono, intent: string, text: string): Promise<string> {
@@ -319,7 +317,7 @@ describe("运行路径的连接缺口闸门（需要 PostgreSQL）", () => {
     // 未起箱：没有箱内步骤，也没有任务结果。
     expect(messages.map((message) => message.kind)).not.toContain("steps");
     expect(messages.some((message) => message.kind === "task_result_card")).toBe(false);
-    expect(listAudit("runtime.connector_gap").length).toBeGreaterThan(0);
+    expect((await listAudit("runtime.connector_gap")).length).toBeGreaterThan(0);
   });
 
   it("stub 模式不拦截：照常起箱并出结果", async () => {
@@ -343,6 +341,6 @@ describe("运行路径的连接缺口闸门（需要 PostgreSQL）", () => {
     expect(body.connector_gap).toBeUndefined();
     expect((body.worker as Json)?.skill).toBe("creator_library_query");
     expect(JSON.stringify(body.messages)).not.toContain("runtime_connector_unmounted");
-    expect(listAudit("runtime.connector_gap")).toHaveLength(0);
+    expect((await listAudit("runtime.connector_gap"))).toHaveLength(0);
   });
 });

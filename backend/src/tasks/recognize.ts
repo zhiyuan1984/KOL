@@ -133,7 +133,7 @@ export async function recognizeTaskIntent(input: {
   input?: Record<string, unknown>;
 }): Promise<TaskRecognition> {
   if (scopedUser() && !currentAgentRoutes()) {
-    return withAgentRoutes(await availableKnowledgeAgentRoutes(input.agent_id), () => recognizeTaskIntent(input), input.agent_id);
+    return withAgentRoutes(await availableKnowledgeAgentRoutes(input.agent_id), async () => (await recognizeTaskIntent(input)), input.agent_id);
   }
   const text = String(input.text || "").trim();
   let lockedType = input.task_type && taskDefinition(String(input.task_type))
@@ -152,7 +152,7 @@ export async function recognizeTaskIntent(input: {
     };
   }
 
-  const extractedEarly = extractTaskEntities(text);
+  const extractedEarly = (await extractTaskEntities(text));
   if (!lockedType && extractedEarly.confirm_send) {
     lockedType = "email_compose";
   }
@@ -178,9 +178,9 @@ export async function recognizeTaskIntent(input: {
     return {
       task_type: null,
       confidence: 0,
-      entities: extractTaskEntities(text),
+      entities: (await extractTaskEntities(text)),
       missing_fields: [],
-      alternatives: resolveTaskIntent({ text }).alternatives,
+      alternatives: (await resolveTaskIntent({ text })).alternatives,
       needs_clarification: true,
       clarification_kind: "direction",
       source: "none",
@@ -207,13 +207,13 @@ export async function recognizeTaskIntent(input: {
         : "当前入口没有可用的对应技能，请选择有使用资格的智能体或补充问题归属。" };
   }
   const bound = (await boundMailboxEmail());
-  const extracted = extractTaskEntities(text);
+  const extracted = (await extractTaskEntities(text));
   const llmEntities = sanitizeIntentEntities(verdict?.entities || {}, text, bound);
   const merged = mergeEntities(extracted, llmEntities, input.entities || {}, bound, taskType);
 
   if (!taskType) {
-    const fallback = resolveTaskIntent({ text, entities: merged, input: input.input });
-    audit("host", "task.recognize", { text: text.slice(0, 200), task_type: null, source: "llm" });
+    const fallback = (await resolveTaskIntent({ text, entities: merged, input: input.input }));
+    (await audit("host", "task.recognize", { text: text.slice(0, 200), task_type: null, source: "llm" }));
     return {
       ...fallback,
       task_type: null,
@@ -229,21 +229,21 @@ export async function recognizeTaskIntent(input: {
     };
   }
 
-  const locked = resolveTaskIntent({
+  const locked = (await resolveTaskIntent({
     text,
     task_type: taskType,
     entities: merged,
     input: input.input,
-  });
+  }));
   const clarificationKind = kindOf(locked);
   if (verdict && !lockedType) {
-    audit("host", "task.recognize", {
+    (await audit("host", "task.recognize", {
       text: text.slice(0, 200),
       task_type: taskType,
       agent_id: selected?.agent_id,
       confidence: verdict.confidence,
       source: "llm",
-    });
+    }));
   }
   return {
     ...locked,

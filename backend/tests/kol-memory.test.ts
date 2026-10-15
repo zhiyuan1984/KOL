@@ -78,17 +78,17 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "mem.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
 });
 
-afterEach(() => {
+afterEach(async () => {
   setStarryKolClientFactory();
   setAvatarCrawlerFetch();
   setKolJevFetch();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   vi.restoreAllMocks();
 });
@@ -102,12 +102,12 @@ describe("kol follow/pool memory P0", () => {
 
   it("claim conflict when another employee already holds the exclusive follow", async () => {
     seedProfile("KOL_A");
-    claimFollow({
+    (await claimFollow({
       kolUid: "KOL_A",
       scopeBrand: "LT",
       confirm: true,
       actor: { id: "usr_other", name: "他人", brands: ["LT"] },
-    });
+    }));
     const res = await request("POST", "/api/kols/KOL_A/claim", { confirm: true, scope_brand: "LT" });
     expect(res.status).toBe(409);
     expect((res.body.detail as Json)?.code || res.body.code).toBe("follow_conflict");
@@ -116,14 +116,14 @@ describe("kol follow/pool memory P0", () => {
   it("concurrent duplicate confirmed claims reuse one active follow and one creation receipt", async () => {
     seedProfile("KOL_DENSITY_DOUBLE");
     const attempts = await Promise.all([
-      request("POST", "/api/kols/KOL_DENSITY_DOUBLE/claim", { confirm: true, scope_brand: "LT" }),
-      request("POST", "/api/kols/KOL_DENSITY_DOUBLE/claim", { confirm: true, scope_brand: "LT" }),
+      (await request("POST", "/api/kols/KOL_DENSITY_DOUBLE/claim", { confirm: true, scope_brand: "LT" })),
+      (await request("POST", "/api/kols/KOL_DENSITY_DOUBLE/claim", { confirm: true, scope_brand: "LT" })),
     ]);
     expect(attempts.every((result) => [200, 201].includes(result.status))).toBe(true);
     expect(new Set(attempts.map((result) => (result.body.follow as Json).follow_id)).size).toBe(1);
     expect(attempts.filter((result) => result.body.created === true)).toHaveLength(1);
     expect(attempts.filter((result) => result.body.reused === true)).toHaveLength(1);
-    const active = getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index WHERE kol_uid=? AND status='active'").get("KOL_DENSITY_DOUBLE") as { n: unknown };
+    const active = (await getConn().query("SELECT COUNT(*) AS n FROM kol_follow_index WHERE kol_uid=$1 AND status='active'",["KOL_DENSITY_DOUBLE"])).rows[0] as { n: unknown };
     expect(Number(active.n)).toBe(1);
   });
 
@@ -133,21 +133,21 @@ describe("kol follow/pool memory P0", () => {
     const followId = String((claim.body.follow as Json).follow_id);
     expect((await request("POST", `/api/follows/${followId}/release`, {})).status).toBe(422);
     expect((await request("POST", `/api/follows/${followId}/release`, { confirm: true })).status).toBe(200);
-    const before = getConn().prepare("SELECT status, data_version, released_at FROM kol_follow_index WHERE id=?").get(followId);
+    const before = (await getConn().query("SELECT status, data_version, released_at FROM kol_follow_index WHERE id=$1",[followId])).rows[0];
     expect((await request("POST", `/api/follows/${followId}/release`, { confirm: true })).status).toBe(404);
-    expect(getConn().prepare("SELECT status, data_version, released_at FROM kol_follow_index WHERE id=?").get(followId)).toEqual(before);
+    expect((await getConn().query("SELECT status, data_version, released_at FROM kol_follow_index WHERE id=$1",[followId])).rows[0]).toEqual(before);
   });
 
-  it("no effective correspondence → no release", () => {
+  it("no effective correspondence → no release", async () => {
     seedProfile("KOL_GAP");
-    const claimed = claimFollow({
+    const claimed = (await claimFollow({
       kolUid: "KOL_GAP",
       scopeBrand: "LT",
       confirm: true,
       actor: { id: DEMO_USER.id, name: DEMO_USER.name, brands: ["LT"] },
-    });
+    }));
     const followId = String((claimed.follow as Json).follow_id);
-    const row = getConn().prepare("SELECT * FROM kol_follow_index WHERE id=?").get(followId) as {
+    const row = (await getConn().query("SELECT * FROM kol_follow_index WHERE id=$1",[followId])).rows[0] as {
       last_effective_mail_at: string | null;
       employee_id: string;
       id: string;
@@ -156,25 +156,25 @@ describe("kol follow/pool memory P0", () => {
     expect(followClock(row.last_effective_mail_at).countdown).toBe(false);
     const decision = evaluateOwnershipRelease(row as never, row.last_effective_mail_at);
     expect(decision).toMatchObject({ action: "skip", reason: "correspondence_incomplete" });
-    const released = releaseFollowOwnershipIfEligible({
+    const released = (await releaseFollowOwnershipIfEligible({
       db: getConn(),
       followId,
       expectedOwner: DEMO_USER.id,
       expectedLastAt: "",
       actor: "system",
-    });
+    }));
     expect(released.action).toBe("skip");
-    expect((getConn().prepare("SELECT status FROM kol_follow_index WHERE id=?").get(followId) as { status: string }).status).toBe("active");
+    expect(((await getConn().query("SELECT status FROM kol_follow_index WHERE id=$1",[followId])).rows[0] as { status: string }).status).toBe("active");
   });
 
-  it("bounce / auto-reply / delivery-fail do not renew the 14-day clock", () => {
+  it("bounce / auto-reply / delivery-fail do not renew the 14-day clock", async () => {
     seedProfile("KOL_B");
-    const claimed = claimFollow({
+    const claimed = (await claimFollow({
       kolUid: "KOL_B",
       scopeBrand: "LT",
       confirm: true,
       actor: { id: DEMO_USER.id, name: DEMO_USER.name, brands: ["LT"] },
-    });
+    }));
     const followId = String((claimed.follow as Json).follow_id);
     expect(isEffectiveCorrespondence({
       gatewaySuccess: true,
@@ -182,7 +182,7 @@ describe("kol follow/pool memory P0", () => {
       subject: "Mail Delivery Failed: bounced",
       from: "mailer-daemon@google.com",
     })).toBe(false);
-    const bounce = recordEffectiveCorrespondence({
+    const bounce = (await recordEffectiveCorrespondence({
       followId,
       kolUid: "KOL_B",
       direction: "inbound",
@@ -190,19 +190,19 @@ describe("kol follow/pool memory P0", () => {
       kind: "bounce",
       subject: "Undeliverable: your message",
       occurredAt: new Date().toISOString(),
-    });
+    }));
     expect(bounce.renewed).toBe(false);
     expect(bounce.effective).toBe(false);
-    const auto = recordEffectiveCorrespondence({
+    const auto = (await recordEffectiveCorrespondence({
       followId,
       kolUid: "KOL_B",
       direction: "inbound",
       gatewaySuccess: true,
       subject: "Automatic reply: out of office",
       occurredAt: new Date().toISOString(),
-    });
+    }));
     expect(auto.renewed).toBe(false);
-    const fail = recordEffectiveCorrespondence({
+    const fail = (await recordEffectiveCorrespondence({
       followId,
       kolUid: "KOL_B",
       direction: "outbound",
@@ -210,9 +210,9 @@ describe("kol follow/pool memory P0", () => {
       kind: "human",
       subject: "Hi",
       occurredAt: new Date().toISOString(),
-    });
+    }));
     expect(fail.renewed).toBe(false);
-    const human = recordEffectiveCorrespondence({
+    const human = (await recordEffectiveCorrespondence({
       followId,
       kolUid: "KOL_B",
       direction: "outbound",
@@ -220,9 +220,9 @@ describe("kol follow/pool memory P0", () => {
       kind: "human",
       subject: "Hi, collaboration?",
       occurredAt: new Date().toISOString(),
-    });
+    }));
     expect(human.renewed).toBe(true);
-    const row = getConn().prepare("SELECT last_effective_mail_at FROM kol_follow_index WHERE id=?").get(followId) as {
+    const row = (await getConn().query("SELECT last_effective_mail_at FROM kol_follow_index WHERE id=$1",[followId])).rows[0] as {
       last_effective_mail_at: string | null;
     };
     expect(row.last_effective_mail_at).toBeTruthy();
@@ -253,18 +253,18 @@ describe("kol follow/pool memory P0", () => {
   it("following does not leak others’ follows", async () => {
     seedProfile("KOL_MINE");
     seedProfile("KOL_THEIRS");
-    claimFollow({
+    (await claimFollow({
       kolUid: "KOL_MINE",
       scopeBrand: "LT",
       confirm: true,
       actor: { id: DEMO_USER.id, name: DEMO_USER.name, brands: ["LT"] },
-    });
-    claimFollow({
+    }));
+    (await claimFollow({
       kolUid: "KOL_THEIRS",
       scopeBrand: "LT",
       confirm: true,
       actor: { id: "usr_other", name: "他人", brands: ["LT"] },
-    });
+    }));
     const res = await request("GET", "/api/home/following");
     expect(res.status).toBe(200);
     expect(res.body.creates_session).toBe(false);
@@ -406,7 +406,7 @@ describe("kol follow/pool memory P0", () => {
     const result = await enrichMissingPublicAvatars({ limit: 1 });
     expect(result).toMatchObject({ checked: 1, updated: 1, failed: 0 });
     expect(requested).toBe("https://example.com/creator");
-    const row = getConn().prepare("SELECT avatar_url, avatar_checked_at, avatar_error FROM kol_profile_index WHERE kol_uid=?").get("KOL_AVATAR") as {
+    const row = (await getConn().query("SELECT avatar_url, avatar_checked_at, avatar_error FROM kol_profile_index WHERE kol_uid=$1",["KOL_AVATAR"])).rows[0] as {
       avatar_url: string; avatar_checked_at: string; avatar_error: string;
     };
     expect(row.avatar_url).toBe("https://example.com/avatar.jpg");
@@ -425,7 +425,7 @@ describe("kol follow/pool memory P0", () => {
     }));
     const result = await enrichMissingPublicAvatars({ limit: 1 });
     expect(result).toMatchObject({ checked: 1, updated: 1, failed: 0 });
-    expect(getConn().prepare("SELECT avatar_url FROM kol_profile_index WHERE kol_uid=?").get("KOL_AVATAR_LATE")).toMatchObject({
+    expect((await getConn().query("SELECT avatar_url FROM kol_profile_index WHERE kol_uid=$1",["KOL_AVATAR_LATE"])).rows[0]).toMatchObject({
       avatar_url: "https://example.com/late-avatar.jpg",
     });
   });
@@ -438,30 +438,30 @@ describe("kol follow/pool memory P0", () => {
     const result = await enrichMissingPublicAvatars({ limit: 1 });
     expect(result).toMatchObject({ checked: 1, updated: 0, failed: 1 });
     expect(fetcher).not.toHaveBeenCalled();
-    expect(getConn().prepare("SELECT avatar_url, avatar_error FROM kol_profile_index WHERE kol_uid=?").get("KOL_AVATAR_PRIVATE"))
+    expect((await getConn().query("SELECT avatar_url, avatar_error FROM kol_profile_index WHERE kol_uid=$1",["KOL_AVATAR_PRIVATE"])).rows[0])
       .toMatchObject({ avatar_url: "", avatar_error: "主页地址未解析为公开网络" });
   });
 
-  it("keeps active follows out of local missing-homepage cleanup and locks the preview count", () => {
+  it("keeps active follows out of local missing-homepage cleanup and locks the preview count", async () => {
     seedProfile("KOL_DELETE");
     seedProfile("KOL_KEEP");
-    getConn().prepare("UPDATE kol_profile_index SET homepage_url='' WHERE kol_uid IN (?,?)").run("KOL_DELETE", "KOL_KEEP");
-    claimFollow({
+    (await getConn().query("UPDATE kol_profile_index SET homepage_url='' WHERE kol_uid IN ($1,$2)",["KOL_DELETE","KOL_KEEP"]));
+    (await claimFollow({
       kolUid: "KOL_KEEP",
       scopeBrand: "LT",
       confirm: true,
       actor: { id: DEMO_USER.id, name: DEMO_USER.name, brands: ["LT"] },
-    });
-    expect(previewProfilesWithoutHomepage()).toMatchObject({
+    }));
+    expect((await previewProfilesWithoutHomepage())).toMatchObject({
       scope: "public_pool_only",
       candidate_count: 1,
       protected_active_follows: 1,
     });
-    expect(() => deleteProfilesWithoutHomepage({ expectedCount: 1, confirm: false })).toThrow(/确认/);
-    expect(() => deleteProfilesWithoutHomepage({ expectedCount: 2, confirm: true })).toThrow(/数量已变化/);
-    expect(deleteProfilesWithoutHomepage({ expectedCount: 1, confirm: true })).toMatchObject({ ok: true, deleted: 1 });
-    expect(getConn().prepare("SELECT kol_uid FROM kol_profile_index WHERE kol_uid=?").get("KOL_DELETE")).toBeUndefined();
-    expect(getConn().prepare("SELECT kol_uid FROM kol_profile_index WHERE kol_uid=?").get("KOL_KEEP")).toBeTruthy();
+    (await expect((async () => (await deleteProfilesWithoutHomepage({ expectedCount: 1, confirm: false })))()).rejects.toThrow(/确认/));
+    (await expect((async () => (await deleteProfilesWithoutHomepage({ expectedCount: 2, confirm: true })))()).rejects.toThrow(/数量已变化/));
+    expect((await deleteProfilesWithoutHomepage({ expectedCount: 1, confirm: true }))).toMatchObject({ ok: true, deleted: 1 });
+    expect((await getConn().query("SELECT kol_uid FROM kol_profile_index WHERE kol_uid=$1",["KOL_DELETE"])).rows[0]).toBeUndefined();
+    expect((await getConn().query("SELECT kol_uid FROM kol_profile_index WHERE kol_uid=$1",["KOL_KEEP"])).rows[0]).toBeTruthy();
   });
 
   it("records bounded Jev potential and risk scores as advisory public index metadata", async () => {
@@ -485,9 +485,7 @@ describe("kol follow/pool memory P0", () => {
       expect(result).toMatchObject({ assessed: 1, high_potential: 1, high_risk: 1, failed: 0 });
       expect(state).toContain("KOL_JEV");
       expect(state).not.toMatch(/email|quote|contract|notes/i);
-      const row = getConn().prepare(
-        "SELECT potential_score, potential_confidence, risk_score, risk_confidence, assessment_model FROM kol_profile_index WHERE kol_uid=?",
-      ).get("KOL_JEV") as { potential_score: unknown; potential_confidence: unknown; risk_score: unknown; risk_confidence: unknown; assessment_model: string };
+      const row = (await getConn().query("SELECT potential_score, potential_confidence, risk_score, risk_confidence, assessment_model FROM kol_profile_index WHERE kol_uid=$1",["KOL_JEV"])).rows[0] as { potential_score: unknown; potential_confidence: unknown; risk_score: unknown; risk_confidence: unknown; assessment_model: string };
       // PostgreSQL 桥接把数值列以字符串返回（同 34bd84a 口径），按数值归一后比较。
       expect(Number(row.potential_score)).toBe(85);
       expect(Number(row.risk_score)).toBe(85);
@@ -548,9 +546,7 @@ ${body.state?.target_criteria || ""}`;
       expect(seen).toContain("portable power station");
       expect(seen).toContain("2000000");
       expect(seen).toContain("全球英文".length ? "global_en" : "");
-      const row = getConn().prepare(
-        "SELECT assessment_criteria, potential_score FROM kol_profile_index WHERE kol_uid=?",
-      ).get("KOL_CRIT") as { assessment_criteria: string; potential_score: unknown };
+      const row = (await getConn().query("SELECT assessment_criteria, potential_score FROM kol_profile_index WHERE kol_uid=$1",["KOL_CRIT"])).rows[0] as { assessment_criteria: string; potential_score: unknown };
       expect(Number(row.potential_score)).toBe(85);
       expect(row.assessment_criteria).toContain("平台 youtube");
     } finally {
@@ -610,9 +606,9 @@ ${body.state?.target_criteria || ""}`;
       expect(result).toMatchObject({ eligible: 1, assessed: 1, failed: 0 });
       expect(seen).toHaveLength(1);
       expect(seen[0]).toContain("KOL_TARGET");
-      const scored = getConn().prepare("SELECT assessed_at FROM kol_profile_index WHERE kol_uid=?").get("KOL_TARGET") as { assessed_at: string | null };
+      const scored = (await getConn().query("SELECT assessed_at FROM kol_profile_index WHERE kol_uid=$1",["KOL_TARGET"])).rows[0] as { assessed_at: string | null };
       expect(scored.assessed_at).toBeTruthy();
-      const untouched = getConn().prepare("SELECT assessed_at FROM kol_profile_index WHERE kol_uid=?").get("KOL_OTHER") as { assessed_at: string | null };
+      const untouched = (await getConn().query("SELECT assessed_at FROM kol_profile_index WHERE kol_uid=$1",["KOL_OTHER"])).rows[0] as { assessed_at: string | null };
       expect(untouched.assessed_at ?? null).toBeNull();
     } finally {
       if (priorKey === undefined) delete process.env.OPENROUTER_API_KEY;
@@ -622,15 +618,7 @@ ${body.state?.target_criteria || ""}`;
 
   it("claim is L3, does not start the 14-day clock, dual-writes owner_name", async () => {
     seedProfile("KOL_CLAIM");
-    getConn().prepare(
-      `INSERT INTO collaborations
-       (id,handle,display_name,brand,platform,followers,email,mailbox_from,lifecycle_id,conversation_id,
-        stage_code,days_in_stage,notes,overdue,kol_uid)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      "col_claim", "KOL_CLAIM", "KOL_CLAIM", "LT", "YouTube", "1", "secret@example.com", "from@example.com",
-      "lc_claim", "conv_claim", "INITIAL_CONTACT", 2, "private notes", 0, "KOL_CLAIM",
-    );
+    (await getConn().query("INSERT INTO collaborations\n       (id,handle,display_name,brand,platform,followers,email,mailbox_from,lifecycle_id,conversation_id,\n        stage_code,days_in_stage,notes,overdue,kol_uid)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",["col_claim","KOL_CLAIM","KOL_CLAIM","LT","YouTube","1","secret@example.com","from@example.com","lc_claim","conv_claim","INITIAL_CONTACT",2,"private notes",0,"KOL_CLAIM"]));
     const denied = await request("POST", "/api/kols/KOL_CLAIM/claim", { scope_brand: "LT" });
     expect(denied.status).toBe(422);
     const ok = await request("POST", "/api/kols/KOL_CLAIM/claim", { confirm: true, scope_brand: "LT" });
@@ -638,7 +626,7 @@ ${body.state?.target_criteria || ""}`;
     const follow = ok.body.follow as Json;
     expect(follow.last_effective_mail_at).toBeNull();
     expect(follow.countdown).toBe(false);
-    const owner = getConn().prepare("SELECT owner_name, stage_code FROM collaborations WHERE id='col_claim'").get() as {
+    const owner = (await getConn().query("SELECT owner_name, stage_code FROM collaborations WHERE id='col_claim'",[])).rows[0] as {
       owner_name: string;
       stage_code: string;
     };
@@ -650,21 +638,13 @@ ${body.state?.target_criteria || ""}`;
 
   it("manual release returns to sea without changing stage", async () => {
     seedProfile("KOL_REL");
-    getConn().prepare(
-      `INSERT INTO collaborations
-       (id,handle,display_name,brand,platform,followers,email,mailbox_from,lifecycle_id,conversation_id,
-        stage_code,days_in_stage,notes,overdue,kol_uid)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      "col_rel", "KOL_REL", "KOL_REL", "LT", "YouTube", "1", "a@example.com", "from@example.com",
-      "lc_rel", "conv_rel", "INTERESTED", 4, "", 0, "KOL_REL",
-    );
+    (await getConn().query("INSERT INTO collaborations\n       (id,handle,display_name,brand,platform,followers,email,mailbox_from,lifecycle_id,conversation_id,\n        stage_code,days_in_stage,notes,overdue,kol_uid)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",["col_rel","KOL_REL","KOL_REL","LT","YouTube","1","a@example.com","from@example.com","lc_rel","conv_rel","INTERESTED",4,"",0,"KOL_REL"]));
     const claimed = await request("POST", "/api/kols/KOL_REL/claim", { confirm: true, scope_brand: "LT" });
     const followId = String((claimed.body.follow as Json).follow_id);
     const released = await request("POST", `/api/follows/${followId}/release`, { confirm: true });
     expect(released.status).toBe(200);
     expect(released.body.stage_unchanged).toBe("INTERESTED");
-    const stage = getConn().prepare("SELECT owner_name, stage_code FROM collaborations WHERE id='col_rel'").get() as {
+    const stage = (await getConn().query("SELECT owner_name, stage_code FROM collaborations WHERE id='col_rel'",[])).rows[0] as {
       owner_name: string | null;
       stage_code: string;
     };
@@ -677,15 +657,15 @@ ${body.state?.target_criteria || ""}`;
 
   it("automatic 14-day release exposes only the public pool status", async () => {
     seedProfile("KOL_OVERDUE");
-    const claimed = claimFollow({
+    const claimed = (await claimFollow({
       kolUid: "KOL_OVERDUE",
       scopeBrand: "LT",
       confirm: true,
       actor: { id: DEMO_USER.id, name: DEMO_USER.name, brands: ["LT"] },
-    });
+    }));
     const followId = String((claimed.follow as Json).follow_id);
-    const follow = getConn().prepare("SELECT * FROM kol_follow_index WHERE id=?").get(followId) as Record<string, unknown>;
-    applyFollowRelease(getConn(), follow, "cron", "ownership-release");
+    const follow = (await getConn().query("SELECT * FROM kol_follow_index WHERE id=$1",[followId])).rows[0] as Record<string, unknown>;
+    (await applyFollowRelease(getConn(), follow, "cron", "ownership-release"));
 
     const pool = await request("GET", "/api/home/pool");
     expect(pool.status).toBe(200);
@@ -696,32 +676,32 @@ ${body.state?.target_criteria || ""}`;
     expect(row).not.toHaveProperty("last_effective_mail_at");
   });
 
-  it("first outbound mail renews clock but does not create a follow", () => {
+  it("first outbound mail renews clock but does not create a follow", async () => {
     seedProfile("KOL_MAIL");
-    const before = recordEffectiveCorrespondence({
+    const before = (await recordEffectiveCorrespondence({
       kolUid: "KOL_MAIL",
       direction: "outbound",
       gatewaySuccess: true,
       kind: "human",
       subject: "hello",
-    });
+    }));
     expect(before.renewed).toBe(false);
     expect(before.reason).toBe("no_active_follow");
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index WHERE kol_uid='KOL_MAIL' AND status='active'").get() as { n: unknown }).n)).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM kol_follow_index WHERE kol_uid='KOL_MAIL' AND status='active'",[])).rows[0] as { n: unknown }).n)).toBe(0);
   });
 
   it("following projects local history and refreshes it incrementally without a session", async () => {
     seedProfile("KOL_HISTORY", { handle: "HistoryCreator", public_stage: "INITIAL_CONTACT" });
-    const claimed = claimFollow({
+    const claimed = (await claimFollow({
       kolUid: "KOL_HISTORY",
       scopeBrand: "LT",
       confirm: true,
       actor: { id: DEMO_USER.id, name: DEMO_USER.name, brands: ["LT"] },
-    });
+    }));
     const followId = String((claimed.follow as Json).follow_id);
     const occurredAt = "2026-09-24T08:00:00.000Z";
 
-    const first = recordFollowedMailMemory({
+    const first = (await recordFollowedMailMemory({
       followId,
       kolUid: "KOL_HISTORY",
       conversationId: "conv-history",
@@ -731,9 +711,9 @@ ${body.state?.target_criteria || ""}`;
       occurredAt,
       gatewaySuccess: true,
       sourceVersion: "test:one",
-    });
+    }));
     expect(first).toMatchObject({ recorded: true, effective: true, follow_id: followId });
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_thread_summary WHERE follow_id=?").get(followId) as { n: unknown }).n)).toBe(1);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM kol_thread_summary WHERE follow_id=$1",[followId])).rows[0] as { n: unknown }).n)).toBe(1);
 
     const firstRead = await request("GET", "/api/home/following");
     expect(firstRead.status).toBe(200);
@@ -749,15 +729,15 @@ ${body.state?.target_criteria || ""}`;
       last_snippet: expect.stringContaining("interested"),
     });
 
-    recordEffectiveCorrespondence({
+    (await recordEffectiveCorrespondence({
       followId,
       kolUid: "KOL_HISTORY",
       direction: "inbound",
       occurredAt,
       gatewaySuccess: true,
       subject: "Re: LiTime partnership",
-    });
-    recordFollowedMailMemory({
+    }));
+    (await recordFollowedMailMemory({
       followId,
       kolUid: "KOL_HISTORY",
       conversationId: "conv-history",
@@ -767,7 +747,7 @@ ${body.state?.target_criteria || ""}`;
       occurredAt: "2026-09-25T08:00:00.000Z",
       gatewaySuccess: true,
       sourceVersion: "test:two",
-    });
+    }));
 
     const incrementalRead = await request("GET", "/api/home/following");
     const incrementalRow = (incrementalRead.body.kols as Json[]).find((row) => row.kol_uid === "KOL_HISTORY") as Json;
@@ -780,20 +760,20 @@ ${body.state?.target_criteria || ""}`;
 
   it("batches each follow's own thread memory without crossing rows", async () => {
     // 名单读取改成按批取线程记忆后，最容易犯的错是分组串行：把别人的线程挂到这一行上。
-    const seeded = [
+    const seeded = (await Promise.all([
       { uid: "KOL_BATCH_A", conversation: "conv-batch-a", summary: "我只想聊 A 的方案" },
       { uid: "KOL_BATCH_B", conversation: "conv-batch-b", summary: "我只想聊 B 的方案" },
       { uid: "KOL_BATCH_C", conversation: "conv-batch-c", summary: "我只想聊 C 的方案" },
-    ].map((row, index) => {
+    ].map(async (row, index) => {
       seedProfile(row.uid, { handle: `Batch${row.uid.slice(-1)}`, public_stage: "INITIAL_CONTACT" });
-      const claimed = claimFollow({
+      const claimed = (await claimFollow({
         kolUid: row.uid,
         scopeBrand: "LT",
         confirm: true,
         actor: { id: DEMO_USER.id, name: DEMO_USER.name, brands: ["LT"] },
-      });
+      }));
       const followId = String((claimed.follow as Json).follow_id);
-      recordFollowedMailMemory({
+      (await recordFollowedMailMemory({
         followId,
         kolUid: row.uid,
         conversationId: row.conversation,
@@ -803,9 +783,9 @@ ${body.state?.target_criteria || ""}`;
         occurredAt: `2026-09-2${index + 2}T08:00:00.000Z`,
         gatewaySuccess: true,
         sourceVersion: `test:batch:${index}`,
-      });
+      }));
       return { ...row, followId };
-    });
+    })));
 
     const read = await request("GET", "/api/home/following");
     expect(read.status).toBe(200);
@@ -837,14 +817,7 @@ ${body.state?.target_criteria || ""}`;
   it("hard-caps running+queued kol_analyze at 3", async () => {
     const now = new Date().toISOString();
     for (let i = 0; i < 3; i += 1) {
-      getConn().prepare(
-        `INSERT INTO tickets
-         (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,data_version,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      ).run(
-        `tsk_ana_${i}`, DEMO_USER.id, "kol_analyze", "分析", "test", i === 0 ? "running" : "queued",
-        "normal", "kol_analyze", "lead", "{}", "{}", 1, now, now,
-      );
+      (await getConn().query("INSERT INTO tickets\n         (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,data_version,created_at,updated_at)\n         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",[`tsk_ana_${i}`,DEMO_USER.id,"kol_analyze","分析","test",i === 0 ? "running" : "queued","normal","kol_analyze","lead","{}","{}",1,now,now]));
     }
     const res = await request("POST", "/api/home/kol-analyze/enqueue", { kol_uids: ["KOL_X"] });
     expect(res.status).toBe(409);
@@ -854,24 +827,14 @@ ${body.state?.target_criteria || ""}`;
   it("illegal kol_analyze verb fails the task at runtime and is not applied", async () => {
     seedProfile("KOL_VERB");
     const now = new Date().toISOString();
-    const insertItem = (id: string, status = "queued") => {
-      getConn().prepare(
-        `INSERT INTO tickets
-         (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,data_version,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      ).run(
-        id, DEMO_USER.id, "kol_analyze", "分析", "test", status,
-        "normal", "kol_analyze", "lead", "{}", "{}", 1, now, now,
-      );
+    const insertItem = async (id: string, status = "queued") => {
+      (await getConn().query("INSERT INTO tickets\n         (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,data_version,created_at,updated_at)\n         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",[id,DEMO_USER.id,"kol_analyze","分析","test",status,"normal","kol_analyze","lead","{}","{}",1,now,now]));
     };
-    insertItem("tsk_verb_illegal", "running");
-    getConn().prepare(
-      `INSERT INTO task_runs (id,work_item_id,status,input,entities,created_at)
-       VALUES (?,?,?,?,?,?)`,
-    ).run("run_verb_illegal", "tsk_verb_illegal", "running", "{}", "{}", now);
+    (await insertItem("tsk_verb_illegal", "running"));
+    (await getConn().query("INSERT INTO task_runs (id,work_item_id,status,input,entities,created_at)\n       VALUES ($1,$2,$3,$4,$5,$6)",["run_verb_illegal","tsk_verb_illegal","running","{}","{}",now]));
 
-    const draftsBefore = Number((getConn().prepare("SELECT COUNT(*) AS n FROM drafts").get() as { n: number }).n);
-    const followsBefore = Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index").get() as { n: number }).n);
+    const draftsBefore = Number(((await getConn().query("SELECT COUNT(*) AS n FROM drafts",[])).rows[0] as { n: number }).n);
+    const followsBefore = Number(((await getConn().query("SELECT COUNT(*) AS n FROM kol_follow_index",[])).rows[0] as { n: number }).n);
 
     const res = await request("POST", "/api/tasks/tsk_verb_illegal/actions", {
       verb: "decrypt_contact",
@@ -883,27 +846,27 @@ ${body.state?.target_criteria || ""}`;
     expect(detail.applied).toBe(false);
     expect(detail.failed).toBe(true);
 
-    const item = getConn().prepare("SELECT status FROM tickets WHERE id='tsk_verb_illegal'").get() as { status: string };
+    const item = (await getConn().query("SELECT status FROM tickets WHERE id='tsk_verb_illegal'",[])).rows[0] as { status: string };
     expect(item.status).toBe("failed");
-    const run = getConn().prepare("SELECT status, error FROM task_runs WHERE id='run_verb_illegal'").get() as {
+    const run = (await getConn().query("SELECT status, error FROM task_runs WHERE id='run_verb_illegal'",[])).rows[0] as {
       status: string;
       error: string;
     };
     expect(run.status).toBe("failed");
     expect(String(run.error)).toContain("illegal_kol_analyze_verb");
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM drafts").get() as { n: number }).n)).toBe(draftsBefore);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index").get() as { n: number }).n)).toBe(followsBefore);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM drafts",[])).rows[0] as { n: number }).n)).toBe(draftsBefore);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM kol_follow_index",[])).rows[0] as { n: number }).n)).toBe(followsBefore);
 
-    insertItem("tsk_verb_worker", "running");
+    (await insertItem("tsk_verb_worker", "running"));
     await expect(runStub("ses_verb", "kol_analyze", "分析", {
       work_item_id: "tsk_verb_worker",
       actions: ["send_mail"],
     })).rejects.toBeInstanceOf(HttpFail);
     expect(
-      (getConn().prepare("SELECT status FROM tickets WHERE id='tsk_verb_worker'").get() as { status: string }).status,
+      ((await getConn().query("SELECT status FROM tickets WHERE id='tsk_verb_worker'",[])).rows[0] as { status: string }).status,
     ).toBe("failed");
 
-    insertItem("tsk_verb_legal", "waiting");
+    (await insertItem("tsk_verb_legal", "waiting"));
     const legal = await request("POST", "/api/home/kol-analyze/actions", {
       work_item_id: "tsk_verb_legal",
       verb: "claim_follow",
@@ -912,17 +875,17 @@ ${body.state?.target_criteria || ""}`;
     expect(legal.body.applied).toBe(false);
     expect(legal.body.failed).toBe(false);
     expect(
-      (getConn().prepare("SELECT status FROM tickets WHERE id='tsk_verb_legal'").get() as { status: string }).status,
+      ((await getConn().query("SELECT status FROM tickets WHERE id='tsk_verb_legal'",[])).rows[0] as { status: string }).status,
     ).toBe("waiting");
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index").get() as { n: number }).n)).toBe(followsBefore);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM kol_follow_index",[])).rows[0] as { n: number }).n)).toBe(followsBefore);
 
-    expect(() => applyKolAnalyzeAction({
+    (await expect((async () => (await applyKolAnalyzeAction({
       workItemId: "tsk_verb_legal",
       verb: "starry_stage",
       artifact: { type: "kol_analyze_brief", actions: ["starry_stage"] },
-    })).toThrow(HttpFail);
+    })))()).rejects.toThrow(HttpFail));
     expect(
-      (getConn().prepare("SELECT status FROM tickets WHERE id='tsk_verb_legal'").get() as { status: string }).status,
+      ((await getConn().query("SELECT status FROM tickets WHERE id='tsk_verb_legal'",[])).rows[0] as { status: string }).status,
     ).toBe("failed");
   });
 });

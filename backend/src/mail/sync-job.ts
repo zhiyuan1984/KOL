@@ -225,7 +225,7 @@ export async function executeMailSyncJob(job: ClaimedExecutionJob, checkpoint: (
   let latestProgress: MailSyncProgress | undefined;
   const authorizeCurrent = async () => {
     const actor = await activeActor(String(job.actor_ref));
-    return await withScopedUser(actor, () => authorizeMailSync(mailbox));
+    return await withScopedUser(actor, async () => (await authorizeMailSync(mailbox)));
   };
   const initial = await authorizeCurrent();
   authorization = initial;
@@ -239,7 +239,7 @@ export async function executeMailSyncJob(job: ClaimedExecutionJob, checkpoint: (
   };
   // The binding stays the authorization boundary; it must not replace the
   // verified organization connector Authorization used to read the mailbox.
-  return await withScopedUser(initial.actor, () => withStarryConnectorAuth(async () => {
+  return await withScopedUser(initial.actor, async () => (await withStarryConnectorAuth(async () => {
     const onProgress = async (progress: MailSyncProgress) => {
       latestProgress = progress;
       await persistMailSyncReceipt(job, check, {
@@ -267,5 +267,5 @@ export async function executeMailSyncJob(job: ClaimedExecutionJob, checkpoint: (
       note: "邮件索引已同步；正文补全完成；摘要与翻译未生成。", diagnostic_id: result.diagnostic_id || null,
       ...receiptProgress(progress), ai: { summary: "not_generated", translation: "not_generated" },
     };
-  }));
+  })));
 }

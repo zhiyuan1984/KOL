@@ -109,10 +109,8 @@ async function seedCurrentAgentEligibility(user: AppUser): Promise<void> {
   // mail_summary skill guard as production, not an auth-disabled bypass.
   (await ensureRuntimeSchema());
   (await ensureManagedAgents());
-  const db = resetConn();
-  db.prepare(`INSERT INTO managed_agents(id,name,description,status,version,created_at,updated_at)
-    VALUES ('agent:kol','KOL test Agent','', 'published',1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-    ON CONFLICT (id) DO UPDATE SET status='published'`).run();
+  const db = (await resetConn());
+  (await db.query("INSERT INTO managed_agents(id,name,description,status,version,created_at,updated_at)\n    VALUES ('agent:kol','KOL test Agent','', 'published',1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)\n    ON CONFLICT (id) DO UPDATE SET status='published'",[]));
   (await setAgentSkill("agent:kol", "mail_summary", true, 1));
   const personRef = (await syncUserOrganization(user.id, "org:lt_team"));
   (await createAgentBinding({
@@ -144,20 +142,20 @@ function installDefaultApp(): void {
 }
 
 async function ask(user: AppUser, body: Record<string, unknown> = { box: BOX_A, conversation_id: CONVERSATION_A }) {
-  return responseBody(await within(user, () => app.request("/actions/mail.label-suggestions", {
+  return responseBody(await within(user, async () => (await app.request("/actions/mail.label-suggestions", {
     method: "POST", body: JSON.stringify(body),
-  })));
+  }))));
 }
 
 async function changeLabel(user: AppUser, body: Record<string, unknown>) {
-  return responseBody(await within(user, () => app.request("/actions/mail.label", {
+  return responseBody(await within(user, async () => (await app.request("/actions/mail.label", {
     method: "POST", body: JSON.stringify(body),
-  })));
+  }))));
 }
 
 async function getLabels(user: AppUser, box = BOX_A, conversationId = CONVERSATION_A) {
   const query = new URLSearchParams({ box, conversation_id: conversationId });
-  return responseBody(await within(user, () => app.request(`/queries/mail.labels?${query.toString()}`)));
+  return responseBody(await within(user, async () => (await app.request(`/queries/mail.labels?${query.toString()}`))));
 }
 
 async function clearDictionary(): Promise<void> {
@@ -209,7 +207,7 @@ function candidateConfirm(receiptId: string, candidateId: string, input: Record<
 
 beforeEach(async () => {
   await freshTestDatabase();
-  resetConn();
+  (await resetConn());
   await postgresPool().query(migrationSql);
   await ensureUser(ACTOR_A);
   (await seedCurrentAgentEligibility(ACTOR_A));
@@ -223,7 +221,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await closePostgresPool();
-  resetConn();
+  (await resetConn());
 });
 
 describe("mail label suggestions PostgreSQL integration", () => {

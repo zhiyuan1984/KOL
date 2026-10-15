@@ -318,7 +318,7 @@ export async function listTaskWorkOrderAggregates(actorId: string, isAdmin = fal
       ORDER BY t.updated_at DESC,t.id DESC LIMIT $5`,
     [TASK_TYPE, TASK_PROFILE, isAdmin, actorId, bounded],
   );
-  const aggregates = await Promise.all(rows.rows.map((row) => taskWorkOrderAggregate(actorId, row.id, isAdmin)));
+  const aggregates = await Promise.all(rows.rows.map(async (row) => (await taskWorkOrderAggregate(actorId, row.id, isAdmin))));
   return {
     items: aggregates.map(({ task, counts, current_blocking_work_order }) => ({ task, counts, current_blocking_work_order })),
     as_of: new Date().toISOString(),

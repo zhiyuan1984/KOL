@@ -54,16 +54,14 @@ export function catalogSkill(id: string) {
   return SKILL_CATALOG.find((s) => s.id === id) || null;
 }
 
-export function overlayRow(id: string): { summary: string; body: string; updated_at: string } | null {
-  const row = getConn()
-    .prepare("SELECT id, summary, body, updated_at FROM skill_sops WHERE id = ?")
-    .get(id) as { id: string; summary: string; body: string; updated_at: string } | undefined;
+export async function overlayRow(id: string): Promise<Awaited<{ summary: string; body: string; updated_at: string } | null>> {
+  const row = (await getConn().query("SELECT id, summary, body, updated_at FROM skill_sops WHERE id = $1",[id])).rows[0] as { id: string; summary: string; body: string; updated_at: string } | undefined;
   return row || null;
 }
 
-export function effectiveSummary(id: string): string {
+export async function effectiveSummary(id: string): Promise<Awaited<string>> {
   const cat = catalogSkill(id);
-  const over = overlayRow(id);
+  const over = (await overlayRow(id));
   return (over?.summary || cat?.summary || cat?.label || id).trim();
 }
 
@@ -72,15 +70,13 @@ export function effectiveSummary(id: string): string {
  * the whole catalog on each call, so a per-skill loop of overlay + summary is
  * quadratic and blocks the single-threaded Host for seconds.
  */
-export function overlaySummaries(): Map<string, { summary: string; updated_at: string }> {
-  const rows = getConn()
-    .prepare("SELECT id, summary, updated_at FROM skill_sops")
-    .all() as { id: string; summary: string; updated_at: string }[];
+export async function overlaySummaries(): Promise<Awaited<Map<string, { summary: string; updated_at: string }>>> {
+  const rows = (await getConn().query("SELECT id, summary, updated_at FROM skill_sops",[])).rows as { id: string; summary: string; updated_at: string }[];
   return new Map(rows.map((row) => [String(row.id), row]));
 }
 
-export function effectiveSkillBody(id: string): string {
-  const over = overlayRow(id);
+export async function effectiveSkillBody(id: string): Promise<Awaited<string>> {
+  const over = (await overlayRow(id));
   if (over?.body) return over.body;
   return readBundledSkill(id);
 }
@@ -96,7 +92,7 @@ Everything the employee reads (assistant messages, \`task_result\` titles/sectio
 `;
 
 /** The worker receives this constrained supplement even when an administrator has an SOP overlay. */
-export function effectiveRuntimeSkillBody(id: string): string {
+export async function effectiveRuntimeSkillBody(id: string): Promise<Awaited<string>> {
   const definition = taskDefinition(id);
   const contract = definition?.interaction ? `
 ## Registered interaction and execution contract
@@ -106,19 +102,19 @@ The following Host-validated contract is shared with the employee's knowledge te
 ${JSON.stringify({ skill_id: id, interaction: definition.interaction, input_schema: definition.input_schema,
     required_inputs: definition.required_inputs, output: definition.output, side_effects: definition.side_effects })}
 ` : "";
-  return `${effectiveSkillBody(id).trimEnd()}${contract}${RUNTIME_CONNECTOR_INSTRUCTION}\n`;
+  return `${(await effectiveSkillBody(id)).trimEnd()}${contract}${RUNTIME_CONNECTOR_INSTRUCTION}\n`;
 }
 
 /** An SOP update changes the UI/execution pair version, even if its schema is unchanged. */
-export function effectiveSkillTemplate(definition: TaskDefinition) {
-  const overlay = overlayRow(definition.id);
+export async function effectiveSkillTemplate(definition: TaskDefinition) {
+  const overlay = (await overlayRow(definition.id));
   return skillTemplate(definition, overlay ? JSON.stringify({ summary: overlay.summary, body: overlay.body }) : undefined);
 }
 
-export function getSkillSop(id: string): SkillSopRow {
+export async function getSkillSop(id: string): Promise<Awaited<SkillSopRow>> {
   const cat = catalogSkill(id);
   if (!cat) throw new HttpFail(404, "unknown skill");
-  const over = overlayRow(id);
+  const over = (await overlayRow(id));
   return {
     id,
     summary: over?.summary || cat.summary,
@@ -128,10 +124,10 @@ export function getSkillSop(id: string): SkillSopRow {
   };
 }
 
-export function saveSkillSop(id: string, patch: { summary?: string; body?: string }): SkillSopRow {
+export async function saveSkillSop(id: string, patch: { summary?: string; body?: string }): Promise<Awaited<SkillSopRow>> {
   const cat = catalogSkill(id);
   if (!cat) throw new HttpFail(404, "unknown skill");
-  const cur = getSkillSop(id);
+  const cur = (await getSkillSop(id));
   const summary = String(patch.summary ?? cur.summary).trim();
   const body = String(patch.body ?? cur.body).trim();
   if (!summary) throw new HttpFail(400, "summary required");
@@ -139,36 +135,32 @@ export function saveSkillSop(id: string, patch: { summary?: string; body?: strin
   if (!body) throw new HttpFail(400, "sop body required");
   if (body.length > MAX_BODY) throw new HttpFail(400, "sop body too long");
   const ts = nowIso();
-  getConn()
-    .prepare(
-      "INSERT INTO skill_sops (id, summary, body, updated_at) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET summary=excluded.summary, body=excluded.body, updated_at=excluded.updated_at",
-    )
-    .run(id, summary, body, ts);
-  audit(currentUser().handle, "skill.sop.save", { skill: id, summary });
-  writeRuntimeSkill(id);
+  (await getConn().query("INSERT INTO skill_sops (id, summary, body, updated_at) VALUES ($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET summary=excluded.summary, body=excluded.body, updated_at=excluded.updated_at",[id,summary,body,ts]));
+  (await audit((await currentUser()).handle, "skill.sop.save", { skill: id, summary }));
+  (await writeRuntimeSkill(id));
   return getSkillSop(id);
 }
 
-export function resetSkillSop(id: string): SkillSopRow {
+export async function resetSkillSop(id: string): Promise<Awaited<SkillSopRow>> {
   const cat = catalogSkill(id);
   if (!cat) throw new HttpFail(404, "unknown skill");
-  getConn().prepare("DELETE FROM skill_sops WHERE id = ?").run(id);
-  audit(currentUser().handle, "skill.sop.reset", { skill: id });
-  writeRuntimeSkill(id);
+  (await getConn().query("DELETE FROM skill_sops WHERE id = $1",[id]));
+  (await audit((await currentUser()).handle, "skill.sop.reset", { skill: id }));
+  (await writeRuntimeSkill(id));
   return getSkillSop(id);
 }
 
-export function writeRuntimeSkill(id: string): string {
+export async function writeRuntimeSkill(id: string): Promise<Awaited<string>> {
   const dir = path.join(dataDir(), "skills", id);
   fs.mkdirSync(dir, { recursive: true });
   const dest = path.join(dir, "SKILL.md");
-  fs.writeFileSync(dest, effectiveRuntimeSkillBody(id), "utf8");
+  fs.writeFileSync(dest, (await effectiveRuntimeSkillBody(id)), "utf8");
   return dest;
 }
 
-export function writeSkillIntoBox(box: string, skill: string): string {
+export async function writeSkillIntoBox(box: string, skill: string): Promise<Awaited<string>> {
   const dest = path.join(box, "SKILL.md");
-  fs.writeFileSync(dest, effectiveRuntimeSkillBody(skill), "utf8");
+  fs.writeFileSync(dest, (await effectiveRuntimeSkillBody(skill)), "utf8");
   const srcDir = packagedSkillDir(skill);
   if (srcDir) {
     for (const name of fs.readdirSync(srcDir)) {

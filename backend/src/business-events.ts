@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { getConn, nowIso, type SqliteConn } from "./db.js";
+import { getConn, nowIso, type DatabaseConnection } from "./db.js";
 import { nid } from "./ids.js";
 import { MAIN_STAGES } from "./stages.js";
 import type { Json, Row } from "./types.js";
@@ -90,10 +90,10 @@ function parseJsonColumn(value: unknown, fallback: unknown): unknown {
   }
 }
 
-export function appendBusinessEvent(
+export async function appendBusinessEvent(
   input: BusinessEventInput,
-  options: { conn?: SqliteConn; strict?: boolean } = {},
-): { id: string; inserted: boolean } {
+  options: { conn?: DatabaseConnection; strict?: boolean } = {},
+): Promise<Awaited<{ id: string; inserted: boolean }>> {
   const catalog = loadEventCatalog();
   if (catalog && !catalog.codes.has(input.eventType)) {
     const message = `未登记的事件类型：${input.eventType}（目录 ${eventCatalogPath()}）`;
@@ -102,31 +102,7 @@ export function appendBusinessEvent(
   }
   const conn = options.conn || getConn();
   const id = nid("evt");
-  const result = conn.prepare(
-    `INSERT OR IGNORE INTO business_events
-     (id,event_type,object_type,object_id,occurred_at,received_at,source,source_version,actor_type,actor_id,action_ref,
-      payload,evidence,receipt,diff,idempotency_key,correlation_id,created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    id,
-    input.eventType,
-    input.objectType,
-    input.objectId,
-    input.occurredAt || nowIso(),
-    input.receivedAt || nowIso(),
-    input.source,
-    input.sourceVersion ?? null,
-    input.actorType,
-    input.actorId ?? null,
-    input.actionRef ?? null,
-    JSON.stringify(input.payload ?? {}),
-    JSON.stringify(input.evidence ?? {}),
-    input.receipt === undefined || input.receipt === null ? null : JSON.stringify(input.receipt),
-    input.diff === undefined || input.diff === null ? null : JSON.stringify(input.diff),
-    input.idempotencyKey ?? null,
-    input.correlationId ?? null,
-    nowIso(),
-  );
+  const result = (await conn.query("INSERT INTO business_events\n     (id,event_type,object_type,object_id,occurred_at,received_at,source,source_version,actor_type,actor_id,action_ref,\n      payload,evidence,receipt,diff,idempotency_key,correlation_id,created_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) ON CONFLICT DO NOTHING",[id,input.eventType,input.objectType,input.objectId,input.occurredAt || nowIso(),input.receivedAt || nowIso(),input.source,input.sourceVersion ?? null,input.actorType,input.actorId ?? null,input.actionRef ?? null,JSON.stringify(input.payload ?? {}),JSON.stringify(input.evidence ?? {}),input.receipt === undefined || input.receipt === null ? null : JSON.stringify(input.receipt),input.diff === undefined || input.diff === null ? null : JSON.stringify(input.diff),input.idempotencyKey ?? null,input.correlationId ?? null,nowIso()]));
   return { id, inserted: result.changes === 1 };
 }
 

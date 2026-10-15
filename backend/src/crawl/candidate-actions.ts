@@ -159,7 +159,7 @@ async function reconcileUncertainImport(client: PoolClient, input: {
   let found: string;
   try {
     found = await withTimeout(
-      lookupImportedKolUid({ creatorExternalId: creatorExternalId(row.platform, row.id) }),
+      (await lookupImportedKolUid({ creatorExternalId: creatorExternalId(row.platform, row.id) })),
       STARRY_RECONCILE_TIMEOUT_MS,
       "pageKolProfiles",
     );

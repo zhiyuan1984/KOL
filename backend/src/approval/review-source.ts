@@ -14,8 +14,8 @@ export async function collaborationReviewSource(
   id: string,
 ): Promise<ReviewSource> {
   const [userResult, sourceResult] = await Promise.all([
-    db.query<SourceRow>("SELECT * FROM users WHERE id=$1 AND active=1", [actor]),
-    db.query<SourceRow>("SELECT id,handle,display_name,brand,stage_code,notes FROM collaborations WHERE id=$1", [id]),
+    (await db.query<SourceRow>("SELECT * FROM users WHERE id=$1 AND active=1", [actor])),
+    (await db.query<SourceRow>("SELECT id,handle,display_name,brand,stage_code,notes FROM collaborations WHERE id=$1", [id])),
   ]);
   const user = userResult.rows[0];
   const row = sourceResult.rows[0];

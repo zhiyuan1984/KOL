@@ -54,9 +54,7 @@ async function verifiedConnector(id: string): Promise<void> {
   expect(verified.status).toBe(200);
   (await setConnectorConfig(id, { url: "https://fixture.example/mcp", allow_unauthenticated: true }, 0));
   await call("GET", `/api/admin/runtime/connectors/${id}/activity`);
-  getConn().prepare(`INSERT INTO runtime_connector_probes
-    (connector_id,config_version,actor_id,checked_at,status,probe_kind,tool_count,duration_ms,error_code)
-    VALUES(?,1,'admin','now','succeeded','mcp_tools_list',1,1,NULL)`).run(id);
+  (await getConn().query("INSERT INTO runtime_connector_probes\n    (connector_id,config_version,actor_id,checked_at,status,probe_kind,tool_count,duration_ms,error_code)\n    VALUES($1,1,'admin','now','succeeded','mcp_tools_list',1,1,NULL)",[id]));
 }
 
 async function bindTool(id: string, toolName = "list_records"): Promise<void> {
@@ -78,7 +76,7 @@ beforeEach(async () => {
   process.env.CODEX_MODE = "real";
   process.env.AUTH_MODE = "enabled";
   process.env.NODE_ENV = "test";
-  resetConn();
+  (await resetConn());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
   const setup = await app.request("/api/auth/setup", {
@@ -91,8 +89,8 @@ beforeEach(async () => {
   expect(adminCookie).toBeTruthy();
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
   delete process.env.LINGONG_DB;
@@ -121,9 +119,7 @@ describe("connector enable gate follows Skill bindings only", () => {
     expect(saved.body).not.toHaveProperty("probe_mode");
     await setEnabled(id, 409, "connector_verification_required");
     expect((await call("GET", `/api/admin/runtime/connectors/${id}/activity`)).status).toBe(200);
-    getConn().prepare(`INSERT INTO runtime_connector_probes
-      (connector_id,config_version,actor_id,checked_at,status,probe_kind,tool_count,duration_ms,error_code)
-      VALUES(?,2,'admin','now','succeeded','mcp_tools_list',1,100,NULL)`).run(id);
+    (await getConn().query("INSERT INTO runtime_connector_probes\n      (connector_id,config_version,actor_id,checked_at,status,probe_kind,tool_count,duration_ms,error_code)\n      VALUES($1,2,'admin','now','succeeded','mcp_tools_list',1,100,NULL)",[id]));
     await setEnabled(id, 409, "connector_skill_binding_required");
     await bindTool(id);
     await setEnabled(id, 200);

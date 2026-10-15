@@ -431,7 +431,7 @@ const queryMailLabels: Operation["handle"] = async (c, input) => {
   const actor = currentActor();
   const mailbox = requiredMailbox(input.box);
   const result = await postgresTransaction(
-    async (client) => labelEnvelope(client, actor, mailbox, optionalConversationId(input.conversation_id)),
+    async (client) => (await labelEnvelope(client, actor, mailbox, optionalConversationId(input.conversation_id))),
     { isolation: "REPEATABLE READ" },
   );
   return c.json({ ...MEMORY, ...result });

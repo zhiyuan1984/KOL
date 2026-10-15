@@ -34,14 +34,14 @@ beforeEach(async () => {
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.INTENT_LLM_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.INTENT_LLM_MODE;
 });
@@ -85,7 +85,7 @@ describe("box loop: 起箱 → 识别 → skill → 追问/工具", () => {
     expect(sent.body).toMatchObject({ needs_confirmation: true, sent: false });
     expect(JSON.stringify(rows)).toContain("请在右栏草稿");
     expect(JSON.stringify(card?.payload?.starrykol_data || {})).not.toMatch(/"sent":true/);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: unknown }).n)).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM starry_sends",[])).rows[0] as { n: unknown }).n)).toBe(0);
     const another = await request("POST", `/api/sessions/${created.body.id}/messages`, {
       text: "加一封",
       act: "ask",

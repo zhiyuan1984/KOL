@@ -246,7 +246,7 @@ export async function lookupImportedKolUid(input: {
 
 export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreatorInput): Promise<Json> {
   const { rejectDiscoveryHarnessTool } = await import("./discovery-harness.js");
-  rejectDiscoveryHarnessTool("importKolProfilesFromCrawler");
+  (await rejectDiscoveryHarnessTool("importKolProfilesFromCrawler"));
   const actor = input.actor || "host";
   if (codexMode() !== "stub") {
     if (!liveRemoteSideEffectsEnabled() || !(await starryKolMcpConfigured())) {
@@ -267,10 +267,10 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
   let lookedUpAfterTimeout = false;
   try {
     data = await withTimeout(
-      callStarryKolTool(IMPORT_CREATOR_TOOL, {
+      (await callStarryKolTool(IMPORT_CREATOR_TOOL, {
         fileName: input.file.fileName,
         fileBase64: input.file.fileBase64,
-      }, { timeoutMs: STARRY_IMPORT_TIMEOUT_MS }),
+      }, { timeoutMs: STARRY_IMPORT_TIMEOUT_MS })),
       STARRY_IMPORT_TIMEOUT_MS,
       "importKolProfilesFromCrawler",
     );
@@ -287,10 +287,10 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
       });
       try {
         const found = await withTimeout(
-          lookupImportedKolUid({
+          (await lookupImportedKolUid({
             keyword: input.lookupKeyword,
             creatorExternalId: input.creatorExternalId,
-          }),
+          })),
           STARRY_LOOKUP_TIMEOUT_MS,
           "pageKolProfiles",
         );
@@ -398,7 +398,7 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
  */
 export async function addKolProfileConfirmed(input: AddKolProfileInput): Promise<Json> {
   const { rejectDiscoveryHarnessTool } = await import("./discovery-harness.js");
-  rejectDiscoveryHarnessTool(ADD_KOL_PROFILE_TOOL);
+  (await rejectDiscoveryHarnessTool(ADD_KOL_PROFILE_TOOL));
   const actor = input.actor || "host";
   if (codexMode() !== "stub") {
     if (!liveRemoteSideEffectsEnabled() || !(await starryKolMcpConfigured())) {
@@ -439,9 +439,9 @@ export async function addKolProfileConfirmed(input: AddKolProfileInput): Promise
   let data: Json;
   try {
     data = await withTimeout(
-      callStarryKolTool(ADD_KOL_PROFILE_TOOL, {
+      (await callStarryKolTool(ADD_KOL_PROFILE_TOOL, {
         requestJson: JSON.stringify(body),
-      }, { timeoutMs: STARRY_IMPORT_TIMEOUT_MS }),
+      }, { timeoutMs: STARRY_IMPORT_TIMEOUT_MS })),
       STARRY_IMPORT_TIMEOUT_MS,
       "addKolProfile",
     );

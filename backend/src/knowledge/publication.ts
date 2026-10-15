@@ -23,15 +23,15 @@ const fail = (code: string, message: string, status = 409): never => { throw new
 const digest = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
 const decode = (value: unknown): Row => typeof value === "string" ? JSON.parse(value) : (value || {}) as Row;
 const stamp = () => new Date().toISOString();
-const publicationAudit=(client:PoolClient,actor:string,event:string,payload:Row)=>
-  client.query("INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)",[stamp(),actor,event,JSON.stringify(payload)]);
+const publicationAudit=async (client:PoolClient,actor:string,event:string,payload:Row)=>
+  (await client.query("INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)",[stamp(),actor,event,JSON.stringify(payload)]));
 
 /** Reuse the existing authority for organization/roles, never invent reviewers. */
 export async function publicationContext(company?: string): Promise<ReviewContext> {
   const user = scopedUser();
   if (!user) fail("authentication_required", "请登录", 401);
   (await ensureOrganizationTree());
-  return postgresTransaction(async client => postgresReviewContext(client, user!.id, company));
+  return postgresTransaction(async client => (await postgresReviewContext(client, user!.id, company)));
 }
 async function document(id: string, tenant: string, client?: PoolClient) {
   const rows = await (client || postgresPool()).query(
@@ -257,7 +257,7 @@ async function publicationCommand(id: string, note: string, ctx: ReviewContext, 
 export async function checkPublication(id:string,note:string,ctx:ReviewContext,extraValues:unknown={}) {
   try {
     const {command}=await publicationCommand(id,note,ctx,extraValues);
-    const summary=await postgresTransaction(async client => new PostgresReviewService(client,ctx).preview(command));
+    const summary=await postgresTransaction(async client => (await new PostgresReviewService(client,ctx).preview(command)));
     return {allowed:true,reason:"",reviewers:summary.reviewers || []};
   } catch(error) {
     if(!(error instanceof HttpFail)) throw error;

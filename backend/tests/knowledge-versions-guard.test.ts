@@ -52,14 +52,14 @@ beforeEach(async () => {
   previousEnv = { AUTH_MODE: process.env.AUTH_MODE, CODEX_MODE: process.env.CODEX_MODE };
   process.env.AUTH_MODE = "disabled";
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   if (previousEnv?.AUTH_MODE === undefined) delete process.env.AUTH_MODE;
   else process.env.AUTH_MODE = previousEnv.AUTH_MODE;
@@ -71,13 +71,13 @@ describe("knowledge version history visibility", () => {
   it("hides a draft's version rows from employees but keeps them for the admin workspace", async () => {
     const draftId = await createDraft("草稿版本历史");
 
-    setPersona("employee"); // lingong
+    (await setPersona("employee")); // lingong
     const denied = await versions(draftId);
     expect(denied.status).toBe(404);
     expect(String(denied.detail)).toBe("知识不存在或不可访问");
 
     // 管理侧身份与前端 admin workspace（EntryView / DetailRail）同一口径。
-    setPersona("sriphy");
+    (await setPersona("sriphy"));
     const allowed = await versions(draftId);
     expect(allowed.status).toBe(200);
     expect(allowed.rows.map((row) => Number(row.version))).toEqual([1]);
@@ -85,7 +85,7 @@ describe("knowledge version history visibility", () => {
   });
 
   it("serves published and visible knowledge to employees", async () => {
-    setPersona("employee");
+    (await setPersona("employee"));
     const visible = await versions("kb_addr");
     expect(visible.status).toBe(200);
     expect(visible.rows.length).toBeGreaterThan(0);
@@ -95,14 +95,14 @@ describe("knowledge version history visibility", () => {
   it("hides published rows narrowed away by grants and unknown ids", async () => {
     // 授权写入走 host 函数：`/api/admin/knowledge/:id/grants` 被 knowledge-publication 的
     // authorizeEntry 中间件包着，那一段读 PostgreSQL（本文件是 sqlite 口径）。
-    setPersona("sriphy");
-    setKnowledgeGrants("kb_addr", { team: ["team_kol"] });
+    (await setPersona("sriphy"));
+    (await setKnowledgeGrants("kb_addr", { team: ["team_kol"] }));
 
-    setPersona("employee"); // lingong: org_litime only
+    (await setPersona("employee")); // lingong: org_litime only
     expect((await versions("kb_addr")).status).toBe(404);
     expect((await versions("kb_missing")).status).toBe(404);
 
-    setPersona("sriphy"); // jeffrey: org_litime + team_kol
+    (await setPersona("sriphy")); // jeffrey: org_litime + team_kol
     expect((await versions("kb_addr")).status).toBe(200);
   });
 });

@@ -102,7 +102,7 @@ const PLATFORM_NAMES: Array<[RegExp, string]> = [
   [/知乎|zhihu/i, "zhihu"],
 ];
 
-export function extractTaskEntities(text: string): Record<string, unknown> {
+export async function extractTaskEntities(text: string): Promise<Awaited<Record<string, unknown>>> {
   const entities: Record<string, unknown> = {};
   for (const [key, pattern] of Object.entries(ENTITY_PATTERNS)) {
     const match = pattern.exec(text);
@@ -118,7 +118,7 @@ export function extractTaskEntities(text: string): Record<string, unknown> {
   if (offer.deliverables) entities.deliverables = offer.deliverables;
   // Same handle rules as Host classify(): skill mentions such as
   // @写合作邮件 are not KOL handles, and a later @红人 still binds.
-  const handle = extractHandle(text);
+  const handle = (await extractHandle(text));
   if (handle) entities.handle = handle;
   const platform = PLATFORM_NAMES.find(([pattern]) => pattern.test(text))?.[1];
   if (platform) entities.platform = platform;
@@ -375,14 +375,14 @@ function lockedResolution(
  * Production resolver: never picks a skill from regex/substring.
  * With a human- or judge-locked task_type, only validates required fields.
  */
-export function resolveTaskIntent(input: {
+export async function resolveTaskIntent(input: {
   text?: string;
   task_type?: string | null;
   entities?: Record<string, unknown>;
   input?: Record<string, unknown>;
-}): TaskResolution {
+}): Promise<Awaited<TaskResolution>> {
   const text = String(input.text || "").trim();
-  const entities = { ...extractTaskEntities(text), ...(input.entities || {}) };
+  const entities = { ...(await extractTaskEntities(text)), ...(input.entities || {}) };
   const supplied = input.input || {};
   if (input.task_type) return lockedResolution(String(input.task_type), entities, supplied, text);
   return {
@@ -397,14 +397,14 @@ export function resolveTaskIntent(input: {
 }
 
 /** Tests / INTENT_LLM_MODE=stub only. Production recognize uses Luna or Codex turn items. */
-export function stubResolveTaskIntent(input: {
+export async function stubResolveTaskIntent(input: {
   text?: string;
   task_type?: string | null;
   entities?: Record<string, unknown>;
   input?: Record<string, unknown>;
-}): TaskResolution {
+}): Promise<Awaited<TaskResolution>> {
   const text = String(input.text || "").trim();
-  const entities = { ...extractTaskEntities(text), ...(input.entities || {}) };
+  const entities = { ...(await extractTaskEntities(text)), ...(input.entities || {}) };
   const supplied = input.input || {};
   if (input.task_type) return lockedResolution(String(input.task_type), entities, supplied, text);
 

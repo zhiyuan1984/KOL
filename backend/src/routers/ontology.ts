@@ -302,7 +302,7 @@ ontology.post("/admin/ontology/change-approvals", async (c) => {
   const ceo = roleHolder(org, "gm", placeholder);
   if (!ceo) throw new HttpFail(400, { code: "ceo_not_found", message: "组织架构中未找到 CEO，无法发起本体变更审批。" });
   const title = String(body.title || "").trim() || `本体变更审批：${SCOPE_LABEL[scope]}`;
-  const approval = createWorkApproval({
+  const approval = (await createWorkApproval({
     kind: "ontology_change",
     title,
     chain: [ceo.id],
@@ -316,13 +316,13 @@ ontology.post("/admin/ontology/change-approvals", async (c) => {
       requester_name: admin.name || admin.handle,
       steps: [{ employee_id: ceo.id, name: ceo.name, role: "CEO" }],
     },
-  });
+  }));
   if (!approval?.id) {
     throw new HttpFail(400, { code: "empty_approval_chain", message: "审批链为空，无法发起本体变更审批。" });
   }
-  audit("host", "ontology.change.approval.created", {
+  (await audit("host", "ontology.change.approval.created", {
     scope, approval_id: approval.id, base_version: base.base_version, target_digest: target.targetDigest, change_ref: target.changeRef,
-  });
+  }));
   return c.json({
     scope, approval_id: approval.id, status: "pending", base_version: base.base_version,
     target_digest: target.targetDigest, change_ref: target.changeRef, chain: [ceo.id],

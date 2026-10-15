@@ -49,15 +49,15 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   clearTaskRegistryCache();
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -99,7 +99,7 @@ describe("published skills on the Codex harness", () => {
     expect(created.body.in_market).toBe(true);
     expect(created.body.funnel).toBe("reach");
 
-    expect(skillCatalog().some((row) => row.id === "daily_brief")).toBe(true);
+    expect((await skillCatalog()).some((row) => row.id === "daily_brief")).toBe(true);
     expect(taskDefinition("daily_brief")?.title).toBe("每日简报");
 
     const runtime = path.join(runtimeSkillsRoot(), "daily_brief", "SKILL.md");
@@ -202,7 +202,7 @@ describe("published skills on the Codex harness", () => {
 
     const removed = await request("DELETE", "/api/admin/skills/daily_brief");
     expect(removed.status).toBe(200);
-    expect(skillCatalog().some((row) => row.id === "daily_brief")).toBe(false);
+    expect((await skillCatalog()).some((row) => row.id === "daily_brief")).toBe(false);
   });
 });
 

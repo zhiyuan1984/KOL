@@ -1,3 +1,4 @@
+import { asyncFilter } from "../async-collections.js";
 /**
  * WikiSkill 三层：Raw（系统只写）→ Wiki（管理员抽取/审批）→ Skill + published mail_template。
  * Inference / Worker 不得读 wiki 全文。已启用的 mail_template 只把
@@ -75,12 +76,12 @@ export function mapDeprecateReason(raw: string): DeprecateReason {
 const MAIL_SKILLS = ["email_compose"] as const;
 const PLACEHOLDER_RE = /\[[^\]\n]{1,32}\]/g;
 
-export function knowledgeActorId(): string {
-  return scopedUser()?.id || currentUser().id || DEMO_USER.id;
+export async function knowledgeActorId(): Promise<Awaited<string>> {
+  return scopedUser()?.id || (await currentUser()).id || DEMO_USER.id;
 }
 
-export function actorBrands(): string[] {
-  const user = authDisabled() ? currentUser() : (scopedUser() || currentUser());
+export async function actorBrands(): Promise<Awaited<string[]>> {
+  const user = authDisabled() ? (await currentUser()) : (scopedUser() || (await currentUser()));
   const departmentHead = departmentHeadAccessForUser(user);
   if (departmentHead?.company_wide && departmentHead.brand_scope === "all") return Object.keys(BRAND_MAILBOXES);
   return [...(user.brands || [])];
@@ -104,8 +105,8 @@ function asRow(row: Row | undefined): Row {
   return { ...row };
 }
 
-export function knowledgeRow(id: string): Row {
-  return asRow(getConn().prepare("SELECT * FROM knowledge WHERE id=?").get(id) as Row | undefined);
+export async function knowledgeRow(id: string): Promise<Awaited<Row>> {
+  return asRow((await getConn().query("SELECT * FROM knowledge WHERE id=$1",[id])).rows[0] as Row | undefined);
 }
 
 // ---------------------------------------------------------------------------
@@ -133,14 +134,14 @@ const BASE_SELECT = `SELECT b.*, d.name AS domain_name, d.parent_id AS family_id
      LEFT JOIN knowledge_domains d ON d.id=b.domain_id
      LEFT JOIN knowledge_domains f ON f.id=d.parent_id`;
 
-function domainRow(id: string): Row {
-  const row = getConn().prepare("SELECT * FROM knowledge_domains WHERE id=?").get(id) as Row | undefined;
+async function domainRow(id: string): Promise<Awaited<Row>> {
+  const row = (await getConn().query("SELECT * FROM knowledge_domains WHERE id=$1",[id])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(404, "主题域不存在");
   return { ...row };
 }
 
-function domainView(id: string): Json {
-  return getConn().prepare(`SELECT ${DOMAIN_COLUMNS} FROM knowledge_domains WHERE id=?`).get(id) as Json;
+async function domainView(id: string): Promise<Awaited<Json>> {
+  return (await getConn().query("SELECT id,code,name,level,parent_id,sort,status,note,created_at,updated_at FROM knowledge_domains WHERE id=$1",[id])).rows[0] as Json;
 }
 
 function normalizeDomainLevel(value: unknown): KnowledgeDomainLevel {
@@ -176,40 +177,27 @@ function parseJsonObject(value: unknown, fallback: Json = {}): Json {
   }
 }
 
-export function listDomains(): Json[] {
+export async function listDomains(): Promise<Awaited<Json[]>> {
   requireAdmin();
-  return getConn()
-    .prepare(
-      `SELECT ${DOMAIN_COLUMNS} FROM knowledge_domains
-        ORDER BY CASE level WHEN 'family' THEN 0 ELSE 1 END, sort, name, code`,
-    )
-    .all() as Json[];
+  return (await getConn().query("SELECT id,code,name,level,parent_id,sort,status,note,created_at,updated_at FROM knowledge_domains\n        ORDER BY CASE level WHEN 'family' THEN 0 ELSE 1 END, sort, name, code",[])).rows as Json[];
 }
 
 /** 用户侧只读分类目录：名称与管理端同读 knowledge_domains / knowledge_bases 主数据。 */
-export function publicKnowledgeTaxonomy(): { domains: Json[]; bases: Json[] } {
-  const domains = getConn()
-    .prepare(
-      `SELECT ${DOMAIN_COLUMNS} FROM knowledge_domains
-        WHERE status='active'
-        ORDER BY CASE level WHEN 'family' THEN 0 ELSE 1 END, sort, name, code`,
-    )
-    .all() as Json[];
-  const bases = getConn()
-    .prepare(`${BASE_SELECT} WHERE b.status='active' ORDER BY f.sort, f.name, d.sort, d.name, b.name, b.code`)
-    .all()
+export async function publicKnowledgeTaxonomy(): Promise<Awaited<{ domains: Json[]; bases: Json[] }>> {
+  const domains = (await getConn().query("SELECT id,code,name,level,parent_id,sort,status,note,created_at,updated_at FROM knowledge_domains\n        WHERE status='active'\n        ORDER BY CASE level WHEN 'family' THEN 0 ELSE 1 END, sort, name, code",[])).rows as Json[];
+  const bases = (await getConn().query("SELECT b.*, d.name AS domain_name, d.parent_id AS family_id, f.name AS family_name,\n   (SELECT COUNT(*) FROM knowledge k WHERE k.base_id=b.id) AS entries\n     FROM knowledge_bases b\n     LEFT JOIN knowledge_domains d ON d.id=b.domain_id\n     LEFT JOIN knowledge_domains f ON f.id=d.parent_id WHERE b.status='active' ORDER BY f.sort, f.name, d.sort, d.name, b.name, b.code",[])).rows
     .map((row) => baseView(row as Row)) as Json[];
   return { domains, bases };
 }
 
-export function createDomain(input: {
+export async function createDomain(input: {
   code?: string;
   name?: string;
   level?: string;
   parent_id?: string | null;
   sort?: number | null;
   note?: string;
-}, actor = knowledgeActorId()): Json {
+}, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
   requireAdmin();
   const code = String(input.code || "").trim();
   if (!KNOWLEDGE_DOMAIN_CODE_RE.test(code)) throw new HttpFail(400, "code 须为小写字母开头的 a-z0-9_ 编码");
@@ -221,34 +209,29 @@ export function createDomain(input: {
     if (parentId) throw new HttpFail(400, "主题域族不能有父级（parent_id）");
   } else {
     if (!parentId) throw new HttpFail(400, "主题域必须给 parent_id（所属族）");
-    const parent = getConn().prepare("SELECT * FROM knowledge_domains WHERE id=?").get(parentId) as Row | undefined;
+    const parent = (await getConn().query("SELECT * FROM knowledge_domains WHERE id=$1",[parentId])).rows[0] as Row | undefined;
     if (!parent) throw new HttpFail(400, "父级主题域不存在");
     if (String(parent.level) !== "family") throw new HttpFail(400, "主题域的父级必须是族（family）");
   }
-  const conflict = getConn()
-    .prepare("SELECT 1 FROM knowledge_domains WHERE code=? AND IFNULL(parent_id,'')=?")
-    .get(code, parentId);
+  const conflict = (await getConn().query("SELECT 1 FROM knowledge_domains WHERE code=$1 AND COALESCE(parent_id,'')=$2",[code,parentId])).rows[0];
   if (conflict) throw new HttpFail(409, { code: "knowledge_domain_code_conflict", message: "同一父级下编码已存在" });
   const id = nid("kdom");
   const now = nowIso();
   const sort = Number.isFinite(Number(input.sort)) ? Number(input.sort) : 0;
   const note = String(input.note || "");
-  tx((db) => {
-    db.prepare(
-      `INSERT INTO knowledge_domains (id,code,name,level,parent_id,sort,status,note,created_by,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(id, code, name, level, level === "family" ? null : parentId, sort, "active", note, actor, now, now);
-  });
-  audit(actor, "knowledge.domain.save", { id, code, level, created: true });
-  return { domain: domainView(id) };
+  (await tx(async (db) => {
+    (await db.query("INSERT INTO knowledge_domains (id,code,name,level,parent_id,sort,status,note,created_by,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",[id,code,name,level,level === "family" ? null : parentId,sort,"active",note,actor,now,now]));
+  }));
+  (await audit(actor, "knowledge.domain.save", { id, code, level, created: true }));
+  return { domain: (await domainView(id)) };
 }
 
 export async function editDomain(id: string, patch: DomainPatch): Promise<Json> {
   return editCatalogDomain(id, patch);
 }
 
-function baseRow(id: string): Row {
-  const row = getConn().prepare(`${BASE_SELECT} WHERE b.id=?`).get(id) as Row | undefined;
+async function baseRow(id: string): Promise<Awaited<Row>> {
+  const row = (await getConn().query("SELECT b.*, d.name AS domain_name, d.parent_id AS family_id, f.name AS family_name,\n   (SELECT COUNT(*) FROM knowledge k WHERE k.base_id=b.id) AS entries\n     FROM knowledge_bases b\n     LEFT JOIN knowledge_domains d ON d.id=b.domain_id\n     LEFT JOIN knowledge_domains f ON f.id=d.parent_id WHERE b.id=$1",[id])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(404, "知识库不存在");
   return { ...row };
 }
@@ -288,7 +271,7 @@ export async function listBases(opts: { domain_id?: string | null; kind?: string
   return rows.map(baseView);
 }
 
-export function createBase(input: {
+export async function createBase(input: {
   code?: string;
   name?: string;
   domain_id?: string;
@@ -296,7 +279,7 @@ export function createBase(input: {
   description?: string;
   settings?: unknown;
   external_ref?: unknown;
-}, actor = knowledgeActorId()): Json {
+}, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
   requireAdmin();
   const code = String(input.code || "").trim();
   if (!code) throw new HttpFail(400, "code required");
@@ -304,7 +287,7 @@ export function createBase(input: {
   if (!name) throw new HttpFail(400, "name required");
   const domainId = String(input.domain_id || "").trim();
   if (!domainId) throw new HttpFail(400, "domain_id required");
-  const domain = getConn().prepare("SELECT * FROM knowledge_domains WHERE id=?").get(domainId) as Row | undefined;
+  const domain = (await getConn().query("SELECT * FROM knowledge_domains WHERE id=$1",[domainId])).rows[0] as Row | undefined;
   if (!domain) throw new HttpFail(400, "主题域不存在");
   if (String(domain.level) !== "domain") throw new HttpFail(400, "知识库必须挂在主题域（level=domain）下");
   const kind = normalizeBaseKind(input.kind);
@@ -312,21 +295,17 @@ export function createBase(input: {
   if (kind === "structured" && externalRef) {
     throw new HttpFail(400, { code: "knowledge_base_external_ref_forbidden", message: "结构化知识库不能带 external_ref" });
   }
-  if (getConn().prepare("SELECT 1 FROM knowledge_bases WHERE code=?").get(code)) {
+  if ((await getConn().query("SELECT 1 FROM knowledge_bases WHERE code=$1",[code])).rows[0]) {
     throw new HttpFail(409, { code: "knowledge_base_code_conflict", message: "知识库编码已存在" });
   }
   const id = nid("kbase");
   const now = nowIso();
   const settings = JSON.stringify(parseJsonObject(input.settings, {}));
-  tx((db) => {
-    db.prepare(
-      `INSERT INTO knowledge_bases
-       (id,code,name,domain_id,kind,description,owner_user_id,status,settings,external_ref,version,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(id, code, name, domainId, kind, String(input.description || ""), actor, "active", settings, externalRef, 1, now, now);
-  });
-  audit(actor, "knowledge.base.save", { id, code, kind, created: true });
-  return { base: baseView(baseRow(id)) };
+  (await tx(async (db) => {
+    (await db.query("INSERT INTO knowledge_bases\n       (id,code,name,domain_id,kind,description,owner_user_id,status,settings,external_ref,version,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",[id,code,name,domainId,kind,String(input.description || ""),actor,"active",settings,externalRef,1,now,now]));
+  }));
+  (await audit(actor, "knowledge.base.save", { id, code, kind, created: true }));
+  return { base: baseView((await baseRow(id))) };
 }
 
 export async function editBase(id: string, patch: BasePatch): Promise<Json> {
@@ -334,10 +313,10 @@ export async function editBase(id: string, patch: BasePatch): Promise<Json> {
 }
 
 /** 条目所属库的类型（无库或库已删为空串）。 */
-function baseKindOf(baseId: unknown): string {
+async function baseKindOf(baseId: unknown): Promise<Awaited<string>> {
   const id = String(baseId || "").trim();
   if (!id) return "";
-  const row = getConn().prepare("SELECT kind FROM knowledge_bases WHERE id=?").get(id) as Row | undefined;
+  const row = (await getConn().query("SELECT kind FROM knowledge_bases WHERE id=$1",[id])).rows[0] as Row | undefined;
   return row ? String(row.kind || "") : "";
 }
 
@@ -353,12 +332,12 @@ function assertKindAllowedInBase(kindCode: string, baseKind: string): void {
 }
 
 /** 新建/搬家时的库校验：必填、存在、启用、且类型允许该 kind。 */
-function requireWritableBase(value: unknown, kindCode: string): Row {
+async function requireWritableBase(value: unknown, kindCode: string): Promise<Awaited<Row>> {
   const id = String(value == null ? "" : value).trim();
   if (!id) {
     throw new HttpFail(400, { code: "knowledge_base_required", message: "新建条目必须给 base_id（所属知识库）" });
   }
-  const base = getConn().prepare("SELECT * FROM knowledge_bases WHERE id=?").get(id) as Row | undefined;
+  const base = (await getConn().query("SELECT * FROM knowledge_bases WHERE id=$1",[id])).rows[0] as Row | undefined;
   if (!base) throw new HttpFail(400, { code: "knowledge_base_missing", message: "知识库不存在" });
   if (String(base.status) !== "active") {
     throw new HttpFail(400, { code: "knowledge_base_archived", message: "知识库已归档，不能写入条目" });
@@ -386,61 +365,25 @@ function parseStructured(value: unknown): Json | null {
 }
 
 /** 抽取候选等系统写入的默认落点：优先历史库，其次任一启用中的结构化库。 */
-function defaultStructuredBaseId(): string {
-  const row = getConn()
-    .prepare(
-      `SELECT id FROM knowledge_bases WHERE kind='structured' AND status='active'
-        ORDER BY CASE WHEN code='legacy' THEN 0 ELSE 1 END, id`,
-    )
-    .get() as Row | undefined;
+async function defaultStructuredBaseId(): Promise<Awaited<string>> {
+  const row = (await getConn().query("SELECT id FROM knowledge_bases WHERE kind='structured' AND status='active'\n        ORDER BY CASE WHEN code='legacy' THEN 0 ELSE 1 END, id",[])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(400, { code: "knowledge_base_required", message: "没有可用的结构化知识库" });
   return String(row.id);
 }
 
-function writeVersion(db: ReturnType<typeof getConn>, row: Row, note: string, actor: string): void {
-  db.prepare(
-    `INSERT INTO knowledge_versions
-     (id,knowledge_id,version,title,body,subject,body_en,placeholders,stage_codes,skill_id,brand,lang,kind,status,tags,in_market,effective_at,expires_at,base_id,structured,source_body,created_by,created_at,note)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    nid("kv"),
-    row.id,
-    row.current_version,
-    row.title,
-    row.body,
-    row.subject ?? "",
-    row.body_en ?? "",
-    row.placeholders ?? "[]",
-    row.stage_codes ?? "[]",
-    row.skill_id ?? "",
-    row.brand ?? "*",
-    row.lang ?? "en",
-    row.kind ?? "policy",
-    row.status ?? "draft",
-    row.tags == null ? "" : String(row.tags),
-    row.in_market == null ? 1 : Number(row.in_market),
-    row.effective_at == null ? null : String(row.effective_at),
-    row.expires_at == null ? null : String(row.expires_at),
-    row.base_id == null ? null : String(row.base_id),
-    row.structured == null ? null : String(row.structured),
-    row.source_body == null ? null : String(row.source_body),
-    actor,
-    nowIso(),
-    note,
-  );
+async function writeVersion(db: ReturnType<typeof getConn>, row: Row, note: string, actor: string): Promise<Awaited<void>> {
+  (await db.query("INSERT INTO knowledge_versions\n     (id,knowledge_id,version,title,body,subject,body_en,placeholders,stage_codes,skill_id,brand,lang,kind,status,tags,in_market,effective_at,expires_at,base_id,structured,source_body,created_by,created_at,note)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)",[nid("kv"),row.id,row.current_version,row.title,row.body,row.subject ?? "",row.body_en ?? "",row.placeholders ?? "[]",row.stage_codes ?? "[]",row.skill_id ?? "",row.brand ?? "*",row.lang ?? "en",row.kind ?? "policy",row.status ?? "draft",row.tags == null ? "" : String(row.tags),row.in_market == null ? 1 : Number(row.in_market),row.effective_at == null ? null : String(row.effective_at),row.expires_at == null ? null : String(row.expires_at),row.base_id == null ? null : String(row.base_id),row.structured == null ? null : String(row.structured),row.source_body == null ? null : String(row.source_body),actor,nowIso(),note]));
 }
 
-export function publicKnowledge(row: Row, userId = knowledgeActorId()): Json {
+export async function publicKnowledge(row: Row, userId = (await knowledgeActorId())): Promise<Awaited<Json>> {
   const cited = row.viewer_cited == null
-    ? Boolean(getConn().prepare("SELECT 1 FROM knowledge_citations WHERE user_id=? AND knowledge_id=?").get(userId, row.id))
+    ? Boolean((await getConn().query("SELECT 1 FROM knowledge_citations WHERE user_id=$1 AND knowledge_id=$2",[userId,row.id])).rows[0])
     : Boolean(row.viewer_cited);
   const favoriteVersion = row.viewer_favorite_version == null
-    ? Number((getConn().prepare("SELECT saved_version FROM knowledge_favorites WHERE user_id=? AND knowledge_id=?").get(userId, row.id) as Row | undefined)?.saved_version || 0)
+    ? Number(((await getConn().query("SELECT saved_version FROM knowledge_favorites WHERE user_id=$1 AND knowledge_id=$2",[userId,row.id])).rows[0] as Row | undefined)?.saved_version || 0)
     : Number(row.viewer_favorite_version || 0);
   const dep = row.viewer_deprecate_reason == null
-    ? getConn()
-      .prepare("SELECT reason, reason_note, deprecated_at, handled_at, handle_action FROM knowledge_deprecations WHERE user_id=? AND knowledge_id=?")
-      .get(userId, row.id) as { reason: string; reason_note: string; deprecated_at: string; handled_at?: string; handle_action?: string } | undefined
+    ? (await getConn().query("SELECT reason, reason_note, deprecated_at, handled_at, handle_action FROM knowledge_deprecations WHERE user_id=$1 AND knowledge_id=$2",[userId,row.id])).rows[0] as { reason: string; reason_note: string; deprecated_at: string; handled_at?: string; handle_action?: string } | undefined
     : {
         reason: String(row.viewer_deprecate_reason || ""),
         reason_note: String(row.viewer_deprecate_note || ""),
@@ -449,19 +392,12 @@ export function publicKnowledge(row: Row, userId = knowledgeActorId()): Json {
         handle_action: String(row.viewer_feedback_handle_action || ""),
       };
   const citeCount = row.cite_count == null
-    ? (getConn().prepare("SELECT COUNT(*) AS c FROM knowledge_citations WHERE knowledge_id=?").get(row.id) as { c: number }).c
+    ? ((await getConn().query("SELECT COUNT(*) AS c FROM knowledge_citations WHERE knowledge_id=$1",[row.id])).rows[0] as { c: number }).c
     : Number(row.cite_count);
   // 列表 SQL 已带 join 别名时直接用；单行查询（详情/写后回读）按 base_id 补一次库/域/族。
   const base = row.base_code == null
     ? (row.base_id
-      ? getConn().prepare(
-        `SELECT b.id AS base_id, b.code AS base_code, b.name AS base_name,
-                d.id AS domain_id, d.name AS domain_name, f.id AS family_id, f.name AS family_name
-           FROM knowledge_bases b
-           LEFT JOIN knowledge_domains d ON d.id=b.domain_id
-           LEFT JOIN knowledge_domains f ON f.id=d.parent_id
-          WHERE b.id=?`,
-      ).get(String(row.base_id)) as Row | undefined
+      ? (await getConn().query("SELECT b.id AS base_id, b.code AS base_code, b.name AS base_name,\n                d.id AS domain_id, d.name AS domain_name, f.id AS family_id, f.name AS family_name\n           FROM knowledge_bases b\n           LEFT JOIN knowledge_domains d ON d.id=b.domain_id\n           LEFT JOIN knowledge_domains f ON f.id=d.parent_id\n          WHERE b.id=$1",[String(row.base_id)])).rows[0] as Row | undefined
       : undefined)
     : row;
   return {
@@ -514,8 +450,8 @@ export function publicKnowledge(row: Row, userId = knowledgeActorId()): Json {
   };
 }
 
-function listed(sql: string, args: unknown[], filter?: (row: Row) => boolean, effectiveOnly = false): Json[] {
-  const userId = knowledgeActorId();
+async function listed(sql: string, args: unknown[], filter?: (row: Row) => boolean, effectiveOnly = false): Promise<Awaited<Json[]>> {
+  const userId = (await knowledgeActorId());
   const raw = getConn().prepare(sql).all(...args) as Row[];
   const all = effectiveOnly ? effectivePublishedRows(raw) : raw;
   const rows = filter ? all.filter(filter) : all;
@@ -542,7 +478,7 @@ function listed(sql: string, args: unknown[], filter?: (row: Row) => boolean, ef
       `SELECT knowledge_id,COUNT(*) AS cite_count FROM knowledge_citations WHERE knowledge_id IN (${placeholders}) GROUP BY knowledge_id`,
     ).all(...ids) as Row[]).map((row) => [String(row.knowledge_id), Number(row.cite_count || 0)]),
   );
-  return rows.map((row) => {
+  return (await Promise.all(rows.map((row) => {
     const dep = deprecated.get(String(row.id));
     return publicKnowledge({
       ...row,
@@ -557,52 +493,40 @@ function listed(sql: string, args: unknown[], filter?: (row: Row) => boolean, ef
       viewer_favorite_version: favorites.get(String(row.id)) || 0,
       cite_count: counts.get(String(row.id)) || 0,
     }, userId);
-  });
+  })));
 }
 
-export function listPublishedForOps(opts: KnowledgeListOpts = {}): Json[] {
-  const filters = knowledgeListFilters(opts);
-  const rows = listed(filters.sql, filters.args, filters.filter, true);
+export async function listPublishedForOps(opts: KnowledgeListOpts = {}): Promise<Awaited<Json[]>> {
+  const filters = (await knowledgeListFilters(opts));
+  const rows = (await listed(filters.sql, filters.args, filters.filter, true));
   const offset = Math.max(0, Number(opts.offset || 0) || 0);
   const limit = Math.max(0, Number(opts.limit == null ? 0 : opts.limit) || 0);
   if (!limit && !offset) return rows;
   return limit ? rows.slice(offset, offset + limit) : rows.slice(offset);
 }
 
-export function listMarket(): Json[] {
-  const filters = knowledgeListFilters({ inMarket: true });
+export async function listMarket(): Promise<Awaited<Json[]>> {
+  const filters = (await knowledgeListFilters({ inMarket: true }));
   return listed(filters.sql, filters.args, filters.filter, true);
 }
 
-export function brandMatched(row: Row, brands = actorBrands()): boolean {
+export function brandMatched(row: Row, brands = (await actorBrands())): boolean {
   const brand = String(row.brand || "*");
   if (!brand || brand === "*") return true;
   if (!brands.length && authDisabled()) return true;
   return brands.includes(brand);
 }
 
-export function composerItems(userId = knowledgeActorId(), brands = actorBrands()): Json[] {
-  const rows = getConn()
-    .prepare(
-      `SELECT k.* FROM knowledge k
-        JOIN knowledge_citations c ON c.knowledge_id=k.id AND c.user_id=?
-       WHERE k.status='published' AND k.kind='mail_template'
-         AND NOT EXISTS (
-           SELECT 1 FROM knowledge_deprecations d
-            WHERE d.knowledge_id=k.id AND d.user_id=?
-         )
-       ORDER BY k.title`,
-    )
-    .all(userId, userId) as Row[];
-  const viewer = viewerHandle(userId);
-  return rows
-    .filter((row) => brandMatched(row, brands) && canSeeKnowledge(row, viewer))
-    .flatMap((row) => {
+export async function composerItems(userId = (await knowledgeActorId()), brands = (await actorBrands())): Promise<Awaited<Json[]>> {
+  const rows = (await getConn().query("SELECT k.* FROM knowledge k\n        JOIN knowledge_citations c ON c.knowledge_id=k.id AND c.user_id=$1\n       WHERE k.status='published' AND k.kind='mail_template'\n         AND NOT EXISTS (\n           SELECT 1 FROM knowledge_deprecations d\n            WHERE d.knowledge_id=k.id AND d.user_id=$2\n         )\n       ORDER BY k.title",[userId,userId])).rows as Row[];
+  const viewer = (await viewerHandle(userId));
+  return (await asyncFilter(rows,async (row) => brandMatched(row, brands) && (await canSeeKnowledge(row, viewer))))
+    .flatMap(async (row) => {
       try {
-        assertMailTemplateSnapshotApplicable({ knowledgeId: String(row.id), version: Number(row.published_version || 0), userId, brands });
-        const snapshot = publishedSnapshot(row);
+        (await assertMailTemplateSnapshotApplicable({ knowledgeId: String(row.id), version: Number(row.published_version || 0), userId, brands }));
+        const snapshot = (await publishedSnapshot(row));
         const published = { ...row, ...snapshot, id: row.id, current_version: snapshot.version };
-        return [{ ...publicKnowledge(published, userId), intent: snapshot.skill_id, starter: composerStarter(snapshot) }];
+        return [{ ...(await publicKnowledge(published, userId)), intent: snapshot.skill_id, starter: composerStarter(snapshot) }];
       } catch (error) {
         if (error instanceof HttpFail) return [];
         throw error;
@@ -634,29 +558,18 @@ function questionTemplateSlot(row: Row): QuestionTemplateSlot | null {
  * 已发布 + 未被本人隐藏 + 品牌与范围可见。缺槽位或未发布的模板不出现，
  * 前端据此禁用入口而不是回落到写死的问题文案（CONST-10）。
  */
-export function questionTemplates(userId = knowledgeActorId(), brands = actorBrands()): Json[] {
-  const rows = getConn()
-    .prepare(
-      `SELECT k.* FROM knowledge k
-       WHERE k.status='published' AND k.kind='question_template'
-         AND NOT EXISTS (
-           SELECT 1 FROM knowledge_deprecations d
-            WHERE d.knowledge_id=k.id AND d.user_id=?
-         )
-       ORDER BY k.title`,
-    )
-    .all(userId) as Row[];
-  const viewer = viewerHandle(userId);
-  return rows
-    .filter((row) => brandMatched(row, brands) && canSeeKnowledge(row, viewer))
-    .flatMap((row) => {
+export async function questionTemplates(userId = (await knowledgeActorId()), brands = (await actorBrands())): Promise<Awaited<Json[]>> {
+  const rows = (await getConn().query("SELECT k.* FROM knowledge k\n       WHERE k.status='published' AND k.kind='question_template'\n         AND NOT EXISTS (\n           SELECT 1 FROM knowledge_deprecations d\n            WHERE d.knowledge_id=k.id AND d.user_id=$1\n         )\n       ORDER BY k.title",[userId])).rows as Row[];
+  const viewer = (await viewerHandle(userId));
+  return (await asyncFilter(rows,async (row) => brandMatched(row, brands) && (await canSeeKnowledge(row, viewer))))
+    .flatMap(async (row) => {
       const slot = questionTemplateSlot(row);
       if (!slot) {
-        audit("system", "knowledge.question_template.bad_slot", { knowledge_id: String(row.id) });
+        (await audit("system", "knowledge.question_template.bad_slot", { knowledge_id: String(row.id) }));
         return [];
       }
       try {
-        const snapshot = publishedSnapshot(row);
+        const snapshot = (await publishedSnapshot(row));
         return [{
           slot,
           knowledge_id: String(row.id),
@@ -673,83 +586,81 @@ export function questionTemplates(userId = knowledgeActorId(), brands = actorBra
     });
 }
 
-export function cite(knowledgeId: string, userId = knowledgeActorId()): Json {
-  const row = knowledgeRow(knowledgeId);
+export async function cite(knowledgeId: string, userId = (await knowledgeActorId())): Promise<Awaited<Json>> {
+  const row = (await knowledgeRow(knowledgeId));
   if (String(row.status) !== "published") throw new HttpFail(403, "未发布知识不能启用");
-  tx((db) => {
+  (await tx((db) => {
     db.prepare(
       "INSERT OR REPLACE INTO knowledge_citations (user_id,knowledge_id,cited_at) VALUES (?,?,?)",
     ).run(userId, knowledgeId, nowIso());
-  });
-  audit(userId, "knowledge.cite", { knowledge_id: knowledgeId, version: row.current_version });
-  return publicKnowledge(knowledgeRow(knowledgeId), userId);
+  }));
+  (await audit(userId, "knowledge.cite", { knowledge_id: knowledgeId, version: row.current_version }));
+  return publicKnowledge((await knowledgeRow(knowledgeId)), userId);
 }
 
-export function uncite(knowledgeId: string, userId = knowledgeActorId()): Json {
-  knowledgeRow(knowledgeId);
-  tx((db) => {
-    db.prepare("DELETE FROM knowledge_citations WHERE user_id=? AND knowledge_id=?").run(userId, knowledgeId);
-  });
-  audit(userId, "knowledge.uncite", { knowledge_id: knowledgeId });
-  return publicKnowledge(knowledgeRow(knowledgeId), userId);
+export async function uncite(knowledgeId: string, userId = (await knowledgeActorId())): Promise<Awaited<Json>> {
+  (await knowledgeRow(knowledgeId));
+  (await tx(async (db) => {
+    (await db.query("DELETE FROM knowledge_citations WHERE user_id=$1 AND knowledge_id=$2",[userId,knowledgeId]));
+  }));
+  (await audit(userId, "knowledge.uncite", { knowledge_id: knowledgeId }));
+  return publicKnowledge((await knowledgeRow(knowledgeId)), userId);
 }
 
 /** 收藏是账号级数据；保存当前已发布版本，用来提示后续发布的新版本。 */
-export function favorite(knowledgeId: string, userId = knowledgeActorId()): Json {
-  const row = knowledgeRow(knowledgeId);
+export async function favorite(knowledgeId: string, userId = (await knowledgeActorId())): Promise<Awaited<Json>> {
+  const row = (await knowledgeRow(knowledgeId));
   if (String(row.status) !== "published") throw new HttpFail(403, "未发布知识不能收藏");
   const version = Number(row.published_version || row.current_version || 1);
   const stamp = nowIso();
-  tx((db) => {
-    db.prepare(
-      "INSERT OR REPLACE INTO knowledge_favorites (user_id,knowledge_id,saved_version,created_at,updated_at) VALUES (?,?,?,?,?)",
-    ).run(userId, knowledgeId, version, stamp, stamp);
-  });
-  audit(userId, "knowledge.favorite", { knowledge_id: knowledgeId, version });
-  return publicKnowledge(knowledgeRow(knowledgeId), userId);
+  (await tx(async (db) => {
+    (await db.query("INSERT INTO knowledge_favorites (user_id,knowledge_id,saved_version,created_at,updated_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (user_id,knowledge_id) DO UPDATE SET saved_version=EXCLUDED.saved_version,created_at=EXCLUDED.created_at,updated_at=EXCLUDED.updated_at",[userId,knowledgeId,version,stamp,stamp]));
+  }));
+  (await audit(userId, "knowledge.favorite", { knowledge_id: knowledgeId, version }));
+  return publicKnowledge((await knowledgeRow(knowledgeId)), userId);
 }
 
-export function unfavorite(knowledgeId: string, userId = knowledgeActorId()): Json {
-  knowledgeRow(knowledgeId);
-  tx((db) => {
-    db.prepare("DELETE FROM knowledge_favorites WHERE user_id=? AND knowledge_id=?").run(userId, knowledgeId);
-  });
-  audit(userId, "knowledge.unfavorite", { knowledge_id: knowledgeId });
-  return publicKnowledge(knowledgeRow(knowledgeId), userId);
+export async function unfavorite(knowledgeId: string, userId = (await knowledgeActorId())): Promise<Awaited<Json>> {
+  (await knowledgeRow(knowledgeId));
+  (await tx(async (db) => {
+    (await db.query("DELETE FROM knowledge_favorites WHERE user_id=$1 AND knowledge_id=$2",[userId,knowledgeId]));
+  }));
+  (await audit(userId, "knowledge.unfavorite", { knowledge_id: knowledgeId }));
+  return publicKnowledge((await knowledgeRow(knowledgeId)), userId);
 }
 
-export function deprecate(knowledgeId: string, reason: string, note = "", userId = knowledgeActorId()): Json {
-  knowledgeRow(knowledgeId);
+export async function deprecate(knowledgeId: string, reason: string, note = "", userId = (await knowledgeActorId())): Promise<Awaited<Json>> {
+  (await knowledgeRow(knowledgeId));
   reason = mapDeprecateReason(reason);
-  tx((db) => {
+  (await tx((db) => {
     db.prepare(
       `INSERT OR REPLACE INTO knowledge_deprecations
        (user_id,knowledge_id,reason,reason_note,deprecated_at) VALUES (?,?,?,?,?)`,
     ).run(userId, knowledgeId, reason, note, nowIso());
-  });
-  audit(userId, "knowledge.deprecate", { knowledge_id: knowledgeId, reason });
-  return publicKnowledge(knowledgeRow(knowledgeId), userId);
+  }));
+  (await audit(userId, "knowledge.deprecate", { knowledge_id: knowledgeId, reason }));
+  return publicKnowledge((await knowledgeRow(knowledgeId)), userId);
 }
 
-export function undeprecate(knowledgeId: string, userId = knowledgeActorId()): Json {
-  knowledgeRow(knowledgeId);
-  tx((db) => {
-    db.prepare("DELETE FROM knowledge_deprecations WHERE user_id=? AND knowledge_id=?").run(userId, knowledgeId);
-  });
-  audit(userId, "knowledge.undeprecate", { knowledge_id: knowledgeId });
-  return publicKnowledge(knowledgeRow(knowledgeId), userId);
+export async function undeprecate(knowledgeId: string, userId = (await knowledgeActorId())): Promise<Awaited<Json>> {
+  (await knowledgeRow(knowledgeId));
+  (await tx(async (db) => {
+    (await db.query("DELETE FROM knowledge_deprecations WHERE user_id=$1 AND knowledge_id=$2",[userId,knowledgeId]));
+  }));
+  (await audit(userId, "knowledge.undeprecate", { knowledge_id: knowledgeId }));
+  return publicKnowledge((await knowledgeRow(knowledgeId)), userId);
 }
 
 /** 员工侧「可见的已发布条目」：与 listPublishedForOps 同口径（发布 + 有效已发布版本 + 授权/品牌）。 */
-function employeeVisible(row: Row): boolean {
+async function employeeVisible(row: Row): Promise<Awaited<boolean>> {
   if (String(row.status) !== "published") return false;
   try {
-    publishedSnapshot(row);
+    (await publishedSnapshot(row));
   } catch (error) {
     if (error instanceof HttpFail) return false;
     throw error;
   }
-  return canSeeKnowledge(row) && brandMatched(row);
+  return (await canSeeKnowledge(row)) && brandMatched(row);
 }
 
 /**
@@ -762,12 +673,10 @@ function canReadVersionHistory(row: Row): boolean {
   return employeeVisible(row);
 }
 
-export function listVersions(knowledgeId: string): Json[] {
-  const row = knowledgeRow(knowledgeId);
+export async function listVersions(knowledgeId: string): Promise<Awaited<Json[]>> {
+  const row = (await knowledgeRow(knowledgeId));
   if (!canReadVersionHistory(row)) throw new HttpFail(404, "知识不存在或不可访问");
-  return getConn()
-    .prepare("SELECT * FROM knowledge_versions WHERE knowledge_id=? ORDER BY version")
-    .all(knowledgeId) as Json[];
+  return (await getConn().query("SELECT * FROM knowledge_versions WHERE knowledge_id=$1 ORDER BY version",[knowledgeId])).rows as Json[];
 }
 
 function normalizeKind(value: unknown): KnowledgeKind {
@@ -784,7 +693,7 @@ function normalizeStatus(value: unknown, fallback: KnowledgeStatus): KnowledgeSt
 
 export type KnowledgeAdminListOpts = KnowledgeListOpts & { status?: string | null };
 
-export function adminList(opts: KnowledgeAdminListOpts = {}): Json[] {
+export async function adminList(opts: KnowledgeAdminListOpts = {}): Promise<Awaited<Json[]>> {
   requireAdmin();
   const args: unknown[] = [];
   const clauses = knowledgeWhereClauses(opts, args);
@@ -794,10 +703,10 @@ export function adminList(opts: KnowledgeAdminListOpts = {}): Json[] {
     args.push(status);
   }
   const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
-  const rows = listed(
+  const rows = (await listed(
     `SELECT ${KNOWLEDGE_LIST_COLUMNS} FROM knowledge k ${TAXONOMY_JOIN}${where} ORDER BY k.status, k.kind, k.title`,
     args,
-  );
+  ));
   const offset = Math.max(0, Number(opts.offset || 0) || 0);
   const limit = Math.max(0, Number(opts.limit == null ? 0 : opts.limit) || 0);
   if (!limit && !offset) return rows;
@@ -835,15 +744,15 @@ function placeholdersJson(value: unknown): string {
   return JSON.stringify(parseJsonArray(value));
 }
 
-export function createKnowledge(input: UpsertInput, actor = knowledgeActorId()): Json {
+export async function createKnowledge(input: UpsertInput, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
   requireAdmin();
   const title = String(input.title || "").trim();
   if (!title) throw new HttpFail(400, "title required");
   const id = String(input.id || nid("kb"));
-  if (getConn().prepare("SELECT 1 FROM knowledge WHERE id=?").get(id)) throw new HttpFail(409, "knowledge id exists");
+  if ((await getConn().query("SELECT 1 FROM knowledge WHERE id=$1",[id])).rows[0]) throw new HttpFail(409, "knowledge id exists");
   const now = nowIso();
   const kind = normalizeKind(input.kind);
-  const base = requireWritableBase(input.base_id, kind);
+  const base = (await requireWritableBase(input.base_id, kind));
   const body = String(input.body || "");
   const row: Row = {
     id,
@@ -878,34 +787,25 @@ export function createKnowledge(input: UpsertInput, actor = knowledgeActorId()):
     row.approved_by = actor;
     row.approved_at = now;
   }
-  tx((db) => {
-    db.prepare(
-      `INSERT INTO knowledge
-       (id,title,body,tags,in_market,kind,skill_id,brand,lang,subject,body_en,placeholders,stage_codes,status,current_version,published_version,created_by,approved_by,approved_at,base_id,source_body,structured,effective_at,expires_at,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      row.id, row.title, row.body, row.tags, row.in_market, row.kind, row.skill_id, row.brand, row.lang,
-      row.subject, row.body_en, row.placeholders, row.stage_codes, row.status, row.current_version, row.published_version,
-      row.created_by, row.approved_by, row.approved_at, row.base_id, row.source_body, row.structured,
-      row.effective_at, row.expires_at, row.created_at, row.updated_at,
-    );
-    writeVersion(db, row, "create", actor);
-  });
-  audit(actor, "knowledge.create", { knowledge_id: id, status: row.status, base_id: row.base_id });
-  return publicKnowledge(knowledgeRow(id), actor);
+  (await tx(async (db) => {
+    (await db.query("INSERT INTO knowledge\n       (id,title,body,tags,in_market,kind,skill_id,brand,lang,subject,body_en,placeholders,stage_codes,status,current_version,published_version,created_by,approved_by,approved_at,base_id,source_body,structured,effective_at,expires_at,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)",[row.id,row.title,row.body,row.tags,row.in_market,row.kind,row.skill_id,row.brand,row.lang,row.subject,row.body_en,row.placeholders,row.stage_codes,row.status,row.current_version,row.published_version,row.created_by,row.approved_by,row.approved_at,row.base_id,row.source_body,row.structured,row.effective_at,row.expires_at,row.created_at,row.updated_at]));
+    (await writeVersion(db, row, "create", actor));
+  }));
+  (await audit(actor, "knowledge.create", { knowledge_id: id, status: row.status, base_id: row.base_id }));
+  return publicKnowledge((await knowledgeRow(id)), actor);
 }
 
-export function editKnowledge(id: string, input: Partial<UpsertInput>, actor = knowledgeActorId()): Json {
+export async function editKnowledge(id: string, input: Partial<UpsertInput>, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
   requireAdmin();
-  const prev = knowledgeRow(id);
+  const prev = (await knowledgeRow(id));
   const now = nowIso();
   const kind = input.kind == null ? String(prev.kind || "policy") : normalizeKind(input.kind);
   if (input.base_id == null) {
     // 未搬家：只要求现有库（若有）仍允许这个 kind；历史行无库时不阻塞编辑。
     const currentBaseId = String(prev.base_id || "");
-    if (currentBaseId) assertKindAllowedInBase(kind, baseKindOf(currentBaseId));
+    if (currentBaseId) assertKindAllowedInBase(kind, (await baseKindOf(currentBaseId)));
   } else {
-    requireWritableBase(input.base_id, kind);
+    (await requireWritableBase(input.base_id, kind));
   }
   let structured: string | null;
   if (input.structured === undefined) {
@@ -938,24 +838,17 @@ export function editKnowledge(id: string, input: Partial<UpsertInput>, actor = k
     current_version: Number(prev.current_version || 1) + 1,
     updated_at: now,
   };
-  tx((db) => {
-    db.prepare(
-      `UPDATE knowledge SET title=?,body=?,tags=?,in_market=?,kind=?,skill_id=?,brand=?,lang=?,subject=?,body_en=?,placeholders=?,stage_codes=?,base_id=?,structured=?,effective_at=?,expires_at=?,current_version=?,updated_at=?
-        WHERE id=?`,
-    ).run(
-      next.title, next.body, next.tags, next.in_market, next.kind, next.skill_id, next.brand, next.lang,
-      next.subject, next.body_en, next.placeholders, next.stage_codes, next.base_id, next.structured,
-      next.effective_at, next.expires_at, next.current_version, next.updated_at, id,
-    );
-    writeVersion(db, next, "edit", actor);
-  });
-  audit(actor, "knowledge.edit", { knowledge_id: id, version: next.current_version, base_id: next.base_id });
-  return publicKnowledge(knowledgeRow(id), actor);
+  (await tx(async (db) => {
+    (await db.query("UPDATE knowledge SET title=$1,body=$2,tags=$3,in_market=$4,kind=$5,skill_id=$6,brand=$7,lang=$8,subject=$9,body_en=$10,placeholders=$11,stage_codes=$12,base_id=$13,structured=$14,effective_at=$15,expires_at=$16,current_version=$17,updated_at=$18\n        WHERE id=$19",[next.title,next.body,next.tags,next.in_market,next.kind,next.skill_id,next.brand,next.lang,next.subject,next.body_en,next.placeholders,next.stage_codes,next.base_id,next.structured,next.effective_at,next.expires_at,next.current_version,next.updated_at,id]));
+    (await writeVersion(db, next, "edit", actor));
+  }));
+  (await audit(actor, "knowledge.edit", { knowledge_id: id, version: next.current_version, base_id: next.base_id }));
+  return publicKnowledge((await knowledgeRow(id)), actor);
 }
 
-export function approveKnowledge(id: string, expectedVersion: number | null = null, actor = knowledgeActorId()): Json {
+export async function approveKnowledge(id: string, expectedVersion: number | null = null, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
   requireAdmin();
-  const row = knowledgeRow(id);
+  const row = (await knowledgeRow(id));
   if (String(row.status) === "archived") throw new HttpFail(400, "已归档知识不能直接发布");
   if (expectedVersion == null || !Number.isFinite(Number(expectedVersion))) {
     throw new HttpFail(400, "expected_version required");
@@ -965,32 +858,30 @@ export function approveKnowledge(id: string, expectedVersion: number | null = nu
   }
   const now = nowIso();
   const version = Number(row.current_version || 1);
-  tx((db) => {
-    db.prepare(
-      "UPDATE knowledge SET status='published',published_version=?,approved_by=?,approved_at=?,updated_at=? WHERE id=?",
-    ).run(version, actor, now, now, id);
+  (await tx(async (db) => {
+    (await db.query("UPDATE knowledge SET status='published',published_version=$1,approved_by=$2,approved_at=$3,updated_at=$4 WHERE id=$5",[version,actor,now,now,id]));
     const published = { ...row, status: "published", approved_by: actor, approved_at: now, current_version: version };
-    writeVersion(db, published, "approve", actor);
-  });
-  audit(actor, "knowledge.approve", { knowledge_id: id, version });
-  return publicKnowledge(knowledgeRow(id), actor);
+    (await writeVersion(db, published, "approve", actor));
+  }));
+  (await audit(actor, "knowledge.approve", { knowledge_id: id, version }));
+  return publicKnowledge((await knowledgeRow(id)), actor);
 }
 
-export function archiveKnowledge(id: string, actor = knowledgeActorId()): Json {
+export async function archiveKnowledge(id: string, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
   requireAdmin();
-  knowledgeRow(id);
+  (await knowledgeRow(id));
   const now = nowIso();
-  tx((db) => {
-    db.prepare("UPDATE knowledge SET status='archived',updated_at=? WHERE id=?").run(now, id);
-    const row = db.prepare("SELECT * FROM knowledge WHERE id=?").get(id) as Row;
-    writeVersion(db, row, "archive", actor);
-  });
-  audit(actor, "knowledge.archive", { knowledge_id: id });
-  return publicKnowledge(knowledgeRow(id), actor);
+  (await tx(async (db) => {
+    (await db.query("UPDATE knowledge SET status='archived',updated_at=$1 WHERE id=$2",[now,id]));
+    const row = (await db.query("SELECT * FROM knowledge WHERE id=$1",[id])).rows[0] as Row;
+    (await writeVersion(db, row, "archive", actor));
+  }));
+  (await audit(actor, "knowledge.archive", { knowledge_id: id }));
+  return publicKnowledge((await knowledgeRow(id)), actor);
 }
 
-export function sentMailCitesKnowledge(knowledgeId: string): boolean {
-  const rows = getConn().prepare("SELECT extra FROM drafts WHERE status='sent'").all() as { extra: string }[];
+export async function sentMailCitesKnowledge(knowledgeId: string): Promise<Awaited<boolean>> {
+  const rows = (await getConn().query("SELECT extra FROM drafts WHERE status='sent'",[])).rows as { extra: string }[];
   return rows.some((row) => {
     try {
       const extra = JSON.parse(String(row.extra || "{}")) as Json;
@@ -1001,26 +892,26 @@ export function sentMailCitesKnowledge(knowledgeId: string): boolean {
   });
 }
 
-export function hardDeleteKnowledge(id: string, actor = knowledgeActorId()): Json {
+export async function hardDeleteKnowledge(id: string, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
   requireAdmin();
-  const row = knowledgeRow(id);
+  const row = (await knowledgeRow(id));
   if (String(row.status) === "published" || String(row.status) === "archived") {
     throw new HttpFail(403, "已发布或归档知识只能归档，不能物理删除");
   }
   if (String(row.status) !== "draft") throw new HttpFail(403, "仅未发布草稿可物理删除");
-  if (sentMailCitesKnowledge(id)) throw new HttpFail(403, "已被已发送邮件引用的知识不能物理删除");
-  tx((db) => {
-    db.prepare("DELETE FROM knowledge_versions WHERE knowledge_id=?").run(id);
-    db.prepare("DELETE FROM knowledge_citations WHERE knowledge_id=?").run(id);
-    db.prepare("DELETE FROM knowledge_favorites WHERE knowledge_id=?").run(id);
-    db.prepare("DELETE FROM knowledge_deprecations WHERE knowledge_id=?").run(id);
-    db.prepare("DELETE FROM knowledge WHERE id=?").run(id);
-  });
-  audit(actor, "knowledge.hard_delete", { knowledge_id: id });
+  if ((await sentMailCitesKnowledge(id))) throw new HttpFail(403, "已被已发送邮件引用的知识不能物理删除");
+  (await tx(async (db) => {
+    (await db.query("DELETE FROM knowledge_versions WHERE knowledge_id=$1",[id]));
+    (await db.query("DELETE FROM knowledge_citations WHERE knowledge_id=$1",[id]));
+    (await db.query("DELETE FROM knowledge_favorites WHERE knowledge_id=$1",[id]));
+    (await db.query("DELETE FROM knowledge_deprecations WHERE knowledge_id=$1",[id]));
+    (await db.query("DELETE FROM knowledge WHERE id=$1",[id]));
+  }));
+  (await audit(actor, "knowledge.hard_delete", { knowledge_id: id }));
   return { ok: true, id };
 }
 
-export function ingestRaw(input: {
+export async function ingestRaw(input: {
   source: "upload" | "failed_session";
   filename?: string;
   content_type?: string;
@@ -1030,7 +921,7 @@ export function ingestRaw(input: {
   session_id?: string | null;
   task_id?: string | null;
   meta?: Json;
-}): Row {
+}): Promise<Awaited<Row>> {
   const id = nid("kraw");
   const now = nowIso();
   const row = {
@@ -1040,22 +931,15 @@ export function ingestRaw(input: {
     content_type: String(input.content_type || "text/plain"),
     body: String(input.body || ""),
     path: input.path || null,
-    uploaded_by: input.uploaded_by || knowledgeActorId(),
+    uploaded_by: input.uploaded_by || (await knowledgeActorId()),
     created_at: now,
     session_id: input.session_id || null,
     task_id: input.task_id || null,
     meta: JSON.stringify(input.meta || {}),
   };
-  tx((db) => {
-    db.prepare(
-      `INSERT INTO knowledge_raw
-       (id,source,filename,content_type,body,path,uploaded_by,created_at,session_id,task_id,meta)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      row.id, row.source, row.filename, row.content_type, row.body, row.path,
-      row.uploaded_by, row.created_at, row.session_id, row.task_id, row.meta,
-    );
-  });
+  (await tx(async (db) => {
+    (await db.query("INSERT INTO knowledge_raw\n       (id,source,filename,content_type,body,path,uploaded_by,created_at,session_id,task_id,meta)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",[row.id,row.source,row.filename,row.content_type,row.body,row.path,row.uploaded_by,row.created_at,row.session_id,row.task_id,row.meta]));
+  }));
   return row;
 }
 
@@ -1071,23 +955,19 @@ export function recordFailedSession(meta: Json, sessionId?: string | null, body 
   });
 }
 
-export function listRaw(): Json[] {
+export async function listRaw(): Promise<Awaited<Json[]>> {
   requireAdmin();
-  return getConn().prepare("SELECT * FROM knowledge_raw ORDER BY created_at DESC").all() as Json[];
+  return (await getConn().query("SELECT * FROM knowledge_raw ORDER BY created_at DESC",[])).rows as Json[];
 }
 
-export function listExtractJobs(): Json[] {
+export async function listExtractJobs(): Promise<Awaited<Json[]>> {
   requireAdmin();
-  return getConn().prepare("SELECT * FROM knowledge_extract_jobs ORDER BY created_at DESC").all() as Json[];
+  return (await getConn().query("SELECT * FROM knowledge_extract_jobs ORDER BY created_at DESC",[])).rows as Json[];
 }
 
-export function deprecateStats(): Json {
+export async function deprecateStats(): Promise<Awaited<Json>> {
   requireAdmin();
-  const rows = getConn()
-    .prepare(
-      `SELECT reason, COUNT(*) AS c FROM knowledge_deprecations GROUP BY reason`,
-    )
-    .all() as { reason: string; c: number }[];
+  const rows = (await getConn().query("SELECT reason, COUNT(*) AS c FROM knowledge_deprecations GROUP BY reason",[])).rows as { reason: string; c: number }[];
   const by_reason = Object.fromEntries(
     (Object.keys(DEPRECATE_REASONS) as DeprecateReason[]).map((key) => [
       key,
@@ -1140,7 +1020,7 @@ export function extractTextFromUpload(filename: string, mime: string, buf: Buffe
   return "";
 }
 
-export function storeUploadRaw(file: { name: string; type: string; buf: Buffer }, actor = knowledgeActorId()): Row {
+export function storeUploadRaw(file: { name: string; type: string; buf: Buffer }, actor = (await knowledgeActorId())): Row {
   requireAdmin();
   const original = file.name || "upload.bin";
   const safe = original.replace(/[^\w.\u4e00-\u9fff-]+/g, "_") || "upload.bin";
@@ -1164,7 +1044,7 @@ export function storeUploadRaw(file: { name: string; type: string; buf: Buffer }
   });
 }
 
-function maintainerPendingFromRaw(raw: Row, actor: string): Json {
+async function maintainerPendingFromRaw(raw: Row, actor: string): Promise<Awaited<Json>> {
   const filename = String(raw.filename || "");
   const ext = path.extname(filename).toLowerCase();
   const text = String(raw.body || "").trim();
@@ -1203,57 +1083,49 @@ function maintainerPendingFromRaw(raw: Row, actor: string): Json {
     lang: "en",
     brand: "*",
     // 抽取候选先落默认结构化库，管理员审核时可搬到目标库。
-    base_id: defaultStructuredBaseId(),
+    base_id: (await defaultStructuredBaseId()),
   }, actor);
 }
 
-export function extractFromRaw(rawId: string, actor = knowledgeActorId()): Json {
+export async function extractFromRaw(rawId: string, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
   requireAdmin();
-  const raw = getConn().prepare("SELECT * FROM knowledge_raw WHERE id=?").get(rawId) as Row | undefined;
+  const raw = (await getConn().query("SELECT * FROM knowledge_raw WHERE id=$1",[rawId])).rows[0] as Row | undefined;
   if (!raw) throw new HttpFail(404, "raw not found");
   const jobId = nid("kjob");
   const now = nowIso();
-  tx((db) => {
-    db.prepare(
-      `INSERT INTO knowledge_extract_jobs
-       (id,raw_id,status,result_knowledge_id,error,created_by,created_at,finished_at)
-       VALUES (?,?,?,?,?,?,?,?)`,
-    ).run(jobId, rawId, "queued", null, null, actor, now, null);
-  });
+  (await tx(async (db) => {
+    (await db.query("INSERT INTO knowledge_extract_jobs\n       (id,raw_id,status,result_knowledge_id,error,created_by,created_at,finished_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",[jobId,rawId,"queued",null,null,actor,now,null]));
+  }));
   try {
-    const page = maintainerPendingFromRaw(raw, actor);
+    const page = (await maintainerPendingFromRaw(raw, actor));
     const finished = nowIso();
-    tx((db) => {
-      db.prepare(
-        "UPDATE knowledge_extract_jobs SET status='done',result_knowledge_id=?,finished_at=? WHERE id=?",
-      ).run(page.id, finished, jobId);
-    });
-    audit(actor, "knowledge.extract", { raw_id: rawId, knowledge_id: page.id, job_id: jobId });
+    (await tx(async (db) => {
+      (await db.query("UPDATE knowledge_extract_jobs SET status='done',result_knowledge_id=$1,finished_at=$2 WHERE id=$3",[page.id,finished,jobId]));
+    }));
+    (await audit(actor, "knowledge.extract", { raw_id: rawId, knowledge_id: page.id, job_id: jobId }));
     return { job_id: jobId, status: "done", knowledge: page };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    tx((db) => {
-      db.prepare(
-        "UPDATE knowledge_extract_jobs SET status='failed',error=?,finished_at=? WHERE id=?",
-      ).run(message, nowIso(), jobId);
-    });
+    (await tx(async (db) => {
+      (await db.query("UPDATE knowledge_extract_jobs SET status='failed',error=$1,finished_at=$2 WHERE id=$3",[message,nowIso(),jobId]));
+    }));
     throw error;
   }
 }
 
-export function listProposals(): Json[] {
+export async function listProposals(): Promise<Awaited<Json[]>> {
   requireAdmin();
-  return getConn().prepare("SELECT * FROM knowledge_proposals ORDER BY created_at DESC").all() as Json[];
+  return (await getConn().query("SELECT * FROM knowledge_proposals ORDER BY created_at DESC",[])).rows as Json[];
 }
 
-export function proposeEvolve(input: {
+export async function proposeEvolve(input: {
   kind?: string;
   skill_id?: string;
   knowledge_id?: string;
   from_brand?: string;
   to_brand?: string;
   proposed_diff?: string;
-}, actor = knowledgeActorId()): Json {
+}, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
   requireAdmin();
   const kind = String(input.kind || "skill_patch");
   if (!["skill_patch", "template_patch", "brand_transfer"].includes(kind)) {
@@ -1265,59 +1137,43 @@ export function proposeEvolve(input: {
   }
   const id = nid("kprop");
   const now = nowIso();
-  tx((db) => {
-    db.prepare(
-      `INSERT INTO knowledge_proposals
-       (id,kind,skill_id,knowledge_id,from_brand,to_brand,proposed_diff,status,profile,created_by,created_at,reviewed_by,reviewed_at,reject_reason)
-       VALUES (?,?,?,?,?,?,?,'pending','shadow',?,?,NULL,NULL,NULL)`,
-    ).run(
-      id,
-      kind,
-      String(input.skill_id || ""),
-      String(input.knowledge_id || ""),
-      String(input.from_brand || ""),
-      String(input.to_brand || ""),
-      String(input.proposed_diff || ""),
-      actor,
-      now,
-    );
-  });
-  audit(actor, "knowledge.evolve.propose", { proposal_id: id, kind, profile: "shadow", wrote_skill_md: false });
-  return getConn().prepare("SELECT * FROM knowledge_proposals WHERE id=?").get(id) as Json;
+  (await tx(async (db) => {
+    (await db.query("INSERT INTO knowledge_proposals\n       (id,kind,skill_id,knowledge_id,from_brand,to_brand,proposed_diff,status,profile,created_by,created_at,reviewed_by,reviewed_at,reject_reason)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,'pending','shadow',$8,$9,NULL,NULL,NULL)",[id,kind,String(input.skill_id || ""),String(input.knowledge_id || ""),String(input.from_brand || ""),String(input.to_brand || ""),String(input.proposed_diff || ""),actor,now]));
+  }));
+  (await audit(actor, "knowledge.evolve.propose", { proposal_id: id, kind, profile: "shadow", wrote_skill_md: false }));
+  return (await getConn().query("SELECT * FROM knowledge_proposals WHERE id=$1",[id])).rows[0] as Json;
 }
 
 function assertSkillMdUntouched(): void {
   /* WikiSkill evolve never writes production SKILL.md. Review only records the decision. */
 }
 
-export function reviewProposal(id: string, action: "approve" | "reject", rejectReason = "", actor = knowledgeActorId()): Json {
+export async function reviewProposal(id: string, action: "approve" | "reject", rejectReason = "", actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
   requireAdmin();
-  const row = getConn().prepare("SELECT * FROM knowledge_proposals WHERE id=?").get(id) as Row | undefined;
+  const row = (await getConn().query("SELECT * FROM knowledge_proposals WHERE id=$1",[id])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(404, "proposal not found");
   if (String(row.status) !== "pending") throw new HttpFail(409, "proposal already reviewed");
   assertSkillMdUntouched();
   const now = nowIso();
   if (action === "reject") {
-    tx((db) => {
-      db.prepare(
-        "UPDATE knowledge_proposals SET status='rejected',reviewed_by=?,reviewed_at=?,reject_reason=? WHERE id=?",
-      ).run(actor, now, rejectReason || "rejected", id);
-    });
-    audit(actor, "knowledge.evolve.reject", { proposal_id: id, wrote_skill_md: false });
-    return getConn().prepare("SELECT * FROM knowledge_proposals WHERE id=?").get(id) as Json;
+    (await tx(async (db) => {
+      (await db.query("UPDATE knowledge_proposals SET status='rejected',reviewed_by=$1,reviewed_at=$2,reject_reason=$3 WHERE id=$4",[actor,now,rejectReason || "rejected",id]));
+    }));
+    (await audit(actor, "knowledge.evolve.reject", { proposal_id: id, wrote_skill_md: false }));
+    return (await getConn().query("SELECT * FROM knowledge_proposals WHERE id=$1",[id])).rows[0] as Json;
   }
   if (String(row.kind) === "brand_transfer") {
     const to = String(row.to_brand || "");
     if (!BRAND_MAILBOXES[to]) throw new HttpFail(400, "跨品牌转移必须通过品牌 From 白名单");
     const sourceId = String(row.knowledge_id || "");
     if (sourceId) {
-      const src = knowledgeRow(sourceId);
-      createKnowledge({
+      const src = (await knowledgeRow(sourceId));
+      (await createKnowledge({
         title: `${src.title} · ${to}`,
         body: String(src.body || ""),
         kind: String(src.kind || "mail_template"),
         // 跨品牌副本继承源条目的库；源库缺失时落默认结构化库（新建必填 base_id）。
-        base_id: String(src.base_id || "") || defaultStructuredBaseId(),
+        base_id: String(src.base_id || "") || (await defaultStructuredBaseId()),
         skill_id: String(src.skill_id || ""),
         brand: to,
         lang: String(src.lang || "en"),
@@ -1327,19 +1183,17 @@ export function reviewProposal(id: string, action: "approve" | "reject", rejectR
         stage_codes: src.stage_codes,
         tags: String(src.tags || ""),
         status: "pending_review",
-      }, actor);
+      }, actor));
     }
   }
-  tx((db) => {
-    db.prepare(
-      "UPDATE knowledge_proposals SET status='approved',reviewed_by=?,reviewed_at=? WHERE id=?",
-    ).run(actor, now, id);
-  });
-  audit(actor, "knowledge.evolve.approve", { proposal_id: id, profile: "shadow", wrote_skill_md: false });
-  return getConn().prepare("SELECT * FROM knowledge_proposals WHERE id=?").get(id) as Json;
+  (await tx(async (db) => {
+    (await db.query("UPDATE knowledge_proposals SET status='approved',reviewed_by=$1,reviewed_at=$2 WHERE id=$3",[actor,now,id]));
+  }));
+  (await audit(actor, "knowledge.evolve.approve", { proposal_id: id, profile: "shadow", wrote_skill_md: false }));
+  return (await getConn().query("SELECT * FROM knowledge_proposals WHERE id=$1",[id])).rows[0] as Json;
 }
 
-export function transferBrand(knowledgeId: string, toBrand: string, actor = knowledgeActorId()): Json {
+export function transferBrand(knowledgeId: string, toBrand: string, actor = (await knowledgeActorId())): Json {
   return proposeEvolve({
     kind: "brand_transfer",
     knowledge_id: knowledgeId,
@@ -1363,34 +1217,29 @@ export type UsableTemplate = {
   template_id: string;
 };
 
-function publishedSnapshot(row: Row, version?: number | null): Row {
+async function publishedSnapshot(row: Row, version?: number | null): Promise<Awaited<Row>> {
   const requested = version == null ? Number(row.published_version || 0) : Number(version);
   if (!Number.isInteger(requested) || requested < 1) {
     throw new HttpFail(403, { code: "knowledge_publish_pending", message: "知识没有可用的已发布版本" });
   }
-  const snapshot = getConn().prepare(
-    `SELECT * FROM knowledge_versions
-      WHERE knowledge_id=? AND version=?
-        AND status='published'
-        AND (note='approve' OR note='create' OR note LIKE 'seed %')`,
-  ).get(row.id, requested) as Row | undefined;
+  const snapshot = (await getConn().query("SELECT * FROM knowledge_versions\n      WHERE knowledge_id=$1 AND version=$2\n        AND status='published'\n        AND (note='approve' OR note='create' OR note LIKE 'seed %')",[row.id,requested])).rows[0] as Row | undefined;
   if (!snapshot) {
     throw new HttpFail(403, { code: "knowledge_publish_pending", message: "知识没有可用的已发布版本" });
   }
   return snapshot;
 }
-function effectivePublishedRow(row:Row):Row {
-  const snapshot=publishedSnapshot(row);
+async function effectivePublishedRow(row:Row):Promise<Awaited<Row>> {
+  const snapshot=(await publishedSnapshot(row));
   return {...row,...Object.fromEntries(Object.entries(snapshot).filter(([,v])=>v!=null)),id:row.id,current_version:snapshot.version};
 }
 function effectivePublishedRows(rows:Row[]):Row[] {
-  return rows.flatMap(row=>{try{return [effectivePublishedRow(row)];}catch(e){if(e instanceof HttpFail)return [];throw e;}});
+  return rows.flatMap(async row=>{try{return [(await effectivePublishedRow(row))];}catch(e){if(e instanceof HttpFail)return [];throw e;}});
 }
 /** Employee detail always resolves the effective snapshot, including while a newer draft exists. */
-export function employeeKnowledge(row:Row):Json {
+export async function employeeKnowledge(row:Row):Promise<Awaited<Json>> {
   if(row.status!=="published")throw new HttpFail(403,"未发布知识不可使用");
-  const effective=effectivePublishedRow(row);
-  if(!canSeeKnowledge(effective) || !brandMatched(effective))throw new HttpFail(404,"知识不存在或不可访问");
+  const effective=(await effectivePublishedRow(row));
+  if(!(await canSeeKnowledge(effective)) || !brandMatched(effective))throw new HttpFail(404,"知识不存在或不可访问");
   return publicKnowledge(effective);
 }
 
@@ -1416,7 +1265,7 @@ function templateFromSnapshot(row: Row, snapshot: Row): UsableTemplate {
   };
 }
 
-export function assertMailTemplateSnapshotApplicable(opts: {
+export async function assertMailTemplateSnapshotApplicable(opts: {
   knowledgeId: string;
   version: number;
   skillId?: string | null;
@@ -1424,10 +1273,10 @@ export function assertMailTemplateSnapshotApplicable(opts: {
   brand?: string | null;
   userId?: string;
   brands?: string[];
-}): UsableTemplate {
-  const userId = opts.userId || knowledgeActorId();
-  const brands = opts.brands || actorBrands();
-  const row = getConn().prepare("SELECT * FROM knowledge WHERE id=?").get(opts.knowledgeId) as Row | undefined;
+}): Promise<Awaited<UsableTemplate>> {
+  const userId = opts.userId || (await knowledgeActorId());
+  const brands = opts.brands || (await actorBrands());
+  const row = (await getConn().query("SELECT * FROM knowledge WHERE id=$1",[opts.knowledgeId])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(404, { code: "knowledge_missing", message: "知识不存在" });
   if (String(row.status) !== "published") {
     throw new HttpFail(403, { code: "knowledge_unapproved", message: "未审批或已归档知识不能进入会话或发送" });
@@ -1435,15 +1284,11 @@ export function assertMailTemplateSnapshotApplicable(opts: {
   if (Number(row.in_market) !== 1) {
     throw new HttpFail(403, { code: "knowledge_disabled", message: "已停用知识不能进入会话或发送" });
   }
-  const cited = getConn().prepare(
-    "SELECT 1 FROM knowledge_citations WHERE user_id=? AND knowledge_id=?",
-  ).get(userId, opts.knowledgeId);
+  const cited = (await getConn().query("SELECT 1 FROM knowledge_citations WHERE user_id=$1 AND knowledge_id=$2",[userId,opts.knowledgeId])).rows[0];
   if (!cited) throw new HttpFail(403, { code: "knowledge_uncited", message: "未启用知识不能进入会话或发送" });
-  const dep = getConn().prepare(
-    "SELECT 1 FROM knowledge_deprecations WHERE user_id=? AND knowledge_id=?",
-  ).get(userId, opts.knowledgeId);
+  const dep = (await getConn().query("SELECT 1 FROM knowledge_deprecations WHERE user_id=$1 AND knowledge_id=$2",[userId,opts.knowledgeId])).rows[0];
   if (dep) throw new HttpFail(403, { code: "knowledge_deprecated", message: "已隐藏知识不能进入会话或发送" });
-  const template = templateFromSnapshot(row, publishedSnapshot(row, opts.version));
+  const template = templateFromSnapshot(row, (await publishedSnapshot(row, opts.version)));
   if (template.kind !== "mail_template") {
     throw new HttpFail(403, { code: "knowledge_kind", message: "知识不是邮件模板" });
   }
@@ -1464,8 +1309,8 @@ export function assertMailTemplateSnapshotApplicable(opts: {
   return template;
 }
 
-export function assertUsableKnowledge(knowledgeId: string, userId = knowledgeActorId(), brands = actorBrands()): UsableTemplate {
-  const row = getConn().prepare("SELECT * FROM knowledge WHERE id=?").get(knowledgeId) as Row | undefined;
+export async function assertUsableKnowledge(knowledgeId: string, userId = (await knowledgeActorId()), brands = (await actorBrands())): Promise<Awaited<UsableTemplate>> {
+  const row = (await getConn().query("SELECT * FROM knowledge WHERE id=$1",[knowledgeId])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(404, { code: "knowledge_missing", message: "知识不存在" });
   if (String(row.status) !== "published") {
     throw new HttpFail(403, { code: "knowledge_unapproved", message: "未审批知识不能进入会话或 Worker" });
@@ -1473,22 +1318,18 @@ export function assertUsableKnowledge(knowledgeId: string, userId = knowledgeAct
   if (Number(row.in_market) !== 1) {
     throw new HttpFail(403, { code: "knowledge_disabled", message: "已停用知识不能进入会话或 Worker" });
   }
-  const cited = getConn().prepare(
-    "SELECT 1 FROM knowledge_citations WHERE user_id=? AND knowledge_id=?",
-  ).get(userId, knowledgeId);
+  const cited = (await getConn().query("SELECT 1 FROM knowledge_citations WHERE user_id=$1 AND knowledge_id=$2",[userId,knowledgeId])).rows[0];
   if (!cited) throw new HttpFail(403, { code: "knowledge_uncited", message: "未启用知识不能进入会话" });
-  const dep = getConn().prepare(
-    "SELECT 1 FROM knowledge_deprecations WHERE user_id=? AND knowledge_id=?",
-  ).get(userId, knowledgeId);
+  const dep = (await getConn().query("SELECT 1 FROM knowledge_deprecations WHERE user_id=$1 AND knowledge_id=$2",[userId,knowledgeId])).rows[0];
   if (dep) throw new HttpFail(403, { code: "knowledge_deprecated", message: "已隐藏知识不能进入会话" });
   if (!brandMatched(row, brands)) {
     throw new HttpFail(403, { code: "knowledge_brand", message: "知识品牌与当前账号不匹配" });
   }
   // 注入闸门：按键取用的受控条目只允许来自结构化库（非结构化库走检索通道，本批未实现）。
-  if (baseKindOf(row.base_id) !== "structured") {
+  if ((await baseKindOf(row.base_id)) !== "structured") {
     throw new HttpFail(403, { code: "knowledge_wrong_base_type", message: "只有结构化知识库的条目可以进入会话或 Worker" });
   }
-  return templateFromSnapshot(row, publishedSnapshot(row));
+  return templateFromSnapshot(row, (await publishedSnapshot(row)));
 }
 
 export function mailTemplatePayload(template: UsableTemplate): Json {
@@ -1505,25 +1346,25 @@ export function mailTemplatePayload(template: UsableTemplate): Json {
   };
 }
 
-export function resolveMailTemplate(opts: {
+export async function resolveMailTemplate(opts: {
   knowledgeId?: string | null;
   stageCode?: string | null;
   skillId?: string | null;
   userId?: string;
   brands?: string[];
-}): UsableTemplate | null {
-  const userId = opts.userId || knowledgeActorId();
-  const brands = opts.brands || actorBrands();
+}): Promise<Awaited<UsableTemplate | null>> {
+  const userId = opts.userId || (await knowledgeActorId());
+  const brands = opts.brands || (await actorBrands());
   const knowledgeId = String(opts.knowledgeId || "").trim();
   if (knowledgeId) return assertUsableKnowledge(knowledgeId, userId, brands);
   const skill = String(opts.skillId || "email_compose");
   if (skill && skill !== "email_compose") return null;
   const stage = String(opts.stageCode || "").trim();
-  const bound = resolveForSkill("email_compose", { userId, brands, stageCode: stage, record: true });
+  const bound = (await resolveForSkill("email_compose", { userId, brands, stageCode: stage, record: true }));
   if (bound.resolved.length) return assertUsableKnowledge(bound.resolved[0].id, userId, brands);
-  const rows = composerItems(userId, brands);
+  const rows = (await composerItems(userId, brands));
   if (!rows.length) {
-    audit(userId, "knowledge.resolve", { skill_id: "email_compose", source: "legacy", resolved: [], skipped_count: 0 });
+    (await audit(userId, "knowledge.resolve", { skill_id: "email_compose", source: "legacy", resolved: [], skipped_count: 0 }));
     return null;
   }
   const staged = stage
@@ -1533,45 +1374,37 @@ export function resolveMailTemplate(opts: {
     })
     : rows;
   const pick = staged[0];
-  audit(userId, "knowledge.resolve", {
+  (await audit(userId, "knowledge.resolve", {
     skill_id: "email_compose",
     source: "legacy",
     resolved: pick ? [{ id: String(pick.id), version: Number(pick.current_version || 1) }] : [],
     skipped_count: Math.max(0, staged.length - (pick ? 1 : 0)),
-  });
-  return pick ? assertUsableKnowledge(String(pick.id), userId, brands) : null;
+  }));
+  return pick ? (await assertUsableKnowledge(String(pick.id), userId, brands)) : null;
 }
 
-export function resolveApplicableMailTemplates(opts: {
+export async function resolveApplicableMailTemplates(opts: {
   knowledgeId?: string | null;
   stageCode?: string | null;
   brand?: string | null;
   skillId?: string | null;
   userId?: string;
   brands?: string[];
-}): UsableTemplate[] {
-  const userId = opts.userId || knowledgeActorId();
-  const brands = opts.brands || actorBrands();
+}): Promise<Awaited<UsableTemplate[]>> {
+  const userId = opts.userId || (await knowledgeActorId());
+  const brands = opts.brands || (await actorBrands());
   const skill = String(opts.skillId || "email_compose");
   if (skill !== "email_compose") return [];
   const stage = String(opts.stageCode || "").trim();
   const brand = String(opts.brand || "").trim();
   const requested = String(opts.knowledgeId || "").trim();
   const rows = requested
-    ? [getConn().prepare("SELECT * FROM knowledge WHERE id=?").get(requested) as Row | undefined].filter(Boolean) as Row[]
-    : getConn().prepare(
-      `SELECT k.* FROM knowledge k
-        JOIN knowledge_citations c ON c.knowledge_id=k.id AND c.user_id=?
-       WHERE k.status='published' AND k.kind='mail_template'
-         AND NOT EXISTS (
-           SELECT 1 FROM knowledge_deprecations d
-            WHERE d.knowledge_id=k.id AND d.user_id=?
-         )`,
-    ).all(userId, userId) as Row[];
+    ? [(await getConn().query("SELECT * FROM knowledge WHERE id=$1",[requested])).rows[0] as Row | undefined].filter(Boolean) as Row[]
+    : (await getConn().query("SELECT k.* FROM knowledge k\n        JOIN knowledge_citations c ON c.knowledge_id=k.id AND c.user_id=$1\n       WHERE k.status='published' AND k.kind='mail_template'\n         AND NOT EXISTS (\n           SELECT 1 FROM knowledge_deprecations d\n            WHERE d.knowledge_id=k.id AND d.user_id=$2\n         )",[userId,userId])).rows as Row[];
   const templates: UsableTemplate[] = [];
   for (const row of rows) {
     try {
-      const template = assertMailTemplateSnapshotApplicable({
+      const template = (await assertMailTemplateSnapshotApplicable({
         knowledgeId: String(row.id),
         version: Number(row.published_version || 0),
         skillId: skill,
@@ -1579,7 +1412,7 @@ export function resolveApplicableMailTemplates(opts: {
         brand: brand || null,
         userId,
         brands,
-      });
+      }));
       templates.push(template);
     } catch (error) {
       if (requested) throw error;
@@ -1715,31 +1548,31 @@ function knowledgeWhereClauses(opts: KnowledgeListOpts, args: unknown[]): string
 }
 
 /** id → handle：演示目录优先，真实账号回退 username（mapUser 的 handle 即 username）。 */
-function viewerHandle(userId: string): string {
-  const me = currentUser();
+async function viewerHandle(userId: string): Promise<Awaited<string>> {
+  const me = (await currentUser());
   if (me.id === userId) return me.handle;
   const db = getConn();
-  const dir = db.prepare("SELECT handle FROM directory_users WHERE id=?").get(userId) as { handle?: string } | undefined;
+  const dir = (await db.query("SELECT handle FROM directory_users WHERE id=$1",[userId])).rows[0] as { handle?: string } | undefined;
   if (dir?.handle) return String(dir.handle);
-  const user = db.prepare("SELECT username FROM users WHERE id=?").get(userId) as { username?: string } | undefined;
+  const user = (await db.query("SELECT username FROM users WHERE id=$1",[userId])).rows[0] as { username?: string } | undefined;
   return String(user?.username || userId);
 }
 
 /** 列表过滤：范围/授权先于取数；阶段与品牌只收窄，不过滤无授权行的已发布知识。 */
-function knowledgeListFilters(opts: KnowledgeListOpts & { inMarket?: boolean } = {}): {
+async function knowledgeListFilters(opts: KnowledgeListOpts & { inMarket?: boolean } = {}): Promise<Awaited<{
   sql: string;
   args: unknown[];
   filter: (row: Row) => boolean;
-} {
+}>> {
   const args: unknown[] = [];
   const clauses = ["k.status='published'"];
   if (opts.inMarket) clauses.push("k.in_market=1");
   clauses.push(...knowledgeWhereClauses(opts, args));
   const stage = String(opts.stage || "").trim();
   const brand = String(opts.brand || "").trim();
-  const handle = currentUser().handle;
-  const filter = (row: Row): boolean => {
-    if (!canSeeKnowledge(row, handle)) return false;
+  const handle = (await currentUser()).handle;
+  const filter = async (row: Row): Promise<Awaited<boolean>> => {
+    if (!(await canSeeKnowledge(row, handle))) return false;
     if (!brandMatched(row)) return false;
     if (stage) {
       const codes = parseJsonArray(row.stage_codes);
@@ -1759,12 +1592,10 @@ function knowledgeListFilters(opts: KnowledgeListOpts & { inMarket?: boolean } =
   };
 }
 
-export function grantsForKnowledge(id: string): { org: string[]; team: string[]; user: string[] } {
+export async function grantsForKnowledge(id: string): Promise<Awaited<{ org: string[]; team: string[]; user: string[] }>> {
   requireAdmin();
-  knowledgeRow(id);
-  const rows = getConn()
-    .prepare("SELECT scope, scope_id FROM knowledge_grants WHERE knowledge_id=?")
-    .all(id) as { scope: string; scope_id: string }[];
+  (await knowledgeRow(id));
+  const rows = (await getConn().query("SELECT scope, scope_id FROM knowledge_grants WHERE knowledge_id=$1",[id])).rows as { scope: string; scope_id: string }[];
   const out = { org: [] as string[], team: [] as string[], user: [] as string[] };
   for (const row of rows) {
     if (row.scope === "org") out.org.push(row.scope_id);
@@ -1774,14 +1605,14 @@ export function grantsForKnowledge(id: string): { org: string[]; team: string[];
   return out;
 }
 
-export function setKnowledgeGrants(
+export async function setKnowledgeGrants(
   id: string,
   patch: { org?: string[]; team?: string[]; user?: string[] },
-  actor = knowledgeActorId(),
-): { org: string[]; team: string[]; user: string[] } {
+  actor = (await knowledgeActorId()),
+): Promise<Awaited<{ org: string[]; team: string[]; user: string[] }>> {
   requireAdmin();
-  knowledgeRow(id);
-  const dir = directory();
+  (await knowledgeRow(id));
+  const dir = (await directory());
   const orgOk = new Set(dir.orgs.map((row) => row.id));
   const teamOk = new Set(dir.teams.map((row) => row.id));
   const userOk = new Set(dir.users.map((row) => row.handle));
@@ -1794,29 +1625,25 @@ export function setKnowledgeGrants(
   for (const scopeId of next.team) if (!teamOk.has(scopeId)) throw new HttpFail(400, "unknown team");
   for (const scopeId of next.user) if (!userOk.has(scopeId)) throw new HttpFail(400, "unknown user");
   const now = nowIso();
-  tx((db) => {
-    db.prepare("DELETE FROM knowledge_grants WHERE knowledge_id=?").run(id);
-    const ins = db.prepare(
-      "INSERT INTO knowledge_grants (id,knowledge_id,scope,scope_id,granted_by,granted_at) VALUES (?,?,?,?,?,?)",
-    );
-    for (const scopeId of next.org) ins.run(nid("kgr"), id, "org", scopeId, actor, now);
-    for (const scopeId of next.team) ins.run(nid("kgr"), id, "team", scopeId, actor, now);
-    for (const scopeId of next.user) ins.run(nid("kgr"), id, "user", scopeId, actor, now);
-  });
-  audit(actor, "knowledge.grant.save", { knowledge_id: id, org: next.org, team: next.team, user: next.user });
+  (await tx(async (db) => {
+    (await db.query("DELETE FROM knowledge_grants WHERE knowledge_id=$1",[id]));
+    const ins = "INSERT INTO knowledge_grants (id,knowledge_id,scope,scope_id,granted_by,granted_at) VALUES ($1,$2,$3,$4,$5,$6)";
+    for (const scopeId of next.org) (await db.query(ins,[nid("kgr"),id,"org",scopeId,actor,now]));
+    for (const scopeId of next.team) (await db.query(ins,[nid("kgr"),id,"team",scopeId,actor,now]));
+    for (const scopeId of next.user) (await db.query(ins,[nid("kgr"),id,"user",scopeId,actor,now]));
+  }));
+  (await audit(actor, "knowledge.grant.save", { knowledge_id: id, org: next.org, team: next.team, user: next.user }));
   return grantsForKnowledge(id);
 }
 
 /** 某条知识出现授权行时按对象收窄；无授权行者维持「已发布即可见」。 */
-export function canSeeKnowledge(row: Row, handle?: string): boolean {
+export async function canSeeKnowledge(row: Row, handle?: string): Promise<Awaited<boolean>> {
   const id = String(row.id || "");
   if (!id) return true;
-  const rows = getConn()
-    .prepare("SELECT scope, scope_id FROM knowledge_grants WHERE knowledge_id=?")
-    .all(id) as { scope: string; scope_id: string }[];
+  const rows = (await getConn().query("SELECT scope, scope_id FROM knowledge_grants WHERE knowledge_id=$1",[id])).rows as { scope: string; scope_id: string }[];
   if (!rows.length) return true;
-  const who = handle || currentUser().handle;
-  const mem = memberScopeIds(who);
+  const who = handle || (await currentUser()).handle;
+  const mem = (await memberScopeIds(who));
   return rows.some((grant) =>
     (grant.scope === "org" && mem.orgs.includes(grant.scope_id)) ||
     (grant.scope === "team" && mem.teams.includes(grant.scope_id)) ||
@@ -1824,25 +1651,21 @@ export function canSeeKnowledge(row: Row, handle?: string): boolean {
   );
 }
 
-export function getKnowledgeVersion(id: string, version: number): Json {
+export async function getKnowledgeVersion(id: string, version: number): Promise<Awaited<Json>> {
   requireAdmin();
   if (!Number.isFinite(Number(version))) throw new HttpFail(404, "version not found");
-  knowledgeRow(id);
-  const row = getConn()
-    .prepare("SELECT * FROM knowledge_versions WHERE knowledge_id=? AND version=?")
-    .get(id, Number(version)) as Row | undefined;
+  (await knowledgeRow(id));
+  const row = (await getConn().query("SELECT * FROM knowledge_versions WHERE knowledge_id=$1 AND version=$2",[id,Number(version)])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(404, "version not found");
   return row;
 }
 
 /** 回滚 = 以历史版本内容生成新草稿版本，历史行不动。 */
-export function rollbackKnowledge(id: string, version: number, actor = knowledgeActorId()): Json {
+export async function rollbackKnowledge(id: string, version: number, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
   requireAdmin();
   if (!Number.isFinite(Number(version))) throw new HttpFail(404, "version not found");
-  const prev = knowledgeRow(id);
-  const snap = getConn()
-    .prepare("SELECT * FROM knowledge_versions WHERE knowledge_id=? AND version=?")
-    .get(id, Number(version)) as Row | undefined;
+  const prev = (await knowledgeRow(id));
+  const snap = (await getConn().query("SELECT * FROM knowledge_versions WHERE knowledge_id=$1 AND version=$2",[id,Number(version)])).rows[0] as Row | undefined;
   if (!snap) throw new HttpFail(404, "version not found");
   const next: Row = {
     ...prev,
@@ -1865,20 +1688,12 @@ export function rollbackKnowledge(id: string, version: number, actor = knowledge
     current_version: Number(prev.current_version || 1) + 1,
     updated_at: nowIso(),
   };
-  tx((db) => {
-    db.prepare(
-      `UPDATE knowledge
-          SET title=?,body=?,tags=?,in_market=?,kind=?,skill_id=?,brand=?,lang=?,subject=?,body_en=?,placeholders=?,stage_codes=?,effective_at=?,expires_at=?,status=?,current_version=?,updated_at=?
-        WHERE id=?`,
-    ).run(
-      next.title, next.body, next.tags, next.in_market, next.kind, next.skill_id, next.brand, next.lang, next.subject,
-      next.body_en, next.placeholders, next.stage_codes, next.effective_at, next.expires_at, next.status,
-      next.current_version, next.updated_at, id,
-    );
-    writeVersion(db, next, `rollback from v${Number(version)}`, actor);
-  });
-  audit(actor, "knowledge.rollback", { knowledge_id: id, from_version: Number(version), to_version: next.current_version });
-  return publicKnowledge(knowledgeRow(id), actor);
+  (await tx(async (db) => {
+    (await db.query("UPDATE knowledge\n          SET title=$1,body=$2,tags=$3,in_market=$4,kind=$5,skill_id=$6,brand=$7,lang=$8,subject=$9,body_en=$10,placeholders=$11,stage_codes=$12,effective_at=$13,expires_at=$14,status=$15,current_version=$16,updated_at=$17\n        WHERE id=$18",[next.title,next.body,next.tags,next.in_market,next.kind,next.skill_id,next.brand,next.lang,next.subject,next.body_en,next.placeholders,next.stage_codes,next.effective_at,next.expires_at,next.status,next.current_version,next.updated_at,id]));
+    (await writeVersion(db, next, `rollback from v${Number(version)}`, actor));
+  }));
+  (await audit(actor, "knowledge.rollback", { knowledge_id: id, from_version: Number(version), to_version: next.current_version }));
+  return publicKnowledge((await knowledgeRow(id)), actor);
 }
 
 export const BINDING_SELECTOR_KEYS = ["ids", "base_ids", "kinds", "tags", "stage_codes", "brand", "lang"] as const;
@@ -1979,7 +1794,7 @@ export function listBindings(): Json[] {
 
 export async function saveBinding(
   input: { id?: string; skill_id?: string; selector?: unknown; enabled?: boolean | number; note?: string },
-  actor = knowledgeActorId(),
+  actor = (await knowledgeActorId()),
 ): Promise<Json> {
   requireAdmin();
   return tx(async (db) => {
@@ -2005,7 +1820,7 @@ export async function saveBinding(
   }, { isolation: "SERIALIZABLE" });
 }
 
-export async function deleteBinding(id: string, actor = knowledgeActorId(), agentId?: string): Promise<Json> {
+export async function deleteBinding(id: string, actor = (await knowledgeActorId()), agentId?: string): Promise<Json> {
   requireAdmin();
   return tx(async (db) => {
     const row = (await db.query<Row>("SELECT * FROM knowledge_bindings WHERE id=$1 FOR UPDATE", [id])).rows[0];
@@ -2057,29 +1872,29 @@ function brandPriority(row: Row): number {
 }
 
 /** 运行时解析（员工路径可用，不加 requireAdmin）：显式 ids > 阶段精确 > 品牌精确 > 更新时间。 */
-export function resolveForSkill(
+export async function resolveForSkill(
   skillId: string,
   opts: { userId?: string; brands?: string[]; stageCode?: string | null; record?: boolean } = {},
-): KnowledgeResolveResult {
+): Promise<Awaited<KnowledgeResolveResult>> {
   const skill = String(skillId || "").trim();
   const bindings = skill ? storedBindings(skill, true) : [];
   if (!bindings.length) return { resolved: [], skipped: [], bound: false };
-  const userId = opts.userId || knowledgeActorId();
-  const brands = opts.brands || actorBrands();
+  const userId = opts.userId || (await knowledgeActorId());
+  const brands = opts.brands || (await actorBrands());
   const stage = String(opts.stageCode || "").trim();
-  const handle = viewerHandle(userId);
+  const handle = (await viewerHandle(userId));
   const db = getConn();
-  const published = effectivePublishedRows(db.prepare("SELECT * FROM knowledge WHERE status='published'").all() as Row[]);
+  const published = effectivePublishedRows((await db.query("SELECT * FROM knowledge WHERE status='published'",[])).rows as Row[]);
   const citedIds = new Set(
-    (db.prepare("SELECT knowledge_id FROM knowledge_citations WHERE user_id=?").all(userId) as Row[])
+    ((await db.query("SELECT knowledge_id FROM knowledge_citations WHERE user_id=$1",[userId])).rows as Row[])
       .map((row) => String(row.knowledge_id)),
   );
   const deprecatedIds = new Set(
-    (db.prepare("SELECT knowledge_id FROM knowledge_deprecations WHERE user_id=?").all(userId) as Row[])
+    ((await db.query("SELECT knowledge_id FROM knowledge_deprecations WHERE user_id=$1",[userId])).rows as Row[])
       .map((row) => String(row.knowledge_id)),
   );
   const structuredBaseIds = new Set(
-    (db.prepare("SELECT id FROM knowledge_bases WHERE kind='structured'").all() as Row[])
+    ((await db.query("SELECT id FROM knowledge_bases WHERE kind='structured'",[])).rows as Row[])
       .map((row) => String(row.id)),
   );
   const skipped: KnowledgeResolveSkip[] = [];
@@ -2090,8 +1905,8 @@ export function resolveForSkill(
     skipKeys.add(key);
     skipped.push(entry);
   };
-  const gateReason = (row: Row): string | null => {
-    if (!brandMatched(row, brands) || !canSeeKnowledge(row, handle)) return "scope_mismatch";
+  const gateReason = async (row: Row): Promise<Awaited<string | null>> => {
+    if (!brandMatched(row, brands) || !(await canSeeKnowledge(row, handle))) return "scope_mismatch";
     if (!citedIds.has(String(row.id))) return "not_cited";
     if (deprecatedIds.has(String(row.id))) return "deprecated_by_user";
     if (!structuredBaseIds.has(String(row.base_id || ""))) return "wrong_base_type";
@@ -2102,7 +1917,7 @@ export function resolveForSkill(
   const evaluated = new Set<string>();
   for (const binding of bindings) {
     for (const id of binding.selector.ids || []) {
-      let row = db.prepare("SELECT * FROM knowledge WHERE id=?").get(id) as Row | undefined;
+      let row = (await db.query("SELECT * FROM knowledge WHERE id=$1",[id])).rows[0] as Row | undefined;
       if (!row) {
         pushSkip({ knowledge_id: id, reason: "missing" });
         continue;
@@ -2114,9 +1929,9 @@ export function resolveForSkill(
         evaluated.add(id);
         continue;
       }
-      try{row=effectivePublishedRow(row);}catch(e){if(!(e instanceof HttpFail))throw e;pushSkip({knowledge_id:id,reason:"not_published"});evaluated.add(id);continue;}
+      try{row=(await effectivePublishedRow(row));}catch(e){if(!(e instanceof HttpFail))throw e;pushSkip({knowledge_id:id,reason:"not_published"});evaluated.add(id);continue;}
       if (!bindingMatchesRow(binding.selector, row)) continue;
-      const reason = gateReason(row);
+      const reason = (await gateReason(row));
       if (reason) {
         pushSkip({ knowledge_id: id, title: String(row.title || ""), reason });
         evaluated.add(id);
@@ -2129,7 +1944,7 @@ export function resolveForSkill(
       if (!bindingMatchesRow(binding.selector, row)) continue;
       const id = String(row.id);
       if (evaluated.has(id)) continue;
-      const reason = gateReason(row);
+      const reason = (await gateReason(row));
       if (reason) {
         pushSkip({ knowledge_id: id, title: String(row.title || ""), reason });
         evaluated.add(id);
@@ -2171,37 +1986,37 @@ export function resolveForSkill(
     }
   }
   if (opts.record) {
-    audit(userId, "knowledge.resolve", {
+    (await audit(userId, "knowledge.resolve", {
       skill_id: skill,
       source: "binding",
       resolved: resolved.map((item) => ({ id: item.id, version: item.version })),
       skipped_count: skipped.length,
-    });
+    }));
   }
   return { resolved, skipped, bound: true };
 }
 
-export function resolvePreview(input: {
+export async function resolvePreview(input: {
   skill_id?: string;
   user_id?: string;
   stage_code?: string;
   brand?: string;
-}): Json {
+}): Promise<Awaited<Json>> {
   requireAdmin();
   const skillId = String(input.skill_id || "").trim();
   if (!skillId) throw new HttpFail(400, "skill_id required");
-  const userId = String(input.user_id || "").trim() || knowledgeActorId();
+  const userId = String(input.user_id || "").trim() || (await knowledgeActorId());
   const brand = String(input.brand || "").trim();
-  const result = resolveForSkill(skillId, {
+  const result = (await resolveForSkill(skillId, {
     userId,
-    brands: brand ? [brand] : actorBrands(),
+    brands: brand ? [brand] : (await actorBrands()),
     stageCode: input.stage_code,
     record: false,
-  });
+  }));
   const bindings: Json[] = bindingRows(skillId).map((row) => ({ ...row, selector: parseSelectorStored(row.selector) }));
   const skipped: KnowledgeResolveSkip[] = [...result.skipped];
   const seen = new Set(skipped.map((entry) => `${entry.knowledge_id}:${entry.reason}`));
-  const published = effectivePublishedRows(getConn().prepare("SELECT * FROM knowledge WHERE status='published'").all() as Row[]);
+  const published = effectivePublishedRows((await getConn().query("SELECT * FROM knowledge WHERE status='published'",[])).rows as Row[]);
   for (const binding of bindings) {
     if (Number(binding.enabled || 0)) continue;
     const selector = parseSelectorStored(binding.selector);
@@ -2217,73 +2032,54 @@ export function resolvePreview(input: {
   return { resolved: result.resolved, skipped, bindings };
 }
 
-export function listFeedback(): Json[] {
+export async function listFeedback(): Promise<Awaited<Json[]>> {
   requireAdmin();
-  return getConn()
-    .prepare(
-      `SELECT d.user_id, d.knowledge_id, k.title AS title, d.reason, d.reason_note, d.deprecated_at,
-              d.handled_at, d.handled_by, d.handle_action, d.handle_note
-         FROM knowledge_deprecations d
-         LEFT JOIN knowledge k ON k.id = d.knowledge_id
-        ORDER BY d.deprecated_at DESC`,
-    )
-    .all() as Json[];
+  return (await getConn().query("SELECT d.user_id, d.knowledge_id, k.title AS title, d.reason, d.reason_note, d.deprecated_at,\n              d.handled_at, d.handled_by, d.handle_action, d.handle_note\n         FROM knowledge_deprecations d\n         LEFT JOIN knowledge k ON k.id = d.knowledge_id\n        ORDER BY d.deprecated_at DESC",[])).rows as Json[];
 }
 
-export function handleFeedback(
+export async function handleFeedback(
   knowledgeId: string,
   userId: string,
   action: "to_revision" | "archive" | "ignore",
   note = "",
-  actor = knowledgeActorId(),
-): Json {
+  actor = (await knowledgeActorId()),
+): Promise<Awaited<Json>> {
   requireAdmin();
   if (!["to_revision", "archive", "ignore"].includes(action)) {
     throw new HttpFail(400, "action 须为 to_revision / archive / ignore");
   }
   const db = getConn();
   const owner = String(userId || "").trim();
-  const dep = db
-    .prepare("SELECT * FROM knowledge_deprecations WHERE user_id=? AND knowledge_id=?")
-    .get(owner, knowledgeId) as Row | undefined;
+  const dep = (await db.query("SELECT * FROM knowledge_deprecations WHERE user_id=$1 AND knowledge_id=$2",[owner,knowledgeId])).rows[0] as Row | undefined;
   if (!dep) throw new HttpFail(404, "feedback not found");
   if (dep.handled_at) throw new HttpFail(409, "feedback already handled");
   const now = nowIso();
   if (action === "to_revision") {
-    const prev = knowledgeRow(knowledgeId);
+    const prev = (await knowledgeRow(knowledgeId));
     const next: Row = {
       ...prev,
       status: "draft",
       current_version: Number(prev.current_version || 1) + 1,
       updated_at: now,
     };
-    tx((inner) => {
-      inner.prepare("UPDATE knowledge SET status='draft',current_version=?,updated_at=? WHERE id=?")
-        .run(next.current_version, next.updated_at, knowledgeId);
-      writeVersion(inner, next, "feedback to_revision", actor);
-    });
+    (await tx(async (inner) => {
+      (await inner.query("UPDATE knowledge SET status='draft',current_version=$1,updated_at=$2 WHERE id=$3",[next.current_version,next.updated_at,knowledgeId]));
+      (await writeVersion(inner, next, "feedback to_revision", actor));
+    }));
   } else if (action === "archive") {
-    archiveKnowledge(knowledgeId, actor);
+    (await archiveKnowledge(knowledgeId, actor));
   }
-  tx((inner) => {
-    inner.prepare(
-      "UPDATE knowledge_deprecations SET handled_at=?,handled_by=?,handle_action=?,handle_note=? WHERE user_id=? AND knowledge_id=?",
-    ).run(now, actor, action, String(note || ""), owner, knowledgeId);
-  });
-  audit(actor, "knowledge.feedback.handle", { knowledge_id: knowledgeId, user_id: owner, action });
-  return db
-    .prepare(
-      `SELECT d.*, k.title AS title FROM knowledge_deprecations d
-        LEFT JOIN knowledge k ON k.id = d.knowledge_id
-        WHERE d.user_id=? AND d.knowledge_id=?`,
-    )
-    .get(owner, knowledgeId) as Json;
+  (await tx(async (inner) => {
+    (await inner.query("UPDATE knowledge_deprecations SET handled_at=$1,handled_by=$2,handle_action=$3,handle_note=$4 WHERE user_id=$5 AND knowledge_id=$6",[now,actor,action,String(note || ""),owner,knowledgeId]));
+  }));
+  (await audit(actor, "knowledge.feedback.handle", { knowledge_id: knowledgeId, user_id: owner, action }));
+  return (await db.query("SELECT d.*, k.title AS title FROM knowledge_deprecations d\n        LEFT JOIN knowledge k ON k.id = d.knowledge_id\n        WHERE d.user_id=$1 AND d.knowledge_id=$2",[owner,knowledgeId])).rows[0] as Json;
 }
 
-export function adminAssets(): Json[] {
+export async function adminAssets(): Promise<Awaited<Json[]>> {
   requireAdmin();
   const bindings = storedBindings(undefined, true);
-  return adminList().map((row) => ({
+  return (await adminList()).map((row) => ({
     ...row,
     ref_skills: [...new Set(
       bindings.filter((binding) => bindingMatchesRow(binding.selector, row)).map((binding) => binding.skill_id),

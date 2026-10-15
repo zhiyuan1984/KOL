@@ -22,7 +22,7 @@ export async function login(username: string, password: string): Promise<{
     "INSERT INTO app_state (key, value) VALUES ($1, $2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value",
     [AUTH_KEY, DEMO_ADMIN.handle],
   );
-  audit(DEMO_ADMIN.handle, "auth.login", { name: DEMO_ADMIN.name });
+  (await audit(DEMO_ADMIN.handle, "auth.login", { name: DEMO_ADMIN.name }));
   return { ok: true, name: DEMO_ADMIN.name, handle: DEMO_ADMIN.handle, role: DEMO_ADMIN.role };
 }
 

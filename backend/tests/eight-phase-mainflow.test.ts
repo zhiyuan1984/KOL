@@ -1,3 +1,4 @@
+import { asyncEvery } from "../src/async-collections.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -32,50 +33,20 @@ async function request(
   };
 }
 
-function insertWalkCollab(): void {
-  getConn().prepare(
-    `INSERT OR REPLACE INTO collaborations
-     (id, handle, display_name, brand, platform, followers, email, mailbox_from,
-      lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,
-      stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    "col_walk",
-    "八段主流程",
-    "八段主流程",
-    "LT",
-    "YouTube",
-    "8万",
-    "walk@litime.example",
-    BRAND_MAILBOXES.LT,
-    "lc_walk",
-    "conv_walk",
-    "INITIAL_CONTACT",
-    1,
-    "",
-    0,
-    0,
-    "",
-    "",
-    "",
-    "美国",
-    "",
-    "LT-MINI-12",
-    "1",
-    0,
-  );
+async function insertWalkCollab(): Promise<Awaited<void>> {
+  (await getConn().query("INSERT INTO collaborations\n     (id, handle, display_name, brand, platform, followers, email, mailbox_from,\n      lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,\n      stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,display_name=EXCLUDED.display_name,brand=EXCLUDED.brand,platform=EXCLUDED.platform,followers=EXCLUDED.followers,email=EXCLUDED.email,mailbox_from=EXCLUDED.mailbox_from,lifecycle_id=EXCLUDED.lifecycle_id,conversation_id=EXCLUDED.conversation_id,stage_code=EXCLUDED.stage_code,days_in_stage=EXCLUDED.days_in_stage,notes=EXCLUDED.notes,overdue=EXCLUDED.overdue,stage_version=EXCLUDED.stage_version,recipient_name=EXCLUDED.recipient_name,phone=EXCLUDED.phone,address_line=EXCLUDED.address_line,country=EXCLUDED.country,postal=EXCLUDED.postal,sku=EXCLUDED.sku,qty=EXCLUDED.qty,locked=EXCLUDED.locked",["col_walk","八段主流程","八段主流程","LT","YouTube","8万","walk@litime.example",BRAND_MAILBOXES.LT,"lc_walk","conv_walk","INITIAL_CONTACT",1,"",0,0,"","","","美国","","LT-MINI-12","1",0]));
 }
 
-function stageOf(): string {
-  const row = getConn().prepare("SELECT stage_code, stage_version FROM collaborations WHERE id=?").get("col_walk") as {
+async function stageOf(): Promise<Awaited<string>> {
+  const row = (await getConn().query("SELECT stage_code, stage_version FROM collaborations WHERE id=$1",["col_walk"])).rows[0] as {
     stage_code: string;
     stage_version: number;
   };
   return row.stage_code;
 }
 
-function versionOf(): number {
-  const row = getConn().prepare("SELECT stage_version FROM collaborations WHERE id=?").get("col_walk") as {
+async function versionOf(): Promise<Awaited<number>> {
+  const row = (await getConn().query("SELECT stage_version FROM collaborations WHERE id=$1",["col_walk"])).rows[0] as {
     stage_version: number;
   };
   return Number(row.stage_version || 0);
@@ -85,33 +56,33 @@ async function confirmOfficial(sid: string, target: string, reason: string): Pro
   const res = await request("POST", `/api/sessions/${sid}/confirm-stage`, {
     stage_code: target,
     collaboration_id: "col_walk",
-    expected_version: versionOf(),
+    expected_version: (await versionOf()),
     reason,
     reason_code: "HUMAN_CONFIRMED",
   });
-  expect(res.status, `${stageOf()} → ${target}: ${await res.text()}`).toBe(200);
+  expect(res.status, `${(await stageOf())} → ${target}: ${await res.text()}`).toBe(200);
   return res.json();
 }
 
 async function hopHuman(sid: string, target: string): Promise<void> {
   const body = await confirmOfficial(sid, target, `人选定 ${target}`);
   expect(body.waiting_approval).toBeFalsy();
-  expect(stageOf()).toBe(target);
+  expect((await stageOf())).toBe(target);
 }
 
 async function hopApproval(sid: string, target: string): Promise<void> {
-  const before = stageOf();
+  const before = (await stageOf());
   const body = await confirmOfficial(sid, target, `提交 ${target} 审批`);
   expect(body.waiting_approval).toBe(true);
   expect(body.approval_id).toBeTruthy();
-  expect(stageOf()).toBe(before);
+  expect((await stageOf())).toBe(before);
   const decided = await request("POST", `/api/approvals/${body.approval_id}/decide`, {
     decision: "approve",
     expected_version: 0,
     idempotency_key: `walk-${body.approval_id}`,
   });
   expect(decided.status, await decided.text()).toBe(200);
-  expect(stageOf()).toBe(target);
+  expect((await stageOf())).toBe(target);
 }
 
 async function hopFact(sid: string, target: string, mail: { subject: string; body: string }): Promise<void> {
@@ -125,7 +96,7 @@ async function hopFact(sid: string, target: string, mail: { subject: string; bod
   expect(ingested.status, await ingested.text()).toBe(200);
   const body = await ingested.json();
   expect((body.advanced as Json | null)?.advanced, JSON.stringify(body.advanced)).toBe(true);
-  expect(stageOf()).toBe(target);
+  expect((await stageOf())).toBe(target);
 }
 
 beforeEach(async () => {
@@ -134,17 +105,17 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
-  seedWorkbenchFixtures();
-  insertWalkCollab();
+  (await seedWorkbenchFixtures());
+  (await insertWalkCollab());
   mailSeq = 0;
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -185,7 +156,7 @@ describe("eight-phase main flow", () => {
     const sopText = JSON.stringify(sopBody);
     expect(sopText).toContain("八段怎么走");
     expect(sopText).toContain("发送邮件不会修改阶段");
-    expect(stageOf()).toBe("INITIAL_CONTACT");
+    expect((await stageOf())).toBe("INITIAL_CONTACT");
 
     const refuse = await request("POST", `/api/sessions/${sid}/confirm-stage`, {
       stage_code: "下一阶段",
@@ -195,7 +166,7 @@ describe("eight-phase main flow", () => {
     });
     expect(refuse.status).toBe(400);
     expect(await refuse.text()).toContain("必须指定具体目标阶段");
-    expect(stageOf()).toBe("INITIAL_CONTACT");
+    expect((await stageOf())).toBe("INITIAL_CONTACT");
 
     const interest = await request("POST", "/api/collaborations/col_walk/ingest-mail", {
       subject: "Re: Collaboration Opportunity with LiTime",
@@ -209,20 +180,20 @@ describe("eight-phase main flow", () => {
     expect((interestBody.judgment as Json).suggested_stage).toBe("INTERESTED");
     expect((interestBody.judgment as Json).auto_propose).toBe(true);
     expect(interestBody.advanced).toBeNull();
-    expect(stageOf()).toBe("INITIAL_CONTACT");
+    expect((await stageOf())).toBe("INITIAL_CONTACT");
     const msgs = (await (await request("GET", `/api/sessions/${sid}`)).json()) as Json;
     const kinds = ((msgs.messages as Json[]) || []).map((row) => row.kind);
     expect(kinds).toContain("confirm_stage_card");
 
     const seen = new Set<string>();
-    const light = () => {
-      const phase = sopPhaseByStage(stageOf());
+    const light = async () => {
+      const phase = sopPhaseByStage((await stageOf()));
       if (phase) seen.add(phase.id);
     };
-    light();
+    (await light());
 
     await hopHuman(sid, "INTERESTED");
-    light();
+    (await light());
 
     const compose = await request("POST", `/api/sessions/${sid}/messages`, {
       text: "写合作邮件 @八段主流程",
@@ -232,55 +203,55 @@ describe("eight-phase main flow", () => {
       collaboration_id: "col_walk",
     });
     expect(compose.status, await compose.text()).toBe(200);
-    expect(stageOf()).toBe("INTERESTED");
+    expect((await stageOf())).toBe("INTERESTED");
 
     await hopHuman(sid, "EVALUATING");
-    light();
+    (await light());
     await hopHuman(sid, "QUOTE_PENDING");
-    light();
+    (await light());
     await hopHuman(sid, "NEGOTIATING");
-    light();
+    (await light());
     await hopApproval(sid, "PLAN_PENDING");
-    light();
+    (await light());
     await hopApproval(sid, "CONTRACTING");
-    light();
+    (await light());
     await hopHuman(sid, "SAMPLE_PENDING");
-    light();
+    (await light());
     await hopFact(sid, "SHIPPED", {
       subject: "Your LiTime Product Has Shipped",
       body: "The sample shipped via UPS. Tracking number 1Z999AA10123456784.",
     });
-    light();
+    (await light());
     await hopFact(sid, "TESTING", {
       subject: "Sample received",
       body: "The kit arrived yesterday and I have started testing the installation.",
     });
-    light();
+    (await light());
     await hopHuman(sid, "CONTENT_PLANNING");
-    light();
+    (await light());
     await hopApproval(sid, "CONTENT_REVIEW");
-    light();
+    (await light());
     await hopApproval(sid, "PUBLISH_PENDING");
-    light();
+    (await light());
     await hopFact(sid, "PUBLISHED", {
       subject: "Video is live",
       body: "The review is now live on YouTube https://youtube.com/watch?v=walk8phase",
     });
-    light();
+    (await light());
     await hopApproval(sid, "SETTLING");
-    light();
+    (await light());
     await hopHuman(sid, "COMPLETED");
 
     expect([...seen]).toEqual(SOP_PHASES.map((phase) => phase.id));
-    expect(stageOf()).toBe("COMPLETED");
-    expect(MAIN_STAGES.every((stage) => (
-      stage.code === "INITIAL_CONTACT" || versionOf() >= 1
-    ))).toBe(true);
+    expect((await stageOf())).toBe("COMPLETED");
+    expect((await asyncEvery(MAIN_STAGES,async (stage) => (
+      stage.code === "INITIAL_CONTACT" || (await versionOf()) >= 1
+    )))).toBe(true);
 
     const terminal = await request("POST", `/api/sessions/${sid}/confirm-stage`, {
       stage_code: "INTERESTED",
       collaboration_id: "col_walk",
-      expected_version: versionOf(),
+      expected_version: (await versionOf()),
       reason: "终态不可回主流程",
     });
     expect(terminal.status).toBe(400);
@@ -298,6 +269,6 @@ describe("eight-phase main flow", () => {
       collaboration_id: "col_walk",
     });
     expect(ask.status, await ask.text()).toBe(200);
-    expect(stageOf()).toBe("INTERESTED");
+    expect((await stageOf())).toBe("INTERESTED");
   });
 });

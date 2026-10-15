@@ -22,11 +22,11 @@ const QQ = "100705721@qq.com";
 const FIRST_TOUCH = `首封建联 发件: ${LARRY} 收件: ${QQ} 主题: LiTime MCP 连通测试`;
 
 async function request(method: string, url: string, body?: unknown) {
-  const response = await withScopedUser(employee, () => app.request(url, {
+  const response = await withScopedUser(employee, async () => (await app.request(url, {
     method,
     headers: { "Content-Type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  }));
+  })));
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) as Json : {} };
 }
@@ -40,17 +40,17 @@ beforeEach(async () => {
   process.env.INTENT_LLM_MODE = "stub";
   setTaskClassifier();
   setIntentLlmFetch();
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
   employee = (await agentTestUser());
 });
 
-afterEach(() => {
+afterEach(async () => {
   setTaskClassifier();
   setIntentLlmFetch();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.INTENT_LLM_MODE;
 });

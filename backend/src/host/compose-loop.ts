@@ -203,15 +203,15 @@ export function pickComposeTemplate(skill: string, stageCode?: string | null, ra
   return hit || pickTemplateForSkill(skill, stage);
 }
 
-export function composeContextForCollaboration(collaborationId: string | null | undefined): {
+export async function composeContextForCollaboration(collaborationId: string | null | undefined): Promise<Awaited<{
   digest: ThreadDigest | null;
   memory: string[];
   text: string;
   mail_count: number;
-} {
+}>> {
   if (!collaborationId) return { digest: null, memory: [], text: "", mail_count: 0 };
-  const rows = mailHistoryRows(collaborationId);
-  const digest = threadDigestOf(rows, readThreadDigest(collaborationId));
+  const rows = (await mailHistoryRows(collaborationId));
+  const digest = threadDigestOf(rows, (await readThreadDigest(collaborationId)));
   return {
     digest,
     memory: mailMemoryLines(rows),
@@ -243,16 +243,16 @@ export function seedComposeDraft(facts: ComposeFacts, _raw = "", stage = ""): { 
   return { subject: tpl.subject, body: tpl.body_en };
 }
 
-export function previewComposeForCollaboration(col: Row | null, text: string, extra: Json = {}): {
+export async function previewComposeForCollaboration(col: Row | null, text: string, extra: Json = {}): Promise<Awaited<{
   subject: string;
   body: string;
   amount_usd: number | null;
   currency: string | null;
   rate_unit: "hour" | null;
   prompt: string;
-} {
-  const digest = composeContextForCollaboration(col?.id ? String(col.id) : null).text;
-  const extracted = extractTaskEntities(text);
+}>> {
+  const digest = (await composeContextForCollaboration(col?.id ? String(col.id) : null)).text;
+  const extracted = (await extractTaskEntities(text));
   const facts = composeFactsFromRow(col, {
     ...extra,
     raw: text,
@@ -285,7 +285,7 @@ export async function rememberOutboundAndRefreshDigest(input: {
   providerMessageId?: string;
 }): Promise<void> {
   const { ingestKolMail, refreshMailDigestAfterChange } = await import("./kol-journey.js");
-  ingestKolMail(input.collaborationId, {
+  (await ingestKolMail(input.collaborationId, {
     subject: String(input.subject || ""),
     body: String(input.body || ""),
     from: firstEmail(input.from),
@@ -296,7 +296,7 @@ export async function rememberOutboundAndRefreshDigest(input: {
     conversation_id: String(input.conversationId || ""),
     session_id: input.sessionId,
     provider_message_id: String(input.providerMessageId || ""),
-  });
+  }));
   await refreshMailDigestAfterChange(input.collaborationId, input.sessionId, { retryFailed: true });
 }
 

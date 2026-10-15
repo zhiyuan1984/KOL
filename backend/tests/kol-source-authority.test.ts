@@ -124,11 +124,11 @@ function poolIds(page: { items: Record<string, unknown>[] }): string[] {
 beforeEach(async () => {
   requireLocalTestDatabase();
   await freshTestDatabase();
-  resetConn();
+  (await resetConn());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
 });
 
 describe.sequential("KOL source authority (local PostgreSQL)", () => {
@@ -230,7 +230,7 @@ describe.sequential("KOL source authority (local PostgreSQL)", () => {
     const actor: FollowActor = { id: "employee-local", name: "Local Employee", brands: ["LT"] };
     await seedUser(actor.id, actor.id, actor.name);
     seedProfile("KOL_LOCAL_DISCOVERY", { ingestSource: "discovery" });
-    claimFollow({ kolUid: "KOL_LOCAL_DISCOVERY", scopeBrand: "LT", confirm: true, actor });
+    (await claimFollow({ kolUid: "KOL_LOCAL_DISCOVERY", scopeBrand: "LT", confirm: true, actor }));
 
     const following = await readFollowingAuthority(actor.id) as Record<string, unknown>[];
     expect(followingIds(following)).toEqual(["KOL_LOCAL_DISCOVERY"]);
@@ -253,9 +253,9 @@ describe.sequential("KOL source authority (local PostgreSQL)", () => {
     expect(poolIds(beforeRelease)).toContain("KOL_OPEN_UNOWNED");
     expect(poolIds(beforeRelease)).not.toContain("KOL_OWNER_EVIDENCE");
 
-    const claimed = claimFollow({ kolUid: "KOL_OWNER_EVIDENCE", scopeBrand: "LT", confirm: true, actor });
+    const claimed = (await claimFollow({ kolUid: "KOL_OWNER_EVIDENCE", scopeBrand: "LT", confirm: true, actor }));
     const followId = String((claimed.follow as { follow_id: string }).follow_id);
-    expect(releaseFollow({ followId, confirm: true, actor, reason: "manual_release" })).toMatchObject({ ok: true, action: "release" });
+    expect((await releaseFollow({ followId, confirm: true, actor, reason: "manual_release" }))).toMatchObject({ ok: true, action: "release" });
 
     const afterRelease = await readPublicPoolPage(options, COMPANY_ID);
     expect(poolIds(afterRelease)).toContain("KOL_OWNER_EVIDENCE");

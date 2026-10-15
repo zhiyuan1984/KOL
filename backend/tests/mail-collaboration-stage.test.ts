@@ -25,7 +25,7 @@ beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mail-stage-"));
   process.env.LINGONG_DATA = tmp;
-  resetConn();
+  (await resetConn());
   const router = operationRouter(mailOperations);
   router.onError((error, c) => {
     if (error instanceof HttpFail) return c.json({ detail: error.detail }, error.status as 400);
@@ -33,25 +33,13 @@ beforeEach(async () => {
   });
   app = router;
   const now = new Date().toISOString();
-  getConn().prepare(
-    `INSERT INTO collaborations
-       (id, handle, display_name, brand, platform, email, mailbox_from, lifecycle_id, conversation_id, stage_code)
-     VALUES ('col_1', 'testhandle', 'Test KOL', 'LT', 'youtube', 'kol@example.com', 'larry.zhao@amperetime.com', 'lc1', 'conv_1', 'QUOTE_PENDING')`,
-  ).run();
-  getConn().prepare(
-    `INSERT INTO kol_mail_threads
-       (id, collaboration_id, conversation_id, subject, mailbox, created_at, updated_at)
-     VALUES ('thr_1', 'col_1', 'conv_1', 'Hello', 'larry.zhao@amperetime.com', ?, ?)`,
-  ).run(now, now);
-  getConn().prepare(
-    `INSERT INTO kol_mail_threads
-       (id, collaboration_id, conversation_id, subject, mailbox, created_at, updated_at)
-     VALUES ('thr_2', NULL, 'conv_2', 'No bind', 'larry.zhao@amperetime.com', ?, ?)`,
-  ).run(now, now);
+  (await getConn().query("INSERT INTO collaborations\n       (id, handle, display_name, brand, platform, email, mailbox_from, lifecycle_id, conversation_id, stage_code)\n     VALUES ('col_1', 'testhandle', 'Test KOL', 'LT', 'youtube', 'kol@example.com', 'larry.zhao@amperetime.com', 'lc1', 'conv_1', 'QUOTE_PENDING')",[]));
+  (await getConn().query("INSERT INTO kol_mail_threads\n       (id, collaboration_id, conversation_id, subject, mailbox, created_at, updated_at)\n     VALUES ('thr_1', 'col_1', 'conv_1', 'Hello', 'larry.zhao@amperetime.com', $1, $2)",[now,now]));
+  (await getConn().query("INSERT INTO kol_mail_threads\n       (id, collaboration_id, conversation_id, subject, mailbox, created_at, updated_at)\n     VALUES ('thr_2', NULL, 'conv_2', 'No bind', 'larry.zhao@amperetime.com', $1, $2)",[now,now]));
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   delete process.env.LINGONG_DATA;
   fs.rmSync(tmp, { recursive: true, force: true });
 });

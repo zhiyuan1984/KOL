@@ -321,8 +321,8 @@ export function parseIntentVerdict(raw: string, catalogIds = taskDefinitions().m
   };
 }
 
-export function stubClassifyIntent(text: string): IntentVerdict {
-  const rules = stubResolveTaskIntent({ text });
+export async function stubClassifyIntent(text: string): Promise<Awaited<IntentVerdict>> {
+  const rules = (await stubResolveTaskIntent({ text }));
   if (rules.task_type && rules.confidence >= 0.75) {
     return {
       task_type: rules.task_type,

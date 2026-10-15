@@ -44,40 +44,10 @@ function cite(knowledgeId: string): void {
   ).run(PERSONAS.sriphy.id, knowledgeId, new Date().toISOString());
 }
 
-function insertQiyou(email = ""): string {
+async function insertQiyou(email = ""): Promise<Awaited<string>> {
   const id = "col_KOL20260901LINGONG";
-  getConn().prepare(
-    `INSERT OR REPLACE INTO collaborations
-     (id, handle, display_name, brand, platform, followers, email, mailbox_from,
-      lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,
-      stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    id,
-    "灵工连通测试-qiyou1984",
-    "灵工连通测试-qiyou1984",
-    "LT",
-    "YouTube",
-    "",
-    email,
-    BRAND_MAILBOXES.LT,
-    "lc_KOL20260901LINGONG",
-    "conv_KOL20260901LINGONG",
-    "INITIAL_CONTACT",
-    1,
-    "居家办公；储能",
-    0,
-    0,
-    "",
-    "",
-    "",
-    "美国",
-    "",
-    "",
-    "",
-    0,
-  );
-  getConn().prepare("UPDATE collaborations SET kol_uid=? WHERE id=?").run("KOL20260901LINGONG", id);
+  (await getConn().query("INSERT INTO collaborations\n     (id, handle, display_name, brand, platform, followers, email, mailbox_from,\n      lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,\n      stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,display_name=EXCLUDED.display_name,brand=EXCLUDED.brand,platform=EXCLUDED.platform,followers=EXCLUDED.followers,email=EXCLUDED.email,mailbox_from=EXCLUDED.mailbox_from,lifecycle_id=EXCLUDED.lifecycle_id,conversation_id=EXCLUDED.conversation_id,stage_code=EXCLUDED.stage_code,days_in_stage=EXCLUDED.days_in_stage,notes=EXCLUDED.notes,overdue=EXCLUDED.overdue,stage_version=EXCLUDED.stage_version,recipient_name=EXCLUDED.recipient_name,phone=EXCLUDED.phone,address_line=EXCLUDED.address_line,country=EXCLUDED.country,postal=EXCLUDED.postal,sku=EXCLUDED.sku,qty=EXCLUDED.qty,locked=EXCLUDED.locked",[id,"灵工连通测试-qiyou1984","灵工连通测试-qiyou1984","LT","YouTube","",email,BRAND_MAILBOXES.LT,"lc_KOL20260901LINGONG","conv_KOL20260901LINGONG","INITIAL_CONTACT",1,"居家办公；储能",0,0,"","","","美国","","","",0]));
+  (await getConn().query("UPDATE collaborations SET kol_uid=$1 WHERE id=$2",["KOL20260901LINGONG",id]));
   return id;
 }
 
@@ -89,20 +59,20 @@ describe("first-touch To cannot stay empty for 灵工连通测试-qiyou1984", ()
     process.env.LINGONG_DATA = tmp;
     process.env.LG_DATA_DIR = tmp;
     process.env.CODEX_MODE = "stub";
-    resetConn();
-    seedAll();
+    (await resetConn());
+    (await seedAll());
     const { createApp } = await import("../src/app.js");
     app = (await createApp());
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     getConn().close();
-    resetConn();
+    (await resetConn());
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
   it("asks Starry MCP for 发件/收件/主题 instead of creating a sendable empty-To draft", async () => {
-    const id = insertQiyou("");
+    const id = (await insertQiyou(""));
     const [, data] = await ask("首封建联 发送给 灵工连通测试-qiyou1984", {
       intent: "email_compose",
       collaboration_id: id,
@@ -143,7 +113,7 @@ describe("first-touch To cannot stay empty for 灵工连通测试-qiyou1984", ()
   });
 
   it("does not fall back to a Host draft when 首封建联 is missing 发件箱", async () => {
-    const id = insertQiyou("");
+    const id = (await insertQiyou(""));
     cite("kb_mail_kol");
     const [, data] = await ask(
       "首封建联 发送给 灵工连通测试-qiyou1984 qiyou1984@gmail.com",
@@ -156,14 +126,14 @@ describe("first-touch To cannot stay empty for 灵工连通测试-qiyou1984", ()
     expect(payload).toContain("发件邮箱");
     expect(payload).toContain("qiyou1984@gmail.com");
     expect(payload).not.toContain("还需要补充：邮件会话");
-    const row = getConn().prepare("SELECT email FROM collaborations WHERE id=?").get(id) as { email: string };
+    const row = (await getConn().query("SELECT email FROM collaborations WHERE id=$1",[id])).rows[0] as { email: string };
     expect(row.email).toBe("");
   });
 
   it("lets 校验发送原文 supply To on an already empty draft and bind it", async () => {
-    const id = insertQiyou("");
+    const id = (await insertQiyou(""));
     const session = await request("POST", "/api/sessions", { title: "empty-to" });
-    const draft = persistDraft(String(session.body.id), {
+    const draft = (await persistDraft(String(session.body.id), {
       skill: "stage_mail",
       template_id: "stage_mail.followup",
       from: BRAND_MAILBOXES.LT,
@@ -172,19 +142,19 @@ describe("first-touch To cannot stay empty for 灵工连通测试-qiyou1984", ()
       body: "Hi,\n\nWe would love to explore a product collaboration.\n\nBest,\nLiTime Creator Desk\n",
       official_stage: "INITIAL_CONTACT",
       collaboration_id: id,
-    });
+    }));
     expect(String(draft.to_addr)).toBe("");
     const sent = await confirmAndSendDraft(request, String(draft.id), {
       to_addr: "qiyou1984@gmail.com",
     });
     expect(sent.status, JSON.stringify(sent.body)).toBe(200);
-    const row = getConn().prepare("SELECT email FROM collaborations WHERE id=?").get(id) as { email: string };
+    const row = (await getConn().query("SELECT email FROM collaborations WHERE id=$1",[id])).rows[0] as { email: string };
     expect(row.email).toBe("qiyou1984@gmail.com");
   });
 
-  it("binds an empty collaboration email on PEP send instead of treating it as a mismatch", () => {
-    const id = insertQiyou("");
-    enforceSend({
+  it("binds an empty collaboration email on PEP send instead of treating it as a mismatch", async () => {
+    const id = (await insertQiyou(""));
+    (await enforceSend({
       from_addr: BRAND_MAILBOXES.LT,
       to_addr: "qiyou1984@gmail.com",
       subject: "Collaboration Opportunity with LiTime",
@@ -193,8 +163,8 @@ describe("first-touch To cannot stay empty for 灵工连通测试-qiyou1984", ()
       template_id: "stage_mail.followup",
       official_stage: "INITIAL_CONTACT",
       collaboration_id: id,
-    } as Row, PERSONAS.sriphy);
-    const row = getConn().prepare("SELECT email FROM collaborations WHERE id=?").get(id) as { email: string };
+    } as Row, PERSONAS.sriphy));
+    const row = (await getConn().query("SELECT email FROM collaborations WHERE id=$1",[id])).rows[0] as { email: string };
     expect(row.email).toBe("qiyou1984@gmail.com");
   });
 });

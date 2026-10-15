@@ -37,7 +37,7 @@ describe("task-chain native PostgreSQL plan", () => {
   });
 
   it("uses an owner advisory lock so concurrent starts create one session/run/job", async () => {
-    const [first, second] = await Promise.all([startNativeTodayPlan(input()), startNativeTodayPlan(input())]);
+    const [first, second] = await Promise.all([(await startNativeTodayPlan(input())), (await startNativeTodayPlan(input()))]);
     expect([first.attached, second.attached].filter(Boolean)).toHaveLength(1);
     expect(first.work_item_id).toBe(second.work_item_id);
     const facts = await postgresPool().query<{ sessions: string; tickets: string; runs: string; jobs: string; events: string }>(
@@ -75,8 +75,8 @@ describe("task-chain native PostgreSQL plan", () => {
       payload_json: JSON.stringify({ owner: OWNER, work_item_id: started.work_item_id, run_id: started.run_id, session_id: started.session_id, scope: "today", pack, producer: "agent_plan" }),
     } as unknown as ClaimedExecutionJob;
     const [receipt, duplicate] = await Promise.all([
-      executeNativeClaimedPlanningJob(claimed),
-      executeNativeClaimedPlanningJob({ ...claimed, worker_id: "second-test-worker" } as ClaimedExecutionJob),
+      (await executeNativeClaimedPlanningJob(claimed)),
+      (await executeNativeClaimedPlanningJob({ ...claimed, worker_id: "second-test-worker" } as ClaimedExecutionJob)),
     ]);
     expect(receipt).toMatchObject({ work_item_id: started.work_item_id, run_id: started.run_id, mode: "agent_plan" });
     expect(duplicate).toMatchObject({ work_item_id: started.work_item_id, run_id: started.run_id, duplicate: true });

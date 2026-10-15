@@ -297,42 +297,42 @@ export function openContext(input: ContextResolveInput): ContextSession {
   const memo = new Map<TaskContextKey, KeyResult>();
   const resolving = new Set<TaskContextKey>();
 
-  const entities = (): Record<string, unknown> => {
-    if (!extracted) extracted = text ? extractTaskEntities(text) : {};
+  const entities = async (): Promise<Awaited<Record<string, unknown>>> => {
+    if (!extracted) extracted = text ? (await extractTaskEntities(text)) : {};
     return extracted;
   };
 
-  function pickCollaboration(): CollaborationPick {
+  async function pickCollaboration(): Promise<Awaited<CollaborationPick>> {
     const explicit = String(body.collaboration_id || "").trim();
     const sessionId = String(input.session?.collaboration_id || "").trim();
     if (sessionId && explicit && sessionId !== explicit) {
       return { row: null, source: null, conflict: true, ambiguous: false, candidates: [], reason: "会话已绑定其他合作对象，不能由请求覆盖" };
     }
     const named = new Map<string, { row: Row; source: ContextSource }>();
-    const remember = (id: string, source: ContextSource): void => {
+    const remember = async (id: string, source: ContextSource): Promise<Awaited<void>> => {
       if (!id) return;
-      const direct = collabById(id);
+      const direct = (await collabById(id));
       if (direct) {
         if (!named.has(String(direct.id))) named.set(String(direct.id), { row: direct, source });
         return;
       }
-      for (const candidate of scopedCollaborationSearch(id)) {
+      for (const candidate of (await scopedCollaborationSearch(id))) {
         if (String(candidate.handle || "") !== id && String(candidate.id || "") !== id) continue;
-        const full = collabById(String(candidate.id));
+        const full = (await collabById(String(candidate.id)));
         if (full && !named.has(String(full.id))) named.set(String(full.id), { row: full, source });
       }
     };
     // 第 1/2/3 级合并成候选集合，来源档记最高优先的那一档。
-    remember(explicit, "explicit");
-    for (const id of objectRefIds(body.object_refs, ["collaboration", "collab", "kol", "creator", "object"])) remember(id, "object_refs");
-    remember(sessionId, "session");
+    (await remember(explicit, "explicit"));
+    for (const id of objectRefIds(body.object_refs, ["collaboration", "collab", "kol", "creator", "object"])) (await remember(id, "object_refs"));
+    (await remember(sessionId, "session"));
     if (!named.size) {
       // 第 4 级：请求体 handle 与文本 @handle 走同一条检索径；id 命中时永不回退到这里。
-      const handle = firstString(body.handle, entities().handle);
+      const handle = firstString(body.handle, (await entities()).handle);
       if (handle) {
-        for (const candidate of scopedCollaborationSearch(handle)) {
+        for (const candidate of (await scopedCollaborationSearch(handle))) {
           if (String(candidate.handle || "") !== handle && String(candidate.id || "") !== handle) continue;
-          const full = collabById(String(candidate.id));
+          const full = (await collabById(String(candidate.id)));
           if (full && !named.has(String(full.id))) named.set(String(full.id), { row: full, source: "text" });
         }
       }
@@ -349,19 +349,19 @@ export function openContext(input: ContextResolveInput): ContextSession {
       };
     }
     const only = [...named.values()][0];
-    assertCollaborationInScope(String(only.row.id));
+    (await assertCollaborationInScope(String(only.row.id)));
     return { row: only.row, source: only.source, conflict: false, ambiguous: false, candidates: [], reason: "" };
   }
 
   const resolvers: Record<TaskContextKey, () => KeyResult | Promise<KeyResult>> = {
-    collaboration() {
-      pick = pickCollaboration();
+    async collaboration() {
+      pick = (await pickCollaboration());
       facts.collaboration = pick.row;
       if (pick.conflict) return failed("blocked", pick.reason);
       if (pick.row) return { ok: true, source: pick.source || "explicit" };
       return failed("context", pick.reason, pick.candidates);
     },
-    creator() {
+    async creator() {
       const asked = new Map<string, ContextSource>();
       const ask = (value: unknown, source: ContextSource): void => {
         const id = String(value ?? "").trim();
@@ -369,15 +369,15 @@ export function openContext(input: ContextResolveInput): ContextSession {
       };
       for (const key of ["creator_uid", "kol_uid", "creator_id", "kol_id", "creator_handle", "handle"]) ask(body[key], "explicit");
       for (const id of objectRefIds(body.object_refs, ["kol", "creator", "creator_profile", "kol_profile", "object"])) ask(id, "object_refs");
-      const found = entities();
+      const found = (await entities());
       for (const key of ["kolUid", "creator_id", "handle", "name"]) ask(found[key], "text");
       if (!asked.size) return failed("input", "没有给定达人，请先从红人库或会话里选一个");
       const named = new Map<string, { row: Row; source: ContextSource }>();
       for (const [query, source] of asked) {
-        const direct = collabById(query);
+        const direct = (await collabById(query));
         const rows: Row[] = direct ? [direct] : [];
-        for (const candidate of scopedCollaborationSearch(query)) {
-          const full = collabById(String(candidate.id));
+        for (const candidate of (await scopedCollaborationSearch(query))) {
+          const full = (await collabById(String(candidate.id)));
           if (full) rows.push(full);
         }
         for (const row of rows) {
@@ -450,7 +450,7 @@ export function openContext(input: ContextResolveInput): ContextSession {
     async mail_thread() {
       const collaboration = (await read("collaboration"));
       if (collaboration.ok && facts.collaboration) {
-        const thread = composeContextForCollaboration(String(facts.collaboration.id));
+        const thread = (await composeContextForCollaboration(String(facts.collaboration.id)));
         facts.mail_thread = thread;
         if (!thread.text && !thread.mail_count) return failed("context", "该合作暂无往来邮件");
         return { ok: true, source: "memory" };
@@ -463,7 +463,7 @@ export function openContext(input: ContextResolveInput): ContextSession {
       const mailbox = (await read("mailbox"));
       const from = facts.mailbox?.from || "";
       if (!mailbox.ok || !from) return dependencyFailed(mailbox, "缺少发件箱，无法读取往来摘要");
-      const digest = readPersonDigest(from, facts.recipient.to);
+      const digest = (await readPersonDigest(from, facts.recipient.to));
       if (!digest || (!digest.text && !digest.mail_count)) {
         return failed("context", "该收件人暂无往来摘要");
       }
@@ -476,7 +476,7 @@ export function openContext(input: ContextResolveInput): ContextSession {
       if (!stage.ok || !facts.stage) return dependencyFailed(stage, "缺少正式阶段，无法匹配适用模板");
       const brand = String(facts.collaboration?.brand || "").trim();
       const knowledgeId = String(body.knowledge_id || "").trim() || null;
-      const templates = resolveApplicableMailTemplates({ knowledgeId, skillId, stageCode: facts.stage.stage_code, brand });
+      const templates = (await resolveApplicableMailTemplates({ knowledgeId, skillId, stageCode: facts.stage.stage_code, brand }));
       const choices = preparedTemplateChoice(templates, facts.stage.stage_code, brand);
       facts.mail_template = { templates, choices, template: choices.length === 1 ? choices[0] : null };
       if (!templates.length) return failed("context", "暂无已启用的适用模板");
@@ -504,7 +504,7 @@ export function openContext(input: ContextResolveInput): ContextSession {
       const explicit = firstString(body.conversation_id, body.thread_id);
       if (explicit) asked.push([explicit, "explicit"]);
       for (const id of objectRefIds(body.object_refs, ["conversation", "thread", "mail_thread"])) asked.push([id, "object_refs"]);
-      const fromText = firstString(entities().conversationId);
+      const fromText = firstString((await entities()).conversationId);
       if (fromText) asked.push([fromText, "text"]);
       if (!asked.length) return failed("input", "没有给定邮件会话，请从收件箱或会话卡片里选一个");
       const found = new Map<string, ContextSource>();
@@ -527,7 +527,7 @@ export function openContext(input: ContextResolveInput): ContextSession {
       // 已选红人最近往来 → 合作记录邮箱 → 当前发件箱最近真实往来。
       const mailboxResult = (await read("mailbox"));
       (await read("conversation"));
-      const found = entities();
+      const found = (await entities());
       const toList = Array.isArray(found.to) ? found.to : [];
       const explicitTo = firstString(
         body.to,
@@ -552,7 +552,7 @@ export function openContext(input: ContextResolveInput): ContextSession {
       const explicit = firstString(body.message_id, body.messageId, body.id);
       if (explicit) asked.push([explicit, "explicit"]);
       for (const id of objectRefIds(body.object_refs, ["message", "mail_message", "mail_item"])) asked.push([id, "object_refs"]);
-      const fromText = firstString(entities().messageId, entities().message_id);
+      const fromText = firstString((await entities()).messageId, (await entities()).message_id);
       if (fromText) asked.push([fromText, "text"]);
       if (!asked.length) return failed("input", "没有给定邮件，请从通讯页选中一封邮件");
       const found = new Map<string, ContextSource>();

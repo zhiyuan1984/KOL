@@ -100,14 +100,8 @@ function usablePeer(raw: unknown, owned: Set<string>): string {
 
 type ThreadPeer = { id: string; peer: string; collaboration_id: string | null; last_at: string | null };
 
-function recentThreads(mailbox: string, limit: number): ThreadPeer[] {
-  const rows = getConn().prepare(
-    `SELECT id, peer_email, last_from, collaboration_id, last_at
-       FROM kol_mail_threads
-      WHERE lower(mailbox)=lower(?)
-      ORDER BY last_at DESC NULLS LAST, updated_at DESC
-      LIMIT ?`,
-  ).all(mailbox, limit) as Row[];
+async function recentThreads(mailbox: string, limit: number): Promise<Awaited<ThreadPeer[]>> {
+  const rows = (await getConn().query("SELECT id, peer_email, last_from, collaboration_id, last_at\n       FROM kol_mail_threads\n      WHERE lower(mailbox)=lower($1)\n      ORDER BY last_at DESC NULLS LAST, updated_at DESC\n      LIMIT $2",[mailbox,limit])).rows as Row[];
   return rows.map((row) => ({
     id: String(row.id || ""),
     peer: String(row.peer_email || row.last_from || ""),
@@ -116,14 +110,8 @@ function recentThreads(mailbox: string, limit: number): ThreadPeer[] {
   }));
 }
 
-function collaborationThreads(collaborationId: string, limit: number): ThreadPeer[] {
-  const rows = getConn().prepare(
-    `SELECT id, peer_email, last_from, collaboration_id, last_at
-       FROM kol_mail_threads
-      WHERE collaboration_id=?
-      ORDER BY last_at DESC NULLS LAST, updated_at DESC
-      LIMIT ?`,
-  ).all(collaborationId, limit) as Row[];
+async function collaborationThreads(collaborationId: string, limit: number): Promise<Awaited<ThreadPeer[]>> {
+  const rows = (await getConn().query("SELECT id, peer_email, last_from, collaboration_id, last_at\n       FROM kol_mail_threads\n      WHERE collaboration_id=$1\n      ORDER BY last_at DESC NULLS LAST, updated_at DESC\n      LIMIT $2",[collaborationId,limit])).rows as Row[];
   return rows.map((row) => ({
     id: String(row.id || ""),
     peer: String(row.peer_email || row.last_from || ""),
@@ -213,7 +201,7 @@ export async function composeRecipientFor(input: {
   if (collaboration) {
     const cid = String(collaboration.id || "");
     if (cid) {
-      for (const thread of collaborationThreads(cid, 5)) {
+      for (const thread of (await collaborationThreads(cid, 5))) {
         const peer = usablePeer(thread.peer, owned);
         if (peer) {
           return {
@@ -244,7 +232,7 @@ export async function composeRecipientFor(input: {
   if (mailbox) {
     const candidates: RecipientCandidate[] = [];
     let picked: ThreadPeer | null = null;
-    for (const thread of recentThreads(mailbox, 10)) {
+    for (const thread of (await recentThreads(mailbox, 10))) {
       const peer = usablePeer(thread.peer, owned);
       if (!peer) continue;
       if (!picked) picked = thread;

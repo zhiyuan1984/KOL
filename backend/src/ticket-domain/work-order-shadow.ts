@@ -151,7 +151,7 @@ export async function recordWorkOrderShadowDecision(
       task: { id: task.task.task_id, title: task.task.title, goal: task.task.goal, status: task.task.status, stage_code: target?.stage_code },
       source_event: event, templates, routing_policy_codes: routingPolicyCodes, allowed_stage_targets: allowedStageTargets,
     })
-      .catch((error) => error instanceof JevWorkOrderUnavailable ? disabledVerdict(error.message) : Promise.reject(error));
+      .catch(async (error) => error instanceof JevWorkOrderUnavailable ? disabledVerdict(error.message) : (await Promise.reject(error)));
   const selected = verdict.template_code
     ? templateRows.find((row) => row.template_code === verdict.template_code && Number(row.version) === verdict.template_version) || null
     : null;

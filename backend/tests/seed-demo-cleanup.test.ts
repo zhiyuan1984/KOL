@@ -15,51 +15,48 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "seed.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
+  (await resetConn());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
 /** 跨进程重开后，回填会把夹具的 task.created 等事件判为 lifecycle（不可删）。 */
-function freezeFixtureEvents(workItemId: string): void {
-  getConn().prepare(
-    "UPDATE task_events SET event_class='lifecycle' WHERE work_item_id=? AND event_type NOT IN ('task.completed','task.failed')",
-  ).run(workItemId);
+async function freezeFixtureEvents(workItemId: string): Promise<Awaited<void>> {
+  (await getConn().query("UPDATE task_events SET event_class='lifecycle' WHERE work_item_id=$1 AND event_type NOT IN ('task.completed','task.failed')",[workItemId]));
 }
 
 describe("demo cleanup vs immutable lifecycle task events", () => {
-  it("bootstrap cleanup skips tickets that carry lifecycle evidence", () => {
-    seedAll();
-    seedWorkbenchFixtures();
+  it("bootstrap cleanup skips tickets that carry lifecycle evidence", async () => {
+    (await seedAll());
+    (await seedWorkbenchFixtures());
     const conn = getConn();
-    freezeFixtureEvents("tsk_home_xiaomei_mail");
+    (await freezeFixtureEvents("tsk_home_xiaomei_mail"));
 
     expect(() => runLegacyDemoCleanup()).not.toThrow();
     if (databaseEngine() === "sqlite") {
       // 生命周期证据不可删（含 tickets 级联）：该演示任务保留；其余照旧清掉。
-      expect(conn.prepare("SELECT id FROM tickets WHERE id=?").get("tsk_home_xiaomei_mail")).toBeTruthy();
-      const kept = conn.prepare("SELECT COUNT(*) AS c FROM task_events WHERE work_item_id=?").get("tsk_home_xiaomei_mail") as { c: number };
+      expect((await conn.query("SELECT id FROM tickets WHERE id=$1",["tsk_home_xiaomei_mail"])).rows[0]).toBeTruthy();
+      const kept = (await conn.query("SELECT COUNT(*) AS c FROM task_events WHERE work_item_id=$1",["tsk_home_xiaomei_mail"])).rows[0] as { c: number };
       expect(kept.c).toBeGreaterThan(0);
-      expect(conn.prepare("SELECT id FROM tickets WHERE id=?").get("tsk_home_mum_nudge")).toBeUndefined();
+      expect((await conn.query("SELECT id FROM tickets WHERE id=$1",["tsk_home_mum_nudge"])).rows[0]).toBeUndefined();
     }
   });
 
-  it("demo reset wipes task events and restores the immutable trigger", () => {
-    seedAll();
-    seedWorkbenchFixtures();
+  it("demo reset wipes task events and restores the immutable trigger", async () => {
+    (await seedAll());
+    (await seedWorkbenchFixtures());
     const conn = getConn();
-    freezeFixtureEvents("tsk_home_xiaomei_mail");
+    (await freezeFixtureEvents("tsk_home_xiaomei_mail"));
 
-    expect(() => resetDemoRuntimeState()).not.toThrow();
-    expect(conn.prepare("SELECT COUNT(*) AS c FROM task_events").get()).toEqual({ c: 0 });
-    expect(conn.prepare("SELECT COUNT(*) AS c FROM tickets").get()).toEqual({ c: 0 });
+    expect(async () => (await resetDemoRuntimeState())).not.toThrow();
+    expect((await conn.query("SELECT COUNT(*) AS c FROM task_events",[])).rows[0]).toEqual({ c: 0 });
+    expect((await conn.query("SELECT COUNT(*) AS c FROM tickets",[])).rows[0]).toEqual({ c: 0 });
 
-    seedWorkbenchFixtures();
-    freezeFixtureEvents("tsk_home_xiaomei_mail");
-    expect(() => conn.prepare("DELETE FROM task_events WHERE work_item_id=? AND event_class='lifecycle'").run("tsk_home_xiaomei_mail"))
-      .toThrow(/immutable/);
+    (await seedWorkbenchFixtures());
+    (await freezeFixtureEvents("tsk_home_xiaomei_mail"));
+    (await expect((async () => (await conn.query("DELETE FROM task_events WHERE work_item_id=$1 AND event_class='lifecycle'",["tsk_home_xiaomei_mail"])))()).rejects.toThrow(/immutable/));
   });
 });

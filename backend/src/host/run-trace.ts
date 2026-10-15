@@ -70,7 +70,7 @@ export function createRunTraceSink(input: { workItemId: string; runId: string | 
   let traceHandle: ReturnType<typeof setTimeout> | null = null;
   /** Only changed rows are written: a flush re-walks every item. */
   const written = new Map<string, string>();
-  const writeRow = (
+  const writeRow = async (
     itemKey: string,
     eventType: string,
     label: string,
@@ -80,64 +80,64 @@ export function createRunTraceSink(input: { workItemId: string; runId: string | 
     const stamp = `${label}\u0000${status}\u0000${summary}`;
     if (written.get(itemKey) === stamp) return;
     written.set(itemKey, stamp);
-    upsertTaskEvent(input.workItemId, input.runId, itemKey, eventType, label, status, summary);
+    (await upsertTaskEvent(input.workItemId, input.runId, itemKey, eventType, label, status, summary));
   };
-  const writeTrace = () => {
+  const writeTrace = async () => {
     for (const item of items) {
       const row = runTraceRow(item);
-      writeRow(row.itemKey, row.eventType, row.label, row.status, row.summary);
+      (await writeRow(row.itemKey, row.eventType, row.label, row.status, row.summary));
     }
     for (const operation of operations) {
-      writeRow(
+      (await writeRow(
         `op:${operation.id}`,
         "run.tool",
         mcpCallDisplay(operation),
         operation.status,
         operation.name,
-      );
+      ));
     }
-    if (narrative) writeRow("narrative", "run.say", "说明", narrativeStatus, narrative);
+    if (narrative) (await writeRow("narrative", "run.say", "说明", narrativeStatus, narrative));
   };
-  const flushTrace = () => {
+  const flushTrace = async () => {
     traceHandle = null;
     if (!traceDirty) return;
     traceDirty = false;
-    writeTrace();
+    (await writeTrace());
   };
-  const scheduleTrace = (immediate: boolean) => {
+  const scheduleTrace = async (immediate: boolean) => {
     traceDirty = true;
     if (immediate) {
       if (traceHandle) clearTimeout(traceHandle);
-      flushTrace();
+      (await flushTrace());
       return;
     }
     if (!traceHandle) traceHandle = setTimeout(flushTrace, TRACE_FLUSH_MS);
   };
-  const onStream = (progress: WorkerProgress) => {
+  const onStream = async (progress: WorkerProgress) => {
     if (progress.delta) {
       streamText += progress.delta;
       const next = streamingNarrative(streamText);
       if (next && next !== narrative) {
         narrative = next;
-        scheduleTrace(false);
+        (await scheduleTrace(false));
       }
     }
     if (progress.operation) {
       operations = upsertOperationItem(operations, progress.operation);
-      scheduleTrace(true);
+      (await scheduleTrace(true));
       return;
     }
     if (!progress.trace) return;
     items = applyProgress(items, progress);
     // Phase and tool transitions are rare and worth showing at once; reasoning
     // text grows every token, so it batches.
-    scheduleTrace(progress.trace.kind !== "reasoning");
+    (await scheduleTrace(progress.trace.kind !== "reasoning"));
   };
-  const finish = (failed: boolean) => {
+  const finish = async (failed: boolean) => {
     items = finishProcessItems(items, failed);
     operations = operations.map((operation) => ({ ...operation, status: failed ? "failed" : "done" }));
     narrativeStatus = failed ? "failed" : "done";
-    scheduleTrace(true);
+    (await scheduleTrace(true));
   };
   return { onStream, finish };
 }

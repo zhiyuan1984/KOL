@@ -25,7 +25,7 @@ export async function personalTicketRawCountReport(userId: string, timezone = "A
   if (!TIMEZONE.test(timezone)) throw new HttpFail(400, { code: "invalid_timezone" });
   const pool = postgresPool();
   const [statusRows, membership] = await Promise.all([
-    pool.query<{ status: string; count: string }>(
+    (await pool.query<{ status: string; count: string }>(
       `WITH authorized AS (
          SELECT t.id,t.status
            FROM tickets t
@@ -37,8 +37,8 @@ export async function personalTicketRawCountReport(userId: string, timezone = "A
             ))
        ) SELECT status,COUNT(*)::text AS count FROM authorized GROUP BY status ORDER BY status`,
       [userId],
-    ),
-    pool.query<{ created: string; assigned_primary: string; watching: string }>(
+    )),
+    (await pool.query<{ created: string; assigned_primary: string; watching: string }>(
       `SELECT
          (SELECT COUNT(*) FROM tickets t WHERE t.task_type='manual_ticket' AND t.profile='ticket-workbench' AND t.owner_user_id=$1)::text AS created,
          (SELECT COUNT(DISTINCT ta.ticket_id) FROM ticket_assignments ta JOIN tickets t ON t.id=ta.ticket_id
@@ -46,7 +46,7 @@ export async function personalTicketRawCountReport(userId: string, timezone = "A
          (SELECT COUNT(DISTINCT tw.ticket_id) FROM ticket_watchers tw JOIN tickets t ON t.id=tw.ticket_id
            WHERE t.task_type='manual_ticket' AND t.profile='ticket-workbench' AND tw.status='active' AND tw.watcher_user_id=$1)::text AS watching`,
       [userId],
-    ),
+    )),
   ]);
   const byStatus = Object.fromEntries(statusRows.rows.map((row) => [row.status, Number(row.count)]));
   return {
@@ -147,14 +147,14 @@ export async function organizationTicketRawCountReport(
        ),`;
   const params = authorization.mode === "company_admin" ? [authorization.companies] : [rootIds];
   const [statusRows, unitRows] = await Promise.all([
-    pool.query<{ status: string; count: string }>(
+    (await pool.query<{ status: string; count: string }>(
       `${cte} scoped AS (
          SELECT t.id,t.status FROM tickets t JOIN ticket_org_scopes os ON os.ticket_id=t.id
           WHERE t.task_type='manual_ticket' AND t.profile='ticket-workbench' AND ${where}
        ) SELECT status,COUNT(*)::text AS count FROM scoped GROUP BY status ORDER BY status`,
       params,
-    ),
-    pool.query<{ org_unit_id: string; display_name: string; type: string; status: string; count: string }>(
+    )),
+    (await pool.query<{ org_unit_id: string; display_name: string; type: string; status: string; count: string }>(
       `${cte} scoped AS (
          SELECT os.assignee_unit_id,t.status FROM tickets t JOIN ticket_org_scopes os ON os.ticket_id=t.id
           WHERE t.task_type='manual_ticket' AND t.profile='ticket-workbench' AND ${where}
@@ -165,7 +165,7 @@ export async function organizationTicketRawCountReport(
         GROUP BY scoped.assignee_unit_id,u.display_name,u.type,scoped.status
         ORDER BY display_name,scoped.status`,
       params,
-    ),
+    )),
   ]);
   const byStatus = Object.fromEntries(statusRows.rows.map((row) => [row.status, Number(row.count)]));
   const units = new Map<string, OrganizationTicketRawCountReport["by_assignee_unit"][number]>();
@@ -235,15 +235,15 @@ export async function organizationTicketStageRawReport(
        ),`;
   const params = authorization.mode === "company_admin" ? [authorization.companies] : [rootIds];
   const [categoryRows, stageRows] = await Promise.all([
-    pool.query<{ business_category: string; status: string; count: string }>(
+    (await pool.query<{ business_category: string; status: string; count: string }>(
       `${cte} scoped AS (
          SELECT COALESCE(NULLIF(t.business_category,''),'unclassified') AS business_category,t.status
            FROM tickets t JOIN ticket_org_scopes os ON os.ticket_id=t.id
           WHERE t.task_type='manual_ticket' AND t.profile='ticket-workbench' AND ${where}
        ) SELECT business_category,status,COUNT(*)::text AS count FROM scoped GROUP BY business_category,status ORDER BY business_category,status`,
       params,
-    ),
-    pool.query<{ business_category: string; stage_group: string; stage_code: string; status: string; count: string }>(
+    )),
+    (await pool.query<{ business_category: string; stage_group: string; stage_code: string; status: string; count: string }>(
       `${cte} scoped AS (
          SELECT COALESCE(NULLIF(t.business_category,''),'unclassified') AS business_category,
                 COALESCE(NULLIF(t.stage_group,''),'unclassified') AS stage_group,
@@ -254,7 +254,7 @@ export async function organizationTicketStageRawReport(
            FROM scoped GROUP BY business_category,stage_group,stage_code,status
           ORDER BY business_category,stage_group,stage_code,status`,
       params,
-    ),
+    )),
   ]);
   const categories = new Map<string, OrganizationTicketStageRawReport["by_business_category"][number]>();
   for (const row of categoryRows.rows) {

@@ -14,12 +14,12 @@ beforeEach(async () => {
   env = Object.fromEntries(["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "NODE_ENV"].map(k => [k, process.env[k]]));
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "tool-catalog-"));
   Object.assign(process.env, { LINGONG_DB: path.join(tmp, "db.sqlite"), LINGONG_DATA: tmp, AUTH_MODE: "disabled", NODE_ENV: "test" });
-  resetConn();
-  getConn().prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('catalog_fixture','Fixture',1,'configured','now')").run();
+  (await resetConn());
+  (await getConn().query("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('catalog_fixture','Fixture',1,'configured','now')",[]));
   (await setConnectorConfig("catalog_fixture", { url: "https://fixture.example/mcp", allow_unauthenticated: true }, 0));
 });
-afterEach(() => {
-  resetConn(); fs.rmSync(tmp, { recursive: true, force: true });
+afterEach(async () => {
+  (await resetConn()); fs.rmSync(tmp, { recursive: true, force: true });
   for (const [k, v] of Object.entries(env)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
 });
 

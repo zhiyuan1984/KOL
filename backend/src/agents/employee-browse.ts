@@ -18,8 +18,8 @@ export async function employeeAgentBrowse(): Promise<EmployeeAgentBrowse> {
     "SELECT skill_id,selector FROM knowledge_bindings WHERE enabled=1 AND skill_id=ANY($1::text[])", [skillIds],
   ) : [];
   // The effective published snapshot, current brand scope and employee visibility are already enforced here.
-  const published = listPublishedForOps();
-  const taxonomy = publicKnowledgeTaxonomy();
+  const published = (await listPublishedForOps());
+  const taxonomy = (await publicKnowledgeTaxonomy());
   const domains = taxonomy.domains.map(row => ({ id: String(row.id), name: String(row.name), level: String(row.level), parent_id: row.parent_id ? String(row.parent_id) : null }));
   const bases = taxonomy.bases.map(row => ({ id: String(row.id), name: String(row.name), domain_id: row.domain_id ? String(row.domain_id) : null }));
   const scopeForBase = (baseId: string): Pick<EmployeeAgentScope, "base_id" | "domain_id" | "family_id"> => {

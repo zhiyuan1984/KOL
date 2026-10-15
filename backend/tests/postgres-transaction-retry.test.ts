@@ -17,7 +17,7 @@ describe("PostgreSQL transaction bounded retry", () => {
     const first = client(); const second = client();
     provide(first); provide(second);
     const action = vi.fn().mockRejectedValueOnce(conflict()).mockResolvedValueOnce("ok");
-    const result = postgresTransaction(action);
+    const result = (await postgresTransaction(action));
     await vi.runAllTimersAsync();
     expect(await result).toBe("ok");
     expect(action).toHaveBeenCalledTimes(2);
@@ -31,7 +31,7 @@ describe("PostgreSQL transaction bounded retry", () => {
     for (const c of clients) provide(c);
     const error = conflict();
     const action = vi.fn().mockRejectedValue(error);
-    const result = postgresTransaction(action).catch(e => e);
+    const result = (await postgresTransaction(action).catch(e => e));
     await vi.runAllTimersAsync();
     expect(await result).toBe(error);
     expect(action).toHaveBeenCalledTimes(4);

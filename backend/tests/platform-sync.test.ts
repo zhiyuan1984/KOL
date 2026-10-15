@@ -29,19 +29,19 @@ beforeEach(async () => {
     RUNTIME_CREDENTIAL_MASTER_KEY: process.env.RUNTIME_CREDENTIAL_MASTER_KEY || "a".repeat(64),
   });
   await freshTestDatabase();
-  resetConn();
+  (await resetConn());
   (await ensureRuntimeSchema());
   calls = 0;
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   for (const key of ["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "CODEX_MODE"]) delete process.env[key];
 });
 
 async function mountLibraryTool(): Promise<void> {
-  getConn().prepare("UPDATE connectors SET enabled=1,status='verified' WHERE id='starrykol'").run();
+  (await getConn().query("UPDATE connectors SET enabled=1,status='verified' WHERE id='starrykol'",[]));
   const credential = (await createCredential({ type: "organization_secret", label: "probe", purpose: "probe", secret: "k-123" }, "admin"));
   (await setConnectorConfig("starrykol", { url: "https://starry.example.test/mcp", headers_secret_refs: { "X-MCP-API-KEY": credential.id } }, 0));
   (await setToolPolicy("starrykol", "listAllKolProfiles", { enabled: true, risk: "L1", access: "read", schema_hash: toolSchemaHash(tool) }, 0));
@@ -73,7 +73,7 @@ describe("platform sync Agent", () => {
     await expect((async () => (await createAgentBinding({
       agent_id: "agent:platform-sync", target_type: "organization_unit", target_id: "org:research_institute", company_id: "company:amperetime",
     })))()).rejects.toThrow();
-    const admin = getConn().prepare("SELECT id FROM users WHERE roles LIKE '%admin%' AND active=1 LIMIT 1").get() as { id?: string } | undefined;
+    const admin = (await getConn().query("SELECT id FROM users WHERE roles LIKE '%admin%' AND active=1 LIMIT 1",[])).rows[0] as { id?: string } | undefined;
     if (admin?.id) expect((await runtimeAgentCandidates("creator_library_all", admin.id))).not.toContain("agent:platform-sync");
   });
 });

@@ -86,24 +86,24 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
-  seedWorkbenchFixtures();
+  (await seedWorkbenchFixtures());
 });
 
-afterEach(() => {
+afterEach(async () => {
   setEmailMcpClientFactory();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
 describe("host contracts", () => {
   it("PATCH draft subject and body refresh the email card and compose result", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const draft = draftOn(sid, { subject: "发货通知", body: "old interest body" });
-    const card = emailCardPayload(draft);
+    const draft = (await draftOn(sid, { subject: "发货通知", body: "old interest body" }));
+    const card = (await emailCardPayload(draft));
     const result = (await emailMcpResultCard("email_compose", {
       mailboxEmail: draft.from_addr,
       from: draft.from_addr,
@@ -112,12 +112,8 @@ describe("host contracts", () => {
       body: draft.body_en,
     }));
     const now = new Date().toISOString();
-    getConn().prepare(
-      "INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES (?,?,?,?,?,?)",
-    ).run("msg_draft_1", sid, "assistant", "email_card", JSON.stringify(card), now);
-    getConn().prepare(
-      "INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES (?,?,?,?,?,?)",
-    ).run("msg_result_1", sid, "assistant", "task_result_card", JSON.stringify({
+    (await getConn().query("INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES ($1,$2,$3,$4,$5,$6)",["msg_draft_1",sid,"assistant","email_card",JSON.stringify(card),now]));
+    (await getConn().query("INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES ($1,$2,$3,$4,$5,$6)",["msg_result_1",sid,"assistant","task_result_card",JSON.stringify({
       ...result,
       skill: "email_compose",
       starrykol_data: {
@@ -126,7 +122,7 @@ describe("host contracts", () => {
         subject: draft.subject,
         body: draft.body_en,
       },
-    }), now);
+    }),now]));
     const patched = await request("PATCH", `/api/drafts/${draft.id}`, {
       subject: "Re: KOL合作",
       body_en: "Hi, thrilled to hear about your interest.",
@@ -144,7 +140,7 @@ describe("host contracts", () => {
 
   it("send does not call stage", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const draft = draftOn(sid);
+    const draft = (await draftOn(sid));
     const sent = await confirmAndSendDraft(request, String(draft.id), {});
     expect(sent.status, await sent.text()).toBe(200);
     const sj = await sent.json();
@@ -184,11 +180,7 @@ describe("host contracts", () => {
   });
 
   it("confirm-stage writes official stage and remote changeLifecycleStage", async () => {
-    getConn().prepare("UPDATE collaborations SET kol_uid=?, last_lifecycle_id=? WHERE id=?").run(
-      "KOLXIAOMEI",
-      "16",
-      "col_xiaomei",
-    );
+    (await getConn().query("UPDATE collaborations SET kol_uid=$1, last_lifecycle_id=$2 WHERE id=$3",["KOLXIAOMEI","16","col_xiaomei"]));
     const [sid, data] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
     const card = (data.messages as Json[]).find((m) => m.kind === "confirm_stage_card")!;
     const target = ((card.payload as Json).targets as Json[])[0].code;
@@ -206,20 +198,14 @@ describe("host contracts", () => {
       updated: true,
       cooperationStageCode: toLegacyStarryStage(String(target)),
     });
-    const col = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'").get() as Json;
+    const col = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'",[])).rows[0] as Json;
     expect(col.stage_code).toBe(target);
-    const stored = getConn().prepare(
-      "SELECT payload FROM messages WHERE session_id=? AND kind='confirm_stage_card'",
-    ).all(sid) as { payload: string }[];
+    const stored = (await getConn().query("SELECT payload FROM messages WHERE session_id=$1 AND kind='confirm_stage_card'",[sid])).rows as { payload: string }[];
     expect(stored.some((row) => Boolean((JSON.parse(row.payload) as Json).resolved))).toBe(true);
   });
 
   it("human skip keeps kind/reason locally and walks Starry with adjacent native hops", async () => {
-    getConn().prepare("UPDATE collaborations SET kol_uid=?, last_lifecycle_id=? WHERE id=?").run(
-      "KOLXIAOMEI",
-      "320",
-      "col_xiaomei",
-    );
+    (await getConn().query("UPDATE collaborations SET kol_uid=$1, last_lifecycle_id=$2 WHERE id=$3",["KOLXIAOMEI","320","col_xiaomei"]));
     const [sid, data] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
     const recorded: { name: string; args: Json }[] = [];
     setEmailMcpClientFactory(() => ({
@@ -269,30 +255,26 @@ describe("host contracts", () => {
         && Object.keys(payload).sort().join(",") === "reason,toStageCode";
     })).toBe(true);
     expect(JSON.stringify(writes.map((row) => row.args))).not.toMatch(/cooperationStageCode|targetStageCode|"stageCode"|skip/i);
-    const hopAudits = listAudit("host.confirm_stage.mcp") as Json[];
+    const hopAudits = (await listAudit("host.confirm_stage.mcp")) as Json[];
     expect(hopAudits.filter((row) => (row.payload as Json).native).map((row) => (row.payload as Json).native)).toEqual([
       "INTEREST_CONFIRMED",
       "COOPERATION_EVALUATION",
       "QUOTE_PENDING",
       "BUSINESS_NEGOTIATION",
     ]);
-    const col = getConn().prepare(
-      "SELECT stage_code, last_skip_kind, last_skip_reason, last_skipped_stages FROM collaborations WHERE id='col_xiaomei'",
-    ).get() as Json;
+    const col = (await getConn().query("SELECT stage_code, last_skip_kind, last_skip_reason, last_skipped_stages FROM collaborations WHERE id='col_xiaomei'",[])).rows[0] as Json;
     expect(col.stage_code).toBe("NEGOTIATING");
     expect(col.last_skip_kind).toBe("skip");
     expect(col.last_skip_reason).toBe("报价已口头同意，直接商务谈判");
     expect(JSON.parse(String(col.last_skipped_stages))).toEqual(["INTERESTED", "EVALUATING", "QUOTE_PENDING"]);
-    const stored = getConn().prepare(
-      "SELECT payload FROM messages WHERE session_id=? AND kind='confirm_stage_card'",
-    ).all(sid) as { payload: string }[];
+    const stored = (await getConn().query("SELECT payload FROM messages WHERE session_id=$1 AND kind='confirm_stage_card'",[sid])).rows as { payload: string }[];
     expect(stored.some((row) => {
       const payload = JSON.parse(row.payload) as Json;
       return payload.resolved
         && payload.skip_kind === "skip"
         && payload.skip_reason === "报价已口头同意，直接商务谈判";
     })).toBe(true);
-    const audits = listAudit("host.confirm_stage") as Json[];
+    const audits = (await listAudit("host.confirm_stage")) as Json[];
     expect(audits.some((row) => {
       const payload = row.payload as Json;
       return payload.to_stage === "NEGOTIATING"
@@ -315,13 +297,11 @@ describe("host contracts", () => {
     const body = await r.json();
     expect(body.rejected).toBe(true);
     expect(body.stage_changed).toBe(false);
-    const col = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'").get() as Json;
+    const col = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'",[])).rows[0] as Json;
     expect(col.stage_code).toBe("INITIAL_CONTACT");
     const afterWorkers = ((await (await request("GET", "/api/workers")).json()) as unknown as Json[]).length;
     expect(afterWorkers).toBe(beforeWorkers);
-    const stored = getConn().prepare(
-      "SELECT payload FROM messages WHERE session_id=? AND kind='confirm_stage_card'",
-    ).all(sid) as { payload: string }[];
+    const stored = (await getConn().query("SELECT payload FROM messages WHERE session_id=$1 AND kind='confirm_stage_card'",[sid])).rows as { payload: string }[];
     expect(stored.some((row) => Boolean((JSON.parse(row.payload) as Json).rejected))).toBe(true);
   });
 
@@ -332,7 +312,7 @@ describe("host contracts", () => {
     expect((data.worker as Json)?.skill).toBe("confirm_stage");
     expect(data.draft ?? null).toBeNull();
     expect((data.messages as Json[]).map((m) => m.kind)).not.toContain("email_card");
-    const col = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'").get() as Json;
+    const col = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'",[])).rows[0] as Json;
     expect(col.stage_code).toBe("INITIAL_CONTACT");
   });
 
@@ -353,9 +333,9 @@ describe("host contracts", () => {
   });
 
   it("terminal states have no outgoing transitions", async () => {
-    tx((c) => {
-      c.prepare("UPDATE collaborations SET stage_code='COMPLETED' WHERE id='col_trip'").run();
-    });
+    (await tx(async (c) => {
+      (await c.query("UPDATE collaborations SET stage_code='COMPLETED' WHERE id='col_trip'",[]));
+    }));
     const r = await request("POST", "/api/collaborations/col_trip/confirm-stage", {
       stage_code: "INITIAL_CONTACT",
       expected_version: 0,
@@ -399,12 +379,10 @@ describe("host contracts", () => {
     // PostgreSQL 桥接把数值列以字符串返回（同 34bd84a 口径），按数值归一后比较。
     expect(Number(rows[0].data_version_before)).toBe(0);
     expect(Number(rows[0].data_version_after)).toBe(1);
-    expect(() =>
-      getConn().prepare("UPDATE stage_transitions SET reason_code = 'MUTATED' WHERE id = ?").run(rows[0].id),
-    ).toThrow(/immutable/);
-    expect(() =>
-      getConn().prepare("DELETE FROM stage_transitions WHERE id = ?").run(rows[0].id),
-    ).toThrow(/immutable/);
+    (await expect((async () =>
+      (await getConn().query("UPDATE stage_transitions SET reason_code = 'MUTATED' WHERE id = $1",[rows[0].id])))()).rejects.toThrow(/immutable/));
+    (await expect((async () =>
+      (await getConn().query("DELETE FROM stage_transitions WHERE id = $1",[rows[0].id])))()).rejects.toThrow(/immutable/));
   });
 
   it("gated content review queues work approval and writes after agree", async () => {
@@ -420,7 +398,7 @@ describe("host contracts", () => {
     expect(body.approval_id).toBeTruthy();
     expect(body.kind).toBe("content");
     expect(body.stage_code).toBe("CONTENT_PLANNING");
-    const held = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_mum'").get() as Json;
+    const held = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_mum'",[])).rows[0] as Json;
     expect(held.stage_code).toBe("CONTENT_PLANNING");
     const decided = await request("POST", `/api/approvals/${body.approval_id}/decide`, {
       decision: "approve",
@@ -428,14 +406,14 @@ describe("host contracts", () => {
       idempotency_key: `host-content-${body.approval_id}`,
     });
     expect(decided.status, await decided.text()).toBe(200);
-    const after = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_mum'").get() as Json;
+    const after = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_mum'",[])).rows[0] as Json;
     expect(after.stage_code).toBe("CONTENT_REVIEW");
   });
 
   it("plan-pending stage confirm queues approval and writes after agree", async () => {
-    tx((c) => {
-      c.prepare("UPDATE collaborations SET stage_code='NEGOTIATING', stage_version=0 WHERE id='col_laozhang'").run();
-    });
+    (await tx(async (c) => {
+      (await c.query("UPDATE collaborations SET stage_code='NEGOTIATING', stage_version=0 WHERE id='col_laozhang'",[]));
+    }));
     const queued = await request("POST", "/api/collaborations/col_laozhang/confirm-stage", {
       stage_code: "PLAN_PENDING",
       expected_version: 0,
@@ -445,7 +423,7 @@ describe("host contracts", () => {
     expect(body.waiting_approval).toBe(true);
     expect(body.stage_code).toBe("NEGOTIATING");
     expect(body.kind).toBe("stage");
-    const held = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_laozhang'").get() as Json;
+    const held = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_laozhang'",[])).rows[0] as Json;
     expect(held.stage_code).toBe("NEGOTIATING");
     const decided = await request("POST", `/api/approvals/${body.approval_id}/decide`, {
       decision: "approve",
@@ -453,12 +431,12 @@ describe("host contracts", () => {
       idempotency_key: `host-stage-${body.approval_id}`,
     });
     expect(decided.status, await decided.text()).toBe(200);
-    const after = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_laozhang'").get() as Json;
+    const after = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_laozhang'",[])).rows[0] as Json;
     expect(after.stage_code).toBe("PLAN_PENDING");
   });
 
   it("POST /api/approvals initiates expense only and leaves confirm_stage unchanged", async () => {
-    const stageBefore = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_laozhang'").get() as Json;
+    const stageBefore = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_laozhang'",[])).rows[0] as Json;
     const created = await request("POST", "/api/approvals", {
       kind: "expense",
       amount: 5000,
@@ -479,16 +457,16 @@ describe("host contracts", () => {
     expect(rejected.status).toBe(400);
     expect((await rejected.json()).detail).toMatchObject({ code: "unsupported_kind" });
 
-    const stageAfter = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_laozhang'").get() as Json;
+    const stageAfter = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_laozhang'",[])).rows[0] as Json;
     expect(stageAfter.stage_code).toBe(stageBefore.stage_code);
-    const audits = listAudit("expense.approval.created") as { payload: { approval_id?: string } }[];
+    const audits = (await listAudit("expense.approval.created")) as { payload: { approval_id?: string } }[];
     expect(audits.some((event) => event.payload.approval_id === row.id)).toBe(true);
   });
 
   it("allows an evidence-backed jump and still blocks unfinished priors", async () => {
-    tx((c) => {
-      c.prepare("UPDATE collaborations SET stage_code='INITIAL_CONTACT', stage_version=0 WHERE id='col_xiaomei'").run();
-    });
+    (await tx(async (c) => {
+      (await c.query("UPDATE collaborations SET stage_code='INITIAL_CONTACT', stage_version=0 WHERE id='col_xiaomei'",[]));
+    }));
     const jumped = await request("POST", "/api/collaborations/col_xiaomei/confirm-stage", {
       stage_code: "EVALUATING",
       expected_version: 0,
@@ -497,9 +475,9 @@ describe("host contracts", () => {
     });
     expect(jumped.status, await jumped.text()).toBe(200);
     expect((await jumped.json()).stage_code).toBe("EVALUATING");
-    tx((c) => {
-      c.prepare("UPDATE collaborations SET stage_code='INITIAL_CONTACT', stage_version=0 WHERE id='col_xiaomei'").run();
-    });
+    (await tx(async (c) => {
+      (await c.query("UPDATE collaborations SET stage_code='INITIAL_CONTACT', stage_version=0 WHERE id='col_xiaomei'",[]));
+    }));
     const blocked = await request("POST", "/api/collaborations/col_xiaomei/confirm-stage", {
       stage_code: "PUBLISHED",
       expected_version: 0,
@@ -539,8 +517,8 @@ describe("host contracts", () => {
 
   it("from options authorized only", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const draft = draftOn(sid);
-    const card = (await import("../src/host/api.js")).emailCardPayload(draft);
+    const draft = (await draftOn(sid));
+    const card = (await (await import("../src/host/api.js")).emailCardPayload(draft));
     const opts = (card.allowed_from_mailboxes as Json[]) || [];
     expect(opts.length).toBeGreaterThan(0);
     expect(opts.every((o) => o.authorized)).toBe(true);
@@ -550,7 +528,7 @@ describe("host contracts", () => {
 
   it("send exam permission template persistent", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const did = draftOn(sid).id;
+    const did = (await draftOn(sid)).id;
     await request("POST", "/api/me/persona", { persona: "exam_blocked" });
     const r = await confirmAndSendDraft(request, String(did), {});
     expect(r.status).toBe(403);
@@ -587,7 +565,7 @@ describe("host contracts", () => {
   it("restart restores the normal operator after an exam-block demo", async () => {
     await request("POST", "/api/me/persona", { persona: "exam_blocked" });
     expect(((await (await request("GET", "/api/me")).json()) as Json).exam_passed).toBe(false);
-    seedIfEmpty();
+    (await seedIfEmpty());
     const me = await (await request("GET", "/api/me")).json();
     expect((me as Json).exam_passed).toBe(true);
     expect(me.handle).toBe(DEMO_ADMIN.handle);
@@ -595,11 +573,11 @@ describe("host contracts", () => {
 
   it("one-click translation returns the model-produced internal Chinese draft", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const did = String(draftOn(sid).id);
+    const did = String((await draftOn(sid)).id);
     const translated = await request("POST", "/api/actions/mail.translate-draft", { draft_id: did });
     expect(translated.status).toBe(200);
     const body = await translated.json();
-    const english = String(draftOn(sid).body_en || "");
+    const english = String((await draftOn(sid)).body_en || "");
     expect(String(body.zh)).toMatch(/[\u4e00-\u9fff]/);
     expect(String(body.zh)).not.toBe(english);
     expect(String(body.zh)).not.toContain(`【内部中文译稿 · 不会进入 SMTP】\n${english}`.trim());
@@ -608,7 +586,7 @@ describe("host contracts", () => {
 
   it("maps a Starry operator mailbox onto the authorized From dropdown and still translates", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const draft = persistDraft(sid, {
+    const draft = (await persistDraft(sid, {
       skill: "email_compose",
       from: "larry.zhao@amperetime.com",
       to: "xiaomei.beauty@example.com",
@@ -617,10 +595,10 @@ describe("host contracts", () => {
       official_stage: "INITIAL_CONTACT",
       collaboration_id: "col_xiaomei",
       brand: "RO",
-    });
+    }));
     expect(String(draft.from_addr)).toBe("larry.zhao@amperetime.com");
     expect(String(draft.body_zh_internal)).toMatch(/[\u4e00-\u9fff]/);
-    const card = emailCardPayload(draft);
+    const card = (await emailCardPayload(draft));
     const opts = (card.allowed_from_mailboxes as Json[]) || [];
     expect(card.from).toBe("larry.zhao@amperetime.com");
     expect(card.send_from).toBe(BRAND_MAILBOXES.RO);
@@ -640,7 +618,7 @@ describe("host contracts", () => {
 
   it("generates an internal Chinese draft when the cache is empty", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
-    const draft = persistDraft(sid, {
+    const draft = (await persistDraft(sid, {
       skill: "email_compose",
       template_id: "stage_mail.followup",
       from: BRAND_MAILBOXES.LT,
@@ -650,14 +628,14 @@ describe("host contracts", () => {
       body_zh_internal: " ",
       official_stage: "INITIAL_CONTACT",
       collaboration_id: "col_xiaomei",
-    });
-    getConn().prepare("UPDATE drafts SET body_zh_internal='' WHERE id=?").run(String(draft.id));
+    }));
+    (await getConn().query("UPDATE drafts SET body_zh_internal='' WHERE id=$1",[String(draft.id)]));
     const translated = await request("POST", "/api/actions/mail.translate-draft", { draft_id: draft.id });
     expect(translated.status).toBe(200);
     const body = await translated.json();
     expect(String(body.zh)).toMatch(/[\u4e00-\u9fff]/);
     expect(String(body.zh)).not.toContain("Just a follow-up");
-    expect(String((getConn().prepare("SELECT body_zh_internal FROM drafts WHERE id=?").get(String(draft.id)) as { body_zh_internal: string }).body_zh_internal)).toMatch(/[\u4e00-\u9fff]/);
+    expect(String(((await getConn().query("SELECT body_zh_internal FROM drafts WHERE id=$1",[String(draft.id)])).rows[0] as { body_zh_internal: string }).body_zh_internal)).toMatch(/[\u4e00-\u9fff]/);
   });
 
   it("go rejected on messages", async () => {
@@ -682,7 +660,7 @@ describe("host contracts", () => {
     expect(recs.every((rec) => rec.category && rec.group && rec.profile)).toBe(true);
     expect(recs.some((rec) => rec.act === "go")).toBe(false);
     for (const rec of recs) {
-      const intent = classify(String(rec.prompt), String(rec.intent));
+      const intent = (await classify(String(rec.prompt), String(rec.intent)));
       expect(intent.skill, String(rec.id)).toBe(rec.id);
       expect(intent.needs_worker, String(rec.id)).toBe(true);
     }
@@ -826,7 +804,7 @@ describe("host contracts", () => {
     const cron = await withTicketPrincipal({
       id: "test-admin", username: "test-admin", name: "Test Admin", email: null,
       roles: ["admin"], active: true,
-    }, () => request("POST", "/api/cron/risk-scan"));
+    }, async () => (await request("POST", "/api/cron/risk-scan")));
     expect(cron.status, await cron.text()).toBe(200);
     const cronBody = await cron.json() as Json;
     expect(cronBody.run_id).toBeTruthy();
@@ -963,7 +941,7 @@ describe("host contracts", () => {
       expect(denied.status).toBe(400);
 
       // 资格来自 Agent 绑定：账号挂到组织人员，Agent 绑定到该人员所在的三级组。
-      getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(employeeId, "person:ye_guanwang");
+      (await getConn().query("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2",[employeeId,"person:ye_guanwang"]));
       (await createAgentBinding({
         agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
         company_id: "company:amperetime", source: "test",

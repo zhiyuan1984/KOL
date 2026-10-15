@@ -54,12 +54,12 @@ async function responseBody(response: Response): Promise<{ status: number; body:
 
 async function getLabels(user: AppUser | undefined, box = BOX_A, conversationId?: string) {
   const query = new URLSearchParams({ box, ...(conversationId ? { conversation_id: conversationId } : {}) });
-  const request = () => app.request(`/queries/mail.labels?${query.toString()}`);
+  const request = async () => (await app.request(`/queries/mail.labels?${query.toString()}`));
   return responseBody(user ? await within(user, request) : await request());
 }
 
 async function changeLabel(user: AppUser | undefined, body: Record<string, unknown>) {
-  const request = () => app.request("/actions/mail.label", { method: "POST", body: JSON.stringify(body) });
+  const request = async () => (await app.request("/actions/mail.label", { method: "POST", body: JSON.stringify(body) }));
   return responseBody(user ? await within(user, request) : await request());
 }
 
@@ -256,8 +256,8 @@ describe("mail private labels PostgreSQL integration", () => {
 
   it("has one dictionary row under concurrent same-name adds", async () => {
     const [left, right] = await Promise.all([
-      changeLabel(ACTOR_A, action({ mode: "add", name: "Concurrent", expected_version: 0 })),
-      changeLabel(ACTOR_A, action({ mode: "add", name: "concurrent", expected_version: 0 })),
+      (await changeLabel(ACTOR_A, action({ mode: "add", name: "Concurrent", expected_version: 0 }))),
+      (await changeLabel(ACTOR_A, action({ mode: "add", name: "concurrent", expected_version: 0 }))),
     ]);
     expect([left.status, right.status].sort()).toEqual([200, 409]);
     const succeeded = left.status === 200 ? left : right;

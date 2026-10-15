@@ -20,11 +20,11 @@ beforeEach(async () => {
     AUTH_MODE: "enabled",
     NODE_ENV: "test",
   });
-  resetConn();
+  (await resetConn());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   for (const [key, value] of Object.entries(previousEnv)) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;
@@ -44,11 +44,9 @@ describe("Agent manifest runtime bootstrap", () => {
     // Connector declarations describe intended compatible resources only.
     // Nothing is silently authorized before connector and tool review in Admin.
     expect((await getSkillConnectors("creator_profile"))).toEqual([]);
-    const audit = getConn().prepare(
-      "SELECT payload FROM audit_events WHERE event_type='runtime.agent_manifest.migrated'",
-    ).get() as { payload: string };
+    const audit = (await getConn().query("SELECT payload FROM audit_events WHERE event_type='runtime.agent_manifest.migrated'",[])).rows[0] as { payload: string };
     expect(JSON.parse(audit.payload)).toMatchObject({ agent_id: "agent:kol", connectors: ["starrykol", "claw", "kolclaw"] });
-    const runtimeSkill = fs.readFileSync(writeRuntimeSkill("creator_profile"), "utf8");
+    const runtimeSkill = fs.readFileSync((await writeRuntimeSkill("creator_profile")), "utf8");
     expect(runtimeSkill).toContain("Only the local `skill_runtime` MCP server is available");
     expect(runtimeSkill).toContain("rt_starrykol__pageKolProfiles_");
   });
@@ -56,7 +54,7 @@ describe("Agent manifest runtime bootstrap", () => {
   it("never revives an administrator-disabled Agent binding after a restart", async () => {
     const current = (await getAgentSkills("agent:kol")).find((row) => row.skill_id === "creator_profile")!;
     (await setAgentSkill("agent:kol", "creator_profile", false, Number(current.version)));
-    resetConn();
+    (await resetConn());
     const row = (await getAgentSkills("agent:kol")).find((item) => item.skill_id === "creator_profile")!;
     // PostgreSQL 适配层把数值列以字符串返回（SQLite 路径返回数字），按数值归一后再比较。
     expect({ enabled: Number(row.enabled), version: Number(row.version) }).toEqual({ enabled: 0, version: 2 });

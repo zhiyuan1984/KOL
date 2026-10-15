@@ -1,4 +1,4 @@
-import { isSqliteClosedError, isSqliteForeignKeyError, nowIso, tx, type SqliteConn } from "./db.js";
+import { isSqliteClosedError, isSqliteForeignKeyError, nowIso, tx, type DatabaseConnection } from "./db.js";
 import { nid } from "./ids.js";
 import type { Row } from "./types.js";
 
@@ -19,11 +19,11 @@ export function taskEventClass(eventType: string): TaskEventClass {
 }
 
 /** Shared guard: the ticket (and run, when given) must still exist. */
-function taskEventTarget(db: SqliteConn, workItemId: string, runId: string | null): boolean {
-  const item = db.prepare("SELECT id FROM tickets WHERE id=?").get(workItemId) as { id: string } | undefined;
+async function taskEventTarget(db: DatabaseConnection, workItemId: string, runId: string | null): Promise<Awaited<boolean>> {
+  const item = (await db.query("SELECT id FROM tickets WHERE id=$1",[workItemId])).rows[0] as { id: string } | undefined;
   if (!item) return false;
   if (!runId) return true;
-  const run = db.prepare("SELECT id FROM task_runs WHERE id=? AND work_item_id=?").get(runId, workItemId) as
+  const run = (await db.query("SELECT id FROM task_runs WHERE id=$1 AND work_item_id=$2",[runId,workItemId])).rows[0] as
     | { id: string }
     | undefined;
   return Boolean(run);
@@ -39,29 +39,27 @@ function taskEventLimit(): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 5000;
 }
 
-function taskEventCount(db: SqliteConn, workItemId: string): number {
-  const row = db.prepare("SELECT COUNT(*) AS n FROM task_events WHERE work_item_id=?").get(workItemId) as
+async function taskEventCount(db: DatabaseConnection, workItemId: string): Promise<Awaited<number>> {
+  const row = (await db.query("SELECT COUNT(*) AS n FROM task_events WHERE work_item_id=$1",[workItemId])).rows[0] as
     | { n: number }
     | undefined;
   return Number(row?.n || 0);
 }
 
 /** Append one task event into a caller-owned transaction. */
-export function appendTaskEventInConn(
-  db: SqliteConn,
+export async function appendTaskEventInConn(
+  db: DatabaseConnection,
   workItemId: string,
   runId: string | null,
   eventType: string,
   label: string,
   status: string,
   safeSummary?: string,
-): Row | null {
-  if (!taskEventTarget(db, workItemId, runId)) return null;
+): Promise<Awaited<Row | null>> {
+  if (!(await taskEventTarget(db, workItemId, runId))) return null;
   const eventClass = taskEventClass(eventType);
-  if (eventClass !== "lifecycle" && taskEventCount(db, workItemId) >= taskEventLimit()) return null;
-  const current = db.prepare(
-    "SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=?",
-  ).get(workItemId) as { sequence: number };
+  if (eventClass !== "lifecycle" && (await taskEventCount(db, workItemId)) >= taskEventLimit()) return null;
+  const current = (await db.query("SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=$1",[workItemId])).rows[0] as { sequence: number };
   const time = nowIso();
   const row = {
     id: nid("tev"),
@@ -76,14 +74,7 @@ export function appendTaskEventInConn(
     time,
     created_at: time,
   };
-  db.prepare(
-    `INSERT INTO task_events
-     (id,work_item_id,run_id,sequence,event_type,event_class,label,status,safe_summary,time,created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    row.id, row.work_item_id, row.run_id, row.sequence, row.event_type, row.event_class,
-    row.label, row.status, row.safe_summary, row.time, row.created_at,
-  );
+  (await db.query("INSERT INTO task_events\n     (id,work_item_id,run_id,sequence,event_type,event_class,label,status,safe_summary,time,created_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",[row.id,row.work_item_id,row.run_id,row.sequence,row.event_type,row.event_class,row.label,row.status,row.safe_summary,row.time,row.created_at]));
   return row;
 }
 
@@ -96,7 +87,7 @@ export function appendTaskEvent(
   safeSummary?: string,
 ): Row | null {
   try {
-    return tx((db) => appendTaskEventInConn(db, workItemId, runId, eventType, label, status, safeSummary));
+    return tx(async (db) => (await appendTaskEventInConn(db, workItemId, runId, eventType, label, status, safeSummary)));
   } catch (error) {
     // Fire-and-forget worker follow-up can land after a test reset or after the
     // parent ticket was removed. Never surface that as an unhandled FK error.
@@ -124,19 +115,15 @@ export function upsertTaskEvent(
     throw new Error(`task event ${eventType} is not a mutable run trace`);
   }
   try {
-    return tx((db) => {
-      if (!taskEventTarget(db, workItemId, runId)) return null;
+    return tx(async (db) => {
+      if (!(await taskEventTarget(db, workItemId, runId))) return null;
       const summary = safeSummary?.slice(0, 1000) || null;
-      const existing = db.prepare(
-        "SELECT id, sequence, time, created_at, event_class FROM task_events WHERE work_item_id=? AND item_key=?",
-      ).get(workItemId, key) as { id: string; sequence: number; time: string; created_at: string; event_class?: string } | undefined;
+      const existing = (await db.query("SELECT id, sequence, time, created_at, event_class FROM task_events WHERE work_item_id=$1 AND item_key=$2",[workItemId,key])).rows[0] as { id: string; sequence: number; time: string; created_at: string; event_class?: string } | undefined;
       if (existing) {
         if (String(existing.event_class || "run_trace") !== "run_trace") {
           throw new Error("lifecycle task event cannot be updated through trace upsert");
         }
-        db.prepare(
-          "UPDATE task_events SET event_type=?, label=?, status=?, safe_summary=?, run_id=COALESCE(run_id,?) WHERE id=?",
-        ).run(eventType, label.slice(0, 160), status, summary, runId, existing.id);
+        (await db.query("UPDATE task_events SET event_type=$1, label=$2, status=$3, safe_summary=$4, run_id=COALESCE(run_id,$5) WHERE id=$6",[eventType,label.slice(0, 160),status,summary,runId,existing.id]));
         return {
           id: existing.id,
           work_item_id: workItemId,
@@ -152,10 +139,8 @@ export function upsertTaskEvent(
           created_at: existing.created_at,
         };
       }
-      const current = db.prepare(
-        "SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=?",
-      ).get(workItemId) as { sequence: number };
-      if (taskEventCount(db, workItemId) >= taskEventLimit()) return null;
+      const current = (await db.query("SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=$1",[workItemId])).rows[0] as { sequence: number };
+      if ((await taskEventCount(db, workItemId)) >= taskEventLimit()) return null;
       const time = nowIso();
       const row = {
         id: nid("tev"),
@@ -171,14 +156,7 @@ export function upsertTaskEvent(
         time,
         created_at: time,
       };
-      db.prepare(
-        `INSERT INTO task_events
-         (id,work_item_id,run_id,sequence,event_type,event_class,label,status,safe_summary,item_key,time,created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-      ).run(
-        row.id, row.work_item_id, row.run_id, row.sequence, row.event_type, row.event_class,
-        row.label, row.status, row.safe_summary, row.item_key, row.time, row.created_at,
-      );
+      (await db.query("INSERT INTO task_events\n         (id,work_item_id,run_id,sequence,event_type,event_class,label,status,safe_summary,item_key,time,created_at)\n         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",[row.id,row.work_item_id,row.run_id,row.sequence,row.event_type,row.event_class,row.label,row.status,row.safe_summary,row.item_key,row.time,row.created_at]));
       return row;
     });
   } catch (error) {

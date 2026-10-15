@@ -59,15 +59,15 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   clearTaskRegistryCache();
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -167,11 +167,8 @@ describe("skill publish gate (P0)", () => {
 
   it("user_skill_grants 废止迁移清单接口", async () => {
     await loginPm();
-    getConn().prepare("INSERT INTO users (id, username, name, password_hash, created_at, updated_at) VALUES (?,?,?,?,?,?)")
-      .run("ghost-user", "ghost", "幽灵用户", "x", "2026-10-10T00:00:00.000Z", "2026-10-10T00:00:00.000Z");
-    getConn()
-      .prepare("INSERT INTO user_skill_grants (user_id, skill_id, created_at) VALUES (?,?,?)")
-      .run("ghost-user", "kb-qa", "2026-10-10T00:00:00.000Z");
+    (await getConn().query("INSERT INTO users (id, username, name, password_hash, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)",["ghost-user","ghost","幽灵用户","x","2026-10-10T00:00:00.000Z","2026-10-10T00:00:00.000Z"]));
+    (await getConn().query("INSERT INTO user_skill_grants (user_id, skill_id, created_at) VALUES ($1,$2,$3)",["ghost-user","kb-qa","2026-10-10T00:00:00.000Z"]));
     const res = await request("GET", "/api/admin/skills/legacy-grants");
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect((res.body as Json).deprecated).toBe(true);

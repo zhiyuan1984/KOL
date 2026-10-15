@@ -99,7 +99,7 @@ export async function startRuntimeProxy(execution: SkillExecution): Promise<Runt
       if (stopped) return;
       stopped = true;
       execution.close();
-      await Promise.all([...active].map(({ server }) => server.close().catch(() => undefined)));
+      await Promise.all([...active].map(async ({ server }) => (await server.close().catch(() => undefined))));
       active.clear();
       await new Promise<void>((resolve) => { httpServer.close(() => resolve()); httpServer.closeAllConnections(); });
     },

@@ -107,9 +107,7 @@ const mailCollaborationStage: Operation["handle"] = async (c, input) => {
   if (!thread) throw new HttpFail(404, "conversation not found");
   const collaborationId = thread.collaboration_id ? String(thread.collaboration_id) : "";
   if (!collaborationId) return c.json({ ...MEMORY, collaboration_id: null });
-  const row = getConn().prepare(
-    "SELECT id, handle, display_name, stage_code FROM collaborations WHERE id=?",
-  ).get(collaborationId) as Row | undefined;
+  const row = (await getConn().query("SELECT id, handle, display_name, stage_code FROM collaborations WHERE id=$1",[collaborationId])).rows[0] as Row | undefined;
   if (!row) return c.json({ ...MEMORY, collaboration_id: collaborationId, found: false });
   const stageCode = String(row.stage_code || "");
   return c.json({
@@ -164,7 +162,7 @@ const runMailSkill: Operation["handle"] = async (c, input) => {
 const mailRead: Operation["handle"] = async (c, input) => {
   const thread = (await findMailThread(String(input.id || "")));
   if (!thread) throw new HttpFail(404, "conversation not found");
-  markConversationMailRead(String(thread.id));
+  (await markConversationMailRead(String(thread.id)));
   const refreshed = (await findMailThread(String(input.id || ""))) || thread;
   return c.json({
     ...COMMAND,
@@ -181,7 +179,7 @@ const mailStar: Operation["handle"] = async (c, input) => {
     throw new HttpFail(400, "starred must be a boolean");
   }
   if (typeof body.starred === "boolean") {
-    setConversationStarred(String(thread.id), body.starred);
+    (await setConversationStarred(String(thread.id), body.starred));
   }
   const refreshed = (await findMailThread(String(input.id || ""))) || thread;
   return c.json({
@@ -216,13 +214,13 @@ export const mailOperations: Operation[] = [
   { kind: "action", id: "mail.translate-draft", handle: translateMailDraft },
   { kind: "action", id: "mail.read", handle: mailRead },
   { kind: "action", id: "mail.star", handle: mailStar },
-  { kind: "skill", id: "mail_summary", handle: (c, input) => runMailSkill(c, { ...input, skill_id: "mail_summary" }) },
-  { kind: "skill", id: "mail_translate", handle: (c, input) => runMailSkill(c, { ...input, skill_id: "mail_translate" }) },
+  { kind: "skill", id: "mail_summary", handle: async (c, input) => (await runMailSkill(c, { ...input, skill_id: "mail_summary" })) },
+  { kind: "skill", id: "mail_translate", handle: async (c, input) => (await runMailSkill(c, { ...input, skill_id: "mail_translate" })) },
   { kind: "job", id: "mail.sync", handle: async (c, input) => c.json(await startMailSyncJob(input), 202) },
   ...mailLabelOperations,
   ...createMailLabelSuggestionOperations(),
 ];
 
 export const mailJobScopes = {
-  "mail.sync": (payload: Record<string, unknown>) => authorizeMailSync(String(payload.mailbox || "")),
+  "mail.sync": async (payload: Record<string, unknown>) => (await authorizeMailSync(String(payload.mailbox || ""))),
 };

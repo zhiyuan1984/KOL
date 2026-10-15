@@ -415,10 +415,10 @@ function blockedAndActivity(filters: ReportFilters) {
   };
 }
 
-function filterOptions() {
+async function filterOptions() {
   const db = getConn();
   const owners = db.prepare("SELECT id,name,username FROM users WHERE active=1 ORDER BY name COLLATE NOCASE,username COLLATE NOCASE LIMIT 200").all() as Row[];
-  const kinds = db.prepare("SELECT kind,COUNT(*) AS count FROM tickets GROUP BY kind ORDER BY count DESC,kind ASC LIMIT 100").all() as Row[];
+  const kinds = (await db.query("SELECT kind,COUNT(*) AS count FROM tickets GROUP BY kind ORDER BY count DESC,kind ASC LIMIT 100",[])).rows as Row[];
   const teams = db.prepare("SELECT id,name FROM teams ORDER BY name COLLATE NOCASE,id LIMIT 100").all() as Row[];
   return {
     owners: owners.map((row) => ({ id: String(row.id), name: String(row.name), username: String(row.username) })),
@@ -427,7 +427,7 @@ function filterOptions() {
   };
 }
 
-function reportResponse(filters: ReportFilters) {
+async function reportResponse(filters: ReportFilters) {
   const status = statusRows(filters);
   const accepted = acceptanceRows(filters);
   const legacyAccepted = legacyAcceptedCount(filters);
@@ -440,7 +440,7 @@ function reportResponse(filters: ReportFilters) {
     data_cutoff_at: nowIso(),
     period: { date: filters.date, timezone: filters.timezone, period: filters.period, start: filters.start, end: filters.end },
     filters: { owner: filters.owner, kind: filters.kind, team: filters.team },
-    filter_options: filterOptions(),
+    filter_options: (await filterOptions()),
     summary: {
       accepted: [...accepted.values()].reduce((sum, row) => sum + row.accepted, 0) + legacyAccepted,
       accepted_attributed: [...accepted.values()].reduce((sum, row) => sum + row.accepted, 0),
@@ -578,32 +578,17 @@ function ticketTotal(view: string, filters: ReportFilters): number {
   return number(row?.count);
 }
 
-function ticketDetail(ticketId: string) {
+async function ticketDetail(ticketId: string) {
   const db = getConn();
-  const ticket = db.prepare(
-    `SELECT t.*,owner.name AS owner_name,owner.username AS owner_username
-       FROM tickets t LEFT JOIN users owner ON owner.id=t.owner_user_id WHERE t.id=?`,
-  ).get(ticketId) as Row | undefined;
+  const ticket = (await db.query("SELECT t.*,owner.name AS owner_name,owner.username AS owner_username\n       FROM tickets t LEFT JOIN users owner ON owner.id=t.owner_user_id WHERE t.id=$1",[ticketId])).rows[0] as Row | undefined;
   if (!ticket) throw new HttpFail(404, "ticket not found");
-  const acceptance = db.prepare(
-    `SELECT a.*,accepted_owner.name AS accepted_owner_name,accepted_by.name AS accepted_by_name
-       FROM ticket_acceptances a
-       LEFT JOIN users accepted_owner ON accepted_owner.id=a.owner_user_id_at_acceptance
-       LEFT JOIN users accepted_by ON accepted_by.id=a.accepted_by_user_id
-      WHERE a.ticket_id=?`,
-  ).get(ticketId) as Row | undefined;
+  const acceptance = (await db.query("SELECT a.*,accepted_owner.name AS accepted_owner_name,accepted_by.name AS accepted_by_name\n       FROM ticket_acceptances a\n       LEFT JOIN users accepted_owner ON accepted_owner.id=a.owner_user_id_at_acceptance\n       LEFT JOIN users accepted_by ON accepted_by.id=a.accepted_by_user_id\n      WHERE a.ticket_id=$1",[ticketId])).rows[0] as Row | undefined;
   const legacyAccepted = !acceptance
-    ? db.prepare("SELECT id,time FROM task_events WHERE work_item_id=? AND event_type='task.accepted' ORDER BY sequence DESC LIMIT 1").get(ticketId) as Row | undefined
+    ? (await db.query("SELECT id,time FROM task_events WHERE work_item_id=$1 AND event_type='task.accepted' ORDER BY sequence DESC LIMIT 1",[ticketId])).rows[0] as Row | undefined
     : undefined;
-  const events = db.prepare(
-    "SELECT id,sequence,event_type,label,status,safe_summary,time,created_at,run_id FROM task_events WHERE work_item_id=? ORDER BY sequence DESC LIMIT 100",
-  ).all(ticketId) as Row[];
-  const runs = db.prepare(
-    "SELECT id,status,worker_id,created_at,started_at,completed_at,substr(error,1,1024) AS error_preview FROM task_runs WHERE work_item_id=? ORDER BY created_at DESC LIMIT 30",
-  ).all(ticketId) as Row[];
-  const artifacts = db.prepare(
-    "SELECT id,artifact_type,version,run_id,created_at,substr(payload,1,4096) AS payload_preview,length(payload) AS payload_size FROM task_artifacts WHERE work_item_id=? ORDER BY created_at DESC LIMIT 30",
-  ).all(ticketId) as Row[];
+  const events = (await db.query("SELECT id,sequence,event_type,label,status,safe_summary,time,created_at,run_id FROM task_events WHERE work_item_id=$1 ORDER BY sequence DESC LIMIT 100",[ticketId])).rows as Row[];
+  const runs = (await db.query("SELECT id,status,worker_id,created_at,started_at,completed_at,substr(error,1,1024) AS error_preview FROM task_runs WHERE work_item_id=$1 ORDER BY created_at DESC LIMIT 30",[ticketId])).rows as Row[];
+  const artifacts = (await db.query("SELECT id,artifact_type,version,run_id,created_at,substr(payload,1,4096) AS payload_preview,length(payload) AS payload_size FROM task_artifacts WHERE work_item_id=$1 ORDER BY created_at DESC LIMIT 30",[ticketId])).rows as Row[];
   const input = jsonObject(ticket.input);
   return {
     ticket: {
@@ -667,9 +652,9 @@ function ticketDetail(ticketId: string) {
   };
 }
 
-workReport.get("/admin/work-report", (c) => {
+workReport.get("/admin/work-report", async (c) => {
   requireAdmin();
-  return c.json(reportResponse(reportFilters((name) => c.req.query(name))));
+  return c.json((await reportResponse(reportFilters((name) => c.req.query(name)))));
 });
 
 workReport.get("/admin/work-report/tickets", (c) => {
@@ -697,7 +682,7 @@ workReport.get("/admin/work-report/tickets", (c) => {
   });
 });
 
-workReport.get("/admin/work-report/tickets/:id", (c) => {
+workReport.get("/admin/work-report/tickets/:id", async (c) => {
   requireAdmin();
-  return c.json(ticketDetail(c.req.param("id")));
+  return c.json((await ticketDetail(c.req.param("id"))));
 });

@@ -136,8 +136,8 @@ beforeEach(async () => {
   logCallArgs.length = 0;
   stopCallArgs.length = 0;
   crawlStatus = { task_id: "remote-1", status: "idle" };
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   await startMockMcp();
   (await configureCrawlerFixture(baseUrl));
   process.env.MEDIACRAWLER_MCP_URL = baseUrl;
@@ -148,7 +148,7 @@ afterEach(async () => {
   setCrawlMcpClientFactory();
   await new Promise<void>((resolve) => httpServer?.close(() => resolve()) || resolve());
   httpServer = null;
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.MEDIACRAWLER_MCP_URL;
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
@@ -161,7 +161,7 @@ afterEach(async () => {
 
 describe("remote Streamable HTTP MCP", () => {
   it("retires the old start entry after skill cutover without a remote call", async () => {
-    getConn().prepare("INSERT INTO runtime_bootstrap_migrations(id,applied_at) VALUES('runtime.crawler-skill.v1',?)").run(new Date().toISOString());
+    (await getConn().query("INSERT INTO runtime_bootstrap_migrations(id,applied_at) VALUES('runtime.crawler-skill.v1',$1)",[new Date().toISOString()]));
     await expect(startCrawl({ ownerUserId: "user-a", workItemId: "old-task", platform: "youtube", mode: "search", parameters: { keywords: "test" }, idempotencyKey: "old-entry" }))
       .rejects.toMatchObject({ status: 410, detail: { code: "crawler_skill_entry_required" } });
     expect(calls).toEqual([]);
@@ -173,7 +173,7 @@ describe("remote Streamable HTTP MCP", () => {
     expect((await getConnectorConfig("claw"))!.version).toBe(before);
     const applied = (await migrateCrawlerVault({ ...input, apply: true }));
     expect(applied).toMatchObject({ migrated: true, version: before + 1 });
-    expect(getConn().prepare("SELECT enabled,status FROM connectors WHERE id='claw'").get())
+    expect((await getConn().query("SELECT enabled,status FROM connectors WHERE id='claw'",[])).rows[0])
       .toMatchObject({ enabled: 0, status: "pending_verification" });
     expect((await migrateCrawlerVault({ ...input, apply: true }))).toMatchObject({ migrated: false, version: before + 1 });
     expect(JSON.stringify((await getConnectorConfig("claw")))).not.toContain("replacement-secret");
@@ -190,10 +190,10 @@ describe("remote Streamable HTTP MCP", () => {
   });
 
   it("fails closed for disabled connectors and revoked vault credentials", async () => {
-    getConn().prepare("UPDATE connectors SET enabled=0 WHERE id='claw'").run();
+    (await getConn().query("UPDATE connectors SET enabled=0 WHERE id='claw'",[]));
     expect((await mediaCrawlerConfigured())).toBe(false);
     await expect((async () => (await createMediaCrawlerClient()))()).rejects.toThrow();
-    getConn().prepare("UPDATE connectors SET enabled=1 WHERE id='claw'").run();
+    (await getConn().query("UPDATE connectors SET enabled=1 WHERE id='claw'",[]));
     const reference = (await getConnectorConfig("claw"))!.config.bearer_secret_ref!;
     (await updateCredentialMetadata(reference, { status: "disabled", expected_version: 1 }));
     expect((await mediaCrawlerConfigured())).toBe(false);
@@ -245,10 +245,10 @@ describe("creator ingestion and scoring", () => {
     process.env.AUTH_MODE = "enabled";
     const { createApp } = await import("../src/app.js");
     const app = (await createApp());
-    const request = () => app.request("/api/integrations/mediacrawler/creators", {
+    const request = async () => (await app.request("/api/integrations/mediacrawler/creators", {
       method: "POST", headers: { "Content-Type": "application/json", "x-mediacrawler-token": "test-secret" },
       body: JSON.stringify({ creators: [] }),
-    });
+    }));
     expect((await request()).status).not.toBe(202);
     process.env.MEDIACRAWLER_INGEST_SECRET_REF = (await getConnectorConfig("claw"))!.config.bearer_secret_ref!;
     expect((await request()).status).toBe(202);
@@ -256,19 +256,19 @@ describe("creator ingestion and scoring", () => {
     expect((await request()).status).toBe(403);
   });
 
-  it("deduplicates identities, appends snapshots, and computes transparent score inputs", () => {
-    const first = ingestMediacrawler({ creators: [{
+  it("deduplicates identities, appends snapshots, and computes transparent score inputs", async () => {
+    const first = (await ingestMediacrawler({ creators: [{
       platform: "youtube", platform_creator_id: "same", nickname: "A",
       followers: 1000, recent_views: [100, 300],
-    }] });
-    const second = ingestMediacrawler({ data: { items: [{
+    }] }));
+    const second = (await ingestMediacrawler({ data: { items: [{
       platform: "youtube", platform_creator_id: "same", nickname: "A2",
       followers: 1200, views: [200, 400],
-    }] } });
+    }] } }));
     expect(first).toMatchObject({ accepted: 1, inserted: 1, updated: 0, rejected: 0 });
     expect(second).toMatchObject({ accepted: 1, inserted: 0, updated: 1, rejected: 0 });
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM claw_creators WHERE platform_creator_id='same'").get() as { n: unknown }).n)).toBe(1);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM creator_snapshots WHERE platform_creator_id='same'").get() as { n: unknown }).n)).toBe(2);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM claw_creators WHERE platform_creator_id='same'",[])).rows[0] as { n: unknown }).n)).toBe(1);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM creator_snapshots WHERE platform_creator_id='same'",[])).rows[0] as { n: unknown }).n)).toBe(2);
     expect(calculateCreatorScore(1000, [100, 300])).toMatchObject({
       sample_size: 2, view_median: 200, view_mean: 200, view_follower_ratio: 0.2, sample_confidence: 0.2,
     });
@@ -335,7 +335,7 @@ describe("creator ingestion and scoring", () => {
 
 describe("crawl lifecycle", () => {
   it("rejects missing remote configuration before creating a crawl job", async () => {
-    getConn().prepare("DELETE FROM runtime_connector_config WHERE connector_id='claw'").run();
+    (await getConn().query("DELETE FROM runtime_connector_config WHERE connector_id='claw'",[]));
     const { createApp } = await import("../src/app.js");
     const app = (await createApp());
     const created = await app.request("/api/tasks", {
@@ -353,7 +353,7 @@ describe("crawl lifecycle", () => {
     expect(await response.json()).toMatchObject({
       detail: { code: "mediacrawler_not_configured", message: "远程采集服务未配置。" },
     });
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS count FROM crawl_jobs").get() as { count: unknown }).count)).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS count FROM crawl_jobs",[])).rows[0] as { count: unknown }).count)).toBe(0);
   });
 
   it("routes creator-discovery text to the dedicated discovery workspace", async () => {
@@ -425,11 +425,11 @@ describe("crawl lifecycle", () => {
     };
     const first = await createTask();
     const second = await createTask();
-    const start = (id: unknown, key: string) => app.request(`/api/tasks/${id}/actions/start-crawl`, {
+    const start = async (id: unknown, key: string) => (await app.request(`/api/tasks/${id}/actions/start-crawl`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Idempotency-Key": key },
       body: JSON.stringify({ platform: "youtube", mode: "search", parameters: { keywords: ["battery"] } }),
-    });
+    }));
     const started = await start(first.id, "one");
     expect(started.status).toBe(202);
     expect((await start(first.id, "one")).status).toBe(200);
@@ -566,9 +566,7 @@ describe("crawl lifecycle", () => {
     expect(pages.map((args) => args.offset)).toEqual([0, 2, 4]);
     expect(pages.every((args) => args.limit === 2)).toBe(true);
     expect(pages.every((args) => !("page" in args) && !("page_size" in args))).toBe(true);
-    const stored = getConn().prepare(
-      "SELECT platform_creator_id FROM claw_creators WHERE platform='youtube' ORDER BY platform_creator_id",
-    ).all() as Array<{ platform_creator_id: string }>;
+    const stored = (await getConn().query("SELECT platform_creator_id FROM claw_creators WHERE platform='youtube' ORDER BY platform_creator_id",[])).rows as Array<{ platform_creator_id: string }>;
     // 第二页 offset 累加对了，就不会把第一页那批再插一次。
     expect(stored.map((row) => row.platform_creator_id)).toEqual([
       "yt-page-a", "yt-page-b", "yt-page-c", "yt-page-d", "yt-page-e",

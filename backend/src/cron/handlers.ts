@@ -140,7 +140,7 @@ async function ownershipRelease(ctx: CronHandlerContext): Promise<CronHandlerRes
       const lastAt = String(row.last_effective_mail_at || "").trim() || null;
       const decision = evaluateOwnershipRelease(row, lastAt, ctx.nowMs ?? Date.now());
       if (decision.action !== "release") { skipped.push({ follow_id: decision.follow_id, collaboration_id: decision.collaboration_id, reason: decision.reason, detail: decision.detail }); continue; }
-      const applied = releaseFollowOwnershipIfEligible({ db, followId: decision.follow_id, collaborationId: decision.collaboration_id, expectedOwner: decision.owner_before, expectedLastAt: lastAt || "", actor: ctx.actor, nowMs: ctx.nowMs });
+      const applied = (await releaseFollowOwnershipIfEligible({ db, followId: decision.follow_id, collaborationId: decision.collaboration_id, expectedOwner: decision.owner_before, expectedLastAt: lastAt || "", actor: ctx.actor, nowMs: ctx.nowMs }));
       (applied.action === "release" ? released : skipped).push(applied as unknown as Json);
     }
     return { status: "succeeded", receipt: { handler_key: "ownership-release", side_effect: released.length ? "write" : "none", created_session: false, source: "legacy_test_only", scanned: rows.length, released: released.length, skipped: skipped.length } };

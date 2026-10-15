@@ -47,17 +47,17 @@ export function isDiscoveryHarnessForbiddenTool(name: string): boolean {
   ));
 }
 
-export function rejectDiscoveryHarnessTool(name: string): void {
+export async function rejectDiscoveryHarnessTool(name: string): Promise<Awaited<void>> {
   const current = scope.getStore();
   if (!current || !DISCOVERY_HARNESS_SKILLS.has(current.skill)) return;
   if (!isDiscoveryHarnessForbiddenTool(name)) return;
-  audit("gateway", "discovery.harness.tool_rejected", {
+  (await audit("gateway", "discovery.harness.tool_rejected", {
     skill: current.skill,
     tool: name,
     session_id: current.session_id || null,
     work_item_id: current.work_item_id || null,
     run_id: current.run_id || null,
-  });
+  }));
   throw new HttpFail(403, {
     code: "discovery_harness_tool_rejected",
     message: "当前发现回合不能执行该动作。",

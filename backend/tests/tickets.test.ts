@@ -63,7 +63,7 @@ describe("native ticket taxonomy repository", () => {
     await insertTicket("tsk_native_hist_2", { taskType: "email_compose", source: "manual" });
     await postgresPool().query("DELETE FROM app_state WHERE key=$1", [CLASSIFIED_FLAG]);
 
-    const results = await Promise.all([reconcileTickets(), reconcileTickets()]);
+    const results = await Promise.all([(await reconcileTickets()), (await reconcileTickets())]);
     expect(results.map((result) => result.classified).sort((a, b) => a - b)).toEqual([0, 2]);
     expect(await ticketRow("tsk_native_hist_1")).toMatchObject({ kind: "risk", channel: "system", requester_type: "system", requester_id: null });
     expect(await ticketRow("tsk_native_hist_2")).toMatchObject({ kind: "service", channel: "email" });

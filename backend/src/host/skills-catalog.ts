@@ -53,9 +53,9 @@ export const SOP_POLICY = {
   edit_path: "/admin",
 } as const;
 
-function marketFlags(): Map<string, boolean> {
+async function marketFlags(): Promise<Awaited<Map<string, boolean>>> {
   try {
-    const rows = getConn().prepare("SELECT id, in_market FROM skill_flags").all() as { id: string; in_market: number }[];
+    const rows = (await getConn().query("SELECT id, in_market FROM skill_flags",[])).rows as { id: string; in_market: number }[];
     return new Map(rows.map((row) => [String(row.id), Number(row.in_market) === 1]));
   } catch {
     return new Map();
@@ -64,10 +64,10 @@ function marketFlags(): Map<string, boolean> {
 
 let catalogCache: { definitions: ReturnType<typeof taskDefinitions>; entries: SkillEntry[] } | null = null;
 
-export function skillCatalog(root?: string): SkillEntry[] {
+export async function skillCatalog(root?: string): Promise<Awaited<SkillEntry[]>> {
   const definitions = taskDefinitions(root);
   if (catalogCache?.definitions === definitions) return catalogCache.entries;
-  const flags = marketFlags();
+  const flags = (await marketFlags());
   const entries = definitions.map((definition) => ({
     id: definition.id,
     label: definition.title,
@@ -150,28 +150,28 @@ export function skillEmployeeDoc(id: string): string {
 
 /** Live catalog. Array methods always read the current bundled + published skills. */
 export const SKILL_CATALOG: SkillEntry[] = new Proxy([] as SkillEntry[], {
-  get(_target, prop) {
-    const list = skillCatalog();
+  async get(_target, prop) {
+    const list = (await skillCatalog());
     const value = Reflect.get(list, prop, list);
     return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(list) : value;
   },
-  getOwnPropertyDescriptor(_target, prop) {
-    return Reflect.getOwnPropertyDescriptor(skillCatalog(), prop);
+  async getOwnPropertyDescriptor(_target, prop) {
+    return Reflect.getOwnPropertyDescriptor((await skillCatalog()), prop);
   },
-  ownKeys() {
-    return Reflect.ownKeys(skillCatalog());
+  async ownKeys() {
+    return Reflect.ownKeys((await skillCatalog()));
   },
-  has(_target, prop) {
-    return Reflect.has(skillCatalog(), prop);
+  async has(_target, prop) {
+    return Reflect.has((await skillCatalog()), prop);
   },
 });
 
 export const SKILL_ROUTE: Record<string, { type: string; skill: string; needs: true }> = new Proxy(
   {} as Record<string, { type: string; skill: string; needs: true }>,
   {
-    get(_target, prop) {
+    async get(_target, prop) {
       if (typeof prop !== "string") return undefined;
-      const entry = skillCatalog().find((row) => row.id === prop);
+      const entry = (await skillCatalog()).find((row) => row.id === prop);
       return entry ? { type: entry.id, skill: entry.id, needs: true as const } : undefined;
     },
   },
@@ -224,10 +224,10 @@ export function isSkillHandleToken(token: string): boolean {
   return false;
 }
 
-export function catalogPublic(): {
+export async function catalogPublic(): Promise<Awaited<{
   id: string; title: string; label: string; aliases: string[]; in_market: boolean; category: string; profile: string; funnel: FunnelId; summary: string; source: "bundled" | "published";
-}[] {
-  return skillCatalog().map((s) => ({
+}[]>> {
+  return (await skillCatalog()).map((s) => ({
     id: s.id,
     title: s.label,
     label: s.label,

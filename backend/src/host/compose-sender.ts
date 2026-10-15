@@ -39,10 +39,10 @@ export type ComposeSender = {
   candidates: ComposeSenderCandidate[];
 };
 
-export function collaborationBrand(collaborationId?: string | null): string {
+export async function collaborationBrand(collaborationId?: string | null): Promise<Awaited<string>> {
   const id = String(collaborationId || "").trim();
   if (!id) return "";
-  const row = getConn().prepare("SELECT brand FROM collaborations WHERE id=?").get(id) as Row | undefined;
+  const row = (await getConn().query("SELECT brand FROM collaborations WHERE id=$1",[id])).rows[0] as Row | undefined;
   return String(row?.brand || "").trim();
 }
 
@@ -72,11 +72,9 @@ async function mountedMailboxSet(user: Persona): Promise<Set<string>> {
 }
 
 /** 绑定邮箱的品牌：mailbox_owners 有登记就带上，没有不阻塞。 */
-function brandForMailbox(email: string): string {
+async function brandForMailbox(email: string): Promise<Awaited<string>> {
   try {
-    const owner = getConn().prepare(
-      "SELECT brand FROM mailbox_owners WHERE lower(email)=lower(?)",
-    ).get(email) as Row | undefined;
+    const owner = (await getConn().query("SELECT brand FROM mailbox_owners WHERE lower(email)=lower($1)",[email])).rows[0] as Row | undefined;
     return String(owner?.brand || "").trim();
   } catch {
     return "";
@@ -92,16 +90,16 @@ export async function composeSenderFor(input: {
   selectedMailbox?: unknown;
   user?: Persona | null;
 }): Promise<ComposeSender> {
-  const user = input.user || currentUser();
+  const user = input.user || (await currentUser());
   const col = input.collaboration || null;
   const brand = String(col?.brand || "").trim();
 
   // 第 1 档：明确指定。
   const explicit = normalizeEmail(String(input.requested || ""));
   if (explicit) {
-    const owned = authorizedSenderBrand(explicit, user, brand);
+    const owned = (await authorizedSenderBrand(explicit, user, brand));
     if (owned) return { from: owned.email, send_from: owned.email, brand: owned.brand, source: "explicit", candidates: [] };
-    const resolved = resolveAuthorizedFrom(explicit, user, brand);
+    const resolved = (await resolveAuthorizedFrom(explicit, user, brand));
     return resolved.matched
       ? { from: resolved.email, send_from: resolved.email, brand: String(resolved.brand || ""), source: "explicit", candidates: [] }
       : { from: explicit, send_from: "", brand: "", source: "explicit", candidates: [] };
@@ -111,7 +109,7 @@ export async function composeSenderFor(input: {
   const selected = normalizeEmail(String(input.selectedMailbox || ""));
   if (selected) {
     if (!(await mountedMailboxSet(user)).has(selected)) return emptySender();
-    const owned = authorizedSenderBrand(selected, user, brand);
+    const owned = (await authorizedSenderBrand(selected, user, brand));
     if (owned) return { from: owned.email, send_from: owned.email, brand: owned.brand, source: "selected", candidates: [] };
     return { from: selected, send_from: "", brand: "", source: "selected", candidates: [] };
   }
@@ -121,7 +119,7 @@ export async function composeSenderFor(input: {
   // 品牌能查到就带上，查不到不阻塞发件箱填充。
   const def = (await defaultBoundMailbox(user));
   if (def) {
-    return { from: def, send_from: def, brand: brandForMailbox(def), source: "user_binding", candidates: [] };
+    return { from: def, send_from: def, brand: (await brandForMailbox(def)), source: "user_binding", candidates: [] };
   }
 
   // 挂了多只又没有默认：不取第一只，返回候选让人选。
@@ -134,17 +132,17 @@ export async function composeSenderFor(input: {
   }
   // 只挂了一只：同样绑定即授权，直接采用。
   if (mounted.length === 1) {
-    return { from: mounted[0], send_from: mounted[0], brand: brandForMailbox(mounted[0]), source: "user_binding", candidates: [] };
+    return { from: mounted[0], send_from: mounted[0], brand: (await brandForMailbox(mounted[0])), source: "user_binding", candidates: [] };
   }
   // 兜底：legacy 单绑定。
   const legacy = normalizeEmail((await boundMailboxEmail()) || "");
   if (legacy) {
-    return { from: legacy, send_from: legacy, brand: brandForMailbox(legacy), source: "user_binding", candidates: [] };
+    return { from: legacy, send_from: legacy, brand: (await brandForMailbox(legacy)), source: "user_binding", candidates: [] };
   }
 
   // 第 4 档：合作记录的 mailbox_from。
   const from = String(col?.mailbox_from || "").trim();
-  const resolved = resolveAuthorizedFrom(from, user, brand);
+  const resolved = (await resolveAuthorizedFrom(from, user, brand));
   const brandAllowed = resolved.allowed.filter((row) => row.brand === brand);
   if (resolved.matched) {
     return { from: resolved.email, send_from: resolved.email, brand: String(resolved.brand || ""), source: "collaboration", candidates: [] };

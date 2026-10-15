@@ -96,13 +96,13 @@ adminAgentsRouter.get("/admin/agents", async (c) => {
   requireAdmin();
   const memberships = (await listOrganizationMemberships()).filter((membership) => membership.status === "active");
   return c.json({
-    agents: await Promise.all((await listManagedAgents()).map((row) => agentView(row.id))),
+    agents: await Promise.all((await listManagedAgents()).map(async (row) => (await agentView(row.id)))),
     units: (await listOrganizationUnits()).filter((unit) => unit.status === "active"),
     people: (await listOrganizationPeople()).filter((person) => person.status === "active").map((person) => {
       const personMemberships = memberships.filter((membership) => membership.person_ref === person.person_ref);
       return { ...person, company_id: personMemberships[0]?.company_id || null, unit_ids: personMemberships.map((membership) => membership.org_unit_id) };
     }),
-    skills: skillCatalog().map((skill) => ({ id: skill.id, label: skill.label, category: skill.category, summary: skill.summary, document_query: hasDocumentTool(skill.id) })),
+    skills: (await skillCatalog()).map((skill) => ({ id: skill.id, label: skill.label, category: skill.category, summary: skill.summary, document_query: hasDocumentTool(skill.id) })),
     bases: await listBases(),
   });
 });
@@ -166,7 +166,7 @@ adminAgentsRouter.post("/admin/agents/:id/skill-recommendations", async (c) => {
     || body.candidate_skill_ids.some((value) => typeof value !== "string")) {
     throw new HttpFail(400, "candidate_skill_ids 必须是最多 80 个技能 ID 的数组");
   }
-  const catalog = skillCatalog();
+  const catalog = (await skillCatalog());
   const ids = [...new Set(body.candidate_skill_ids as string[])];
   const candidates = ids.map((candidateId) => {
     const skill = catalog.find((row) => row.id === candidateId);

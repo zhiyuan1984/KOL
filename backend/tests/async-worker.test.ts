@@ -39,30 +39,16 @@ beforeEach(async () => {
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
   delete process.env.MEDIACRAWLER_AUTO_START;
   setAgentSubmissionOverride();
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   runtimeCookie = (await seedRuntimeTestActor(["creator_discovery"]));
-  getConn().prepare(
-    `INSERT OR REPLACE INTO claw_creators
-     (id, handle, name, platform, followers, score, status, outreach_script, payload)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    "cr_async_kol",
-    "async-creator",
-    "async-creator",
-    "youtube",
-    1000,
-    8,
-    "discovered",
-    "Hi, LiTime would like to collaborate.",
-    JSON.stringify({ email: "async.creator@example.com" }),
-  );
+  (await getConn().query("INSERT INTO claw_creators\n     (id, handle, name, platform, followers, score, status, outreach_script, payload)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,name=EXCLUDED.name,platform=EXCLUDED.platform,followers=EXCLUDED.followers,score=EXCLUDED.score,status=EXCLUDED.status,outreach_script=EXCLUDED.outreach_script,payload=EXCLUDED.payload",["cr_async_kol","async-creator","async-creator","youtube",1000,8,"discovered","Hi, LiTime would like to collaborate.",JSON.stringify({ email: "async.creator@example.com" })]));
 });
 
 afterEach(async () => {
   await new Promise((r) => setTimeout(r, 80));
   setAgentSubmissionOverride();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.AUTH_MODE;
   delete process.env.CODEX_BIN;
@@ -340,8 +326,8 @@ describe("real Codex HTTP flow", () => {
     // Same isolation as afterEach: a later test opens a new SQLite file, so a
     // delayed crawl follow-up must not insert against missing parents.
     process.env.LINGONG_DB = path.join(tmp, "torn-down.db");
-    resetConn();
-    seedAll();
+    (await resetConn());
+    (await seedAll());
     expect(await appendTaskEvent(workItemId, runId, "crawl.start_failed", "远程采集启动失败", "failed", "gone")).toBeNull();
     expect(await appendTaskEvent(workItemId, null, "crawl.clarification", "请补充关键词", "needs_clarification")).toBeNull();
   });

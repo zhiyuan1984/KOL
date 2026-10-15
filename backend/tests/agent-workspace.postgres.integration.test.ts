@@ -23,7 +23,7 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
  let maintenance:Pool,skillA:string,skillB:string;
  const oldUrl=process.env.DATABASE_URL,oldAuth=process.env.AUTH_MODE;
  const input=(ids=[skillB])=>({name:"修订后的岗位",description:"新的职责",skill_ids:ids,expected_revision:0,expected_version:1});
- const release=(preparation_id:string,request_id=randomUUID())=>publishAgentRelease(actor,agentId,{preparation_id,request_id,confirmed:true});
+ const release=async (preparation_id:string,request_id=randomUUID())=>(await publishAgentRelease(actor,agentId,{preparation_id,request_id,confirmed:true}));
  beforeAll(async()=>{
   maintenance=new Pool({connectionString:testDatabaseUrl});await maintenance.query(`CREATE DATABASE "${database}"`);
   const url=new URL(testDatabaseUrl!);url.pathname=`/${database}`;process.env.DATABASE_URL=url.toString();
@@ -34,7 +34,7 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
   await postgresPool().query("INSERT INTO organization_units(id,company_id,type,level,parent_id,display_name,head_person_ref,created_at,updated_at) VALUES('company','company','company',1,NULL,'测试公司','person-admin',$1,$1),('department','company','department',2,'company','测试部门',NULL,$1,$1)",[stamp]);
   await postgresPool().query("INSERT INTO organization_memberships(id,company_id,org_unit_id,person_ref,created_at,updated_at) VALUES('membership','company','department','person-employee',$1,$1)",[stamp]);
   await postgresPool().query("INSERT INTO organization_units(id,company_id,type,level,parent_id,display_name,created_at,updated_at) VALUES('owner-root','company','center',1,'company','一级中心',$1,$1),('owner-dept','company','center',2,'owner-root','二级部门',$1,$1),('owner-team','company','department',3,'owner-dept','三级小组',$1,$1),('owner-other','company','department',2,'owner-root','另一部门',$1,$1),('foreign-root','foreign','center',1,'foreign','外公司中心',$1,$1)",[stamp]);
-  process.env.AUTH_MODE='enabled';resetConn();
+  process.env.AUTH_MODE='enabled';(await resetConn());
   await postgresPool().query("INSERT INTO organization_units(id,company_id,type,level,parent_id,display_name,created_at,updated_at) VALUES('owner-ai','company','team',4,'owner-team','AI产品组',$1,$1)",[stamp]);
  },150000);
  beforeEach(async()=>{
@@ -100,8 +100,8 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
   await saveAgentDraft(actor,agentId,input([skillA]));const saved=await agentWorkspaceDetail(agentId);expect(saved.effective.skills.map(pin=>pin.skill_id)).toContain(missing);expect(saved.draft?.skills.map(pin=>pin.skill_id)).toEqual([skillA]);expect(saved.published_revision).toBe(1);
   const check=await prepareAgentRelease(actor,agentId);expect(check.removed_skills).toEqual([missing]);expect(check.blockers).toEqual([]);await release(check.preparation_id);const published=await agentWorkspaceDetail(agentId);expect(published.effective.skills.map(pin=>pin.skill_id)).toEqual([skillA]);expect(published.versions.find(version=>version.version===1)?.skills.map(pin=>pin.skill_id)).toContain(missing);
  });
- const ownerPreview=(org_unit_id:string|null='owner-team',expected_revision=0,company_id:string|null=org_unit_id?'company':null)=>prepareAgentOrganization(actor,agentId,{company_id,org_unit_id,expected_revision});
- const ownerChange=(preparation_id:string,request_id=randomUUID())=>changeAgentOrganization(actor,agentId,{preparation_id,request_id,confirmed:true,reason:'明确岗位归属'});
+ const ownerPreview=async (org_unit_id:string|null='owner-team',expected_revision=0,company_id:string|null=org_unit_id?'company':null)=>(await prepareAgentOrganization(actor,agentId,{company_id,org_unit_id,expected_revision}));
+ const ownerChange=async (preparation_id:string,request_id=randomUUID())=>(await changeAgentOrganization(actor,agentId,{preparation_id,request_id,confirmed:true,reason:'明确岗位归属'}));
  it('migrates existing Agents as unassigned and uses the native organization directory',async()=>{
   const workspace=await agentWorkspace();expect(workspace.agents.find(row=>row.id===agentId)?.organization.assignment).toBeNull();
   expect(workspace.browse.facets.ownership.find(option=>option.value==='unassigned')?.count).toBe(workspace.agents.length);
@@ -113,7 +113,7 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
   expect((await canUseAgent('employee',agentId))).toBe(true);
   await saveAgentDraft(actor,agentId,input());const releaseCheck=await prepareAgentRelease(actor,agentId),before=await agentWorkspaceDetail(agentId);
   const check=await ownerPreview();expect(check.after?.path.map(unit=>unit.level)).toEqual([1,2,3]);
-  const key=randomUUID(),[first,replay]=await Promise.all([ownerChange(check.preparation_id,key),ownerChange(check.preparation_id,key)]);expect(first.id).toBe(replay.id);
+  const key=randomUUID(),[first,replay]=await Promise.all([(await ownerChange(check.preparation_id,key)),(await ownerChange(check.preparation_id,key))]);expect(first.id).toBe(replay.id);
   const assigned=await agentWorkspaceDetail(agentId);expect(assigned.organization.revision).toBe(1);expect(assigned.bindings).toEqual(before.bindings);expect(assigned.coverage).toEqual(before.coverage);expect(assigned.draft).toEqual(before.draft);expect(assigned.effective).toEqual(before.effective);expect(assigned.version).toBe(before.version);expect((await canUseAgent('employee',agentId))).toBe(true);
   const scoped=await agentWorkspace({level1:'owner-root',level2:'owner-dept',level3:'owner-team'});expect(scoped.browse.rows.map(row=>row.id)).toEqual([agentId]);expect(scoped.browse.facets.level1.find(option=>option.value==='owner-root')?.count).toBe(1);
   const moved=await ownerPreview('owner-root',1);await ownerChange(moved.preparation_id);expect((await agentWorkspace({level1:'owner-root'})).browse.rows.map(row=>row.id)).toEqual([agentId]);expect((await agentWorkspace({level2:'owner-dept'})).browse.rows).toEqual([]);
@@ -131,8 +131,8 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
   await expect(ownerChange(check.preparation_id)).rejects.toMatchObject({status:409});expect((await agentWorkspaceDetail(agentId)).organization.revision).toBe(kind==='concurrent'?1:0);
  });
  it('serializes competing ownership commands and rejects idempotency-key reuse with different confirmed content',async()=>{
-  const [first,second]=await Promise.all([ownerPreview('owner-team'),ownerPreview('owner-other')]);
-  const key=randomUUID(),results=await Promise.allSettled([ownerChange(first.preparation_id,key),ownerChange(second.preparation_id)]);expect(results.filter(value=>value.status==='fulfilled')).toHaveLength(1);expect(results.filter(value=>value.status==='rejected')).toHaveLength(1);
+  const [first,second]=await Promise.all([(await ownerPreview('owner-team')),(await ownerPreview('owner-other'))]);
+  const key=randomUUID(),results=await Promise.allSettled([(await ownerChange(first.preparation_id,key)),(await ownerChange(second.preparation_id))]);expect(results.filter(value=>value.status==='fulfilled')).toHaveLength(1);expect(results.filter(value=>value.status==='rejected')).toHaveLength(1);
   expect((await agentWorkspaceDetail(agentId)).organization.revision).toBe(1);
   const stored=(await postgresPool().query('SELECT request_id,preparation_id FROM agent_organization_receipts WHERE agent_id=$1',[agentId])).rows[0];
   await expect(changeAgentOrganization(actor,agentId,{...stored,confirmed:true,reason:'换了原因'})).rejects.toMatchObject({status:409});
@@ -164,7 +164,7 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
  it("publishes one immutable snapshot and replays the same receipt on retry",async()=>{
   await saveAgentDraft(actor,agentId,input());const check=await prepareAgentRelease(actor,agentId),key=randomUUID();
   expect(check.removed_skills).toEqual([skillA]);expect(check.added_skills).toEqual([skillB]);
-  const [first,replay]=await Promise.all([release(check.preparation_id,key),release(check.preparation_id,key)]);expect(replay.id).toBe(first.id);expect(first.version).toBe(2);
+  const [first,replay]=await Promise.all([(await release(check.preparation_id,key)),(await release(check.preparation_id,key))]);expect(replay.id).toBe(first.id);expect(first.version).toBe(2);
   const row=await agentWorkspaceDetail(agentId);expect(row.draft).toBeNull();expect(row.effective.skills.map(value=>value.skill_id)).toEqual([skillB]);expect(row.versions.map(value=>value.version)).toEqual([2,1]);
   expect(Number((await postgresPool().query("SELECT count(*) FROM audit_events WHERE event_type='admin.agent.release.publish' AND payload::jsonb->>'agent_id'=$1",[agentId])).rows[0].count)).toBe(1);
  });
@@ -203,15 +203,15 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
  it("returns real projection data to admins and denies employees",async()=>{
   const app=new Hono().route('/api',agentWorkspaceRouter);app.onError((e,c)=>c.json({message:e.message},(e instanceof HttpFail?e.status:500) as 403));
   const user:AppUser={id:'employee',username:'employee',name:'员工',handle:'employee',roles:['employee'],role:'employee',brands:[],site:'department',manager_user_id:null,active:true,exam_passed:true,exam_todo_count:0,exam_module:''};
-  expect((await withScopedUser(user,()=>app.request('/api/admin/agents/workspace-v1'))).status).toBe(403);
-  for(const suffix of ['organization-preview-v1','organization-v1'])expect((await withScopedUser(user,()=>app.request(`/api/admin/agents/${encodeURIComponent(agentId)}/${suffix}`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}))).status).toBe(403);
+  expect((await withScopedUser(user,async ()=>(await app.request('/api/admin/agents/workspace-v1')))).status).toBe(403);
+  for(const suffix of ['organization-preview-v1','organization-v1'])expect((await withScopedUser(user,async ()=>(await app.request(`/api/admin/agents/${encodeURIComponent(agentId)}/${suffix}`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})))).status).toBe(403);
   expect((await agentWorkspace()).agents.find(value=>value.id===agentId)?.coverage.org_version).toBe(1);
  });
  it("requires a fresh revoke preview after another binding changes and immediately removes qualification",async()=>{
   const app=new Hono().route('/api',adminAgentsRouter);app.onError((e,c)=>c.json({message:e.message},(e instanceof HttpFail?e.status:500) as 409));
   const admin:AppUser={id:actor,username:actor,name:'管理员',handle:actor,roles:['admin'],role:'admin',brands:[],site:'department',manager_user_id:null,active:true,exam_passed:true,exam_todo_count:0,exam_module:''};
   const base=`/api/admin/agents/${encodeURIComponent(agentId)}/bindings/test-binding`;
-  const call=(method:string,url:string,body?:unknown)=>withScopedUser(admin,()=>app.request(url,{method,headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})}));
+  const call=async (method:string,url:string,body?:unknown)=>(await withScopedUser(admin,async ()=>(await app.request(url,{method,headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})}))));
   const check=await (await call('POST',`${base}/revoke-preview`)).json() as {org_version:number;preview_signature:string};
   await postgresPool().query("UPDATE agent_bindings SET binding_version=binding_version+1 WHERE id='test-binding'");
   expect((await call('DELETE',base,{...check,reason:'test'})).status).toBe(409);expect((await canUseAgent('employee',agentId))).toBe(true);

@@ -118,8 +118,8 @@ describe("account access copy (native PostgreSQL)", () => {
 
   it("重复 apply 与双 worker 并发仅复制一次，不新增重复审计", async () => {
     const [first, second] = await Promise.all([
-      copyAccountAccess({ from: FROM, to: TO, apply: true, actor: "test:worker-a" }),
-      copyAccountAccess({ from: FROM, to: TO, apply: true, actor: "test:worker-b" }),
+      (await copyAccountAccess({ from: FROM, to: TO, apply: true, actor: "test:worker-a" })),
+      (await copyAccountAccess({ from: FROM, to: TO, apply: true, actor: "test:worker-b" })),
     ]);
     expect([first, second].filter((report) => report.actions.some((action) => action.action === "copy"))).toHaveLength(1);
     const repeat = await copyAccountAccess({ from: FROM, to: TO, apply: true, actor: "test:repeat" });

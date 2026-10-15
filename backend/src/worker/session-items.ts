@@ -49,7 +49,7 @@ export async function collectStarryKolItems(input: {
   actor?: string;
   onOperation?: (operation: { name: string; label: string; status: string }) => void;
 }): Promise<{ items: Json[]; operations: Json[] }> {
-  const extracted = extractTaskEntities(input.raw || "");
+  const extracted = (await extractTaskEntities(input.raw || ""));
   const prior = input.prior && typeof input.prior === "object" ? { ...input.prior } : {};
   const entities = input.entities && typeof input.entities === "object" ? { ...input.entities } : {};
   const subject = resolveComposeSubject({
@@ -328,12 +328,12 @@ export function collectStageSopItems(stageCode: string, handle = ""): Json[] {
   }];
 }
 
-export function collectDealMemoryItems(col: Json, handle: string): Json[] {
+export async function collectDealMemoryItems(col: Json, handle: string): Promise<Awaited<Json[]>> {
   const notes = String(col.notes || "").trim();
   const noteItems = notes
     ? notes.split(/[；;。\n]/).map((part) => part.trim()).filter(Boolean).slice(0, 4)
     : [];
-  const mailItems = mailMemoryLines(mailHistoryRows(String(col.id || "")));
+  const mailItems = mailMemoryLines((await mailHistoryRows(String(col.id || ""))));
   return [{
     type: "task_result",
     skill: "deal_memory",
@@ -358,7 +358,7 @@ export async function collectKolClawItems(input: {
 }): Promise<{ items: Json[]; operations: Json[] }> {
   const { data, operations } = await executeKolClawTask(
     input.task,
-    { ...extractTaskEntities(input.raw || ""), ...(input.entities || {}) },
+    { ...(await extractTaskEntities(input.raw || "")), ...(input.entities || {}) },
     input.actor || scopedUser()?.id || "demo",
     input.onOperation,
   );

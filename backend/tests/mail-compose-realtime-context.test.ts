@@ -42,68 +42,43 @@ async function prepareNoCollab(input: Json = {}): Promise<{ status: number; text
   return { status: response.status, text, body: text ? (JSON.parse(text) as Json) : {} };
 }
 
-function bindMailbox(email: string, brand: string, isDefault: boolean): void {
+async function bindMailbox(email: string, brand: string, isDefault: boolean): Promise<Awaited<void>> {
   const conn = getConn();
   const now = new Date().toISOString();
-  conn.prepare(
-    `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    DEMO_USER.id, DEMO_USER.handle, DEMO_USER.name, "x",
-    JSON.stringify(["employee", "admin"]), JSON.stringify([brand]), DEMO_USER.site, 1, now, now,
-  );
-  conn.prepare(
-    `INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, status, updated_at)
-     VALUES (?,?,?,'connected',?)`,
-  ).run(DEMO_USER.id, email, isDefault ? 1 : 0, now);
+  (await conn.query("INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING",[DEMO_USER.id,DEMO_USER.handle,DEMO_USER.name,"x",JSON.stringify(["employee", "admin"]),JSON.stringify([brand]),DEMO_USER.site,1,now,now]));
+  (await conn.query("INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, status, updated_at)\n     VALUES ($1,$2,$3,'connected',$4)",[DEMO_USER.id,email,isDefault ? 1 : 0,now]));
   conn.prepare(
     `INSERT OR REPLACE INTO mailbox_owners (email, brand, owner_name, account_type, status)
      VALUES (?,?,?,?,'active')`,
   ).run(email, brand, DEMO_USER.name, "personal");
 }
 
-function clearBindings(): void {
-  getConn().prepare("DELETE FROM user_starry_bindings WHERE user_id=?").run(DEMO_USER.id);
+async function clearBindings(): Promise<Awaited<void>> {
+  (await getConn().query("DELETE FROM user_starry_bindings WHERE user_id=$1",[DEMO_USER.id]));
 }
 
-function insertThread(input: {
+async function insertThread(input: {
   id: string;
   mailbox: string;
   conversation_id: string;
   peer_email: string;
   last_at: string;
   collaboration_id?: string | null;
-}): void {
+}): Promise<Awaited<void>> {
   const now = new Date().toISOString();
-  getConn().prepare(
-    `INSERT INTO kol_mail_threads (id, collaboration_id, conversation_id, subject, mailbox,
-       last_at, created_at, updated_at, peer_email, match_state)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    input.id, input.collaboration_id || null, input.conversation_id, "往来主题",
-    input.mailbox, input.last_at, now, now, input.peer_email, input.collaboration_id ? "matched" : "unbound",
-  );
+  (await getConn().query("INSERT INTO kol_mail_threads (id, collaboration_id, conversation_id, subject, mailbox,\n       last_at, created_at, updated_at, peer_email, match_state)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",[input.id,input.collaboration_id || null,input.conversation_id,"往来主题",input.mailbox,input.last_at,now,now,input.peer_email,input.collaboration_id ? "matched" : "unbound"]));
 }
 
-function writePersonDigest(mailbox: string, peerEmail: string, text: string, mailCount: number): void {
-  getConn().prepare("INSERT OR REPLACE INTO app_state (key, value) VALUES (?,?)").run(
-    `mail_person_digest:${mailbox}:${peerEmail}`,
-    JSON.stringify({ text, source: "memory", mail_count: mailCount, fingerprint: "fp1" }),
-  );
+async function writePersonDigest(mailbox: string, peerEmail: string, text: string, mailCount: number): Promise<Awaited<void>> {
+  (await getConn().query("INSERT INTO app_state (key, value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",[`mail_person_digest:${mailbox}:${peerEmail}`,JSON.stringify({ text, source: "memory", mail_count: mailCount, fingerprint: "fp1" })]));
 }
 
-function insertCollab(input: { id: string; handle: string; email: string; brand?: string; stage?: string }): void {
-  getConn().prepare(
-    `INSERT INTO collaborations (id, handle, display_name, brand, email, mailbox_from, lifecycle_id, conversation_id, stage_code)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    input.id, input.handle, input.handle, input.brand || "LT", input.email,
-    "", "", "", input.stage || "INITIAL_CONTACT",
-  );
+async function insertCollab(input: { id: string; handle: string; email: string; brand?: string; stage?: string }): Promise<Awaited<void>> {
+  (await getConn().query("INSERT INTO collaborations (id, handle, display_name, brand, email, mailbox_from, lifecycle_id, conversation_id, stage_code)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",[input.id,input.handle,input.handle,input.brand || "LT",input.email,"","","",input.stage || "INITIAL_CONTACT"]));
 }
 
-function addPublishedTemplate(input: { id: string; brand?: string; stages?: string[] }): void {
-  createKnowledge({
+async function addPublishedTemplate(input: { id: string; brand?: string; stages?: string[] }): Promise<Awaited<void>> {
+  (await createKnowledge({
     id: input.id,
     title: input.id,
     body: "template source",
@@ -116,9 +91,9 @@ function addPublishedTemplate(input: { id: string; brand?: string; stages?: stri
     placeholders: ["[红人]"],
     stage_codes: input.stages || ["INITIAL_CONTACT"],
     status: "draft",
-  });
-  approveKnowledge(input.id, Number(knowledgeRow(input.id).current_version || 1));
-  cite(input.id);
+  }));
+  (await approveKnowledge(input.id, Number((await knowledgeRow(input.id)).current_version || 1)));
+  (await cite(input.id));
 }
 
 beforeEach(async () => {
@@ -129,31 +104,31 @@ beforeEach(async () => {
     LINGONG_DATA: tmp,
     LG_DATA_DIR: tmp,
   });
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
-  seedWorkbenchFixtures();
-  clearBindings();
+  (await seedWorkbenchFixtures());
+  (await clearBindings());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
 describe("无合作对象时的收发件准备", () => {
   it("a. 发件取挂载默认邮箱，收件取最近真实往来，均标出来源并带出摘要", async () => {
-    bindMailbox("m@litime.com", "LT", true);
-    insertThread({
+    (await bindMailbox("m@litime.com", "LT", true));
+    (await insertThread({
       id: "th_old", mailbox: "m@litime.com", conversation_id: "conv_old",
       peer_email: "old@gmail.com", last_at: "2026-10-01T10:00:00.000Z",
-    });
-    insertThread({
+    }));
+    (await insertThread({
       id: "th_new", mailbox: "m@litime.com", conversation_id: "conv_new",
       peer_email: "kol@gmail.com", last_at: "2026-10-06T10:00:00.000Z",
-    });
-    writePersonDigest("m@litime.com", "kol@gmail.com", "对方问报价，未回", 3);
+    }));
+    (await writePersonDigest("m@litime.com", "kol@gmail.com", "对方问报价，未回", 3));
 
     const response = await prepareNoCollab();
     expect(response.status, response.text).toBe(200);
@@ -172,13 +147,13 @@ describe("无合作对象时的收发件准备", () => {
   });
 
   it("b. 最近往来已匹配到范围内唯一合作时，采用该合作并走正常模板流程", async () => {
-    bindMailbox("m@litime.com", "LT", true);
-    addPublishedTemplate({ id: "tpl_first_touch" });
-    insertThread({
+    (await bindMailbox("m@litime.com", "LT", true));
+    (await addPublishedTemplate({ id: "tpl_first_touch" }));
+    (await insertThread({
       id: "th_xiaomei", mailbox: "m@litime.com", conversation_id: "conv_xiaomei",
       peer_email: "xiaomei.beauty@example.com", last_at: "2026-10-06T10:00:00.000Z",
       collaboration_id: "col_xiaomei",
-    });
+    }));
 
     const response = await prepareNoCollab();
     expect(response.status, response.text).toBe(200);
@@ -190,12 +165,12 @@ describe("无合作对象时的收发件准备", () => {
   });
 
   it("c. 通讯页带 mailbox + conversation_id 时收发件取所选", async () => {
-    bindMailbox("a@litime.com", "LT", true);
-    bindMailbox("b@litime.com", "LT", false);
-    insertThread({
+    (await bindMailbox("a@litime.com", "LT", true));
+    (await bindMailbox("b@litime.com", "LT", false));
+    (await insertThread({
       id: "th_b", mailbox: "b@litime.com", conversation_id: "conv_b",
       peer_email: "peer@gmail.com", last_at: "2026-10-06T10:00:00.000Z",
-    });
+    }));
 
     const response = await prepareNoCollab({ mailbox: "b@litime.com", conversation_id: "conv_b" });
     expect(response.status, response.text).toBe(200);
@@ -207,11 +182,11 @@ describe("无合作对象时的收发件准备", () => {
   });
 
   it("d. 选中的会话不属于本人邮箱时拒绝", async () => {
-    bindMailbox("m@litime.com", "LT", true);
-    insertThread({
+    (await bindMailbox("m@litime.com", "LT", true));
+    (await insertThread({
       id: "th_other", mailbox: "other@evil.com", conversation_id: "conv_other",
       peer_email: "peer@gmail.com", last_at: "2026-10-06T10:00:00.000Z",
-    });
+    }));
 
     const response = await prepareNoCollab({ conversation_id: "conv_other" });
     expect(response.status).toBe(400);
@@ -219,8 +194,8 @@ describe("无合作对象时的收发件准备", () => {
   });
 
   it("e. 挂了多只且没有默认时发件留空并返回候选，不取第一只", async () => {
-    bindMailbox("a@litime.com", "LT", false);
-    bindMailbox("b@litime.com", "LT", false);
+    (await bindMailbox("a@litime.com", "LT", false));
+    (await bindMailbox("b@litime.com", "LT", false));
 
     const response = await prepareNoCollab();
     expect(response.status, response.text).toBe(200);
@@ -231,15 +206,15 @@ describe("无合作对象时的收发件准备", () => {
   });
 
   it("f. 往来里只有 noreply 或本人时收件留空并如实说明缺口", async () => {
-    bindMailbox("m@litime.com", "LT", true);
-    insertThread({
+    (await bindMailbox("m@litime.com", "LT", true));
+    (await insertThread({
       id: "th_nr", mailbox: "m@litime.com", conversation_id: "conv_nr",
       peer_email: "noreply@service.com", last_at: "2026-10-06T10:00:00.000Z",
-    });
-    insertThread({
+    }));
+    (await insertThread({
       id: "th_self", mailbox: "m@litime.com", conversation_id: "conv_self",
       peer_email: "m@litime.com", last_at: "2026-10-05T10:00:00.000Z",
-    });
+    }));
 
     const response = await prepareNoCollab();
     expect(response.status, response.text).toBe(200);
@@ -249,11 +224,11 @@ describe("无合作对象时的收发件准备", () => {
   });
 
   it("g. 口令里写明的收件地址优先于往来记忆", async () => {
-    bindMailbox("m@litime.com", "LT", true);
-    insertThread({
+    (await bindMailbox("m@litime.com", "LT", true));
+    (await insertThread({
       id: "th_mem", mailbox: "m@litime.com", conversation_id: "conv_mem",
       peer_email: "memory@gmail.com", last_at: "2026-10-06T10:00:00.000Z",
-    });
+    }));
 
     const response = await prepareNoCollab({ text: "写合作邮件 发件邮箱：m@litime.com 收件邮箱：boss@brand.com 主题：合作" });
     expect(response.status, response.text).toBe(200);
@@ -263,13 +238,13 @@ describe("无合作对象时的收发件准备", () => {
   });
 
   it("h. 同一收件邮箱对应多个合作时不猜，采用 needs_context", async () => {
-    bindMailbox("m@litime.com", "LT", true);
-    insertCollab({ id: "col_a", handle: "kol_a", email: "twin@gmail.com" });
-    insertCollab({ id: "col_b", handle: "kol_b", email: "twin@gmail.com" });
-    insertThread({
+    (await bindMailbox("m@litime.com", "LT", true));
+    (await insertCollab({ id: "col_a", handle: "kol_a", email: "twin@gmail.com" }));
+    (await insertCollab({ id: "col_b", handle: "kol_b", email: "twin@gmail.com" }));
+    (await insertThread({
       id: "th_twin", mailbox: "m@litime.com", conversation_id: "conv_twin",
       peer_email: "twin@gmail.com", last_at: "2026-10-06T10:00:00.000Z",
-    });
+    }));
 
     const response = await prepareNoCollab();
     expect(response.status, response.text).toBe(200);
@@ -282,7 +257,7 @@ describe("无合作对象时的收发件准备", () => {
   });
 
   it("i. 口令里写明的收件地址是本人/系统地址时留空并说明", async () => {
-    bindMailbox("m@litime.com", "LT", true);
+    (await bindMailbox("m@litime.com", "LT", true));
 
     const selfResp = await prepareNoCollab({ text: "写合作邮件 收件邮箱：m@litime.com 主题：合作" });
     expect(selfResp.status).toBe(400);
@@ -292,13 +267,13 @@ describe("无合作对象时的收发件准备", () => {
   });
 
   it("j. 有合作但无适用模板时 needs_template 仍带回 editor/sources/候选", async () => {
-    bindMailbox("m@litime.com", "LT", true);
-    insertCollab({ id: "col_solo", handle: "solo", email: "solo@gmail.com" });
+    (await bindMailbox("m@litime.com", "LT", true));
+    (await insertCollab({ id: "col_solo", handle: "solo", email: "solo@gmail.com" }));
     // 不发布任何模板
-    insertThread({
+    (await insertThread({
       id: "th_solo", mailbox: "m@litime.com", conversation_id: "conv_solo",
       peer_email: "solo@gmail.com", last_at: "2026-10-06T10:00:00.000Z",
-    });
+    }));
 
     const response = await prepareNoCollab();
     expect(response.status, response.text).toBe(200);
@@ -316,18 +291,9 @@ describe("无合作对象时的收发件准备", () => {
     // 发件箱不应因品牌核对失败而留空。绑定即授权。
     const conn = getConn();
     const now = new Date().toISOString();
-    conn.prepare(
-      `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      DEMO_USER.id, DEMO_USER.handle, DEMO_USER.name, "x",
-      JSON.stringify(["employee", "admin"]), JSON.stringify(["LT"]), DEMO_USER.site, 1, now, now,
-    );
+    (await conn.query("INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING",[DEMO_USER.id,DEMO_USER.handle,DEMO_USER.name,"x",JSON.stringify(["employee", "admin"]),JSON.stringify(["LT"]),DEMO_USER.site,1,now,now]));
     // 只绑个人邮箱，不写 mailbox_owners（模拟真实绑定：非品牌域名无品牌登记）
-    conn.prepare(
-      `INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, status, updated_at)
-       VALUES (?,?,1,'connected',?)`,
-    ).run(DEMO_USER.id, "larry.zhao@amperetime.com", now);
+    (await conn.query("INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, status, updated_at)\n       VALUES ($1,$2,1,'connected',$3)",[DEMO_USER.id,"larry.zhao@amperetime.com",now]));
 
     const response = await prepareNoCollab();
     expect(response.status, response.text).toBe(200);

@@ -93,78 +93,26 @@ function portraitEmail(name: string): string {
   return portraitRows().find((row) => row["名称"] === name)?.["邮箱"] || "";
 }
 
-function insertCollaboration(profile: StarryProfile, stageCode = "INITIAL_CONTACT"): string {
+async function insertCollaboration(profile: StarryProfile, stageCode = "INITIAL_CONTACT"): Promise<Awaited<string>> {
   const id = `col_${profile.kolUid}`;
   const followers = profile.followerCountTenThousands != null ? `${profile.followerCountTenThousands}万` : "";
   const geo = profile.audienceGeo && typeof profile.audienceGeo === "object"
     ? Object.entries(profile.audienceGeo).sort((a, b) => Number.parseFloat(b[1]) - Number.parseFloat(a[1]))[0]?.[0] || ""
     : String(profile.countryName || "");
   const boundEmail = portraitEmail(profile.kolName) || `${profile.kolUid.toLowerCase()}@litime.example`;
-  getConn().prepare(
-    `INSERT OR REPLACE INTO collaborations
-     (id, handle, display_name, brand, platform, followers, email, mailbox_from,
-      lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,
-      stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    id,
-    profile.kolName,
-    profile.kolName,
-    String(profile.brandName || "LT").replace(/品牌$/, ""),
-    profile.platform || "YouTube",
-    followers,
-    boundEmail,
-    BRAND_MAILBOXES.LT,
-    `lc_${profile.kolUid}`,
-    `conv_${profile.kolUid}`,
-    stageCode,
-    9,
-    String(profile.nicheTagsText || "").slice(0, 80),
-    0,
-    0,
-    "",
-    "",
-    "",
-    profile.countryName || "",
-    "",
-    "LT-MINI-12",
-    "1",
-    0,
-  );
-  getConn().prepare(
-    `UPDATE collaborations SET owner_name=?, engagement_rate=?, audience_geo=?, duplicate_checked=1
-     WHERE id=?`,
-  ).run(
-    profile.ownerName || "",
-    profile.avgVideoEngagementRate10 ?? "",
-    geo,
-    id,
-  );
+  (await getConn().query("INSERT INTO collaborations\n     (id, handle, display_name, brand, platform, followers, email, mailbox_from,\n      lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,\n      stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,display_name=EXCLUDED.display_name,brand=EXCLUDED.brand,platform=EXCLUDED.platform,followers=EXCLUDED.followers,email=EXCLUDED.email,mailbox_from=EXCLUDED.mailbox_from,lifecycle_id=EXCLUDED.lifecycle_id,conversation_id=EXCLUDED.conversation_id,stage_code=EXCLUDED.stage_code,days_in_stage=EXCLUDED.days_in_stage,notes=EXCLUDED.notes,overdue=EXCLUDED.overdue,stage_version=EXCLUDED.stage_version,recipient_name=EXCLUDED.recipient_name,phone=EXCLUDED.phone,address_line=EXCLUDED.address_line,country=EXCLUDED.country,postal=EXCLUDED.postal,sku=EXCLUDED.sku,qty=EXCLUDED.qty,locked=EXCLUDED.locked",[id,profile.kolName,profile.kolName,String(profile.brandName || "LT").replace(/品牌$/, ""),profile.platform || "YouTube",followers,boundEmail,BRAND_MAILBOXES.LT,`lc_${profile.kolUid}`,`conv_${profile.kolUid}`,stageCode,9,String(profile.nicheTagsText || "").slice(0, 80),0,0,"","","",profile.countryName || "","","LT-MINI-12","1",0]));
+  (await getConn().query("UPDATE collaborations SET owner_name=$1, engagement_rate=$2, audience_geo=$3, duplicate_checked=1\n     WHERE id=$4",[profile.ownerName || "",profile.avgVideoEngagementRate10 ?? "",geo,id]));
   return id;
 }
 
-function insertUnboundCreator(portrait: Record<string, string>): void {
+async function insertUnboundCreator(portrait: Record<string, string>): Promise<Awaited<void>> {
   const id = `cr_md_${portrait["名称"].replace(/\s+/g, "_")}`;
-  getConn().prepare(
-    `INSERT OR REPLACE INTO claw_creators
-     (id, handle, name, platform, followers, score, status, outreach_script, payload)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    id,
-    portrait["名称"],
-    portrait["名称"],
-    portrait["主平台"] || "youtube",
-    Math.round(Number(portrait["粉丝量/万"] || 0) * 10000),
-    0.7,
-    "discovered",
-    portrait["备注"] || "画像台账导入，待建联",
-    JSON.stringify({
+  (await getConn().query("INSERT INTO claw_creators\n     (id, handle, name, platform, followers, score, status, outreach_script, payload)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,name=EXCLUDED.name,platform=EXCLUDED.platform,followers=EXCLUDED.followers,score=EXCLUDED.score,status=EXCLUDED.status,outreach_script=EXCLUDED.outreach_script,payload=EXCLUDED.payload",[id,portrait["名称"],portrait["名称"],portrait["主平台"] || "youtube",Math.round(Number(portrait["粉丝量/万"] || 0) * 10000),0.7,"discovered",portrait["备注"] || "画像台账导入，待建联",JSON.stringify({
       niche: "vanlife",
       brand_fit: portrait["品牌"] || "LT",
       email: portrait["邮箱"] || "",
       unbound: true,
-    }),
-  );
+    })]));
 }
 
 beforeEach(async () => {
@@ -175,15 +123,15 @@ beforeEach(async () => {
   process.env.CODEX_MODE = "stub";
   calls.length = 0;
   setStarryKolClientFactory(mockFromSnapshot);
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   chatApp = (await createApp());
 });
 
-afterEach(() => {
+afterEach(async () => {
   setStarryKolClientFactory();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -510,11 +458,11 @@ describe("home board and host flows with Starry + markdown creators", () => {
   });
 
   it("sends a follow-up to Wendell Fishing without changing the official stage", async () => {
-    const id = insertCollaboration(wendellProfile(), "INITIAL_CONTACT");
+    const id = (await insertCollaboration(wendellProfile(), "INITIAL_CONTACT"));
     const [sid] = await ask("记状态 @Wendell Fishing", "confirm_stage", id);
     const { persistDraft } = await import("../src/host/api.js");
     const { BRAND_MAILBOXES } = await import("../src/config.js");
-    const draft = persistDraft(sid, {
+    const draft = (await persistDraft(sid, {
       skill: "email_compose",
       template_id: "stage_mail.followup",
       from: BRAND_MAILBOXES.LT,
@@ -524,14 +472,14 @@ describe("home board and host flows with Starry + markdown creators", () => {
       keep_stage: true,
       official_stage: "INITIAL_CONTACT",
       collaboration_id: id,
-    });
+    }));
     expect(Boolean(draft.keep_stage)).toBe(true);
     expect(String(draft.to || draft.to_addr)).toBe("wendellfishing@gmail.com");
     const sent = await confirmAndSendDraft(request, String(draft.id), {});
     expect(sent.status, JSON.stringify(sent.body)).toBe(200);
     expect(sent.body.stage_changed).toBe(false);
     expect(sent.body.official_stage).toBe("INITIAL_CONTACT");
-    const row = getConn().prepare("SELECT stage_code FROM collaborations WHERE id=?").get(id) as { stage_code: string };
+    const row = (await getConn().query("SELECT stage_code FROM collaborations WHERE id=$1",[id])).rows[0] as { stage_code: string };
     expect(row.stage_code).toBe("INITIAL_CONTACT");
   });
 });

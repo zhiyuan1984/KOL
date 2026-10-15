@@ -56,8 +56,8 @@ const inflight = new Map<string, Promise<MailMemoryStats>>();
 type OnDemandMemory = NativeOnDemandMemory;
 const nowIso = (): string => new Date().toISOString();
 
-function onDemandActorId(): string {
-  const actorId = String(safeEmployeeId() || "").trim();
+async function onDemandActorId(): Promise<Awaited<string>> {
+  const actorId = String((await safeEmployeeId()) || "").trim();
   if (!actorId) throw new Error("mail_memory_actor_required");
   return actorId;
 }
@@ -67,11 +67,11 @@ function onDemandKey(kind: "summary" | "translation", mailbox: string, conversat
 }
 
 export async function readOnDemandMemory(key: string): Promise<OnDemandMemory | null> {
-  return readNativeOnDemandMemory(onDemandActorId(), key);
+  return readNativeOnDemandMemory((await onDemandActorId()), key);
 }
 
 export async function writeOnDemandMemory(key: string, value: OnDemandMemory): Promise<void> {
-  await writeNativeOnDemandMemory(onDemandActorId(), key, value);
+  await writeNativeOnDemandMemory((await onDemandActorId()), key, value);
 }
 
 function onDemandFingerprint(rows: Row[]): string {
@@ -338,10 +338,10 @@ export async function runMailMemoryIncrement(mailbox?: string): Promise<MailMemo
   await writeNativeMailMemoryAudit("mail_memory.increment", { mailbox: mailbox || "*", repository: "postgresql_native", ...stats });
   return stats;
 }
-export function triggerMailMemoryIncrement(mailbox?: string): void {
+export async function triggerMailMemoryIncrement(mailbox?: string): Promise<Awaited<void>> {
   const key = mailbox || "*";
   if (inflight.has(key)) return;
-  const promise = runMailMemoryIncrement(mailbox)
+  const promise = (await runMailMemoryIncrement(mailbox)
     .catch(async (err) => {
       // This is detached background work. A second database failure while
       // reporting the first must not reject an unobserved promise or stop the
@@ -360,16 +360,16 @@ export function triggerMailMemoryIncrement(mailbox?: string): void {
       }
       return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1 };
     })
-    .finally(() => inflight.delete(key));
+    .finally(() => inflight.delete(key)));
   inflight.set(key, promise);
 }
 
 /** Execute the employee-facing mail_summary Skill for one selected conversation. */
-export function triggerMailSummarySkill(mailbox: string, conversationId: string): Promise<MailMemoryStats> {
+export async function triggerMailSummarySkill(mailbox: string, conversationId: string): Promise<MailMemoryStats> {
   const key = `skill:mail_summary:${mailbox}:${conversationId}`;
-  const existing = inflight.get(key);
+  const existing = (await inflight.get(key));
   if (existing) return existing;
-  const promise = (async (): Promise<MailMemoryStats> => {
+  const promise = (await (async (): Promise<MailMemoryStats> => {
     const thread = await findNativeMailThread(mailbox, conversationId);
     if (!thread) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: "未找到对应的邮件主题或会话已失效" };
     const items = await listNativeConversationItems(conversationId, mailbox);
@@ -407,17 +407,17 @@ export function triggerMailSummarySkill(mailbox: string, conversationId: string)
       await writeNativeMailMemoryAudit("mail_skill.summary_failed", { mailbox, conversation_id: conversationId, error: err instanceof Error ? err.message : String(err) });
       return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: err instanceof Error ? err.message : String(err) };
     })
-    .finally(() => inflight.delete(key));
+    .finally(() => inflight.delete(key)));
   inflight.set(key, promise);
   return promise;
 }
 
 /** Execute the employee-facing mail_translate Skill for one selected message. */
-export function triggerMailTranslateSkill(mailbox: string, messageId: string): Promise<MailMemoryStats> {
+export async function triggerMailTranslateSkill(mailbox: string, messageId: string): Promise<MailMemoryStats> {
   const key = `skill:mail_translate:${mailbox}:${messageId}`;
-  const existing = inflight.get(key);
+  const existing = (await inflight.get(key));
   if (existing) return existing;
-  const promise = (async (): Promise<MailMemoryStats> => {
+  const promise = (await (async (): Promise<MailMemoryStats> => {
     const row = await findNativeMailItem(mailbox, messageId);
     const body = row ? mailBodyOf(row) : "";
     if (!row) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: "未找到选中的邮件，可能是邮件 ID 已变化" };
@@ -450,7 +450,7 @@ export function triggerMailTranslateSkill(mailbox: string, messageId: string): P
       await writeNativeMailMemoryAudit("mail_skill.translate_failed", { mailbox, message_id: messageId, error: err instanceof Error ? err.message : String(err) });
       return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: err instanceof Error ? err.message : String(err) };
     })
-    .finally(() => inflight.delete(key));
+    .finally(() => inflight.delete(key)));
   inflight.set(key, promise);
   return promise;
 }

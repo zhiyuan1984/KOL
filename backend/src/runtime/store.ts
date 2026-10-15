@@ -118,11 +118,11 @@ async function bootstrapAgentManifestBindings(agentId: string): Promise<void> {
 /** Schema ownership belongs to formal PostgreSQL migrations; this function only performs reviewed one-way bootstrap rows. */
 export async function ensureRuntimeSchema(): Promise<void> {
   if (schemaReady) return schemaReady;
-  const current = (async () => {
+  const current = (await (async () => {
     await bootstrapWorkspacePlanner();
     await bootstrapAgentManifestBindings("agent:kol");
     await bootstrapPlatformSync();
-  })();
+  })());
   schemaReady = current;
   try { await current; } catch (error) { if (schemaReady === current) schemaReady = null; throw error; }
 }

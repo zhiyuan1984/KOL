@@ -29,22 +29,15 @@ async function request(method: string, url: string, body?: unknown) {
 }
 
 /** Production shape: many events per work item, most of them irrelevant to a list. */
-function seedEventTail(workItemId: string, eventCount: number) {
+async function seedEventTail(workItemId: string, eventCount: number) {
   const conn = getConn();
   const start = Number((
-    conn.prepare("SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=?").get(workItemId) as { sequence: number }
+    (await conn.query("SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=$1",[workItemId])).rows[0] as { sequence: number }
   ).sequence);
-  const insert = conn.prepare(
-    `INSERT INTO task_events (id,work_item_id,run_id,sequence,event_type,label,status,safe_summary,time,created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-  );
+  const insert = "INSERT INTO task_events (id,work_item_id,run_id,sequence,event_type,label,status,safe_summary,time,created_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)";
   const last = start + eventCount;
   for (let i = start + 1; i <= last; i += 1) {
-    insert.run(
-      `tev_seed_${workItemId}_${i}`, workItemId, null, i, "trace", `步骤 ${i}`, "running",
-      i === last ? "最后一步 · 进行中" : `中间步骤 ${i}`, `2026-01-01T00:00:${String(i % 60).padStart(2, "0")}Z`,
-      `2026-01-01T00:00:${String(i % 60).padStart(2, "0")}Z`,
-    );
+    (await conn.query(insert,[`tev_seed_${workItemId}_${i}`,workItemId,null,i,"trace",`步骤 ${i}`,"running",i === last ? "最后一步 · 进行中" : `中间步骤 ${i}`,`2026-01-01T00:00:${String(i % 60).padStart(2, "0")}Z`,`2026-01-01T00:00:${String(i % 60).padStart(2, "0")}Z`]));
   }
   return last;
 }
@@ -56,29 +49,29 @@ beforeEach(async () => {
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.NODE_ENV = "test";
-  resetConn();
+  (await resetConn());
   resetPollCache();
   resetStarryHomeLibrarySync();
   resetFollowedMailSync();
-  seedAll();
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
-  seedWorkbenchFixtures();
+  (await seedWorkbenchFixtures());
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
-  resetDemoRuntimeState();
+  (await resetDemoRuntimeState());
   resetPollCache();
   resetStarryHomeLibrarySync();
   resetFollowedMailSync();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
 describe("GET /api/tasks list payloads", () => {
   it("caps each work item's history tail while keeping the aggregate result correct", async () => {
-    const last = seedEventTail("tsk_home_laozhang_quote", 400);
+    const last = (await seedEventTail("tsk_home_laozhang_quote", 400));
     const queries = vi.spyOn(postgresPool(), "query");
     const listed = await request("GET", "/api/tasks");
     expect(queries.mock.calls.filter(([sql]) => String(sql).includes("unnest($1::text[])"))).toHaveLength(1);
@@ -101,7 +94,7 @@ describe("GET /api/tasks list payloads", () => {
   });
 
   it("view=open reports the same total before and after the aggregation change", async () => {
-    seedEventTail("tsk_home_laozhang_quote", 40);
+    (await seedEventTail("tsk_home_laozhang_quote", 40));
     const listed = await request("GET", "/api/tasks?view=open");
     expect(listed.status).toBe(200);
     const expected = Number((
@@ -168,9 +161,7 @@ describe("polling result cache", () => {
     // without slowing the suite down with tens of thousands of inserts.
     const stamp = "2026-09-01T00:00:00.000Z";
     const filler = "x".repeat(Math.ceil(POLL_CACHE_MAX_VALUE_BYTES * 1.1));
-    getConn().prepare(
-      "INSERT INTO sessions (id,title,created_at,updated_at,kind,owner_user_id) VALUES (?,?,?,?,?,?)",
-    ).run("ses_oversize", filler, stamp, stamp, "work", DEMO_USER.id);
+    (await getConn().query("INSERT INTO sessions (id,title,created_at,updated_at,kind,owner_user_id) VALUES ($1,$2,$3,$4,$5,$6)",["ses_oversize",filler,stamp,stamp,"work",DEMO_USER.id]));
 
     const before = pollCacheCounters();
     const first = await request("GET", "/api/sessions");
@@ -197,9 +188,7 @@ describe("polling result cache", () => {
     // shell polls it every 4s per tab, so it must stay inside the budget.
     const stamp = "2026-09-01T00:00:00.000Z";
     const filler = "x".repeat(900 * 1024);
-    getConn().prepare(
-      "INSERT INTO sessions (id,title,created_at,updated_at,kind,owner_user_id) VALUES (?,?,?,?,?,?)",
-    ).run("ses_big", filler, stamp, stamp, "work", DEMO_USER.id);
+    (await getConn().query("INSERT INTO sessions (id,title,created_at,updated_at,kind,owner_user_id) VALUES ($1,$2,$3,$4,$5,$6)",["ses_big",filler,stamp,stamp,"work",DEMO_USER.id]));
 
     const before = pollCacheCounters();
     const first = await request("GET", "/api/sessions");
@@ -234,16 +223,10 @@ describe("GET /api/sessions projection", () => {
 
   it("ships no field the shell does not read, under a byte ceiling", async () => {
     const stamp = "2026-09-01T00:00:00.000Z";
-    const insert = getConn().prepare(
-      "INSERT INTO sessions (id,title,created_at,updated_at,collaboration_id,kind,owner_user_id,archived_at,expert_id,thread_ref) VALUES (?,?,?,?,?,?,?,?,?,?)",
-    );
-    getConn().transaction(() => {
+    const insert = "INSERT INTO sessions (id,title,created_at,updated_at,collaboration_id,kind,owner_user_id,archived_at,expert_id,thread_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)";
+    getConn().transaction(async () => {
       for (let i = 0; i < 200; i += 1) {
-        insert.run(
-          `ses_proj_${String(i).padStart(3, "0")}`,
-          `与 达人${i} 的合作会话 · 第 ${i} 轮`,
-          stamp, stamp, `col_proj_${i}`, "work", DEMO_USER.id, i % 9 === 0 ? stamp : null, `expert_${i}`, `thread_${i}`,
-        );
+        (await getConn().query(insert,[`ses_proj_${String(i).padStart(3, "0")}`,`与 达人${i} 的合作会话 · 第 ${i} 轮`,stamp,stamp,`col_proj_${i}`,"work",DEMO_USER.id,i % 9 === 0 ? stamp : null,`expert_${i}`,`thread_${i}`]));
       }
     })();
 
@@ -273,9 +256,7 @@ describe("GET /api/home/board list caps", () => {
   it("caps kol sub-lists and workbench rows while keeping the counts exact", async () => {
     // The board only projects collaborations bound to a remote KOL identity, so
     // without this the per-kol assertions below would be vacuous.
-    getConn().prepare(
-      "UPDATE collaborations SET kol_uid='ku_' || id WHERE id IN ('col_xiaomei','col_laozhang','col_mum','col_trip')",
-    ).run();
+    (await getConn().query("UPDATE collaborations SET kol_uid='ku_' || id WHERE id IN ('col_xiaomei','col_laozhang','col_mum','col_trip')",[]));
     const board = (await buildHomeBoard()) as Json;
     const kols = board.kols as Json[];
     const workbench = board.workbench as Json;
@@ -311,9 +292,7 @@ describe("GET /api/home/board list caps", () => {
     // frontend/src/home/kolContract.ts#isUnownedRow calls a row 无主 only when
     // *every* owner key present in it is empty. Dropping `owner_mailbox` would
     // leave `owner_name: ""` as the only key and send a 有主 KOL to the public sea.
-    getConn().prepare(
-      "UPDATE collaborations SET kol_uid='ku_xiaomei', owner_name='', owner_mailbox='ops@example.com' WHERE id='col_xiaomei'",
-    ).run();
+    (await getConn().query("UPDATE collaborations SET kol_uid='ku_xiaomei', owner_name='', owner_mailbox='ops@example.com' WHERE id='col_xiaomei'",[]));
     const board = (await buildHomeBoard()) as Json;
     const kol = (board.kols as Json[]).find((row) => row.id === "col_xiaomei") as Json;
     expect(kol.owner_mailbox).toBe("ops@example.com");
@@ -322,23 +301,16 @@ describe("GET /api/home/board list caps", () => {
 
   it("keeps the unread-inbound signal from the whole thread list even though the board caps it", async () => {
     const conn = getConn();
-    conn.prepare("UPDATE collaborations SET kol_uid='ku_xiaomei' WHERE id='col_xiaomei'").run();
-    const collab = conn.prepare("SELECT id FROM collaborations WHERE id='col_xiaomei'").get() as { id: string };
-    const insert = conn.prepare(
-      `INSERT INTO kol_mail_threads
-         (id,collaboration_id,conversation_id,subject,mailbox,last_direction,last_snippet,unread_count,last_at,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    );
+    (await conn.query("UPDATE collaborations SET kol_uid='ku_xiaomei' WHERE id='col_xiaomei'",[]));
+    const collab = (await conn.query("SELECT id FROM collaborations WHERE id='col_xiaomei'",[])).rows[0] as { id: string };
+    const insert = "INSERT INTO kol_mail_threads\n         (id,collaboration_id,conversation_id,subject,mailbox,last_direction,last_snippet,unread_count,last_at,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)";
     // Newest first by last_at: the only unread inbound thread is the fourth, so
     // it falls outside the serialized cap and must still raise the recommendation.
     const base = Date.parse("2026-03-01T00:00:00.000Z");
     for (let i = 0; i < 4; i += 1) {
       const at = new Date(base - i * 3600_000).toISOString();
       const unread = i === 3;
-      insert.run(
-        `thr_cap_${i}`, collab.id, `conv_cap_${i}`, `主题 ${i}`, "brand@example.com",
-        unread ? "inbound" : "outbound", `片段 ${i}`, unread ? 2 : 0, at, at, at,
-      );
+      (await conn.query(insert,[`thr_cap_${i}`,collab.id,`conv_cap_${i}`,`主题 ${i}`,"brand@example.com",unread ? "inbound" : "outbound",`片段 ${i}`,unread ? 2 : 0,at,at,at]));
     }
     const board = (await buildHomeBoard()) as Json;
     const kol = (board.kols as Json[]).find((row) => row.id === collab.id) as Json;
@@ -363,18 +335,12 @@ describe("GET /api/home/board list caps", () => {
   it("caps a work item's related tasks per kol without losing the unread total", async () => {
     const conn = getConn();
     // The board only projects collaborations bound to a remote KOL identity.
-    conn.prepare("UPDATE collaborations SET kol_uid='ku_xiaomei' WHERE id='col_xiaomei'").run();
-    const collab = conn.prepare("SELECT id,handle FROM collaborations WHERE id='col_xiaomei'").get() as { id: string; handle: string };
-    const insert = conn.prepare(
-      `INSERT INTO tickets (id,owner_user_id,task_type,title,source,status,priority,skill,profile,collaboration_id,project_id,input,entities,created_at,updated_at,content,risk_level)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    );
+    (await conn.query("UPDATE collaborations SET kol_uid='ku_xiaomei' WHERE id='col_xiaomei'",[]));
+    const collab = (await conn.query("SELECT id,handle FROM collaborations WHERE id='col_xiaomei'",[])).rows[0] as { id: string; handle: string };
+    const insert = "INSERT INTO tickets (id,owner_user_id,task_type,title,source,status,priority,skill,profile,collaboration_id,project_id,input,entities,created_at,updated_at,content,risk_level)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)";
     for (let i = 0; i < MAX_KOL_TASKS + 4; i += 1) {
       const stamp = new Date(Date.now() + i * 1000).toISOString();
-      insert.run(
-        `tsk_cap_${i}`, DEMO_USER.id, "email_compose", `跟进 ${i} @${collab.handle}`, "manual", "pending", "normal",
-        "email_compose", "lead", collab.id, collab.id, "{}", "{}", stamp, stamp, "", "none",
-      );
+      (await conn.query(insert,[`tsk_cap_${i}`,DEMO_USER.id,"email_compose",`跟进 ${i} @${collab.handle}`,"manual","pending","normal","email_compose","lead",collab.id,collab.id,"{}","{}",stamp,stamp,"","none"]));
     }
     const board = (await buildHomeBoard()) as Json;
     const kol = (board.kols as Json[]).find((row) => row.id === collab.id) as Json;

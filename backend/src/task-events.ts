@@ -82,7 +82,7 @@ export async function appendTaskEvent(
   safeSummary?: string,
 ): Promise<Row | null> {
   try {
-    return await postgresTransaction((client) => appendTaskEventIn(client, workItemId, runId, eventType, label, status, safeSummary));
+    return await postgresTransaction(async (client) => (await appendTaskEventIn(client, workItemId, runId, eventType, label, status, safeSummary)));
   } catch (error) {
     // Follow-up traces may arrive after a task is deliberately removed. This is
     // an expected no-op, never an unhandled PostgreSQL FK exception.

@@ -9,7 +9,7 @@ import { getConnectorConfig } from "./store.js";
 export async function createManagedClient(connectorId: string, userId: string, credentialAccountId?: string, timeoutMs?: number) {
   const saved = (await getConnectorConfig(connectorId));
   if (!saved) throw new HttpFail(503, { code: "runtime_connector_not_configured" });
-  const connector = getConn().prepare("SELECT enabled FROM connectors WHERE id=?").get(connectorId) as Row | undefined;
+  const connector = (await getConn().query("SELECT enabled FROM connectors WHERE id=$1",[connectorId])).rows[0] as Row | undefined;
   if (!connector?.enabled) throw new HttpFail(403, { code: "runtime_connector_disabled" });
   const config = structuredClone(saved.config);
   if (credentialAccountId) {
@@ -26,13 +26,13 @@ export async function createManagedClient(connectorId: string, userId: string, c
     timeoutMs && timeoutMs > 0 ? { ...config, timeout_ms: timeoutMs } : config,
   ));
   return {
-    listTools: () => client.listTools(),
+    listTools: async () => (await client.listTools()),
     async callTool(name: string, args: Json = {}): Promise<Json> {
       const result = await client.callToolRaw(name, args);
       const normalized = normalizeMcpContent(result);
       if (result.isError) throw new Error(String(normalized.text || "remote MCP tool failed"));
       return normalized;
     },
-    close: () => client.close(),
+    close: async () => (await client.close()),
   };
 }

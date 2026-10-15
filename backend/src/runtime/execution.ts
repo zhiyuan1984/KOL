@@ -470,7 +470,7 @@ export class SkillExecution {
       const controlled = runtimeRequiresGate(handle.remoteName) || authorized.policy.risk === "L3";
       const snapshot = runtimeHash({ context: this.context, alias, args, stamp: handle.stamp, credentialStamp });
       if (controlled) {
-        rejectDiscoveryHarnessTool(handle.remoteName);
+        (await rejectDiscoveryHarnessTool(handle.remoteName));
         assertNoCredentialEcho(args, options.headers);
         if (!this.confirmedActionId) {
           assertRuntimeActionAllowed(handle.connectorId, handle.remoteName);

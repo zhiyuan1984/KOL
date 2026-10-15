@@ -305,7 +305,7 @@ async function fetchRemoteCrawlStatus(job: Crawl,
       : ["failed", "error", "timeout", "timed_out"].includes(value) ? "failed"
       : ["stopped", "cancelled", "canceled"].includes(value) ? "cancelled" : null;
     return { terminal, value, status };
-  } finally { runtime.close(); }
+  } finally { (await runtime.close()); }
 }
 
 /** 直调连接器 MCP 工具（start_crawl / stop_crawl），绕过 SkillExecution 的确认流程。

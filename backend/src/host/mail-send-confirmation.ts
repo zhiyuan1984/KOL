@@ -87,10 +87,10 @@ export async function validateMailSend(draft: Row): Promise<void> {
     objectBrand = String(col.brand || "");
   }
   if (extra.knowledge_id) {
-    assertMailTemplateSnapshotApplicable({
+    (await assertMailTemplateSnapshotApplicable({
       knowledgeId: String(extra.knowledge_id), version: Number(extra.knowledge_version),
       skillId: String(draft.skill || "email_compose"), stageCode: String(checked.official_stage || ""), brand: objectBrand,
-    });
+    }));
   }
   if (Array.isArray(extra.attachments) && extra.attachments.length) {
     throw new HttpFail(409, { code: "mail_attachments_unsupported", message: "当前邮件网关尚不支持附件外发，请先移除附件或改用支持附件的邮件入口。" });
@@ -98,7 +98,7 @@ export async function validateMailSend(draft: Row): Promise<void> {
   if (draft.status === "waiting_approval") {
     throw new HttpFail(409, { code: "mail_waiting_approval", message: "草稿正在等待审批，尚不能发送。" });
   }
-  enforceSend(checked, currentUser(), undefined, { readOnly: true });
+  (await enforceSend(checked, (await currentUser()), undefined, { readOnly: true }));
   (await assertMailGatewayReady(checked));
 }
 
@@ -129,7 +129,7 @@ export async function mailSendAction(draft: Row): Promise<{ draft_id: string; ac
       receiptId: done ? (attempt?.request_id || String(draft.id)) : null,
       confirmationPayload: {
         draft_id: draft.id,
-        actor_id: currentUser().id,
+        actor_id: (await currentUser()).id,
         snapshot,
         fingerprint: currentFingerprint(draft),
         revision: extra.confirmation_revision || 0,
@@ -160,7 +160,7 @@ export async function claimMailSend(draftId: string, input: MailSendConfirmation
     const draft = (await db.query<Row>("SELECT * FROM drafts WHERE id=$1 FOR UPDATE", [draftId])).rows[0] as Row | undefined;
     if (!draft) throw new HttpFail(404, "draft not found");
     (await validateMailSend(draft));
-    const actorId = currentUser().id;
+    const actorId = (await currentUser()).id;
     const prior = (await db.query<Attempt>("SELECT * FROM mail_send_attempts WHERE draft_id=$1", [draftId])).rows[0];
     if (prior) {
       if (prior.request_id === requestId && prior.actor_id === actorId && prior.confirmation_version === confirmation && prior.status === "sent") {
@@ -185,7 +185,7 @@ export async function claimMailSend(draftId: string, input: MailSendConfirmation
 
 export async function assertClaimedMailSend(draftId: string, requestId: string): Promise<void> {
   const attempt = (await attemptFor(draftId));
-  if (!attempt || attempt.request_id !== requestId || attempt.status !== "sending" || attempt.actor_id !== currentUser().id) {
+  if (!attempt || attempt.request_id !== requestId || attempt.status !== "sending" || attempt.actor_id !== (await currentUser()).id) {
     throw new HttpFail(409, { code: "mail_gateway_confirmation_required", message: "邮件网关缺少已经确认的发送请求。" });
   }
 }

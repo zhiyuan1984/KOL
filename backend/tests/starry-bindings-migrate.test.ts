@@ -55,8 +55,8 @@ beforeEach(() => {
   process.env.LINGONG_DATA = tmp;
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   if (databaseUrl === undefined) delete process.env.DATABASE_URL;
   else process.env.DATABASE_URL = databaseUrl;
@@ -69,12 +69,9 @@ function pkColumns(): string[] {
     .map((row) => row.name);
 }
 
-function seedUser(id: string): void {
+async function seedUser(id: string): Promise<Awaited<void>> {
   const now = new Date().toISOString();
-  getConn().prepare(
-    `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,active,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?)`,
-  ).run(id, id, id, "x", "[]", 1, now, now);
+  (await getConn().query("INSERT INTO users (id,username,name,password_hash,roles,active,created_at,updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING",[id,id,id,"x","[]",1,now,now]));
 }
 
 describe("user_starry_bindings multi-mailbox migration", () => {
@@ -87,12 +84,8 @@ describe("user_starry_bindings multi-mailbox migration", () => {
       );
       ${OLD_DDL}
     `);
-    raw.prepare("INSERT INTO users (id, username, name) VALUES ('usr_a', 'a', '甲')").run();
-    raw.prepare(
-      `INSERT INTO user_starry_bindings
-         (user_id, mailbox_email, mailbox_id, owner_name, bearer_token, status, updated_at, synced_at, last_error)
-       VALUES ('usr_a', 'first@example.com', 'mbx_1', '甲', 'tok', 'connected', '2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z', '')`,
-    ).run();
+    (await raw.query("INSERT INTO users (id, username, name) VALUES ('usr_a', 'a', '甲')",[]));
+    (await raw.query("INSERT INTO user_starry_bindings\n         (user_id, mailbox_email, mailbox_id, owner_name, bearer_token, status, updated_at, synced_at, last_error)\n       VALUES ('usr_a', 'first@example.com', 'mbx_1', '甲', 'tok', 'connected', '2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z', '')",[]));
     raw.close();
 
     // Opening the app connection runs initSchema → rebuildUserStarryBindings.
@@ -112,7 +105,7 @@ describe("user_starry_bindings multi-mailbox migration", () => {
 
   it("binding a second mailbox keeps both and never moves the default", async () => {
     getConn();
-    seedUser("usr_b");
+    (await seedUser("usr_b"));
     const first = (await saveStarryBinding("usr_b", { mailbox_email: "first@example.com", owner_name: "甲" }));
     expect(first).toMatchObject({ bound: true, mailbox_email: "first@example.com" });
     const second = (await saveStarryBinding("usr_b", { mailbox_email: "second@example.com", owner_name: "乙" }));
@@ -127,7 +120,7 @@ describe("user_starry_bindings multi-mailbox migration", () => {
 
   it("unbind deletes only the named mailbox and leaves remaining mailboxes without an implicit default", async () => {
     getConn();
-    seedUser("usr_c");
+    (await seedUser("usr_c"));
     (await saveStarryBinding("usr_c", { mailbox_email: "old@example.com" }));
     (await saveStarryBinding("usr_c", { mailbox_email: "new@example.com" }));
 
@@ -149,7 +142,7 @@ describe("user_starry_bindings multi-mailbox migration", () => {
 
   it("re-selecting a mailbox restores the default after the previous default was removed", async () => {
     getConn();
-    seedUser("usr_d");
+    (await seedUser("usr_d"));
     (await saveStarryBinding("usr_d", { mailbox_email: "first@example.com", owner_name: "甲" }));
     (await saveStarryBinding("usr_d", { mailbox_email: "second@example.com", owner_name: "乙" }));
     (await clearStarryBinding("usr_d", "first@example.com"));

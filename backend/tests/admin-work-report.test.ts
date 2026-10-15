@@ -23,19 +23,14 @@ async function request(method: string, url: string, body?: unknown, headers: Rec
   return { status: response.status, body: text ? JSON.parse(text) as Json : {}, text };
 }
 
-function insertUser(id: string, name: string, roles: string[]) {
+async function insertUser(id: string, name: string, roles: string[]) {
   const now = nowIso();
-  getConn().prepare(
-    "INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-  ).run(id, id, name, "unused", JSON.stringify(roles), "[]", "", 1, now, now);
+  (await getConn().query("INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",[id,id,name,"unused",JSON.stringify(roles),"[]","",1,now,now]));
 }
 
-function insertTicket(id: string, owner: string, status: string, title = id) {
+async function insertTicket(id: string, owner: string, status: string, title = id) {
   const now = nowIso();
-  getConn().prepare(
-    `INSERT INTO tickets (id,owner_user_id,task_type,title,source,status,priority,skill,profile,due_at,input,entities,data_version,created_at,updated_at,kind,channel,requester_type)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(id, owner, "risk_scan", title, "manual", status, "normal", "risk_scan", "general", now, "{}", "{}", 1, now, now, "general", "human", "human");
+  (await getConn().query("INSERT INTO tickets (id,owner_user_id,task_type,title,source,status,priority,skill,profile,due_at,input,entities,data_version,created_at,updated_at,kind,channel,requester_type)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)",[id,owner,"risk_scan",title,"manual",status,"normal","risk_scan","general",now,"{}","{}",1,now,now,"general","human","human"]));
 }
 
 beforeEach(async () => {
@@ -45,39 +40,30 @@ beforeEach(async () => {
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.AUTH_MODE = "disabled";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
 });
 
-afterEach(() => {
+afterEach(async () => {
   process.env.AUTH_MODE = "disabled";
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
 describe("admin daily work report", () => {
   it("counts accepted tickets from acceptance facts, not successful runs, and retains legacy events as unattributed", async () => {
-    insertUser("usr_owner", "负责员工", ["employee"]);
-    insertTicket("tkt_accepted", "usr_owner", "completed", "已验收工单");
-    insertTicket("tkt_run_only", "usr_owner", "running", "仅运行成功");
-    insertTicket("tkt_legacy", "usr_owner", "completed", "旧验收事件");
+    (await insertUser("usr_owner", "负责员工", ["employee"]));
+    (await insertTicket("tkt_accepted", "usr_owner", "completed", "已验收工单"));
+    (await insertTicket("tkt_run_only", "usr_owner", "running", "仅运行成功"));
+    (await insertTicket("tkt_legacy", "usr_owner", "completed", "旧验收事件"));
     const today = nowIso().slice(0, 10);
     const acceptedAt = `${today}T08:00:00.000Z`;
-    getConn().prepare(
-      `INSERT INTO ticket_acceptances (ticket_id,acceptance_event_id,accepted_at,owner_user_id_at_acceptance,accepted_by_user_id,evidence_json,rules_version,created_at)
-       VALUES (?,?,?,?,?,?,?,?)`,
-    ).run("tkt_accepted", "tev_accepted", acceptedAt, "usr_owner", "usr_acceptor", JSON.stringify({ receipt: "人工核验" }), "ticket-acceptance.v1", acceptedAt);
-    getConn().prepare(
-      "INSERT INTO task_events (id,work_item_id,run_id,sequence,event_type,label,status,safe_summary,time,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-    ).run("tev_accepted", "tkt_accepted", null, 1, "task.accepted", "任务验收完成", "completed", "", acceptedAt, acceptedAt);
-    getConn().prepare(
-      "INSERT INTO task_events (id,work_item_id,run_id,sequence,event_type,label,status,safe_summary,time,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-    ).run("tev_legacy", "tkt_legacy", null, 1, "task.accepted", "旧验收", "completed", "", acceptedAt, acceptedAt);
-    getConn().prepare(
-      "INSERT INTO task_runs (id,work_item_id,status,input,entities,created_at,completed_at) VALUES (?,?,?,?,?,?,?)",
-    ).run("run_success", "tkt_run_only", "succeeded", "{}", "{}", acceptedAt, acceptedAt);
+    (await getConn().query("INSERT INTO ticket_acceptances (ticket_id,acceptance_event_id,accepted_at,owner_user_id_at_acceptance,accepted_by_user_id,evidence_json,rules_version,created_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",["tkt_accepted","tev_accepted",acceptedAt,"usr_owner","usr_acceptor",JSON.stringify({ receipt: "人工核验" }),"ticket-acceptance.v1",acceptedAt]));
+    (await getConn().query("INSERT INTO task_events (id,work_item_id,run_id,sequence,event_type,label,status,safe_summary,time,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",["tev_accepted","tkt_accepted",null,1,"task.accepted","任务验收完成","completed","",acceptedAt,acceptedAt]));
+    (await getConn().query("INSERT INTO task_events (id,work_item_id,run_id,sequence,event_type,label,status,safe_summary,time,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",["tev_legacy","tkt_legacy",null,1,"task.accepted","旧验收","completed","",acceptedAt,acceptedAt]));
+    (await getConn().query("INSERT INTO task_runs (id,work_item_id,status,input,entities,created_at,completed_at) VALUES ($1,$2,$3,$4,$5,$6,$7)",["run_success","tkt_run_only","succeeded","{}","{}",acceptedAt,acceptedAt]));
 
     const report = await request("GET", `/api/admin/work-report?date=${today}&timezone=UTC`);
     expect(report.status, report.text).toBe(200);
@@ -95,16 +81,15 @@ describe("admin daily work report", () => {
   });
 
   it("persists evidence and acceptance-time ownership when the command completes a ticket", async () => {
-    insertTicket("tkt_command", "sriphy", "waiting", "命令验收工单");
+    (await insertTicket("tkt_command", "sriphy", "waiting", "命令验收工单"));
     // The command endpoint operates on formal tickets and an explicit primary assignee.
-    getConn().prepare("UPDATE tickets SET task_type='manual_ticket',profile='ticket-workbench' WHERE id=?").run("tkt_command");
-    getConn().prepare("INSERT INTO ticket_assignments(ticket_id,assignee_person_ref,assignee_user_id,org_unit_id,role) VALUES (?,?,?,?,?)")
-      .run("tkt_command", "person:fixture", "sriphy", "org:fixture", "primary");
+    (await getConn().query("UPDATE tickets SET task_type='manual_ticket',profile='ticket-workbench' WHERE id=$1",["tkt_command"]));
+    (await getConn().query("INSERT INTO ticket_assignments(ticket_id,assignee_person_ref,assignee_user_id,org_unit_id,role) VALUES ($1,$2,$3,$4,$5)",["tkt_command","person:fixture","sriphy","org:fixture","primary"]));
     const command = await request("POST", "/api/tickets/tkt_command/commands", {
       action: "complete", expected_version: 1, acceptance_evidence: { receipt: "验收附件#1" },
     }, { "Idempotency-Key": "acceptance-command-0001" });
     expect(command.status, command.text).toBe(200);
-    const acceptance = getConn().prepare("SELECT * FROM ticket_acceptances WHERE ticket_id=?").get("tkt_command") as Record<string, unknown>;
+    const acceptance = (await getConn().query("SELECT * FROM ticket_acceptances WHERE ticket_id=$1",["tkt_command"])).rows[0] as Record<string, unknown>;
     expect(acceptance).toMatchObject({ ticket_id: "tkt_command", owner_user_id_at_acceptance: "sriphy", accepted_by_user_id: "sriphy" });
     expect(JSON.parse(String(acceptance.evidence_json))).toEqual({ receipt: "验收附件#1" });
 
@@ -115,9 +100,9 @@ describe("admin daily work report", () => {
 
   it("rejects report reads from an authenticated non-admin before aggregating team data", async () => {
     process.env.AUTH_MODE = "enabled";
-    insertUser("usr_employee", "普通员工", ["employee"]);
+    (await insertUser("usr_employee", "普通员工", ["employee"]));
     const { hashPassword } = await import("../src/auth.js");
-    getConn().prepare("UPDATE users SET password_hash=? WHERE id=?").run(await hashPassword("employee-pass-1"), "usr_employee");
+    (await getConn().query("UPDATE users SET password_hash=$1 WHERE id=$2",[await hashPassword("employee-pass-1"),"usr_employee"]));
     const login = await app.request("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -130,15 +115,12 @@ describe("admin daily work report", () => {
   });
 
   it("supports week and month windows with previous-period deltas", async () => {
-    insertUser("usr_owner", "负责员工", ["employee"]);
-    insertTicket("tkt_this_week", "usr_owner", "completed", "本周验收");
-    insertTicket("tkt_last_week", "usr_owner", "completed", "上周验收");
-    const accept = (id: string, at: string) => getConn().prepare(
-      `INSERT INTO ticket_acceptances (ticket_id,acceptance_event_id,accepted_at,owner_user_id_at_acceptance,accepted_by_user_id,evidence_json,rules_version,created_at)
-       VALUES (?,?,?,?,?,?,?,?)`,
-    ).run(id, `tev_${id}`, at, "usr_owner", "usr_owner", JSON.stringify({}), "ticket-acceptance.v1", at);
-    accept("tkt_this_week", "2026-10-06T02:00:00.000Z");
-    accept("tkt_last_week", "2026-10-03T02:00:00.000Z");
+    (await insertUser("usr_owner", "负责员工", ["employee"]));
+    (await insertTicket("tkt_this_week", "usr_owner", "completed", "本周验收"));
+    (await insertTicket("tkt_last_week", "usr_owner", "completed", "上周验收"));
+    const accept = async (id: string, at: string) => (await getConn().query("INSERT INTO ticket_acceptances (ticket_id,acceptance_event_id,accepted_at,owner_user_id_at_acceptance,accepted_by_user_id,evidence_json,rules_version,created_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",[id,`tev_${id}`,at,"usr_owner","usr_owner",JSON.stringify({}),"ticket-acceptance.v1",at]));
+    (await accept("tkt_this_week", "2026-10-06T02:00:00.000Z"));
+    (await accept("tkt_last_week", "2026-10-03T02:00:00.000Z"));
 
     const week = await request("GET", "/api/admin/work-report?date=2026-10-08&period=week");
     expect(week.status, week.text).toBe(200);
@@ -161,9 +143,9 @@ describe("admin daily work report", () => {
   });
 
   it("paginates ticket detail views with offset and total", async () => {
-    insertUser("usr_owner", "负责员工", ["employee"]);
+    (await insertUser("usr_owner", "负责员工", ["employee"]));
     for (let index = 1; index <= 5; index += 1) {
-      insertTicket(`tkt_w${index}`, "usr_owner", "waiting", `等待工单${index}`);
+      (await insertTicket(`tkt_w${index}`, "usr_owner", "waiting", `等待工单${index}`));
     }
     const first = await request("GET", "/api/admin/work-report/tickets?view=waiting&limit=2&offset=0");
     expect(first.status, first.text).toBe(200);
@@ -182,19 +164,16 @@ describe("admin daily work report", () => {
   });
 
   it("paginates the merged accepted view across attributed and legacy rows", async () => {
-    insertUser("usr_owner", "负责员工", ["employee"]);
+    (await insertUser("usr_owner", "负责员工", ["employee"]));
     const today = nowIso().slice(0, 10);
-    const accept = (id: string, hour: string) => {
+    const accept = async (id: string, hour: string) => {
       const at = `${today}T${hour}:00:00.000Z`;
-      insertTicket(id, "usr_owner", "completed", id);
-      getConn().prepare(
-        `INSERT INTO ticket_acceptances (ticket_id,acceptance_event_id,accepted_at,owner_user_id_at_acceptance,accepted_by_user_id,evidence_json,rules_version,created_at)
-         VALUES (?,?,?,?,?,?,?,?)`,
-      ).run(id, `tev_${id}`, at, "usr_owner", "usr_owner", JSON.stringify({}), "ticket-acceptance.v1", at);
+      (await insertTicket(id, "usr_owner", "completed", id));
+      (await getConn().query("INSERT INTO ticket_acceptances (ticket_id,acceptance_event_id,accepted_at,owner_user_id_at_acceptance,accepted_by_user_id,evidence_json,rules_version,created_at)\n         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",[id,`tev_${id}`,at,"usr_owner","usr_owner",JSON.stringify({}),"ticket-acceptance.v1",at]));
     };
-    accept("tkt_a1", "06");
-    accept("tkt_a2", "07");
-    accept("tkt_a3", "08");
+    (await accept("tkt_a1", "06"));
+    (await accept("tkt_a2", "07"));
+    (await accept("tkt_a3", "08"));
     const page = await request("GET", `/api/admin/work-report/tickets?view=accepted&date=${today}&timezone=UTC&limit=2&offset=1`);
     expect(page.status, page.text).toBe(200);
     expect(page.body).toMatchObject({ view: "accepted", total: 3, limit: 2, offset: 1 });

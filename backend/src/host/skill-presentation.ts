@@ -29,9 +29,9 @@ function ensureTable(): void {
   ensured = db;
 }
 
-export function readPresentationOverlays(): ReadonlyMap<string, PresentationOverlay> {
+export async function readPresentationOverlays(): Promise<Awaited<ReadonlyMap<string, PresentationOverlay>>> {
   ensureTable();
-  const rows = getConn().prepare("SELECT skill_id,payload FROM skill_presentation_overlays").all() as { skill_id: string; payload: string }[];
+  const rows = (await getConn().query("SELECT skill_id,payload FROM skill_presentation_overlays",[])).rows as { skill_id: string; payload: string }[];
   const out = new Map<string, PresentationOverlay>();
   for (const row of rows) {
     try { out.set(String(row.skill_id), JSON.parse(row.payload) as PresentationOverlay); } catch { /* malformed rows are ignored, never half-applied */ }
@@ -82,14 +82,11 @@ export function normalizePresentationPatch(skillId: string, patch: Record<string
   return out;
 }
 
-export function savePresentationOverlay(skillId: string, overlay: PresentationOverlay): void {
+export async function savePresentationOverlay(skillId: string, overlay: PresentationOverlay): Promise<Awaited<void>> {
   ensureTable();
-  const current = readPresentationOverlays().get(skillId) || {};
+  const current = (await readPresentationOverlays()).get(skillId) || {};
   const next = { ...current, ...overlay };
-  getConn().prepare(
-    `INSERT INTO skill_presentation_overlays (skill_id,payload,updated_at) VALUES (?,?,?)
-     ON CONFLICT(skill_id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at`,
-  ).run(skillId, JSON.stringify(next), nowIso());
+  (await getConn().query("INSERT INTO skill_presentation_overlays (skill_id,payload,updated_at) VALUES ($1,$2,$3)\n     ON CONFLICT(skill_id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at",[skillId,JSON.stringify(next),nowIso()]));
   clearTaskRegistryCache();
 }
 

@@ -167,7 +167,7 @@ async function ensureTicketForWorkItemInClient(client: PoolClient, ticketId: str
  */
 export async function ensureTicketForWorkItem(ticketId: string, options: { client?: PoolClient } = {}): Promise<boolean> {
   if (options.client) return ensureTicketForWorkItemInClient(options.client, ticketId);
-  return postgresTransaction((client) => ensureTicketForWorkItemInClient(client, ticketId));
+  return postgresTransaction(async (client) => (await ensureTicketForWorkItemInClient(client, ticketId)));
 }
 
 /**

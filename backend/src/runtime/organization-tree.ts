@@ -212,7 +212,7 @@ async function upsertRegistry(client: Parameters<typeof postgresTransaction>[0] 
 export async function ensureOrganizationTree(): Promise<void> {
   const database = String(process.env.DATABASE_URL || "");
   if (initializedFor === database) return;
-  if (!initialization) initialization = postgresTransaction(async (client) => {
+  if (!initialization) initialization = (await postgresTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [SEED_KEY]);
     const existing = (await client.query("SELECT 1 FROM app_state WHERE key=$1 FOR UPDATE", [SEED_KEY])).rows[0];
     if (!existing) {
@@ -220,7 +220,7 @@ export async function ensureOrganizationTree(): Promise<void> {
       await client.query("INSERT INTO app_state(key,value) VALUES($1,$2)", [SEED_KEY, nowIso()]);
     }
     initializedFor = database;
-  }, { isolation: "SERIALIZABLE" }).finally(() => { initialization = null; });
+  }, { isolation: "SERIALIZABLE" }).finally(() => { initialization = null; }));
   await initialization;
 }
 /** Explicit administrative re-import. This is idempotent and uses the migrated schema; it never issues DDL. */
@@ -269,7 +269,7 @@ export async function currentOrgVersion(companyId: string): Promise<number> {
 /** Fact versions are incremented in one native transaction under a company advisory lock. */
 export async function bumpOrgVersion(companyId: string, note: string, source = "admin"): Promise<number> {
   await ensureOrganizationTree();
-  return postgresTransaction((client) => pgBumpOrgVersion(client, companyId, note, source, nowIso()), { isolation: "SERIALIZABLE" });
+  return postgresTransaction(async (client) => (await pgBumpOrgVersion(client, companyId, note, source, nowIso())), { isolation: "SERIALIZABLE" });
 }
 
 function ascendants(units: OrganizationUnitRow[], unitId: string): OrganizationUnitRow[] {
@@ -352,7 +352,7 @@ export async function computeEffectiveAgentUsers(
 }
 export async function effectiveAgentUsers(agentId: string): Promise<EffectiveAgentUsers> {
   await ensureOrganizationTree();
-  const [bindings, source] = await Promise.all([pgListAgentBindings(agentId), pgOrganizationCoverageSource()]);
+  const [bindings, source] = await Promise.all([(await pgListAgentBindings(agentId)), (await pgOrganizationCoverageSource())]);
   return computeCoverage(agentId, bindings, source);
 }
 
@@ -438,11 +438,11 @@ async function previewAgentBindingFromBasis(
 
 export async function previewAgentBinding(agentId: string, change: AgentBindingChange): Promise<AgentBindingPreview> {
   await ensureOrganizationTree();
-  const [current, source] = await Promise.all([pgListAgentBindings(agentId), pgOrganizationCoverageSource()]);
+  const [current, source] = await Promise.all([(await pgListAgentBindings(agentId)), (await pgOrganizationCoverageSource())]);
   return previewAgentBindingFromBasis(
     agentId, change, current, source,
     async (userId) => (await postgresQuery("SELECT 1 FROM users WHERE id=$1", [userId])).length > 0,
-    (personRef, companyId) => simulatePersonFromSite(personRef, companyId),
+    async (personRef, companyId) => (await simulatePersonFromSite(personRef, companyId)),
   );
 }
 
@@ -538,7 +538,7 @@ async function previewBulkFromTransaction(
   return previewAgentBindingFromBasis(
     agentId, change, bindings, coverage,
     async (userId) => (await client.query("SELECT 1 FROM users WHERE id=$1", [userId])).rowCount > 0,
-    (personRef, companyId) => simulatePersonFromSite(personRef, companyId, client),
+    async (personRef, companyId) => (await simulatePersonFromSite(personRef, companyId, client)),
   );
 }
 
@@ -643,7 +643,7 @@ export async function leaderScopeForUser(userId: string | null | undefined): Pro
   if (!userId) return empty;
   await ensureOrganizationTree();
   const personRef = await pgPersonRefForUser(userId); if (!personRef) return empty;
-  const [units, memberships] = await Promise.all([pgListOrganizationUnits(), pgListOrganizationMemberships()]);
+  const [units, memberships] = await Promise.all([(await pgListOrganizationUnits()), (await pgListOrganizationMemberships())]);
   const headed = units.filter((unit) => unit.status === "active" && unit.head_person_ref === personRef).map((unit) => unit.id);
   if (!headed.length) return empty;
   const children = new Map<string, string[]>();

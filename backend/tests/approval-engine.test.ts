@@ -326,10 +326,10 @@ describe("cited search plan (not TypeScript constants)", () => {
     }, { requester_name: "黎玉燕", amount: 50000, currency: "USD" })).toBeNull();
   });
 
-  it("copies approval-policy.md into the box and asks Codex to web_search", () => {
+  it("copies approval-policy.md into the box and asks Codex to web_search", async () => {
     const box = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-skillbox-"));
     try {
-      writeSkillIntoBox(box, "business_approval");
+      (await writeSkillIntoBox(box, "business_approval"));
       const policy = fs.readFileSync(path.join(box, "approval-policy.md"), "utf8");
       const skill = fs.readFileSync(path.join(box, "SKILL.md"), "utf8");
       expect(policy).toContain("web_search");
@@ -392,15 +392,15 @@ describe("Skill aliases route; quote language does not", () => {
     ["写报价信 金额 680", "email_compose"],
     ["写一份报价邮件 金额 680", "email_compose"],
     ["给@数码老张 写报价确认邮件 金额 500", "email_compose"],
-  ])("%s → %s", (text, type) => {
-    expect(stubResolveTaskIntent({ text }).task_type).toBe(type);
+  ])("%s → %s", async (text, type) => {
+    expect((await stubResolveTaskIntent({ text })).task_type).toBe(type);
   });
 
-  it("task resolver uses the same Skill aliases and does not extract amount in Host", () => {
-    expect(stubResolveTaskIntent({ text: "expense approval 50000 USD" }).task_type).toBe("business_approval");
-    expect(stubResolveTaskIntent({ text: "経費申請" }).task_type).toBe("business_approval");
-    expect(stubResolveTaskIntent({ text: "写报价信 金额 680" }).task_type).toBe("email_compose");
-    expect(stubResolveTaskIntent({ text: "黎玉燕要申请5万美国KOL推广预算" }).entities.amount).toBeUndefined();
+  it("task resolver uses the same Skill aliases and does not extract amount in Host", async () => {
+    expect((await stubResolveTaskIntent({ text: "expense approval 50000 USD" })).task_type).toBe("business_approval");
+    expect((await stubResolveTaskIntent({ text: "経費申請" })).task_type).toBe("business_approval");
+    expect((await stubResolveTaskIntent({ text: "写报价信 金额 680" })).task_type).toBe("email_compose");
+    expect((await stubResolveTaskIntent({ text: "黎玉燕要申请5万美国KOL推广预算" })).entities.amount).toBeUndefined();
   });
 });
 
@@ -442,14 +442,14 @@ describe("expense approval host path", () => {
     process.env.LINGONG_DB = path.join(tmp, "t.db");
     process.env.LINGONG_DATA = tmp;
     process.env.CODEX_MODE = "stub";
-    resetConn();
-    seedAll();
+    (await resetConn());
+    (await seedAll());
     const { createApp } = await import("../src/app.js");
     app = (await createApp());
   });
 
-  afterEach(() => {
-    resetConn();
+  afterEach(async () => {
+    (await resetConn());
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
@@ -695,7 +695,7 @@ describe("expense approval host path", () => {
 
     const listed = await request("GET", "/api/approvals");
     expect((listed.body as unknown as { id: string }[]).some((item) => item.id === row.id)).toBe(true);
-    const audits = listAudit("expense.approval.created") as { payload: { approval_id?: string; rule_id?: string } }[];
+    const audits = (await listAudit("expense.approval.created")) as { payload: { approval_id?: string; rule_id?: string } }[];
     expect(audits.some((event) => event.payload.approval_id === row.id && event.payload.rule_id === "FIN-EXP-004")).toBe(true);
   });
 

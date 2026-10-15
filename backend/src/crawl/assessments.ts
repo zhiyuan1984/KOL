@@ -108,6 +108,6 @@ export async function scoreDiscoveryCandidate(job: ClaimedExecutionJob, checkpoi
 }
 
 export async function retryCandidateAssessment(actionId: string, context: RuntimeContext, row: Json): Promise<void> {
-  await postgresTransaction(client => enqueueCandidateAssessments(actionId, context, [row], client, true));
+  await postgresTransaction(async client => (await enqueueCandidateAssessments(actionId, context, [row], client, true)));
 }
 registerExecutionHandler("discovery.score", scoreDiscoveryCandidate);

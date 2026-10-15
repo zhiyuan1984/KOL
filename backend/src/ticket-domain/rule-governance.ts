@@ -448,12 +448,12 @@ export async function schedulingRuleDetail(ruleId: string, version?: number): Pr
   if (!found.rows[0]) throw new HttpFail(404, "scheduling rule not found");
   const rule = ruleFrom(found.rows[0]);
   const [simulations, audit] = await Promise.all([
-    postgresPool().query<SimulationRow>(
+    (await postgresPool().query<SimulationRow>(
       "SELECT * FROM scheduling_rule_simulations WHERE rule_id=$1 AND rule_version=$2 ORDER BY created_at DESC LIMIT 20", [rule.id, rule.version],
-    ),
-    postgresPool().query<Row>(
+    )),
+    (await postgresPool().query<Row>(
       "SELECT id,action,actor_account_id,reason,request_json,result_json,created_at FROM scheduling_rule_audit_events WHERE rule_id=$1 AND rule_version=$2 ORDER BY created_at DESC LIMIT 50", [rule.id, rule.version],
-    ),
+    )),
   ]);
   return {
     rule,

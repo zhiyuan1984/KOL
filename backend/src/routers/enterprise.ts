@@ -262,7 +262,7 @@ async function settingsOrganization(user: AppUser): Promise<SettingsOrganization
 
 async function settingsAuthorizedBrands(user: AppUser, organization: SettingsOrganization, definitions = settingsBrandDefinitions()): Promise<string[]> {
   // Reuse the existing sender PEP first; organization scope can only narrow it, never broaden it.
-  const senderAllowed = new Set(allowedFromMailboxes(user, null).map((row) => row.brand));
+  const senderAllowed = new Set((await allowedFromMailboxes(user, null)).map((row) => row.brand));
   if (!organization.managed || !organization.person) return definitions
     .map((brand) => brand.code)
     .filter((code) => senderAllowed.has(code));
@@ -309,18 +309,18 @@ async function settingsMailboxes(user: AppUser, definitions = settingsBrandDefin
   }).filter((mailbox) => Boolean(mailbox.email));
 }
 
-function selectableSettingsMailbox(user: AppUser, mailbox: SettingsMailbox | undefined, brand: string): boolean {
+async function selectableSettingsMailbox(user: AppUser, mailbox: SettingsMailbox | undefined, brand: string): Promise<Awaited<boolean>> {
   if (!mailbox || mailbox.status !== "connected" || !mailbox.brand || mailbox.brand !== brand) return false;
-  return authorizedSenderBrand(mailbox.email, user, brand)?.brand === brand;
+  return (await authorizedSenderBrand(mailbox.email, user, brand))?.brand === brand;
 }
 
 /** Never return unknown historical preference JSON; selected brand/mailbox remains valid only under current authority. */
-function settingsPreferences(
+async function settingsPreferences(
   user: AppUser,
   row: Row | undefined,
   brands: string[],
   mailboxes: SettingsMailbox[],
-): Json {
+): Promise<Awaited<Json>> {
   const parsed = parseJson(row?.preferences, {});
   const stored = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Json : {};
   const preferences: Json = { analytics_cookies: Boolean(row?.analytics_cookies) };
@@ -334,7 +334,7 @@ function settingsPreferences(
   preferences.default_brand = brands.includes(defaultBrand) ? defaultBrand : "";
   const defaultMailbox = String((stored as Json).default_mailbox || "").trim().toLowerCase();
   const mailbox = mailboxes.find((candidate) => candidate.email === defaultMailbox && candidate.is_default);
-  preferences.default_mailbox = brands.includes(defaultBrand) && selectableSettingsMailbox(user, mailbox, defaultBrand) ? defaultMailbox : "";
+  preferences.default_mailbox = brands.includes(defaultBrand) && (await selectableSettingsMailbox(user, mailbox, defaultBrand)) ? defaultMailbox : "";
   return preferences;
 }
 
@@ -375,7 +375,7 @@ async function settingsContext(user: AppUser): Promise<Json> {
     profile: (await settingsProfile(user, organization)),
     brands: definitions.filter((brand) => authorizedBrands.includes(brand.code)).map((brand) => ({ id: brand.code, label: brand.label })),
     mailboxes,
-    preferences: settingsPreferences(user, preferenceRow, authorizedBrands, mailboxes),
+    preferences: (await settingsPreferences(user, preferenceRow, authorizedBrands, mailboxes)),
     editable_fields: organization.managed ? [] : ["name", "email", "phone"],
   };
 }
@@ -517,7 +517,7 @@ enterprise.put("/admin/users/:uid/skills", (c) => {
 
 enterprise.get("/admin/connectors", async (c) => {
   requireAdmin();
-  return c.json((await postgresPool().query<Row>("SELECT * FROM connectors ORDER BY lower(label), id", [])).rows.map(connectorPublic));
+  return c.json((await Promise.all((await postgresPool().query<Row>("SELECT * FROM connectors ORDER BY lower(label), id", [])).rows.map(connectorPublic))));
 });
 
 enterprise.get("/connectors", async (c) => {
@@ -662,7 +662,7 @@ enterprise.patch("/preferences", async (c) => {
   const definitions = settingsBrandDefinitions();
   const brands = (await settingsAuthorizedBrands(user, (await settingsOrganization(user)), definitions));
   const mailboxes = (await settingsMailboxes(user, definitions));
-  const stored = settingsPreferences(user, current, brands, mailboxes) as Record<string, unknown>;
+  const stored = (await settingsPreferences(user, current, brands, mailboxes)) as Record<string, unknown>;
   const has = (key: string) => Object.prototype.hasOwnProperty.call(body, key);
   const next: Record<string, unknown> = {};
   for (const [key, allowed] of Object.entries(SETTINGS_ENUM_PREFERENCES)) {
@@ -696,7 +696,7 @@ enterprise.patch("/preferences", async (c) => {
     else {
       selected = mailboxes.find((mailbox) => mailbox.email === requested.trim().toLowerCase() || mailbox.id === requested.trim());
       if (!selected || !defaultBrand || selected.brand !== defaultBrand || !brands.includes(defaultBrand) ||
-        !selectableSettingsMailbox(user, selected, defaultBrand)) {
+        !(await selectableSettingsMailbox(user, selected, defaultBrand))) {
         throw new HttpFail(400, "default_mailbox must be a current authorized connected mailbox for default_brand");
       }
       defaultMailbox = selected.email;
@@ -706,7 +706,7 @@ enterprise.patch("/preferences", async (c) => {
   if (defaultMailbox) {
     const mailbox = selected || mailboxes.find((candidate) => candidate.email === defaultMailbox);
     if (!defaultBrand || !mailbox || mailbox.brand !== defaultBrand || !brands.includes(defaultBrand) ||
-      !selectableSettingsMailbox(user, mailbox, defaultBrand)) {
+      !(await selectableSettingsMailbox(user, mailbox, defaultBrand))) {
       throw new HttpFail(400, "select a current authorized mailbox matching default_brand");
     }
     next.default_mailbox = defaultMailbox;
@@ -714,7 +714,7 @@ enterprise.patch("/preferences", async (c) => {
   next.default_mailbox = defaultMailbox;
   const updated = await pgUpdatePreferences(user.id, Boolean(analytics), next, nowIso(), has("default_mailbox") ? defaultMailbox : undefined);
 await pgAudit(user.id, "preference.update", { fields }, nowIso());
-return c.json(settingsPreferences(user, updated, brands, (await settingsMailboxes(user, definitions))));
+return c.json((await settingsPreferences(user, updated, brands, (await settingsMailboxes(user, definitions)))));
 
 });
 

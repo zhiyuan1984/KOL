@@ -1,5 +1,5 @@
 import { TypeSafeClient } from "@typesafe-ai/sdk";
-import { audit, getConn, nowIso, type SqliteConn } from "../db.js";
+import { audit, getConn, nowIso, type DatabaseConnection } from "../db.js";
 import type { Row } from "../types.js";
 import { memoryCompanyId } from "./kol-memory.js";
 import { criteriaState, criteriaSummary, type KolScoringCriteria } from "./kol-scoring-criteria.js";
@@ -196,7 +196,7 @@ export async function assessPublicKolWithJev(
   };
 }
 
-function eligibleProfiles(companyId: string, limit: number, db: SqliteConn, kolUids: string[] = []): Row[] {
+function eligibleProfiles(companyId: string, limit: number, db: DatabaseConnection, kolUids: string[] = []): Row[] {
   const scoped = kolUids.length
     ? ` AND kol_uid IN (${kolUids.map(() => "?").join(",")})`
     : "";
@@ -243,7 +243,7 @@ export type JevAssessmentResult = {
 export async function assessPublicKolsWithJev(input: {
   limit?: number;
   companyId?: string;
-  db?: SqliteConn;
+  db?: DatabaseConnection;
   kol_uids?: string[];
   /** 员工声明的目标条件；由路由解析（显式传入优先，其次最近一次 AI 发现请求）。 */
   criteria?: KolScoringCriteria | null;
@@ -263,37 +263,13 @@ export async function assessPublicKolsWithJev(input: {
   for (const profile of profiles) {
     try {
       const assessment = await assessPublicKolWithJev(profile, criteria);
-      db.prepare(
-        `UPDATE kol_profile_index
-            SET potential_score=?, potential_probabilities=?, potential_confidence=?, risk_score=?, risk_probabilities=?, risk_confidence=?,
-                assessment_model=?, assessment_version=?, assessed_at=?, assessment_error='',
-                assessment_criteria=?, updated_at=?
-          WHERE company_id=? AND kol_uid=?`,
-      ).run(
-        assessment.potential_score,
-        assessment.potential_probabilities,
-        assessment.potential_confidence,
-        assessment.risk_score,
-        assessment.risk_probabilities,
-        assessment.risk_confidence,
-        assessment.model,
-        assessment.version,
-        assessment.assessed_at,
-        assessment.criteria_summary,
-        assessment.assessed_at,
-        companyId,
-        String(profile.kol_uid),
-      );
+      (await db.query("UPDATE kol_profile_index\n            SET potential_score=$1, potential_probabilities=$2, potential_confidence=$3, risk_score=$4, risk_probabilities=$5, risk_confidence=$6,\n                assessment_model=$7, assessment_version=$8, assessed_at=$9, assessment_error='',\n                assessment_criteria=$10, updated_at=$11\n          WHERE company_id=$12 AND kol_uid=$13",[assessment.potential_score,assessment.potential_probabilities,assessment.potential_confidence,assessment.risk_score,assessment.risk_probabilities,assessment.risk_confidence,assessment.model,assessment.version,assessment.assessed_at,assessment.criteria_summary,assessment.assessed_at,companyId,String(profile.kol_uid)]));
       assessed += 1;
       if ((assessment.potential_score || 0) >= 80) highPotential += 1;
       if ((assessment.risk_score || 0) >= 80) highRisk += 1;
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 180) : "Jev 评分失败";
-      db.prepare(
-        `UPDATE kol_profile_index
-            SET assessment_error=?, assessed_at=?, updated_at=?
-          WHERE company_id=? AND kol_uid=?`,
-      ).run(message, nowIso(), nowIso(), companyId, String(profile.kol_uid));
+      (await db.query("UPDATE kol_profile_index\n            SET assessment_error=$1, assessed_at=$2, updated_at=$3\n          WHERE company_id=$4 AND kol_uid=$5",[message,nowIso(),nowIso(),companyId,String(profile.kol_uid)]));
       failed += 1;
     }
   }
@@ -301,9 +277,9 @@ export async function assessPublicKolsWithJev(input: {
     ok: true, eligible: profiles.length, assessed, high_potential: highPotential, high_risk: highRisk, failed,
     criteria_summary: criteriaSummary(criteria),
   };
-  audit("system", "kol.memory.jev_assessment", {
+  (await audit("system", "kol.memory.jev_assessment", {
     ...result, limit, model: model(), version: ASSESSMENT_VERSION,
     criteria: criteria || null,
-  });
+  }));
   return result;
 }

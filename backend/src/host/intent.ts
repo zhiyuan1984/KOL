@@ -47,7 +47,7 @@ export function extractEmail(text: string): string | null {
   return match ? match[0] : null;
 }
 
-function leftoverCollabHandle(stripped: string): string | null {
+async function leftoverCollabHandle(stripped: string): Promise<Awaited<string | null>> {
   const leftover = String(stripped || "").trim();
   if (!leftover) return null;
   const candidates = [leftover, ...leftover.split(/\s+/).filter((part) => part.length >= 2)];
@@ -55,9 +55,7 @@ function leftoverCollabHandle(stripped: string): string | null {
     const db = getConn();
     for (const candidate of candidates) {
       if (candidate.includes("@") || isSkillHandleToken(candidate)) continue;
-      const row = db
-        .prepare("SELECT handle FROM collaborations WHERE handle = ? OR display_name = ?")
-        .get(candidate, candidate) as { handle?: string } | undefined;
+      const row = (await db.query("SELECT handle FROM collaborations WHERE handle = $1 OR display_name = $2",[candidate,candidate])).rows[0] as { handle?: string } | undefined;
       if (row?.handle) return String(row.handle);
     }
   } catch {
@@ -66,7 +64,7 @@ function leftoverCollabHandle(stripped: string): string | null {
   return null;
 }
 
-export function extractHandle(text: string): string | null {
+export async function extractHandle(text: string): Promise<Awaited<string | null>> {
   const stripped = stripSkillMentions(text);
   const from = (chunk: string): string | null => {
     const m = HANDLE_RE.exec(chunk || "");
@@ -86,17 +84,17 @@ export function extractHandle(text: string): string | null {
     }
     return null;
   };
-  return from(stripped) || from(text || "") || leftoverCollabHandle(stripped);
+  return from(stripped) || from(text || "") || (await leftoverCollabHandle(stripped));
 }
 
-function fromText(text: string): Intent {
+async function fromText(text: string): Promise<Awaited<Intent>> {
   const t = text || "";
-  const handle = extractHandle(t);
+  const handle = (await extractHandle(t));
   return makeIntent("chat", null, handle, false, t);
 }
 
-export function classify(text: string, frontendIntent?: string | null, collaborationId?: string | null): Intent {
-  let derived = fromText(text);
+export async function classify(text: string, frontendIntent?: string | null, collaborationId?: string | null): Promise<Awaited<Intent>> {
+  let derived = (await fromText(text));
   if (frontendIntent && knownIntents().has(frontendIntent)) {
     derived = makeIntent(frontendIntent, frontendIntent, derived.handle, true, text);
   }
@@ -108,20 +106,18 @@ export function classify(text: string, frontendIntent?: string | null, collabora
   return derived;
 }
 
-export function collabByHandle(handle: string | null): Row | null {
+export async function collabByHandle(handle: string | null): Promise<Awaited<Row | null>> {
   if (!handle) return null;
-  const row = getConn()
-    .prepare("SELECT * FROM collaborations WHERE handle = ? OR display_name = ?")
-    .get(handle, handle);
+  const row = (await getConn().query("SELECT * FROM collaborations WHERE handle = $1 OR display_name = $2",[handle,handle])).rows[0];
   return row ? { ...(row as Row) } : null;
 }
 
-export function collabById(cid: string | null): Row | null {
+export async function collabById(cid: string | null): Promise<Awaited<Row | null>> {
   if (!cid) return null;
-  const row = getConn().prepare("SELECT * FROM collaborations WHERE id = ?").get(cid);
+  const row = (await getConn().query("SELECT * FROM collaborations WHERE id = $1",[cid])).rows[0];
   return row ? { ...(row as Row) } : null;
 }
 
-export function resolveCollab(intent: Intent): Row | null {
-  return collabById(intent.collaboration_id) || collabByHandle(intent.handle);
+export async function resolveCollab(intent: Intent): Promise<Awaited<Row | null>> {
+  return (await collabById(intent.collaboration_id)) || (await collabByHandle(intent.handle));
 }

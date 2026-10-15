@@ -1,13 +1,13 @@
 import { getConn } from "../db.js";
 
-export function getPersonaKey(): string {
-  const row = getConn().prepare("SELECT value FROM app_state WHERE key = 'persona'").get() as
+export async function getPersonaKey(): Promise<Awaited<string>> {
+  const row = (await getConn().query("SELECT value FROM app_state WHERE key = 'persona'",[])).rows[0] as
     | { value: string }
     | undefined;
   return row?.value || "sriphy";
 }
 
-export function personaAccess(key = getPersonaKey()): {
+export function personaAccess(key = (await getPersonaKey())): {
   roles: string[];
   available_modes: ("employee" | "admin")[];
 } {

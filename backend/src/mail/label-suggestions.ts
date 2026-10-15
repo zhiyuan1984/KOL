@@ -388,7 +388,7 @@ export async function runLabelSuggestionHarness(input: LabelSuggestionHarnessInp
   let rpc: CodexAppServer | null = null;
   try {
     cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-mail-label-suggestions-"));
-    const skillPath = writeRuntimeSkill(input.skillId);
+    const skillPath = (await writeRuntimeSkill(input.skillId));
     rpc = new CodexAppServer(120, []);
     await rpc.handshake();
     await rpc.requireAuth();
@@ -648,7 +648,7 @@ export function createMailLabelSuggestionOperations(options: { harness?: LabelSu
     const requestedAgentId = optionalAgentId((input as { agent_id?: unknown }).agent_id);
     const runtime = (await selectAuthorizedAgent(actor, requestedAgentId));
     const first = await postgresTransaction(
-      (client) => loadLabelSuggestionEvidence(client, actor, mailbox, conversationId),
+      async (client) => (await loadLabelSuggestionEvidence(client, actor, mailbox, conversationId)),
       { isolation: "REPEATABLE READ" },
     );
 

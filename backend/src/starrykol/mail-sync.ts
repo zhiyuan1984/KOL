@@ -227,8 +227,8 @@ function nativeRuntime(): boolean {
   return Boolean(durableSync.getStore()?.postgresNative);
 }
 
-function syncActorId(): string {
-  return String(durableSync.getStore()?.actorId || safeEmployeeId() || "").trim();
+async function syncActorId(): Promise<Awaited<string>> {
+  return String(durableSync.getStore()?.actorId || (await safeEmployeeId()) || "").trim();
 }
 
 type MailSyncFailure = {
@@ -342,7 +342,7 @@ onConnReset(() => {
 async function mailboxSyncKey(mailbox = ""): Promise<string> {
   const context = durableSync.getStore();
   const box = mailbox || context?.authorizedScope?.mailbox_email || (await boundMailboxEmail()) || (await currentFollowScope()).mailbox_email || "*";
-  return `${syncActorId() || "anon"}:${box}`;
+  return `${(await syncActorId()) || "anon"}:${box}`;
 }
 
 async function mailboxStateKey(mailbox = ""): Promise<string> {
@@ -363,11 +363,11 @@ export async function waitForBackgroundSync(): Promise<void> {
 
 export async function startFollowedMailSync(force = false, mailbox = ""): Promise<FollowedMailSync> {
   const key = (await mailboxSyncKey(mailbox));
-  const existing = inflight.get(key);
+  const existing = (await inflight.get(key));
   if (existing) return existing;
-  const pending = syncFollowedKolMail(mailbox).finally(() => {
-    if (inflight.get(key) === pending) inflight.delete(key);
-  });
+  const pending = (await syncFollowedKolMail(mailbox).finally(async () => {
+    if ((await inflight.get(key)) === pending) inflight.delete(key);
+  }));
   inflight.set(key, pending);
   lastStarted.set(key, Date.now());
   void force;
@@ -376,7 +376,7 @@ export async function startFollowedMailSync(force = false, mailbox = ""): Promis
 
 export async function ensureFollowedMailSync(force = false, mailbox = ""): Promise<FollowedMailSync> {
   const key = (await mailboxSyncKey(mailbox));
-  const existing = inflight.get(key);
+  const existing = (await inflight.get(key));
   if (existing) return existing;
   if (!force && lastStarted.has(key) && Date.now() - (lastStarted.get(key) || 0) < CACHE_MS) {
     const cached = await followedMailStatus(mailbox);
@@ -392,9 +392,9 @@ export async function followedMailStatus(mailboxOverride = ""): Promise<Followed
   let bind: Awaited<ReturnType<typeof bindingHealthPg>>;
   try {
     [raw, unread, bind] = await Promise.all([
-      mailSyncStateGet((await mailboxStateKey(mailbox))),
-      unreadCountForMailboxPg(mailbox),
-      safeEmployeeId() ? bindingHealthPg(safeEmployeeId()) : Promise.resolve(undefined),
+      (await mailSyncStateGet((await mailboxStateKey(mailbox)))),
+      (await unreadCountForMailboxPg(mailbox)),
+      (await safeEmployeeId()) ? (await bindingHealthPg((await safeEmployeeId()))) : (await Promise.resolve(undefined)),
     ]);
   } catch (error) {
     const failure = classifyMailSyncFailure(error);
@@ -594,39 +594,29 @@ export async function readConversation(
 }
 
 /** Local-only: flag untranslated bodies so the UI can say 翻译生成中… without touching the remote. */
-export function markThreadTranslationsPending(threadId: string): void {
+export async function markThreadTranslationsPending(threadId: string): Promise<Awaited<void>> {
   if (!threadId) return;
-  getConn().prepare(
-    `UPDATE kol_mail_items SET translation_source='pending'
-     WHERE thread_id=? AND translation_zh IS NULL AND IFNULL(body_text,'') != ''
-       AND IFNULL(translation_source,'') = ''`,
-  ).run(threadId);
+  (await getConn().query("UPDATE kol_mail_items SET translation_source='pending'\n     WHERE thread_id=$1 AND translation_zh IS NULL AND COALESCE(body_text,'') != ''\n       AND COALESCE(translation_source,'') = ''",[threadId]));
 }
 
 /** Fill translation_zh for items with bodies; marks 'pending' when no LLM backend is available. */
 export async function ensureThreadItemTranslations(threadId: string): Promise<void> {
-  const pending = getConn().prepare(
-    `SELECT id, body_text FROM kol_mail_items
-     WHERE thread_id=? AND translation_zh IS NULL AND IFNULL(body_text,'') != ''`,
-  ).all(threadId) as { id: string; body_text: string }[];
+  const pending = (await getConn().query("SELECT id, body_text FROM kol_mail_items\n     WHERE thread_id=$1 AND translation_zh IS NULL AND COALESCE(body_text,'') != ''",[threadId])).rows as { id: string; body_text: string }[];
   if (!pending.length) return;
   if (!remoteMailAnalysisEnabled()) {
-    markThreadTranslationsPending(threadId);
+    (await markThreadTranslationsPending(threadId));
     return;
   }
   for (const row of pending) {
     try {
       const translated = await translateMailBodyZh(row.body_text);
       if (translated) {
-        getConn().prepare("UPDATE kol_mail_items SET translation_zh=?, translation_source=? WHERE id=?")
-          .run(translated.text, translated.source, row.id);
+        (await getConn().query("UPDATE kol_mail_items SET translation_zh=$1, translation_source=$2 WHERE id=$3",[translated.text,translated.source,row.id]));
       } else {
-        getConn().prepare("UPDATE kol_mail_items SET translation_source='pending' WHERE id=? AND translation_zh IS NULL")
-          .run(row.id);
+        (await getConn().query("UPDATE kol_mail_items SET translation_source='pending' WHERE id=$1 AND translation_zh IS NULL",[row.id]));
       }
     } catch {
-      getConn().prepare("UPDATE kol_mail_items SET translation_source='pending' WHERE id=? AND translation_zh IS NULL")
-        .run(row.id);
+      (await getConn().query("UPDATE kol_mail_items SET translation_source='pending' WHERE id=$1 AND translation_zh IS NULL",[row.id]));
     }
   }
 }
@@ -670,7 +660,7 @@ export async function hydrateMailThread(thread: Row, onRequestStarted?: () => vo
     const direction = inboundOf(latest, col, mailbox) ? "inbound" : "outbound";
     const occurredAt = String(detail.occurredAt || thread.last_at || nowIso());
     const body = messageBody(latest) || snippet;
-    recordFollowedMailMemory({
+    (await recordFollowedMailMemory({
       kolUid: String(col.kol_uid || ""),
       collaborationId: String(col.id),
       conversationId,
@@ -681,8 +671,8 @@ export async function hydrateMailThread(thread: Row, onRequestStarted?: () => vo
       occurredAt,
       gatewaySuccess: true,
       sourceVersion: `starry.mail:${conversationId}`,
-    });
-    recordEffectiveCorrespondence({
+    }));
+    (await recordEffectiveCorrespondence({
       kolUid: String(col.kol_uid || ""),
       collaborationId: String(col.id),
       scopeBrand: String(col.brand || ""),
@@ -691,7 +681,7 @@ export async function hydrateMailThread(thread: Row, onRequestStarted?: () => vo
       gatewaySuccess: true,
       subject,
       body,
-    });
+    }));
   }
   await refreshThreadDigest(String(thread.id), conversationId, mailbox);
   // Body availability and AI-derived content are independent. The existing
@@ -833,7 +823,7 @@ async function hydrateConversationBatches(
       const [selected] = batch.splice(selectedIndex, 1);
       let signalStarted!: () => void;
       const started = new Promise<void>((resolve) => { signalStarted = resolve; });
-      const selectedTask = hydrateOne(selected, signalStarted);
+      const selectedTask = (await hydrateOne(selected, signalStarted));
       // A checkpoint or storage failure before the remote request must not
       // deadlock this batch; the failure remains part of the batch result.
       await Promise.race([started, selectedTask]);
@@ -975,7 +965,7 @@ function scheduleBackgroundSync(
   firstPageSize = 0,
 ): Promise<void> {
   if (backgroundSyncTask) return backgroundSyncTask;
-  backgroundSyncTask = (async () => {
+  backgroundSyncTask = (await (async () => {
     try {
       await syncRemainingConversations(remaining, mailbox, collabs, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize);
     } catch (error) {
@@ -1014,7 +1004,7 @@ function scheduleBackgroundSync(
     } finally {
       backgroundSyncTask = null;
     }
-  })();
+  })());
   return backgroundSyncTask;
 }
 
@@ -1118,7 +1108,7 @@ export async function syncFollowedKolMail(mailboxOverride = "", options?: MailSy
     // Durable workers need a real object here: the inner sync resets it to the
     // persisted page pointer and reports the first committed index receipt.
     ...(isDurable ? { progress: blankProgress() } : {}),
-  }, () => syncFollowedKolMailInner(mailboxOverride));
+  }, async () => (await syncFollowedKolMailInner(mailboxOverride)));
 }
 
 async function syncFollowedKolMailInner(mailboxOverride: string): Promise<FollowedMailSync> {
@@ -1126,7 +1116,7 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
   const syncedAt = nowIso();
   const runtime = durableSync.getStore();
   const scope = runtime?.authorizedScope || (await currentFollowScope());
-  const userId = syncActorId();
+  const userId = (await syncActorId());
   if (scope.required && scope.bound) {
     // Read-only verification refreshes only a previously selected binding.
     try { await verifyExistingStarryBindings(userId, await listStarryMailboxes()); }
@@ -1242,7 +1232,7 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
     await mailSyncAudit("host", "starrykol.followed_mail_sync", partial);
     if (!nativeRuntime()) {
       await markPendingMailMemory(mailbox);
-      if (!durableSync.getStore()?.durable) triggerMailMemoryIncrement(mailbox);
+      if (!durableSync.getStore()?.durable) (await triggerMailMemoryIncrement(mailbox));
     }
     if (durableSync.getStore()?.durable) {
       await syncRemainingConversations(detailCandidates, mailbox, collabs, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize);
@@ -1251,7 +1241,7 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
       await persistStatus(completed);
       return completed;
     } else {
-      scheduleBackgroundSync(detailCandidates, mailbox, collabs, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize);
+      (await scheduleBackgroundSync(detailCandidates, mailbox, collabs, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize));
     }
     return partial;
   } catch (error) {

@@ -17,13 +17,13 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
-  seedWorkbenchFixtures();
+  (await resetConn());
+  (await seedAll());
+  (await seedWorkbenchFixtures());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -47,25 +47,25 @@ describe("mcp tools (Dify 工具节点)", () => {
     }
   });
 
-  it("写工具名被拒绝", () => {
-    expect(() => callMcpTool("starry", "send_mail", {})).toThrow(/Gateway/);
-    expect(() => callMcpTool("starry", "confirm_stage", {})).toThrow(/Gateway/);
-    expect(() => callMcpTool("claw", "ingest_mediacrawler", {})).toThrow(/Host\/Gateway/);
-    expect(() => callMcpTool("claw", "wecom_send", {})).toThrow();
+  it("写工具名被拒绝", async () => {
+    (await expect((async () => (await callMcpTool("starry", "send_mail", {})))()).rejects.toThrow(/Gateway/));
+    (await expect((async () => (await callMcpTool("starry", "confirm_stage", {})))()).rejects.toThrow(/Gateway/));
+    (await expect((async () => (await callMcpTool("claw", "ingest_mediacrawler", {})))()).rejects.toThrow(/Host\/Gateway/));
+    (await expect((async () => (await callMcpTool("claw", "wecom_send", {})))()).rejects.toThrow());
   });
 
-  it("seeded DB 可读", () => {
-    const stages = callMcpTool("starry", "stage_options", {});
+  it("seeded DB 可读", async () => {
+    const stages = (await callMcpTool("starry", "stage_options", {}));
     expect((stages.options as unknown[]).length).toBeGreaterThan(10);
-    const creators = callMcpTool("claw", "list_creators", {});
+    const creators = (await callMcpTool("claw", "list_creators", {}));
     expect((creators.creators as unknown[]).length).toBeGreaterThan(0);
     expect(((creators.creators as Record<string, unknown>[]).find((c) => c.id === "cr_outdoor"))?.email).toBe(
       "vanlife.kit@example.com",
     );
-    const col = callMcpTool("starry", "get_collaboration", { handle: "小美妆日记" });
+    const col = (await callMcpTool("starry", "get_collaboration", { handle: "小美妆日记" }));
     expect(col.found).toBe(true);
     expect(col.stage_code).toBe("INITIAL_CONTACT");
-    const overdue = callMcpTool("claw", "list_overdue", {});
+    const overdue = (await callMcpTool("claw", "list_overdue", {}));
     expect(Array.isArray(overdue.items)).toBe(true);
   });
 });

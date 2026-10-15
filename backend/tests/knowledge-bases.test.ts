@@ -83,15 +83,15 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
-  seedWorkbenchFixtures();
+  (await seedWorkbenchFixtures());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -265,7 +265,7 @@ describe("knowledge domains and bases (P2)", () => {
       structured: { body: "写一封信", variables: ["kol"] },
     })).json();
     expect(prompt.structured).toEqual({ body: "写一封信", variables: ["kol"] });
-    const stored = getConn().prepare("SELECT source_body FROM knowledge WHERE id=?").get(String(prompt.id)) as Row;
+    const stored = (await getConn().query("SELECT source_body FROM knowledge WHERE id=$1",[String(prompt.id)])).rows[0] as Row;
     expect(String(stored.source_body)).toBe("正文");
 
     // 归档库拒绝写入
@@ -310,7 +310,7 @@ describe("knowledge domains and bases (P2)", () => {
     expect((await rows("/api/admin/knowledge?family=content")).map((row) => row.id).sort()).toEqual(both);
 
     // 员工面同样按 SQL 过滤并暴露分类
-    setPersona("employee");
+    (await setPersona("employee"));
     const employee = await rows("/api/knowledge?base=tmpl");
     expect(employee.map((row) => row.id)).toEqual([inBase.id]);
     expect(employee[0].base_id).toBe(base.id);
@@ -327,13 +327,13 @@ describe("knowledge domains and bases (P2)", () => {
 
     await request("POST", `/api/knowledge/${entry.id}/cite`, {});
     // 注入闸门直接拒绝
-    expect(() => assertUsableKnowledge(String(entry.id))).toThrowError(/结构化/);
+    expect(async () => (await assertUsableKnowledge(String(entry.id)))).toThrowError(/结构化/);
 
     await request("POST", "/api/admin/knowledge/bindings", {
       skill_id: "email_compose",
       selector: { ids: [entry.id] },
     });
-    const result = resolveForSkill("email_compose", {});
+    const result = (await resolveForSkill("email_compose", {}));
     expect(result.bound).toBe(true);
     expect(result.resolved.map((item) => item.id)).not.toContain(entry.id);
     expect(result.skipped).toContainEqual(expect.objectContaining({ knowledge_id: entry.id, reason: "wrong_base_type" }));

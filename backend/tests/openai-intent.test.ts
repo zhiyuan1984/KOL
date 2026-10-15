@@ -82,8 +82,8 @@ describe("gpt-5.6 Luna intent verdict", () => {
     expect(cleaned.to).toEqual([QQ]);
   });
 
-  it("stub-classifies the operator sentence as compose with no missing fields", () => {
-    const verdict = stubClassifyIntent(FIRST_TOUCH);
+  it("stub-classifies the operator sentence as compose with no missing fields", async () => {
+    const verdict = (await stubClassifyIntent(FIRST_TOUCH));
     expect(verdict).toMatchObject({
       task_type: "email_compose",
       clarification_kind: "none",
@@ -93,8 +93,8 @@ describe("gpt-5.6 Luna intent verdict", () => {
     expect(verdict.entities.to).toEqual([QQ]);
   });
 
-  it("stub-classifies vague mailbox language as direction", () => {
-    const verdict = stubClassifyIntent("帮我看一下邮箱情况");
+  it("stub-classifies vague mailbox language as direction", async () => {
+    const verdict = (await stubClassifyIntent("帮我看一下邮箱情况"));
     expect(verdict.task_type).toBeNull();
     expect(verdict.clarification_kind).toBe("direction");
     expect(verdict.alternatives.map((row) => row.task_type)).toEqual([

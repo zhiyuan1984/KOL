@@ -31,10 +31,8 @@ async function request(
   };
 }
 
-function rawInsertMessage(sid: string): void {
-  getConn().prepare(
-    "INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES (?,?,?,?,?,?)",
-  ).run("msg_orphan_fk", sid, "assistant", "assistant", JSON.stringify({ text: "fk" }), new Date().toISOString());
+async function rawInsertMessage(sid: string): Promise<Awaited<void>> {
+  (await getConn().query("INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES ($1,$2,$3,$4,$5,$6)",["msg_orphan_fk",sid,"assistant","assistant",JSON.stringify({ text: "fk" }),new Date().toISOString()]));
 }
 
 beforeEach(async () => {
@@ -43,20 +41,20 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
-  seedWorkbenchFixtures();
+  (await seedWorkbenchFixtures());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
 describe("messages.session_id foreign key", () => {
-  it("raw INSERT still enforces FK when session_id is missing", () => {
+  it("raw INSERT still enforces FK when session_id is missing", async () => {
     if (databaseEngine() === "sqlite") {
       const fk = getConn().pragma("foreign_keys");
       const enabled = Array.isArray(fk)
@@ -67,7 +65,7 @@ describe("messages.session_id foreign key", () => {
 
     let thrown: unknown;
     try {
-      rawInsertMessage("ses_does_not_exist");
+      (await rawInsertMessage("ses_does_not_exist"));
     } catch (error) {
       thrown = error;
     }
@@ -79,9 +77,9 @@ describe("messages.session_id foreign key", () => {
   it("insertSessionMessage fail-closes with session_not_found instead of SqliteError", async () => {
     let thrown: unknown;
     try {
-      insertSessionMessage("ses_does_not_exist", "assistant", "confirm_stage_card", {
+      (await insertSessionMessage("ses_does_not_exist", "assistant", "confirm_stage_card", {
         text: "would have crashed Host",
-      });
+      }));
     } catch (error) {
       thrown = error;
     }
@@ -104,10 +102,10 @@ describe("messages.session_id foreign key", () => {
     const created = await request("POST", "/api/sessions", { title: "fk-ok" });
     expect(created.status).toBe(200);
     const sid = String((await created.json()).id || "");
-    const row = insertSessionMessage(sid, "assistant", "assistant", { text: "会话仍在" });
+    const row = (await insertSessionMessage(sid, "assistant", "assistant", { text: "会话仍在" }));
     expect(row.session_id).toBe(sid);
     expect(row.kind).toBe("assistant");
-    const stored = getConn().prepare("SELECT kind FROM messages WHERE id=?").get(row.id) as { kind: string };
+    const stored = (await getConn().query("SELECT kind FROM messages WHERE id=$1",[row.id])).rows[0] as { kind: string };
     expect(stored.kind).toBe("assistant");
   });
 
@@ -132,11 +130,11 @@ describe("messages.session_id foreign key", () => {
   it("ingestKolMail with a stale session_id fails closed and does not crash", async () => {
     let thrown: unknown;
     try {
-      ingestKolMail("col_xiaomei", {
+      (await ingestKolMail("col_xiaomei", {
         subject: "Re: collab",
         body: "interested",
         session_id: "ses_stale_from_other_datadir",
-      });
+      }));
     } catch (error) {
       thrown = error;
     }
@@ -163,10 +161,10 @@ describe("messages.session_id foreign key", () => {
     expect(opened.status).toBe(200);
     const sid = String((await opened.json()).id || "");
     expect(sid).toMatch(/^ses_/);
-    const live = insertSessionMessage(sid, "assistant", "confirm_stage_card", {
+    const live = (await insertSessionMessage(sid, "assistant", "confirm_stage_card", {
       collaboration_id: "col_xiaomei",
       proposed_stage: "INTERESTED",
-    });
+    }));
     expect(live.kind).toBe("confirm_stage_card");
   });
 });

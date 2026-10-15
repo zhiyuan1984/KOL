@@ -63,7 +63,7 @@ function mockMcp(overrides: Partial<Record<string, (args: Json) => Json | Promis
 }
 
 describe("larry.zhao mailbox facts from the real snapshot", () => {
-  it("locks the sender to MCP mailbox id 6 / 赵良玉 / RO / 已移交", () => {
+  it("locks the sender to MCP mailbox id 6 / 赵良玉 / RO / 已移交", async () => {
     const mailbox = starryMailboxes().find((row) => row.mailboxEmail === LARRY_ZHAO_MAILBOX) as Json;
     expect(mailbox).toBeTruthy();
     expect(fixture.sender.mailboxEmail).toBe(LARRY_ZHAO_MAILBOX);
@@ -79,7 +79,7 @@ describe("larry.zhao mailbox facts from the real snapshot", () => {
     expect(mailboxBindRows().some((row) => row["邮箱地址"] === LARRY_ZHAO_MAILBOX)).toBe(false);
     expect(brandOfMailbox(LARRY_ZHAO_MAILBOX)).toBeNull();
     expect(Object.values(BRAND_MAILBOXES)).not.toContain(LARRY_ZHAO_MAILBOX);
-    expect(resolveAuthorizedFrom(LARRY_ZHAO_MAILBOX, PERSONAS.sriphy, "RO")).toMatchObject({
+    expect((await resolveAuthorizedFrom(LARRY_ZHAO_MAILBOX, PERSONAS.sriphy, "RO"))).toMatchObject({
       email: BRAND_MAILBOXES.RO,
       brand: "RO",
       matched: false,
@@ -171,11 +171,11 @@ describe("inbound paste into larry.zhao covers every judgment scenario", () => {
 });
 
 describe("MCP compose with From locked to larry.zhao", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lz-mail-"));
     process.env.LG_DATA_DIR = tmp;
-    resetConn();
-    seedAll();
+    (await resetConn());
+    (await seedAll());
     calls.length = 0;
     setEmailMcpClientFactory(() => mockMcp());
   });
@@ -217,14 +217,14 @@ describe("MCP compose with From locked to larry.zhao", () => {
     expect(preview.data).toMatchObject({ sent: false, conversationId: 101 });
 
     calls.length = 0;
-    const sent = await withMailSendAuthority("adapter-LZ-OUT-MCP-02", "confirmed-LZ-OUT-MCP-02", () => executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-02")?.entities || {}));
+    const sent = await withMailSendAuthority("adapter-LZ-OUT-MCP-02", "confirmed-LZ-OUT-MCP-02", async () => (await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-02")?.entities || {})));
     expect(calls.map((item) => item.name)).toEqual(["sendEmailNow"]);
     expect(sent.data).toMatchObject({ sent: true, conversationId: 101 });
     expect(JSON.stringify(calls)).not.toContain("henry.wei@amperetime.com");
   });
 
   it("keeps multi-to connectivity mail on larry.zhao", async () => {
-    const sent = await withMailSendAuthority("adapter-LZ-OUT-MCP-04", "confirmed-LZ-OUT-MCP-04", () => executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-04")?.entities || {}));
+    const sent = await withMailSendAuthority("adapter-LZ-OUT-MCP-04", "confirmed-LZ-OUT-MCP-04", async () => (await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-04")?.entities || {})));
     expect(JSON.parse(String(calls.find((row) => row.name === "createEmailConversation")?.args.requestJson))).toMatchObject({
       mailboxEmail: LARRY_ZHAO_MAILBOX,
       recipientEmail: "qiyou1984@gmail.com",
@@ -317,11 +317,11 @@ describe("MCP compose with From locked to larry.zhao", () => {
 });
 
 describe("Host PEP stage letters cannot use larry.zhao as From", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lz-pep-"));
     process.env.LG_DATA_DIR = tmp;
-    resetConn();
-    seedAll();
+    (await resetConn());
+    (await seedAll());
   });
 
   afterEach(() => {
@@ -337,9 +337,9 @@ describe("Host PEP stage letters cannot use larry.zhao as From", () => {
     expect(templateAllowedForStage("content_nudge.outline", "TESTING")).toBe(true);
   });
 
-  it("rejects larry.zhao on the Host From whitelist", () => {
+  it("rejects larry.zhao on the Host From whitelist", async () => {
     const row = fixture.outbound_host.find((item) => item.id === "LZ-OUT-HOST-00")!;
-    expect(() => enforceSend({
+    (await expect((async () => (await enforceSend({
       from_addr: row.from_requested,
       to_addr: row.to,
       subject: row.subject,
@@ -347,9 +347,9 @@ describe("Host PEP stage letters cannot use larry.zhao as From", () => {
       skill: row.skill,
       template_id: row.template_id,
       official_stage: row.official_stage,
-    } as Row, PERSONAS.sriphy)).toThrow(PepFail);
+    } as Row, PERSONAS.sriphy)))()).rejects.toThrow(PepFail));
     try {
-      enforceSend({
+      (await enforceSend({
         from_addr: row.from_requested,
         to_addr: row.to,
         subject: row.subject,
@@ -357,7 +357,7 @@ describe("Host PEP stage letters cannot use larry.zhao as From", () => {
         skill: row.skill,
         template_id: row.template_id,
         official_stage: row.official_stage,
-      } as Row, PERSONAS.sriphy);
+      } as Row, PERSONAS.sriphy));
     } catch (error) {
       expect(error).toBeInstanceOf(PepFail);
       expect((error as PepFail).status).toBe("blocked_permission");
@@ -366,8 +366,8 @@ describe("Host PEP stage letters cannot use larry.zhao as From", () => {
     }
   });
 
-  it("allows a catalog first-touch letter only from the PEP LT mailbox", () => {
-    const result = enforceSend({
+  it("allows a catalog first-touch letter only from the PEP LT mailbox", async () => {
+    const result = (await enforceSend({
       from_addr: BRAND_MAILBOXES.LT,
       to_addr: "wendellfishing@gmail.com",
       subject: "Collaboration Opportunity with LiTime",
@@ -376,12 +376,12 @@ describe("Host PEP stage letters cannot use larry.zhao as From", () => {
       template_id: "kol.first_touch",
       official_stage: "INITIAL_CONTACT",
       keep_stage: true,
-    } as Row, PERSONAS.sriphy);
+    } as Row, PERSONAS.sriphy));
     expect(result).toMatchObject({ from_addr: BRAND_MAILBOXES.LT, brand: "LT", keep_stage: true });
   });
 
-  it("requires internal Cc on a <$350 quote and strips Chinese", () => {
-    expect(() => enforceSend({
+  it("requires internal Cc on a <$350 quote and strips Chinese", async () => {
+    (await expect((async () => (await enforceSend({
       from_addr: BRAND_MAILBOXES.LT,
       to_addr: "wendellfishing@gmail.com",
       subject: "LiTime collaboration quote",
@@ -391,9 +391,9 @@ describe("Host PEP stage letters cannot use larry.zhao as From", () => {
       official_stage: "QUOTE_PENDING",
       amount_usd: 280,
       cc: "",
-    } as Row, PERSONAS.sriphy)).toThrow(/金额 <\$350 必须抄送/);
+    } as Row, PERSONAS.sriphy)))()).rejects.toThrow(/金额 <\$350 必须抄送/));
 
-    const ok = enforceSend({
+    const ok = (await enforceSend({
       from_addr: BRAND_MAILBOXES.LT,
       to_addr: "wendellfishing@gmail.com",
       subject: "LiTime collaboration quote",
@@ -403,10 +403,10 @@ describe("Host PEP stage letters cannot use larry.zhao as From", () => {
       official_stage: "QUOTE_PENDING",
       amount_usd: 280,
       cc: "sriphy@litime.example",
-    } as Row, PERSONAS.sriphy);
+    } as Row, PERSONAS.sriphy));
     expect(ok.cc).toBe("sriphy@litime.example");
 
-    const stripped = enforceSend({
+    const stripped = (await enforceSend({
       from_addr: BRAND_MAILBOXES.LT,
       to_addr: "wendellfishing@gmail.com",
       subject: "Collaboration Opportunity with LiTime",
@@ -414,14 +414,14 @@ describe("Host PEP stage letters cannot use larry.zhao as From", () => {
       skill: "kol",
       template_id: "kol.first_touch",
       official_stage: "INITIAL_CONTACT",
-    } as Row, PERSONAS.sriphy);
+    } as Row, PERSONAS.sriphy));
     expect(stripped.zh_stripped).toBe(true);
     expect(String(stripped.body)).not.toMatch(/[\u4e00-\u9fff]/);
     expect(String(stripped.body)).toContain("we would love to collaborate");
   });
 
-  it("lets MCP compose drafts use the Host From whitelist without a catalog template id", () => {
-    const result = enforceSend({
+  it("lets MCP compose drafts use the Host From whitelist without a catalog template id", async () => {
+    const result = (await enforceSend({
       from_addr: BRAND_MAILBOXES.RO,
       to_addr: "wendellfishing@gmail.com",
       subject: "LiTime MCP 连通测试",
@@ -430,7 +430,7 @@ describe("Host PEP stage letters cannot use larry.zhao as From", () => {
       template_id: "email_compose.v1",
       official_stage: "INITIAL_CONTACT",
       keep_stage: true,
-    } as Row, PERSONAS.sriphy);
+    } as Row, PERSONAS.sriphy));
     expect(result).toMatchObject({ from_addr: BRAND_MAILBOXES.RO, brand: "RO", keep_stage: true });
   });
 });

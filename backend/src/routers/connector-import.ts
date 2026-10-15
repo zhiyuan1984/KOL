@@ -48,7 +48,7 @@ function parseTransport(value: unknown): ImportTransport | undefined {
   return undefined;
 }
 
-function parseServer(name: string, value: unknown, taken: Set<string>): ParsedServer {
+async function parseServer(name: string, value: unknown, taken: Set<string>): Promise<Awaited<ParsedServer>> {
   const label = name.trim();
   const base: ParsedServer = { id: "", label, url: "", transport: "streamable-http", headers: {}, conflicts: [], valid: false };
   if (!label || label.length > 120) {
@@ -102,11 +102,11 @@ function parseServer(name: string, value: unknown, taken: Set<string>): ParsedSe
     return { ...base, reason: "无法从名称生成合法短名；请改用小写字母、数字、- 或 _" };
   }
   if (taken.has(id)) conflicts.push("同一次导入中出现重复短名");
-  if (getConn().prepare("SELECT 1 FROM connectors WHERE id=?").get(id)) conflicts.push("连接器短名已被占用");
+  if ((await getConn().query("SELECT 1 FROM connectors WHERE id=$1",[id])).rows[0]) conflicts.push("连接器短名已被占用");
   return { ...base, id, url, transport, headers, conflicts, valid: conflicts.length === 0 };
 }
 
-function parseServers(root: unknown): ParsedServer[] {
+async function parseServers(root: unknown): Promise<Awaited<ParsedServer[]>> {
   if (!root || typeof root !== "object" || Array.isArray(root)) {
     throw new HttpFail(400, { code: "connector_import_invalid_json" });
   }
@@ -120,7 +120,7 @@ function parseServers(root: unknown): ParsedServer[] {
   const taken = new Set<string>();
   const parsed: ParsedServer[] = [];
   for (const [name, value] of entries) {
-    const server = parseServer(name, value, taken);
+    const server = (await parseServer(name, value, taken));
     if (server.id) taken.add(server.id);
     parsed.push(server);
   }
@@ -162,7 +162,7 @@ connectorImportRouter.post("/admin/connectors/import-mcp", async (c) => {
   } catch {
     throw new HttpFail(400, { code: "connector_import_invalid_json" });
   }
-  const servers = parseServers(parsedJson);
+  const servers = (await parseServers(parsedJson));
 
   if (input.dry_run === true) {
     const valid = servers.filter((server) => server.valid);
@@ -183,9 +183,7 @@ connectorImportRouter.post("/admin/connectors/import-mcp", async (c) => {
     }
     const now = nowIso();
     try {
-      getConn().prepare(
-        "INSERT INTO connectors(id,label,purpose,enabled,status,credential_ref,updated_at) VALUES (?,?,?,0,'pending_verification',NULL,?)",
-      ).run(server.id, server.label, IMPORT_PURPOSE, now);
+      (await getConn().query("INSERT INTO connectors(id,label,purpose,enabled,status,credential_ref,updated_at) VALUES ($1,$2,$3,0,'pending_verification',NULL,$4)",[server.id,server.label,IMPORT_PURPOSE,now]));
     } catch {
       skipped.push({ name: server.label, reason: "连接器短名已被占用" });
       continue;
@@ -217,13 +215,13 @@ connectorImportRouter.post("/admin/connectors/import-mcp", async (c) => {
       created.push({ id: server.id, label: server.label });
     } catch {
       // Never leave a half-imported connector behind.
-      getConn().prepare("DELETE FROM connectors WHERE id=?").run(server.id);
+      (await getConn().query("DELETE FROM connectors WHERE id=$1",[server.id]));
       skipped.push({ name: server.label, reason: "配置未通过校验" });
     }
   }
-  audit(admin.id, "admin.connector.import_mcp", {
+  (await audit(admin.id, "admin.connector.import_mcp", {
     connector_ids: created.map((row) => row.id),
     skipped: skipped.length,
-  });
+  }));
   return c.json({ dry_run: false, created, skipped });
 });

@@ -6,7 +6,7 @@ import { getConnectorConfig } from "../runtime/store.js";
 export async function starryKolConnectionHealth() {
   try {
     const config = (await getConnectorConfig("starrykol"))?.config;
-    const enabled = Boolean((getConn().prepare("SELECT enabled FROM connectors WHERE id='starrykol'").get() as Row | undefined)?.enabled);
+    const enabled = Boolean(((await getConn().query("SELECT enabled FROM connectors WHERE id='starrykol'",[])).rows[0] as Row | undefined)?.enabled);
     return { mode: "vault", configured: Boolean(config && enabled),
       user_jwt: Boolean(config?.bearer_secret_ref || config?.credential_account_id ||
         Object.keys(config?.headers_secret_refs || {}).some((key) => key.toLowerCase() === "authorization")),

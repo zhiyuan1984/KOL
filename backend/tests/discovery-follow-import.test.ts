@@ -63,18 +63,16 @@ async function request(method: string, url: string, body?: unknown) {
   return { status: response.status, body: text ? JSON.parse(text) as Json : {}, text };
 }
 
-function sideEffects() {
+async function sideEffects() {
   return {
-    sends: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: number }).n),
-    stageWrites: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_stage_writes").get() as { n: number }).n),
-    transitions: Number((getConn().prepare("SELECT COUNT(*) AS n FROM stage_transitions").get() as { n: number }).n),
+    sends: Number(((await getConn().query("SELECT COUNT(*) AS n FROM starry_sends",[])).rows[0] as { n: number }).n),
+    stageWrites: Number(((await getConn().query("SELECT COUNT(*) AS n FROM starry_stage_writes",[])).rows[0] as { n: number }).n),
+    transitions: Number(((await getConn().query("SELECT COUNT(*) AS n FROM stage_transitions",[])).rows[0] as { n: number }).n),
   };
 }
 
-function crawlJobIdFor(requestId: string): string {
-  const row = getConn().prepare(
-    "SELECT crawl_job_id FROM discovery_runs WHERE request_id=? ORDER BY created_at DESC LIMIT 1",
-  ).get(requestId) as { crawl_job_id?: string } | undefined;
+async function crawlJobIdFor(requestId: string): Promise<Awaited<string>> {
+  const row = (await getConn().query("SELECT crawl_job_id FROM discovery_runs WHERE request_id=$1 ORDER BY created_at DESC LIMIT 1",[requestId])).rows[0] as { crawl_job_id?: string } | undefined;
   return String(row?.crawl_job_id || "");
 }
 
@@ -88,7 +86,7 @@ async function readyCandidate(): Promise<Json> {
   expect(created.status).toBe(201);
   const started = await request("POST", `/api/discovery/requests/${created.body.id}/runs`, {});
   expect(started.status).toBe(202);
-  await monitorCrawlJob(crawlJobIdFor(String(created.body.id)));
+  await monitorCrawlJob((await crawlJobIdFor(String(created.body.id))));
   const results = await request("GET", `/api/discovery/requests/${created.body.id}/results`);
   const items = results.body.candidates as Json[];
   expect(items.length).toBeGreaterThan(0);
@@ -115,8 +113,8 @@ beforeEach(async () => {
     recent_views: [1000, 2000, 1500],
     profile_url: "https://youtube.com/@outdoorpower",
   }];
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   (await configureCrawlerFixture());
   resetCollectorConnectionCache();
   setCollectorProbeClientFactory();
@@ -127,13 +125,13 @@ beforeEach(async () => {
   app = (await createApp());
 });
 
-afterEach(() => {
+afterEach(async () => {
   setCrawlMcpClientFactory();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();
   setStarryKolClientFactory();
   resetCollectorConnectionCache();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.MEDIACRAWLER_MCP_URL;
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
@@ -272,10 +270,10 @@ describe("candidate to crawler row mapper", () => {
 describe("ADR-022 P0 follow import", () => {
   it("crawl still only creates candidates and does not write Starry", async () => {
     await readyCandidate();
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'").get() as { n: unknown }).n)).toBe(0);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM creator_candidates WHERE status='suggested'").get() as { n: unknown }).n)).toBe(1);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'",[])).rows[0] as { n: unknown }).n)).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM creator_candidates WHERE status='suggested'",[])).rows[0] as { n: unknown }).n)).toBe(1);
     expect(starryCalls).toEqual([]);
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
 
   it("confirm follow imports via stub, backfills real kolUid, then marks followed", async () => {
@@ -308,17 +306,17 @@ describe("ADR-022 P0 follow import", () => {
     expect(tracked.map((row) => row.name)).toEqual(["importKolProfilesFromCrawler"]);
     expect(tracked.some((row) => FORBIDDEN.has(row.name))).toBe(false);
     expect(JSON.stringify(followed.body)).not.toMatch(/MediaCrawler|MCP|Codex|disc_/);
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
-    const audits = listAudit("host.import_creator");
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
+    const audits = (await listAudit("host.import_creator"));
     expect(audits.length).toBe(1);
     expect((audits[0].payload as Json).kol_uid).toBe("KOLOUTDOORPOWER");
     expect((audits[0].payload as Json).sent).toBe(false);
     expect((audits[0].payload as Json).stage_changed).toBe(false);
-    const regionWarns = listAudit("discovery.candidate.region_unverified");
+    const regionWarns = (await listAudit("discovery.candidate.region_unverified"));
     expect(regionWarns.length).toBe(1);
     expect((regionWarns[0].payload as Json).plan_region).toBe("us");
     expect((regionWarns[0].payload as Json).candidate_region).toBe("");
-    const row = getConn().prepare("SELECT status FROM creator_candidates WHERE id=?").get(candidate.id) as Row;
+    const row = (await getConn().query("SELECT status FROM creator_candidates WHERE id=$1",[candidate.id])).rows[0] as Row;
     expect(row.status).toBe("followed");
   });
 
@@ -350,52 +348,8 @@ describe("ADR-022 P0 follow import", () => {
         recent_views: [800, 900],
       },
     ];
-    getConn().prepare(
-      `INSERT INTO collaborations
-       (id, handle, display_name, brand, platform, followers, email, mailbox_from,
-        lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue, kol_uid, source)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      "col_starry_shared",
-      "SharedHandle",
-      "SharedHandle",
-      "LT",
-      "youtube",
-      "50000",
-      "",
-      "kol.lt@litime.example",
-      "lc_starry_shared",
-      "conv_starry_shared",
-      "INITIAL_CONTACT",
-      0,
-      "seeded starry same handle",
-      0,
-      "KOLSTARRYSHARED",
-      "starry",
-    );
-    getConn().prepare(
-      `INSERT INTO collaborations
-       (id, handle, display_name, brand, platform, followers, email, mailbox_from,
-        lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue, kol_uid, source)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      "col_disc_other",
-      "SharedHandle",
-      "SharedHandle",
-      "LT",
-      "youtube",
-      "1000",
-      "",
-      "kol.lt@litime.example",
-      "lc_disc_other",
-      "conv_disc_other",
-      "INITIAL_CONTACT",
-      0,
-      "leftover disc placeholder other creator",
-      0,
-      "disc_youtube_yt-other",
-      "discovery",
-    );
+    (await getConn().query("INSERT INTO collaborations\n       (id, handle, display_name, brand, platform, followers, email, mailbox_from,\n        lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue, kol_uid, source)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",["col_starry_shared","SharedHandle","SharedHandle","LT","youtube","50000","","kol.lt@litime.example","lc_starry_shared","conv_starry_shared","INITIAL_CONTACT",0,"seeded starry same handle",0,"KOLSTARRYSHARED","starry"]));
+    (await getConn().query("INSERT INTO collaborations\n       (id, handle, display_name, brand, platform, followers, email, mailbox_from,\n        lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue, kol_uid, source)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",["col_disc_other","SharedHandle","SharedHandle","LT","youtube","1000","","kol.lt@litime.example","lc_disc_other","conv_disc_other","INITIAL_CONTACT",0,"leftover disc placeholder other creator",0,"disc_youtube_yt-other","discovery"]));
 
     const created = await request("POST", "/api/discovery/requests", {
       keywords: ["shared handle"],
@@ -406,14 +360,12 @@ describe("ADR-022 P0 follow import", () => {
     expect(created.status).toBe(201);
     const started = await request("POST", `/api/discovery/requests/${created.body.id}/runs`, {});
     expect(started.status).toBe(202);
-    await monitorCrawlJob(crawlJobIdFor(String(created.body.id)));
+    await monitorCrawlJob((await crawlJobIdFor(String(created.body.id))));
     const results = await request("GET", `/api/discovery/requests/${created.body.id}/results`);
     const items = results.body.candidates as Json[];
     expect(items).toHaveLength(2);
     const byCreator = Object.fromEntries(
-      (getConn().prepare(
-        "SELECT id, platform_creator_id FROM creator_candidates WHERE request_id=?",
-      ).all(created.body.id) as Row[]).map((row) => [String(row.platform_creator_id), String(row.id)]),
+      ((await getConn().query("SELECT id, platform_creator_id FROM creator_candidates WHERE request_id=$1",[created.body.id])).rows as Row[]).map((row) => [String(row.platform_creator_id), String(row.id)]),
     );
     const candA = byCreator["yt-shared-a"];
     const candB = byCreator["yt-shared-b"];
@@ -434,17 +386,17 @@ describe("ADR-022 P0 follow import", () => {
     expect((followB.body.collaboration as Json).id).not.toBe("col_starry_shared");
     expect((followB.body.collaboration as Json).id).not.toBe("col_disc_other");
 
-    expect(getConn().prepare("SELECT kol_uid FROM collaborations WHERE id='col_starry_shared'").get()).toEqual({
+    expect((await getConn().query("SELECT kol_uid FROM collaborations WHERE id='col_starry_shared'",[])).rows[0]).toEqual({
       kol_uid: "KOLSTARRYSHARED",
     });
-    expect(getConn().prepare("SELECT kol_uid FROM collaborations WHERE id='col_disc_other'").get()).toEqual({
+    expect((await getConn().query("SELECT kol_uid FROM collaborations WHERE id='col_disc_other'",[])).rows[0]).toEqual({
       kol_uid: "disc_youtube_yt-other",
     });
-    expect(getConn().prepare("SELECT kol_uid FROM collaborations WHERE id=?").get((followA.body.collaboration as Json).id))
+    expect((await getConn().query("SELECT kol_uid FROM collaborations WHERE id=$1",[(followA.body.collaboration as Json).id])).rows[0])
       .toEqual({ kol_uid: "KOLSHAREDA" });
-    expect(getConn().prepare("SELECT kol_uid FROM collaborations WHERE id=?").get((followB.body.collaboration as Json).id))
+    expect((await getConn().query("SELECT kol_uid FROM collaborations WHERE id=$1",[(followB.body.collaboration as Json).id])).rows[0])
       .toEqual({ kol_uid: "KOLSHAREDB" });
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
 
   it("handle match may backfill only this creator's leftover discovery disc_* row", async () => {
@@ -456,35 +408,13 @@ describe("ADR-022 P0 follow import", () => {
       async close() {},
     }));
     const candidate = await readyCandidate();
-    getConn().prepare(
-      `INSERT INTO collaborations
-       (id, handle, display_name, brand, platform, followers, email, mailbox_from,
-        lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue, kol_uid, source)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      "col_disc_same",
-      "OutdoorPower",
-      "OutdoorPower",
-      "LT",
-      "youtube",
-      "12000",
-      "",
-      "kol.lt@litime.example",
-      "lc_disc_same",
-      "conv_disc_same",
-      "INITIAL_CONTACT",
-      0,
-      "leftover placeholder this creator",
-      0,
-      "disc_youtube_yt-outdoor-1",
-      "discovery",
-    );
+    (await getConn().query("INSERT INTO collaborations\n       (id, handle, display_name, brand, platform, followers, email, mailbox_from,\n        lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue, kol_uid, source)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",["col_disc_same","OutdoorPower","OutdoorPower","LT","youtube","12000","","kol.lt@litime.example","lc_disc_same","conv_disc_same","INITIAL_CONTACT",0,"leftover placeholder this creator",0,"disc_youtube_yt-outdoor-1","discovery"]));
     const followed = await request("POST", `/api/discovery/candidates/${candidate.id}/follow`, { confirmed: true });
     expect(followed.status).toBe(200);
     expect(followed.body.created).toBe(false);
     expect((followed.body.collaboration as Json).id).toBe("col_disc_same");
     expect((followed.body.collaboration as Json).kol_uid).toBe("KOLOUTDOORPOWER");
-    expect(getConn().prepare("SELECT kol_uid FROM collaborations WHERE id='col_disc_same'").get()).toEqual({
+    expect((await getConn().query("SELECT kol_uid FROM collaborations WHERE id='col_disc_same'",[])).rows[0]).toEqual({
       kol_uid: "KOLOUTDOORPOWER",
     });
   });
@@ -505,12 +435,12 @@ describe("ADR-022 P0 follow import", () => {
       message: "写入红人档案失败，未加入跟进。请稍后重试。",
     });
     expect(JSON.stringify(failed.body)).not.toMatch(/MediaCrawler|MCP|Codex|remote import rejected/i);
-    expect(getConn().prepare("SELECT status, collaboration_id FROM creator_candidates WHERE id=?").get(candidate.id)).toMatchObject({
+    expect((await getConn().query("SELECT status, collaboration_id FROM creator_candidates WHERE id=$1",[candidate.id])).rows[0]).toMatchObject({
       status: "suggested",
       collaboration_id: null,
     });
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'").get() as { n: unknown }).n)).toBe(0);
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'",[])).rows[0] as { n: unknown }).n)).toBe(0);
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
 
   it("missing kolUid is an honest failure and does not half-follow", async () => {
@@ -528,10 +458,10 @@ describe("ADR-022 P0 follow import", () => {
       code: "import_creator_no_kol_uid",
       message: "档案未回传红人编号，未加入跟进。",
     });
-    expect(getConn().prepare("SELECT status FROM creator_candidates WHERE id=?").get(candidate.id)).toMatchObject({
+    expect((await getConn().query("SELECT status FROM creator_candidates WHERE id=$1",[candidate.id])).rows[0]).toMatchObject({
       status: "suggested",
     });
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'").get() as { n: unknown }).n)).toBe(0);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'",[])).rows[0] as { n: unknown }).n)).toBe(0);
   });
 
   it("re-follow of an imported profile links the existing collab and does not double-add", async () => {
@@ -545,10 +475,8 @@ describe("ADR-022 P0 follow import", () => {
     expect(second.body.created).toBe(false);
     expect((second.body.collaboration as Json).id).toBe((first.body.collaboration as Json).id);
     expect((second.body.collaboration as Json).kol_uid).toBe(uid);
-    expect(Number((getConn().prepare(
-      "SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'",
-    ).get() as { n: number }).n)).toBe(1);
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'",[])).rows[0] as { n: number }).n)).toBe(1);
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
 
   it("write-time thresholds reject without importing; omit thresholds still follows", async () => {
@@ -572,7 +500,7 @@ describe("ADR-022 P0 follow import", () => {
     expect(rejected.body.detail).toMatchObject({ code: "follow_filter_rejected" });
     expect(String((rejected.body.detail as Json).message)).toContain("未加入跟进");
     expect(imported).toEqual([]);
-    expect(getConn().prepare("SELECT status FROM creator_candidates WHERE id=?").get(candidate.id)).toMatchObject({
+    expect((await getConn().query("SELECT status FROM creator_candidates WHERE id=$1",[candidate.id])).rows[0]).toMatchObject({
       status: "suggested",
     });
 
@@ -580,7 +508,7 @@ describe("ADR-022 P0 follow import", () => {
     expect(ok.status).toBe(200);
     expect(ok.body.status).toBe("followed");
     expect(imported).toEqual(["importKolProfilesFromCrawler"]);
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
 
   it("real mode without LIVE refuses write and leaves the candidate suggested", async () => {
@@ -594,10 +522,10 @@ describe("ADR-022 P0 follow import", () => {
       message: "当前未开启主档写入，无法加入跟进。",
     });
     expect(JSON.stringify(failed.body)).not.toMatch(/MCP|LIVE_REMOTE|Starry/i);
-    expect(getConn().prepare("SELECT status FROM creator_candidates WHERE id=?").get(candidate.id)).toMatchObject({
+    expect((await getConn().query("SELECT status FROM creator_candidates WHERE id=$1",[candidate.id])).rows[0]).toMatchObject({
       status: "suggested",
     });
-    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
+    expect((await sideEffects())).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
 });
 

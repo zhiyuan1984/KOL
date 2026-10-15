@@ -60,8 +60,8 @@ describe("approval inbox by login name", () => {
     process.env.LINGONG_DATA = tmp;
     process.env.CODEX_MODE = "real";
     process.env.AUTH_MODE = "enabled";
-    resetConn();
-    seedAll();
+    (await resetConn());
+    (await seedAll());
     const { createApp } = await import("../src/app.js");
     app = (await createApp());
     const setup = await call("POST", "/api/auth/setup", {
@@ -74,8 +74,8 @@ describe("approval inbox by login name", () => {
     adminCookie = setup.cookie;
   });
 
-  afterEach(() => {
-    resetConn();
+  afterEach(async () => {
+    (await resetConn());
     fs.rmSync(tmp, { recursive: true, force: true });
     delete process.env.AUTH_MODE;
     process.env.CODEX_MODE = "stub";
@@ -101,13 +101,13 @@ describe("approval inbox by login name", () => {
       currency: "USD",
     });
     expect(plan.rule_id).toBe("FIN-EXP-004");
-    const created = createWorkApproval({
+    const created = (await createWorkApproval({
       kind: "expense",
       amountUsd: plan.amount_base,
       chain: plan.steps.map((step) => step.employee_id),
       payload: { ...plan, steps: plan.steps },
       title: "黎玉燕 USD 50000",
-    });
+    }));
     const aid = String(created.id);
 
     const cookies = {
@@ -181,7 +181,7 @@ describe("approval inbox by login name", () => {
   it("lets a signed-in employee preview and create an expense without a retired connector", async () => {
     await createApprover("lintong", "林桐");
     const cookie = await login("lintong");
-    expect(getConn().prepare("SELECT id FROM connectors WHERE id='wecom'").get()).toBeUndefined();
+    expect((await getConn().query("SELECT id FROM connectors WHERE id='wecom'",[])).rows[0]).toBeUndefined();
     const before = await call("GET", "/api/approvals", undefined, cookie);
     expect(before.status).toBe(200);
     const beforeCount = (before.json as unknown as unknown[]).length;

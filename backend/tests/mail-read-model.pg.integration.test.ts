@@ -36,7 +36,7 @@ function actor(id: string): AppUser {
 }
 
 async function request(path: string): Promise<{ status: number; body: Record<string, unknown> }> {
-  const response = await withScopedUser(ACTOR, () => app.request(path));
+  const response = await withScopedUser(ACTOR, async () => (await app.request(path)));
   return { status: response.status, body: await response.json() as Record<string, unknown> };
 }
 

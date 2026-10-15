@@ -41,7 +41,7 @@ export async function createDiscoveryWorkspace(inputBody: unknown): Promise<Json
   if (typeof body.text !== "string" || !body.text.trim() || body.text.length > 20000) return invalid();
   const key = createHash("sha256").update(`${user.id}:${body.request_id}`).digest("hex").slice(0, 32);
   const taskId = `wi_discovery_${key}`, sessionId = `ses_discovery_${key}`, runId = `run_discovery_${key}`;
-  const template = effectiveSkillTemplate(requireTaskDefinition("crawler_collect"));
+  const template = (await effectiveSkillTemplate(requireTaskDefinition("crawler_collect")));
   const workspace = { kind: "discovery", version: 1, agent_id: agentId, profile: "lead", brief,
     template, template_version: template.version, brief_version: String(body.version || "discovery-brief.v1"),
     return_to: "/?tab=discovery", submitted_text: body.text };

@@ -45,21 +45,21 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
+  (await resetConn());
   resetKolMailSync();
-  seedAll();
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
-  seedWorkbenchFixtures();
+  (await seedWorkbenchFixtures());
 });
 
-afterEach(() => {
+afterEach(async () => {
   setIntentLlmFetch();
   delete process.env.INTENT_LLM_MODE;
   delete process.env.OPENAI_API_KEY;
   setStarryKolClientFactory();
   resetKolMailSync();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -134,24 +134,24 @@ describe("KOL stage-mail communication", () => {
     expect(composeGapHint({ kind: "quote", amount_usd: 100 }).field).toBeNull();
   });
 
-  it("session chips name this stage's letter", () => {
-    const quoteCol = getConn().prepare("SELECT * FROM collaborations WHERE id=?").get("col_laozhang") as { handle: string; stage_code: string };
+  it("session chips name this stage's letter", async () => {
+    const quoteCol = (await getConn().query("SELECT * FROM collaborations WHERE id=$1",["col_laozhang"])).rows[0] as { handle: string; stage_code: string };
     const quoteChip = recommendedCollabActions(quoteCol).find((row) => row.intent === "email_compose");
     expect(quoteChip?.label).toBe("写报价邮件");
     expect(String(quoteChip?.prompt)).toBe("写报价邮件 @数码老张");
-    const firstCol = getConn().prepare("SELECT * FROM collaborations WHERE id=?").get("col_xiaomei") as { handle: string; stage_code: string };
+    const firstCol = (await getConn().query("SELECT * FROM collaborations WHERE id=$1",["col_xiaomei"])).rows[0] as { handle: string; stage_code: string };
     const firstChip = recommendedCollabActions(firstCol).find((row) => row.intent === "email_compose");
     expect(firstChip?.label).toBe("写合作邮件");
     expect(String(firstChip?.prompt)).toBe("写合作邮件 @小美妆日记");
-    const briefCol = getConn().prepare("SELECT * FROM collaborations WHERE id=?").get("col_mum") as { handle: string; stage_code: string };
+    const briefCol = (await getConn().query("SELECT * FROM collaborations WHERE id=$1",["col_mum"])).rows[0] as { handle: string; stage_code: string };
     const briefChip = recommendedCollabActions(briefCol).find((row) => row.intent === "email_compose");
     expect(briefChip?.label).toBe("发brief");
     expect(String(briefChip?.prompt)).toBe("发brief @母婴小课");
-    expect(journeyPayload("col_laozhang")?.composer_placeholder).toBe("写报价邮件 @数码老张 金额 [USD]");
+    expect((await journeyPayload("col_laozhang"))?.composer_placeholder).toBe("写报价邮件 @数码老张 金额 [USD]");
   });
 
   async function composeOn(colId: string, text: string) {
-    ingestKolMail(colId, {
+    (await ingestKolMail(colId, {
       subject: "LiTime 合作沟通",
       body: "Thanks, I am interested. Please send the next letter.",
       from: "creator.desk@gmail.com",
@@ -159,7 +159,7 @@ describe("KOL stage-mail communication", () => {
       mailbox: "larry.zhao@amperetime.com",
       direction: "inbound",
       provider_message_id: `in-${colId}-${Buffer.from(text).toString("hex").slice(0, 24)}`,
-    });
+    }));
     const opened = await request("POST", `/api/collaborations/${colId}/session`, {});
     expect(opened.status).toBe(200);
     const sid = String(opened.body.id);
@@ -179,7 +179,7 @@ describe("KOL stage-mail communication", () => {
   }
 
   it("写跟进 stacks follow-up facts and a draft", async () => {
-    getConn().prepare("UPDATE collaborations SET stage_code='INTERESTED' WHERE id=?").run("col_xiaomei");
+    (await getConn().query("UPDATE collaborations SET stage_code='INTERESTED' WHERE id=$1",["col_xiaomei"]));
     const follow = await composeOn("col_xiaomei", "写跟进邮件 @小美妆日记");
     expect(follow.result?.payload.compose_loop).toMatchObject({ kind: "followup", quote: false });
     expect(JSON.stringify(follow.result?.payload || "")).toMatch(/跟进要点/);
@@ -189,7 +189,7 @@ describe("KOL stage-mail communication", () => {
   it("写跟进 at first contact stays on the sendable followup template", async () => {
     const follow = await composeOn("col_xiaomei", "写跟进邮件 @小美妆日记");
     const draftId = String(follow.draft?.payload.draft_id || "");
-    const stored = getConn().prepare("SELECT template_id, official_stage FROM drafts WHERE id=?").get(draftId) as
+    const stored = (await getConn().query("SELECT template_id, official_stage FROM drafts WHERE id=$1",[draftId])).rows[0] as
       | { template_id?: string; official_stage?: string }
       | undefined;
     expect(stored?.template_id).toBe("stage_mail.followup");
@@ -205,7 +205,7 @@ describe("KOL stage-mail communication", () => {
   });
 
   it("核对地址 stacks sample facts, not a quote", async () => {
-    getConn().prepare("UPDATE collaborations SET stage_code='SAMPLE_PENDING' WHERE id=?").run("col_laozhang");
+    (await getConn().query("UPDATE collaborations SET stage_code='SAMPLE_PENDING' WHERE id=$1",["col_laozhang"]));
     const address = await composeOn("col_laozhang", "核对地址 @数码老张");
     expect(address.result?.payload.compose_loop).toMatchObject({ kind: "address", quote: false });
     expect(JSON.stringify(address.result?.payload || "")).toMatch(/寄样资料|张伟|LT-100AH/);
@@ -256,7 +256,7 @@ describe("KOL stage-mail communication", () => {
   });
 
   it("发货通知 stacks tracking facts and a draft", async () => {
-    getConn().prepare("UPDATE collaborations SET stage_code='SHIPPED' WHERE id=?").run("col_laozhang");
+    (await getConn().query("UPDATE collaborations SET stage_code='SHIPPED' WHERE id=$1",["col_laozhang"]));
     const ship = await composeOn("col_laozhang", "发货通知 @数码老张 运单号 UPS123456 承运商 UPS");
     expect(ship.result?.payload.compose_loop).toMatchObject({ kind: "ship", quote: false });
     expect(JSON.stringify(ship.result?.payload || "")).toMatch(/发货要点|UPS123456/);
@@ -271,7 +271,7 @@ describe("KOL stage-mail communication", () => {
   });
 
   it("催大纲 stacks testing facts on the content-planning thread", async () => {
-    getConn().prepare("UPDATE collaborations SET stage_code='TESTING' WHERE id=?").run("col_mum");
+    (await getConn().query("UPDATE collaborations SET stage_code='TESTING' WHERE id=$1",["col_mum"]));
     const outline = await composeOn("col_mum", "催大纲 @母婴小课");
     expect(outline.result?.payload.compose_loop).toMatchObject({ kind: "testing", quote: false });
     expect(JSON.stringify(outline.result?.payload || "")).toMatch(/测试要点/);
@@ -279,7 +279,7 @@ describe("KOL stage-mail communication", () => {
   });
 
   it("injects the thread digest and shows a priced letter plus draft", async () => {
-    ingestKolMail("col_laozhang", {
+    (await ingestKolMail("col_laozhang", {
       subject: "Re: rates",
       body: "Please share the collaboration quote and deliverables.",
       from: "zhang.digital@example.com",
@@ -287,7 +287,7 @@ describe("KOL stage-mail communication", () => {
       mailbox: "larry.zhao@amperetime.com",
       direction: "inbound",
       provider_message_id: "in-quote-1",
-    });
+    }));
     const opened = await request("POST", "/api/collaborations/col_laozhang/session", {});
     expect(opened.status).toBe(200);
     const sid = String(opened.body.id);
@@ -346,14 +346,14 @@ describe("KOL stage-mail communication", () => {
     const session = await request("GET", `/api/sessions/${sid}`);
     const kinds = (session.body.messages as { kind: string }[]).map((row) => row.kind);
     expect(kinds).not.toContain("me");
-    expect(previewComposeForCollaboration(
-      getConn().prepare("SELECT * FROM collaborations WHERE id=?").get("col_laozhang") as never,
+    expect((await previewComposeForCollaboration(
+      (await getConn().query("SELECT * FROM collaborations WHERE id=$1",["col_laozhang"])).rows[0] as never,
       "写报价邮件 100美金1小时",
-    ).body).toContain("USD 100 per hour");
-    const firstTouch = previewComposeForCollaboration(
-      getConn().prepare("SELECT * FROM collaborations WHERE id=?").get("col_xiaomei") as never,
+    )).body).toContain("USD 100 per hour");
+    const firstTouch = (await previewComposeForCollaboration(
+      (await getConn().query("SELECT * FROM collaborations WHERE id=$1",["col_xiaomei"])).rows[0] as never,
       "写合作邮件",
-    );
+    ));
     expect(firstTouch.body).toMatch(/explore a product collaboration|check interest/i);
     expect(firstTouch.body).not.toMatch(/USD ___ per hour|one video/i);
   });
@@ -468,7 +468,7 @@ describe("KOL stage-mail communication", () => {
   });
 
   it("updates the left thread and digest after a confirmed send", async () => {
-    ingestKolMail("col_laozhang", {
+    (await ingestKolMail("col_laozhang", {
       subject: "Re: rates",
       body: "Could you share your rate card?",
       from: "zhang.digital@example.com",
@@ -476,7 +476,7 @@ describe("KOL stage-mail communication", () => {
       mailbox: "larry.zhao@amperetime.com",
       direction: "inbound",
       provider_message_id: "in-quote-2",
-    });
+    }));
     const opened = await request("POST", "/api/collaborations/col_laozhang/session", {});
     const sid = String(opened.body.id);
     const posted = await request("POST", `/api/sessions/${sid}/messages`, {
@@ -488,14 +488,14 @@ describe("KOL stage-mail communication", () => {
     const draft = (posted.body.messages as { kind: string; payload: Json }[])
       .find((row) => row.kind === "email_card")?.payload;
     expect(draft?.draft_id).toBeTruthy();
-    const before = mailHistoryRows("col_laozhang").length;
+    const before = (await mailHistoryRows("col_laozhang")).length;
     const sent = await confirmAndSendDraft(request, String(draft?.draft_id), {});
     expect([200, 400, 403]).toContain(sent.status);
     if (sent.status === 200) {
-      const after = mailHistoryRows("col_laozhang");
+      const after = (await mailHistoryRows("col_laozhang"));
       expect(after.length).toBeGreaterThan(before);
       expect(after.some((row) => String(row.direction) === "outbound")).toBe(true);
-      const digest = readThreadDigest("col_laozhang");
+      const digest = (await readThreadDigest("col_laozhang"));
       expect(String(digest?.text || after[0]?.summary || "")).toMatch(/报价|680|quote|往来/i);
     }
   });
@@ -548,7 +548,7 @@ describe("KOL stage-mail communication", () => {
         digest: "来信请品牌补充报价和下一步。",
       }),
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
-    ingestKolMail("col_laozhang", {
+    (await ingestKolMail("col_laozhang", {
       subject: "Re: rates",
       body: "Please share the collaboration quote and deliverables.",
       from: "zhang.digital@example.com",
@@ -556,9 +556,9 @@ describe("KOL stage-mail communication", () => {
       mailbox: "larry.zhao@amperetime.com",
       direction: "inbound",
       provider_message_id: "in-digest-reverse",
-    });
-    await expect.poll(() => readThreadDigest("col_laozhang")?.text).toBe("来信请品牌补充报价和下一步。");
-    const again = ingestKolMail("col_laozhang", {
+    }));
+    await expect.poll(async () => (await readThreadDigest("col_laozhang"))?.text).toBe("来信请品牌补充报价和下一步。");
+    const again = (await ingestKolMail("col_laozhang", {
       subject: "Re: rates",
       body: "Please share the collaboration quote and deliverables.",
       from: "zhang.digital@example.com",
@@ -566,7 +566,7 @@ describe("KOL stage-mail communication", () => {
       mailbox: "larry.zhao@amperetime.com",
       direction: "inbound",
       provider_message_id: "in-digest-reverse",
-    });
+    }));
     expect(again.duplicate).toBe(true);
   });
 
@@ -586,7 +586,7 @@ describe("KOL stage-mail communication", () => {
     expect(composed.status, composed.text).toBe(200);
     expect(calls.filter((name) => name === "pageEmailConversations")).toHaveLength(0);
 
-    const version = getConn().prepare("SELECT stage_version FROM collaborations WHERE id=?").get("col_laozhang") as { stage_version: number };
+    const version = (await getConn().query("SELECT stage_version FROM collaborations WHERE id=$1",["col_laozhang"])).rows[0] as { stage_version: number };
     const confirmed = await request("POST", `/api/sessions/${sid}/confirm-stage`, {
       stage_code: "QUOTE_PENDING",
       collaboration_id: "col_laozhang",
@@ -619,7 +619,7 @@ describe("KOL stage-mail communication", () => {
         output_text: JSON.stringify({ digest: "来信请品牌补充报价。" }),
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     });
-    const ingested = ingestKolMail("col_laozhang", {
+    const ingested = (await ingestKolMail("col_laozhang", {
       subject: "Re: rates",
       body: "Please share the collaboration quote.",
       from: "zhang.digital@example.com",
@@ -627,13 +627,13 @@ describe("KOL stage-mail communication", () => {
       mailbox: "larry.zhao@amperetime.com",
       direction: "inbound",
       provider_message_id: "in-digest-skip",
-    });
-    await expect.poll(() => readThreadDigest("col_laozhang")?.text).toBe("来信请品牌补充报价。");
+    }));
+    await expect.poll(async () => (await readThreadDigest("col_laozhang"))?.text).toBe("来信请品牌补充报价。");
     const afterIngest = llmCalls;
     expect(afterIngest).toBeGreaterThan(0);
 
     const sid = String(ingested.session_id);
-    const version = getConn().prepare("SELECT stage_version FROM collaborations WHERE id=?").get("col_laozhang") as { stage_version: number };
+    const version = (await getConn().query("SELECT stage_version FROM collaborations WHERE id=$1",["col_laozhang"])).rows[0] as { stage_version: number };
     const confirmed = await request("POST", `/api/sessions/${sid}/confirm-stage`, {
       stage_code: "QUOTE_PENDING",
       collaboration_id: "col_laozhang",
@@ -641,7 +641,7 @@ describe("KOL stage-mail communication", () => {
       reason: "仍停在报价待确认",
     });
     expect(confirmed.status, confirmed.text).toBe(200);
-    ingestKolMail("col_laozhang", {
+    (await ingestKolMail("col_laozhang", {
       subject: "Re: rates",
       body: "Please share the collaboration quote.",
       from: "zhang.digital@example.com",
@@ -649,10 +649,10 @@ describe("KOL stage-mail communication", () => {
       mailbox: "larry.zhao@amperetime.com",
       direction: "inbound",
       provider_message_id: "in-digest-skip",
-    });
+    }));
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(llmCalls).toBe(afterIngest);
-    expect(readThreadDigest("col_laozhang")?.text).toBe("来信请品牌补充报价。");
+    expect((await readThreadDigest("col_laozhang"))?.text).toBe("来信请品牌补充报价。");
   });
 
   it("opens a session without waiting for Starry and streams mail into the journey", async () => {

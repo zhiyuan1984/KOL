@@ -90,9 +90,9 @@ describe("costs module", () => {
     }
     expect(conflict).toBeInstanceOf(HttpFail);
     expect((conflict as HttpFail).status).toBe(409);
-    await expect((await upsertBudget({ scope: "agent", scopeRef: "agent:kol", limitTokens: 0, actor: "t", expectedVersion: 1 })))
+    await expect((upsertBudget({ scope: "agent", scopeRef: "agent:kol", limitTokens: 0, actor: "t", expectedVersion: 1 })))
       .rejects.toThrowError(HttpFail);
-    await expect((await upsertBudget({ scope: "agent", scopeRef: "agent:kol", limitTokens: 10, warnPercent: 90, hardStopPercent: 50, actor: "t", expectedVersion: 1 })))
+    await expect((upsertBudget({ scope: "agent", scopeRef: "agent:kol", limitTokens: 10, warnPercent: 90, hardStopPercent: 50, actor: "t", expectedVersion: 1 })))
       .rejects.toThrowError(HttpFail);
   });
 

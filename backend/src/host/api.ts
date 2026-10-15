@@ -202,9 +202,9 @@ const progressBySession = new Map<string, (progress: WorkerProgress) => void>();
 const progressWrites = new Map<string, Promise<void>>();
 const progressErrors = new Map<string, unknown>();
 function registerProgress(sid: string, sink: (progress: WorkerProgress) => Promise<void>): void {
-  progressBySession.set(sid, (progress) => {
-    const next = (progressWrites.get(sid) || Promise.resolve()).then(() => sink(progress));
-    progressWrites.set(sid, next.catch((error: unknown) => { if (!progressErrors.has(sid)) progressErrors.set(sid, error); }));
+  progressBySession.set(sid, async (progress) => {
+    const next = (await ((await progressWrites.get(sid)) || (await Promise.resolve())).then(async () => (await sink(progress))));
+    progressWrites.set(sid, (await next.catch((error: unknown) => { if (!progressErrors.has(sid)) progressErrors.set(sid, error); })));
   });
 }
 async function drainProgress(sid: string): Promise<void> {
@@ -388,13 +388,13 @@ async function validateComposeInput(intent: Intent, col: Row | null): Promise<Co
   if (String(intent.skill || intent.type || "") !== "email_compose" || !knowledgeId || !col) {
     throw new HttpFail(422, { code: "compose_input_context", message: "编辑后的邮件需要已选择的邮件模板和单个合作对象" });
   }
-  const template = assertMailTemplateSnapshotApplicable({
+  const template = (await assertMailTemplateSnapshotApplicable({
     knowledgeId,
     version: composeInput.knowledge_version,
     skillId: "email_compose",
     stageCode: String(col.stage_code || ""),
     brand: String(col.brand || ""),
-  });
+  }));
   (await assertCollaborationInScope(String(col.id)));
   if (composeInput.context_version && composeInput.context_version !== (await mailComposeContextVersion(col, template))) {
     throw new HttpFail(409, { code: "compose_context_stale", message: "合作阶段、收发件信息或模板版本已变化，请保留草稿并重新核对上下文。" });
@@ -459,7 +459,7 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
     requested: String(body.from || ""),
     selectedMailbox: requestedMailbox || null,
   }));
-  const extracted = extractTaskEntities(String(body.text || ""));
+  const extracted = (await extractTaskEntities(String(body.text || "")));
   const toList = Array.isArray(extracted.to) ? extracted.to : [];
   const explicitTo = firstNonEmpty(
     body.to, body.recipient,
@@ -517,7 +517,7 @@ export const prepareMail: Operation["handle"] = async (c, input) => {
     let digest: string | undefined;
     let mailCount: number | undefined;
     if (from && resolvedTo) {
-      const personDigest = readPersonDigest(from, resolvedTo);
+      const personDigest = (await readPersonDigest(from, resolvedTo));
       if (personDigest) {
         digest = personDigest.text || undefined;
         mailCount = personDigest.mail_count || undefined;
@@ -749,7 +749,7 @@ async function resolveBoundTask(sid: string, body: Json): Promise<BoundTask | nu
   const runInput = JSON.parse(String(run.input || "{}")) as Json;
   const storedTemplate = runInput._skill_template;
   if (isSkillTemplateSnapshot(storedTemplate, taskType)
-    && storedTemplate.version !== effectiveSkillTemplate(taskDefinition(taskType)!).version) {
+    && storedTemplate.version !== (await effectiveSkillTemplate(taskDefinition(taskType)!)).version) {
     const detail = { code: "skill_template_version_conflict", message: "技能模板在排队期间已更新，请重新选用模板并检查参数后创建任务。" };
     (await postgresTransaction(async (db) => {
       (await db.query("UPDATE task_runs SET status='failed',error=$1,completed_at=$2 WHERE id=$3", [JSON.stringify(detail), nowIso(), run.id]));
@@ -883,7 +883,7 @@ async function finishBoundTask(bound: BoundTask | null, sid: string, result?: Js
     };
     const illegal = illegalKolAnalyzeVerbs(payload);
     if (illegal.length) {
-      failKolAnalyzeIllegalVerb(bound.workItemId, illegal);
+      (await failKolAnalyzeIllegalVerb(bound.workItemId, illegal));
       failed = true;
       error = error || { code: "illegal_kol_analyze_verb", illegal_verbs: illegal, applied: false };
     }
@@ -1381,7 +1381,7 @@ function publishQueue(sid: string): void {
 
 async function launchQueuedAsk(sid: string, item: QueuedAsk): Promise<void> {
   try {
-    const col = resolveCollab(item.intent);
+    const col = (await resolveCollab(item.intent));
     (await runInBackground(sid, item.me, item.intent, col, item.text));
   } catch (error) {
     if (isSessionNotFound(error)) return;
@@ -1529,12 +1529,12 @@ async function commitFollowStyleTags(input: {
   sessionId?: string;
   announce?: boolean;
 }): Promise<Json> {
-  const saved = writeFollowStyleTags(input.collaborationId, input.tags, {
+  const saved = (await writeFollowStyleTags(input.collaborationId, input.tags, {
     mode: input.mode || "replace",
     actor: scopedUser()?.id || "demo",
-  });
+  }));
   const { publishJourneyForCollaboration } = await import("./kol-journey.js");
-  const journey = publishJourneyForCollaboration(input.collaborationId);
+  const journey = (await publishJourneyForCollaboration(input.collaborationId));
   const kolUid = String(saved.collaboration.kol_uid || "").trim();
   if (kolUid && (await starryKolMcpConfigured()) && codexMode() !== "stub") {
     try {
@@ -1627,7 +1627,7 @@ async function preferredDraftBrand(item: Json): Promise<string | null> {
 }
 
 async function applyAuthorizedFrom(did: string, fromAddr: string, preferredBrand?: string | null): Promise<Row> {
-  const resolved = resolveAuthorizedFrom(fromAddr, currentUser(), preferredBrand);
+  const resolved = (await resolveAuthorizedFrom(fromAddr, (await currentUser()), preferredBrand));
   if (resolved.email && resolved.email !== fromAddr) {
     (await postgresTransaction(async (db) => {
       (await db.query("UPDATE drafts SET from_addr = $1 WHERE id = $2", [resolved.email, did]));
@@ -1649,8 +1649,8 @@ export async function persistDraft(sid: string, item: Json): Promise<Row> {
   const requestedFrom = String(item.from || item.mailboxEmail || "").trim();
   const preferredBrand = (await preferredDraftBrand(item));
   // 本人挂载的邮箱就是实际发件箱，不再映射到品牌箱（BIZ-04 品牌范围已在 PEP 核对）。
-  const ownedFrom = authorizedSenderBrand(requestedFrom, currentUser(), preferredBrand);
-  const resolved = resolveAuthorizedFrom(requestedFrom, currentUser(), preferredBrand);
+  const ownedFrom = (await authorizedSenderBrand(requestedFrom, (await currentUser()), preferredBrand));
+  const resolved = (await resolveAuthorizedFrom(requestedFrom, (await currentUser()), preferredBrand));
   const extra = {
     amount_usd: item.amount_usd,
     currency: item.currency || (item.amount_usd != null ? "USD" : null),
@@ -1712,13 +1712,13 @@ export async function persistDraft(sid: string, item: Json): Promise<Row> {
 
 export async function emailCardPayload(d: Row): Promise<Json> {
   const extra = typeof d.extra === "object" && d.extra ? (d.extra as Json) : {};
-  const user = currentUser();
-  const preferredBrand = String(extra.brand || "") || collaborationBrand(d.collaboration_id ? String(d.collaboration_id) : null);
+  const user = (await currentUser());
+  const preferredBrand = String(extra.brand || "") || (await collaborationBrand(d.collaboration_id ? String(d.collaboration_id) : null));
   // 本人挂载的邮箱（品牌范围核对通过）同时是发件人、可选项与真实外发箱；
   // 否则沿用品牌白名单映射（多候选仍要求显式选择）。
-  const owned = authorizedSenderBrand(String(d.from_addr), user, preferredBrand);
-  const resolved = resolveAuthorizedFrom(String(d.from_addr), user, preferredBrand);
-  const allowed = resolved.allowed.length ? resolved.allowed : allowedFromMailboxes(user, null);
+  const owned = (await authorizedSenderBrand(String(d.from_addr), user, preferredBrand));
+  const resolved = (await resolveAuthorizedFrom(String(d.from_addr), user, preferredBrand));
+  const allowed = resolved.allowed.length ? resolved.allowed : (await allowedFromMailboxes(user, null));
   const fromOptions = owned && !allowed.some((row) => row.email.toLowerCase() === owned.email.toLowerCase())
     ? [{ brand: owned.brand, email: owned.email, authorized: true }, ...allowed]
     : allowed;
@@ -1963,7 +1963,7 @@ async function execWorker(sid: string, skill: string, text: string, extra: Json)
       }, sec * 1000);
     });
     const result = await Promise.race([
-      Promise.resolve(runWorker(sid, definition, text, extra, controller.signal, progressBySession.get(sid))),
+      (await Promise.resolve((await runWorker(sid, definition, text, extra, controller.signal, progressBySession.get(sid))))),
       timed,
     ]);
     await drainProgress(sid);
@@ -2023,7 +2023,7 @@ async function ensureCompletedWorkerTrace(sid: string, wr: WorkerResult): Promis
 async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult): Promise<Json> {
   const workItemId = intent.extras?.work_item_id ? String(intent.extras.work_item_id) : null;
   if (wr.skill === KOL_ANALYZE_TASK_TYPE || intent.type === KOL_ANALYZE_TASK_TYPE) {
-    assertKolAnalyzeVerbsSafe(KOL_ANALYZE_TASK_TYPE, { items: wr.items }, workItemId);
+    (await assertKolAnalyzeVerbsSafe(KOL_ANALYZE_TASK_TYPE, { items: wr.items }, workItemId));
   }
   (await ensureCompletedWorkerTrace(sid, wr));
   const worker: Json = {
@@ -2047,7 +2047,7 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
   for (const item of wr.items) {
     if (item.type === "create_draft") {
       if (skipKolAnalyzeApply) continue;
-      const col = resolveCollab(intent);
+      const col = (await resolveCollab(intent));
       Object.assign(item, authoredComposeItem(item, composeInput));
       if (composeInput && col) {
         if (draftRow) continue;
@@ -2117,7 +2117,7 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
           }));
         }
       }
-      const col = resolveCollab(intent);
+      const col = (await resolveCollab(intent));
       const starry = item.starrykol_data && typeof item.starrykol_data === "object"
         ? item.starrykol_data as Json
         : (item.emailmcp_data && typeof item.emailmcp_data === "object" ? item.emailmcp_data as Json : null);
@@ -2220,7 +2220,7 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
       const cid = String(item.collaboration_id || "");
       const row = cid
         ? (await postgresPool().query("SELECT * FROM collaborations WHERE id=$1", [cid])).rows[0] as Row | undefined
-        : resolveCollab(intent) || undefined;
+        : (await resolveCollab(intent)) || undefined;
       if (!row) {
         (await addMsg(sid, "assistant", "supplement_card", {
           intent: "confirm_stage",
@@ -2362,7 +2362,7 @@ async function throwMailToSupplement(sid: string, me: Json, intent: Intent, col:
 async function assertDraftTo(sid: string, me: Json, intent: Intent, col: Row | null, item?: Json, text?: string): Promise<string> {
   const to = resolveMailTo(col, intent, item, text || intent.raw);
   if (!to) (await throwMailToSupplement(sid, me, intent, col));
-  if (col?.id) bindCollaborationEmail(String(col.id), to);
+  if (col?.id) (await bindCollaborationEmail(String(col.id), to));
   return to;
 }
 
@@ -2377,7 +2377,7 @@ function mailOccurredMs(value: unknown): number {
 
 async function composePriorCards(sid: string, col: Row | null): Promise<Json[]> {
   const items = col?.id
-    ? itemsForCollaboration(String(col.id))
+    ? (await itemsForCollaboration(String(col.id)))
       .slice()
       .sort((left, right) => mailOccurredMs(left.occurred_at || left.created_at) - mailOccurredMs(right.occurred_at || right.created_at))
       .map((item) => ({ kind: "kol_mail_card", payload: item }))
@@ -2562,7 +2562,7 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
       return (await handleExpenseApproval(sid, me, intent, text));
     }
   }
-  const extracted = extractTaskEntities(text);
+  const extracted = (await extractTaskEntities(text));
   mergeExtractedOntoIntent(intent, extracted);
   const sessionCards = (await messages(sid));
   const priorCompose = {
@@ -2592,7 +2592,7 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
     };
     priorCompose.subject = composeSubject;
   }
-  const mailContext = composeContextForCollaboration(col?.id ? String(col.id) : null);
+  const mailContext = (await composeContextForCollaboration(col?.id ? String(col.id) : null));
   const composeFacts = composeFactsFromRow(col, {
     ...(intent.extras?.entities && typeof intent.extras.entities === "object" ? intent.extras.entities as Json : {}),
     stage_code: col?.stage_code,
@@ -2671,7 +2671,7 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
     },
   };
   const composeInput = readComposeInput(intent.extras?.compose_input);
-  const mailTemplate = resolveComposeMailTemplate(intent, col);
+  const mailTemplate = (await resolveComposeMailTemplate(intent, col));
   if (mailTemplate) {
     extra.mail_template = mailTemplatePayload(mailTemplate);
     extra.knowledge_id = mailTemplate.id;
@@ -2811,7 +2811,7 @@ function unfilledComposeSlots(template: UsableTemplate, values: Record<string, s
   });
 }
 
-function resolveComposeMailTemplate(intent: Intent, col: Row | null): UsableTemplate | null {
+async function resolveComposeMailTemplate(intent: Intent, col: Row | null): Promise<Awaited<UsableTemplate | null>> {
   const skill = String(intent.skill || intent.type || "");
   const authored = readComposeInput(intent.extras?.compose_input);
   if (authored) {
@@ -2846,11 +2846,11 @@ function resolveComposeMailTemplate(intent: Intent, col: Row | null): UsableTemp
   const knowledgeId = String(intent.extras?.knowledge_id || "").trim();
   if (!knowledgeId && skill !== "email_compose") return null;
   try {
-    const template = resolveMailTemplate({
+    const template = (await resolveMailTemplate({
       knowledgeId,
       stageCode: col?.stage_code ? String(col.stage_code) : null,
       skillId: skill === "email_compose" ? "email_compose" : skill || "email_compose",
-    });
+    }));
     if (!template || template.kind !== "mail_template") return null;
     return template;
   } catch (e) {
@@ -2923,8 +2923,8 @@ function isApprovalPathLookup(text: string): boolean {
   return /审批路径|查看审批|催办审批|工作审批/.test(text);
 }
 
-function latestExpenseApproval(requesterName?: string): Row | null {
-  const rows = listApprovals().filter((row) => String(row.kind || "") === "expense");
+async function latestExpenseApproval(requesterName?: string): Promise<Awaited<Row | null>> {
+  const rows = (await listApprovals()).filter((row) => String(row.kind || "") === "expense");
   if (requesterName) {
     const hit = rows.find((row) => {
       const payload = row.payload && typeof row.payload === "object" ? row.payload as Json : {};
@@ -3011,14 +3011,14 @@ async function handleExpenseApproval(
   };
   if (!parsed.requester_id && !parsed.requester_name) {
     try {
-      parsed.requester_name = currentUser().name;
+      parsed.requester_name = (await currentUser()).name;
     } catch {
       /* demo */
     }
   }
   if (!Number.isFinite(parsed.amount) || parsed.amount <= 0) {
     if (isApprovalPathLookup(text)) {
-      const stored = latestExpenseApproval(parsed.requester_name);
+      const stored = (await latestExpenseApproval(parsed.requester_name));
       if (stored) return (await presentExpenseApproval(sid, me, intent, stored, true));
       (await addMsg(sid, "assistant", "assistant", {
         text: "还没有已提交的费用审批。请先说明申请人、金额和币种。",
@@ -3059,7 +3059,7 @@ async function handleExpenseApproval(
     }));
     return (await ok(sid, me, intent, { worker: null, approval_plan: plan }));
   }
-  const approval = createWorkApproval({
+  const approval = (await createWorkApproval({
     kind: "expense",
     brand: "LT",
     amountUsd: plan.amount_base,
@@ -3070,7 +3070,7 @@ async function handleExpenseApproval(
       steps: plan.steps,
       purpose: parsed.purpose,
     },
-  });
+  }));
   if (!approval?.id) {
     (await addMsg(sid, "assistant", "error_card", {
       code: "empty_approval_chain",
@@ -3097,11 +3097,11 @@ async function applyKnowledge(
 ): Promise<Json | null> {
   const knowledgeId = String(intent.extras?.knowledge_id || "").trim();
   if (!knowledgeId) return null;
-  const template = assertUsableKnowledge(knowledgeId);
+  const template = (await assertUsableKnowledge(knowledgeId));
   if (template.kind !== "mail_template") {
     return (await runWorkerFlow(sid, me, intent, col, text));
   }
-  const entities = extractTaskEntities(text);
+  const entities = (await extractTaskEntities(text));
   intent.type = template.skill_id || "email_compose";
   intent.skill = template.skill_id || "email_compose";
   intent.needs_worker = true;
@@ -3240,7 +3240,7 @@ export async function hostConfirmStage(
   const fromApproval = Boolean(metadata.from_approval_id);
   const approvalKind = approvalKindForStage(target);
   if (approvalKind && !fromApproval) {
-    const pending = listApprovals().find((row) => {
+    const pending = (await listApprovals()).find((row) => {
       const payload = (row.payload && typeof row.payload === "object" ? row.payload : {}) as Json;
       return String(row.status) === "pending"
         && String(row.kind) === approvalKind
@@ -3263,12 +3263,12 @@ export async function hostConfirmStage(
         kind: approvalKind,
       };
     }
-    const user = currentUser();
+    const user = (await currentUser());
     const chain = {
       ids: ["emp_wang"],
       steps: [{ employee_id: "emp_wang", name: "王主管", role: "推广部负责人" }],
     };
-    const approval = createWorkApproval({
+    const approval = (await createWorkApproval({
       kind: approvalKind,
       brand: String(col.brand || "LT"),
       title: `确认阶段：${label(current)} → ${label(target)}`,
@@ -3293,7 +3293,7 @@ export async function hostConfirmStage(
         skip_reason: skip?.skip_reason,
         skipped_stages: skip?.skipped_stages,
       },
-    });
+    }));
     if (!approval?.id) {
       throw new HttpFail(500, { code: "empty_approval_chain", message: "阶段审批链为空，无法提交审批" });
     }
@@ -3321,7 +3321,7 @@ export async function hostConfirmStage(
     };
   }
   const targetStage = BY_CODE[target];
-  const user = currentUser();
+  const user = (await currentUser());
   const transition: StageTransitionInput = {
     collaboration_id: String(col.id),
     from_stage: current,
@@ -3338,7 +3338,7 @@ export async function hostConfirmStage(
     capability_profile: String(targetStage.domain || "Commander"),
     advancement_mode: targetStage.advancementMode,
   };
-  const result = confirmStarryStage(String(col.lifecycle_id), target, "host", transition);
+  const result = (await confirmStarryStage(String(col.lifecycle_id), target, "host", transition));
   (await persistHumanSkip(String(col.id), skip, !autoWrite));
   (await audit("host", "host.confirm_stage", {
     lifecycle_id: col.lifecycle_id,
@@ -3360,7 +3360,7 @@ export async function hostConfirmStage(
     remote_stage_code: toLegacyStarryStage(target),
   }));
   (await syncSessionStageCopy(String(col.id), target, String(metadata.session_id || ""), skip));
-  void import("./kol-journey.js").then((mod) => mod.publishJourneyForCollaboration(String(col.id)));
+  void import("./kol-journey.js").then(async (mod) => (await mod.publishJourneyForCollaboration(String(col.id))));
   return {
     ...result,
     expected_version: ver,
@@ -3548,7 +3548,7 @@ export async function hostRejectStage(
     rejected: true,
   }));
   if (colId) {
-    void import("./kol-journey.js").then((mod) => mod.publishJourneyForCollaboration(colId));
+    void import("./kol-journey.js").then(async (mod) => (await mod.publishJourneyForCollaboration(colId)));
   }
   (await audit("host", "host.confirm_stage.rejected", { session_id: sid, collaboration_id: colId || null, reason: note }));
   return {
@@ -3608,16 +3608,16 @@ host.post("/sessions", async (c) => {
 
 host.post("/collaborations/:id/session", async (c) => {
   const { openKolSession, syncKolSessionMail, isMailSyncing, journeyPayloadWithMailMemory, journeyPayload } = await import("./kol-journey.js");
-  const opened = openKolSession(c.req.param("id"));
+  const opened = (await openKolSession(c.req.param("id")));
   const cid = c.req.param("id");
   void syncKolSessionMail(String(opened.id), cid)
-    .then(() => journeyPayloadWithMailMemory(cid, { retryFailed: true }))
+    .then(async () => (await journeyPayloadWithMailMemory(cid, { retryFailed: true })))
     .then((journey) => {
       if (journey) publishSession(String(opened.id), { type: "journey", journey });
     })
     .catch(() => 0);
   opened.journey = {
-    ...(journeyPayload(cid) || {}),
+    ...((await journeyPayload(cid)) || {}),
     // Mail collection is started in the background. Expose its actual state in
     // the opening response so the client can render progress immediately.
     mail_sync_pending: isMailSyncing(cid),
@@ -3628,7 +3628,7 @@ host.post("/collaborations/:id/session", async (c) => {
 host.post("/collaborations/:id/ingest-mail", async (c) => {
   const { ingestKolMail } = await import("./kol-journey.js");
   const body = (await c.req.json().catch(() => ({}))) as Json;
-  return c.json(ingestKolMail(c.req.param("id"), body));
+  return c.json((await ingestKolMail(c.req.param("id"), body)));
 });
 
 host.get("/sessions", async (c) => {
@@ -3674,7 +3674,7 @@ host.get("/sessions/:sid", async (c) => {
     const col = (await postgresPool().query("SELECT * FROM collaborations WHERE id=$1", [String(s.collaboration_id)])).rows[0] as Row | undefined;
     if (col) {
       const { restoreOfficialCollaborationStage } = await import("../starrykol/library-sync.js");
-      restoreOfficialCollaborationStage(col);
+      (await restoreOfficialCollaborationStage(col));
     }
     if (c.req.query("sync") === "1") {
       const { syncKolSessionMail } = await import("./kol-journey.js");
@@ -3805,7 +3805,7 @@ async function recognizeBoxOrAsk(
     }));
     return null;
   }
-  const intent = classify(text, resolution.task_type, body.collaboration_id as string | undefined);
+  const intent = (await classify(text, resolution.task_type, body.collaboration_id as string | undefined));
   intent.type = resolution.task_type;
   intent.skill = resolution.task_type;
   intent.needs_worker = true;
@@ -3824,8 +3824,8 @@ host.post("/sessions/:sid/compose-preview", async (c) => {
   const session = (await sessionRow(sid));
   (await requireTaskAccess("email_compose"));
   const body = (await c.req.json().catch(() => ({}))) as Json;
-  const col = collabById(String(body.collaboration_id || session.collaboration_id || ""))
-    || resolveCollab({
+  const col = (await collabById(String(body.collaboration_id || session.collaboration_id || "")))
+    || (await resolveCollab({
       type: "email_compose",
       skill: "email_compose",
       handle: String(body.handle || "") || null,
@@ -3837,7 +3837,7 @@ host.post("/sessions/:sid/compose-preview", async (c) => {
       raw: "",
       collaboration_id: String(body.collaboration_id || session.collaboration_id || "") || null,
       extras: {},
-    });
+    }));
   const handle = String(col?.handle || body.handle || "");
   const stage = String(col?.stage_code || "");
   const text = String(body.text || "").trim() || stageMailAction(handle, stage).prompt;
@@ -3874,7 +3874,7 @@ host.post("/sessions/:sid/compose-preview", async (c) => {
     }
   }
   return c.json({
-    ...previewComposeForCollaboration(col || null, text, extra),
+    ...(await previewComposeForCollaboration(col || null, text, extra)),
     source: "seed",
   });
 });
@@ -3916,7 +3916,7 @@ host.post("/sessions/:sid/messages", async (c) => {
     body.agent_id = boundTask.agentId;
   }
   const text = String(body.text || body.content || "").trim();
-  const attachments = sanitizeAttachments(body.attachments);
+  const attachments = (await sanitizeAttachments(body.attachments));
   const pendingResult = lastUnsentResult((await messages(sid)));
   const lockedIntent = boundTask?.taskType
     || (body.intent && taskDefinition(String(body.intent)) ? String(body.intent) : undefined);
@@ -3931,18 +3931,18 @@ host.post("/sessions/:sid/messages", async (c) => {
   if (!workspace && !boundTask && isFollowStyleTagCommand(text)) {
     return c.json(await handleFollowStyleTagMessage(sid, me, session, text, body));
   }
-  const intent = workspace ? {...classify(text,"kol_analyze"),type:"kol_analyze",skill:"kol_analyze",needs_worker:true,handle:null,collaboration_id:null}
+  const intent = workspace ? {...(await classify(text,"kol_analyze")),type:"kol_analyze",skill:"kol_analyze",needs_worker:true,handle:null,collaboration_id:null}
     : boundTask
-    ? (() => {
-      const locked = classify(text, boundTask.taskType, body.collaboration_id as string | undefined);
+    ? (await (async () => {
+      const locked = (await classify(text, boundTask.taskType, body.collaboration_id as string | undefined));
       locked.type = boundTask.taskType;
       locked.skill = boundTask.taskType;
       locked.needs_worker = true;
       return locked;
-    })()
-    : isResultRevision(text, pendingResult, { lockedIntent, boundTask: Boolean(boundTask) })
-      ? (() => {
-        const revise = classify(text, pendingResult?.skill || "email_compose", body.collaboration_id as string | undefined);
+    })())
+    : (await isResultRevision(text, pendingResult, { lockedIntent, boundTask: Boolean(boundTask) }))
+      ? (await (async () => {
+        const revise = (await classify(text, pendingResult?.skill || "email_compose", body.collaboration_id as string | undefined));
         revise.type = String(pendingResult?.skill || "email_compose");
         revise.skill = String(pendingResult?.skill || "email_compose");
         revise.needs_worker = true;
@@ -3950,7 +3950,7 @@ host.post("/sessions/:sid/messages", async (c) => {
         revise.collaboration_id = pendingResult?.collaboration_id || revise.collaboration_id;
         revise.extras = { result_revise: true };
         return revise;
-      })()
+      })())
     : await recognizeBoxOrAsk(sid, me, text, body, boundTask);
   if (!intent) {
     return c.json({
@@ -4010,13 +4010,13 @@ host.post("/sessions/:sid/messages", async (c) => {
   let col: Row | null = null;
   try {
     if (!workspace) mergeExtractedOntoIntent(intent, {
-      ...extractTaskEntities(text),
+      ...(await extractTaskEntities(text)),
       ...(intent.extras.entities && typeof intent.extras.entities === "object" ? intent.extras.entities as Json : {}),
     });
     if (intent.skill && !(await isSkillGranted(intent.skill))) {
       throw new HttpFail(400, "未授权该技能");
     }
-    col = workspace ? null : resolveCollab(intent) || null;
+    col = workspace ? null : (await resolveCollab(intent)) || null;
     // Internal stub runs may receive the generic exception template before the
     // async library sync has exposed its exception row on the home board. Use
     // one seeded exception only in that test profile; production requires an
@@ -4286,15 +4286,15 @@ host.patch("/drafts/:did", async (c) => {
   }
   if (body.from_addr != null) {
     const extra = typeof existing.extra === "object" && existing.extra ? (existing.extra as Json) : {};
-    const preferredBrand = String(extra.brand || "") || collaborationBrand(existing.collaboration_id ? String(existing.collaboration_id) : null);
+    const preferredBrand = String(extra.brand || "") || (await collaborationBrand(existing.collaboration_id ? String(existing.collaboration_id) : null));
     const requested = String(body.from_addr).trim();
     // 本人挂载的邮箱（品牌范围核对通过）按原地址保留；其余仍映射到品牌授权箱。
-    const owned = authorizedSenderBrand(requested, currentUser(), preferredBrand);
+    const owned = (await authorizedSenderBrand(requested, (await currentUser()), preferredBrand));
     if (owned) {
       fields.push(`from_addr = $${vals.length + 1}`);
       vals.push(owned.email);
     } else {
-      const resolved = resolveAuthorizedFrom(requested, currentUser(), preferredBrand);
+      const resolved = (await resolveAuthorizedFrom(requested, (await currentUser()), preferredBrand));
       if (!resolved.brand) throw new HttpFail(400, "From 必须是品牌邮箱");
       fields.push(`from_addr = $${vals.length + 1}`);
       vals.push(resolved.email);
@@ -4320,7 +4320,7 @@ host.patch("/drafts/:did", async (c) => {
     await db.query(`UPDATE drafts SET ${fields.join(", ")}, extra = $${vals.length + 1} WHERE id = $${vals.length + 2}`, [...vals, JSON.stringify(revisedExtra), did]);
     const edited = await getDraft(did, db);
     await db.query("UPDATE drafts SET fingerprint=$1 WHERE id=$2", [currentFingerprint(edited), did]);
-    await audit(currentUser().id, "mail.draft.edited", { draft_id: did, confirmation_revision: revisedExtra.confirmation_revision }, db);
+    await audit((await currentUser()).id, "mail.draft.edited", { draft_id: did, confirmation_revision: revisedExtra.confirmation_revision }, db);
   }));
   (await syncDraftArtifacts(did));
   return c.json((await getDraft(did)));

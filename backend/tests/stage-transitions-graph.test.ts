@@ -15,18 +15,8 @@ import {
 } from "../src/stage-transitions-graph.js";
 import { freshTestDatabase } from "./support/pg.js";
 
-function insertCollab(id: string, handle: string, stageCode: string): void {
-  getConn().prepare(
-    `INSERT OR REPLACE INTO collaborations
-     (id, handle, display_name, brand, platform, followers, email, mailbox_from,
-      lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,
-      stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    id, handle, handle, "LT", "YouTube", "1万", `${id}@litime.example`, "kol.lt@litime.example",
-    `lc_${id}`, `cv_${id}`, stageCode, 0, "", 0,
-    0, handle, "", "", "美国", "", "LT-MINI-12", "1", 0,
-  );
+async function insertCollab(id: string, handle: string, stageCode: string): Promise<Awaited<void>> {
+  (await getConn().query("INSERT INTO collaborations\n     (id, handle, display_name, brand, platform, followers, email, mailbox_from,\n      lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,\n      stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,display_name=EXCLUDED.display_name,brand=EXCLUDED.brand,platform=EXCLUDED.platform,followers=EXCLUDED.followers,email=EXCLUDED.email,mailbox_from=EXCLUDED.mailbox_from,lifecycle_id=EXCLUDED.lifecycle_id,conversation_id=EXCLUDED.conversation_id,stage_code=EXCLUDED.stage_code,days_in_stage=EXCLUDED.days_in_stage,notes=EXCLUDED.notes,overdue=EXCLUDED.overdue,stage_version=EXCLUDED.stage_version,recipient_name=EXCLUDED.recipient_name,phone=EXCLUDED.phone,address_line=EXCLUDED.address_line,country=EXCLUDED.country,postal=EXCLUDED.postal,sku=EXCLUDED.sku,qty=EXCLUDED.qty,locked=EXCLUDED.locked",[id,handle,handle,"LT","YouTube","1万",`${id}@litime.example`,"kol.lt@litime.example",`lc_${id}`,`cv_${id}`,stageCode,0,"",0,0,handle,"","","美国","","LT-MINI-12","1",0]));
 }
 
 describe("stage transition graph (ADR-027 Host gate)", () => {
@@ -128,49 +118,49 @@ describe("hostConfirmStage enforces the graph (no LIVE)", () => {
     process.env.LINGONG_DATA = tmp;
     process.env.CODEX_MODE = "stub";
     process.env.AUTH_MODE = "disabled";
-    resetConn();
-    seedAll();
+    (await resetConn());
+    (await seedAll());
     resetStageTransitionGraphCache();
   });
 
-  afterEach(() => {
-    resetConn();
+  afterEach(async () => {
+    (await resetConn());
     fs.rmSync(tmp, { recursive: true, force: true });
     delete process.env.STAGE_TRANSITIONS_PATH;
     resetStageTransitionGraphCache();
   });
 
-  it("accepts a legal human jump with reason and refuses the same jump for auto", () => {
-    insertCollab("col_graph_jump", "graph-jump", "CONTRACTING");
-    const jumped = hostConfirmStage("graph-jump", "CONTENT_PLANNING", "col_graph_jump", 0, "这次不寄样", {});
+  it("accepts a legal human jump with reason and refuses the same jump for auto", async () => {
+    (await insertCollab("col_graph_jump", "graph-jump", "CONTRACTING"));
+    const jumped = (await hostConfirmStage("graph-jump", "CONTENT_PLANNING", "col_graph_jump", 0, "这次不寄样", {}));
     expect(jumped.stage_changed).toBe(true);
     expect(jumped.stage_code).toBe("CONTENT_PLANNING");
 
-    insertCollab("col_graph_auto", "graph-auto", "CONTRACTING");
-    expect(() => hostConfirmStage(
+    (await insertCollab("col_graph_auto", "graph-auto", "CONTRACTING"));
+    (await expect((async () => (await hostConfirmStage(
       "graph-auto",
       "CONTENT_PLANNING",
       "col_graph_auto",
       0,
       "auto must not skip",
       { recommender: "fact_advance" },
-    )).toThrow(HttpFail);
+    )))()).rejects.toThrow(HttpFail));
   });
 
-  it("accepts exception enter and leave with reason", () => {
-    insertCollab("col_graph_ex", "graph-ex", "INITIAL_CONTACT");
-    const entered = hostConfirmStage("graph-ex", "PAUSED", "col_graph_ex", 0, "对方暂缓", {});
+  it("accepts exception enter and leave with reason", async () => {
+    (await insertCollab("col_graph_ex", "graph-ex", "INITIAL_CONTACT"));
+    const entered = (await hostConfirmStage("graph-ex", "PAUSED", "col_graph_ex", 0, "对方暂缓", {}));
     expect(entered.stage_changed).toBe(true);
     expect(entered.stage_code).toBe("PAUSED");
-    const left = hostConfirmStage("graph-ex", "EVALUATING", "col_graph_ex", 1, "恢复评估", {});
+    const left = (await hostConfirmStage("graph-ex", "EVALUATING", "col_graph_ex", 1, "恢复评估", {}));
     expect(left.stage_changed).toBe(true);
     expect(left.stage_code).toBe("EVALUATING");
   });
 
-  it("rejects a forbid edge at confirm_stage time", () => {
-    insertCollab("col_graph_lost", "graph-lost", "LOST");
+  it("rejects a forbid edge at confirm_stage time", async () => {
+    (await insertCollab("col_graph_lost", "graph-lost", "LOST"));
     try {
-      hostConfirmStage("graph-lost", "INTERESTED", "col_graph_lost", 0, "想拉回来", {});
+      (await hostConfirmStage("graph-lost", "INTERESTED", "col_graph_lost", 0, "想拉回来", {}));
       throw new Error("expected forbid");
     } catch (error) {
       expect(error).toBeInstanceOf(HttpFail);

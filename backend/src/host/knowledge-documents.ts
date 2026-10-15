@@ -174,17 +174,16 @@ function engineDocIdOf(doc: Row): string {
   return index?.doc_id ? String(index.doc_id) : "";
 }
 
-function mergeArtifacts(id: string, patch: Json): void {
-  const doc = docRow(id);
+async function mergeArtifacts(id: string, patch: Json): Promise<Awaited<void>> {
+  const doc = (await docRow(id));
   const merged = { ...artifactsOf(doc), ...patch };
-  getConn().prepare("UPDATE knowledge_documents SET artifacts=?, updated_at=? WHERE id=?")
-    .run(JSON.stringify(merged), nowIso(), id);
+  (await getConn().query("UPDATE knowledge_documents SET artifacts=$1, updated_at=$2 WHERE id=$3",[JSON.stringify(merged),nowIso(),id]));
 }
 
 /* ---- 视图 ---- */
 
-function docRow(id: string): Row {
-  const row = getConn().prepare("SELECT * FROM knowledge_documents WHERE id=?").get(id) as Row | undefined;
+async function docRow(id: string): Promise<Awaited<Row>> {
+  const row = (await getConn().query("SELECT * FROM knowledge_documents WHERE id=$1",[id])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(404, "资料不存在");
   return { ...row };
 }
@@ -234,15 +233,13 @@ export function documentView(row: Row, opts: { latestJob?: Row | null } = {}): J
   };
 }
 
-function latestJobOf(documentId: string): Row | null {
-  return (getConn().prepare(
-    "SELECT * FROM knowledge_document_jobs WHERE document_id=? ORDER BY created_at DESC, id DESC LIMIT 1",
-  ).get(documentId) as Row | undefined) || null;
+async function latestJobOf(documentId: string): Promise<Awaited<Row | null>> {
+  return ((await getConn().query("SELECT * FROM knowledge_document_jobs WHERE document_id=$1 ORDER BY created_at DESC, id DESC LIMIT 1",[documentId])).rows[0] as Row | undefined) || null;
 }
 
 /* ---- 查询 ---- */
 
-export function listDocuments(opts: { base?: string | null; status?: string | null } = {}): Json[] {
+export async function listDocuments(opts: { base?: string | null; status?: string | null } = {}): Promise<Awaited<Json[]>> {
   requireAdmin();
   const clauses: string[] = [];
   const args: unknown[] = [];
@@ -262,25 +259,17 @@ export function listDocuments(opts: { base?: string | null; status?: string | nu
        LEFT JOIN knowledge_bases b ON b.id=d.base_id${where}
       ORDER BY d.updated_at DESC, d.id DESC`,
   ).all(...args) as Row[];
-  return rows.map((row) => documentView(row, { latestJob: latestJobOf(String(row.id)) }));
+  return (await Promise.all(rows.map(async (row) => documentView(row, { latestJob: (await latestJobOf(String(row.id))) }))));
 }
 
-export function getDocumentDetail(id: string): Json {
+export async function getDocumentDetail(id: string): Promise<Awaited<Json>> {
   requireAdmin();
-  const doc = docRow(id);
-  const base = getConn().prepare(
-    `SELECT b.id, b.name, b.kind, b.status, d.name AS domain_name, f.name AS family_name
-       FROM knowledge_bases b
-       LEFT JOIN knowledge_domains d ON d.id=b.domain_id
-       LEFT JOIN knowledge_domains f ON f.id=d.parent_id
-      WHERE b.id=?`,
-  ).get(String(doc.base_id)) as Row | undefined;
-  const jobs = getConn()
-    .prepare("SELECT * FROM knowledge_document_jobs WHERE document_id=? ORDER BY created_at DESC, id DESC")
-    .all(id) as Row[];
+  const doc = (await docRow(id));
+  const base = (await getConn().query("SELECT b.id, b.name, b.kind, b.status, d.name AS domain_name, f.name AS family_name\n       FROM knowledge_bases b\n       LEFT JOIN knowledge_domains d ON d.id=b.domain_id\n       LEFT JOIN knowledge_domains f ON f.id=d.parent_id\n      WHERE b.id=$1",[String(doc.base_id)])).rows[0] as Row | undefined;
+  const jobs = (await getConn().query("SELECT * FROM knowledge_document_jobs WHERE document_id=$1 ORDER BY created_at DESC, id DESC",[id])).rows as Row[];
   const preview = textPreviewOf(doc);
   return {
-    document: { ...documentView(doc, { latestJob: latestJobOf(id) }), base_name: base ? String(base.name) : "" },
+    document: { ...documentView(doc, { latestJob: (await latestJobOf(id)) }), base_name: base ? String(base.name) : "" },
     base: base ? {
       id: String(base.id),
       name: String(base.name),
@@ -333,14 +322,14 @@ export function validateDocumentFile(file: { name: string; buf: Buffer }) {
   return { filename, ext, ...spec };
 }
 
-export function uploadDocument(
+export async function uploadDocument(
   file: { name: string; type: string; buf: Buffer },
   baseId: string,
-  actor = knowledgeActorId(),
+  actor = (await knowledgeActorId()),
   options: { draft?: boolean } = {},
-): Json {
+): Promise<Awaited<Json>> {
   requireAdmin();
-  const base = getConn().prepare("SELECT * FROM knowledge_bases WHERE id=?").get(String(baseId || "")) as Row | undefined;
+  const base = (await getConn().query("SELECT * FROM knowledge_bases WHERE id=$1",[String(baseId || "")])).rows[0] as Row | undefined;
   if (!base) throw new HttpFail(400, { code: "knowledge_base_missing", message: "知识库不存在" });
   if (String(base.kind) !== "unstructured") {
     throw new HttpFail(400, { code: "knowledge_base_not_unstructured", message: "该库不是非结构化库，不能上传资料" });
@@ -356,41 +345,32 @@ export function uploadDocument(
   const sourcePath = path.join(dir, `source${ext}`);
   fs.writeFileSync(sourcePath, file.buf);
   const title = filename.replace(/\.[^.]+$/, "") || filename;
-  tx((db) => {
-    db.prepare(
-      `INSERT INTO knowledge_documents
-       (id,base_id,title,filename,media_type,mime,size_bytes,source_path,status,error,retry_count,artifacts,created_by,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      id, String(base.id), title, filename, spec.media, spec.mime, file.buf.length,
-      storePath(sourcePath), options.draft ? "draft" : "uploaded", null, 0, null, actor, now, now,
-    );
-    if (!options.draft) insertQueuedJob(db, id, "normalize", actor);
-  });
-  audit(actor, "knowledge.document.upload", { document_id: id, base_id: String(base.id), filename, media_type: spec.media });
+  (await tx(async (db) => {
+    (await db.query("INSERT INTO knowledge_documents\n       (id,base_id,title,filename,media_type,mime,size_bytes,source_path,status,error,retry_count,artifacts,created_by,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",[id,String(base.id),title,filename,spec.media,spec.mime,file.buf.length,storePath(sourcePath),options.draft ? "draft" : "uploaded",null,0,null,actor,now,now]));
+    if (!options.draft) (await insertQueuedJob(db, id, "normalize", actor));
+  }));
+  (await audit(actor, "knowledge.document.upload", { document_id: id, base_id: String(base.id), filename, media_type: spec.media }));
   if (!options.draft) enqueueDocument(id, "normalize");
-  return { document: documentView(docRow(id), { latestJob: latestJobOf(id) }) };
+  return { document: documentView((await docRow(id)), { latestJob: (await latestJobOf(id)) }) };
 }
 
-export function startDocument(id: string, actor = knowledgeActorId()): Json {
+export async function startDocument(id: string, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
   requireAdmin();
-  const doc = docRow(id);
-  const base = getConn().prepare("SELECT status FROM knowledge_bases WHERE id=?").get(doc.base_id) as Row | undefined;
+  const doc = (await docRow(id));
+  const base = (await getConn().query("SELECT status FROM knowledge_bases WHERE id=$1",[doc.base_id])).rows[0] as Row | undefined;
   if (base?.status !== "active") throw new HttpFail(409, "知识库已归档");
-  tx((db) => {
-    const changed = db.prepare("UPDATE knowledge_documents SET status='uploaded',updated_at=? WHERE id=? AND status='draft'").run(nowIso(), id);
+  (await tx(async (db) => {
+    const changed = (await db.query("UPDATE knowledge_documents SET status='uploaded',updated_at=$1 WHERE id=$2 AND status='draft'",[nowIso(),id]));
     if (!changed.changes) throw new HttpFail(409, "只有草稿可以开始解析");
-    insertQueuedJob(db, id, "normalize", actor);
-  });
-  audit(actor, "knowledge.document.start", { document_id: id, base_id: doc.base_id });
+    (await insertQueuedJob(db, id, "normalize", actor));
+  }));
+  (await audit(actor, "knowledge.document.start", { document_id: id, base_id: doc.base_id }));
   enqueueDocument(id, "normalize");
-  return { document: documentView(docRow(id), { latestJob: latestJobOf(id) }) };
+  return { document: documentView((await docRow(id)), { latestJob: (await latestJobOf(id)) }) };
 }
 
-function insertQueuedJob(db: ReturnType<typeof getConn>, documentId: string, kind: "normalize" | "index", actor: string): Row {
-  const prior = db.prepare(
-    "SELECT MAX(attempt) AS attempt FROM knowledge_document_jobs WHERE document_id=? AND kind=?",
-  ).get(documentId, kind) as { attempt: number | null } | undefined;
+async function insertQueuedJob(db: ReturnType<typeof getConn>, documentId: string, kind: "normalize" | "index", actor: string): Promise<Awaited<Row>> {
+  const prior = (await db.query("SELECT MAX(attempt) AS attempt FROM knowledge_document_jobs WHERE document_id=$1 AND kind=$2",[documentId,kind])).rows[0] as { attempt: number | null } | undefined;
   const row: Row = {
     id: nid("kdjob"),
     document_id: documentId,
@@ -400,11 +380,7 @@ function insertQueuedJob(db: ReturnType<typeof getConn>, documentId: string, kin
     created_by: actor,
     created_at: nowIso(),
   };
-  db.prepare(
-    `INSERT INTO knowledge_document_jobs
-     (id,document_id,kind,status,progress_done,progress_total,detail,error,attempt,created_by,created_at,started_at,finished_at)
-     VALUES (?,?,?,?,0,0,NULL,NULL,?,?,?,NULL,NULL)`,
-  ).run(row.id, row.document_id, row.kind, row.status, row.attempt, row.created_by, row.created_at);
+  (await db.query("INSERT INTO knowledge_document_jobs\n     (id,document_id,kind,status,progress_done,progress_total,detail,error,attempt,created_by,created_at,started_at,finished_at)\n     VALUES ($1,$2,$3,$4,0,0,NULL,NULL,$5,$6,$7,NULL,NULL)",[row.id,row.document_id,row.kind,row.status,row.attempt,row.created_by,row.created_at]));
   return row;
 }
 
@@ -437,51 +413,44 @@ function removeFromQueue(documentId: string): boolean {
   return true;
 }
 
-function setStatus(id: string, status: string, error?: string | null): void {
-  getConn().prepare("UPDATE knowledge_documents SET status=?, error=?, updated_at=? WHERE id=?")
-    .run(status, error == null ? null : String(error).slice(0, 500), nowIso(), id);
+async function setStatus(id: string, status: string, error?: string | null): Promise<Awaited<void>> {
+  (await getConn().query("UPDATE knowledge_documents SET status=$1, error=$2, updated_at=$3 WHERE id=$4",[status,error == null ? null : String(error).slice(0, 500),nowIso(),id]));
 }
 
-function finishJob(jobId: string, status: "done" | "failed" | "cancelled", error?: string | null, detail?: Json | null): void {
-  getConn().prepare(
-    "UPDATE knowledge_document_jobs SET status=?, error=?, detail=?, finished_at=? WHERE id=?",
-  ).run(status, error == null ? null : String(error).slice(0, 500), detail ? JSON.stringify(detail) : null, nowIso(), jobId);
+async function finishJob(jobId: string, status: "done" | "failed" | "cancelled", error?: string | null, detail?: Json | null): Promise<Awaited<void>> {
+  (await getConn().query("UPDATE knowledge_document_jobs SET status=$1, error=$2, detail=$3, finished_at=$4 WHERE id=$5",[status,error == null ? null : String(error).slice(0, 500),detail ? JSON.stringify(detail) : null,nowIso(),jobId]));
 }
 
-function updateJobProgress(jobId: string, done: number, total: number, detail?: Json | null): void {
-  getConn().prepare(
-    "UPDATE knowledge_document_jobs SET progress_done=?, progress_total=?, detail=? WHERE id=?",
-  ).run(done, total, detail ? JSON.stringify(detail) : null, jobId);
+async function updateJobProgress(jobId: string, done: number, total: number, detail?: Json | null): Promise<Awaited<void>> {
+  (await getConn().query("UPDATE knowledge_document_jobs SET progress_done=$1, progress_total=$2, detail=$3 WHERE id=$4",[done,total,detail ? JSON.stringify(detail) : null,jobId]));
 }
 
 async function executeDocument(documentId: string, startStage: "normalize" | "index"): Promise<void> {
-  const initial = docRow(documentId);
+  const initial = (await docRow(documentId));
   if (["cancelled", "published", "archived"].includes(String(initial.status))) return;
   if (startStage === "normalize") {
     const stage = await runStage(documentId, "normalize");
     if (!stage) return;
   }
-  const mid = docRow(documentId);
+  const mid = (await docRow(documentId));
   if (["cancelled", "published", "archived", "failed"].includes(String(mid.status))) return;
   await runStage(documentId, "index");
 }
 
 async function runStage(documentId: string, kind: "normalize" | "index"): Promise<boolean> {
   const conn = getConn();
-  const doc = docRow(documentId);
+  const doc = (await docRow(documentId));
   const actor = String(doc.created_by || "system");
   // 复用入队时已建的 queued 作业行（上传时预建）；重试/对账路径没有预建行，则现建。
-  const queued = conn.prepare(
-    "SELECT * FROM knowledge_document_jobs WHERE document_id=? AND kind=? AND status='queued' ORDER BY created_at DESC, id DESC LIMIT 1",
-  ).get(documentId, kind) as Row | undefined;
-  const job = queued ? { ...queued } : insertQueuedJob(conn, documentId, kind, actor);
+  const queued = (await conn.query("SELECT * FROM knowledge_document_jobs WHERE document_id=$1 AND kind=$2 AND status='queued' ORDER BY created_at DESC, id DESC LIMIT 1",[documentId,kind])).rows[0] as Row | undefined;
+  const job = queued ? { ...queued } : (await insertQueuedJob(conn, documentId, kind, actor));
   const controller = new AbortController();
   activeControllers.set(documentId, controller);
-  setStatus(documentId, kind === "normalize" ? "normalizing" : "indexing", null);
-  conn.prepare("UPDATE knowledge_document_jobs SET status='running', started_at=? WHERE id=?").run(nowIso(), job.id);
-  audit(actor, kind === "normalize" ? "knowledge.document.normalize" : "knowledge.document.index", {
+  (await setStatus(documentId, kind === "normalize" ? "normalizing" : "indexing", null));
+  (await conn.query("UPDATE knowledge_document_jobs SET status='running', started_at=$1 WHERE id=$2",[nowIso(),job.id]));
+  (await audit(actor, kind === "normalize" ? "knowledge.document.normalize" : "knowledge.document.index", {
     document_id: documentId, base_id: String(doc.base_id), attempt: Number(job.attempt || 1),
-  });
+  }));
   try {
     if (kind === "normalize") {
       await normalizeStage(doc, String(job.id), controller.signal);
@@ -489,9 +458,9 @@ async function runStage(documentId: string, kind: "normalize" | "index"): Promis
       await indexStage(doc, String(job.id), controller.signal);
     }
     if (controller.signal.aborted) throw new HttpFail(409, { code: "knowledge_job_cancelled", message: "作业已取消" });
-    finishJob(String(job.id), "done");
+    (await finishJob(String(job.id), "done"));
     if (kind === "index") {
-      setStatus(documentId, "pending_review", null);
+      (await setStatus(documentId, "pending_review", null));
       // Scope has its own durable job and failure status; an unavailable model does not undo indexing.
       try {
         const scope=(await postgresQuery('SELECT revision,tenant FROM knowledge_document_scopes WHERE document_id=$1',[documentId]))[0];
@@ -501,13 +470,13 @@ async function runStage(documentId: string, kind: "normalize" | "index"): Promis
     return true;
   } catch (error) {
     if (controller.signal.aborted || errorCode(error) === "knowledge_job_cancelled") {
-      finishJob(String(job.id), "cancelled");
-      setStatus(documentId, "cancelled", null);
+      (await finishJob(String(job.id), "cancelled"));
+      (await setStatus(documentId, "cancelled", null));
       return false;
     }
     const message = errorMessage(error);
-    finishJob(String(job.id), "failed", message);
-    setStatus(documentId, "failed", message);
+    (await finishJob(String(job.id), "failed", message));
+    (await setStatus(documentId, "failed", message));
     return false;
   } finally {
     activeControllers.delete(documentId);
@@ -591,11 +560,11 @@ async function stubNormalizeStage(doc: Row, jobId: string, signal: AbortSignal, 
   const segMatch = /STUB_MEDIA_SEGMENTS=(\d+)/.exec(buf.toString("latin1"));
   if ((mediaType === "audio" || mediaType === "video") && segMatch) {
     const total = Math.max(1, parseInt(segMatch[1], 10));
-    updateJobProgress(jobId, 0, total, { mode: "media-transcribe" });
+    (await updateJobProgress(jobId, 0, total, { mode: "media-transcribe" }));
     for (let i = 1; i <= total; i += 1) {
       if (signal.aborted) throw new HttpFail(409, { code: "knowledge_job_cancelled", message: "作业已取消" });
       await sleep();
-      updateJobProgress(jobId, i, total, { mode: "media-transcribe" });
+      (await updateJobProgress(jobId, i, total, { mode: "media-transcribe" }));
     }
     const transcriptPath = path.join(dir, "transcript.md");
     fs.writeFileSync(transcriptPath, `# ${doc.title} · 全文转写稿（stub）\n\n共 ${total} 段。\n`);
@@ -603,28 +572,28 @@ async function stubNormalizeStage(doc: Row, jobId: string, signal: AbortSignal, 
     fs.writeFileSync(extractedPath, `# ${doc.title} · 转写摘要（stub）\n\n共 ${total} 段。\n`);
     const make = await runBridge({ cmd: "make-pdf", args: ["--text", extractedPath, "--out", normalized], signal });
     if (!make.ok) throw new HttpFail(502, { code: String(make.code || "knowledge_normalize_failed"), message: String(make.message || "规整稿生成失败") });
-    mergeArtifacts(String(doc.id), {
+    (await mergeArtifacts(String(doc.id), {
       normalize: {
         mode: "media-transcribe", model: "stub", segments: total,
         transcript_path: storePath(transcriptPath), extracted_path: storePath(extractedPath),
         normalized_path: storePath(normalized), finished_at: started,
       },
-    });
+    }));
     return;
   }
   await sleep();
   if (signal.aborted) throw new HttpFail(409, { code: "knowledge_job_cancelled", message: "作业已取消" });
-  updateJobProgress(jobId, 1, 1, { mode: "stub" });
+  (await updateJobProgress(jobId, 1, 1, { mode: "stub" }));
   fs.copyFileSync(sourcePath, normalized);
-  mergeArtifacts(String(doc.id), {
+  (await mergeArtifacts(String(doc.id), {
     normalize: { mode: "stub", normalized_path: storePath(normalized), finished_at: started },
-  });
+  }));
 }
 
 /** 单图：视觉模型直接 OCR → 文本型 PDF（= scanned-ocr 的单页特例）。 */
 async function ocrSingleImageStage(doc: Row, jobId: string, signal: AbortSignal, ctx: NormalizeCtx): Promise<void> {
   const { dir, sourcePath, normalized, started } = ctx;
-  updateJobProgress(jobId, 0, 1, { mode: "image-ocr" });
+  (await updateJobProgress(jobId, 0, 1, { mode: "image-ocr" }));
   if (signal.aborted) throw new HttpFail(409, { code: "knowledge_job_cancelled", message: "作业已取消" });
   const mime = String(doc.mime || "");
   const row = await ocrImageWithVision(sourcePath, 1, mime.startsWith("image/") ? mime : "image/png");
@@ -633,27 +602,27 @@ async function ocrSingleImageStage(doc: Row, jobId: string, signal: AbortSignal,
   fs.writeFileSync(extractedPath, markdown);
   const make = await runBridge({ cmd: "make-pdf", args: ["--text", extractedPath, "--out", normalized], signal });
   if (!make.ok) throw new HttpFail(502, { code: String(make.code || "knowledge_normalize_failed"), message: String(make.message || "规整稿生成失败") });
-  updateJobProgress(jobId, 1, 1, { mode: "image-ocr" });
+  (await updateJobProgress(jobId, 1, 1, { mode: "image-ocr" }));
   const inputTokens = row.inputTokens ?? 0;
   const outputTokens = row.outputTokens ?? 0;
   if (row.inputTokens != null || row.outputTokens != null) {
-    recordCostEvent({
+    (await recordCostEvent({
       source: "knowledge_normalize",
       userId: String(doc.created_by || "") || undefined,
       model: mediaModel(),
       inputTokens,
       outputTokens,
       raw: JSON.stringify({ mode: "image-ocr" }).slice(0, 500),
-    });
+    }));
   }
-  recordCapabilityCall({ kind: "model", ref_id: mediaModel(), ok: true, inputTokens, outputTokens });
-  mergeArtifacts(String(doc.id), {
+  (await recordCapabilityCall({ kind: "model", ref_id: mediaModel(), ok: true, inputTokens, outputTokens }));
+  (await mergeArtifacts(String(doc.id), {
     normalize: {
       mode: "image-ocr", model: mediaModel(), pages: 1,
       extracted_path: storePath(extractedPath),
       normalized_path: storePath(normalized), finished_at: started,
     },
-  });
+  }));
 }
 
 type SegmentTranscript = { text: string; summary: string; inputTokens: number | null; outputTokens: number | null };
@@ -756,7 +725,7 @@ async function transcribeMediaStage(doc: Row, jobId: string, signal: AbortSignal
     fs.writeFileSync(manifestPath, JSON.stringify(manifest));
   }
   const total = segFiles.length;
-  updateJobProgress(jobId, 0, total, { mode: "media-transcribe" });
+  (await updateJobProgress(jobId, 0, total, { mode: "media-transcribe" }));
   const startedAt = Date.now();
   let inputTokens = 0;
   let outputTokens = 0;
@@ -782,7 +751,7 @@ async function transcribeMediaStage(doc: Row, jobId: string, signal: AbortSignal
     if (cached.outputTokens != null) { outputTokens += cached.outputTokens; tokensKnown = true; }
     transcripts.push(`## [${fmtHMS(i * segmentSeconds)}–${fmtHMS((i + 1) * segmentSeconds)}] 第 ${i + 1}/${total} 段\n\n${cached.text || "【静音】"}`);
     summaries.push(`- 第 ${i + 1} 段：${cached.summary || "（无摘要）"}`);
-    updateJobProgress(jobId, i + 1, total, { mode: "media-transcribe" });
+    (await updateJobProgress(jobId, i + 1, total, { mode: "media-transcribe" }));
   }
   const title = String(doc.title || doc.filename || "音视频资料");
   const header = `> 来源：${doc.filename}；模型：${mediaModel()}；转写时间：${started}`;
@@ -793,28 +762,28 @@ async function transcribeMediaStage(doc: Row, jobId: string, signal: AbortSignal
   const make = await runBridge({ cmd: "make-pdf", args: ["--text", extractedPath, "--out", normalized], signal });
   if (!make.ok) throw new HttpFail(502, { code: String(make.code || "knowledge_normalize_failed"), message: String(make.message || "规整稿生成失败") });
   if (tokensKnown) {
-    recordCostEvent({
+    (await recordCostEvent({
       source: "knowledge_normalize",
       userId: String(doc.created_by || "") || undefined,
       model: mediaModel(),
       inputTokens,
       outputTokens,
       raw: JSON.stringify({ segments: total }).slice(0, 500),
-    });
+    }));
   }
-  recordCapabilityCall({
+  (await recordCapabilityCall({
     kind: "model", ref_id: mediaModel(), ok: true,
     latencyMs: Date.now() - startedAt,
     inputTokens: tokensKnown ? inputTokens : null,
     outputTokens: tokensKnown ? outputTokens : null,
-  });
-  mergeArtifacts(String(doc.id), {
+  }));
+  (await mergeArtifacts(String(doc.id), {
     normalize: {
       mode: "media-transcribe", model: mediaModel(), segments: total, segment_seconds: segmentSeconds,
       transcript_path: storePath(transcriptPath), extracted_path: storePath(extractedPath),
       normalized_path: storePath(normalized), finished_at: started,
     },
-  });
+  }));
 }
 
 async function normalizeStage(doc: Row, jobId: string, signal: AbortSignal): Promise<void> {
@@ -828,7 +797,7 @@ async function normalizeStage(doc: Row, jobId: string, signal: AbortSignal): Pro
   const started = nowIso();
   const mediaType = String(doc.media_type || "");
   if (mediaType === "pptx") {
-    updateJobProgress(jobId, 0, 0, { mode: "pptx-convert", note: "正在将原幻灯片逐页转换为 PDF" });
+    (await updateJobProgress(jobId, 0, 0, { mode: "pptx-convert", note: "正在将原幻灯片逐页转换为 PDF" }));
     const converted = path.join(dir, "converted.pdf");
     const result = await convertPptx(sourcePath, converted, signal);
     const extractedPath = path.join(dir, "extracted.md");
@@ -838,7 +807,7 @@ async function normalizeStage(doc: Row, jobId: string, signal: AbortSignal): Pro
       const pagesDir = path.join(dir, "pages");
       const render = await runBridge({ cmd: "render", args: ["--input", converted, "--out", pagesDir], signal });
       if (!render.ok || Number(render.pages) !== result.pages) throw new HttpFail(502, { code: "knowledge_pptx_render_failed", message: "PPTX 逐页渲染失败或页数不一致" });
-      updateJobProgress(jobId, 0, ocrPages.length, { mode: "pptx-ocr", note: "正在识别图片或图表页" });
+      (await updateJobProgress(jobId, 0, ocrPages.length, { mode: "pptx-ocr", note: "正在识别图片或图表页" }));
       let inputTokens = 0, outputTokens = 0, tokensKnown = false;
       for (const [i, page] of ocrPages.entries()) {
         if (signal.aborted) throw new HttpFail(409, { code: "knowledge_job_cancelled", message: "作业已取消" });
@@ -848,10 +817,10 @@ async function normalizeStage(doc: Row, jobId: string, signal: AbortSignal): Pro
         if (row.inputTokens != null) { inputTokens += row.inputTokens; tokensKnown = true; }
         if (row.outputTokens != null) { outputTokens += row.outputTokens; tokensKnown = true; }
         slides[page - 1] = [slides[page - 1]?.trim(), row.text].filter(Boolean).join("\n\n");
-        updateJobProgress(jobId, i + 1, ocrPages.length, { mode: "pptx-ocr" });
+        (await updateJobProgress(jobId, i + 1, ocrPages.length, { mode: "pptx-ocr" }));
       }
-      if (tokensKnown) recordCostEvent({ source: "knowledge_normalize", userId: String(doc.created_by || "") || undefined, model: mediaModel(), inputTokens, outputTokens, raw: JSON.stringify({ mode: "pptx-ocr", pages: ocrPages }) });
-      recordCapabilityCall({ kind: "model", ref_id: mediaModel(), ok: true, inputTokens: tokensKnown ? inputTokens : null, outputTokens: tokensKnown ? outputTokens : null });
+      if (tokensKnown) (await recordCostEvent({ source: "knowledge_normalize", userId: String(doc.created_by || "") || undefined, model: mediaModel(), inputTokens, outputTokens, raw: JSON.stringify({ mode: "pptx-ocr", pages: ocrPages }) }));
+      (await recordCapabilityCall({ kind: "model", ref_id: mediaModel(), ok: true, inputTokens: tokensKnown ? inputTokens : null, outputTokens: tokensKnown ? outputTokens : null }));
     }
     fs.writeFileSync(extractedPath, Array.from({ length: result.pages }, (_, i) => `## 第 ${i + 1} 页\n\n${slides[i]?.trim() || "（本页无可识别文本）"}`).join("\n\n"));
     const didOcr = ocrPages.length > 0 && bridgeMode() !== "stub";
@@ -861,10 +830,10 @@ async function normalizeStage(doc: Row, jobId: string, signal: AbortSignal): Pro
       if (!make.ok || !make.page_map) throw new HttpFail(502, { code: "knowledge_pptx_normalize_failed", message: "PPTX OCR 规整稿或原页码映射生成失败" });
       pageMap = make.page_map;
     } else fs.copyFileSync(converted, normalized);
-    updateJobProgress(jobId, result.pages, result.pages, { mode: didOcr ? "pptx-ocr" : "pptx-convert" });
-    mergeArtifacts(String(doc.id), { normalize: { mode: didOcr ? "pptx-ocr" : "pptx-convert", converter: "libreoffice", pages: result.pages,
+    (await updateJobProgress(jobId, result.pages, result.pages, { mode: didOcr ? "pptx-ocr" : "pptx-convert" }));
+    (await mergeArtifacts(String(doc.id), { normalize: { mode: didOcr ? "pptx-ocr" : "pptx-convert", converter: "libreoffice", pages: result.pages,
       page_map: pageMap, ocr_pages: didOcr ? ocrPages : [], preview_path: storePath(converted),
-      extracted_path: storePath(extractedPath), normalized_path: storePath(normalized), finished_at: nowIso() } });
+      extracted_path: storePath(extractedPath), normalized_path: storePath(normalized), finished_at: nowIso() } }));
     return;
   }
   const ctx: NormalizeCtx = { dir, sourcePath, normalized, started };
@@ -881,11 +850,11 @@ async function normalizeStage(doc: Row, jobId: string, signal: AbortSignal): Pro
     return;
   }
   if (pdfHasTextLayer(sourcePath, buf)) {
-    updateJobProgress(jobId, 1, 1, { mode: "text-passthrough" });
+    (await updateJobProgress(jobId, 1, 1, { mode: "text-passthrough" }));
     fs.copyFileSync(sourcePath, normalized);
-    mergeArtifacts(String(doc.id), {
+    (await mergeArtifacts(String(doc.id), {
       normalize: { mode: "text-passthrough", normalized_path: storePath(normalized), finished_at: started },
-    });
+    }));
     return;
   }
   // 扫描件：逐页渲染 → 视觉模型 OCR → 文本型 PDF（真实进度 = 页数）。
@@ -893,7 +862,7 @@ async function normalizeStage(doc: Row, jobId: string, signal: AbortSignal): Pro
   const render = await runBridge({ cmd: "render", args: ["--input", sourcePath, "--out", pagesDir], signal });
   if (!render.ok) throw new HttpFail(502, { code: String(render.code || "knowledge_normalize_failed"), message: String(render.message || "页面渲染失败") });
   const pages = Math.max(1, Number(render.pages || 0));
-  updateJobProgress(jobId, 0, pages, { mode: "scanned-ocr" });
+  (await updateJobProgress(jobId, 0, pages, { mode: "scanned-ocr" }));
   const parts: string[] = [];
   let inputTokens = 0;
   let outputTokens = 0;
@@ -906,7 +875,7 @@ async function normalizeStage(doc: Row, jobId: string, signal: AbortSignal): Pro
     if (row.inputTokens != null) { inputTokens += row.inputTokens; tokensKnown = true; }
     if (row.outputTokens != null) { outputTokens += row.outputTokens; tokensKnown = true; }
     parts.push(`## 第 ${pageNo} 页\n\n${row.text || "（本页无可识别文本）"}`);
-    updateJobProgress(jobId, pageNo, pages, { mode: "scanned-ocr" });
+    (await updateJobProgress(jobId, pageNo, pages, { mode: "scanned-ocr" }));
   }
   const markdown = parts.join("\n\n");
   const extractedPath = path.join(dir, "extracted.md");
@@ -914,21 +883,21 @@ async function normalizeStage(doc: Row, jobId: string, signal: AbortSignal): Pro
   const make = await runBridge({ cmd: "make-pdf", args: ["--text", extractedPath, "--out", normalized], signal });
   if (!make.ok) throw new HttpFail(502, { code: String(make.code || "knowledge_normalize_failed"), message: String(make.message || "规整稿生成失败") });
   if (tokensKnown) {
-    recordCostEvent({
+    (await recordCostEvent({
       source: "knowledge_normalize",
       userId: String(doc.created_by || "") || undefined,
       model: mediaModel(),
       inputTokens,
       outputTokens,
       raw: JSON.stringify({ pages }).slice(0, 500),
-    });
+    }));
   }
-  recordCapabilityCall({
+  (await recordCapabilityCall({
     kind: "model", ref_id: mediaModel(), ok: true,
     inputTokens: tokensKnown ? inputTokens : null,
     outputTokens: tokensKnown ? outputTokens : null,
-  });
-  mergeArtifacts(String(doc.id), {
+  }));
+  (await mergeArtifacts(String(doc.id), {
     normalize: {
       mode: "scanned-ocr",
       page_map: make.page_map,
@@ -938,7 +907,7 @@ async function normalizeStage(doc: Row, jobId: string, signal: AbortSignal): Pro
       normalized_path: storePath(normalized),
       finished_at: started,
     },
-  });
+  }));
 }
 
 /* ---- 索引层 ---- */
@@ -952,7 +921,7 @@ async function indexStage(doc: Row, jobId: string, signal: AbortSignal): Promise
   if (bridgeMode() !== "stub" && !normalizedPdfExists(doc)) {
     throw new HttpFail(409, { code: "knowledge_normalized_invalid", message: "规整稿不是有效的 PDF，请重试加工以重新规整原件" });
   }
-  updateJobProgress(jobId, 0, 0, { note: "建索引（无细分进度）" });
+  (await updateJobProgress(jobId, 0, 0, { note: "建索引（无细分进度）" }));
   const library = libraryDir(String(doc.base_id));
   const outcome = await runBridge({
     cmd: "index",
@@ -970,66 +939,63 @@ async function indexStage(doc: Row, jobId: string, signal: AbortSignal): Promise
     pages: Number(outcome.pages || 0),
     finished_at: nowIso(),
   };
-  mergeArtifacts(String(doc.id), { index: indexInfo });
+  (await mergeArtifacts(String(doc.id), { index: indexInfo }));
   const usage = outcome.usage as Json | undefined;
   if (usage) {
-    recordCostEvent({
+    (await recordCostEvent({
       source: "knowledge_index",
       userId: String(doc.created_by || "") || undefined,
       model: indexModel(),
       inputTokens: Number.isFinite(Number(usage.input_tokens)) ? Number(usage.input_tokens) : null,
       outputTokens: Number.isFinite(Number(usage.output_tokens)) ? Number(usage.output_tokens) : null,
       raw: JSON.stringify(usage).slice(0, 500),
-    });
+    }));
   }
-  recordCapabilityCall({
+  (await recordCapabilityCall({
     kind: "model",
     ref_id: indexModel(),
     ok: true,
     inputTokens: usage && Number.isFinite(Number(usage.input_tokens)) ? Number(usage.input_tokens) : null,
     outputTokens: usage && Number.isFinite(Number(usage.output_tokens)) ? Number(usage.output_tokens) : null,
-  });
+  }));
   // 库级引擎绑定（external_ref 单值，写入一次）。
-  const base = getConn().prepare("SELECT external_ref FROM knowledge_bases WHERE id=?").get(String(doc.base_id)) as Row | undefined;
+  const base = (await getConn().query("SELECT external_ref FROM knowledge_bases WHERE id=$1",[String(doc.base_id)])).rows[0] as Row | undefined;
   const hasRef = base?.external_ref != null && String(base.external_ref) !== "" && String(base.external_ref) !== "null";
   if (!hasRef) {
-    getConn().prepare("UPDATE knowledge_bases SET external_ref=?, updated_at=? WHERE id=?")
-      .run(JSON.stringify({ provider: "pageindex-local", version: indexInfo.engine_version }), nowIso(), String(doc.base_id));
+    (await getConn().query("UPDATE knowledge_bases SET external_ref=$1, updated_at=$2 WHERE id=$3",[JSON.stringify({ provider: "pageindex-local", version: indexInfo.engine_version }),nowIso(),String(doc.base_id)]));
   }
 }
 
 /* ---- 动作 ---- */
 
-function jobCount(documentId: string): number {
-  const row = getConn().prepare("SELECT COUNT(*) AS n FROM knowledge_document_jobs WHERE document_id=?").get(documentId) as { n: number };
+async function jobCount(documentId: string): Promise<Awaited<number>> {
+  const row = (await getConn().query("SELECT COUNT(*) AS n FROM knowledge_document_jobs WHERE document_id=$1",[documentId])).rows[0] as { n: number };
   return Number(row.n || 0);
 }
 
-export function retryDocument(id: string, actor = knowledgeActorId()): Json {
+export async function retryDocument(id: string, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
   requireAdmin();
-  const doc = docRow(id);
+  const doc = (await docRow(id));
   const status = String(doc.status);
   if (!["failed", "cancelled"].includes(status)) {
     throw new HttpFail(409, { code: "knowledge_document_not_retryable", message: "只有失败或已取消的资料可以重试" });
   }
-  const last = latestJobOf(id);
+  const last = (await latestJobOf(id));
   let startStage: "normalize" | "index" = "normalize";
   if (last && String(last.kind) === "index") startStage = "index";
   if (startStage === "index" && !normalizedPdfExists(doc)) startStage = "normalize";
-  tx((db) => {
-    db.prepare("UPDATE knowledge_documents SET status='uploaded', error=NULL, retry_count=retry_count+1, updated_at=? WHERE id=?")
-      .run(nowIso(), id);
-    db.prepare("UPDATE knowledge_document_jobs SET status='cancelled', finished_at=? WHERE document_id=? AND status='queued'")
-      .run(nowIso(), id);
-  });
-  audit(actor, "knowledge.document.retry", { document_id: id, from_stage: startStage });
+  (await tx(async (db) => {
+    (await db.query("UPDATE knowledge_documents SET status='uploaded', error=NULL, retry_count=retry_count+1, updated_at=$1 WHERE id=$2",[nowIso(),id]));
+    (await db.query("UPDATE knowledge_document_jobs SET status='cancelled', finished_at=$1 WHERE document_id=$2 AND status='queued'",[nowIso(),id]));
+  }));
+  (await audit(actor, "knowledge.document.retry", { document_id: id, from_stage: startStage }));
   enqueueDocument(id, startStage);
-  return { document: documentView(docRow(id), { latestJob: latestJobOf(id) }) };
+  return { document: documentView((await docRow(id)), { latestJob: (await latestJobOf(id)) }) };
 }
 
-export function cancelDocument(id: string, actor = knowledgeActorId()): Json {
+export async function cancelDocument(id: string, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
   requireAdmin();
-  const doc = docRow(id);
+  const doc = (await docRow(id));
   const status = String(doc.status);
   if (!["uploaded", "normalizing", "indexing"].includes(status)) {
     throw new HttpFail(409, { code: "knowledge_document_not_cancellable", message: "只有排队或加工中的资料可以取消" });
@@ -1039,52 +1005,51 @@ export function cancelDocument(id: string, actor = knowledgeActorId()): Json {
   if (controller) {
     controller.abort();
   } else {
-    tx((db) => {
-      db.prepare("UPDATE knowledge_document_jobs SET status='cancelled', finished_at=? WHERE document_id=? AND status='queued'")
-        .run(nowIso(), id);
-      db.prepare("UPDATE knowledge_documents SET status='cancelled', updated_at=? WHERE id=?").run(nowIso(), id);
-    });
+    (await tx(async (db) => {
+      (await db.query("UPDATE knowledge_document_jobs SET status='cancelled', finished_at=$1 WHERE document_id=$2 AND status='queued'",[nowIso(),id]));
+      (await db.query("UPDATE knowledge_documents SET status='cancelled', updated_at=$1 WHERE id=$2",[nowIso(),id]));
+    }));
   }
-  audit(actor, "knowledge.document.cancel", { document_id: id });
-  return { document: documentView(docRow(id), { latestJob: latestJobOf(id) }) };
+  (await audit(actor, "knowledge.document.cancel", { document_id: id }));
+  return { document: documentView((await docRow(id)), { latestJob: (await latestJobOf(id)) }) };
 }
 
-export function reprocessDocument(id: string, actor = knowledgeActorId()): Json {
+export async function reprocessDocument(id: string, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
   requireAdmin();
-  const doc = docRow(id);
+  const doc = (await docRow(id));
   const status = String(doc.status);
   if(status === "published") throw new HttpFail(409,{code:"knowledge_revision_required",message:"已发布版本保持可检索，请从资料详情创建新版本草稿。"});
   if (!["pending_review", "published"].includes(status)) {
     throw new HttpFail(409, { code: "knowledge_document_not_reprocessable", message: "只有待审或已发布的资料可以重新加工" });
   }
-  tx((db) => {
-    db.prepare("UPDATE knowledge_documents SET status='uploaded', error=NULL, updated_at=? WHERE id=?").run(nowIso(), id);
-  });
-  audit(actor, "knowledge.document.retry", { document_id: id, from_stage: "normalize", reprocess: true });
+  (await tx(async (db) => {
+    (await db.query("UPDATE knowledge_documents SET status='uploaded', error=NULL, updated_at=$1 WHERE id=$2",[nowIso(),id]));
+  }));
+  (await audit(actor, "knowledge.document.retry", { document_id: id, from_stage: "normalize", reprocess: true }));
   enqueueDocument(id, "normalize");
-  return { document: documentView(docRow(id), { latestJob: latestJobOf(id) }) };
+  return { document: documentView((await docRow(id)), { latestJob: (await latestJobOf(id)) }) };
 }
 
-export function publishDocument(id: string, actor = knowledgeActorId()): Json {
+export async function publishDocument(id: string, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
   requireAdmin();
-  docRow(id);
+  (await docRow(id));
   throw new HttpFail(409, { code: "knowledge_publication_review_required", message: "请从资料详情提交知识发布审批；批准后由发布任务生效。" });
 }
 
-export function archiveDocument(id: string, actor = knowledgeActorId()): Json {
+export async function archiveDocument(id: string, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
   requireAdmin();
-  const doc = docRow(id);
+  const doc = (await docRow(id));
   if (String(doc.status) !== "published") {
     throw new HttpFail(409, { code: "knowledge_document_not_archivable", message: "只有已发布资料可以归档" });
   }
-  getConn().prepare("UPDATE knowledge_documents SET status='archived', updated_at=? WHERE id=?").run(nowIso(), id);
-  audit(actor, "knowledge.document.archive", { document_id: id, base_id: String(doc.base_id) });
-  return { document: documentView(docRow(id), { latestJob: latestJobOf(id) }) };
+  (await getConn().query("UPDATE knowledge_documents SET status='archived', updated_at=$1 WHERE id=$2",[nowIso(),id]));
+  (await audit(actor, "knowledge.document.archive", { document_id: id, base_id: String(doc.base_id) }));
+  return { document: documentView((await docRow(id)), { latestJob: (await latestJobOf(id)) }) };
 }
 
-export function deleteDocument(id: string, actor = knowledgeActorId()): Json {
+export async function deleteDocument(id: string, actor = (await knowledgeActorId())): Promise<Awaited<Json>> {
   requireAdmin();
-  const doc = docRow(id);
+  const doc = (await docRow(id));
   const status = String(doc.status);
   if (["normalizing", "indexing"].includes(status)) {
     throw new HttpFail(409, { code: "knowledge_document_busy", message: "资料正在加工，请先取消再删除" });
@@ -1095,30 +1060,30 @@ export function deleteDocument(id: string, actor = knowledgeActorId()): Json {
   const engineDocId = engineDocIdOf(doc);
   const library = libraryDir(String(doc.base_id));
   removeFromQueue(id);
-  tx((db) => {
-    db.prepare("DELETE FROM knowledge_document_jobs WHERE document_id=?").run(id);
-    db.prepare("DELETE FROM knowledge_documents WHERE id=?").run(id);
-  });
+  (await tx(async (db) => {
+    (await db.query("DELETE FROM knowledge_document_jobs WHERE document_id=$1",[id]));
+    (await db.query("DELETE FROM knowledge_documents WHERE id=$1",[id]));
+  }));
   if (engineDocId) {
     void runBridge({ cmd: "remove", args: ["--library", library, "--doc-id", engineDocId], timeoutMs: 60_000 }).catch(() => undefined);
   }
   fs.rmSync(docDirOf(doc), { recursive: true, force: true });
-  audit(actor, "knowledge.document.delete", { document_id: id, base_id: String(doc.base_id) });
+  (await audit(actor, "knowledge.document.delete", { document_id: id, base_id: String(doc.base_id) }));
   return { deleted: true, document_id: id };
 }
 
-export function documentSourceFile(id: string): { path: string; name: string; mime: string } {
+export async function documentSourceFile(id: string): Promise<Awaited<{ path: string; name: string; mime: string }>> {
   requireAdmin();
-  return sourceFileRef(docRow(id));
+  return sourceFileRef((await docRow(id)));
 }
 
-export function documentPreviewFile(id: string): { path: string; name: string; mime: string } {
+export async function documentPreviewFile(id: string): Promise<Awaited<{ path: string; name: string; mime: string }>> {
   requireAdmin();
-  return previewFileRef(docRow(id));
+  return previewFileRef((await docRow(id)));
 }
 
-export function publishedDocumentSourceFile(id: string, allowedBaseIds: string[]): { path: string; name: string; mime: string } {
-  const doc = docRow(id);
+export async function publishedDocumentSourceFile(id: string, allowedBaseIds: string[]): Promise<Awaited<{ path: string; name: string; mime: string }>> {
+  const doc = (await docRow(id));
   if (doc.status !== "published" || !allowedBaseIds.includes(String(doc.base_id))) throw new HttpFail(403, "资料不在当前技能的已发布范围内");
   return previewFileRef(doc);
 }
@@ -1157,7 +1122,7 @@ export async function searchDocuments(input: {
   include_pending?: unknown;
 }): Promise<Json> {
   requireAdmin();
-  return queryDocuments(input, knowledgeActorId());
+  return queryDocuments(input, (await knowledgeActorId()));
 }
 
 /** Internal retrieval service. Callers must authorize scope before dispatch and again before returning. */
@@ -1167,7 +1132,7 @@ export async function queryDocuments(input: {
   const query = String(input.query || "").trim();
   if (!query) throw new HttpFail(400, "query required");
   const baseId = String(input.base_id || "").trim();
-  const base = getConn().prepare("SELECT * FROM knowledge_bases WHERE id=?").get(baseId) as Row | undefined;
+  const base = (await getConn().query("SELECT * FROM knowledge_bases WHERE id=$1",[baseId])).rows[0] as Row | undefined;
   if (!base) throw new HttpFail(400, { code: "knowledge_base_missing", message: "知识库不存在" });
   if (base.status !== "active") throw new HttpFail(409, { code: "knowledge_base_archived", message: "知识库已归档" });
   if (String(base.kind) !== "unstructured") {
@@ -1180,9 +1145,7 @@ export async function queryDocuments(input: {
     if (docIds.length !== 1) {
       throw new HttpFail(400, { code: "knowledge_pending_scope", message: "审批试算只允许单份资料" });
     }
-    docs = getConn().prepare(
-      "SELECT * FROM knowledge_documents WHERE id=? AND base_id=? AND status IN ('pending_review','published')",
-    ).all(docIds[0], baseId) as Row[];
+    docs = (await getConn().query("SELECT * FROM knowledge_documents WHERE id=$1 AND base_id=$2 AND status IN ('pending_review','published')",[docIds[0],baseId])).rows as Row[];
     if (!docs.length) throw new HttpFail(404, { code: "knowledge_document_missing", message: "待审资料不存在" });
   } else {
     const clauses = ["base_id=?", "status='published'"];
@@ -1215,7 +1178,7 @@ export async function queryDocuments(input: {
   const outcome: BridgeOutcome = await runBridge({ cmd: "ask", args, timeoutMs: 10 * 60_000 });
   revalidate();
   for (const doc of docs) {
-    const current = docRow(String(doc.id));
+    const current = (await docRow(String(doc.id)));
     if (current.status !== doc.status || current.updated_at !== doc.updated_at || engineDocIdOf(current) !== engineDocIdOf(doc)) {
       throw new HttpFail(409, { code: "knowledge_document_changed", message: "资料已变更，请重新查询" });
     }
@@ -1247,28 +1210,28 @@ export async function queryDocuments(input: {
   });
   if (!rawCitations.length) throw new HttpFail(502, { code: "knowledge_missing_citations", message: "引擎未返回可验证引用，请重试或检查原文" });
   const usage = (outcome.usage || null) as Json | null;
-  audit(actor, "knowledge.search", {
+  (await audit(actor, "knowledge.search", {
     base_id: baseId,
     doc_ids: docs.map((doc) => String(doc.id)),
     include_pending: includePending,
-  });
+  }));
   if (usage) {
-    recordCostEvent({
+    (await recordCostEvent({
       source: "knowledge_search",
       userId: actor,
       model: chatModel(),
       inputTokens: skipCountsFromUsage(usage)?.input_tokens as number | null,
       outputTokens: skipCountsFromUsage(usage)?.output_tokens as number | null,
       raw: JSON.stringify(usage).slice(0, 2000),
-    });
+    }));
   }
-  recordCapabilityCall({
+  (await recordCapabilityCall({
     kind: "model",
     ref_id: chatModel(),
     ok: true,
     inputTokens: usage ? (skipCountsFromUsage(usage)?.input_tokens as number | null) ?? null : null,
     outputTokens: usage ? (skipCountsFromUsage(usage)?.output_tokens as number | null) ?? null : null,
-  });
+  }));
   return {
     answer: String(outcome.answer || ""),
     citations,
@@ -1298,19 +1261,18 @@ export async function documentIndexHealth(): Promise<Json> {
 }
 
 /** 启动对账：running 作业 → failed(interrupted)；queued 作业重新入队。 */
-export function reconcileDocumentJobs(): void {
+export async function reconcileDocumentJobs(): Promise<Awaited<void>> {
   const conn = getConn();
   const now = nowIso();
-  const running = conn.prepare("SELECT * FROM knowledge_document_jobs WHERE status='running'").all() as Row[];
+  const running = (await conn.query("SELECT * FROM knowledge_document_jobs WHERE status='running'",[])).rows as Row[];
   for (const job of running) {
-    conn.prepare("UPDATE knowledge_document_jobs SET status='failed', error='interrupted', finished_at=? WHERE id=?").run(now, job.id);
-    conn.prepare("UPDATE knowledge_documents SET status='failed', error='服务重启中断，可重试', updated_at=? WHERE id=?")
-      .run(now, job.document_id);
+    (await conn.query("UPDATE knowledge_document_jobs SET status='failed', error='interrupted', finished_at=$1 WHERE id=$2",[now,job.id]));
+    (await conn.query("UPDATE knowledge_documents SET status='failed', error='服务重启中断，可重试', updated_at=$1 WHERE id=$2",[now,job.document_id]));
   }
-  const queued = conn.prepare("SELECT DISTINCT document_id FROM knowledge_document_jobs WHERE status='queued'").all() as Row[];
+  const queued = (await conn.query("SELECT DISTINCT document_id FROM knowledge_document_jobs WHERE status='queued'",[])).rows as Row[];
   for (const row of queued) {
     const documentId = String(row.document_id);
-    const doc = conn.prepare("SELECT status FROM knowledge_documents WHERE id=?").get(documentId) as Row | undefined;
+    const doc = (await conn.query("SELECT status FROM knowledge_documents WHERE id=$1",[documentId])).rows[0] as Row | undefined;
     if (!doc || ["published", "archived"].includes(String(doc.status))) continue;
     enqueueDocument(documentId, "normalize");
   }

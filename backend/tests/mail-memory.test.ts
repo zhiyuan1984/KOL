@@ -1,3 +1,4 @@
+import { asyncEvery } from "../src/async-collections.js";
 import { pgClaimExecutionJobById, pgCompleteExecutionJob, pgFailExecutionJob } from "../src/execution-jobs/postgres-store.js";
 import { closePostgresPool } from "../src/postgres/pool.js";
 import { mapUser, withScopedUser } from "../src/auth.js";
@@ -30,27 +31,27 @@ const calls: string[] = [];
 let listDelayMs = 0;
 
 async function request(method: string, url: string, body?: unknown) {
-  const actor = getConn().prepare("SELECT * FROM users WHERE id=?").get(DEMO_USER.id) as Json | undefined;
-  const invoke = () => app.request(url, {
+  const actor = (await getConn().query("SELECT * FROM users WHERE id=$1",[DEMO_USER.id])).rows[0] as Json | undefined;
+  const invoke = async () => (await app.request(url, {
     method,
     headers: { "Content-Type": "application/json" },
     ...(method === "GET" ? {} : { body: JSON.stringify(body || {}) }),
-  });
-  const response = actor ? await withScopedUser(mapUser(actor), invoke) : await invoke();
+  }));
+  const response = actor ? await withScopedUser((await mapUser(actor)), invoke) : await invoke();
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) as Json : {} };
 }
 
-function sessionCount(): number {
-  return Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n);
+async function sessionCount(): Promise<Awaited<number>> {
+  return Number(((await getConn().query("SELECT COUNT(*) AS n FROM sessions",[])).rows[0] as { n: number }).n);
 }
 
-function unreadOf(mailbox: string): number {
-  return Number((getConn().prepare("SELECT COALESCE(SUM(unread_count),0) AS n FROM kol_mail_threads WHERE mailbox=?").get(mailbox) as { n: number }).n);
+async function unreadOf(mailbox: string): Promise<Awaited<number>> {
+  return Number(((await getConn().query("SELECT COALESCE(SUM(unread_count),0) AS n FROM kol_mail_threads WHERE mailbox=$1",[mailbox])).rows[0] as { n: number }).n);
 }
 
 async function bindLarry(): Promise<void> {
-  bindStarryUser();
+  (await bindStarryUser());
   process.env.RUNTIME_CREDENTIAL_MASTER_KEY = "a".repeat(64);
   (await saveStarryBinding(DEMO_USER.id, { mailbox_email: "larry.zhao@amperetime.com", bearer: "test-only-token" }));
 }
@@ -155,13 +156,12 @@ beforeEach(async () => {
   listDelayMs = 0;
   resetFollowedMailSync();
   stubStarry();
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
-  seedWorkbenchFixtures();
-  getConn().prepare("UPDATE collaborations SET kol_uid=?, email=? WHERE id='col_xiaomei'")
-    .run("KOL51DA646D8D8A4544BB93", "xiaomei.beauty@example.com");
+  (await seedWorkbenchFixtures());
+  (await getConn().query("UPDATE collaborations SET kol_uid=$1, email=$2 WHERE id='col_xiaomei'",["KOL51DA646D8D8A4544BB93","xiaomei.beauty@example.com"]));
 });
 
 afterEach(async () => {
@@ -171,7 +171,7 @@ afterEach(async () => {
   delete process.env.CODEX_API_KEY;
   delete process.env.INTENT_LLM_MODE;
   resetFollowedMailSync();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -202,7 +202,7 @@ describe("mailbox memory P0", () => {
     (await bindLarry());
     await ensureFollowedMailSync(true);
     const starryBefore = calls.filter((name) => name === "pageEmailConversations" || name === "getEmailConversation").length;
-    const sessionsBefore = sessionCount();
+    const sessionsBefore = (await sessionCount());
     calls.length = 0;
 
     const box = await request("GET", "/api/queries/mail.box");
@@ -216,7 +216,7 @@ describe("mailbox memory P0", () => {
     expect(box.body).toMatchObject({ entry: "memory", creates_session: false, calls_model: false });
     expect(listed.body).toMatchObject({ entry: "memory", creates_session: false, calls_model: false });
     expect(opened.body).toMatchObject({ entry: "memory", creates_session: false, calls_model: false });
-    expect(sessionCount()).toBe(sessionsBefore);
+    expect((await sessionCount())).toBe(sessionsBefore);
     expect(calls).toEqual([]);
     expect(starryBefore).toBeGreaterThan(0);
     expect(String(opened.body.digest_source || (opened.body.conversation as Json).digest_source)).not.toBe("codex_memory");
@@ -252,7 +252,7 @@ describe("mailbox memory P0", () => {
       snippet: "Hello, can we work together next month?",
     }]);
     (await bindLarry());
-    const collabsBefore = Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations").get() as { n: number }).n);
+    const collabsBefore = Number(((await getConn().query("SELECT COUNT(*) AS n FROM collaborations",[])).rows[0] as { n: number }).n);
     const queued = await request("POST", "/api/jobs/mail.sync/start");
     await processExecutionJobById(String((queued.body.job as Json).id));
     const listed = await request("GET", "/api/queries/mail.conversations");
@@ -263,7 +263,7 @@ describe("mailbox memory P0", () => {
       mailbox: "larry.zhao@amperetime.com",
     });
     expect(unbound?.collaboration_id == null || unbound?.collaboration_id === "").toBe(true);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations").get() as { n: number }).n)).toBe(collabsBefore);
+    expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM collaborations",[])).rows[0] as { n: number }).n)).toBe(collabsBefore);
   });
 
   it("gzip-compresses the mailbox conversation list for slow links", async () => {
@@ -279,8 +279,8 @@ describe("mailbox memory P0", () => {
     (await bindLarry());
     listDelayMs = 40;
     const [first, second] = await Promise.all([
-      request("POST", "/api/jobs/mail.sync/start"),
-      request("POST", "/api/jobs/mail.sync/start"),
+      (await request("POST", "/api/jobs/mail.sync/start")),
+      (await request("POST", "/api/jobs/mail.sync/start")),
     ]);
     expect(first.status).toBe(202);
     expect(second.status).toBe(202);
@@ -288,7 +288,7 @@ describe("mailbox memory P0", () => {
     await processExecutionJobById(String((first.body.job as Json).id));
     // total=1 with a single partial page: the background loop must not fetch page 2 (spec §3 stop conditions).
     expect(calls.filter((name) => name === "pageEmailConversations")).toHaveLength(1);
-    const bind = getConn().prepare("SELECT * FROM user_starry_bindings").get() as Json;
+    const bind = (await getConn().query("SELECT * FROM user_starry_bindings",[])).rows[0] as Json;
     expect(bind.synced_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(String(bind.sync_cursor_at || "")).toBeTruthy();
     expect(String(bind.last_tool)).toBe("pageEmailConversations");
@@ -298,8 +298,7 @@ describe("mailbox memory P0", () => {
 
   it("finds threads when collaboration mailbox_from ≠ bound mailbox but peer/binding matches", async () => {
     (await bindLarry());
-    getConn().prepare("UPDATE collaborations SET mailbox_from=?, owner_mailbox=? WHERE id='col_xiaomei'")
-      .run("kol.lt@litime.example", "");
+    (await getConn().query("UPDATE collaborations SET mailbox_from=$1, owner_mailbox=$2 WHERE id='col_xiaomei'",["kol.lt@litime.example",""]));
     expect(matchesFollowedMailbox({
       mailbox_from: "kol.lt@litime.example",
       owner_mailbox: "",
@@ -365,16 +364,12 @@ describe("mailbox memory P0", () => {
   it("keeps provider_message_id inserts idempotent", async () => {
     (await bindLarry());
     await ensureFollowedMailSync(true);
-    const first = Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_mail_items").get() as { n: number }).n);
+    const first = Number(((await getConn().query("SELECT COUNT(*) AS n FROM kol_mail_items",[])).rows[0] as { n: number }).n);
     await ensureFollowedMailSync(true);
-    const second = Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_mail_items").get() as { n: number }).n);
+    const second = Number(((await getConn().query("SELECT COUNT(*) AS n FROM kol_mail_items",[])).rows[0] as { n: number }).n);
     expect(first).toBeGreaterThan(0);
     expect(second).toBe(first);
-    const dupes = getConn().prepare(
-      `SELECT provider_message_id, COUNT(*) AS n FROM kol_mail_items
-       WHERE provider_message_id IS NOT NULL AND provider_message_id != ''
-       GROUP BY provider_message_id HAVING COUNT(*) > 1`,
-    ).all();
+    const dupes = (await getConn().query("SELECT provider_message_id, COUNT(*) AS n FROM kol_mail_items\n       WHERE provider_message_id IS NOT NULL AND provider_message_id != ''\n       GROUP BY provider_message_id HAVING COUNT(*) > 1",[])).rows;
     expect(dupes).toEqual([]);
   });
 
@@ -418,9 +413,7 @@ describe("mailbox memory P0", () => {
     expect((read.body.conversation as Json).unread_count).toBe(0);
     const afterRead = await request("GET", `/api/queries/mail.conversation?id=${thread?.id}`);
     expect((afterRead.body.messages as Json[]).every((row) => row.unread === false)).toBe(true);
-    const remaining = Number((getConn().prepare(
-      "SELECT COUNT(*) AS n FROM kol_mail_items WHERE thread_id=? AND unread=1",
-    ).get(String(thread?.id)) as { n: unknown }).n);
+    const remaining = Number(((await getConn().query("SELECT COUNT(*) AS n FROM kol_mail_items WHERE thread_id=$1 AND unread=1",[String(thread?.id)])).rows[0] as { n: unknown }).n);
     expect(remaining).toBe(0);
 
     const missing = await request("POST", "/api/actions/mail.read", { id: "conv_missing" });
@@ -432,17 +425,14 @@ describe("mailbox memory P0", () => {
     await ensureFollowedMailSync(true);
     (await saveStarryBinding(DEMO_USER.id, { mailbox_email: "second.box@amperetime.com", owner_name: "赵良玉" }));
     const now = new Date().toISOString();
-    getConn().prepare(
-      `INSERT INTO kol_mail_threads (id, conversation_id, subject, mailbox, unread_count, last_at, created_at, updated_at)
-       VALUES ('thr_second', '9901', 'Second box mail', 'second.box@amperetime.com', 3, ?, ?, ?)`,
-    ).run(now, now, now);
+    (await getConn().query("INSERT INTO kol_mail_threads (id, conversation_id, subject, mailbox, unread_count, last_at, created_at, updated_at)\n       VALUES ('thr_second', '9901', 'Second box mail', 'second.box@amperetime.com', 3, $1, $2, $3)",[now,now,now]));
 
     const second = await request("GET", `/api/queries/mail.box?box=${encodeURIComponent("second.box@amperetime.com")}`);
     expect(second.body.mailbox).toBe("second.box@amperetime.com");
     expect(Number(second.body.unread)).toBe(3);
     const bindings = second.body.bindings as Json[];
     expect(bindings.map((row) => row.mailbox)).toEqual(["larry.zhao@amperetime.com", "second.box@amperetime.com"]);
-    expect(bindings.every((row) => Number(row.unread) === unreadOf(String(row.mailbox)))).toBe(true);
+    expect((await asyncEvery(bindings,async (row) => Number(row.unread) === (await unreadOf(String(row.mailbox)))))).toBe(true);
     expect(Number(second.body.total_unread)).toBe(
       (bindings as Array<{ unread: number }>).reduce((sum, row) => sum + Number(row.unread), 0),
     );
@@ -493,28 +483,14 @@ describe("mailbox memory P0", () => {
   it("indexes kol_mail_items by thread and counts mail without a per-thread subquery", async () => {
     (await bindLarry());
     const now = "2026-09-20T03:00:00.000Z";
-    const index = getConn()
-      .prepare("SELECT indexname AS name FROM pg_indexes WHERE indexname='kol_mail_items_thread'")
-      .get() as { name?: string } | undefined;
+    const index = (await getConn().query("SELECT indexname AS name FROM pg_indexes WHERE indexname='kol_mail_items_thread'",[])).rows[0] as { name?: string } | undefined;
     expect(index?.name).toBe("kol_mail_items_thread");
 
-    getConn().prepare(
-      `INSERT INTO kol_mail_threads
-         (id, conversation_id, subject, mailbox, unread_count, last_at, created_at, updated_at, digest_text, digest_source)
-       VALUES ('thr_two', '9101', 'Two mails', ?, 0, ?, ?, ?, '两封往来摘要', 'body_analysis'),
-              ('thr_one', '9102', 'One mail', ?, 0, ?, ?, ?, '', '')`,
-    ).run(
-      "larry.zhao@amperetime.com", now, now, now,
-      "larry.zhao@amperetime.com", now, now, now,
-    );
-    const item = getConn().prepare(
-      `INSERT INTO kol_mail_items
-         (id, thread_id, conversation_id, provider_message_id, direction, subject, snippet, unread, occurred_at, created_at)
-       VALUES (?, ?, ?, ?, 'inbound', 'Hello', 'Hello', 0, ?, ?)`,
-    );
-    item.run("mit_a1", "thr_two", "9101", "mid-9101-1", now, now);
-    item.run("mit_a2", "thr_two", "9101", "mid-9101-2", now, now);
-    item.run("mit_b1", "thr_one", "9102", "mid-9102-1", now, now);
+    (await getConn().query("INSERT INTO kol_mail_threads\n         (id, conversation_id, subject, mailbox, unread_count, last_at, created_at, updated_at, digest_text, digest_source)\n       VALUES ('thr_two', '9101', 'Two mails', $1, 0, $2, $3, $4, '两封往来摘要', 'body_analysis'),\n              ('thr_one', '9102', 'One mail', $5, 0, $6, $7, $8, '', '')",["larry.zhao@amperetime.com",now,now,now,"larry.zhao@amperetime.com",now,now,now]));
+    const item = "INSERT INTO kol_mail_items\n         (id, thread_id, conversation_id, provider_message_id, direction, subject, snippet, unread, occurred_at, created_at)\n       VALUES ($1, $2, $3, $4, 'inbound', 'Hello', 'Hello', 0, $5, $6)";
+    (await getConn().query(item,["mit_a1","thr_two","9101","mid-9101-1",now,now]));
+    (await getConn().query(item,["mit_a2","thr_two","9101","mid-9101-2",now,now]));
+    (await getConn().query(item,["mit_b1","thr_one","9102","mid-9102-1",now,now]));
 
     const listed = await request("GET", "/api/queries/mail.conversations");
     const two = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "9101");
@@ -532,17 +508,12 @@ describe("mailbox memory P0", () => {
 
   it("projects collaboration stage_code through the PostgreSQL mailbox list and conversation route", async () => {
     (await bindLarry());
-    getConn().prepare("UPDATE collaborations SET stage_code=? WHERE id='col_xiaomei'")
-      .run("QUOTE_PENDING");
+    (await getConn().query("UPDATE collaborations SET stage_code=$1 WHERE id='col_xiaomei'",["QUOTE_PENDING"]));
     const now = new Date().toISOString();
     // This is a real row in the fresh PostgreSQL test database. Keeping the
     // projection test local avoids making a read-path assertion depend on the
     // separate external-mail synchronization fixture.
-    getConn().prepare(
-      `INSERT INTO kol_mail_threads
-         (id, collaboration_id, conversation_id, subject, mailbox, unread_count, last_at, match_state, created_at, updated_at)
-       VALUES ('thr_stage_projection', 'col_xiaomei', 'stage-3901', 'Stage projection', 'larry.zhao@amperetime.com', 0, ?, 'matched', ?, ?)`,
-    ).run(now, now, now);
+    (await getConn().query("INSERT INTO kol_mail_threads\n         (id, collaboration_id, conversation_id, subject, mailbox, unread_count, last_at, match_state, created_at, updated_at)\n       VALUES ('thr_stage_projection', 'col_xiaomei', 'stage-3901', 'Stage projection', 'larry.zhao@amperetime.com', 0, $1, 'matched', $2, $3)",[now,now,now]));
     // listMailboxConversations runs the LIST_COLUMNS PostgreSQL query and maps
     // every row through conversationRowOf before the HTTP operation sees it.
     const mailboxThread = (await listMailboxConversations("larry.zhao@amperetime.com"))
@@ -569,11 +540,9 @@ describe("mailbox memory P0", () => {
     const boxEmail = "larry.zhao@amperetime.com";
     const now = new Date().toISOString();
     const db = getConn();
-    db.prepare("UPDATE user_starry_bindings SET is_default=0 WHERE user_id=?").run(DEMO_USER.id);
-    db.prepare(`INSERT INTO kol_mail_threads (id,conversation_id,subject,mailbox,unread_count,created_at,updated_at)
-      VALUES ('thr_selected_box','selected_box','Selected',?,1,?,?), ('thr_foreign_box','foreign_box','Foreign','other@example.com',9,?,?)`)
-      .run(boxEmail, now, now, now, now);
-    const before = sessionCount();
+    (await db.query("UPDATE user_starry_bindings SET is_default=0 WHERE user_id=$1",[DEMO_USER.id]));
+    (await db.query("INSERT INTO kol_mail_threads (id,conversation_id,subject,mailbox,unread_count,created_at,updated_at)\n      VALUES ('thr_selected_box','selected_box','Selected',$1,1,$2,$3), ('thr_foreign_box','foreign_box','Foreign','other@example.com',9,$4,$5)",[boxEmail,now,now,now,now]));
+    const before = (await sessionCount());
     calls.length = 0;
     const box = await request("GET", "/api/queries/mail.box");
     expect(box.body).toMatchObject({ bound: false, mailbox: "", unread: 0 });
@@ -589,13 +558,13 @@ describe("mailbox memory P0", () => {
     expect((await request("GET", "/api/queries/mail.conversation?id=thr_foreign_box")).status).toBe(404);
     expect((await request("GET", `/api/queries/mail.conversation?id=thr_foreign_box&box=${encodeURIComponent(boxEmail)}`)).status).toBe(404);
     expect((await request("GET", "/api/queries/mail.conversations?box=other%40example.com")).status).toBe(403);
-    expect(sessionCount()).toBe(before);
+    expect((await sessionCount())).toBe(before);
     expect(calls).toEqual([]);
   });
 
   it("serves the compose catalog from the email_compose contract with no session and no model", async () => {
     const { emailComposeContract } = await import("../src/skills/email-compose-contract.js");
-    const sessionsBefore = sessionCount();
+    const sessionsBefore = (await sessionCount());
     const response = await app.request("/api/queries/mail.compose-catalog");
     expect(response.status).toBe(200);
     expect(String(response.headers.get("cache-control") || "")).toBe("no-store");
@@ -622,7 +591,7 @@ describe("mailbox memory P0", () => {
       expect(Object.keys(letter).sort()).toEqual(["chip", "kind", "prompt", "stage", "template_id"]);
     }
     expect(calls).toEqual([]);
-    expect(sessionCount()).toBe(sessionsBefore);
+    expect((await sessionCount())).toBe(sessionsBefore);
   });
   it("retires mail-specific routes and rejects an unregistered tool action", async () => {
     expect((await app.request("/api/mail/box")).status).toBe(404);
@@ -649,15 +618,15 @@ describe("mailbox memory P0", () => {
     (await bindLarry());
     const queued = await request("POST", "/api/jobs/mail.sync/start", {});
     const id = String((queued.body.job as Json).id);
-    getConn().prepare("UPDATE execution_jobs SET actor_ref=? WHERE id=?").run("someone-else", id);
+    (await getConn().query("UPDATE execution_jobs SET actor_ref=$1 WHERE id=$2",["someone-else",id]));
     expect((await request("GET", `/api/jobs/${id}`)).status).toBe(404);
     expect((await request("POST", `/api/jobs/${id}/cancel`, {})).status).toBe(404);
-    getConn().prepare("UPDATE execution_jobs SET actor_ref=?,max_attempts=1 WHERE id=?").run(DEMO_USER.id, id);
-    getConn().prepare("UPDATE user_starry_bindings SET status='expired' WHERE user_id=?").run(DEMO_USER.id);
+    (await getConn().query("UPDATE execution_jobs SET actor_ref=$1,max_attempts=1 WHERE id=$2",[DEMO_USER.id,id]));
+    (await getConn().query("UPDATE user_starry_bindings SET status='expired' WHERE user_id=$1",[DEMO_USER.id]));
     await processExecutionJobById(id);
     expect(calls).toEqual([]);
-    expect(getConn().prepare("SELECT status FROM execution_jobs WHERE id=?").get(id)).toMatchObject({ status: "failed" });
-    getConn().prepare("UPDATE user_starry_bindings SET status='connected' WHERE user_id=?").run(DEMO_USER.id);
+    expect((await getConn().query("SELECT status FROM execution_jobs WHERE id=$1",[id])).rows[0]).toMatchObject({ status: "failed" });
+    (await getConn().query("UPDATE user_starry_bindings SET status='connected' WHERE user_id=$1",[DEMO_USER.id]));
     expect((await request("POST", `/api/jobs/${id}/retry`, {})).status).toBe(202);
     await processExecutionJobById(id);
     expect((await request("GET", `/api/jobs/${id}`)).body.job).toMatchObject({ status: "succeeded" });
@@ -668,7 +637,7 @@ describe("mailbox memory P0", () => {
     const queued = await request("POST", "/api/jobs/mail.sync/start", {});
     const id = String((queued.body.job as Json).id);
     await pgClaimExecutionJobById(id, "old-worker");
-    getConn().prepare("UPDATE execution_jobs SET lease_owner='new-worker' WHERE id=?").run(id);
+    (await getConn().query("UPDATE execution_jobs SET lease_owner='new-worker' WHERE id=$1",[id]));
     expect(await pgCompleteExecutionJob(id, { ok: true }, new Date(), "old-worker")).toBeUndefined();
     await pgFailExecutionJob(id, { code: "stale_failure", summary: "old attempt" }, { expected_worker: "old-worker" });
     expect((await request("GET", `/api/jobs/${id}`)).body.job).toMatchObject({ status: "running", lease_owner: "new-worker" });

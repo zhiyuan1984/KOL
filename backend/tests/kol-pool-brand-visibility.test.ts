@@ -26,31 +26,19 @@ function user(id: string, overrides: Partial<AppUser> = {}): AppUser {
   } as AppUser;
 }
 
-function insertUser(id: string, name: string, brands: string[] = []) {
-  getConn().prepare(
-    "INSERT INTO users (id,username,name,password_hash,roles,brands,active,created_at,updated_at) VALUES (?,?,?,?,?,?,1,'now','now')",
-  ).run(id, id, name, "x", JSON.stringify(["employee"]), JSON.stringify(brands));
+async function insertUser(id: string, name: string, brands: string[] = []) {
+  (await getConn().query("INSERT INTO users (id,username,name,password_hash,roles,brands,active,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,1,'now','now')",[id,id,name,"x",JSON.stringify(["employee"]),JSON.stringify(brands)]));
   const personRef = `person:${id}`;
-  getConn().prepare(
-    "INSERT INTO organization_people (person_ref,display_name,user_id,status,created_at,updated_at) VALUES (?,?,?,'active','now','now')",
-  ).run(personRef, name, id);
+  (await getConn().query("INSERT INTO organization_people (person_ref,display_name,user_id,status,created_at,updated_at) VALUES ($1,$2,$3,'active','now','now')",[personRef,name,id]));
   return personRef;
 }
 
-function insertUnit(id: string, displayName: string, level: number, parentId: string | null, headPersonRef: string | null) {
-  getConn().prepare(
-    `INSERT INTO organization_units
-       (id,company_id,display_name,type,parent_id,level,head_person_ref,head_display_name,status,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?, 'active','now','now')`,
-  ).run(id, "company:amperetime", displayName, "department", parentId, level, headPersonRef, headPersonRef);
+async function insertUnit(id: string, displayName: string, level: number, parentId: string | null, headPersonRef: string | null) {
+  (await getConn().query("INSERT INTO organization_units\n       (id,company_id,display_name,type,parent_id,level,head_person_ref,head_display_name,status,created_at,updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7,$8, 'active','now','now')",[id,"company:amperetime",displayName,"department",parentId,level,headPersonRef,headPersonRef]));
 }
 
-function addMember(personRef: string, unitId: string) {
-  getConn().prepare(
-    `INSERT INTO organization_memberships
-       (id,person_ref,company_id,org_unit_id,relation,status,created_at,updated_at)
-     VALUES (?,?,?,?, 'primary','active','now','now')`,
-  ).run(`m:${personRef}:${unitId}`, personRef, "company:amperetime", unitId);
+async function addMember(personRef: string, unitId: string) {
+  (await getConn().query("INSERT INTO organization_memberships\n       (id,person_ref,company_id,org_unit_id,relation,status,created_at,updated_at)\n     VALUES ($1,$2,$3,$4, 'primary','active','now','now')",[`m:${personRef}:${unitId}`,personRef,"company:amperetime",unitId]));
 }
 
 beforeEach(async () => {
@@ -61,28 +49,28 @@ beforeEach(async () => {
     AUTH_MODE: "disabled",
     NODE_ENV: "test",
   });
-  resetConn();
+  (await resetConn());
   getConn();
   (await ensureOrganizationTree());
   // 四级组织：一级中心 → 二级推广部 → 三级LT组 → 四级投放小组
-  const zhang = insertUser("u_zhang", "张慧玲");
-  const zhong = insertUser("u_zhong", "钟剑奎");
-  const ye = insertUser("u_ye", "叶观旺", ["LT"]);
-  const a = insertUser("u_a", "成员A", ["LT"]);
-  const b = insertUser("u_b", "成员B", ["LT"]);
-  insertUnit("org:l1", "品牌与用户增长中心", 1, null, zhang);
-  insertUnit("org:l2", "推广部", 2, "org:l1", zhong);
-  insertUnit("org:l3", "LT组", 3, "org:l2", ye);
-  insertUnit("org:l4", "投放小组", 4, "org:l3", null);
-  addMember(zhang, "org:l1");
-  addMember(zhong, "org:l2");
-  addMember(ye, "org:l3");
-  addMember(a, "org:l3");
-  addMember(b, "org:l4");
+  const zhang = (await insertUser("u_zhang", "张慧玲"));
+  const zhong = (await insertUser("u_zhong", "钟剑奎"));
+  const ye = (await insertUser("u_ye", "叶观旺", ["LT"]));
+  const a = (await insertUser("u_a", "成员A", ["LT"]));
+  const b = (await insertUser("u_b", "成员B", ["LT"]));
+  (await insertUnit("org:l1", "品牌与用户增长中心", 1, null, zhang));
+  (await insertUnit("org:l2", "推广部", 2, "org:l1", zhong));
+  (await insertUnit("org:l3", "LT组", 3, "org:l2", ye));
+  (await insertUnit("org:l4", "投放小组", 4, "org:l3", null));
+  (await addMember(zhang, "org:l1"));
+  (await addMember(zhong, "org:l2"));
+  (await addMember(ye, "org:l3"));
+  (await addMember(a, "org:l3"));
+  (await addMember(b, "org:l4"));
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   for (const key of ["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "NODE_ENV"]) delete process.env[key];
 });

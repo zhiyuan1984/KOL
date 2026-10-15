@@ -25,10 +25,10 @@ async function seedDiscoveryRequest(input: { id: string; owner: string; createdA
 beforeEach(async () => {
   requireLocalTestDatabase();
   await freshTestDatabase();
-  resetConn();
+  (await resetConn());
 });
 
-afterEach(() => { resetConn(); });
+afterEach(async () => { (await resetConn()); });
 
 describe.sequential("KOL scoring criteria (native PostgreSQL)", () => {
   it("reads only the employee's latest declared discovery request using parameterized PostgreSQL", async () => {

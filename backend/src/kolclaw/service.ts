@@ -266,10 +266,10 @@ export async function executeKolClawTask(
     const campaignId = number(entities.campaign_id, 1);
     data = await invoke("get_budget_report", { campaign_id: campaignId });
   }
-  audit(actor, `kolclaw.${task}`, {
+  (await audit(actor, `kolclaw.${task}`, {
     task,
     operations: operations.map((operation) => ({ name: operation.name, status: operation.status })),
     write: false,
-  });
+  }));
   return { data, operations };
 }

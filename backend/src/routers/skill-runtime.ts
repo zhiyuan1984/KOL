@@ -161,13 +161,13 @@ async function mountDeclaredTools(connectorId: string, requestedSkillIds: string
       await setSkillTool(skillId, connectorId, tool.tool_name, true, Number(existing?.version) || 0);
       mounted.push(tool.tool_name);
     }
-    audit(actor, "runtime.skill_mount.declared", {
+    (await audit(actor, "runtime.skill_mount.declared", {
       connector_id: connectorId,
       skill_id: skillId,
       mounted,
       unchanged,
       skipped,
-    });
+    }));
     results.push({
       skill_id: skillId,
       connector_bound: connectorBound,
@@ -201,12 +201,12 @@ skillRuntimeRouter.put("/admin/runtime/agents/:agentId/skills/:skillId", async (
   const body = await bodyObject(c);
   onlyFields(body, ["enabled", "expected_version"]);
   const row = await setAgentSkill(c.req.param("agentId"), c.req.param("skillId"), enabled(body), expectedVersion(body));
-  audit(admin.id, "runtime.binding.updated", {
+  (await audit(admin.id, "runtime.binding.updated", {
     action: enabled(body) ? "enabled" : "disabled",
     agent_id: row.agent_id,
     skill_id: row.skill_id,
     version: row.version,
-  });
+  }));
   return c.json(row);
 });
 
@@ -220,12 +220,12 @@ skillRuntimeRouter.put("/admin/runtime/skills/:skillId/connectors/:connectorId",
   const body = await bodyObject(c);
   onlyFields(body, ["enabled", "expected_version"]);
   const row = await setSkillConnector(c.req.param("skillId"), c.req.param("connectorId"), enabled(body), expectedVersion(body));
-  audit(admin.id, "runtime.binding.updated", {
+  (await audit(admin.id, "runtime.binding.updated", {
     action: enabled(body) ? "enabled" : "disabled",
     skill_id: row.skill_id,
     connector_id: row.connector_id,
     version: row.version,
-  });
+  }));
   return c.json(row);
 });
 
@@ -241,10 +241,10 @@ skillRuntimeRouter.put("/admin/runtime/skills/:skillId/tools/:connectorId/:toolN
   const row = await setSkillTool(
     c.req.param("skillId"), c.req.param("connectorId"), c.req.param("toolName"), enabled(body), expectedVersion(body),
   );
-  audit(admin.id, "runtime.tool_binding.updated", {
+  (await audit(admin.id, "runtime.tool_binding.updated", {
     action: row.enabled ? "enabled" : "disabled", skill_id: row.skill_id,
     connector_id: row.connector_id, tool_name: row.tool_name, version: row.version,
-  });
+  }));
   return c.json(row);
 });
 
@@ -304,11 +304,11 @@ skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/config", async (c
   if (process.env.NODE_ENV !== "test") {
     await postgresQuery("UPDATE connectors SET enabled=0,status='pending_verification',last_error=NULL,updated_at=$1 WHERE id=$2", [new Date().toISOString(), String(row.connector_id)]);
   }
-  audit(admin.id, "runtime.config.updated", {
+  (await audit(admin.id, "runtime.config.updated", {
     action: "upserted",
     connector_id: row.connector_id,
     version: row.version,
-  });
+  }));
   // Return only the validated, reference-only DTO; never expose config_json.
   return c.json({ config, version: row.version });
 });
@@ -353,11 +353,11 @@ skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/tools/:toolName",
     schema_hash: body.schema_hash,
   }, version);
   // L3 is mountable. Registration cannot confer confirmation or business approval.
-  audit(admin.id, "runtime.tool_policy.updated", {
+  (await audit(admin.id, "runtime.tool_policy.updated", {
     action: row.enabled ? "enabled" : "disabled",
     connector_id: row.connector_id,
     tool_name: row.tool_name,
     version: row.version,
-  });
+  }));
   return c.json(row);
 });

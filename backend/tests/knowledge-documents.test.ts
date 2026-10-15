@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as bridge from "../src/knowledge-bridge.js";
 import { tokenDigest,withScopedUser,requireAdmin,authDisabled } from "../src/auth.js";
 import type { Hono } from "hono";
-import { getConn, resetConn,txImmediate } from "../src/db.js";
+import { getConn, resetConn,tx } from "../src/db.js";
 import { randomUUID } from "node:crypto";
 import { ensureOrganizationTree } from "../src/runtime/organization-tree.js";
 import { reviewContextForActor } from "../src/approval/review-access.js";
@@ -45,7 +45,7 @@ async function request(
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
-  const res = await (authDisabled() ? withScopedUser(requireAdmin(),()=>app.request(url,init)) : app.request(url,init));
+  const res = await (authDisabled() ? (await withScopedUser(requireAdmin(),async ()=>(await app.request(url,init)))) : (await app.request(url,init)));
   const text = await res.text();
   return {
     status: res.status,
@@ -110,22 +110,22 @@ async function waitStatus(id: string, statuses: string[], timeoutMs = 8000): Pro
 }
 
 async function auditCount(eventType: string): Promise<number> {
-  const row = getConn().prepare("SELECT COUNT(*) AS n FROM audit_events WHERE event_type=?").get(eventType) as { n: unknown };
+  const row = (await getConn().query("SELECT COUNT(*) AS n FROM audit_events WHERE event_type=$1",[eventType])).rows[0] as { n: unknown };
   return Number(row.n || 0);
 }
 
 async function approveAndPublish(id:string,base:string){
-  const context=(actor="sriphy")=>reviewContextForActor(getConn(),actor,"company:amperetime");
+  const context=async (actor="sriphy")=>(await reviewContextForActor(getConn(),actor,"company:amperetime"));
   const definition=knowledgeReviewDefinition();definition.nodes.find(n=>n.type==="review")!.assignee={kind:"named",userIds:["pdf-reviewer"]};
-  const template=txImmediate(db=>new ReviewService(db,context()).saveTemplate(undefined,undefined,definition));
-  txImmediate(db=>{const service=new ReviewService(db,context()),command={action:"publish" as const,templateId:template.id,expectedVersion:template.version};
-    const prepare=service.prepare(command);service.execute(command,prepare.confirmationId,randomUUID());});
-  await bindPublication(base,template.id,0,context());
-  const prepare=await preparePublication(id,"核对原文后发布",context());await guardKnowledgeReview(prepare.command,context());
-  const submit=txImmediate(db=>new ReviewService(db,context()).execute(prepare.command,prepare.confirmationId,randomUUID()));
-  const instance=String(submit.resourceId),service=new ReviewService(getConn(),context("pdf-reviewer")),view=service.instance(instance);
-  const command={action:"approve" as const,instanceId:instance,expectedVersion:view.version,reason:"已核对"};await guardKnowledgeReview(command,context("pdf-reviewer"));
-  txImmediate(db=>{const s=new ReviewService(db,context("pdf-reviewer")),p=s.prepare(command);s.execute(command,p.confirmationId,randomUUID());});
+  const template=(await tx(async db=>(await new ReviewService(db,(await context())).saveTemplate(undefined,undefined,definition))));
+  (await tx(async db=>{const service=new ReviewService(db,(await context())),command={action:"publish" as const,templateId:template.id,expectedVersion:template.version};
+    const prepare=(await service.prepare(command));(await service.execute(command,prepare.confirmationId,randomUUID()));}));
+  await bindPublication(base,template.id,0,(await context()));
+  const prepare=await preparePublication(id,"核对原文后发布",(await context()));await guardKnowledgeReview(prepare.command,(await context()));
+  const submit=(await tx(async db=>(await new ReviewService(db,(await context())).execute(prepare.command,prepare.confirmationId,randomUUID()))));
+  const instance=String(submit.resourceId),service=new ReviewService(getConn(),(await context("pdf-reviewer"))),view=(await service.instance(instance));
+  const command={action:"approve" as const,instanceId:instance,expectedVersion:view.version,reason:"已核对"};await guardKnowledgeReview(command,(await context("pdf-reviewer")));
+  (await tx(async db=>{const s=new ReviewService(db,(await context("pdf-reviewer"))),p=(await s.prepare(command));(await s.execute(command,p.confirmationId,randomUUID()));}));
   expect((await processExecutionJobById(`knowledge-publish:company:amperetime:${instance}`,"pdf-test"))?.outcome).toBe("processed");
 }
 
@@ -137,23 +137,22 @@ beforeEach(async () => {
   process.env.CODEX_MODE = "stub";
   process.env.KNOWLEDGE_ENGINE_MODE = "stub";
   delete process.env.KNOWLEDGE_STUB_NORMALIZE_MS;
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   process.env.AUTH_MODE="disabled";(await ensureOrganizationTree());
   const db=getConn(),time=new Date().toISOString();
   for(const [id,roles] of [["sriphy",'["employee","admin"]'],["pdf-reviewer",'["employee"]']])
-    db.prepare("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)")
-      .run(id,id,id,"unused",roles,'[]','',1,time,time);
-  db.prepare("UPDATE organization_people SET user_id='sriphy' WHERE person_ref='person:yan_chen'").run();
-  db.prepare("UPDATE organization_people SET user_id='pdf-reviewer' WHERE person_ref='person:zhang_gan'").run();
+    (await db.query("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",[id,id,id,"unused",roles,'[]','',1,time,time]));
+  (await db.query("UPDATE organization_people SET user_id='sriphy' WHERE person_ref='person:yan_chen'",[]));
+  (await db.query("UPDATE organization_people SET user_id='pdf-reviewer' WHERE person_ref='person:zhang_gan'",[]));
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
 });
 
-afterEach(() => {
+afterEach(async () => {
   setIntentLlmFetch();
   vi.restoreAllMocks();
-  resetConn();
+  (await resetConn());
   delete process.env.KNOWLEDGE_ENGINE_MODE;
   delete process.env.KNOWLEDGE_STUB_NORMALIZE_MS;
   fs.rmSync(tmp, { recursive: true, force: true });
@@ -164,16 +163,15 @@ describe("knowledge documents (P1 pipeline)", () => {
     const base = await createUnstructuredBase();
     const original = await upload(String(base.id), "组织原件.pdf", pdfBytes());
     await waitStatus(String(original.id), ["pending_review"]);
-    getConn().prepare("INSERT INTO knowledge_document_scopes(document_id,tenant,explanation,fingerprint,updated_at) VALUES(?,?,?,?,?)")
-      .run(original.id, "foreign-company", "", "foreign", new Date().toISOString());
-    const before = getConn().prepare("SELECT count(*) AS n FROM knowledge_documents").get();
+    (await getConn().query("INSERT INTO knowledge_document_scopes(document_id,tenant,explanation,fingerprint,updated_at) VALUES($1,$2,$3,$4,$5)",[original.id,"foreign-company","","foreign",new Date().toISOString()]));
+    const before = (await getConn().query("SELECT count(*) AS n FROM knowledge_documents",[])).rows[0];
     const form = new FormData();
     form.append("base_id", String(base.id));
     form.append("file", new File([blobPart(pdfBytes())], "越界文件.pdf"));
     const response = await request("POST", "/api/admin/knowledge/documents", form);
     expect(response.status).toBe(403);
     expect(await detailCode(response)).toBe("knowledge_base_scope_forbidden");
-    expect(getConn().prepare("SELECT count(*) AS n FROM knowledge_documents").get()).toEqual(before);
+    expect((await getConn().query("SELECT count(*) AS n FROM knowledge_documents",[])).rows[0]).toEqual(before);
   });
   it("validates scope explanations before saving files or starting parsing", async () => {
     const base = await createUnstructuredBase();
@@ -183,7 +181,7 @@ describe("knowledge documents (P1 pipeline)", () => {
     form.append("file", new File([blobPart(pdfBytes())], "无效说明.pdf"));
     const response = await request("POST", "/api/admin/knowledge/documents", form);
     expect(response.status).toBe(422);
-    expect(getConn().prepare("SELECT count(*) AS n FROM knowledge_documents").get()).toMatchObject({ n: 0 });
+    expect((await getConn().query("SELECT count(*) AS n FROM knowledge_documents",[])).rows[0]).toMatchObject({ n: 0 });
     expect(fs.existsSync(path.join(tmp, "knowledge"))).toBe(false);
   });
   it("bounds multipart uploads before parsing and creates no records for oversized requests", async () => {
@@ -196,7 +194,7 @@ describe("knowledge documents (P1 pipeline)", () => {
       const response = await request("POST", "/api/admin/knowledge/documents", form);
       expect(response.status).toBe(413);
       expect(await detailCode(response)).toBe("knowledge_document_too_large");
-      expect(getConn().prepare("SELECT count(*) AS n FROM knowledge_documents").get()).toMatchObject({ n: 0 });
+      expect((await getConn().query("SELECT count(*) AS n FROM knowledge_documents",[])).rows[0]).toMatchObject({ n: 0 });
     } finally {
       if (previous === undefined) delete process.env.KNOWLEDGE_DOC_MAX_BYTES;
       else process.env.KNOWLEDGE_DOC_MAX_BYTES = previous;
@@ -219,7 +217,7 @@ describe("knowledge documents (P1 pipeline)", () => {
   });
 
   it("product consultation uses published bound PDFs through the runtime and rechecks user access", async () => {
-    login(DEMO_ADMIN.handle, DEMO_ADMIN.password);
+    (await login(DEMO_ADMIN.handle, DEMO_ADMIN.password));
     const base = await createUnstructuredBase();
     const create = await request("POST", "/api/admin/skills", {
       id: "product_consultation", title: "产品咨询", body: "使用知识文档问答工具回答并保留页码。", mcp: ["knowledge.ask_documents"],
@@ -235,9 +233,8 @@ describe("knowledge documents (P1 pipeline)", () => {
     const binding = await request("POST", "/api/admin/agents/agent_product_test/knowledge", { skill_id: "product_consultation", base_id: base.id });
     expect(binding.status, await binding.text()).toBe(201);
     const db = getConn();
-    db.prepare("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)")
-      .run("product-user", "product-user", "产品测试用户", "no-login", '["employee"]', '[]', '', 1, "now", "now");
-    db.prepare("UPDATE organization_people SET user_id=? WHERE person_ref=?").run("product-user", "person:ye_guanwang");
+    (await db.query("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",["product-user","product-user","产品测试用户","no-login",'["employee"]','[]','',1,"now","now"]));
+    (await db.query("UPDATE organization_people SET user_id=$1 WHERE person_ref=$2",["product-user","person:ye_guanwang"]));
     const access = (await createAgentBinding({ agent_id: "agent_product_test", target_type: "person", target_id: "person:ye_guanwang", company_id: "company:amperetime", source: "test" }));
     expect((await canUseAgent("product-user", "agent_product_test"))).toBe(true);
     expect((await runtimeAgentForSkill("product_consultation", "product-user"))).toBe("agent_product_test");
@@ -259,15 +256,14 @@ describe("knowledge documents (P1 pipeline)", () => {
       const invalid = vi.spyOn(bridge, "runBridge").mockResolvedValueOnce({ ok: true, answer: "untrusted", citations: [{ doc_id: "outside-scope", page: 1 }] });
       await expect(runtime.invoke("knowledge.ask_documents", { query: "规格？" })).rejects.toMatchObject({ detail: { code: "knowledge_invalid_citation" } });
       invalid.mockRestore();
-      db.prepare("INSERT INTO auth_sessions(id_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)")
-        .run(tokenDigest("product-source-test"), "product-user", new Date(Date.now() + 60000).toISOString(), new Date().toISOString());
+      (await db.query("INSERT INTO auth_sessions(id_hash,user_id,expires_at,created_at) VALUES($1,$2,$3,$4)",[tokenDigest("product-source-test"),"product-user",new Date(Date.now() + 60000).toISOString(),new Date().toISOString()]));
       process.env.AUTH_MODE = "enabled";
       const sourceUrl = String(answer.citations[0].source_url).split("#")[0];
       expect((await request("GET", sourceUrl, undefined, "lingong_session=product-source-test")).status).toBe(200);
       process.env.AUTH_MODE = "disabled";
-      db.prepare("UPDATE knowledge_bases SET status='archived' WHERE id=?").run(base.id);
+      (await db.query("UPDATE knowledge_bases SET status='archived' WHERE id=$1",[base.id]));
       await expect(runtime.invoke("knowledge.ask_documents", { query: "规格？" })).rejects.toMatchObject({ detail: { code: "knowledge_scope_unavailable" } });
-      db.prepare("UPDATE knowledge_bases SET status='active' WHERE id=?").run(base.id);
+      (await db.query("UPDATE knowledge_bases SET status='active' WHERE id=$1",[base.id]));
       const originalBridge = bridge.runBridge;
       const revoked = vi.spyOn(bridge, "runBridge").mockImplementationOnce(async (call) => {
         const outcome = await originalBridge(call);
@@ -364,8 +360,8 @@ describe("knowledge documents (P1 pipeline)", () => {
     process.env.KNOWLEDGE_ENGINE_MODE = "real";
     process.env.KNOWLEDGE_PAGEINDEX_PYTHON = "python3";
     const actual = bridge.runBridge;
-    vi.spyOn(bridge, "runBridge").mockImplementation(call => call.cmd === "index"
-      ? Promise.resolve({ ok: true, doc_id: "mixed_test_index", pages: 3 }) : actual(call));
+    vi.spyOn(bridge, "runBridge").mockImplementation(async call => call.cmd === "index"
+      ? (await Promise.resolve({ ok: true, doc_id: "mixed_test_index", pages: 3 })) : (await actual(call)));
     const ocr = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: "Image body: execution targets, OCR verified.\n".repeat(120) } }], usage: { prompt_tokens: 1, completion_tokens: 1 } })));
     setIntentLlmFetch(ocr);
     const base = await createUnstructuredBase();

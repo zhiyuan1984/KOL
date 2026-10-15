@@ -51,7 +51,7 @@ async function authorizeInTransaction(client: PoolClient, actorId: string, sessi
 
 export async function authorizedTaskSession(actorId: string, sessionId: string, allowArchived = false) {
   if (!(await postgresPool().query("SELECT 1 FROM task_collaboration_sessions WHERE session_id=$1",[sessionId])).rows.length) return null;
-  return postgresTransaction(client => authorizeInTransaction(client,actorId,sessionId,allowArchived));
+  return postgresTransaction(async client => (await authorizeInTransaction(client,actorId,sessionId,allowArchived)));
 }
 
 /** Permission-scoped projection before any private title leaves PostgreSQL. */

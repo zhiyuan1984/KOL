@@ -99,7 +99,7 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;
   process.env.NODE_ENV = "test";
-  resetConn();
+  (await resetConn());
   sseTransports = new Map();
   fixtureServers = [];
   dispatched = [];
@@ -118,7 +118,7 @@ afterEach(async () => {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.LINGONG_DB;
   delete process.env.LINGONG_DATA;

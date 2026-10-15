@@ -28,8 +28,8 @@ describe("native PostgreSQL task events", () => {
 
   it("serializes concurrent appends into gap-free per-ticket sequence facts", async () => {
     const run = await seed("evt-native-main");
-    const events = await Promise.all(Array.from({ length: 20 }, (_, index) =>
-      appendTaskEvent("evt-native-main", run, "run.progress", `步骤 ${index}`, "running", `trace-${index}`),
+    const events = await Promise.all(Array.from({ length: 20 }, async (_, index) =>
+      (await appendTaskEvent("evt-native-main", run, "run.progress", `步骤 ${index}`, "running", `trace-${index}`)),
     ));
     expect(events.every(Boolean)).toBe(true);
     const rows = await postgresPool().query<{ sequence: number; event_type: string }>(
@@ -51,8 +51,8 @@ describe("native PostgreSQL task events", () => {
   it("makes a trace item-key idempotent under two workers while lifecycle facts remain immutable", async () => {
     const run = await seed("evt-native-main");
     const [first, second] = await Promise.all([
-      upsertTaskEvent("evt-native-main", run, "phase:analysis", "run.progress", "分析", "running", "first"),
-      upsertTaskEvent("evt-native-main", run, "phase:analysis", "run.progress", "分析完成", "running", "second"),
+      (await upsertTaskEvent("evt-native-main", run, "phase:analysis", "run.progress", "分析", "running", "first")),
+      (await upsertTaskEvent("evt-native-main", run, "phase:analysis", "run.progress", "分析完成", "running", "second")),
     ]);
     expect(first?.id).toBeTruthy();
     expect(second?.id).toBe(first?.id);

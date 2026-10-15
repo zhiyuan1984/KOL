@@ -126,14 +126,14 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
     // The registry provenance is seeded first, then the test makes the two
     // account bindings explicit exactly as production data-quality operations do.
     await ticketOrgFormBootstrap("u-creator");
-    const creatorBinding = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request("http://test.local/admin/work-orders/account-bindings", {
+    const creatorBinding = await withTicketPrincipal(ADMIN, async () => (await tickets.fetch(new Request("http://test.local/admin/work-orders/account-bindings", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ person_ref: "person:ye_guanwang", account_id: "u-creator", reason: "test controlled account enrollment" }),
-    })));
+    }))));
     expect(creatorBinding.status).toBe(200);
     await bindTicketAccountToOrganizationPerson("u-supervisor", { person_ref: "person:zhong_jiankui", account_id: "u-supervisor", reason: "test controlled supervisor enrollment" });
     await bindTicketAccountToOrganizationPerson("u-supervisor", { person_ref: "person:diao_chucong", account_id: "u-collaborator", reason: "test controlled collaborator enrollment" });
-    const bindingOptions = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request("http://test.local/admin/work-orders/account-bindings/options")));
+    const bindingOptions = await withTicketPrincipal(ADMIN, async () => (await tickets.fetch(new Request("http://test.local/admin/work-orders/account-bindings/options"))));
     expect(bindingOptions.status).toBe(200);
     const bindingOptionBody = await bindingOptions.json() as { accounts: Array<{ id: string; bound_person_ref: string | null }> };
     expect(bindingOptionBody.accounts).toEqual(expect.arrayContaining([expect.objectContaining({ id: "u-creator", bound_person_ref: "person:ye_guanwang" })]));
@@ -224,13 +224,13 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
     expect(departmentHeadReport.authorization.root_units).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "org:promotion_department", type: "department" }),
     ]));
-    const apiResponse = await withTicketPrincipal(CREATOR, () => tickets.fetch(new Request("http://test.local/tickets?view=created")));
+    const apiResponse = await withTicketPrincipal(CREATOR, async () => (await tickets.fetch(new Request("http://test.local/tickets?view=created"))));
     expect(apiResponse.status).toBe(200);
     expect(await apiResponse.json()).toMatchObject({ items: [{ id: first.ticket_id }], page: { limit: 50 } });
-    const organizationApi = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request("http://test.local/tickets/reports/organization")));
+    const organizationApi = await withTicketPrincipal(ADMIN, async () => (await tickets.fetch(new Request("http://test.local/tickets/reports/organization"))));
     expect(organizationApi.status).toBe(200);
     expect(await organizationApi.json()).toMatchObject({ scope: "organization_authorized", authorization: { mode: "company_admin" }, total_authorized: 1 });
-    const stageApi = await withTicketPrincipal(ADMIN, () => tickets.fetch(new Request("http://test.local/tickets/reports/organization/stages")));
+    const stageApi = await withTicketPrincipal(ADMIN, async () => (await tickets.fetch(new Request("http://test.local/tickets/reports/organization/stages"))));
     expect(stageApi.status).toBe(200);
     expect(await stageApi.json()).toMatchObject({ report_version: "ticket-organization-stage-raw.v1", total_authorized: 1 });
 
@@ -301,10 +301,10 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
       [first.ticket_id],
     );
     expect(collaboratorFacts.rows[0]).toEqual({ active: "0", history: "1", added: "1", removed: "1", audit: "2" });
-    const collaboratorApi = await withTicketPrincipal(CREATOR, () => tickets.fetch(new Request(`http://test.local/tickets/${first.ticket_id}/commands`, {
+    const collaboratorApi = await withTicketPrincipal(CREATOR, async () => (await tickets.fetch(new Request(`http://test.local/tickets/${first.ticket_id}/commands`, {
       method: "POST", headers: { "content-type": "application/json", "Idempotency-Key": "native-ticket-collaborator-route-0001" },
       body: JSON.stringify({ action: "add_collaborator", expected_version: 5, assignee_person_ref: "person:diao_chucong", assignee_unit_id: "org:lt_team" }),
-    })));
+    }))));
     expect(collaboratorApi.status).toBe(200);
     expect(await collaboratorApi.json()).toMatchObject({ action: "add_collaborator", version: 6, ticket: { allowed_actions: expect.arrayContaining(["collaborate"]), assignments: expect.arrayContaining([expect.objectContaining({ role: "collaborator", status: "active" })]) } });
 
@@ -316,11 +316,11 @@ describePostgres("native PostgreSQL formal ticket creation", () => {
     });
     const scoped = await listNativeTickets("u-creator", { view: "created", task_id: first.ticket_id, limit: "10" });
     expect(scoped.items).toEqual([expect.objectContaining({ ticket_id: child.ticket_id, task_id: first.ticket_id })]);
-    const deleted = await withTicketPrincipal(CREATOR, () => tickets.fetch(new Request(`http://test.local/tickets/${child.ticket_id}`, {
+    const deleted = await withTicketPrincipal(CREATOR, async () => (await tickets.fetch(new Request(`http://test.local/tickets/${child.ticket_id}`, {
       method: "DELETE",
       headers: { "content-type": "application/json", "Idempotency-Key": "native-ticket-task-child-delete-0001" },
       body: JSON.stringify({ expected_version: 1 }),
-    })));
+    }))));
     expect(deleted.status).toBe(200);
     expect(await deleted.json()).toMatchObject({ ticket_id: child.ticket_id, deleted: true });
     expect((await listNativeTickets("u-creator", { view: "created", task_id: first.ticket_id, limit: "10" })).items).toEqual([]);
