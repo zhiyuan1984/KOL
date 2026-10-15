@@ -323,30 +323,32 @@ function idBatches(ids: string[]): string[][] {
  * 跟进名单的线程记忆按批取回。逐人查（每人 2 条 SQL）在 200+ 人在跟时要跑 400+ 次查询，
  * 把首屏读取窗口拖长；这里最多查两次再分组。合并口径与逐人版本逐字一致。
  */
-function followedThreadMemoryByFollow(follows: Row[], db: DatabaseConnection): Map<string, Json[]> {
+async function followedThreadMemoryByFollow(follows: Row[], db: DatabaseConnection): Promise<Map<string, Json[]>> {
   const summariesByFollow = new Map<string, Row[]>();
   const threadsByCollaboration = new Map<string, Row[]>();
   const followIds = [...new Set(follows.map((follow) => text(follow.id)).filter(Boolean))];
   const collaborationIds = [...new Set(follows.map((follow) => text(follow.collaboration_id)).filter(Boolean))];
   for (const batch of idBatches(followIds)) {
-    const rows = db.prepare(
+    const rows = (await db.query(
       `SELECT follow_id, conversation_id, subject, last_at, effective, key_agreements, open_questions, next_step, updated_at
          FROM kol_thread_summary
-        WHERE follow_id IN (${batch.map(() => "?").join(",")})
+        WHERE follow_id = ANY($1::text[])
         ORDER BY CASE WHEN last_at IS NULL OR last_at='' THEN 1 ELSE 0 END, last_at DESC, updated_at DESC`,
-    ).all(...batch) as Row[];
+      [batch],
+    )).rows as Row[];
     for (const row of rows) {
       const key = text(row.follow_id);
       summariesByFollow.set(key, [...(summariesByFollow.get(key) || []), row]);
     }
   }
   for (const batch of idBatches(collaborationIds)) {
-    const rows = db.prepare(
+    const rows = (await db.query(
       `SELECT collaboration_id, conversation_id, subject, last_direction, last_snippet, last_preview, last_at, unread_count
          FROM kol_mail_threads
-        WHERE collaboration_id IN (${batch.map(() => "?").join(",")})
+        WHERE collaboration_id = ANY($1::text[])
         ORDER BY CASE WHEN last_at IS NULL OR last_at='' THEN 1 ELSE 0 END, last_at DESC, updated_at DESC`,
-    ).all(...batch) as Row[];
+      [batch],
+    )).rows as Row[];
     for (const row of rows) {
       const key = text(row.collaboration_id);
       threadsByCollaboration.set(key, [...(threadsByCollaboration.get(key) || []), row]);
@@ -420,7 +422,7 @@ function refusalIn(value: string): boolean {
  */
 export async function listEmployeeFollowing(employeeId: string, companyId = memoryCompanyId(), db: DatabaseConnection = getConn()): Promise<Awaited<Json[]>> {
   const rows = (await db.query("SELECT f.*, p.handle, p.display_name, p.platform, p.homepage_url, p.avatar_url, p.followers,\n            p.avg_plays, p.engagement, p.engagement_source, p.direction, p.region, p.style,\n            p.ingest_source, p.ingested_at, p.public_stage, p.idle, p.pool_status,\n            p.potential_score, p.potential_probabilities, p.potential_confidence,\n            p.risk_score, p.risk_probabilities, p.risk_confidence,\n            p.assessment_model, p.assessment_version, p.assessed_at, p.assessment_error, p.assessment_criteria,\n            c.stage_code AS collaboration_stage_code, c.days_in_stage AS days_in_stage\n       FROM kol_follow_index f\n       LEFT JOIN kol_profile_index p\n         ON p.company_id=f.company_id AND p.kol_uid=f.kol_uid\n       LEFT JOIN collaborations c\n         ON c.id=f.collaboration_id\n      WHERE f.company_id=$1 AND f.employee_id=$2 AND f.status='active'\n      ORDER BY f.claimed_at DESC",[companyId,employeeId])).rows as Row[];
-  const threadsByFollow = followedThreadMemoryByFollow(rows, db);
+  const threadsByFollow = await followedThreadMemoryByFollow(rows, db);
   return rows.map((row) => {
     const clock = followClock(row.last_effective_mail_at ? String(row.last_effective_mail_at) : null);
     const stage = followStage(row);
