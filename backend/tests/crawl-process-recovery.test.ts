@@ -40,7 +40,7 @@ async function worker(id: string) {
   const child = spawn(process.execPath, ["--import", "tsx", fileURLToPath(new URL("./fixtures/crawl-recovery-worker.ts", import.meta.url)), id], {
     cwd: fileURLToPath(new URL("..", import.meta.url)), env: process.env, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
-  const exited = (await once(child, "exit"));
+  const exited = once(child, "exit");
   const record = { process: child, exited };
   children.push(record);
   return record;

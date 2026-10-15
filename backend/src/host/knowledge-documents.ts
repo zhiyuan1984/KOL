@@ -245,20 +245,21 @@ export async function listDocuments(opts: { base?: string | null; status?: strin
   const args: unknown[] = [];
   const baseId = String(opts.base || "").trim();
   if (baseId) {
-    clauses.push("d.base_id=?");
     args.push(baseId);
+    clauses.push(`d.base_id=$${args.length}`);
   }
   const status = String(opts.status || "").trim();
   if (status) {
-    clauses.push("d.status=?");
     args.push(status);
+    clauses.push(`d.status=$${args.length}`);
   }
   const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
-  const rows = getConn().prepare(
+  const rows = (await getConn().query(
     `SELECT d.*, b.name AS base_name FROM knowledge_documents d
        LEFT JOIN knowledge_bases b ON b.id=d.base_id${where}
       ORDER BY d.updated_at DESC, d.id DESC`,
-  ).all(...args) as Row[];
+    args,
+  )).rows as Row[];
   return (Promise.all(rows.map(async (row) => documentView(row, { latestJob: (await latestJobOf(String(row.id))) }))));
 }
 
@@ -1164,13 +1165,13 @@ export async function queryDocuments(input: {
     docs = (await getConn().query("SELECT * FROM knowledge_documents WHERE id=$1 AND base_id=$2 AND status IN ('pending_review','published')",[docIds[0],baseId])).rows as Row[];
     if (!docs.length) throw new HttpFail(404, { code: "knowledge_document_missing", message: "待审资料不存在" });
   } else {
-    const clauses = ["base_id=?", "status='published'"];
+    const clauses = ["base_id=$1", "status='published'"];
     const args: unknown[] = [baseId];
     if (docIds.length) {
-      clauses.push(`id IN (${docIds.map(() => "?").join(",")})`);
-      args.push(...docIds);
+      args.push(docIds);
+      clauses.push(`id=ANY($${args.length}::text[])`);
     }
-    docs = getConn().prepare(`SELECT * FROM knowledge_documents WHERE ${clauses.join(" AND ")}`).all(...args) as Row[];
+    docs = (await getConn().query(`SELECT * FROM knowledge_documents WHERE ${clauses.join(" AND ")}`, args)).rows as Row[];
     if (!docs.length) {
       const states=await postgresQuery(`SELECT d.status,p.review_status,p.publication_status FROM knowledge_documents d
         LEFT JOIN knowledge_publications p ON p.document_id=d.id WHERE d.base_id=$1

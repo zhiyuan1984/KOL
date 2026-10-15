@@ -49,7 +49,7 @@ describe.skipIf(!testDatabaseUrl)("Agent workspace native PostgreSQL release bou
   await postgresPool().query("INSERT INTO runtime_agent_skills(agent_id,skill_id,enabled,version,updated_at) VALUES($1,$2,1,1,$3)",[agentId,skillA,stamp]);
   await postgresPool().query("INSERT INTO agent_bindings(id,agent_id,target_type,target_id,company_id,org_version,status,created_by,created_at,updated_at) VALUES('test-binding',$1,'organization_unit','department','company',1,'active','admin',$2,$2)",[agentId,stamp]);
  });
- afterAll(async()=>{getConn().close();await closePostgresPool();process.env.AUTH_MODE=oldAuth;if(maintenance){await maintenance.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);await maintenance.end();}process.env.DATABASE_URL=oldUrl;},120000);
+ afterAll(async()=>{await closePostgresPool();process.env.AUTH_MODE=oldAuth;if(maintenance){await maintenance.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);await maintenance.end();}process.env.DATABASE_URL=oldUrl;},120000);
  it("keeps effective identity and assembly while a revision draft is saved",async()=>{
   await saveAgentDraft(actor,agentId,input());const row=await agentWorkspaceDetail(agentId);
   expect(row.name).toBe('现有岗位');expect(row.effective.skills.map(value=>value.skill_id)).toEqual([skillA]);expect(row.draft?.name).toBe('修订后的岗位');expect(row.versions[0].version).toBe(1);

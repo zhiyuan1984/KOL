@@ -976,7 +976,7 @@ export async function buildHomeBoard(options: { restoreOfficialStages?: boolean 
       if (!sessionByCollab.has(id)) sessionByCollab.set(id, String(row.id));
     }
   }
-  const mailByCollab = threadsByCollaborationIds(collabIds);
+  const mailByCollab = await threadsByCollaborationIds(collabIds);
 
   const kols: Json[] = [];
   for (const row of collabs) {

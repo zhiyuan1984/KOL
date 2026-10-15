@@ -62,10 +62,11 @@ async function createEmployee(username = "employee") {
  * (DECISIONS.md ADR-2026-09-27); the retained table is seeded directly so the
  * still-published employee use surface keeps its regression coverage.
  */
-function seedConnectorGrant(userId: string, connectorId: string, access: "read" | "write"): void {
-  getConn().prepare(
-    "INSERT OR REPLACE INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES (?,?,?,?)",
-  ).run(userId, connectorId, access, new Date().toISOString());
+async function seedConnectorGrant(userId: string, connectorId: string, access: "read" | "write"): Promise<void> {
+  await getConn().query(
+    "INSERT INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id,connector_id) DO UPDATE SET access=EXCLUDED.access,created_at=EXCLUDED.created_at",
+    [userId, connectorId, access, new Date().toISOString()],
+  );
 }
 
 async function employeeLogin(username = "employee") {

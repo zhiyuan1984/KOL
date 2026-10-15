@@ -131,8 +131,8 @@ describe("compose never asks first-touch for a conversation id", () => {
     }));
   });
 
-  afterEach(() => {
-    getConn().close();
+  afterEach(async () => {
+    await resetConn();
     setEmailMcpClientFactory();
   });
 

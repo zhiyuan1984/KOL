@@ -180,8 +180,8 @@ describe("MCP compose with From locked to larry.zhao", () => {
     setEmailMcpClientFactory(() => mockMcp());
   });
 
-  afterEach(() => {
-    getConn().close();
+  afterEach(async () => {
+    await resetConn();
     setEmailMcpClientFactory();
   });
 
@@ -324,8 +324,8 @@ describe("Host PEP stage letters cannot use larry.zhao as From", () => {
     (await seedAll());
   });
 
-  afterEach(() => {
-    getConn().close();
+  afterEach(async () => {
+    await resetConn();
   });
 
   it("covers every official template and the nudge / quote / Chinese gates", () => {

@@ -481,6 +481,21 @@ describe("knowledge documents (P1 pipeline)", () => {
     const citations = trial.citations as Json[];
     expect(citations.map((item) => item.document_id)).toEqual([publishedDoc.id]);
 
+    const selected = await (await request("POST", "/api/admin/knowledge/search", {
+      query: "指定资料", base_id: base.id, doc_ids: [publishedDoc.id],
+    })).json();
+    expect((selected.citations as Json[]).map((item) => item.document_id)).toEqual([publishedDoc.id]);
+
+    const injectionAttempt = await (await request("POST", "/api/admin/knowledge/search", {
+      query: "参数化筛选", base_id: base.id, doc_ids: [publishedDoc.id, "x' OR '1'='1"],
+    })).json();
+    expect((injectionAttempt.citations as Json[]).map((item) => item.document_id)).toEqual([publishedDoc.id]);
+
+    const emptySelection = await (await request("POST", "/api/admin/knowledge/search", {
+      query: "空筛选", base_id: base.id, doc_ids: [],
+    })).json();
+    expect((emptySelection.citations as Json[]).map((item) => item.document_id)).toEqual([publishedDoc.id]);
+
     const scoped = await (await request("POST", "/api/admin/knowledge/search", {
       query: "审批前试算", base_id: base.id, include_pending: true, doc_ids: [pendingDoc.id],
     })).json();

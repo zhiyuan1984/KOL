@@ -334,7 +334,7 @@ knowledge.get("/admin/knowledge", async (c) => {
 });
 knowledge.get("/admin/knowledge/assets", async (c) => c.json((await adminAssets())));
 knowledge.get("/admin/knowledge/feedback", async (c) => c.json((await listFeedback())));
-knowledge.get("/admin/knowledge/bindings", (c) => c.json(listBindings()));
+knowledge.get("/admin/knowledge/bindings", async (c) => c.json(await listBindings()));
 knowledge.post("/admin/knowledge/bindings", async (c) => c.json(await saveBinding((await c.req.json()) as Json)));
 knowledge.patch("/admin/knowledge/bindings/:id", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Json;

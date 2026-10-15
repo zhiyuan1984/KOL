@@ -96,10 +96,10 @@ describe("business events ledger", () => {
     };
     (await appendBusinessEvent({ ...base, eventType: "email.received", objectType: "email", objectId: "e1", idempotencyKey: "k1" }));
     (await appendBusinessEvent({ ...base, eventType: "stage.advanced", objectType: "collaboration", objectId: "c1", idempotencyKey: "k2" }));
-    expect(listBusinessEvents({ objectType: "email" })).toHaveLength(1);
-    expect(listBusinessEvents({ eventType: "stage.advanced" })).toHaveLength(1);
-    expect(listBusinessEvents({ limit: 1 })).toHaveLength(1);
-    expect(() => listBusinessEvents({ limit: 0 })).not.toThrow();
+    expect(await listBusinessEvents({ objectType: "email" })).toHaveLength(1);
+    expect(await listBusinessEvents({ eventType: "stage.advanced" })).toHaveLength(1);
+    expect(await listBusinessEvents({ limit: 1 })).toHaveLength(1);
+    await expect(listBusinessEvents({ limit: 0 })).resolves.toEqual(expect.any(Array));
   });
 
   it("records confirm_stage transitions into the ledger (stage wiring)", async () => {
@@ -108,7 +108,7 @@ describe("business events ledger", () => {
     const result = (await confirmStage("lc_events", { stage_code: "INTERESTED", actor: "host", reason: "测试前进" })) as unknown as {
       transition_id: string;
     };
-    const rows = listBusinessEvents({ eventType: "stage.advanced" });
+    const rows = await listBusinessEvents({ eventType: "stage.advanced" });
     expect(rows).toHaveLength(1);
     expect(rows[0].object_type).toBe("collaboration");
     expect(rows[0].object_id).toBe("col_events");
