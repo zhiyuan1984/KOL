@@ -637,6 +637,10 @@ export async function summarizeWithCodexAppServer(rows: Json[]): Promise<string[
 }
 
 async function summarizeWithLuna(rows: Json[]): Promise<string[] | null> {
+  if (!intentLlmFetchOverridden() && !String(process.env.OPENAI_BASE_URL || "").trim()) {
+    noteFailure("luna", "endpoint_unconfigured");
+    return null;
+  }
   const key = intentLlmApiKey();
   if (!key) return null;
   const base = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
@@ -703,6 +707,10 @@ async function summarizeWithCodex(rows: Json[]): Promise<RemoteBatch | null> {
 }
 
 async function digestWithLuna(rows: Json[], collaborationId = ""): Promise<RemoteDigestAttempt> {
+  if (!intentLlmFetchOverridden() && !String(process.env.OPENAI_BASE_URL || "").trim()) {
+    noteFailure("luna digest", "endpoint_unconfigured", collaborationId);
+    return { error: "endpoint_unconfigured" };
+  }
   const key = intentLlmApiKey();
   if (!key) {
     noteFailure("luna digest", "no-key", collaborationId);

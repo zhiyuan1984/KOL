@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { closePostgresPool, postgresPool, postgresTransaction } from "../src/postgres/pool.js";
 import {
   pgCronJobById,
@@ -6,10 +6,12 @@ import {
   pgEnqueueManualCronRun,
   pgEnsureSystemCronJobs,
   pgSchedulingAdminReadModel,
+  pgStartCronRun,
   pgTickCronDue,
 } from "../src/cron/postgres-store.js";
 import { pgClaimExecutionJobById, pgEnqueueExecutionJob, pgFailExecutionJob, pgRetryFailedExecutionJob } from "../src/execution-jobs/postgres-store.js";
-import { executeCronRun } from "../src/cron/worker.js";
+import { executeCronRun, processCronExecutionJobById } from "../src/cron/worker.js";
+import { CRON_HANDLERS } from "../src/cron/handlers.js";
 import { pgCronTickHeartbeat, runCronTickWorker } from "../src/cron/tick-worker.js";
 
 const configured = Boolean(process.env.TEST_POSTGRES_URL?.trim());
@@ -302,4 +304,86 @@ describePostgres("native PostgreSQL Cron scheduler", () => {
     expect((await postgresPool().query("SELECT status FROM execution_worker_heartbeats WHERE worker_id='synthetic-resident'")).rows[0].status).toBe("stopped");
     expect((await postgresPool().query("SELECT status,started_at,receipt_json FROM cron_runs")).rows).toEqual([{ status: "queued", started_at: null, receipt_json: null }]);
   }, 20_000);
+
+  it.each([false, true])("persists actual completion time for Cron and Execution on handler failure=%s", async (fail) => {
+    const start = Date.parse("2031-01-01T00:00:00.000Z");
+    const finish = start + 5_000;
+    const original = CRON_HANDLERS["overdue-scan"];
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(start);
+    try {
+      await pgEnsureSystemCronJobs(new Date(start));
+      const job = await pgCronJobById("overdue-scan");
+      const run = await pgEnqueueManualCronRun(String(job!.id), "synthetic-live-terminal-clock");
+      const execution = (await postgresPool().query("SELECT id FROM execution_jobs WHERE payload_json::jsonb->>'cron_run_id'=$1", [run.run_id])).rows[0];
+      CRON_HANDLERS["overdue-scan"] = async (context) => {
+        expect(context.nowMs).toBe(start);
+        vi.setSystemTime(finish);
+        if (fail) throw new Error("synthetic handler failure after model wait");
+        return { status: "succeeded", receipt: { source: "synthetic-clock-test", side_effect: "none" } };
+      };
+      expect(await processCronExecutionJobById(String(execution.id), "synthetic-clock-worker")).toBe(run.run_id);
+      const terminal = await pgCronRunById(run.run_id);
+      const dispatch = (await postgresPool().query("SELECT status,started_at,terminal_at FROM execution_jobs WHERE id=$1", [execution.id])).rows[0];
+      expect(terminal?.status).toBe(fail ? "failed" : "succeeded");
+      expect(dispatch.status).toBe(fail ? "failed" : "succeeded");
+      expect(new Date(String(terminal!.started_at)).getTime()).toBe(start);
+      expect(new Date(String(terminal!.finished_at)).getTime()).toBe(finish);
+      expect(new Date(String(dispatch.started_at)).getTime()).toBe(start);
+      expect(new Date(String(dispatch.terminal_at)).getTime()).toBe(finish);
+      if (fail) expect(terminal?.error_code).toBe("handler_error");
+    } finally {
+      CRON_HANDLERS["overdue-scan"] = original;
+      vi.useRealTimers();
+    }
+  });
+
+  it("direct native Cron execution samples the live clock after the handler returns", async () => {
+    const start = Date.parse("2031-01-01T00:00:00.000Z");
+    const original = CRON_HANDLERS["overdue-scan"];
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(start);
+    try {
+      await pgEnsureSystemCronJobs(new Date(start));
+      const job = await pgCronJobById("overdue-scan");
+      const run = await pgEnqueueManualCronRun(String(job!.id), "synthetic-direct-terminal-clock");
+      await pgStartCronRun(run.run_id, new Date(start));
+      CRON_HANDLERS["overdue-scan"] = async (context) => {
+        expect(context.nowMs).toBe(start);
+        vi.setSystemTime(start + 5_000);
+        return { status: "succeeded", receipt: { side_effect: "none" } };
+      };
+      const terminal = await executeCronRun(run.run_id);
+      expect(new Date(String(terminal.finished_at)).getTime()).toBe(start + 5_000);
+    } finally {
+      CRON_HANDLERS["overdue-scan"] = original;
+      vi.useRealTimers();
+    }
+  });
+
+  it("retains explicitly supplied deterministic clocks without freezing the default production clock", async () => {
+    const fixed = Date.parse("2031-01-01T00:00:00.000Z");
+    const original = CRON_HANDLERS["overdue-scan"];
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(fixed);
+    try {
+      await pgEnsureSystemCronJobs(new Date(fixed));
+      const job = await pgCronJobById("overdue-scan");
+      const run = await pgEnqueueManualCronRun(String(job!.id), "synthetic-fixed-terminal-clock");
+      const execution = (await postgresPool().query("SELECT id FROM execution_jobs WHERE payload_json::jsonb->>'cron_run_id'=$1", [run.run_id])).rows[0];
+      CRON_HANDLERS["overdue-scan"] = async (context) => {
+        expect(context.nowMs).toBe(fixed);
+        vi.setSystemTime(fixed + 5_000);
+        return { status: "succeeded", receipt: { side_effect: "none" } };
+      };
+      await processCronExecutionJobById(String(execution.id), "synthetic-fixed-clock-worker", undefined, fixed);
+      const terminal = await pgCronRunById(run.run_id);
+      const dispatch = (await postgresPool().query("SELECT terminal_at FROM execution_jobs WHERE id=$1", [execution.id])).rows[0];
+      expect(new Date(String(terminal!.finished_at)).getTime()).toBe(fixed);
+      expect(new Date(String(dispatch.terminal_at)).getTime()).toBe(fixed);
+    } finally {
+      CRON_HANDLERS["overdue-scan"] = original;
+      vi.useRealTimers();
+    }
+  });
 });

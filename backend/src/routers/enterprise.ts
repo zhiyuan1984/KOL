@@ -55,7 +55,7 @@ enterprise.use("/sessions/:sid",async (c,next) => {
   await next();
 });
 
-async function assertConnectorEnableBasis(client: PoolClient, id: string): Promise<void> {
+export async function assertConnectorEnableBasis(client: PoolClient, id: string): Promise<void> {
   const connector = (await client.query<Row>("SELECT id,status,enabled FROM connectors WHERE id=$1 FOR UPDATE", [id])).rows[0];
   if (!connector) throw new HttpFail(404, "connector not found");
   if (String(connector.status) !== "verified") {
