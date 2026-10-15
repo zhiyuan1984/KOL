@@ -3,6 +3,8 @@ import { nid } from "../ids.js";
 import { pgEnqueueExecutionJob } from "../execution-jobs/postgres-store.js";
 import { postgresPool, postgresTransaction } from "./pool.js";
 import type { Json } from "../types.js";
+import { packTodayPlanContext, planningRuntimeIdentity } from "../host/today-plan-context.js";
+import { PLAN_EMPLOYEE_EVENTS } from "../host/today-plan-run.js";
 
 type PlanScope = "today" | "todo";
 type NativeStart = {
@@ -55,15 +57,19 @@ async function existingPlan(owner: string): Promise<NativeStart | undefined> {
 export async function startNativeTodayPlan(input: Input): Promise<NativeStart> {
   const existing = input.taskType === "today_plan" ? await existingPlan(input.owner) : undefined;
   if (existing) return { ...existing, producer: input.producer };
+  // The compact task payload is model input only. Retain the complete accepted
+  // source snapshot for durable planning coverage checks and worker execution.
+  const planPack = input.taskType === "today_plan" ? packTodayPlanContext(input.owner, input.scope) : undefined;
   return postgresTransaction(async (client) => {
     const now = stamp();
+    const identity = planningRuntimeIdentity(input.taskType);
     const sessionId = nid("ses");
     const workItemId = nid("tsk");
     const runId = nid("run");
     await client.query(
       `INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id,expert_version)
        VALUES ($1,$2,$3,$3,$4,0,$5,$6,NULL)`,
-      [sessionId, input.title, now, input.taskType, input.owner, input.taskType],
+      [sessionId, input.title, now, input.taskType, input.owner, identity.session_identity],
     );
     await client.query(
       `INSERT INTO tickets
@@ -82,10 +88,33 @@ export async function startNativeTodayPlan(input: Input): Promise<NativeStart> {
       object_ref: { type: "ticket", id: workItemId }, rule_id: input.taskType === "today_plan" ? "workbench-plan" : "today-analyze",
       rule_version: "task-workbench.v1", risk_level: "low", scope_snapshot: { scope: input.scope, projection_version: "task-workbench.v1" },
       priority_class: "normal", max_attempts: 1, idempotency_key: `${input.taskType === "today_plan" ? "work_plan.run" : "today_analyze.run"}:${runId}`,
-      payload: { owner: input.owner, work_item_id: workItemId, run_id: runId, session_id: sessionId, scope: input.scope, task_payload: input.payload, ...input.extraPayload },
+      payload: {
+        owner: input.owner,
+        work_item_id: workItemId,
+        run_id: runId,
+        session_id: sessionId,
+        scope: input.scope,
+        task_payload: input.payload,
+        ...input.extraPayload,
+        ...(planPack ? { pack: planPack } : {}),
+      },
       outbox: { event_type: `${input.taskType === "today_plan" ? "work_plan.run" : "today_analyze.run"}.queued`, aggregate_type: "task_run", aggregate_id: runId, payload: { work_item_id: workItemId, run_id: runId, scope: input.scope } },
     }, { client });
     await appendEvent(client, workItemId, runId, "run.queued", input.queuedLabel, "queued", "已通过 PostgreSQL 原子事务持久化等待执行");
+    if (planPack) {
+      const copy = PLAN_EMPLOYEE_EVENTS.today;
+      const unfinished = Number(planPack.now_counts?.unfinished);
+      await appendEvent(
+        client,
+        workItemId,
+        runId,
+        "run.progress",
+        copy.memoryRead,
+        "queued",
+        Number.isFinite(unfinished) ? `未了结 ${unfinished} 项` : copy.memoryRead,
+      );
+      await appendEvent(client, workItemId, runId, "run.progress", copy.deltaPacked, "queued", `来源增量 ${planPack.delta.added.length} 项`);
+    }
     for (const event of input.progress || []) await appendEvent(client, workItemId, runId, "run.progress", event.label, "queued", event.summary);
     return { work_item_id: workItemId, session_id: sessionId, run_id: runId, execution_job_id: String(queued.job.id), producer: input.producer, attached: false, planning: true };
   }, { isolation: "SERIALIZABLE" });

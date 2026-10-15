@@ -17,6 +17,7 @@ import { publicationState,bindPublication,preparePublication,checkPublication,gu
   replaceDraftDocument,knowledgeReviewMaterial,knowledgeReviewTrial,publicationSnapshot,retryPublication,publishApprovedDocument } from "../src/knowledge/publication.js";
 import { postgresQuery } from "../src/postgres/pool.js";
 import { processExecutionJobById } from "../src/execution-jobs/dispatcher.js";
+import { confirmFixtureDocumentScope } from "./support/knowledge-document-scope-fixture.js";
 
 let tmp:string;
 const ctx=(actor="sriphy")=>reviewContextForActor(getConn(),actor,"company:amperetime");
@@ -206,7 +207,10 @@ describe("knowledge publication through real review instances and PostgreSQL out
     const draft=getDocumentDetail(revision.document_id).document as any;
     await replaceDraftDocument(draft.id,{name:"新版规格.pdf",bytes:Buffer.from("%PDF-1.4\nnew specs\n%%EOF")},draft.updated_at,ctx());
     expect((getDocumentDetail(f.id).document as any).status).toBe("published");
-    startDocument(draft.id);await waitReady(draft.id);const p=await preparePublication(draft.id,"发布新版规格",ctx());
+    startDocument(draft.id);await waitReady(draft.id);
+    await expect(preparePublication(draft.id,"发布新版规格",ctx())).rejects.toMatchObject({detail:{code:"knowledge_scope_not_checked"}});
+    await confirmFixtureDocumentScope(draft.id,"sriphy","company:amperetime");
+    const p=await preparePublication(draft.id,"发布新版规格",ctx());
     const r=txImmediate(db=>new ReviewService(db,ctx()).execute(p.command,p.confirmationId,randomUUID()));
     await approve(String(r.resourceId));expect((await execute(String(r.resourceId)))?.outcome).toBe("processed");
     expect((getDocumentDetail(f.id).document as any).status).toBe("archived");expect((getDocumentDetail(draft.id).document as any).status).toBe("published");
@@ -298,6 +302,7 @@ describe("knowledge publication through real review instances and PostgreSQL out
     const instances:string[]=[];
     for(const revision of revisions){
       startDocument(revision.document_id);await waitReady(revision.document_id);
+      await confirmFixtureDocumentScope(revision.document_id,"sriphy","company:amperetime");
       const p=await preparePublication(revision.document_id,"发布新版本",ctx());
       const receipt=txImmediate(db=>new ReviewService(db,ctx()).execute(p.command,p.confirmationId,randomUUID()));
       const instance=String(receipt.resourceId);await approve(instance);instances.push(instance);

@@ -343,9 +343,10 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     const candidates = await request("GET", `/api/home/discovery/runs/${run.id}/candidates`);
     const candidateId = String((candidates.body.candidates as Json[])[0].id);
     const homeFollow = await request("POST", `/api/home/discovery/candidates/${candidateId}/follow`);
-    expect(homeFollow.status).toBe(403);
-    expect(homeFollow.body.code).toBe("home_discovery_follow_forbidden");
-    expect(homeFollow.body.collaboration_created).toBe(false);
+    // The current route supports explicitly confirmed lead creation; a crawl
+    // finishing (or a POST without confirmation) cannot imply that consent.
+    expect(homeFollow.status).toBe(422);
+    expect(homeFollow.body.detail).toMatchObject({ code: "follow_confirm_required" });
     const legacyFollow = await request("POST", `/api/discovery/candidates/${candidateId}/follow`);
     expect(legacyFollow.status).toBe(403);
     expect(legacyFollow.body.detail).toMatchObject({ code: "home_discovery_follow_forbidden" });
@@ -384,7 +385,8 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     expect((candidates.body.candidates as Json[])[0]).toMatchObject({
       score: null,
       band: null,
-      match_reason: null,
+      // Raw metrics remain useful, but are not an invented model ranking.
+      match_reason: expect.stringMatching(/^粉丝.*近10条均播/),
     });
     // brief 的 ranking 必须 join 到候选上，否则行上永远是「匹配：无」
     expect(run.raw_count).toBeGreaterThan(0);

@@ -18,7 +18,8 @@ import { bridgeMode, chatModel, indexModel, mediaModel, runBridge, type BridgeOu
 import { recordCostEvent } from "../costs.js";
 import { recordCapabilityCall } from "../capability/registry.js";
 import { intentLlmApiKey, intentLlmFetch } from "../tasks/openai-intent.js";
-import { postgresQuery } from "../postgres/pool.js";
+import { postgresQuery, postgresTransaction } from "../postgres/pool.js";
+import { adminDocument } from "../knowledge-publication/service.js";
 import { documentMaxBytes } from "../knowledge/document-upload-limits.js";
 import { convertPptx, PPTX_MIME, validatePptx } from "../knowledge/pptx.js";
 import { originalDocumentPage } from "../knowledge/document-pages.js";
@@ -1157,7 +1158,31 @@ export async function searchDocuments(input: {
   include_pending?: unknown;
 }): Promise<Json> {
   requireAdmin();
-  return queryDocuments(input, knowledgeActorId());
+  const actor = knowledgeActorId();
+  const requested = Array.isArray(input.doc_ids) ? input.doc_ids.map(String).filter(Boolean) : [];
+  const selected = await postgresQuery(`SELECT id FROM knowledge_documents
+    WHERE base_id=$1 AND status=ANY($2::text[])
+      AND ($3::text[] IS NULL OR id=ANY($3::text[])) ORDER BY id`,
+    [String(input.base_id || "").trim(), input.include_pending ? ["pending_review", "published"] : ["published"], requested.length ? requested : null]);
+  const ids = selected.map((row) => String(row.id));
+  const authorize = () => postgresTransaction(async (db) => {
+    for (const id of ids) {
+      const context = await adminDocument(db, actor, undefined, id);
+      const scope = (await db.query("SELECT tenant FROM knowledge_document_scopes WHERE document_id=$1", [id])).rows[0];
+      if (scope && scope.tenant !== context.tenant) {
+        throw new HttpFail(403, { code: "knowledge_scope_unavailable", message: "资料不在当前组织的授权范围内" });
+      }
+    }
+  });
+  await authorize();
+  // Pin the authorized snapshot before invoking retrieval. A concurrently
+  // published document must not enter a query that has not authorized it.
+  // Preserve the service's validation for invalid pending-document selectors.
+  const docIds = input.include_pending && requested.length !== 1
+    ? requested : ids.length ? ids : ["__no_authorized_document_snapshot__"];
+  const result = await queryDocuments({ ...input, doc_ids: docIds }, actor);
+  await authorize();
+  return result;
 }
 
 /** Internal retrieval service. Callers must authorize scope before dispatch and again before returning. */

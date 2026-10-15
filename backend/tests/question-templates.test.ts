@@ -7,10 +7,14 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { resetConn } from "../src/db.js";
+import { getConn, resetConn } from "../src/db.js";
+import { mapUser, withScopedUser } from "../src/auth.js";
+import { DEMO_USER } from "../src/config.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { installKnowledgePublicationFixture, publishKnowledgeEntry } from "./support/knowledge-publication-fixture.js";
+import type { Row } from "../src/types.js";
 
 type Json = Record<string, unknown>;
 
@@ -27,7 +31,8 @@ async function request(
     (init.headers as Record<string, string>)["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
-  const res = await app.request(url, init);
+  const admin = url.startsWith("/api/admin/") ? getConn().prepare("SELECT * FROM users WHERE id=?").get(DEMO_USER.id) as Row | undefined : undefined;
+  const res = await (admin ? withScopedUser(mapUser(admin), () => app.request(url, init)) : app.request(url, init));
   const text = await res.text();
   return {
     status: res.status,
@@ -47,6 +52,7 @@ beforeEach(async () => {
   const { createApp } = await import("../src/app.js");
   app = createApp();
   seedWorkbenchFixtures();
+  await installKnowledgePublicationFixture();
 });
 
 afterEach(() => {
@@ -82,9 +88,8 @@ describe("public pool question templates", () => {
     const before = await (await request("GET", "/api/knowledge/question-templates")).json() as unknown as Json[];
     expect(before.map((row) => row.knowledge_id)).not.toContain(created.id);
 
-    const approved = await (await request("POST", `/api/admin/knowledge/${created.id}/approve`, {
-      expected_version: created.current_version,
-    })).json();
+    await publishKnowledgeEntry(String(created.id));
+    const approved = await (await request("GET", `/api/knowledge/${created.id}`)).json();
     expect(approved.status).toBe("published");
 
     const after = await (await request("GET", "/api/knowledge/question-templates")).json() as unknown as Json[];
@@ -97,14 +102,17 @@ describe("public pool question templates", () => {
     const rows = await (await request("GET", "/api/knowledge/question-templates")).json() as unknown as Json[];
     expect(rows.map((row) => row.knowledge_id)).not.toContain("kb_q_pool_risk");
 
-    const bogus = await (await request("POST", "/api/admin/knowledge", {
+    const response = await request("POST", "/api/admin/knowledge", {
       title: "无槽位模板",
       body: "不应出现。",
       kind: "question_template",
       base_id: "kbase_legacy",
       tags: "pool-question:not-a-slot",
-      status: "published",
-    })).json();
+      status: "draft",
+    });
+    expect(response.status, await response.text()).toBe(201);
+    const bogus = await response.json();
+    await publishKnowledgeEntry(String(bogus.id));
     const again = await (await request("GET", "/api/knowledge/question-templates")).json() as unknown as Json[];
     expect(again.map((row) => row.knowledge_id)).not.toContain(bogus.id);
   });

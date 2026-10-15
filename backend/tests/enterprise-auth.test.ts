@@ -137,31 +137,38 @@ describe("production account and enterprise controls", () => {
   });
 
   it("enforces admin authorization and Agent-derived skill availability", async () => {
-    // Use the CI stub mode so this test reaches the employee skill PEP
-    // without starting a real Codex turn. Publication no longer 409s.
+    // Stub execution is deterministic, but this remains a real employee
+    // submission: keep authentication enabled so Agent eligibility is checked.
+    const previousAuthMode = process.env.AUTH_MODE;
+    process.env.AUTH_MODE = "enabled";
     process.env.CODEX_MODE = "stub";
-    const employee = await createEmployee();
-    const cookie = await employeeLogin();
-    expect((await call("GET", "/api/admin/users", undefined, cookie)).response.status).toBe(403);
-    const session = await call("POST", "/api/sessions", { title: "gated" }, cookie);
-    const denied = await call("POST", `/api/sessions/${session.json.id}/messages`, {
-      text: "写合作邮件",
-      intent: "email_compose",
-    }, cookie);
-    // 资格锚点是 Agent（ADR-2026-10-03）：未绑定的账号在提交时就被拒绝。
-    expect(denied.response.status).toBe(400);
-    expect(denied.json.detail).toBe("未授权该技能");
-    // 逐人技能授权已退役（410），直接授权不再让技能可见或可执行。
-    const retiredGrant = await call("PUT", `/api/admin/users/${employee.id}/skills/email_compose`, {});
-    expect(retiredGrant.response.status).toBe(410);
-    expect(await (await call("GET", "/api/skills", undefined, cookie)).json).toEqual([]);
-    getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(String(employee.id), "person:ye_guanwang");
-    createAgentBinding({
-      agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
-      company_id: "company:amperetime", source: "test",
-    });
-    const skills = await call("GET", "/api/skills", undefined, cookie);
-    expect((skills.json as unknown as { id: string }[]).map((skill) => skill.id)).toContain("email_compose");
+    try {
+      const employee = await createEmployee();
+      const cookie = await employeeLogin();
+      expect((await call("GET", "/api/admin/users", undefined, cookie)).response.status).toBe(403);
+      const session = await call("POST", "/api/sessions", { title: "gated" }, cookie);
+      const denied = await call("POST", `/api/sessions/${session.json.id}/messages`, {
+        text: "写合作邮件",
+        intent: "email_compose",
+      }, cookie);
+      // 资格锚点是 Agent（ADR-2026-10-03）：未绑定的账号在提交时就被拒绝.
+      expect(denied.response.status).toBe(403);
+      expect(denied.json.detail).toMatchObject({ code: "runtime_agent_not_usable" });
+      // 逐人技能授权已退役（410），直接授权不再让技能可见或可执行。
+      const retiredGrant = await call("PUT", `/api/admin/users/${employee.id}/skills/email_compose`, {});
+      expect(retiredGrant.response.status).toBe(410);
+      expect(await (await call("GET", "/api/skills", undefined, cookie)).json).toEqual([]);
+      getConn().prepare("UPDATE organization_people SET user_id = ? WHERE person_ref = ?").run(String(employee.id), "person:ye_guanwang");
+      createAgentBinding({
+        agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
+        company_id: "company:amperetime", source: "test",
+      });
+      const skills = await call("GET", "/api/skills", undefined, cookie);
+      expect((skills.json as unknown as { id: string }[]).map((skill) => skill.id)).toContain("email_compose");
+    } finally {
+      if (previousAuthMode === undefined) delete process.env.AUTH_MODE;
+      else process.env.AUTH_MODE = previousAuthMode;
+    }
   });
 
   it("stores preferences and versioned Markdown memory", async () => {

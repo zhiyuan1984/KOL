@@ -154,7 +154,12 @@
   padding-inline: 0;
 }
 .scope-workspace.scope-workspace[data-agent-visual] [data-scope-scroll-jump] {
-  position: absolute; margin: 0;
+  /* DESIGN §27.2: a real control row after the process viewport, never an
+   * overlay over its filters. Keep other Home modes on their reserved tail. */
+  position: static; align-self: flex-end; flex-shrink: 0; margin: 0;
+}
+.scope-workspace.scope-workspace[data-agent-visual] .scope-workspace-center-scroll-wrap:has(> [data-scope-scroll-jump]) .scope-workspace-center-scroll-content {
+  padding-block-end: 0;
 }
 @media (min-width: 1101px) {
   :is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace[data-agent-visual] {
@@ -189,8 +194,22 @@
   .scope-workspace .scope-workspace-center-scroll-wrap:has(> [data-scope-scroll-jump]) .scope-workspace-center-scroll-content {
     padding-block-end: calc(var(--touch-hit-min) + var(--space-2));
   }
+  .scope-workspace.scope-workspace[data-agent-visual] .scope-workspace-center-scroll {
+    /* Extended touch targets need breathing room below a fixed session head. */
+    scroll-padding-block: var(--space-2);
+  }
+  .scope-workspace.scope-workspace[data-agent-visual] .scope-workspace-center-scroll-wrap:has(> [data-scope-scroll-jump]) .scope-workspace-center-scroll-content {
+    padding-block-end: 0;
+  }
   .scope-workspace :is(.scope-task-rail-toggle, .scope-scroll-jump, .result-pointer-button, .workspace-confirm-hint button) {
     min-height: var(--touch-hit-min); min-width: var(--touch-hit-min);
+  }
+}
+@media (pointer: coarse) and (max-width: 480px) {
+  /* Only the honest idle rail gets a compact status row. Running, failed and
+   * populated results retain their full region and recovery controls. */
+  :is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace[data-agent-visual].is-result-idle {
+    grid-template-rows: minmax(0, 1fr) var(--workspace-result-rail-collapsed);
   }
 }
 

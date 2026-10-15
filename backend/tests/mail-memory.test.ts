@@ -18,7 +18,7 @@ import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { freshTestDatabase } from "./support/pg.js";
 import { matchCollaboration } from "../src/starrykol/mail-fields.js";
-import { ensureFollowedMailSync, resetFollowedMailSync, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
+import { ensureFollowedMailSync as startFixtureMailSync, resetFollowedMailSync, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import { setIntentLlmFetch } from "../src/tasks/openai-intent.js";
 import { bindStarryUser } from "./helpers/starry-binding.js";
@@ -28,6 +28,14 @@ let tmp: string;
 let app: Hono;
 const calls: string[] = [];
 let listDelayMs = 0;
+
+// The live sync commits the index first, then hydrates bodies in the background.
+// These assertions require completed mail fixtures, not just an index receipt.
+async function ensureFollowedMailSync(force: boolean) {
+  const result = await startFixtureMailSync(force);
+  await waitForBackgroundSync();
+  return result;
+}
 
 async function request(method: string, url: string, body?: unknown) {
   const actor = getConn().prepare("SELECT * FROM users WHERE id=?").get(DEMO_USER.id) as Json | undefined;
@@ -165,6 +173,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await waitForBackgroundSync();
   await closePostgresPool();
   setStarryKolClientFactory();
   setIntentLlmFetch();
@@ -253,7 +262,7 @@ describe("mailbox memory P0", () => {
     }]);
     bindLarry();
     const collabsBefore = Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations").get() as { n: number }).n);
-    const queued = await request("POST", "/api/jobs/mail.sync/start");
+    const queued = await request("POST", "/api/jobs/mail.sync/start", { box: "larry.zhao@amperetime.com" });
     await processExecutionJobById(String((queued.body.job as Json).id));
     const listed = await request("GET", "/api/queries/mail.conversations");
     const unbound = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "8801");
@@ -279,8 +288,8 @@ describe("mailbox memory P0", () => {
     bindLarry();
     listDelayMs = 40;
     const [first, second] = await Promise.all([
-      request("POST", "/api/jobs/mail.sync/start"),
-      request("POST", "/api/jobs/mail.sync/start"),
+      request("POST", "/api/jobs/mail.sync/start", { box: "larry.zhao@amperetime.com" }),
+      request("POST", "/api/jobs/mail.sync/start", { box: "larry.zhao@amperetime.com" }),
     ]);
     expect(first.status).toBe(202);
     expect(second.status).toBe(202);
@@ -303,6 +312,11 @@ describe("mailbox memory P0", () => {
     expect(matchesFollowedMailbox({
       mailbox_from: "kol.lt@litime.example",
       owner_mailbox: "",
+    }, { mailbox_email: "larry.zhao@amperetime.com", owner_name: "赵良玉" })).toBe(false);
+    expect(matchesFollowedMailbox({
+      mailbox_from: "kol.lt@litime.example",
+      ownership_source_ready: true,
+      verified_owner_mailbox: "larry.zhao@amperetime.com",
     }, { mailbox_email: "larry.zhao@amperetime.com", owner_name: "赵良玉" })).toBe(true);
     expect(matchCollaboration(
       {
@@ -634,7 +648,7 @@ describe("mailbox memory P0", () => {
 
   it("persists a cancellable sync job without making calls in the HTTP request", async () => {
     bindLarry();
-    const queued = await request("POST", "/api/jobs/mail.sync/start", { request_id: "cancel-test" });
+    const queued = await request("POST", "/api/jobs/mail.sync/start", { box: "larry.zhao@amperetime.com", request_id: "cancel-test" });
     expect(queued.status).toBe(202);
     const id = String((queued.body.job as Json).id);
     expect(calls).toEqual([]);
@@ -647,7 +661,7 @@ describe("mailbox memory P0", () => {
 
   it("rejects another actor's job and rechecks revoked mailbox bindings before execution", async () => {
     bindLarry();
-    const queued = await request("POST", "/api/jobs/mail.sync/start", {});
+    const queued = await request("POST", "/api/jobs/mail.sync/start", { box: "larry.zhao@amperetime.com" });
     const id = String((queued.body.job as Json).id);
     getConn().prepare("UPDATE execution_jobs SET actor_ref=? WHERE id=?").run("someone-else", id);
     expect((await request("GET", `/api/jobs/${id}`)).status).toBe(404);
@@ -665,7 +679,7 @@ describe("mailbox memory P0", () => {
 
   it("does not let an old sync worker overwrite a newer lease or cancellation", async () => {
     bindLarry();
-    const queued = await request("POST", "/api/jobs/mail.sync/start", {});
+    const queued = await request("POST", "/api/jobs/mail.sync/start", { box: "larry.zhao@amperetime.com" });
     const id = String((queued.body.job as Json).id);
     await pgClaimExecutionJobById(id, "old-worker");
     getConn().prepare("UPDATE execution_jobs SET lease_owner='new-worker' WHERE id=?").run(id);

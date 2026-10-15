@@ -46,6 +46,7 @@
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.13.10",
     "@types/pg": "^8.23.1",
+    "jsdom": "26.1.0",
     "typescript": "^5.8.2",
     "vitest": "^3.0.9",
     "zod": "^4.6.5"

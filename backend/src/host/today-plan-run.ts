@@ -450,7 +450,7 @@ function enqueuePlanningExecution(input: {
 export function startTodayPlan(
   owner = ownerId(),
   scope: PlanScope = "today",
-  producer: "deterministic_organize" | "agent_plan" = "deterministic_organize",
+  producer: "deterministic_organize" | "agent_plan" = "agent_plan",
 ): PlanningStart {
   const canonicalScope: PlanScope = "today";
   const existing = runningTodayPlan(owner, canonicalScope);
@@ -615,7 +615,14 @@ export async function executeClaimedPlanningJob(claimed: ClaimedExecutionJob): P
   const sessionId = String(payload.session_id || current.session_id || "");
   let result: { ok: true; receipt: Json } | { ok: false; reason: string };
   if (jobType === "work_plan.run") {
-    const pack = payload.pack;
+    // PostgreSQL-native creation keeps the accepted planning input under
+    // task_payload. The retained adapter wrote `pack` at the top level.
+    // Accept both persisted shapes so an agent_plan job reaches the worker and
+    // its run trace, rather than failing before execution begins.
+    const taskPayload = payload.task_payload && typeof payload.task_payload === "object" && !Array.isArray(payload.task_payload)
+      ? payload.task_payload as Record<string, Json>
+      : {};
+    const pack = payload.pack || taskPayload.pack;
     if (!pack || typeof pack !== "object" || Array.isArray(pack) || !sessionId) {
       const reason = "work_plan.run payload is missing plan context or session";
       markTodayPlanFailed(workItemId, runId, reason);
