@@ -468,7 +468,7 @@ async function createWorkItem(body: Json, source: string): Promise<Json> {
   });
   await ensureTicketForWorkItem(id);
   return {
-    ...(publicWorkItem((await ownedWorkItem(id)))),
+    ...(await (publicWorkItem((await ownedWorkItem(id))))),
     resolution,
   };
 }

@@ -689,7 +689,7 @@ export async function startDiscoveryRun(input: {
   const existing = (await getConn().query("SELECT * FROM discovery_runs WHERE idempotency_key=$1",[idempotencyKey])).rows[0] as
     | Row
     | undefined;
-  if (existing) return { ...(publicRun(existing)), duplicate: true };
+  if (existing) return { ...(await (publicRun(existing))), duplicate: true };
 
   const ownerUserId = String(request.owner_user_id);
   const workItemId = await createContainerWorkItem({ ownerUserId, platform, mode, keywords });

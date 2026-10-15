@@ -117,7 +117,7 @@ async function startLegacyCrawl(input: { ownerUserId: string; workItemId: string
   const platform = input.platform.toLowerCase(); const mode = input.mode.toLowerCase(); validateInput(platform, mode, input.parameters);
   if (!(await mediaCrawlerConfigured())) throw new HttpFail(503, { code: "mediacrawler_not_configured", message: "远程采集服务未配置。", next_action: "请在管理端配置并启用 MediaCrawler 连接器及保险柜凭据。" });
   const existing = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE idempotency_key=$1", [input.idempotencyKey])).rows[0];
-  if (existing) return { ...(publicJob(existing)), duplicate: true };
+  if (existing) return { ...(await (publicJob(existing))), duplicate: true };
   const id = nid("crawl"); const now = nowIso();
   try {
     await postgresTransaction(async client => {
@@ -132,7 +132,7 @@ async function startLegacyCrawl(input: { ownerUserId: string; workItemId: string
     });
   } catch (error) {
     const replay = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE idempotency_key=$1", [input.idempotencyKey])).rows[0];
-    if (replay) return { ...(publicJob(replay)), duplicate: true };
+    if (replay) return { ...(await (publicJob(replay))), duplicate: true };
     if (isForeignKey(error)) throw new HttpFail(409, { code: "work_item_not_found", message: "采集任务已不存在。" });
     if (isUnique(error)) {
       const active = (await postgresConnection().query<Row>(`SELECT id FROM crawl_jobs WHERE status=ANY($1::text[]) LIMIT 1`, [[...ACTIVE]])).rows[0];

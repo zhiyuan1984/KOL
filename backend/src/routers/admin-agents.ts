@@ -282,7 +282,7 @@ adminAgentsRouter.post("/admin/agents/:id/bindings/bulk", async (c) => {
   const body = await c.req.json() as {
     targets?: BulkAgentBindingTarget[]; org_version?: number; reason?: string; preview_signature?: string;
   };
-  if (!Array.isArray(body.targets) || !Number.isInteger(body.org_version) || typeof body.preview_signature !== "string" || !body.preview_signature) {
+  if (!Array.isArray(body.targets) || typeof body.org_version !== "number" || !Number.isInteger(body.org_version) || typeof body.preview_signature !== "string" || !body.preview_signature) {
     throw new HttpFail(400, "targets、org_version 和 preview_signature 必填");
   }
   const applied = await applyBulkAgentBindings({

@@ -128,7 +128,7 @@ export async function awaitHomeDiscoveryWork(): Promise<void> {
 
 function track(work: Promise<void>): void {
   pendingWork.add(work);
-  work.finally(() => pendingWork.delete(work));
+  void work.then(() => pendingWork.delete(work), () => pendingWork.delete(work));
 }
 
 function ownerId(): string {
@@ -1219,7 +1219,7 @@ export async function startHomeDiscoveryRun(body: Json): Promise<Json> {
   const owner = ownerId();
   const existing = (await getConn().query("SELECT * FROM discovery_runs\n      WHERE kind=$1 AND owner_user_id=$2 AND status IN ('queued','crawling','ranking')\n      ORDER BY created_at DESC LIMIT 1",[HOME_KIND,owner])).rows[0] as Row | undefined;
   if (existing) {
-    return { ...(publicRun(existing)), duplicate: true, reused: true };
+    return { ...(await (publicRun(existing))), duplicate: true, reused: true };
   }
   const spec = (await validateSpec(body));
   const skill = (await taskDefinition("creator_discovery"));

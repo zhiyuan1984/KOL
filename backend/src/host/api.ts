@@ -250,7 +250,7 @@ export async function requireTaskAccess(skill: string, agentId?: string): Promis
 
 /** 会话绑定（来源链第 3 级）读的那一行；入口自行校验访问权。 */
 export async function sessionRow(sid: string): Promise<Row> {
-  return { ...(assertSessionAccess(sid)) };
+  return { ...(await (assertSessionAccess(sid))) };
 }
 
 type ComposePrepare = {
@@ -2727,7 +2727,7 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
       const draft = (await persistDraft(sid, item));
       (await addMsg(sid, "assistant", "email_card", (await emailCardPayload(draft))));
       (await syncDraftArtifacts(String(draft.id)));
-      return { ...(ok(sid, me, intent, { worker: mapped.worker, draft, items: mapped.items })), worker: mapped.worker };
+      return { ...(await (ok(sid, me, intent, { worker: mapped.worker, draft, items: mapped.items }))), worker: mapped.worker };
     }
     if (!mapped.draft && mailTemplate && !hasComposeDraftOutput(wr.items)) {
       const compiled = compileMailDraft(mailTemplate, knowledgeFillValues(intent, col));
@@ -2739,7 +2739,7 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
         && compiled.missing.length === 0
         && !unfilledComposeSlots(mailTemplate, knowledgeFillValues(intent, col))
       ) {
-        return { ...(persistKnowledgeDraft(sid, me, intent, col, mailTemplate)), worker: mapped.worker };
+        return { ...(await (persistKnowledgeDraft(sid, me, intent, col, mailTemplate))), worker: mapped.worker };
       }
     }
     return mapped;
@@ -3134,7 +3134,7 @@ async function applyKnowledge(
     && filled.missing.length === 0
     && !unfilledComposeSlots(template, knowledgeFillValues(intent, col))
   ) {
-    return { ...(persistKnowledgeDraft(sid, me, intent, col, template)), worker: wr.worker };
+    return { ...(await (persistKnowledgeDraft(sid, me, intent, col, template))), worker: wr.worker };
   }
   return wr;
 }

@@ -74,7 +74,8 @@ export async function assertResolvedConnectorEndpointSafe(endpoint: URL): Promis
 const guardedDispatcher = new Agent({
   connect: {
     lookup(hostname, options, callback) {
-      lookup(hostname, { all: true, verbatim: true }).then((addresses) => {
+      // The Node lookup hook owns success/failure through its callback.
+      void lookup(hostname, { all: true, verbatim: true }).then((addresses) => {
         if (!addresses.length || addresses.some((entry) => invalidHost(entry.address))) {
           callback(Object.assign(new Error("runtime_endpoint_forbidden"), { code: "runtime_endpoint_forbidden" }), "", 0);
           return;

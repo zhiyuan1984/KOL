@@ -305,7 +305,7 @@ export async function deleteProfilesWithoutHomepage(input: {
     expected_count: expected,
     deleted,
   }));
-  return { ok: true, scope: "public_pool_only", deleted, ...(previewProfilesWithoutHomepage(companyId)) };
+  return { ok: true, scope: "public_pool_only", deleted, ...(await (previewProfilesWithoutHomepage(companyId))) };
 }
 
 /** 一条 IN 查询最多绑多少个 id：远低于 SQLite 的变量上限，只是给超长名单留安全余量。 */

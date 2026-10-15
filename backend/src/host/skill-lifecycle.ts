@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { dataDir, publishedSkillsDir, codexMode } from "../config.js";
-import { audit, getConn, nowIso } from "../db.js";
+import { audit, getConn, nowIso, tx } from "../db.js";
 import { nid } from "../ids.js";
 import { skillToolProfile, unmountedDeclaredTools, unregisteredDeclaredTools } from "../runtime/skill-coverage.js";
 import { taskDefinition } from "../tasks/registry.js";
@@ -65,9 +65,15 @@ async function lifecycleRow(id: string): Promise<Awaited<{ skill_id: string; sta
 }
 
 async function currentStage(id: string): Promise<Awaited<SkillStage>> {
-  const row = (await lifecycleRow(id));
-  const stage = (row?.stage || "draft") as SkillStage;
-  return SKILL_STAGES.includes(stage) ? stage : "draft";
+  const row = await lifecycleRow(id);
+  if (row) {
+    const stage = row.stage as SkillStage;
+    return SKILL_STAGES.includes(stage) ? stage : "draft";
+  }
+  // An installed bundled release is a real code-delivered baseline. Never
+  // override an explicit draft/disabled row or invent a numbered version.
+  const definition = await taskDefinition(id);
+  return isBundledSkill(id) && definition?.source === "bundled" ? "published" : "draft";
 }
 
 /** 待发布的「所需工具」：有草稿改动时以草稿为准（发布会应用草稿），否则取现行技能声明。 */
@@ -135,7 +141,7 @@ export async function skillLifecycleMeta(id: string): Promise<{
   dependencies: { unregistered: string[]; unmounted: string[] };
   test_summary: { total: number; pass_rate: number | null; failing: number; last_run_at: string | null };
 }> {
-  requireSkill(id);
+  await requireSkill(id);
   const stage = (await currentStage(id));
   const row = (await lifecycleRow(id));
   const tags = row?.tags ? (JSON.parse(row.tags) as string[]) : [];
@@ -174,12 +180,12 @@ export async function skillLifecycleMeta(id: string): Promise<{
 }
 
 export async function setSkillOrigin(id: string, origin: SkillOrigin): Promise<Awaited<void>> {
-  requireSkill(id);
+  await requireSkill(id);
   const row = (await lifecycleRow(id));
   const previous = row?.origin || (row?.tags?.includes("第三方") ? "third_party" : "official");
   if (previous === origin) return;
   const operator = (await currentUser()).handle;
-  (await getConn().query("INSERT INTO skill_lifecycle (skill_id, stage, origin, owner, business_stage, tags, updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7)\n     ON CONFLICT(skill_id) DO UPDATE SET origin=excluded.origin, updated_at=excluded.updated_at",[id,row?.stage || "draft",origin,row?.owner || null,row?.business_stage || null,row?.tags || "[]",nowIso()]));
+  (await getConn().query("INSERT INTO skill_lifecycle (skill_id, stage, origin, owner, business_stage, tags, updated_at)\n     VALUES ($1,$2,$3,$4,$5,$6,$7)\n     ON CONFLICT(skill_id) DO UPDATE SET origin=excluded.origin, updated_at=excluded.updated_at",[id,row?.stage || (await currentStage(id)),origin,row?.owner || null,row?.business_stage || null,row?.tags || "[]",nowIso()]));
   (await audit(operator, "skill.origin.change", { skill: id, from: previous, to: origin }));
 }
 
@@ -188,7 +194,7 @@ export async function skillStageHistory(id: string): Promise<Awaited<Json[]>> {
 }
 
 export async function transitionSkillStage(id: string, toStage: string, reason?: string): Promise<{ stage: SkillStage }> {
-  requireSkill(id);
+  await requireSkill(id);
   const to = toStage as SkillStage;
   if (!SKILL_STAGES.includes(to)) throw new HttpFail(400, `unknown stage ${toStage}`);
   const from = (await currentStage(id));
@@ -254,7 +260,7 @@ export async function latestSkillPublishApproval(id: string): Promise<Awaited<Sk
  * 未通过时抛 403/400 中文原因，前端直接展示。
  */
 export async function assertSkillPublishAllowed(id: string): Promise<void> {
-  requireSkill(id);
+  await requireSkill(id);
   const row = (await lifecycleRow(id));
   if (!row?.owner || !row.owner.trim()) {
     throw new HttpFail(400, { code: "skill_owner_required", message: "请先设置技能负责人，再发布。" });
@@ -288,7 +294,7 @@ export type SkillPublishCheck = {
 
 /** 发布前检查：有一项不通过就不能发布，前端逐项展示中文原因。 */
 export async function skillPublishCheck(id: string): Promise<SkillPublishCheck> {
-  requireSkill(id);
+  await requireSkill(id);
   const meta = (await skillLifecycleMeta(id));
   const reasons: string[] = [];
 
@@ -378,9 +384,9 @@ export async function updateSkillLifecycleMeta(
   id: string,
   patch: { owner?: string; business_stage?: string; tags?: string[]; biz_family?: string; biz_domain?: string },
 ): Promise<Awaited<void>> {
-  requireSkill(id);
+  await requireSkill(id);
   const row = (await lifecycleRow(id));
-  const stage = row?.stage || "draft";
+  const stage = row?.stage || (await currentStage(id));
   const owner = patch.owner ?? row?.owner ?? null;
   const businessStage = patch.business_stage ?? row?.business_stage ?? null;
   const tags = JSON.stringify(patch.tags ?? (row?.tags ? JSON.parse(row.tags) : []));
@@ -392,12 +398,12 @@ export async function updateSkillLifecycleMeta(
 // ---------------------------------------------------------------- versions
 
 export async function listSkillVersions(id: string): Promise<Awaited<Json[]>> {
-  requireSkill(id);
+  await requireSkill(id);
   return (await getConn().query("SELECT * FROM skill_versions WHERE skill_id = $1 ORDER BY version DESC",[id])).rows as Json[];
 }
 
 export async function publishSkillVersion(id: string, description?: string, version?: number): Promise<{ version: number }> {
-  requireSkill(id);
+  await requireSkill(id);
   // 发布门禁：负责人必填；R3 无已通过审批单时 403。两条发布路径（阶段流转 / 直接发版）都走这里。
   (await assertSkillPublishAllowed(id));
   const bundled = isBundledSkill(id);
@@ -420,7 +426,7 @@ export async function publishSkillVersion(id: string, description?: string, vers
 }
 
 export async function rollbackSkillVersion(id: string, version: number): Promise<Awaited<{ version: number }>> {
-  requireSkill(id);
+  await requireSkill(id);
   const row = (await getConn().query("SELECT * FROM skill_versions WHERE skill_id = $1 AND version = $2",[id,version])).rows[0] as { snapshot_path: string } | undefined;
   if (!row || !row.snapshot_path || !fs.existsSync(path.join(row.snapshot_path, "SKILL.md"))) {
     throw new HttpFail(404, `version ${version} snapshot not found`);
@@ -454,12 +460,12 @@ export function deleteSkillVersionSnapshots(id: string): void {
 export type SkillTestInput = { name?: string; input?: string; expected?: string };
 
 export async function listSkillTests(id: string): Promise<Awaited<Json[]>> {
-  requireSkill(id);
+  await requireSkill(id);
   return (await getConn().query("SELECT * FROM skill_tests WHERE skill_id = $1 ORDER BY created_at DESC",[id])).rows as Json[];
 }
 
 export async function createSkillTest(id: string, input: SkillTestInput): Promise<Awaited<Json>> {
-  requireSkill(id);
+  await requireSkill(id);
   const name = String(input.name || "").trim();
   if (!name) throw new HttpFail(400, "test name required");
   const row = {
@@ -475,10 +481,14 @@ export async function createSkillTest(id: string, input: SkillTestInput): Promis
   return row as unknown as Json;
 }
 
-export async function deleteSkillTest(id: string, testId: string): Promise<Awaited<{ ok: true }>> {
-  requireSkill(id);
-  (await getConn().query("DELETE FROM skill_tests WHERE id = $1 AND skill_id = $2",[testId,id]));
-  (await getConn().query("DELETE FROM skill_test_runs WHERE test_id = $1",[testId]));
+export async function deleteSkillTest(id: string, testId: string): Promise<{ ok: true }> {
+  await requireSkill(id);
+  const operator = (await currentUser()).handle;
+  await tx(async client => {
+    await client.query("DELETE FROM skill_test_runs WHERE test_id=$1 AND skill_id=$2", [testId, id]);
+    await client.query("DELETE FROM skill_tests WHERE id=$1 AND skill_id=$2", [testId, id]);
+    await audit(operator, "skill.test.delete", { skill: id, test_id: testId }, client);
+  });
   return { ok: true };
 }
 
@@ -490,34 +500,36 @@ export async function recordSkillTestRun(
   id: string,
   results: { test_id: string; passed: boolean; fail_reason?: string; duration_ms?: number }[],
   version?: number,
-): Promise<Awaited<{ total: number; passed: number; failed: number }>> {
-  requireSkill(id);
-  const conn = getConn();
+): Promise<{ total: number; passed: number; failed: number }> {
+  await requireSkill(id);
   const operator = (await currentUser()).handle;
-  const tx = conn.transaction(async () => {
+  await tx(async client => {
     for (const r of results) {
-      const test = (await conn.query("SELECT name FROM skill_tests WHERE id = $1 AND skill_id = $2",[r.test_id,id])).rows[0] as
-        | { name: string }
-        | undefined;
+      const test = (await client.query<{ name: string }>(
+        "SELECT name FROM skill_tests WHERE id=$1 AND skill_id=$2 FOR SHARE", [r.test_id, id],
+      )).rows[0];
       if (!test) throw new HttpFail(404, `unknown test ${r.test_id}`);
-      (await conn.query("INSERT INTO skill_test_runs (id, skill_id, test_id, test_name, version, passed, fail_reason, ran_by, ran_at, duration_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",[nid("str"),id,r.test_id,test.name,version ?? null,r.passed ? 1 : 0,r.passed ? null : String(r.fail_reason || "未通过"),operator,nowIso(),r.duration_ms ?? null]));
+      await client.query(
+        "INSERT INTO skill_test_runs (id,skill_id,test_id,test_name,version,passed,fail_reason,ran_by,ran_at,duration_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+        [nid("str"), id, r.test_id, test.name, version ?? null, r.passed ? 1 : 0,
+          r.passed ? null : String(r.fail_reason || "未通过"), operator, nowIso(), r.duration_ms ?? null],
+      );
     }
+    await audit(operator, "skill.test.run", { skill: id, total: results.length }, client);
   });
-  tx();
-  (await audit(operator, "skill.test.run", { skill: id, total: results.length }));
-  const passed = results.filter((r) => r.passed).length;
+  const passed = results.filter(r => r.passed).length;
   return { total: results.length, passed, failed: results.length - passed };
 }
 
 export async function listSkillTestRuns(id: string, limit = 50): Promise<Awaited<Json[]>> {
-  requireSkill(id);
+  await requireSkill(id);
   return (await getConn().query("SELECT * FROM skill_test_runs WHERE skill_id = $1 ORDER BY ran_at DESC LIMIT $2",[id,limit])).rows as Json[];
 }
 
 // ---------------------------------------------------------------- metrics
 
 export async function skillMetrics(id: string, days = 7): Promise<Awaited<Json>> {
-  requireSkill(id);
+  await requireSkill(id);
   const since = new Date(Date.now() - days * 86400_000).toISOString();
   const conn = getConn();
   const totals = (await conn.query("SELECT COUNT(*) AS calls, SUM(CASE WHEN status IN ('completed','approved','done','succeeded') THEN 1 ELSE 0 END) AS ok, SUM(CASE WHEN status IN ('failed','error') THEN 1 ELSE 0 END) AS failed FROM tickets WHERE skill = $1 AND created_at >= $2",[id,since])).rows[0] as { calls: number; ok: number | null; failed: number | null };

@@ -67,7 +67,7 @@ export async function freshTestDatabase(): Promise<string> {
   const { runtimeActionEventSchema } = await import("../../src/runtime/action-event-schema.js");
   await postgresPool().query(runtimeActionEventSchema);
   // Formal domain extensions are executed only against this newly created test DB.
-  for (const filename of ["032_review_postgres.sql", "033_credential_native_default.sql", "042_organization_native_postgres.sql", "043_mail_send_native.sql", "044_mail_memory_native_cache.sql"]) {
+  for (const filename of ["032_review_postgres.sql", "033_credential_native_default.sql", "042_organization_native_postgres.sql", "043_mail_send_native.sql", "044_mail_memory_native_cache.sql", "045_skill_presentation_overlays.sql"]) {
     await postgresPool().query(fs.readFileSync(fileURLToPath(new URL(`../../migrations/${filename}`, import.meta.url)), "utf8"));
   }
   return name;

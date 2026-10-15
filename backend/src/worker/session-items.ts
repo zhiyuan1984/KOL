@@ -521,7 +521,7 @@ async function rebuildStarryCards(skill: EmailMcpTask, items: Json[], extra: Jso
       if (!isComposeResultItem(item) && !starryPayload(item)) return item;
       const data = composePayloadFromItem(item, siblings, composeRouteFacts({ extra }));
       return {
-        ...(emailMcpResultCard(skill, data)),
+        ...(await (emailMcpResultCard(skill, data))),
         type: "task_result",
         ...(Array.isArray(item.operations) ? { operations: item.operations } : {}),
       };
@@ -529,7 +529,7 @@ async function rebuildStarryCards(skill: EmailMcpTask, items: Json[], extra: Jso
     const data = starryPayload(item);
     if (!data) return item;
     return {
-      ...(emailMcpResultCard(skill, data)),
+      ...(await (emailMcpResultCard(skill, data))),
       type: "task_result",
       ...(Array.isArray(item.operations) ? { operations: item.operations } : {}),
     };

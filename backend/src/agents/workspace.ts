@@ -127,7 +127,7 @@ export async function agentWorkspaceDetail(id: string) {
         ...skill.resources.filter(row => !row.enabled || !row.configured || !row.tool_count).map(row => `${skill.label} 的资源 ${row.id} 未就绪`),
       ];
     });
-    return { ...state(db, item, catalog), bindings: bound, coverage, versions, exam_blocked: examBlocked.map(row=>({...row,missing:Number(row.missing)})),
+    return { ...(await state(db, item, catalog)), bindings: bound, coverage, versions, exam_blocked: examBlocked.map(row=>({...row,missing:Number(row.missing)})),
       organization_history:await organizationHistory(db,id),dependency_issues: issues, health_evidence: "configuration_only" as const };
   }, { isolation: "REPEATABLE READ" });
 }

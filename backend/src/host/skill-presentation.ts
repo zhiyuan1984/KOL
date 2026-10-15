@@ -94,11 +94,17 @@ export function normalizePresentationPatch(skillId: string, patch: Record<string
   return out;
 }
 
-export async function savePresentationOverlay(skillId: string, overlay: PresentationOverlay): Promise<Awaited<void>> {
+export async function savePresentationOverlay(skillId: string, overlay: PresentationOverlay): Promise<void> {
   await ensureTable();
-  const current = (await readPresentationOverlays()).get(skillId) || {};
-  const next = { ...current, ...overlay };
-  (await getConn().query("INSERT INTO skill_presentation_overlays (skill_id,payload,updated_at) VALUES ($1,$2,$3)\n     ON CONFLICT(skill_id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at",[skillId,JSON.stringify(next),nowIso()]));
+  // Row-locking UPSERT merges the patch inside PostgreSQL. Independent updates
+  // cannot both read an old document and then discard each other's fields.
+  await getConn().query(
+    `INSERT INTO skill_presentation_overlays (skill_id,payload,updated_at) VALUES ($1,$2,$3)
+     ON CONFLICT(skill_id) DO UPDATE SET
+       payload=(skill_presentation_overlays.payload::jsonb || excluded.payload::jsonb)::text,
+       updated_at=excluded.updated_at`,
+    [skillId, JSON.stringify(overlay), nowIso()],
+  );
   clearTaskRegistryCache();
 }
 

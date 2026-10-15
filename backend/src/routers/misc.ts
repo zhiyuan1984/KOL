@@ -402,7 +402,7 @@ misc.get("/admin/skills", async (c) => {
     funnel: FUNNEL_STAGES,
     meta: { ...(await skillAdminMeta()), stages: SKILL_STAGES, stage_labels: SKILL_STAGE_LABELS },
     skills: (await Promise.all((await skillCatalog()).map(async (s) => ({
-      ...(skillMeta(s.id)),
+      ...(await (skillMeta(s.id))),
       grants: (await grantsForSkill(s.id)),
       lifecycle: (await skillLifecycleMeta(s.id)),
     })))),
@@ -770,7 +770,7 @@ misc.get("/me", async (c) => {
       starry_binding: publicStarryBinding(await starryBindingRow(appUser.id)),
     } : {
       email: appUser ? "" : (user.handle === "lingong" ? "" : DEMO_ADMIN.email),
-      ...personaAccess(),
+      ...(await personaAccess()),
       starry_binding: await currentFollowScope(),
     }),
   });
