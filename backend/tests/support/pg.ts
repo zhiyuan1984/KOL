@@ -30,8 +30,11 @@ function ident(name: string): string {
 }
 
 /** 建一个全新测试库并把 DATABASE_URL 指向它，返回库名。 */
-export async function freshTestDatabase(options: { empty?: boolean } = {}): Promise<string> {
+export async function freshTestDatabase(options: { empty?: boolean; reclaimPrevious?: boolean } = {}): Promise<string> {
   if (!ADMIN_URL) throw new Error("TEST_DATABASE_URL is required for isolated PostgreSQL tests");
+  // Only an explicit sequential beforeEach fixture opts into reclaiming its
+  // completed previous case. The created list never contains production DBs.
+  if (options.reclaimPrevious) await dropTestDatabases();
   const name = ident(`${PREFIX}_${process.pid}_${++counter}`);
   const admin = new Client({ connectionString: ADMIN_URL });
   await admin.connect();

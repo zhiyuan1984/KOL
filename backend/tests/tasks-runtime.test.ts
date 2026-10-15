@@ -389,7 +389,10 @@ describe("task CRUD and run flow", () => {
       task_type: "risk_scan",
       title: "有界任务中心投影",
     });
+    expect(created.status).toBe(201);
     const taskId = String(created.body.id);
+    const parent = await getConn().query("SELECT id FROM tickets WHERE id=$1", [taskId]);
+    expect(parent.rows).toHaveLength(1);
     const oversized = "x".repeat(256_000);
     (await getConn().query("UPDATE tickets SET input=$1, entities=$2, content=$3 WHERE id=$4",[JSON.stringify({ payload: oversized }),JSON.stringify({ payload: oversized }),oversized,taskId]));
     const now = new Date().toISOString();

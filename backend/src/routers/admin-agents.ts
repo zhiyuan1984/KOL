@@ -102,7 +102,7 @@ adminAgentsRouter.get("/admin/agents", async (c) => {
       const personMemberships = memberships.filter((membership) => membership.person_ref === person.person_ref);
       return { ...person, company_id: personMemberships[0]?.company_id || null, unit_ids: personMemberships.map((membership) => membership.org_unit_id) };
     }),
-    skills: (await skillCatalog()).map((skill) => ({ id: skill.id, label: skill.label, category: skill.category, summary: skill.summary, document_query: hasDocumentTool(skill.id) })),
+    skills: await Promise.all((await skillCatalog()).map(async (skill) => ({ id: skill.id, label: skill.label, category: skill.category, summary: skill.summary, document_query: await hasDocumentTool(skill.id) }))),
     bases: await listBases(),
   });
 });

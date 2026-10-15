@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { appendTaskEvent, upsertTaskEvent } from "../src/task-events.js";
-import { closePostgresPool, postgresPool } from "../src/postgres/pool.js";
+import { appendTaskEvent, appendTaskEventIn, upsertTaskEvent } from "../src/task-events.js";
+import { closePostgresPool, postgresPool, postgresTransaction } from "../src/postgres/pool.js";
 import { freshTestDatabase } from "./support/pg.js";
 
 const OWNER = "task-events-native-owner";
@@ -40,6 +40,17 @@ describe("native PostgreSQL task events", () => {
     expect(rows.rows.every((row) => row.event_type === "run.progress")).toBe(true);
   });
 
+  it("keeps caller-owned transaction rollback authoritative", async () => {
+    const run = await seed("evt-native-rollback");
+    await expect(postgresTransaction(async (client) => {
+      const event = await appendTaskEventIn(client, "evt-native-rollback", run, "run.progress", "将回滚", "running");
+      expect(event).toMatchObject({ work_item_id: "evt-native-rollback", run_id: run, sequence: 1 });
+      throw new Error("caller requests rollback");
+    })).rejects.toThrow("caller requests rollback");
+    const rows = await postgresPool().query<{ n: string }>("SELECT COUNT(*)::text AS n FROM task_events WHERE work_item_id=$1", ["evt-native-rollback"]);
+    expect(rows.rows[0]?.n).toBe("0");
+  });
+
   it("rejects a run belonging to another ticket without emitting a cross-task fact", async () => {
     await seed("evt-native-main", OWNER);
     const otherRun = await seed("evt-native-other", OTHER);
@@ -51,8 +62,8 @@ describe("native PostgreSQL task events", () => {
   it("makes a trace item-key idempotent under two workers while lifecycle facts remain immutable", async () => {
     const run = await seed("evt-native-main");
     const [first, second] = await Promise.all([
-      (await upsertTaskEvent("evt-native-main", run, "phase:analysis", "run.progress", "分析", "running", "first")),
-      (await upsertTaskEvent("evt-native-main", run, "phase:analysis", "run.progress", "分析完成", "running", "second")),
+      upsertTaskEvent("evt-native-main", run, "phase:analysis", "run.progress", "分析", "running", "first"),
+      upsertTaskEvent("evt-native-main", run, "phase:analysis", "run.progress", "分析完成", "running", "second"),
     ]);
     expect(first?.id).toBeTruthy();
     expect(second?.id).toBe(first?.id);

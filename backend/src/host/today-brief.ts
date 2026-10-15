@@ -65,24 +65,45 @@ function sectionHasCopy(value: unknown): boolean {
   });
 }
 
-function hasDisplayTasks(brief: Record<string, unknown>): boolean {
-  const list = Array.isArray(brief.display_tasks)
-    ? brief.display_tasks
-    : Array.isArray(brief.todo_layout) ? brief.todo_layout : null;
-  if (!list) return false;
-  if (list.length === 0) return true;
-  return list.some((item) => Boolean(String(asRecord(item)?.work_item_id || asRecord(item)?.id || "").trim()));
+function validSections(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  // An explicit empty array is the authoritative no-open-work result. Any
+  // non-empty section must nevertheless retain the worker schema shape rather
+  // than relying on a later host-side default to make it presentable.
+  return value.every((item) => {
+    const section = asRecord(item);
+    return section !== null
+      && typeof section.title === "string"
+      && typeof section.body === "string"
+      && Array.isArray(section.items)
+      && section.items.every((entry) => typeof entry === "string");
+  });
 }
-
+function hasDisplayTasks(brief: Record<string, unknown>): boolean {
+  // `display_tasks` is the worker contract consumed by the durable result
+  // artifact. Do not treat a legacy layout or host normalization as a model
+  // result: otherwise an incomplete brief can be persisted as an empty plan.
+  const list = brief.display_tasks;
+  if (!Array.isArray(list)) return false;
+  return list.every((item) => {
+    const task = asRecord(item);
+    return task !== null
+      && Boolean(String(task.work_item_id || task.id || "").trim())
+      && typeof task.rank === "number"
+      && Number.isFinite(task.rank)
+      && typeof task.why === "string";
+  });
+}
 /** Validate untrusted model output before the native transaction persists any artifact. */
 export function validateTodayBrief(value: unknown): TodayBriefValidation {
   const brief = asRecord(value);
   if (!brief) return { ok: false, reason: "today_brief must be an object", brief: null };
   const lead = typeof brief.lead === "string" ? brief.lead.trim() : "";
-  if (!lead && !sectionHasCopy(brief.sections)) return { ok: false, reason: "Codex did not produce lead or sections", brief: null };
-  if (brief.sections != null && !Array.isArray(brief.sections)) return { ok: false, reason: "missing sections", brief: null };
+  // Report the absent required collection first: this distinguishes an
+  // incomplete worker envelope from an otherwise well-shaped empty plan.
+  if (!validSections(brief.sections)) return { ok: false, reason: "missing or malformed sections", brief: null };
+  if (!lead) return { ok: false, reason: "missing lead", brief: null };
   if (!hasDisplayTasks(brief)) return { ok: false, reason: "规划结果缺少有效的任务展示列表", brief: null };
-
   const primary = asRecord(brief.primary) || {};
   const primaryVerb = String(primary.verb || primary.action || "").trim().toLowerCase();
   const primaryLabel = String(primary.label || primary.title || brief.lead || "");

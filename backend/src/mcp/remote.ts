@@ -151,7 +151,7 @@ export function annotateRemoteFailure(error: unknown): unknown {
 
 async function classifiedRemoteCall<T>(pending: Promise<T>): Promise<T> {
   try {
-    return pending;
+    return await pending;
   } catch (error) {
     throw annotateRemoteFailure(error);
   }
@@ -284,7 +284,7 @@ export async function withRemoteMcp<T>(
 ): Promise<T> {
   const client = new RemoteMcpClient(options);
   try {
-    return operation(client);
+    return await operation(client);
   } finally {
     await client.close().catch(() => undefined);
   }

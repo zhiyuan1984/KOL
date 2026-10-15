@@ -2196,7 +2196,7 @@ export async function executeStarryKolTask(
   };
   const invokeOptional = async (tool: string, args: Json = {}): Promise<Json> => {
     try {
-      return invoke(tool, args);
+      return await invoke(tool, args);
     } catch {
       return {};
     }
@@ -2674,7 +2674,7 @@ export async function executeStarryKolTask(
               if (addErr && !kolUid) throw Object.assign(new Error(addErr), { taken: added });
               if (!kolUid) {
                 const found = await findProfileByContact(to[0], invokeOptional, fromAddr);
-                if (found) return createFromHit(found);
+                if (found) return await createFromHit(found);
               }
               const next = await createOnce(kolUid, kolIdOf(added));
               if (conversationMissingProfile(next)) {

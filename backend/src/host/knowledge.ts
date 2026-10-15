@@ -881,9 +881,16 @@ if (actor === undefined) actor = (await knowledgeActorId());
   return publicKnowledge((await knowledgeRow(id)), actor);
 }
 
+/**
+ * Historical synchronous entry approval is intentionally closed.  PostgreSQL
+ * permits a knowledge entry to become published only when the native
+ * publication application has frozen its material and the approved review
+ * instance is being executed by knowledge-publication/service.  Keeping this
+ * compatibility export as a rejection prevents callers from recreating the
+ * former direct UPDATE bypass.
+ */
 export async function approveKnowledge(id: string, expectedVersion: number | null = null, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {
-if (actor === undefined) actor = (await knowledgeActorId());
-
+  if (actor === undefined) actor = (await knowledgeActorId());
   requireAdmin();
   const row = (await knowledgeRow(id));
   if (String(row.status) === "archived") throw new HttpFail(400, "已归档知识不能直接发布");
@@ -893,15 +900,10 @@ if (actor === undefined) actor = (await knowledgeActorId());
   if (Number(expectedVersion) !== Number(row.current_version || 1)) {
     throw new HttpFail(409, { code: "knowledge_version_conflict", message: "内容已变，请刷新后重新审核" });
   }
-  const now = nowIso();
-  const version = Number(row.current_version || 1);
-  (await tx(async (db) => {
-    (await db.query("UPDATE knowledge SET status='published',published_version=$1,approved_by=$2,approved_at=$3,updated_at=$4 WHERE id=$5",[version,actor,now,now,id]));
-    const published = { ...row, status: "published", approved_by: actor, approved_at: now, current_version: version };
-    (await writeVersion(db, published, "approve", actor));
-  }));
-  (await audit(actor, "knowledge.approve", { knowledge_id: id, version }));
-  return publicKnowledge((await knowledgeRow(id)), actor);
+  throw new HttpFail(409, {
+    code: "knowledge_publication_review_required",
+    message: "请从知识工作区提交独立发布审批；系统将冻结资料并在审批通过后由原生发布作业生效。",
+  });
 }
 
 export async function archiveKnowledge(id: string, actor?: Awaited<ReturnType<typeof knowledgeActorId>>): Promise<Awaited<Json>> {

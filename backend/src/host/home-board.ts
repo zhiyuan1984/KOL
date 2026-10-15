@@ -659,12 +659,12 @@ if (definitions === undefined) definitions = (await taskDefinitionIndex());
     const snippet = String(unread.last_snippet || "").replace(/\s+/g, " ").trim();
     take({
       id: `rec-mail-${kol.id}`,
-      title: recTitle("reply_analysis", handle, undefined, "", definitions),
+      title: await recTitle("reply_analysis", handle, undefined, "", definitions),
       reason: snippet ? `${snippet.slice(0, 48)}${snippet.length > 48 ? "…" : ""} · 待判断` : "有未读来信，先做回复分析",
       source: "ai",
       source_label: "今天推荐",
       intent: "reply_analysis",
-      prompt: recPrompt("reply_analysis", handle, "", definitions),
+      prompt: await recPrompt("reply_analysis", handle, "", definitions),
       handle,
       collaboration_id: kol.id,
     }, handle);
@@ -687,12 +687,12 @@ if (definitions === undefined) definitions = (await taskDefinitionIndex());
       || (days ? `停留 ${days} 天，建议跟进` : "系统注意到信号，确认后才进待办");
     take({
       id: `rec-ai-${task.id}`,
-      title: recTitle(intent, handle, days, String(kol?.stage_code || ""), definitions),
+      title: await recTitle(intent, handle, days, String(kol?.stage_code || ""), definitions),
       reason,
       source: "ai",
       source_label: "今天推荐",
       intent,
-      prompt: recPrompt(intent, handle, String(kol?.stage_code || ""), definitions),
+      prompt: await recPrompt(intent, handle, String(kol?.stage_code || ""), definitions),
       handle,
       collaboration_id: task.collaboration_id || kol?.id || null,
     }, handle);
@@ -705,12 +705,12 @@ if (definitions === undefined) definitions = (await taskDefinitionIndex());
     if (kol.unbound) {
       take({
         id: `rec-stage-${kol.id}`,
-        title: recTitle("creator_profile", handle, undefined, "", definitions),
+        title: await recTitle("creator_profile", handle, undefined, "", definitions),
         reason: "尚未进入生命周期",
         source: "stage",
         source_label: "按阶段",
         intent: "creator_profile",
-        prompt: recPrompt("creator_profile", handle, "", definitions),
+        prompt: await recPrompt("creator_profile", handle, "", definitions),
         handle,
         collaboration_id: null,
       }, handle);
@@ -720,12 +720,12 @@ if (definitions === undefined) definitions = (await taskDefinitionIndex());
       const notes = String(kol.notes || "").trim();
       take({
         id: `rec-stage-${kol.id}`,
-        title: recTitle("risk_scan", handle, undefined, "", definitions),
+        title: await recTitle("risk_scan", handle, undefined, "", definitions),
         reason: [notes, "需人选回到主流程"].filter(Boolean).join(" · "),
         source: "stage",
         source_label: "按阶段",
         intent: "risk_scan",
-        prompt: recPrompt("risk_scan", handle, "", definitions),
+        prompt: await recPrompt("risk_scan", handle, "", definitions),
         handle,
         collaboration_id: kol.id,
       }, handle);
@@ -735,12 +735,12 @@ if (definitions === undefined) definitions = (await taskDefinitionIndex());
     const intent = "email_compose";
     take({
       id: `rec-stage-${kol.id}`,
-      title: recTitle(intent, handle, Number(kol.days_in_stage || 0), String(kol.stage_code || ""), definitions),
+      title: await recTitle(intent, handle, Number(kol.days_in_stage || 0), String(kol.stage_code || ""), definitions),
       reason: `停留 ${kol.days_in_stage} 天 · 所处 ${String(kol.stage_label || "").trim() || "当前阶段"}`,
       source: "stage",
       source_label: "按阶段",
       intent,
-      prompt: recPrompt(intent, handle, String(kol.stage_code || ""), definitions),
+      prompt: await recPrompt(intent, handle, String(kol.stage_code || ""), definitions),
       handle,
       collaboration_id: kol.id,
     }, handle);
@@ -755,14 +755,14 @@ if (definitions === undefined) definitions = (await taskDefinitionIndex());
     const days = Number(kol.days_in_stage || 0);
     take({
       id: `rec-stage-${kol.id}`,
-      title: recTitle(intent, handle, days || undefined, String(kol.stage_code || ""), definitions),
+      title: await recTitle(intent, handle, days || undefined, String(kol.stage_code || ""), definitions),
       reason: days
         ? `停留 ${days} 天 · 所处 ${String(kol.stage_label || "").trim() || "当前阶段"}`
         : `${String(kol.stage_label || "当前阶段")}，可以继续跟进`,
       source: "stage",
       source_label: "按阶段",
       intent,
-      prompt: recPrompt(intent, handle, String(kol.stage_code || ""), definitions),
+      prompt: await recPrompt(intent, handle, String(kol.stage_code || ""), definitions),
       handle,
       collaboration_id: kol.id,
     }, handle);
@@ -781,7 +781,7 @@ if (definitions === undefined) definitions = (await taskDefinitionIndex());
       source: "catalog",
       source_label: "任务模板",
       intent: definition.id,
-      prompt: recPrompt(definition.id, "", "", definitions),
+      prompt: await recPrompt(definition.id, "", "", definitions),
       handle: "",
       collaboration_id: null,
       act: "ask",
@@ -895,7 +895,7 @@ export async function buildHomeBoard(options: { restoreOfficialStages?: boolean 
 
   const taskRows = (await conn.query<Row>(
     `SELECT ${HOME_BOARD_TICKET_COLUMNS},
-            CASE WHEN task_type = ANY($1::text[]) THEN '{}'::jsonb ELSE input END AS input
+            CASE WHEN task_type = ANY($1::text[]) THEN '{}'::text ELSE input END AS input
        FROM tickets
        WHERE owner_user_id = $2
        ORDER BY updated_at DESC`,
@@ -1082,7 +1082,7 @@ export async function buildHomeBoard(options: { restoreOfficialStages?: boolean 
 
   // Recommendations read the whole per-kol thread list above; the emitted board
   // caps it only now, so no board logic ever sees the truncated array.
-  const workbench = buildWorkbench(decoratedTasks, kols, definitions);
+  const workbench = await buildWorkbench(decoratedTasks, kols, definitions);
   for (const kol of kols) {
     kol.mail_threads = capped(mailThreadsOf(kol), MAX_KOL_MAIL_THREADS);
   }

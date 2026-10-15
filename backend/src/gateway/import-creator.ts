@@ -72,7 +72,7 @@ async function audit(actor: string, eventType: string, payload: Json): Promise<v
 export async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timer: Awaited<ReturnType<typeof setTimeout>> | undefined;
   try {
-    return Promise.race([
+    return await Promise.race([
       operation,
       new Promise<T>((_, reject) => {
         timer = setTimeout(() => reject(new Error(`${label} request timed out`)), timeoutMs);
@@ -185,7 +185,7 @@ function pickProfileRow(list: Json[], target: KolLookupTarget): Json | undefined
  */
 async function safeStarryList(tool: string, args: Json, actor: string): Promise<Json> {
   try {
-    return callStarryKolTool(tool, args);
+    return await callStarryKolTool(tool, args);
   } catch (error) {
     await audit(actor, "host.find_existing_kol_uid.failed", {
       tool,

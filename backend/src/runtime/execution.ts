@@ -556,7 +556,7 @@ export class SkillExecution {
     }
     if (action.state !== "pending") reject("runtime_action_already_claimed", 409);
     this.confirmedActionId = action.id;
-    try { return this.invoke(String(handle.exposed.name), action.args_json); }
+    try { return await this.invoke(String(handle.exposed.name), action.args_json); }
     finally { this.confirmedActionId = undefined; }
   }
   private trace(): Json {

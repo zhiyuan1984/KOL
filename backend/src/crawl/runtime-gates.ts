@@ -39,7 +39,7 @@ export async function withCrawlerInstanceKeyLock<T>(instanceKey: string, run: ()
   const client = await postgresPool().connect();
   try {
     await client.query("SELECT pg_advisory_lock(hashtextextended($1,0))", [`crawler:${instanceKey}`]);
-    return run();
+    return await run();
   } finally {
     await client.query("SELECT pg_advisory_unlock(hashtextextended($1,0))", [`crawler:${instanceKey}`]).catch(() => undefined);
     client.release();

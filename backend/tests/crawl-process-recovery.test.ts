@@ -35,10 +35,24 @@ let url: string;
 let heldTool: string;
 let remoteReject: boolean;
 let previous: Record<string, string | undefined>;
+let ownedDatabaseUrl: string;
+let ownedDatabaseName: string;
+let ownedDatabaseRootPid: string;
 
 async function worker(id: string) {
+  const database = new URL(ownedDatabaseUrl);
+  if (!ownedDatabaseName || database.pathname !== `/${ownedDatabaseName}`) throw new Error("isolated_test_database_required");
   const child = spawn(process.execPath, ["--import", "tsx", fileURLToPath(new URL("./fixtures/crawl-recovery-worker.ts", import.meta.url)), id], {
-    cwd: fileURLToPath(new URL("..", import.meta.url)), env: process.env, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"],
+    cwd: fileURLToPath(new URL("..", import.meta.url)),
+    env: {
+      ...process.env,
+      DATABASE_URL: ownedDatabaseUrl,
+      TEST_POSTGRES_URL: ownedDatabaseUrl,
+      KOL_NATIVE_CRAWL_TEST_DATABASE: ownedDatabaseName,
+      KOL_NATIVE_CRAWL_TEST_ROOT_PID: ownedDatabaseRootPid,
+    },
+    windowsHide: true,
+    stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
   const exited = once(child, "exit");
   const record = { process: child, exited };
@@ -51,7 +65,9 @@ async function completedWorker(id: string) {
   let diagnostics = "";
   record.process.on("message", message => { result = message; });
   record.process.stderr!.on("data", data => { diagnostics += data; });
-  expect((await record.exited)[0], diagnostics).toBe(0);
+  const [exitCode] = await record.exited;
+  if (diagnostics) process.stderr.write(diagnostics);
+  expect(exitCode, diagnostics).toBe(0);
   return result;
 }
 async function expireKilledLease(id: string) {
@@ -67,7 +83,13 @@ async function expireKilledLease(id: string) {
 beforeEach(async () => {
   previous = Object.fromEntries(["AUTH_MODE", "RUNTIME_CREDENTIAL_MASTER_KEY"].map(key => [key, process.env[key]]));
   process.env.AUTH_MODE = "enabled";
-  await freshTestDatabase(); (await resetConn());
+  ownedDatabaseName = await freshTestDatabase();
+  ownedDatabaseUrl = String(process.env.DATABASE_URL || "");
+  ownedDatabaseRootPid = String(process.pid);
+  const ownedPrefix = `${String(process.env.TEST_DB_PREFIX || "lingong_t")}_${ownedDatabaseRootPid}_`;
+  expect(new URL(ownedDatabaseUrl).pathname).toBe(`/${ownedDatabaseName}`);
+  expect(ownedDatabaseName.startsWith(ownedPrefix)).toBe(true);
+  await resetConn();
   children = []; calls = []; heldTool = "get_creators"; remoteReject = false;
   let signalCall: () => void;
   firstCall = new Promise(resolve => { signalCall = resolve; });

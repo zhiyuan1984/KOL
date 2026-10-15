@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { DEMO_USER } from "../src/config.js";
 import { requireTaskDefinition, taskDefinition, validateDeclaredTaskContract } from "../src/tasks/registry.js";
-import { getConn, nowIso, resetConn } from "../src/db.js";
-import { approveKnowledge, cite, createKnowledge, deprecate, knowledgeRow, listPublishedForOps, workerSafeExtra } from "../src/host/knowledge.js";
+import { getConn, nowIso, resetConn, tx } from "../src/db.js";
+import { cite, createKnowledge, deprecate, knowledgeRow, listPublishedForOps, workerSafeExtra } from "../src/host/knowledge.js";
 import { openContext, resolveContext, type ContextResolveInput } from "../src/host/context-resolve.js";
 import { contextGapResponse, workerRunContext } from "../src/host/api.js";
 import { runtimeAgentScopeContext } from "../src/contract-scope.js";
@@ -14,6 +14,13 @@ import { collaborationContext, declaredContext, writeBox } from "../src/worker/r
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { writeNativePersonMemory } from "../src/postgres/mail-memory-repository.js";
+import { randomUUID } from "node:crypto";
+import { ensureOrganizationTree } from "../src/runtime/organization-tree.js";
+import { reviewContextForActor } from "../src/approval/review-access.js";
+import { ReviewService } from "../src/approval/review-service.js";
+import { knowledgeReviewDefinition } from "../../shared/review.js";
+import { preparePublication as prepareNativeEntryPublication, submitPublication, executePublication } from "../src/knowledge-publication/service.js";
 
 type Row = Record<string, unknown>;
 
@@ -49,7 +56,7 @@ const hasPostgres = Boolean(process.env.TEST_DATABASE_URL || process.env.DATABAS
 beforeEach(async () => {
   // 每个用例一份全新权威库并把它切成 DATABASE_URL；createApp 之前必须完成，
   // 否则应用侧连接拿不到 DATABASE_URL（PostgreSQL 是唯一权威存储）。
-  if (hasPostgres) await freshTestDatabase();
+  if (hasPostgres) await freshTestDatabase({ reclaimPrevious: true });
   process.env.CODEX_MODE = "stub";
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "context-resolve-"));
   Object.assign(process.env, {
@@ -59,6 +66,17 @@ beforeEach(async () => {
   });
   (await resetConn());
   (await seedAll());
+  // The legacy mail-template fixture below is published through the native
+  // entry flow, so both requester and independent reviewer need real current
+  // organization identities before the app is constructed.
+  process.env.AUTH_MODE = "disabled";
+  await ensureOrganizationTree();
+  const db = getConn(), time = new Date().toISOString();
+  for (const [id, roles] of [["sriphy", '["employee","admin"]'], ["context-reviewer", '["employee"]']]) {
+    await db.query("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", [id, id, id, "unused", roles, "[]", "", 1, time, time]);
+  }
+  await db.query("UPDATE organization_people SET user_id='sriphy' WHERE person_ref='person:yan_chen'");
+  await db.query("UPDATE organization_people SET user_id='context-reviewer' WHERE person_ref='person:zhang_gan'");
   // createApp 会重建这套种子数据，工作台样例必须在它之后再落库。
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
@@ -507,7 +525,7 @@ describe("POST /api/actions/context.resolve", () => {
  */
 describe("POST /api/actions/mail.prepare 行为回归", () => {
   async function addPublishedTemplate(id: string): Promise<Awaited<void>> {
-    (await createKnowledge({
+    await createKnowledge({
       id,
       title: id,
       body: "template source",
@@ -520,9 +538,31 @@ describe("POST /api/actions/mail.prepare 行为回归", () => {
       placeholders: ["[红人]"],
       stage_codes: ["INITIAL_CONTACT"],
       status: "draft",
-    }));
-    (await approveKnowledge(id, Number((await knowledgeRow(id)).current_version || 1)));
-    (await cite(id));
+    }, "sriphy");
+    const context = async (actor = "sriphy") => tx(client => reviewContextForActor(client, actor, "company:amperetime"));
+    const definition = knowledgeReviewDefinition();
+    definition.nodes.find(node => node.type === "review")!.assignee = { kind: "named", userIds: ["context-reviewer"] };
+    const template = await tx(async db => new ReviewService(db, await context()).saveTemplate(undefined, undefined, definition));
+    await tx(async db => {
+      const service = new ReviewService(db, await context());
+      const command = { action: "publish" as const, templateId: template.id, expectedVersion: template.version };
+      const prepared = await service.prepare(command);
+      await service.execute(command, prepared.confirmationId, randomUUID());
+    });
+    const entryRef = `entry:${id}`;
+    const command = { templateId: template.id, templateVersion: template.version, values: {}, releaseNote: "上下文邮件模板发布" };
+    const prepared = await prepareNativeEntryPublication("sriphy", "company:amperetime", entryRef, command);
+    const receipt = await submitPublication("sriphy", "company:amperetime", entryRef, command, prepared.confirmationId, randomUUID());
+    const view = await tx(async client => new ReviewService(client, await context("context-reviewer")).instance(receipt.instanceId));
+    const approve = { action: "approve" as const, instanceId: receipt.instanceId, expectedVersion: view.version, reason: "已核对冻结模板" };
+    await tx(async db => {
+      const service = new ReviewService(db, await context("context-reviewer"));
+      const confirmation = await service.prepare(approve);
+      await service.execute(approve, confirmation.confirmationId, randomUUID());
+    });
+    expect((await executePublication("company:amperetime", receipt.instanceId)).status).toBe("published");
+    expect((await knowledgeRow(id)).status).toBe("published");
+    await cite(id);
   }
 
   async function prepare(body: Json = {}) {
@@ -626,7 +666,15 @@ describe("收发件解析不再依赖合作对象（ADR-2026-10-07）", () => {
   it("无合作时 mail_thread 走收件人的人摘要，不再直接失败", async () => {
     (await bindDefaultMailbox("ctx@litime.com"));
     (await insertThread({ id: "th_c3", mailbox: "ctx@litime.com", conversation_id: "conv_c3", peer_email: "mem@gmail.com", last_at: "2026-10-06T10:00:00.000Z" }));
-    (await getConn().query("INSERT INTO app_state (key, value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",["mail_person_digest:ctx@litime.com:mem@gmail.com",JSON.stringify({ text: "人摘要", source: "memory", mail_count: 2, fingerprint: "fp" })]));
+    await writeNativePersonMemory({
+      id: "ctx-person-memory",
+      mailbox: "ctx@litime.com",
+      peerEmail: "mem@gmail.com",
+      text: "人摘要",
+      source: "memory",
+      fingerprint: "fp",
+      mailCount: 2,
+    });
     const session = openContext({ skillId: "email_compose", body: {} });
     const thread = (await session.mailThread());
     expect(thread?.text).toBe("人摘要");

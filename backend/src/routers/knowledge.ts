@@ -95,14 +95,18 @@ knowledge.use("/admin/knowledge/documents/*",async(c,next)=>{
   requireAdmin();
   const id=c.req.path.split("/documents/")[1]?.split("/")[0];
   if(id){
-    const bound=(await postgresQuery(`SELECT b.tenant,p.review_status FROM knowledge_documents d
+    const bound=(await postgresQuery(`SELECT d.id,b.tenant,p.review_status FROM knowledge_documents d
       LEFT JOIN knowledge_publication_bindings b ON b.base_id=d.base_id
       LEFT JOIN knowledge_publications p ON p.document_id=d.id WHERE d.id=$1`,[id]))[0];
-    if(bound?.tenant && (await publicationContext(c.req.header("X-Review-Company"))).tenant!==bound.tenant)
-      throw new HttpFail(404,"资料不存在或不在当前组织范围");
+    // A removed resource must retain the existing 404 contract.  Scope is only
+    // evaluated after an actual document is found, so a foreign existing record
+    // still receives its authorization denial rather than looking deleted.
+    if(!bound) throw new HttpFail(404,"资料不存在");
+    if(bound.tenant && (await publicationContext(c.req.header("X-Review-Company"))).tenant!==bound.tenant)
+      throw new HttpFail(403,"资料不在当前组织范围");
     const native=(await postgresQuery("SELECT 1 FROM knowledge_publication_applications WHERE document_id=$1",[id]))[0];
     if(native && (c.req.method==="DELETE" || c.req.path.endsWith("/reprocess"))) throw new HttpFail(409,"本版本已有审批留痕，请创建新版本草稿");
-    if((c.req.method==="DELETE" || c.req.path.endsWith("/reprocess")) && bound?.review_status)
+    if((c.req.method==="DELETE" || c.req.path.endsWith("/reprocess")) && bound.review_status)
       throw new HttpFail(409,{code:"knowledge_document_frozen",message:"本版本已有有效审批，不能删除或重新加工；请创建新版本草稿。"});
   }
   await next();
@@ -110,7 +114,8 @@ knowledge.use("/admin/knowledge/documents/*",async(c,next)=>{
 
 knowledge.post("/approvals/v2/instances/:id/knowledge/trial",async c=>{
   const body=await c.req.json();
-  return c.json(await knowledgeReviewTrial(c.req.param("id"),body.query,(await publicationContext(c.req.header("X-Review-Company")))));
+  const result=await knowledgeReviewTrial(c.req.param("id"),body.query,(await publicationContext(c.req.header("X-Review-Company"))));
+  return c.json(result);
 });
 
 knowledge.get("/admin/knowledge/documents/:id/publication", async c =>
@@ -221,7 +226,7 @@ knowledge.delete("/knowledge/:id/deprecate", async (c) => c.json((await undeprec
 
 knowledge.get("/admin/knowledge/raw", async (c) => c.json((await listRaw())));
 knowledge.get("/admin/knowledge/extract-jobs", async (c) => c.json((await listExtractJobs())));
-knowledge.get("/admin/knowledge/review", (c) => c.json(reviewQueue()));
+knowledge.get("/admin/knowledge/review", async (c) => c.json(await reviewQueue()));
 knowledge.get("/admin/knowledge/deprecate-stats", async (c) => c.json((await deprecateStats())));
 knowledge.get("/admin/knowledge/proposals", async (c) => c.json((await listProposals())));
 
@@ -313,7 +318,10 @@ knowledge.delete("/admin/knowledge/documents/:id", async (c) => {
   }
   return c.json((await deleteDocument(c.req.param("id"))));
 });
-knowledge.post("/admin/knowledge/search", async (c) => c.json(await searchDocuments((await c.req.json()) as Json)));
+knowledge.post("/admin/knowledge/search", async (c) => {
+  const result=await searchDocuments((await c.req.json()) as Json);
+  return c.json(result);
+});
 knowledge.get("/admin/knowledge/index-health", async (c) => c.json(await documentIndexHealth()));
 
 knowledge.get("/admin/knowledge", async (c) => {
@@ -366,7 +374,7 @@ knowledge.post("/admin/knowledge/upload", async (c) => {
   const file = body.file;
   if (!file || typeof file === "string") throw new HttpFail(400, "file required");
   const buf = Buffer.from(await (file as File).arrayBuffer());
-  return c.json(storeUploadRaw({
+  return c.json(await storeUploadRaw({
     name: (file as File).name || "upload.bin",
     type: (file as File).type || "application/octet-stream",
     buf,
@@ -384,7 +392,7 @@ knowledge.post("/admin/knowledge/evolve/:id/review", async (c) => {
 });
 knowledge.post("/admin/knowledge/:id/transfer", async (c) => {
   const body = (await c.req.json()) as { to_brand?: string };
-  return c.json(transferBrand(c.req.param("id"), String(body.to_brand || "")));
+  return c.json(await transferBrand(c.req.param("id"), String(body.to_brand || "")));
 });
 knowledge.post("/admin/knowledge/:id/approve", () => { throw new HttpFail(409,"请从当前知识提交审批，审批通过后独立发布"); });
 knowledge.post("/admin/knowledge/:id/archive", async (c) => c.json((await archiveKnowledge(c.req.param("id")))));

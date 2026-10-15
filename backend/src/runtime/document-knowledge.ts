@@ -36,9 +36,9 @@ export async function documentDependencies(skillId: string): Promise<Awaited<Row
     .filter((base) => ids.has(String(base.id)));
 }
 
-export async function invokeDocumentTool(context: RuntimeContext, args: Json, authorize: () => void): Promise<Json> {
+export async function invokeDocumentTool(context: RuntimeContext, args: Json, authorize: () => void | Promise<void>): Promise<Json> {
   const check = async () => {
-    authorize();
+    await authorize();
     if (!(await hasDocumentTool(context.skillId))) throw new HttpFail(403, { code: "runtime_document_tool_unbound" });
     return isKnowledgePreview(context)?[]:(await documentDependencies(context.skillId));
   };
@@ -52,7 +52,7 @@ export async function invokeDocumentTool(context: RuntimeContext, args: Json, au
   }
   const stamp = JSON.stringify(bases);
   const revalidate = async () => {
-    authorize();
+    await authorize();
     if (!isKnowledgePreview(context) && JSON.stringify((await check())) !== stamp) throw new HttpFail(409, { code: "runtime_binding_changed" });
   };
   const documents=manifest.bases.find(base=>base.id===baseId)?.documents || [];

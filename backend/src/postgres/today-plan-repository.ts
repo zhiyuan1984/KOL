@@ -2,10 +2,12 @@ import type { PoolClient } from "pg";
 import { nid } from "../ids.js";
 import { pgEnqueueExecutionJob } from "../execution-jobs/postgres-store.js";
 import { postgresPool, postgresQuery, postgresTransaction } from "./pool.js";
-import { appendTaskEventIn } from "../task-events.js";
+import { appendTaskEvent, appendTaskEventIn } from "../task-events.js";
+import { createRunTraceSink } from "../host/run-trace.js";
 import type { Json, Row } from "../types.js";
 import type { ClaimedExecutionJob } from "../execution-jobs/contracts.js";
 import { packTodayPlanContext, planningRunInput, planningRuntimeIdentity, type PlanScope, type SourceItem, type TodayPlanPack } from "../host/today-plan-context.js";
+import { briefPointerTable, planTaskType } from "../host/planning-types.js";
 import { validateTodayBrief } from "../host/today-brief.js";
 import { runWorker } from "../worker/runner.js";
 
@@ -47,9 +49,16 @@ function asArray(value: unknown): unknown[] {
   if (Array.isArray(value)) return value;
   try { const parsed = JSON.parse(String(value || "[]")); return Array.isArray(parsed) ? parsed : []; } catch { return []; }
 }
-function planTaskType(scope: PlanScope): "today_plan" | "todo_plan" { return scope === "todo" ? "todo_plan" : "today_plan"; }
 function pointerTable(scope: PlanScope): "employee_today_briefs" | "employee_todo_briefs" {
-  return scope === "todo" ? "employee_todo_briefs" : "employee_today_briefs";
+  // Today/todo panes are two projections of one native work plan. Keep every
+  // artifact and read pointer on the canonical scope so an empty todo result
+  // cannot fall back to an older, separate memory projection.
+  return briefPointerTable(scope);
+}
+function planningProgress(scope: PlanScope): { submitted: string; writing: string } {
+  return scope === "todo"
+    ? { submitted: "已提交 Codex 待办规划", writing: "正在生成待办简报" }
+    : { submitted: "已提交 Codex 规划", writing: "正在生成今日简报" };
 }
 function sourceCursor(ids: string[], stageCounts: { greet: number; follow: number; quote: number; negotiate: number }): string {
   return `src:${ids.slice().sort().join(",")}|stages:${stageCounts.greet},${stageCounts.follow},${stageCounts.quote},${stageCounts.negotiate}`;
@@ -197,18 +206,28 @@ export async function executeNativeClaimedPlanningJob(claimed: ClaimedExecutionJ
     return { duplicate: false, sessionId };
   });
   if (claimedRun.duplicate) return { work_item_id: workItemId, run_id: runId, duplicate: true };
+  const scope: PlanScope = String(payload.scope) === "todo" ? "todo" : "today";
+  const trace = createRunTraceSink({ workItemId, runId });
+  let workerSettled = false;
   try {
     if (String(claimed.job_type) === "today_analyze.run") {
       const taskPayload = payload.task_payload && typeof payload.task_payload === "object" && !Array.isArray(payload.task_payload) ? payload.task_payload as Json : {};
-      const result = await Promise.resolve((await runWorker(claimedRun.sessionId, "today_analyze", String(payload.prompt || "分析所选对象并建议下一步，不要改状态。"), { ...taskPayload, work_item_id: workItemId, task_run_id: runId, actor_user_id: owner })));
+      const result = await runWorker(claimedRun.sessionId, "today_analyze", String(payload.prompt || "分析所选对象并建议下一步，不要改状态。"), { ...taskPayload, work_item_id: workItemId, task_run_id: runId, actor_user_id: owner }, undefined, trace.onStream);
+      workerSettled = true;
+      await trace.finish(false);
       await nativePlanTerminal(workItemId, runId, true);
       return { work_item_id: workItemId, run_id: runId, mode: "agent_plan", side_effect: "none", worker_id: result.worker_id };
     }
-    const scope: PlanScope = String(payload.scope) === "todo" ? "todo" : "today";
     const packRaw = payload.pack;
     const pack = packRaw && typeof packRaw === "object" && !Array.isArray(packRaw) ? packRaw as TodayPlanPack : await nativeTodayPlanContext(owner, scope);
-    const extra = (await planningRunInput(pack, { work_item_id: workItemId, task_run_id: runId, actor_user_id: owner }, scope));
-    const result = await Promise.resolve((await runWorker(claimedRun.sessionId, planTaskType(scope), scope === "todo" ? "规划待办工作。只输出 today_brief JSON。" : "规划今天的工作。只输出 today_brief JSON。", extra)));
+    const extra = await planningRunInput(pack, { work_item_id: workItemId, task_run_id: runId, actor_user_id: owner }, scope);
+    await appendTaskEvent(workItemId, runId, "run.progress", planningProgress(scope).submitted, "running", "已进入受控规划运行箱");
+    const result = await runWorker(claimedRun.sessionId, planTaskType(scope), scope === "todo" ? "规划待办工作。只输出 today_brief JSON。" : "规划今天的工作。只输出 today_brief JSON。", extra, undefined, trace.onStream);
+    workerSettled = true;
+    // A completed worker trace remains evidence even when subsequent plan
+    // validation rejects the artifact; do not rewrite it as a worker failure.
+    await trace.finish(false);
+    await appendTaskEvent(workItemId, runId, "run.progress", planningProgress(scope).writing, "running", "正在验证并持久化模型简报");
     const brief = briefFromWorkerItems(result.items);
     const missing = missingDisplayCoverage(brief, pack);
     if (!brief || missing.length) {
@@ -227,9 +246,15 @@ export async function executeNativeClaimedPlanningJob(claimed: ClaimedExecutionJ
     return { work_item_id: workItemId, run_id: runId, artifact_id: stored.artifactId, mode: "agent_plan", scope, worker_id: result.worker_id };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
+    // If the worker itself failed its in-flight trace is terminally failed. A
+    // post-worker validation/persistence failure preserves completed trace rows.
+    let traceFailure: unknown;
+    try { await trace.finish(!workerSettled); } catch (failure) { traceFailure = failure; }
+    // A trace failure must not prevent recording the task failure itself.
+    const failureReason = traceFailure ? `${reason}; trace persistence failed: ${traceFailure instanceof Error ? traceFailure.message : String(traceFailure)}` : reason;
     // A validation failure was terminalized above; this compare-and-set remains
     // harmless and records real worker/model failures exactly once.
-    await nativePlanTerminal(workItemId, runId, false, reason);
+    await nativePlanTerminal(workItemId, runId, false, failureReason);
     throw error;
   }
 }

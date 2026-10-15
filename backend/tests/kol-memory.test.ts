@@ -120,6 +120,9 @@ describe("kol follow/pool memory P0", () => {
       (await request("POST", "/api/kols/KOL_DENSITY_DOUBLE/claim", { confirm: true, scope_brand: "LT" })),
     ]);
     expect(attempts.every((result) => [200, 201].includes(result.status))).toBe(true);
+    // The same HTTP client must receive a real result for both the winning
+    // command and its idempotent retry, not infer ownership from later reads.
+    expect(attempts.every((result) => result.body.ok === true)).toBe(true);
     expect(new Set(attempts.map((result) => (result.body.follow as Json).follow_id)).size).toBe(1);
     expect(attempts.filter((result) => result.body.created === true)).toHaveLength(1);
     expect(attempts.filter((result) => result.body.reused === true)).toHaveLength(1);
@@ -132,7 +135,9 @@ describe("kol follow/pool memory P0", () => {
     const claim = await request("POST", "/api/kols/KOL_DENSITY_RELEASE/claim", { confirm: true, scope_brand: "LT" });
     const followId = String((claim.body.follow as Json).follow_id);
     expect((await request("POST", `/api/follows/${followId}/release`, {})).status).toBe(422);
-    expect((await request("POST", `/api/follows/${followId}/release`, { confirm: true })).status).toBe(200);
+    const released = await request("POST", `/api/follows/${followId}/release`, { confirm: true });
+    expect(released.status).toBe(200);
+    expect(released.body).toMatchObject({ ok: true, action: "release", follow_id: followId });
     const before = (await getConn().query("SELECT status, data_version, released_at FROM kol_follow_index WHERE id=$1",[followId])).rows[0];
     expect((await request("POST", `/api/follows/${followId}/release`, { confirm: true })).status).toBe(404);
     expect((await getConn().query("SELECT status, data_version, released_at FROM kol_follow_index WHERE id=$1",[followId])).rows[0]).toEqual(before);

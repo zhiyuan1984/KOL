@@ -726,7 +726,7 @@ export async function startDiscoveryRun(input: {
     (await refreshRequestStatus(String(request.id)));
     const run = (await getConn().query("SELECT * FROM discovery_runs WHERE id=$1",[runId])).rows[0] as Row;
     if (String(job.status) === "result_ready") (await ingestDiscoveryFromCrawlJob(job as Row));
-    return (publicRun(run));
+    return await (publicRun(run));
   } catch (error) {
     const source = error instanceof HttpFail ? error.detail ?? error : error;
     const mapped = mapEmployeeError(source);

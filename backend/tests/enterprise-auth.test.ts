@@ -7,6 +7,8 @@ import { getConn, resetConn } from "../src/db.js";
 import { createAgentBinding } from "../src/runtime/organization-tree.js";
 import { importOrganizationAccounts } from "../src/runtime/org-account-import.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
+import { setAgentSkill } from "../src/runtime/store.js";
 
 let tmp = "";
 let app: Hono;
@@ -155,9 +157,15 @@ describe("production account and enterprise controls", () => {
     const retiredGrant = await call("PUT", `/api/admin/users/${employee.id}/skills/email_compose`, {});
     expect(retiredGrant.response.status).toBe(410);
     expect(await (await call("GET", "/api/skills", undefined, cookie)).json).toEqual([]);
+    // Create the complete runtime eligibility chain: a real synthetic employee
+    // is linked to the organization tree, then uses a published Agent with an
+    // explicit mounted skill through an organization-unit binding.
+    const agentId = "agent:enterprise-auth-eligibility";
+    await seedPublishedAgent(agentId, "企业鉴权测试 Agent");
+    await setAgentSkill(agentId, "email_compose", true, 0);
     (await getConn().query("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2",[String(employee.id),"person:ye_guanwang"]));
     (await createAgentBinding({
-      agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
+      agent_id: agentId, target_type: "organization_unit", target_id: "org:lt_team",
       company_id: "company:amperetime", source: "test",
     }));
     const skills = await call("GET", "/api/skills", undefined, cookie);

@@ -9,6 +9,6 @@ registerExecutionHandler("runtime.confirm", async (job, checkpoint) => {
   const execution = new SkillExecution(action.context_json, undefined, checkpoint);
   try {
     await checkpoint();
-    return execution.confirm(action.id, String(payload.confirmation_version));
+    return await execution.confirm(action.id, String(payload.confirmation_version));
   } finally { execution.close(); }
 });

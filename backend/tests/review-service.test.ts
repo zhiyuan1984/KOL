@@ -183,7 +183,7 @@ describe("transactional generic review service", () => {
     expect(b.items).toHaveLength(2);
     expect(b.nextCursor).toBeNull();
     expect(new Set([...a.items, ...b.items].map((i) => i.id)).size).toBe(4);
-    (await db.query("UPDATE review_instances SET updated_at=$1",["2099-01-01T00:00:00Z"]));
+    (await db.query("UPDATE review_instances SET updated_at=$1, version=version+1",["2099-01-01T00:00:00Z"]));
     expect(
       (await service("reviewer")
         .instancePage({ filter: "todo", limit: 2, cursor: a.nextCursor! }))

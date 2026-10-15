@@ -1,3 +1,4 @@
+import { timezoneLabel } from "../timezoneLabel";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import {
   api,
@@ -115,7 +116,7 @@ export default function AdminCosts() {
           <div>
             <h2>成本与预算</h2>
             <p className="muted" data-cost-window>
-              {summary ? `${summary.month} · ${summary.timezone}` : "本月窗口读取中"} · 用量为估计值，不显示金额（未配置价格来源）。
+              {summary ? `${summary.month} · ${timezoneLabel(summary.timezone)}` : "本月窗口读取中"} · 用量为估计值，不显示金额（未配置价格来源）。
             </p>
           </div>
           <button type="button" className="btn ghost sm" data-cost-refresh onClick={reload} disabled={loading}>刷新</button>

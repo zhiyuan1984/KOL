@@ -11,7 +11,7 @@ import { HOME_ENTRY_REGISTRY as FRONTEND_HOME_ENTRY_REGISTRY } from "../../front
 import { collectSourceCatalog, packTodayPlanContext, planningHarnessMount } from "../src/host/today-plan-context.js";
 import * as todayPlanContext from "../src/host/today-plan-context.js";
 import { validateTodayBrief } from "../src/host/today-brief.js";
-import { PLAN_EMPLOYEE_EVENTS, todayBriefSnapshot, failStuckPlans } from "../src/host/today-plan-run.js";
+import { PLAN_EMPLOYEE_EVENTS, todayBriefSnapshot, failStuckPlans, recoverNativeTaskRuns } from "../src/host/today-plan-run.js";
 import { processExecutionJobById } from "../src/execution-jobs/dispatcher.js";
 import { startNativeTodayPlan } from "../src/postgres/today-plan-repository.js";
 import type { WorkerResult } from "../src/types.js";
@@ -79,6 +79,7 @@ function validBrief(overrides: Json = {}): Json {
     stats: { unfinished: 1, discovery_anomalies: 0, failed_runs: 0 },
     primary: { verb: "open", label: "打开未了结任务", object_id: "task:tsk_y", object_type: "task", person_id: null },
     sections: [{ title: "未了结", body: "昨日任务继续", items: ["跟进报价"] }],
+    display_tasks: [],
     todo_layout: [{ work_item_id: "tsk_y", rank: 1, why: "昨日未完成" }],
     analysis_hints: [],
     source_cursor: { cursor_from: null, cursor_to: "src:task:tsk_y", added: ["task:tsk_y"], removed: [], unchanged: [] },
@@ -96,7 +97,7 @@ function modelBrief(brief: Json, workItemIds: string[] = []): Json {
 }
 
 async function executePlanWithWorkerBrief(scope: "today" | "todo", brief: Json) {
-  const run = vi.spyOn(runner, "runWorker").mockResolvedValueOnce({
+  const run = vi.spyOn(runner, "runWorker").mockResolvedValue({
     worker_id: "stub",
     status: "completed",
     skill: "today_plan",
@@ -110,7 +111,7 @@ async function executePlanWithWorkerBrief(scope: "today" | "todo", brief: Json) 
 }
 
 beforeEach(async () => {
-  await freshTestDatabase();
+  await freshTestDatabase({ reclaimPrevious: true });
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-today-plan-"));
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
@@ -131,7 +132,7 @@ afterEach(async () => {
 describe("today_plan harness", () => {
   it("migrates platform planning skills to workspace-planner without KOL connector bindings", async () => {
     for (const id of ["today_plan", "todo_plan", "today_analyze"] as const) {
-      expect(taskDefinition(id)).toMatchObject({
+      expect(await taskDefinition(id)).toMatchObject({
         runtime_agent_id: "agent:workspace-planner",
         runtime_access: "authenticated",
         side_effects: "none",
@@ -504,7 +505,7 @@ describe("today_plan harness", () => {
       vi.spyOn(runner, "runWorker").mockReturnValue(held);
       const plan = await request("POST", planPath);
       expect([200, 202]).toContain(plan.status);
-      const processor = (await executePersistedPlanningJob(String(plan.body.execution_job_id), "test-plan-worker"));
+      const processor = executePersistedPlanningJob(String(plan.body.execution_job_id), "test-plan-worker");
       await vi.waitFor(() => expect(runner.runWorker).toHaveBeenCalled());
       const mid = await request("GET", briefPath);
       expect(mid.body.planning).toBe(true);
@@ -527,10 +528,9 @@ describe("today_plan harness", () => {
         status: "completed",
         skill: taskType,
         contract_log: [],
-        items: [validBrief({
-          type: "today_brief",
+        items: [modelBrief(validBrief({
           todo_layout: unfinishedIds.map((id, index) => ({ work_item_id: id, rank: index + 1, why: "未了结" })),
-        })],
+        }), unfinishedIds)],
       });
       await processor;
       await vi.waitFor(async () => {
@@ -612,29 +612,32 @@ describe("stale planning watchdog", () => {
   });
 
   it("boot reconcile fails claimed planning rows and preserves unclaimed queued work", async () => {
-    (await insertPlanRun("boot_open", "running", nowIso()));
-    (await insertPlanRun("boot_pending", "pending", nowIso(), "todo_plan"));
+    // A running analysis is already claimed; the canonical plan has only
+    // been enqueued, so the open-plan uniqueness invariant remains realistic.
+    (await insertPlanRun("boot_open", "running", nowIso(), "today_analyze"));
+    (await insertPlanRun("boot_pending", "queued", nowIso(), "today_plan"));
     (await insertPlanRun("boot_done", "completed", nowIso()));
     (await insertWorkItem({ id: "tsk_boot_other", title: "普通任务", task_type: "email_compose", status: "running" }));
 
-    const failed = await failStuckPlans("Host 重启时该规划仍在运行");
+    const failed = await recoverNativeTaskRuns("Host 重启时该规划仍在运行");
     expect(failed).toContain("tsk_boot_open");
     expect(failed).not.toContain("tsk_boot_pending");
     expect(failed).not.toContain("tsk_boot_done");
     expect(failed).not.toContain("tsk_boot_other");
-    expect(await statusOf("tickets", "tsk_boot_pending")).toBe("pending");
+    expect(await statusOf("tickets", "tsk_boot_pending")).toBe("queued");
     expect(await statusOf("tickets", "tsk_boot_done")).toBe("completed");
     expect(await statusOf("tickets", "tsk_boot_other")).toBe("running");
-    // The reconciled claimed plan no longer blocks today; the unclaimed todo
-    // plan stays queued for a durable worker rather than being falsely failed.
-    expect((await todayBriefSnapshot(owner(), "today")).planning).toBe(false);
+    // Only claimed work is failed on boot. The unclaimed canonical queue stays
+    // visible as planning in both projections until a worker claims it.
+    expect((await todayBriefSnapshot(owner(), "today")).planning).toBe(true);
     expect((await todayBriefSnapshot(owner(), "todo")).planning).toBe(true);
+    expect(await statusOf("task_runs", "run_boot_pending")).toBe("queued");
   });
 });
 
 describe("native plan snapshot", () => {
   it("keeps the current native artifact authoritative and never duplicates it as prior state", async () => {
-    await insertWorkItem({ id: "tsk_prev", title: "上一版规划", task_type: "today_plan", status: "pending" });
+    await insertWorkItem({ id: "tsk_prev", title: "上一版规划", status: "pending" });
     const first = await executePlanWithWorkerBrief("today", modelBrief(validBrief({ lead: "上一版先把报价邮件发出去" }), ["tsk_prev"]));
     expect(first.dispatched).toMatchObject({ handled: true, outcome: "processed" });
     const second = await executePlanWithWorkerBrief("today", modelBrief(validBrief({ lead: "本轮先恢复采集" }), ["tsk_prev"]));
@@ -657,7 +660,7 @@ describe("native plan snapshot", () => {
   });
 
   it("keeps the latest successful native brief when a later planning ticket has failed", async () => {
-    await insertWorkItem({ id: "tsk_last_ok", title: "最近成功规划", task_type: "today_plan", status: "pending" });
+    await insertWorkItem({ id: "tsk_last_ok", title: "最近成功规划", status: "pending" });
     const planned = await executePlanWithWorkerBrief("today", modelBrief(validBrief({ lead: "最近成功规划" }), ["tsk_last_ok"]));
     expect(planned.dispatched).toMatchObject({ handled: true, outcome: "processed" });
 

@@ -10,6 +10,7 @@ import {
 } from "../src/host/mail-memory.js";
 import { seedAll } from "../src/seed.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { bindStarryUser } from "./helpers/starry-binding.js";
 
 type ItemMemoryRow = {
   summary: string | null;
@@ -22,6 +23,7 @@ type ItemMemoryRow = {
 const AUTHORIZED_MAILBOX = "native-authorized@example.test";
 const UNAUTHORIZED_MAILBOX = "native-unbound@example.test";
 const NOW = "2026-10-15T00:00:00.000Z";
+let seededUserId = "";
 
 async function insertThread(input: { id: string; collaborationId: string; conversationId: string; mailbox: string }): Promise<void> {
   await getConn().query(
@@ -47,12 +49,22 @@ beforeEach(async () => {
   await freshTestDatabase();
   await resetConn();
   await seedAll();
+  // Standard test seeding materializes the same account used by the scoped
+  // AppUser; mailbox bindings retain their FK instead of using a fake ID.
+  await bindStarryUser();
+  const seededUser = (await getConn().query<{ id: string }>(
+    "SELECT id FROM users WHERE username=$1",
+    [DEMO_USER.handle],
+  )).rows[0];
+  if (!seededUser?.id || seededUser.id !== DEMO_USER.id) throw new Error("seeded_demo_user_required");
+  seededUserId = seededUser.id;
+  await getConn().query("UPDATE user_starry_bindings SET is_default=0 WHERE user_id=$1", [seededUserId]);
   await getConn().query(
     `INSERT INTO user_starry_bindings(user_id,mailbox_email,is_default,status,updated_at)
      VALUES ($1,$2,1,'connected',$3)
      ON CONFLICT (user_id,mailbox_email) DO UPDATE
        SET is_default=EXCLUDED.is_default,status=EXCLUDED.status,updated_at=EXCLUDED.updated_at`,
-    [DEMO_USER.id, AUTHORIZED_MAILBOX, NOW],
+    [seededUserId, AUTHORIZED_MAILBOX, NOW],
   );
 });
 
@@ -74,7 +86,7 @@ describe("mail-memory native PostgreSQL repository", () => {
     ]);
     await expect(threadsByCollaborationIds([])).resolves.toEqual(new Map());
 
-    const actorRow = (await getConn().query("SELECT * FROM users WHERE id=$1", [DEMO_USER.id])).rows[0];
+    const actorRow = (await getConn().query("SELECT * FROM users WHERE id=$1", [seededUserId])).rows[0];
     expect(actorRow).toBeTruthy();
     await withScopedUser(await mapUser(actorRow), async () => {
       await expect(findMailThread("native-thread-authorized")).resolves.toMatchObject({ mailbox: AUTHORIZED_MAILBOX });

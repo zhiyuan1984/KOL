@@ -4,8 +4,9 @@ import { postgresTransaction } from "./postgres/pool.js";
 import type { Row } from "./types.js";
 
 /** Immutable lifecycle facts and mutable run-trace rows are stored directly in
- * PostgreSQL. Every writer locks the parent ticket, so per-ticket sequence
- * allocation is serial and cannot race under concurrent workers. */
+ * PostgreSQL. Every writer makes a no-op version write on the parent ticket,
+ * so SERIALIZABLE transactions acquire a real MVCC conflict rather than
+ * retaining a stale snapshot after a lock-only read. */
 export type TaskEventClass = "lifecycle" | "run_trace" | "legacy";
 
 export function taskEventClass(eventType: string): TaskEventClass {
@@ -19,6 +20,11 @@ function taskEventLimit(): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 5000;
 }
 
+// The general transaction default is intentionally small. Event writers for
+// one ticket can legitimately form a longer serializable queue; retries still
+// rerun the full target/run guard and allocation in a fresh snapshot.
+const TASK_EVENT_SERIALIZATION_RETRIES = 24;
+
 function isForeignKey(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "23503");
 }
@@ -26,9 +32,18 @@ function isForeignKey(error: unknown): boolean {
 async function lockTarget(client: PoolClient, workItemId: string, runId: string | null): Promise<boolean> {
   const ticket = await client.query<{ id: string }>("SELECT id FROM tickets WHERE id=$1 FOR UPDATE", [workItemId]);
   if (!ticket.rows[0]) return false;
-  if (!runId) return true;
-  const run = await client.query<{ id: string }>("SELECT id FROM task_runs WHERE id=$1 AND work_item_id=$2", [runId, workItemId]);
-  return Boolean(run.rows[0]);
+  if (runId) {
+    const run = await client.query<{ id: string }>("SELECT id FROM task_runs WHERE id=$1 AND work_item_id=$2", [runId, workItemId]);
+    if (!run.rows[0]) return false;
+  }
+  // postgresTransaction defaults to SERIALIZABLE. SELECT ... FOR UPDATE alone
+  // waits but does not advance a concurrent transaction's snapshot; its later
+  // MAX(sequence) could therefore read stale rows and collide on the unique
+  // index. This deliberately value-preserving UPDATE creates the MVCC write
+  // dependency. The wrapper retries 40001 from a competing transaction, while
+  // caller-owned transactions retain their normal rollback/retry ownership.
+  await client.query("UPDATE tickets SET data_version=data_version WHERE id=$1", [workItemId]);
+  return true;
 }
 
 async function nextSequence(client: PoolClient, workItemId: string): Promise<number> {
@@ -82,7 +97,10 @@ export async function appendTaskEvent(
   safeSummary?: string,
 ): Promise<Row | null> {
   try {
-    return postgresTransaction(async (client) => (await appendTaskEventIn(client, workItemId, runId, eventType, label, status, safeSummary)));
+    return await postgresTransaction(
+      async (client) => (await appendTaskEventIn(client, workItemId, runId, eventType, label, status, safeSummary)),
+      { maxRetries: TASK_EVENT_SERIALIZATION_RETRIES },
+    );
   } catch (error) {
     // Follow-up traces may arrive after a task is deliberately removed. This is
     // an expected no-op, never an unhandled PostgreSQL FK exception.
@@ -107,7 +125,7 @@ export async function upsertTaskEvent(
   if (!key) return null;
   if (taskEventClass(eventType) !== "run_trace") throw new Error(`task event ${eventType} is not a mutable run trace`);
   try {
-    return postgresTransaction(async (client) => {
+    return await postgresTransaction(async (client) => {
       if (!(await lockTarget(client, workItemId, runId))) return null;
       const summary = safeSummary?.slice(0, 1000) || null;
       const found = await client.query<Row>(
@@ -133,7 +151,7 @@ export async function upsertTaskEvent(
         [row.id, row.work_item_id, row.run_id, row.sequence, row.event_type, row.event_class, row.label, row.status, row.safe_summary, row.item_key, now],
       );
       return row;
-    });
+    }, { maxRetries: TASK_EVENT_SERIALIZATION_RETRIES });
   } catch (error) {
     if (isForeignKey(error)) return null;
     throw error;

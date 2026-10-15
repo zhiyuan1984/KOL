@@ -117,7 +117,7 @@ async function mediaCrawlerUrl(): Promise<string> {
 async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timer: Awaited<ReturnType<typeof setTimeout>> | undefined;
   try {
-    return Promise.race([
+    return await Promise.race([
       operation,
       new Promise<T>((_, reject) => {
         timer = setTimeout(() => reject(new Error(`${label} timeout`)), timeoutMs);

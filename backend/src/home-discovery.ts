@@ -1042,13 +1042,13 @@ async function rankHomeDiscoveryRun(run: Row, counts: { raw: number; written: nu
     );
     // 先收尾推理行，再落简报终态事件：工作项的最后一条事件仍是终态，
     // 与今日规划一致（home-board 用 MAX(sequence) 当「最新状态」）。
-    trace.finish(false);
+    await trace.finish(false);
     const items = (result as WorkerResult).items || (result as Json).items || result;
     const applied = (await applyDiscoveryBriefResult(String(run.id), { items: Array.isArray(items) ? items : [items] }));
     // 简报没通过校验就是这轮没有产出，推理行不能显示成功。
-    if (String(applied.status) === "rank_failed") trace.finish(true);
+    if (String(applied.status) === "rank_failed") await trace.finish(true);
   } catch (error) {
-    trace.finish(true);
+    await trace.finish(true);
     const message = error instanceof Error ? error.message : String(error);
     (await updateRunStatus(String(run.id), "rank_failed", { error: message, completed: true }));
     (await event(String(run.work_item_id || ""), "failed", "rank_failed", "发现简报失败，已保留原始候选人。"));

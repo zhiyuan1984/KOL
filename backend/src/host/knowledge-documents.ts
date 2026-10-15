@@ -1145,7 +1145,7 @@ export async function searchDocuments(input: {
 /** Internal retrieval service. Callers must authorize scope before dispatch and again before returning. */
 export async function queryDocuments(input: {
   query?: string; base_id?: string; doc_ids?: unknown; include_pending?: unknown;
-}, actor: string, revalidate: () => void = () => {}): Promise<Json> {
+}, actor: string, revalidate: () => void | Promise<void> = () => {}): Promise<Json> {
   const query = String(input.query || "").trim();
   if (!query) throw new HttpFail(400, "query required");
   const baseId = String(input.base_id || "").trim();
@@ -1193,7 +1193,7 @@ export async function queryDocuments(input: {
   const args = ["--library", libraryDir(baseId), "--question", query, "--chat-model", chatModel(), "--citations"];
   for (const engineId of engineIds) args.push("--doc-id", engineId);
   const outcome: BridgeOutcome = await runBridge({ cmd: "ask", args, timeoutMs: 10 * 60_000 });
-  revalidate();
+  await revalidate();
   for (const doc of docs) {
     const current = (await docRow(String(doc.id)));
     if (current.status !== doc.status || current.updated_at !== doc.updated_at || engineDocIdOf(current) !== engineDocIdOf(doc)) {

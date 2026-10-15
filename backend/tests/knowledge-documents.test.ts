@@ -130,7 +130,7 @@ async function approveAndPublish(id:string,base:string){
 }
 
 beforeEach(async () => {
-  await freshTestDatabase();
+  await freshTestDatabase({ reclaimPrevious: true });
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-kdoc-"));
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
@@ -223,10 +223,19 @@ describe("knowledge documents (P1 pipeline)", () => {
       id: "product_consultation", title: "产品咨询", body: "使用知识文档问答工具回答并保留页码。", mcp: ["knowledge.ask_documents"],
     });
     expect(create.status, await create.text()).toBe(201);
-    for (const stage of ["editing", "testing", "published"]) {
+    for (const stage of ["editing", "testing"]) {
       const result = await request("POST", "/api/admin/skills/product_consultation/stage", { stage });
       expect(result.status, await result.text()).toBe(200);
     }
+    // Preserve the publication ownership gate before constructing the runtime
+    // Agent/knowledge chain used below.
+    const blockedPublish = await request("POST", "/api/admin/skills/product_consultation/stage", { stage: "published" });
+    expect(blockedPublish.status, await blockedPublish.text()).toBe(400);
+    expect(await detailCode(blockedPublish)).toBe("skill_owner_required");
+    const owner = await request("PATCH", "/api/admin/skills/product_consultation/lifecycle", { owner: "资料测试负责人" });
+    expect(owner.status, await owner.text()).toBe(200);
+    const published = await request("POST", "/api/admin/skills/product_consultation/stage", { stage: "published" });
+    expect(published.status, await published.text()).toBe(200);
     (await seedPublishedAgent("agent_product_test", "产品专家"));
     const enabled = await request("PUT", "/api/admin/agents/agent_product_test/skills/product_consultation", { enabled: true, expected_version: 0 });
     expect(enabled.status).toBe(200);
@@ -261,9 +270,24 @@ describe("knowledge documents (P1 pipeline)", () => {
       const sourceUrl = String(answer.citations[0].source_url).split("#")[0];
       expect((await request("GET", sourceUrl, undefined, "lingong_session=product-source-test")).status).toBe(200);
       process.env.AUTH_MODE = "disabled";
-      (await db.query("UPDATE knowledge_bases SET status='archived' WHERE id=$1",[base.id]));
-      await expect(runtime.invoke("knowledge.ask_documents", { query: "规格？" })).rejects.toMatchObject({ detail: { code: "knowledge_scope_unavailable" } });
-      (await db.query("UPDATE knowledge_bases SET status='active' WHERE id=$1",[base.id]));
+      // Archive through the versioned, explicit-confirmation taxonomy API. A raw
+      // UPDATE is deliberately rejected by PostgreSQL's taxonomy guard and must
+      // not be used to simulate a production revocation.
+      const currentBases = await request("GET", "/api/admin/knowledge/bases");
+      expect(currentBases.status, await currentBases.text()).toBe(200);
+      const currentBase = ((await currentBases.json()).bases as Json[]).find((item) => item.id === base.id) as Json;
+      expect(currentBase).toBeTruthy();
+      const archiveBase = await request("PUT", `/api/admin/knowledge/bases/${base.id}`, {
+        status: "archived", confirmed: true,
+        // Keep both CAS values. This live base is correctly blocked because its
+        // published document, binding and runtime resource are still in use.
+        expected_updated_at: currentBase.updated_at, expected_version: currentBase.version,
+      });
+      expect(archiveBase.status, await archiveBase.text()).toBe(409);
+      expect(await detailCode(archiveBase)).toBe("knowledge_base_in_use");
+      expect((await (await request("GET", "/api/admin/knowledge/bases")).json()).bases).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: base.id, status: "active", updated_at: currentBase.updated_at, version: currentBase.version }),
+      ]));
       const originalBridge = bridge.runBridge;
       const revoked = vi.spyOn(bridge, "runBridge").mockImplementationOnce(async (call) => {
         const outcome = await originalBridge(call);
@@ -452,10 +476,12 @@ describe("knowledge documents (P1 pipeline)", () => {
     expect(published.status).toBe("published");
     expect(published.published_at).toBeTruthy();
 
-    const answer = await (await request("POST", "/api/admin/knowledge/search", {
+    const answerResponse = await request("POST", "/api/admin/knowledge/search", {
       query: "这份资料的要点是什么？",
       base_id: base.id,
-    })).json();
+    });
+    expect(answerResponse.status, await answerResponse.text()).toBe(200);
+    const answer = await answerResponse.json();
     expect(String(answer.answer)).toContain("stub 试算答案");
     expect(String(answer.answer)).toContain("这份资料的要点是什么？");
     const citations = answer.citations as Json[];
@@ -475,9 +501,11 @@ describe("knowledge documents (P1 pipeline)", () => {
     const pendingDoc = await upload(String(base.id), "未发布.pdf", pdfBytes());
     await waitStatus(String(pendingDoc.id), ["pending_review"]);
 
-    const trial = await (await request("POST", "/api/admin/knowledge/search", {
+    const trialResponse = await request("POST", "/api/admin/knowledge/search", {
       query: "范围？", base_id: base.id,
-    })).json();
+    });
+    expect(trialResponse.status, await trialResponse.text()).toBe(200);
+    const trial = await trialResponse.json();
     const citations = trial.citations as Json[];
     expect(citations.map((item) => item.document_id)).toEqual([publishedDoc.id]);
 
@@ -568,8 +596,9 @@ describe("knowledge documents (P1 pipeline)", () => {
     await waitStatus(String(failing.id), ["failed"]);
     const removed = await request("DELETE", `/api/admin/knowledge/documents/${failing.id}`);
     expect(removed.status).toBe(200);
-    expect((await (await request("GET", `/api/admin/knowledge/documents/${failing.id}`)).json()).detail).toBeTruthy();
-    expect((await request("GET", `/api/admin/knowledge/documents/${failing.id}`)).status).toBe(404);
+    const missing = await request("GET", `/api/admin/knowledge/documents/${failing.id}`);
+    expect((await missing.json()).detail).toBeTruthy();
+    expect(missing.status, await missing.text()).toBe(404);
     const dir = path.join(tmp, "knowledge", "bases", String(base.id), "documents", String(failing.id));
     expect(fs.existsSync(dir)).toBe(false);
   });

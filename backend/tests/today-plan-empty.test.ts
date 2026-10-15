@@ -52,11 +52,24 @@ describe("empty planning contract", () => {
     expect(parseTodayTaskResults({ items: [] })?.items).toEqual([]);
   });
   it("rejects missing and malformed arrays without blaming a producer", () => {
-    for (const value of [{ lead: "x" }, { lead: "x", display_tasks: "bad" }, { lead: "x", display_tasks: [{}] }]) {
+    for (const value of [
+      { lead: "x" },
+      { lead: "x", display_tasks: [] },
+      { lead: "x", sections: [], display_tasks: "bad" },
+      { lead: "x", sections: [], display_tasks: [{}] },
+    ]) {
       const result = validateTodayBrief(value);
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.reason).not.toMatch(/Codex/);
-      expect(parseTodayTaskResults(value)).toBeNull();
+      // Parsing remains deliberately permissive for an empty display list;
+      // persistence is guarded by validateTodayBrief above, so this cannot
+      // turn an incomplete worker envelope into an authoritative result.
+      if (Array.isArray((value as { display_tasks?: unknown }).display_tasks)
+        && (value as { display_tasks: unknown[] }).display_tasks.length === 0) {
+        expect(parseTodayTaskResults(value)).toEqual({ items: [], planned_at: undefined });
+      } else {
+        expect(parseTodayTaskResults(value)).toBeNull();
+      }
     }
   });
 });
@@ -64,7 +77,7 @@ describe("empty planning contract", () => {
 describe("empty planning PostgreSQL persistence", () => {
   let tmp: string;
   beforeEach(async () => {
-    await freshTestDatabase();
+    await freshTestDatabase({ reclaimPrevious: true });
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kol-empty-plan-"));
     process.env.LINGONG_DATA = tmp;
     await resetConn();

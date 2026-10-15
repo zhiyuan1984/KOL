@@ -191,7 +191,7 @@ async function record(db: PoolClient, actor: string, kind: 'domain' | 'base', ac
 async function mutation<T>(destructive: boolean, fn: (db: PoolClient, actor: string) => Promise<T>): Promise<T> {
   const actor = requireAdmin().id;
   try {
-    return postgresTransaction(async db => {
+    return await postgresTransaction(async db => {
       await admin(db, actor);
       await lock(db, destructive);
       return fn(db, actor);

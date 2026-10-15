@@ -18,8 +18,11 @@ import { profileFor } from "../src/profiles.js";
 import { emailCardPayload, persistDraft } from "../src/host/api.js";
 import { emailMcpResultCard } from "../src/starrykol/service.js";
 import { classify } from "../src/host/intent.js";
+import { taskDefinition } from "../src/tasks/registry.js";
 import { ensureStarryHomeLibrary } from "../src/starrykol/library-sync.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
+import { setAgentSkill } from "../src/runtime/store.js";
 import { withTicketPrincipal } from "../src/ticket-domain/auth.js";
 
 type Json = Record<string, unknown>;
@@ -511,7 +514,12 @@ describe("host contracts", () => {
     const runner = fs.readFileSync(path.join(import.meta.dirname, "../src/worker/runner.ts"), "utf8");
     expect(runner).toMatch(/codexMode\(\) === "stub"/);
     expect(runner).not.toMatch(/isEmailMcpTask\(skill\) && skill !== "email_compose"/);
-    expect(runner).toContain("deriveChildThread");
+    // The current worker starts one fresh, capability-scoped thread per run; it
+    // intentionally no longer forks an opaque child thread from a prior turn.
+    expect(runner).not.toContain("deriveChildThread");
+    expect(runner).toContain("fresh_runtime: true");
+    expect(runner).toContain('method: "thread/start"');
+    expect(runner).toContain('method: "turn/start"');
     expect(runner).not.toContain("starry.sendConversation");
   });
 
@@ -562,13 +570,14 @@ describe("host contracts", () => {
     expect(admin.available_modes).toEqual(["employee", "admin"]);
   });
 
-  it("restart restores the normal operator after an exam-block demo", async () => {
+  it("bootstrap does not bypass an existing exam block", async () => {
     await request("POST", "/api/me/persona", { persona: "exam_blocked" });
     expect(((await (await request("GET", "/api/me")).json()) as Json).exam_passed).toBe(false);
+    // PostgreSQL bootstrap is idempotent and must not overwrite an existing
+    // identity or turn an exam-blocked operator into an eligible one.
     (await seedIfEmpty());
     const me = await (await request("GET", "/api/me")).json();
-    expect((me as Json).exam_passed).toBe(true);
-    expect(me.handle).toBe(DEMO_ADMIN.handle);
+    expect((me as Json).exam_passed).toBe(false);
   });
 
   it("one-click translation returns the model-produced internal Chinese draft", async () => {
@@ -725,13 +734,17 @@ describe("host contracts", () => {
     for (const rec of recs) {
       const [, data] = await ask(String(rec.prompt), String(rec.intent));
       const messages = data.messages as Json[];
-      // P2.1：confirm_stage / stage_sop 声明了 context.requires=[collaboration, stage]。首页推荐不带
-      // 合作对象，按设计不再起箱，只出结构化缺口卡（带合作对象的路径见 ask(..., "confirm_stage", "col_xiaomei")）。
-      if (rec.id === "confirm_stage" || rec.id === "stage_sop") {
-        expect(data.worker ?? null, `${rec.id}: no turn without declared context`).toBeNull();
+      // The Home recommendation has no object selection. Every published Skill
+      // that declares required context must therefore stop before worker/MCP
+      // execution and return a structured supplement card. This derives the
+      // assertion from the actual manifest rather than maintaining a stale list.
+      const definition = await taskDefinition(String(rec.id));
+      const requiredContext = definition?.context?.requires || [];
+      if (requiredContext.length) {
+        expect(data.worker ?? null, `${rec.id}: no turn without ${requiredContext.join(", ")} context`).toBeNull();
         expect(messages.some((message) => message.kind === "supplement_card"), `${rec.id}: context gap card`).toBe(true);
         expect(messages.some((message) => ["confirm_stage_card", "task_result_card"].includes(String(message.kind))),
-          `${rec.id}: no result without context`).toBe(false);
+          `${rec.id}: no result without required context`).toBe(false);
         continue;
       }
       if (rec.id === "deal_memory") {
@@ -873,10 +886,16 @@ describe("host contracts", () => {
     expect(pj.summary).toBe("测试改过的达人发现摘要");
     const beforePublish = (await (await request("GET", "/api/skills")).json()) as unknown as Json[];
     expect(beforePublish.find((s) => s.id === "creator_discovery")?.summary).not.toBe("测试改过的达人发现摘要");
-    for (const stage of ["testing", "published"]) {
-      const moved = await request("POST", "/api/admin/skills/creator_discovery/stage", { stage });
-      expect(moved.status, await moved.text()).toBe(200);
-    }
+    const testing = await request("POST", "/api/admin/skills/creator_discovery/stage", { stage: "testing" });
+    expect(testing.status, await testing.text()).toBe(200);
+    // A draft may be tested, but it cannot be published without the responsible owner.
+    const blockedPublish = await request("POST", "/api/admin/skills/creator_discovery/stage", { stage: "published" });
+    expect(blockedPublish.status, await blockedPublish.text()).toBe(400);
+    expect(String(((await blockedPublish.json()).detail as Json).code)).toBe("skill_owner_required");
+    const owner = await request("PATCH", "/api/admin/skills/creator_discovery/lifecycle", { owner: "技能合同测试负责人" });
+    expect(owner.status, await owner.text()).toBe(200);
+    const published = await request("POST", "/api/admin/skills/creator_discovery/stage", { stage: "published" });
+    expect(published.status, await published.text()).toBe(200);
     const skills = (await (await request("GET", "/api/skills")).json()) as unknown as Json[];
     const discovery = skills.find((s) => s.id === "creator_discovery");
     expect(discovery?.summary).toBe("测试改过的达人发现摘要");
@@ -940,10 +959,14 @@ describe("host contracts", () => {
       }, employeeCookie);
       expect(denied.status).toBe(400);
 
-      // 资格来自 Agent 绑定：账号挂到组织人员，Agent 绑定到该人员所在的三级组。
+      // 资格来自真实的已发布 Agent：合成员工先挂到权威组织人员，
+      // Agent 挂载技能并绑定其所在三级组；不使用废止的逐人技能授权。
+      const agentId = "agent:host-contract-eligibility";
+      await seedPublishedAgent(agentId, "Host 合同资格测试 Agent");
+      await setAgentSkill(agentId, "creator_discovery", true, 0);
       (await getConn().query("UPDATE organization_people SET user_id = $1 WHERE person_ref = $2",[employeeId,"person:ye_guanwang"]));
       (await createAgentBinding({
-        agent_id: "agent:kol", target_type: "organization_unit", target_id: "org:lt_team",
+        agent_id: agentId, target_type: "organization_unit", target_id: "org:lt_team",
         company_id: "company:amperetime", source: "test",
       }));
       const granted = (await (await request("GET", "/api/skills", undefined, employeeCookie)).json()) as unknown as Json[];

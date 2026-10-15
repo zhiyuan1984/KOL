@@ -4,7 +4,7 @@
 const collections = new Set([
   "documents", "bases", "domains", "workspace-v1", "entries", "publication-v2",
   "bindings", "raw", "extract", "proposals", "feedback", "extract-jobs", "review",
-  "deprecate-stats", "assets", "resolve-preview", "index-health",
+  "deprecate-stats", "assets", "resolve-preview", "index-health", "search",
 ]);
 export function requiresKnowledgeEntryAuthorization(id: string): boolean {
   return !collections.has(id);

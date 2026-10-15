@@ -25,7 +25,7 @@ async function request(method: string, url: string, body?: unknown) {
 }
 
 beforeEach(async () => {
-  if (process.env.TEST_DATABASE_URL) await freshTestDatabase();
+  if (process.env.TEST_DATABASE_URL) await freshTestDatabase({ reclaimPrevious: true });
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-home-wb-"));
   process.env.LINGONG_DB = path.join(tmp, "home.db");
   process.env.LINGONG_DATA = tmp;

@@ -548,7 +548,7 @@ export async function classifyIntentWithLuna(text: string, timeoutSec = taskReco
     if (!response.ok) {
       throw new IntentLlmUnavailable(`识别服务未就绪（${response.status}）。`, "稍后点「再试一次」。");
     }
-    return parseIntentVerdict(extractRemoteIntentText(await response.json()), ids);
+    return await parseIntentVerdict(extractRemoteIntentText(await response.json()), ids);
   } catch (error) {
     if (error instanceof IntentLlmUnavailable) throw error;
     throw new IntentLlmUnavailable("识别服务未就绪，请再试一次。", "检查网络或 OPENAI_API_KEY 后重试。");
@@ -574,14 +574,14 @@ export async function classifyTaskIntent(text: string): Promise<IntentVerdict> {
   }
   if (intentLlmApiKey()) {
     try {
-      return classifyIntentWithLuna(text, remaining());
+      return await classifyIntentWithLuna(text, remaining());
     } catch (lunaError) {
       if (remaining() < 2) {
         if (mediumConfidenceJev) return clarificationFromJev(mediumConfidenceJev);
         throw lunaError;
       }
       try {
-        return classifyWithCodexAppServer(text, remaining());
+        return await classifyWithCodexAppServer(text, remaining());
       } catch {
         if (mediumConfidenceJev) return clarificationFromJev(mediumConfidenceJev);
         throw lunaError;
@@ -589,7 +589,7 @@ export async function classifyTaskIntent(text: string): Promise<IntentVerdict> {
     }
   }
   try {
-    return classifyWithCodexAppServer(text, remaining());
+    return await classifyWithCodexAppServer(text, remaining());
   } catch (error) {
     if (mediumConfidenceJev) return clarificationFromJev(mediumConfidenceJev);
     throw error;
@@ -772,15 +772,15 @@ export async function extractTaskFieldUpdates(text: string): Promise<TaskFieldUp
   const remaining = () => Math.max(0, (deadline - Date.now()) / 1000);
   if (intentLlmApiKey()) {
     try {
-      return extractTaskFieldUpdatesWithLuna(text, remaining());
+      return await extractTaskFieldUpdatesWithLuna(text, remaining());
     } catch (lunaError) {
       if (remaining() < 2) throw lunaError;
       try {
-        return extractTaskFieldUpdatesWithCodex(text, remaining());
+        return await extractTaskFieldUpdatesWithCodex(text, remaining());
       } catch {
         throw lunaError;
       }
     }
   }
-  return extractTaskFieldUpdatesWithCodex(text, remaining());
+  return await extractTaskFieldUpdatesWithCodex(text, remaining());
 }

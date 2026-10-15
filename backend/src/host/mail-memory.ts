@@ -163,7 +163,7 @@ export async function threadsByCollaborationIds(ids: string[]): Promise<Map<stri
   const unique = [...new Set(ids.map((id) => String(id || "").trim()).filter(Boolean))];
   if (!unique.length) return map;
   const rows = (await getConn().query<Row>(
-    `SELECT collaboration_id, conversation_id, subject, last_direction, last_snippet, last_from, last_from_name,
+    `SELECT id, collaboration_id, conversation_id, subject, last_direction, last_snippet, last_from, last_from_name,
             unread_count, last_at, mailbox, peer_email, peer_name, last_preview, match_state, last_receipt,
             digest_source, digest_text
      FROM kol_mail_threads

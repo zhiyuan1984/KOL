@@ -445,7 +445,7 @@ enterprise.get("/admin/users/:uid/tools", async (c) => {
   requireAdmin();
   const row = await pgEnterpriseAccount(c.req.param("uid"));
 const granted = new Set(Array.isArray(row.skill_grants) ? row.skill_grants.map(String) : []);
-return c.json(projectEmployeeTools(granted));
+return c.json(await projectEmployeeTools(granted));
 
 });
 

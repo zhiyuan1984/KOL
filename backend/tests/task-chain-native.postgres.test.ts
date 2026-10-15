@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { closePostgresPool, postgresPool } from "../src/postgres/pool.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { seedAll } from "../src/seed.js";
+import { createAgentBinding, syncUserOrganization } from "../src/runtime/organization-tree.js";
+import { assertRuntimeSkill } from "../src/runtime/execution.js";
+import { getAgentSkills } from "../src/runtime/store.js";
+import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
 import {
   executeNativeClaimedPlanningJob,
   nativeTodayBriefSnapshot,
@@ -14,6 +19,15 @@ import type { ClaimedExecutionJob } from "../src/execution-jobs/contracts.js";
 
 const OWNER = "task-chain-native-owner";
 const OTHER_OWNER = "task-chain-other-owner";
+
+async function seedOwnedIdentity(id: string, personRef: string): Promise<void> {
+  const now = new Date().toISOString();
+  await postgresPool().query(
+    "INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES($1,$2,$3,'not-for-login','[\"employee\"]','[]','',1,$4,$4)",
+    [id, id, `Synthetic ${id}`, now],
+  );
+  await syncUserOrganization(id, "org:lt_team");
+}
 
 function input(owner = OWNER) {
   return {
@@ -30,7 +44,50 @@ function input(owner = OWNER) {
 
 describe("task-chain native PostgreSQL plan", () => {
   beforeEach(async () => {
-    await freshTestDatabase();
+    await freshTestDatabase({ reclaimPrevious: true });
+    await seedAll();
+    await seedOwnedIdentity(OWNER, "person:ye_guanwang");
+    await seedOwnedIdentity(OTHER_OWNER, "person:yan_chen");
+    await seedPublishedAgent("agent:workspace-planner", "Task chain planner fixture");
+    await createAgentBinding({ agent_id: "agent:workspace-planner", target_type: "person", target_id: `person:user:${OWNER}`, company_id: "company:amperetime", source: "isolated-native-test" });
+    // Runtime bootstrap is process-cached while freshTestDatabase uses a new
+    // database per test. Seed the same published facts in this isolated DB;
+    // this does not bypass employee eligibility or grant an admin role.
+    const now = new Date().toISOString();
+    await postgresPool().query(`INSERT INTO skill_lifecycle(skill_id,stage,updated_at)
+      VALUES('today_plan','published',$1)
+      ON CONFLICT(skill_id) DO UPDATE SET stage='published',updated_at=EXCLUDED.updated_at`, [now]);
+    await postgresPool().query(`INSERT INTO runtime_agent_skills(agent_id,skill_id,enabled,version,updated_at)
+      VALUES('agent:workspace-planner','today_plan',1,1,$1)
+      ON CONFLICT(agent_id,skill_id) DO UPDATE SET enabled=1,updated_at=EXCLUDED.updated_at`, [now]);
+
+    // Read the effective governed assembly instead of writing a guessed CAS
+    // version. The bootstrap owns this planner's published skill release.
+    const plannerSkills = await getAgentSkills("agent:workspace-planner");
+    const plannerSkill = plannerSkills.find((row) => row.skill_id === "today_plan");
+    const [planner] = (await postgresPool().query<{
+      status: string; published_revision: string | null; workspace_managed: boolean | number; stage: string | null;
+    }>(`SELECT ma.status,ma.published_revision,ma.workspace_managed,sl.stage
+        FROM managed_agents ma LEFT JOIN skill_lifecycle sl ON sl.skill_id=$2 WHERE ma.id=$1`,
+      ["agent:workspace-planner", "today_plan"])).rows;
+    expect(planner).toMatchObject({ status: "published", stage: "published" });
+    if (Boolean(planner.workspace_managed)) expect(Number(planner.published_revision)).toBeGreaterThan(0);
+    expect(plannerSkill).toMatchObject({ skill_id: "today_plan", enabled: 1 });
+    expect(Number(plannerSkill?.version)).toBeGreaterThan(0);
+
+    // Use the owner's precise personal binding, not an admin or broad-unit
+    // fallback. createAgentBinding locks and returns the current native
+    // binding, including its actual binding/org versions for this test DB.
+    const binding = await createAgentBinding({
+      agent_id: "agent:workspace-planner", target_type: "person", target_id: `person:user:${OWNER}`,
+      company_id: "company:amperetime", source: "test",
+    });
+    expect(binding).toMatchObject({ status: "active", company_id: "company:amperetime" });
+    expect(Number(binding?.binding_version)).toBeGreaterThan(0);
+    expect(Number(binding?.org_version)).toBeGreaterThan(0);
+    await expect(assertRuntimeSkill({
+      agentId: "agent:workspace-planner", skillId: "today_plan", userId: OWNER, runId: "task-chain-native-owner-preflight",
+    })).resolves.toMatchObject({ user: { id: OWNER } });
   });
   afterEach(async () => {
     await closePostgresPool();
@@ -50,6 +107,14 @@ describe("task-chain native PostgreSQL plan", () => {
       [OWNER, first.work_item_id, first.run_id],
     );
     expect(facts.rows[0]).toEqual({ sessions: "1", tickets: "1", runs: "1", jobs: "1", events: "1" });
+    const ownership = await postgresPool().query<{ session_owner: string; ticket_owner: string; actor_owner: string }>(
+      `SELECT s.owner_user_id AS session_owner,t.owner_user_id AS ticket_owner,j.actor_ref AS actor_owner
+         FROM sessions s JOIN tickets t ON t.session_id=s.id
+         JOIN execution_jobs j ON j.run_id=$2
+        WHERE s.id=$1 AND t.id=$3`,
+      [first.session_id, first.run_id, first.work_item_id],
+    );
+    expect(ownership.rows[0]).toEqual({ session_owner: OWNER, ticket_owner: OWNER, actor_owner: OWNER });
   });
 
   it("executes real worker plan with native artifacts and excludes a different tenant's task", async () => {

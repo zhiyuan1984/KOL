@@ -1,3 +1,4 @@
+import { timezoneLabel } from "../timezoneLabel";
 import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Form } from "antd";
@@ -169,7 +170,7 @@ export default function AdminWorkOrders() {
       <div className="lifecycle-section-head"><h3>工单生命周期</h3><span className="lifecycle-help">{counts ? `${counts.authorization.mode === "company_admin" ? "公司管理员" : "组织负责人"}范围 · ${counts.authorization.root_units.map(unit => unit.display_name).join("、") || "公司级"}` : "授权范围待读取"}</span></div>
       <ReadBlock read={reads.counts} label="组织工单存量" retry={retry}>
         <LifecycleNavigation label="工单状态筛选" idPrefix="order-state" value={orderState} onChange={setOrderState} options={[{ id: "all", label: "全部", count: counts?.total_authorized }, ...Object.entries(counts?.by_status || {}).map(([id, count]) => ({ id, label: statusLabels[id] || id, count }))]} />
-        <p className="lifecycle-help">数据时间：{time(counts?.as_of)} · 时区：{counts?.timezone || "—"} · 当前存量，不包含 SLA 或绩效结论。</p>
+        <p className="lifecycle-help">数据时间：{time(counts?.as_of)} · 时区：{timezoneLabel(counts?.timezone)} · 当前存量，不包含 SLA 或绩效结论。</p>
         {counts?.total_authorized === 0 ? <p className="lifecycle-help">当前授权范围没有正式工单。</p> : <table className="lifecycle-table"><thead><tr><th>受理组织</th><th className="lifecycle-number">{orderState === "all" ? "工单存量" : statusLabels[orderState] || orderState}</th><th>状态分布</th></tr></thead><tbody>
           {counts?.by_assignee_unit.filter(unit => orderState === "all" || selectedCount(unit) > 0).map(unit => <tr key={unit.org_unit_id}><td>{unit.display_name}<p className="lifecycle-help">{unit.type} · {unit.org_unit_id}</p></td><td className="lifecycle-number">{selectedCount(unit)}</td><td>{distribution(unit.by_status)}</td></tr>)}
         </tbody></table>}

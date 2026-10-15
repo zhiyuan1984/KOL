@@ -404,7 +404,7 @@ async function versionedUpsert(
 ): Promise<Row> {
   const expected = assertExpectedVersion(expectedVersion);
   try {
-    return pgRuntimeVersionedUpsert({ table, keys: keyValues, createColumns, createValues, updateColumns, expectedVersion: expected,
+    return await pgRuntimeVersionedUpsert({ table, keys: keyValues, createColumns, createValues, updateColumns, expectedVersion: expected,
       check: check as never });
   } catch (error) { versionConflict(error); throw error; }
 }
@@ -503,7 +503,7 @@ export async function setAgentSkills(agentId: string, selections: Array<{ skill_
   })));
   if (new Set(normalized.map((item) => item.skill)).size !== normalized.length) throw new HttpFail(400, "技能列表不能包含重复项");
   await ensureRuntimeSchema();
-  try { return pgRuntimeSetAgentSkills({ agentId: agent, selections: normalized, now: nowIso() }); }
+  try { return await pgRuntimeSetAgentSkills({ agentId: agent, selections: normalized, now: nowIso() }); }
   catch (error) {
     if (error instanceof RuntimeVersionConflict) runtimeConflict("技能配置版本已变化，请刷新后重试");
     if (error instanceof Error && error.message === "runtime_agent_workspace_managed") throw new HttpFail(409, "此 Agent 的装配需保存修订草稿并确认发布");

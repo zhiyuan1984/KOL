@@ -9,7 +9,11 @@ import {
   projectApproval,
   type ApprovalBox,
 } from "../approval/queue.js";
-import { authDisabled, scopedUser } from "../auth.js";
+import { authDisabled, requireAdmin, scopedUser } from "../auth.js";
+import {
+  assignCurrentOwner,
+  CurrentOwnerAssignmentError,
+} from "../approval/current-owner-assignment-repository.js";
 import { audit } from "../db.js";
 import {
   createReceipt,
@@ -226,6 +230,54 @@ approvals.get("/approvals/:aid", async (c) => {
   if (!row) throw new HttpFail(404, "Not Found");
   requireVisible(row);
   return c.json(enrich(row));
+});
+
+/**
+ * Repair one explicitly authorized, orphaned current node on an objects
+ * ontology-change approval.  This is intentionally not a global role/binding
+ * operation and never decides or consumes the approval.
+ */
+approvals.post("/admin/approvals/:aid/assign-current-owner", async (c) => {
+  if (authDisabled()) {
+    throw new HttpFail(503, { code: "approval_owner_assignment_auth_required", message: "该管理操作要求启用真实认证。" });
+  }
+  const actor = requireAdmin();
+  const body = (await c.req.json().catch(() => ({}))) as {
+    target_user_id?: unknown;
+    reason?: unknown;
+    expected_version?: unknown;
+    idempotency_key?: unknown;
+  };
+  const targetUserId = String(body.target_user_id || "").trim();
+  if (!targetUserId) {
+    throw new HttpFail(400, { code: "target_user_id_required", message: "必须指定目标真实用户。" });
+  }
+  const reason = String(body.reason || "").trim();
+  if (!reason) {
+    throw new HttpFail(400, { code: "assignment_reason_required", message: "必须说明本次单票指派原因。" });
+  }
+  const expectedVersion = requireExpectedVersion(body.expected_version);
+  const idempotencyKey = requireIdempotencyKey(body.idempotency_key);
+  try {
+    const result = await assignCurrentOwner({
+      approvalId: c.req.param("aid"),
+      targetUserId,
+      reason,
+      expectedVersion,
+      idempotencyKey,
+      actor: { id: actor.id, name: actor.name || actor.handle, handle: actor.handle },
+    });
+    // Keep the established read/projection contract for the response; the
+    // write itself was performed solely through the native PG repository.
+    const approval = await getApproval(c.req.param("aid"));
+    if (!approval) throw new HttpFail(404, "Not Found");
+    return c.json({ ...(await enrich(approval)), replayed: result.replayed });
+  } catch (error) {
+    if (error instanceof CurrentOwnerAssignmentError) {
+      throw new HttpFail(error.status, { code: error.code, message: error.message });
+    }
+    throw error;
+  }
 });
 
 approvals.post("/approvals/:aid/decide", async (c) => {

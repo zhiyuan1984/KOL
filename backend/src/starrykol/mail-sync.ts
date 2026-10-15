@@ -312,7 +312,7 @@ async function retryRead<T>(stage: "index" | "body", action: () => Promise<T>): 
   for (let attempt = 0; ; attempt += 1) {
     const started = Date.now();
     try {
-      return action();
+      return await action();
     } catch (error) {
       const failure = classifyMailSyncFailure(error, diagnosticId);
       const delayMs = retryDelayForRead(failure);

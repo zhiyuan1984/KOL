@@ -59,6 +59,40 @@
   color: currentColor;
 }
 
+/* 顶栏：全宽（D1/D5）——返回 / 标题 / 搜索问 AI / 同步状态 / 写信。 */
+.mail-page.mail-gmail .mi-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+  min-height: 52px;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--mail-gmail-line);
+  background: var(--mail-gmail-shell);
+}
+.mail-page.mail-gmail .mi-topbar .mi-title {
+  margin: 0;
+  font-size: var(--ds-font-md);
+  font-weight: 600;
+  color: var(--mail-gmail-ink);
+}
+.mail-page.mail-gmail .mi-topbar .mi-searchwrap {
+  flex: 1 1 320px;
+  max-width: 560px;
+}
+.mail-page.mail-gmail .mi-topbar .mi-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+  color: var(--mail-gmail-muted);
+  font-size: var(--ds-font-sm);
+  white-space: nowrap;
+}
+.mail-page.mail-gmail .mi-topbar .mi-syncdot.is-syncing {
+  background: var(--mail-gmail-accent);
+}
+
 .mail-page.mail-gmail .mi-grid {
   display: grid;
   grid-template-columns: 260px 400px minmax(320px, 1fr);
@@ -1077,6 +1111,57 @@
 
 .mail-page.mail-gmail .mr-label-confirm { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1); color: var(--mail-gmail-muted); font-size: var(--ds-font-xs); }
 
+/* 标签入口并入工具栏：编辑器在工具栏内不生成盒子，触发器与已保存标签直接成为工具栏项。 */
+.mail-page.mail-gmail .mi-threadbar > .mr-label-editor { display: contents; }
+.mail-page.mail-gmail .mail-label-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* 阶段变更：独立业务入口，降低强调（L4 链接形态，不是按钮）。 */
+.mail-page.mail-gmail .mi-stage-link {
+  flex: none;
+  padding: 0 var(--space-1);
+  border: 0;
+  background: transparent;
+  color: var(--mail-gmail-muted);
+  font-size: var(--ds-font-sm);
+  cursor: pointer;
+}
+.mail-page.mail-gmail .mi-stage-link:hover:not(:disabled) { color: var(--mail-gmail-selected-ink); text-decoration: underline; }
+.mail-page.mail-gmail .mi-stage-link:disabled { cursor: default; opacity: 0.6; }
+
+/* 对方地址行：邮箱 + 靠近地址的复制入口（L4 链接形态）。 */
+.mail-page.mail-gmail .mr-peer-email {
+  margin: 0;
+  color: var(--mail-gmail-muted);
+  font-size: var(--ds-font-xs);
+}
+.mail-page.mail-gmail .mi-copy-peer {
+  margin-left: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--mail-gmail-muted);
+  font-size: var(--ds-font-xs);
+  cursor: pointer;
+}
+.mail-page.mail-gmail .mi-copy-peer:hover { color: var(--mail-gmail-selected-ink); text-decoration: underline; }
+
+/* 提问框下方的 AI 候选标签：紧凑列表，采纳前不保存。 */
+.mail-page.mail-gmail .mi-aibar .mail-label-candidates {
+  display: grid;
+  gap: var(--space-1);
+}
+.mail-page.mail-gmail .mi-aibar .mail-label-candidates > p.muted { margin: 0; }
+.mail-page.mail-gmail .mail-label-recommend:disabled { opacity: .45; cursor: default; }
+.mail-page.mail-gmail .mr-label-form { gap: var(--space-1); }
+.mail-page.mail-gmail .mr-label-form input { min-height: 28px; }
+.mail-page.mail-gmail .mail-label-options { display: grid; gap: 2px; }
+
 .mail-page.mail-gmail .mi-stagewrap {
   margin: 0;
   padding: var(--space-3) 0;
@@ -1113,15 +1198,18 @@
   color: var(--mail-gmail-ink);
 }
 
-/* The only AI composer is an in-flow section below the reader. */
+/* The only AI composer is an in-flow section below the reader. The shell never
+ * scrolls: long text scrolls inside the dock textarea (max-height 336px).
+ * A 160px min-height + overflow:auto here was the second scroll axis (图4). */
 .mail-page.mail-gmail .mail-reading-pane > .mi-aibar.mail-ai-composer,
 .mail-page.mail-gmail .mi-aibar.mail-ai-composer {
   flex: 0 0 auto;
-  min-height: 160px;
-  max-height: 40dvh;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
   margin: 0;
   padding: var(--space-2) var(--space-3);
-  overflow: auto;
+  overflow: visible;
   border: 0;
   border-top: 1px solid var(--mail-gmail-line);
   background: var(--mail-gmail-ai);
@@ -1391,7 +1479,25 @@
     padding: var(--space-1) !important;
   }
 
+  /* Keep focusable topbar controls inside the viewport. Hidden overflow alone
+     permits focus-induced scrollLeft, which shifts the entire reader off-screen. */
+  .mail-page.mail-gmail .mi-topbar {
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    padding-inline: var(--space-1);
+    min-width: 0;
+  }
+
+  .mail-page.mail-gmail .mi-topbar .mi-searchwrap {
+    flex: 1 1 100%;
+    max-width: none;
+    order: 1;
+  }
+
   .mail-page.mail-gmail .mi-grid {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
     border-color: transparent;
   }
 

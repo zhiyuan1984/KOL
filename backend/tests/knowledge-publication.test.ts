@@ -168,7 +168,7 @@ async function authenticatedHeaders(actor: string) {
 }
 
 beforeEach(async () => {
-  await freshTestDatabase();
+  await freshTestDatabase({ reclaimPrevious: true });
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kol-native-publication-"));
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";

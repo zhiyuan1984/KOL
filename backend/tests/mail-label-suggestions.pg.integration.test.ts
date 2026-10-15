@@ -72,12 +72,19 @@ async function ensureUser(user: AppUser): Promise<void> {
   );
 }
 
-async function bind(userId: string, mailbox: string): Promise<void> {
+async function bind(userId: string, mailbox: string, isDefault = true): Promise<void> {
+  if (isDefault) {
+    await postgresPool().query(
+      "UPDATE user_starry_bindings SET is_default=0 WHERE user_id=$1 AND is_default=1",
+      [userId],
+    );
+  }
   await postgresPool().query(
     `INSERT INTO user_starry_bindings(user_id,mailbox_email,is_default,status,updated_at)
-     VALUES ($1,$2,1,'connected',now())
-     ON CONFLICT (user_id,mailbox_email) DO UPDATE SET status='connected',updated_at=now()`,
-    [userId, mailbox],
+     VALUES ($1,$2,$3,'connected',now())
+     ON CONFLICT (user_id,mailbox_email) DO UPDATE
+       SET is_default=EXCLUDED.is_default,status='connected',updated_at=now()`,
+    [userId, mailbox, isDefault ? 1 : 0],
   );
 }
 
@@ -111,7 +118,13 @@ async function seedCurrentAgentEligibility(user: AppUser): Promise<void> {
   (await ensureManagedAgents());
   const db = getConn();
   (await db.query("INSERT INTO managed_agents(id,name,description,status,version,created_at,updated_at)\n    VALUES ('agent:kol','KOL test Agent','', 'published',1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)\n    ON CONFLICT (id) DO UPDATE SET status='published'",[]));
-  (await setAgentSkill("agent:kol", "mail_summary", true, 1));
+  // The template database can already contain this managed binding. Read its
+  // authoritative version and still submit it through the production CAS API.
+  const skill = (await db.query<{ version: number }>(
+    "SELECT version FROM runtime_agent_skills WHERE agent_id=$1 AND skill_id=$2",
+    ["agent:kol", "mail_summary"],
+  )).rows[0];
+  (await setAgentSkill("agent:kol", "mail_summary", true, Number(skill?.version || 0)));
   const personRef = (await syncUserOrganization(user.id, "org:lt_team"));
   (await createAgentBinding({
     agent_id: "agent:kol",
@@ -430,7 +443,7 @@ describe("mail label suggestions PostgreSQL integration", () => {
 
   it("rejects a receipt replayed into a different bound mailbox and conversation", async () => {
     await clearDictionary();
-    await bind(ACTOR_A.id, BOX_B);
+    await bind(ACTOR_A.id, BOX_B, false);
     await thread(CONVERSATION_B, BOX_B);
     installApp(async () => ({ suggestions: [{ label_id: "", name: "报价跟进", reason: "邮件明确询问报价与后续安排。" }] }));
     const proposed = await ask(ACTOR_A);
