@@ -459,31 +459,34 @@ if (userId === undefined) userId = (await knowledgeActorId());
 
 async function listed(sql: string, args: unknown[], filter?: (row: Row) => boolean | Promise<boolean>, effectiveOnly = false): Promise<Awaited<Json[]>> {
   const userId = (await knowledgeActorId());
-  const raw = getConn().prepare(sql).all(...args) as Row[];
+  const raw = (await getConn().query<Row>(sql, args)).rows;
   const all = effectiveOnly ? await effectivePublishedRows(raw) : raw;
   const rows = filter ? await asyncFilter(all, filter) : all;
   if (!rows.length) return [];
   const ids = rows.map((row) => String(row.id));
-  const placeholders = ids.map(() => "?").join(",");
   const cited = new Set(
-    (getConn().prepare(
-      `SELECT knowledge_id FROM knowledge_citations WHERE user_id=? AND knowledge_id IN (${placeholders})`,
-    ).all(userId, ...ids) as Row[]).map((row) => String(row.knowledge_id)),
+    (await getConn().query<Row>(
+      "SELECT knowledge_id FROM knowledge_citations WHERE user_id=$1 AND knowledge_id = ANY($2::text[])",
+      [userId, ids],
+    )).rows.map((row) => String(row.knowledge_id)),
   );
   const deprecated = new Map(
-    (getConn().prepare(
-      `SELECT knowledge_id,reason,reason_note,deprecated_at,handled_at,handle_action FROM knowledge_deprecations WHERE user_id=? AND knowledge_id IN (${placeholders})`,
-    ).all(userId, ...ids) as Row[]).map((row) => [String(row.knowledge_id), row]),
+    (await getConn().query<Row>(
+      "SELECT knowledge_id,reason,reason_note,deprecated_at,handled_at,handle_action FROM knowledge_deprecations WHERE user_id=$1 AND knowledge_id = ANY($2::text[])",
+      [userId, ids],
+    )).rows.map((row) => [String(row.knowledge_id), row]),
   );
   const favorites = new Map(
-    (getConn().prepare(
-      `SELECT knowledge_id,saved_version FROM knowledge_favorites WHERE user_id=? AND knowledge_id IN (${placeholders})`,
-    ).all(userId, ...ids) as Row[]).map((row) => [String(row.knowledge_id), Number(row.saved_version || 0)]),
+    (await getConn().query<Row>(
+      "SELECT knowledge_id,saved_version FROM knowledge_favorites WHERE user_id=$1 AND knowledge_id = ANY($2::text[])",
+      [userId, ids],
+    )).rows.map((row) => [String(row.knowledge_id), Number(row.saved_version || 0)]),
   );
   const counts = new Map(
-    (getConn().prepare(
-      `SELECT knowledge_id,COUNT(*) AS cite_count FROM knowledge_citations WHERE knowledge_id IN (${placeholders}) GROUP BY knowledge_id`,
-    ).all(...ids) as Row[]).map((row) => [String(row.knowledge_id), Number(row.cite_count || 0)]),
+    (await getConn().query<Row>(
+      "SELECT knowledge_id,COUNT(*) AS cite_count FROM knowledge_citations WHERE knowledge_id = ANY($1::text[]) GROUP BY knowledge_id",
+      [ids],
+    )).rows.map((row) => [String(row.knowledge_id), Number(row.cite_count || 0)]),
   );
   return (Promise.all(rows.map((row) => {
     const dep = deprecated.get(String(row.id));
@@ -604,12 +607,13 @@ if (userId === undefined) userId = (await knowledgeActorId());
 
   const row = (await knowledgeRow(knowledgeId));
   if (String(row.status) !== "published") throw new HttpFail(403, "未发布知识不能启用");
-  (await tx((db) => {
-    db.prepare(
-      "INSERT OR REPLACE INTO knowledge_citations (user_id,knowledge_id,cited_at) VALUES (?,?,?)",
-    ).run(userId, knowledgeId, nowIso());
-  }));
-  (await audit(userId, "knowledge.cite", { knowledge_id: knowledgeId, version: row.current_version }));
+  await tx(async (db) => {
+    // SQLite INSERT OR REPLACE deleted the conflict row before inserting. Keep that
+    // reset behavior rather than preserving any future defaulted columns on conflict.
+    await db.query("DELETE FROM knowledge_citations WHERE user_id=$1 AND knowledge_id=$2", [userId, knowledgeId]);
+    await db.query("INSERT INTO knowledge_citations (user_id,knowledge_id,cited_at) VALUES ($1,$2,$3)", [userId, knowledgeId, nowIso()]);
+    await audit(userId, "knowledge.cite", { knowledge_id: knowledgeId, version: row.current_version }, db);
+  });
   return publicKnowledge((await knowledgeRow(knowledgeId)), userId);
 }
 
@@ -655,13 +659,15 @@ if (userId === undefined) userId = (await knowledgeActorId());
 
   (await knowledgeRow(knowledgeId));
   reason = mapDeprecateReason(reason);
-  (await tx((db) => {
-    db.prepare(
-      `INSERT OR REPLACE INTO knowledge_deprecations
-       (user_id,knowledge_id,reason,reason_note,deprecated_at) VALUES (?,?,?,?,?)`,
-    ).run(userId, knowledgeId, reason, note, nowIso());
-  }));
-  (await audit(userId, "knowledge.deprecate", { knowledge_id: knowledgeId, reason }));
+  await tx(async (db) => {
+    // Match SQLite INSERT OR REPLACE: reset handled_* columns omitted by a new hide.
+    await db.query("DELETE FROM knowledge_deprecations WHERE user_id=$1 AND knowledge_id=$2", [userId, knowledgeId]);
+    await db.query(
+      "INSERT INTO knowledge_deprecations (user_id,knowledge_id,reason,reason_note,deprecated_at) VALUES ($1,$2,$3,$4,$5)",
+      [userId, knowledgeId, reason, note, nowIso()],
+    );
+    await audit(userId, "knowledge.deprecate", { knowledge_id: knowledgeId, reason }, db);
+  });
   return publicKnowledge((await knowledgeRow(knowledgeId)), userId);
 }
 
@@ -724,8 +730,8 @@ export async function adminList(opts: KnowledgeAdminListOpts = {}): Promise<Awai
   const clauses = knowledgeWhereClauses(opts, args);
   const status = String(opts.status || "").trim();
   if (status) {
-    clauses.push("k.status=?");
     args.push(status);
+    clauses.push(`k.status=$${args.length}`);
   }
   const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
   const rows = (await listed(
@@ -1566,31 +1572,31 @@ function likeEscaped(value: string): string {
 /** 检索与分类过滤的 SQL 子句（调用方负责套上 TAXONOMY_JOIN）。 */
 function knowledgeWhereClauses(opts: KnowledgeListOpts, args: unknown[]): string[] {
   const clauses: string[] = [];
+  const parameter = (value: unknown): string => {
+    args.push(value);
+    return `$${args.length}`;
+  };
   const q = String(opts.q || "").trim();
   if (q) {
-    const like = `%${likeEscaped(q)}%`;
-    clauses.push("(k.title LIKE ? ESCAPE '\\' OR k.body LIKE ? ESCAPE '\\' OR k.tags LIKE ? ESCAPE '\\' OR k.subject LIKE ? ESCAPE '\\' OR k.body_en LIKE ? ESCAPE '\\')");
-    args.push(like, like, like, like, like);
+    const placeholder = parameter(`%${likeEscaped(q)}%`);
+    clauses.push(`(k.title LIKE ${placeholder} ESCAPE '\\' OR k.body LIKE ${placeholder} ESCAPE '\\' OR k.tags LIKE ${placeholder} ESCAPE '\\' OR k.subject LIKE ${placeholder} ESCAPE '\\' OR k.body_en LIKE ${placeholder} ESCAPE '\\')`);
   }
   const kind = String(opts.kind || "").trim();
-  if (kind) {
-    clauses.push("k.kind=?");
-    args.push(kind);
-  }
+  if (kind) clauses.push(`k.kind=${parameter(kind)}`);
   const base = String(opts.base || "").trim();
   if (base) {
-    clauses.push("(b.id=? OR b.code=?)");
-    args.push(base, base);
+    const placeholder = parameter(base);
+    clauses.push(`(b.id=${placeholder} OR b.code=${placeholder})`);
   }
   const domain = String(opts.domain || "").trim();
   if (domain) {
-    clauses.push("(d.id=? OR d.code=?)");
-    args.push(domain, domain);
+    const placeholder = parameter(domain);
+    clauses.push(`(d.id=${placeholder} OR d.code=${placeholder})`);
   }
   const family = String(opts.family || "").trim();
   if (family) {
-    clauses.push("(f.id=? OR f.code=?)");
-    args.push(family, family);
+    const placeholder = parameter(family);
+    clauses.push(`(f.id=${placeholder} OR f.code=${placeholder})`);
   }
   return clauses;
 }
@@ -1817,31 +1823,29 @@ function parseSelectorStored(value: unknown): KnowledgeBindingSelector {
   }
 }
 
-function bindingRows(skillId?: string, enabledOnly = false): Row[] {
+async function bindingRows(skillId?: string, enabledOnly = false): Promise<Row[]> {
   const clauses: string[] = [];
   const args: unknown[] = [];
   if (enabledOnly) clauses.push("enabled=1");
   if (skillId) {
-    clauses.push("skill_id=?");
+    clauses.push("skill_id=$1");
     args.push(skillId);
   }
   const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
-  return getConn()
-    .prepare(`SELECT * FROM knowledge_bindings${where} ORDER BY created_at, id`)
-    .all(...args) as Row[];
+  return (await getConn().query<Row>(`SELECT * FROM knowledge_bindings${where} ORDER BY created_at, id`, args)).rows;
 }
 
-function storedBindings(skillId?: string, enabledOnly = false): StoredBinding[] {
-  return bindingRows(skillId, enabledOnly).map((row) => ({
+async function storedBindings(skillId?: string, enabledOnly = false): Promise<StoredBinding[]> {
+  return (await bindingRows(skillId, enabledOnly)).map((row) => ({
     id: String(row.id),
     skill_id: String(row.skill_id),
     selector: parseSelectorStored(row.selector),
   }));
 }
 
-export function listBindings(): Json[] {
+export async function listBindings(): Promise<Json[]> {
   requireAdmin();
-  return bindingRows().map((row) => ({ ...row, selector: parseSelectorStored(row.selector) }));
+  return (await bindingRows()).map((row) => ({ ...row, selector: parseSelectorStored(row.selector) }));
 }
 
 export async function saveBinding(
@@ -1933,7 +1937,7 @@ export async function resolveForSkill(
   opts: { userId?: string; brands?: string[]; stageCode?: string | null; record?: boolean } = {},
 ): Promise<Awaited<KnowledgeResolveResult>> {
   const skill = String(skillId || "").trim();
-  const bindings = skill ? storedBindings(skill, true) : [];
+  const bindings = skill ? await storedBindings(skill, true) : [];
   if (!bindings.length) return { resolved: [], skipped: [], bound: false };
   const userId = opts.userId || (await knowledgeActorId());
   const brands = opts.brands || (await actorBrands());
@@ -2069,7 +2073,7 @@ export async function resolvePreview(input: {
     stageCode: input.stage_code,
     record: false,
   }));
-  const bindings: Json[] = bindingRows(skillId).map((row) => ({ ...row, selector: parseSelectorStored(row.selector) }));
+  const bindings: Json[] = (await bindingRows(skillId)).map((row) => ({ ...row, selector: parseSelectorStored(row.selector) }));
   const skipped: KnowledgeResolveSkip[] = [...result.skipped];
   const seen = new Set(skipped.map((entry) => `${entry.knowledge_id}:${entry.reason}`));
   const published = await effectivePublishedRows((await getConn().query("SELECT * FROM knowledge WHERE status='published'",[])).rows as Row[]);
@@ -2136,7 +2140,7 @@ if (actor === undefined) actor = (await knowledgeActorId());
 
 export async function adminAssets(): Promise<Awaited<Json[]>> {
   requireAdmin();
-  const bindings = storedBindings(undefined, true);
+  const bindings = await storedBindings(undefined, true);
   return (await adminList()).map((row) => ({
     ...row,
     ref_skills: [...new Set(

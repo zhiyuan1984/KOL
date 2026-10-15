@@ -6,7 +6,7 @@ import type { Hono } from "hono";
 import { DEMO_USER } from "../src/config.js";
 import { requireTaskDefinition, taskDefinition, validateDeclaredTaskContract } from "../src/tasks/registry.js";
 import { getConn, nowIso, resetConn } from "../src/db.js";
-import { approveKnowledge, cite, createKnowledge, knowledgeRow, workerSafeExtra } from "../src/host/knowledge.js";
+import { approveKnowledge, cite, createKnowledge, deprecate, knowledgeRow, listPublishedForOps, workerSafeExtra } from "../src/host/knowledge.js";
 import { openContext, resolveContext, type ContextResolveInput } from "../src/host/context-resolve.js";
 import { contextGapResponse, workerRunContext } from "../src/host/api.js";
 import { runtimeAgentScopeContext } from "../src/contract-scope.js";
@@ -187,6 +187,40 @@ describe("统一信封", () => {
     expect(stage).toMatchObject({ stage_code: "INITIAL_CONTACT", stage_version: 0, exception: false });
     expect(String(stage.advancement_mode || "")).not.toBe("");
     expect((resolution.resolved.stage_tracks as Json[]).map((track) => track.id)).toEqual(["main", "branch", "exception"]);
+  });
+
+  it("列表将注入字面量参数化，并在空结果时不构造空集合查询", async () => {
+    const rows = await listPublishedForOps({ q: "' OR 1=1 --" });
+    expect(rows).toEqual([]);
+  });
+
+  it("重新隐藏按原 REPLACE 语义清除已处理字段并写入审计", async () => {
+    const knowledgeId = "kb_mail_kol";
+    const actor = DEMO_USER.id;
+    const now = new Date().toISOString();
+    await getConn().query(
+      `INSERT INTO knowledge_deprecations
+       (user_id,knowledge_id,reason,reason_note,deprecated_at,handled_at,handled_by,handle_action,handle_note)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [actor, knowledgeId, "outdated", "old", now, now, actor, "archive", "old handling"],
+    );
+
+    await deprecate(knowledgeId, "outdated", "reset", actor);
+
+    const row = (await getConn().query(
+      "SELECT reason,reason_note,handled_at,handled_by,handle_action,handle_note FROM knowledge_deprecations WHERE user_id=$1 AND knowledge_id=$2",
+      [actor, knowledgeId],
+    )).rows[0] as Row;
+    expect(row).toMatchObject({ reason: "outdated", reason_note: "reset" });
+    expect(row.handled_at).toBeNull();
+    expect(row.handled_by).toBeNull();
+    expect(row.handle_action).toBeNull();
+    expect(row.handle_note).toBeNull();
+    const audit = (await getConn().query(
+      "SELECT event_type FROM audit_events WHERE actor=$1 AND event_type=$2 ORDER BY id DESC LIMIT 1",
+      [actor, "knowledge.deprecate"],
+    )).rows[0] as Row | undefined;
+    expect(audit?.event_type).toBe("knowledge.deprecate");
   });
 
   it("未启用（未 cite）的已发布模板不算解析成功", async () => {
@@ -546,10 +580,13 @@ describe("收发件解析不再依赖合作对象（ADR-2026-10-07）", () => {
     (await conn.query("INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING",[DEMO_USER.id,DEMO_USER.handle,DEMO_USER.name,"x",JSON.stringify(["employee", "admin"]),JSON.stringify(["LT"]),DEMO_USER.site,1,now,now]));
     (await conn.query("DELETE FROM user_starry_bindings WHERE user_id=$1",[DEMO_USER.id]));
     (await conn.query("INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, status, updated_at)\n       VALUES ($1,$2,1,'connected',$3)",[DEMO_USER.id,email,now]));
-    conn.prepare(
-      `INSERT OR REPLACE INTO mailbox_owners (email, brand, owner_name, account_type, status)
-       VALUES (?,?,?,?,'active')`,
-    ).run(email, "LT", DEMO_USER.name, "personal");
+    await conn.query(
+      `INSERT INTO mailbox_owners (email, brand, owner_name, account_type, status)
+       VALUES ($1,$2,$3,$4,'active')
+       ON CONFLICT (email) DO UPDATE SET brand=EXCLUDED.brand, owner_name=EXCLUDED.owner_name,
+         account_type=EXCLUDED.account_type, status=EXCLUDED.status`,
+      [email, "LT", DEMO_USER.name, "personal"],
+    );
   }
 
   async function insertThread(input: { id: string; mailbox: string; conversation_id: string; peer_email: string; last_at: string }): Promise<Awaited<void>> {
@@ -612,10 +649,13 @@ describe("P0：message / conversation 键（mail_summary / mail_translate / emai
     const now = new Date().toISOString();
     (await conn().query("INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING",[DEMO_USER.id,DEMO_USER.handle,DEMO_USER.name,"x",JSON.stringify(["employee", "admin"]),JSON.stringify(["LT"]),DEMO_USER.site,1,now,now]));
     (await conn().query("INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, status, updated_at)\n       VALUES ($1,$2,1,'connected',$3)",[DEMO_USER.id,email,now]));
-    conn().prepare(
-      `INSERT OR REPLACE INTO mailbox_owners (email, brand, owner_name, account_type, status)
-       VALUES (?,?,?,?,'active')`,
-    ).run(email, "LT", DEMO_USER.name, "personal");
+    await conn().query(
+      `INSERT INTO mailbox_owners (email, brand, owner_name, account_type, status)
+       VALUES ($1,$2,$3,$4,'active')
+       ON CONFLICT (email) DO UPDATE SET brand=EXCLUDED.brand, owner_name=EXCLUDED.owner_name,
+         account_type=EXCLUDED.account_type, status=EXCLUDED.status`,
+      [email, "LT", DEMO_USER.name, "personal"],
+    );
   }
 
   async function insertThreadWithItem(input: {
