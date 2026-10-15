@@ -11,6 +11,7 @@ import {
 } from "../src/postgres/pool.js";
 import { freshTestDatabase } from "./support/pg.js";
 import { postgresReviewContext } from "../src/approval/review-postgres-access.js";
+import { PostgresReviewService } from "../src/approval/review-postgres-service.js";
 import { reviewResolver } from "../src/approval/review-resolver.js";
 import { decideReview } from "../src/approval/review-engine.js";
 import {
@@ -236,6 +237,32 @@ describe(
       expect((await postgresPool().query("SELECT COUNT(*)::int AS n FROM audit_events WHERE actor='admin' AND event_type='knowledge.review.trial' AND payload::jsonb->>'instance_id'=$1", [receipt.instanceId])).rows[0].n).toBe(1);
       await fs.writeFile(source, "%PDF-1.7 changed after review preparation");
       await expect(knowledgeReviewTrial(receipt.instanceId, "再次试算", ctx)).rejects.toMatchObject({ status: 409 });
+    });
+
+    it("shows an actual knowledge submission in the assigned reviewer's paginated inbox", async () => {
+      const { receipt } = await submit();
+      const projection = await postgresTransaction(async db => {
+        const reviewer = new PostgresReviewService(db, await postgresReviewContext(db, "reviewer", "company"));
+        const requester = new PostgresReviewService(db, await postgresReviewContext(db, "admin", "company"));
+        const unassigned = new PostgresReviewService(db, await postgresReviewContext(db, "reviewer-two", "company"));
+        const outsider = new PostgresReviewService(db, await postgresReviewContext(db, "outsider", "other"));
+        return {
+          todo: await reviewer.instancePage({ filter: "todo", q: "储能规格书" }),
+          mine: await requester.instancePage({ filter: "mine", q: "储能规格书" }),
+          notices: await reviewer.notificationInbox(),
+          unassigned: await unassigned.instancePage({ filter: "todo" }),
+          outsider: await outsider.instancePage({ filter: "all" }),
+        };
+      });
+      const item = projection.todo.items.find(i => i.id === receipt.instanceId);
+      expect(item?.allowedActions).toContain("approve");
+      expect(item?.allowedActions).toContain("reject");
+      expect(projection.mine.items.some(i => i.id === receipt.instanceId)).toBe(true);
+      expect(projection.notices.items.some(n => n.instance_id === receipt.instanceId && !n.read_at)).toBe(true);
+      expect(projection.unassigned.items).toEqual([]);
+      expect(projection.outsider.items).toEqual([]);
+      expect((await postgresPool().query("SELECT action FROM review_events WHERE resource_id=$1", [receipt.instanceId])).rows.map(r => r.action)).toEqual(["knowledge.submit"]);
+      expect((await postgresPool().query("SELECT status FROM knowledge_publication_applications WHERE instance_id=$1", [receipt.instanceId])).rows[0].status).toBe("waiting");
     });
 
     it('freezes checked scope and activates document plus scope in the same automatic publication',async()=>{
