@@ -13,7 +13,8 @@ import { createAgentBinding, ensureOrganizationTree, syncUserOrganization } from
 import { seedPublishedAgent } from "../fixtures/runtime-auth.js";
 
 export const NATIVE_KNOWLEDGE_TENANT = "company:amperetime";
-const AGENT_ID = "agent_native_knowledge_fixture";
+export const NATIVE_KNOWLEDGE_AGENT_ID = "agent_native_knowledge_fixture";
+const AGENT_ID = NATIVE_KNOWLEDGE_AGENT_ID;
 
 type Principal = {
   id: string;

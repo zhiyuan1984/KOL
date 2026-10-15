@@ -10,7 +10,7 @@ import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { bundledSkillPath } from "../src/host/skill-sop.js";
 import { resolveMailTemplate } from "../src/host/knowledge.js";
 import { freshTestDatabase } from "./support/pg.js";
-import { publishKnowledgeEntry, setupNativeKnowledgeFixture, withNativeKnowledgePrincipal, type NativeKnowledgeFixture } from "./support/knowledge-native-fixture.js";
+import { NATIVE_KNOWLEDGE_AGENT_ID, publishKnowledgeEntry, setupNativeKnowledgeFixture, withNativeKnowledgePrincipal, type NativeKnowledgeFixture } from "./support/knowledge-native-fixture.js";
 
 type Json = Record<string, unknown>;
 
@@ -50,6 +50,7 @@ async function ask(prompt: string, extra: Json = {}, expectStatus = 200): Promis
     text: prompt,
     content: prompt,
     act: "ask",
+    agent_id: NATIVE_KNOWLEDGE_AGENT_ID,
     ...extra,
   });
   expect(r.status, await r.text()).toBe(expectStatus);
