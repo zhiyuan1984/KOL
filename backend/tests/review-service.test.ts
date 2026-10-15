@@ -198,6 +198,39 @@ describe("transactional generic review service", () => {
     ).toHaveLength(1);
     (await expect((async () => (service().instancePage({ cursor: "invalid" })))()).rejects.toThrow());
   });
+  it("includes knowledge submissions in scoped inbox, search and requester history", async () => {
+    const r = await submitted();
+    // KnowledgePublicationService records this event instead of generic submit.
+    await db.query("UPDATE review_events SET action='knowledge.submit' WHERE resource_id=$1 AND action='submit'", [r.resourceId]);
+    const inbox = await service("reviewer").instancePage({ filter: "todo", q: "合作方案" });
+    expect(inbox.items.map(i => i.id)).toEqual([r.resourceId]);
+    expect(inbox.items[0].allowedActions).toContain("approve");
+    expect((await service("employee").instancePage({ filter: "mine" })).items.map(i => i.id)).toEqual([r.resourceId]);
+    expect((await service("extra").instancePage({ filter: "all" })).items).toEqual([]);
+    expect((await service("reviewer", "other").instancePage({ filter: "todo" })).items).toEqual([]);
+    expect((await service("employee").instancePage({ filter: "todo" })).items).toEqual([]);
+    await run("reviewer", { action: "approve", instanceId: r.resourceId, expectedVersion: 1, reason: "测试同意" });
+    expect((await service("reviewer").instancePage({ filter: "done" })).items.map(i => i.id)).toEqual([r.resourceId]);
+    expect((await service("reviewer").instancePage({ filter: "todo" })).items).toEqual([]);
+  });
+  it("paginates mixed submission events once per instance using the earliest submit time", async () => {
+    const ids: string[] = [];
+    for (let n = 0; n < 4; n++) {
+      const r = await submitted();
+      ids.push(r.resourceId);
+      if (n % 2 === 0) await db.query("UPDATE review_events SET action='knowledge.submit' WHERE resource_id=$1 AND action='submit'", [r.resourceId]);
+    }
+    // A compatible dual event must not duplicate or reorder an existing request.
+    await db.query("INSERT INTO review_events(id,tenant,resource_id,actor,action,version,detail,created_at) VALUES($1,$2,$3,$4,'knowledge.submit',1,'{}',$5)", [crypto.randomUUID(), "company", ids[1], "employee", "2099-01-01T00:00:00.000Z"]);
+    const first = await service("reviewer").instancePage({ filter: "todo", limit: 2 });
+    expect(first.items).toHaveLength(2);
+    const second = await service("reviewer").instancePage({ filter: "todo", limit: 2, cursor: first.nextCursor! });
+    expect(second.items).toHaveLength(2);
+    expect(second.nextCursor).toBeNull();
+    const found = [...first.items, ...second.items].map(i => i.id);
+    expect(found).toEqual([...ids].sort().reverse());
+    expect(new Set(found).size).toBe(4);
+  });
   it("freezes attachment bytes and shares them only through scoped review participation", async () => {
     const file = (await service("employee").uploadAttachment(
       "../稿件.txt",
