@@ -145,21 +145,22 @@ export async function listCapabilities(filter: { kind?: string; status?: string;
   const clauses: string[] = [];
   const args: unknown[] = [];
   if (filter.kind && (CAPABILITY_KINDS as readonly string[]).includes(filter.kind)) {
-    clauses.push("kind=?");
+    clauses.push(`kind=$${args.length + 1}`);
     args.push(filter.kind);
   }
   if (filter.status && (CAPABILITY_STATUSES as readonly string[]).includes(filter.status)) {
-    clauses.push("status=?");
+    clauses.push(`status=$${args.length + 1}`);
     args.push(filter.status);
   }
   if (filter.q) {
-    clauses.push("(ref_id LIKE ? OR notes LIKE ?)");
-    args.push(`%${filter.q}%`, `%${filter.q}%`);
+    clauses.push(`(ref_id ILIKE $${args.length + 1} OR notes ILIKE $${args.length + 1})`);
+    args.push(`%${filter.q}%`);
   }
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-  const rows = getConn().prepare(
+  const rows = (await getConn().query<Row>(
     `SELECT * FROM capability_registry ${where} ORDER BY kind, ref_id`,
-  ).all(...args) as Row[];
+    args,
+  )).rows;
   return rows.map(rowToView);
 }
 
@@ -217,38 +218,41 @@ if (actor === undefined) actor = (await knowledgeActorId());
   (await ensureBuiltinProfiles());
   const row = (await getConn().query("SELECT * FROM capability_registry WHERE id=$1",[String(id)])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(404, { code: "capability_missing", message: "能力登记不存在" });
-  const sets: string[] = [];
-  const args: unknown[] = [];
-  if (patch.capability !== undefined && typeof patch.capability === "object") {
-    sets.push("capability=?");
-    args.push(JSON.stringify(patch.capability));
-  }
-  if (patch.constraints !== undefined && typeof patch.constraints === "object") {
-    sets.push("constraints=?");
-    args.push(JSON.stringify(patch.constraints));
-  }
-  if (patch.version_pinned !== undefined) {
-    sets.push("version_pinned=?");
-    args.push(patch.version_pinned);
-  }
-  if (patch.notes !== undefined) {
-    sets.push("notes=?");
-    args.push(patch.notes);
-  }
-  if (patch.status !== undefined) {
-    if (!(CAPABILITY_STATUSES as readonly string[]).includes(patch.status)) {
-      throw new HttpFail(400, { code: "capability_status_invalid", message: "status 非法" });
+  return (await tx(async (db) => {
+    const sets: string[] = [];
+    const args: unknown[] = [];
+    if (patch.capability !== undefined && typeof patch.capability === "object") {
+      sets.push(`capability=$${args.length + 1}`);
+      args.push(JSON.stringify(patch.capability));
     }
-    sets.push("status=?");
-    args.push(patch.status);
-  }
-  if (!sets.length) throw new HttpFail(400, { code: "capability_nothing_to_update", message: "没有可更新的字段" });
-  sets.push("updated_at=?");
-  args.push(nowIso(), String(id));
-  getConn().prepare(`UPDATE capability_registry SET ${sets.join(", ")} WHERE id=?`).run(...args);
-  (await audit(actor, "capability.update", { id: String(id), kind: String(row.kind), ref_id: String(row.ref_id) }));
-  const updated = (await getConn().query("SELECT * FROM capability_registry WHERE id=$1",[String(id)])).rows[0] as Row;
-  return rowToView(updated);
+    if (patch.constraints !== undefined && typeof patch.constraints === "object") {
+      sets.push(`constraints=$${args.length + 1}`);
+      args.push(JSON.stringify(patch.constraints));
+    }
+    if (patch.version_pinned !== undefined) {
+      sets.push(`version_pinned=$${args.length + 1}`);
+      args.push(patch.version_pinned);
+    }
+    if (patch.notes !== undefined) {
+      sets.push(`notes=$${args.length + 1}`);
+      args.push(patch.notes);
+    }
+    if (patch.status !== undefined) {
+      if (!(CAPABILITY_STATUSES as readonly string[]).includes(patch.status)) {
+        throw new HttpFail(400, { code: "capability_status_invalid", message: "status 非法" });
+      }
+      sets.push(`status=$${args.length + 1}`);
+      args.push(patch.status);
+    }
+    if (!sets.length) throw new HttpFail(400, { code: "capability_nothing_to_update", message: "没有可更新的字段" });
+    sets.push(`updated_at=$${args.length + 1}`);
+    args.push(nowIso());
+    args.push(String(id));
+    await db.query(`UPDATE capability_registry SET ${sets.join(", ")} WHERE id=$${args.length}`, args);
+    await audit(actor, "capability.update", { id: String(id), kind: String(row.kind), ref_id: String(row.ref_id) }, db);
+    const updated = (await db.query<Row>("SELECT * FROM capability_registry WHERE id=$1", [String(id)])).rows[0] as Row;
+    return rowToView(updated);
+  })) as Awaited<Json>;
 }
 
 /**
