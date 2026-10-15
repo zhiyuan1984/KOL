@@ -1,22 +1,30 @@
 import { useCallback,useEffect,useRef,useState } from 'react';
 import type { ScopeDetail,KnowledgeScope } from '../../../../shared/knowledge-scope';
 import { reviewApi,reviewCompany } from '../../reviews/api';
-import { errorMessage } from './shared';
+import { errorMessage,errorStatus } from './shared';
 import './knowledge-scope.css';
 const states={empty:'尚未提炼',candidate:'范围待核对',checked:'范围已核对 · 未发布',published:'范围已发布'};
 const types:Record<string,string>={overview:'产品/内容概览',parameter_lookup:'参数查询',conditions:'适用与测试条件',usage:'使用说明',comparison:'资料内比较'};
-export default function KnowledgeScopePanel({id,onReady,onDirty,onChanged}:{id:string;onReady:(value:boolean)=>void;onDirty?:(value:boolean)=>void;onChanged:()=>void}) {
+export default function KnowledgeScopePanel({id,documentStatus,refreshToken,onReady,onDirty,onChanged}:{id:string;documentStatus?:string;refreshToken?:string;onReady:(value:boolean)=>void;onDirty?:(value:boolean)=>void;onChanged:()=>void}) {
   const [data,setData]=useState<ScopeDetail|null>(null),[explanation,setExplanation]=useState(''),[scope,setScope]=useState<KnowledgeScope|null>(null);
   const [error,setError]=useState(''),[busy,setBusy]=useState(false),[dirty,setDirty]=useState(false),[topic,setTopic]=useState(''),[evidenceId,setEvidenceId]=useState('');
+  const [readFailureStatus,setReadFailureStatus]=useState(0);
   const dirtyRef=useRef(false);
   const endpoint=`/admin/knowledge/documents/${encodeURIComponent(id)}/scope`;
   const load=useCallback(async()=>{
-    try {const next=await reviewApi<ScopeDetail>(endpoint);setData(next);if(!dirtyRef.current){setExplanation(next.explanation);setScope(next.scope);}setError('');onReady(['checked','published'].includes(next.state) || next.frozen);}
-    catch(e){setError(errorMessage(e));onReady(false);}
+    try {const next=await reviewApi<ScopeDetail>(endpoint);setData(next);if(!dirtyRef.current){setExplanation(next.explanation);setScope(next.scope);}setError('');setReadFailureStatus(0);onReady(!dirtyRef.current && (['checked','published'].includes(next.state) || next.frozen));}
+    catch(e){setError(errorMessage(e));setReadFailureStatus(errorStatus(e));onReady(false);}
   },[endpoint,onReady]);
-  useEffect(()=>{void load();},[load]);
+  useEffect(()=>{void load();},[load,refreshToken]);
   const running=Boolean(data?.job && ['queued','running','retrying'].includes(data.job.status));
-  useEffect(()=>{if(!running)return;const timer=setTimeout(()=>void load(),2500);return()=>clearTimeout(timer);},[running,data,load]);
+  const permissionBlocked=readFailureStatus>=400 && readFailureStatus<500 && ![408,429].includes(readFailureStatus);
+  useEffect(()=>{
+    if(!running || permissionBlocked)return;
+    let active=true;
+    const poll=async()=>{await load();if(active)timer=setTimeout(poll,2500);};
+    let timer=setTimeout(poll,2500);
+    return()=>{active=false;clearTimeout(timer);};
+  },[running,permissionBlocked,load]);
   const changed=()=>{dirtyRef.current=true;setDirty(true);onDirty?.(true);onReady(false);};
   const save=async(checked:boolean)=>{
     if(!data)return;setBusy(true);setError('');
@@ -37,7 +45,7 @@ export default function KnowledgeScopePanel({id,onReady,onDirty,onChanged}:{id:s
       <p>{states[data.state]}{dirty?' · 有未保存修改':''}</p>
       <label>资料用途解释<textarea maxLength={4000} value={explanation} disabled={!edit} placeholder="资料讲什么、适合回答什么、适用对象和已知限制。解释不会代替原文事实。" onChange={e=>{setExplanation(e.target.value);changed();}} /></label>
       {data.frozen && <p>本版本材料已冻结。修改原件、解释或知识范围须创建新版本草稿。</p>}
-      {running && <p role="status">{data.job?.status==='running'?'正在依据原文提炼知识范围':'等待知识范围提炼服务'} · 自动刷新中</p>}
+      {running && <p role="status">{data.job?.status==='running'?'正在依据原文提炼知识范围':'等待知识范围提炼服务'} · {error ? permissionBlocked ? '自动刷新已暂停，请重新读取' : '刷新暂时失败，将自动重试' : '自动刷新中'}</p>}
       {data.job?.status==='failed' && <p role="alert">范围提炼失败：{data.job.error_summary || '请检查加工产物和模型服务后重试'}</p>}
       {scope && <>
         <label>内容范围摘要<textarea maxLength={2000} value={scope.summary} disabled={!edit} onChange={e=>{setScope({...scope,summary:e.target.value});changed();}} /></label>
@@ -61,7 +69,7 @@ export default function KnowledgeScopePanel({id,onReady,onDirty,onChanged}:{id:s
         <button className="btn" disabled={busy || dirty || !data.actions.generate} onClick={()=>void generate()}>{scope?'重新提炼范围':'提炼知识范围'}</button>
         <button className="btn" disabled={busy || !data.actions.check || !scope || explanation!==data.explanation} onClick={()=>void save(true)}>确认已核对原文范围</button>
       </div>}
-      {!scope && !running && !data.frozen && <p>解析完成后可提炼范围；保存解释后再提炼，核对原文范围后才能提交发布审批。</p>}
+      {!scope && !running && !data.frozen && <p>{documentStatus==='failed' || documentStatus==='cancelled' ? '资料加工未完成，知识范围提炼尚未启动。请先重试加工。' : documentStatus && ['uploaded','normalizing','indexing'].includes(documentStatus) ? '正在规整或索引原文，完成后将自动提炼知识范围。' : '解析完成后可提炼范围；保存解释后再提炼，核对原文范围后才能提交发布审批。'}</p>}
     </>}
   </section>;
 }
