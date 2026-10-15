@@ -20,17 +20,30 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -f "$ROOT/.env" ] || { echo "缺少 $ROOT/.env（需指向测试库 DATABASE_URL）" >&2; exit 1; }
+DB_URL="$(sed -n 's/^DATABASE_URL=//p' "$ROOT/.env" | head -1 | sed 's/^"//; s/"$//')"
+export DATABASE_URL="$DB_URL" TEST_DB_PREFIX="${TEST_DB_PREFIX:-lingong}"
+export E2E_MODE=stub E2E_AUTH_MODE=disabled NODE_ENV=test
+node --input-type=module -e '
+  const prefix = process.env.TEST_DB_PREFIX || "";
+  const database = decodeURIComponent(new URL(process.env.DATABASE_URL).pathname.slice(1));
+  if (!/^[a-z_][a-z0-9_]+$/.test(prefix) || !database.startsWith(`${prefix}_`)) {
+    throw new Error("E2E requires an explicitly prefixed isolated PostgreSQL database; refusing fixture writes");
+  }
+'
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+  echo "E2E checkout has local changes; preserve them before selecting a revision." >&2
+  exit 1
+fi
 git fetch github
-git reset --hard "$REV"
+git switch --detach "$REV"
 echo "E2E revision: $(git log --oneline -1)"
 if [ "$NOSCHEMA" = "0" ]; then
   ./scripts/apply-postgres-schema.sh >/dev/null
-  DB_URL="$(sed -n 's/^DATABASE_URL=//p' "$ROOT/.env" | head -1 | sed 's/^"//; s/"$//')"
   (cd backend && DATABASE_URL="$DB_URL" npm run db:seed:reference >/dev/null)
   echo "PostgreSQL schema + 参考数据已对齐"
 fi
 if [ frontend/package-lock.json -nt frontend/node_modules ] 2>/dev/null; then (cd frontend && npm ci --no-audit --no-fund); fi
 if [ backend/package-lock.json -nt backend/node_modules ] 2>/dev/null; then (cd backend && npm ci --no-audit --no-fund); fi
-if [ "$NOBUILD" = "0" ]; then (cd frontend && npm run build); fi
+if [ "$NOBUILD" = "0" ]; then (cd frontend && VITE_E2E_FIXTURES=1 npm run build); fi
 cd frontend
 exec env E2E_SKIP_BUILD=1 npx playwright test "$@" --workers="${E2E_WORKERS:-1}"
