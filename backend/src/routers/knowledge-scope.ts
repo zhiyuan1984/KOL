@@ -16,7 +16,7 @@ knowledgeScopeRouter.use('/admin/*', async (c, next) => {
 const actor=()=>{const user=scopedUser();if(!user)throw new HttpFail(401,'请登录');return user.id;};
 knowledgeScopeRouter.get('/admin/knowledge/documents/:id/scope',async c=>c.json(await scopeDetail(actor(),c.req.header('X-Review-Company'),c.req.param('id'))));
 knowledgeScopeRouter.put('/admin/knowledge/documents/:id/scope',async c=>c.json(await saveScope(actor(),c.req.header('X-Review-Company'),c.req.param('id'),await c.req.json())));
-knowledgeScopeRouter.post('/admin/knowledge/documents/:id/scope-jobs',async c=>{const input=await c.req.json();return c.json(await enqueueScope(actor(),c.req.header('X-Review-Company'),c.req.param('id'),Number(input.expectedRevision)),202);});
+knowledgeScopeRouter.post('/admin/knowledge/documents/:id/scope-jobs',async c=>{const input=await c.req.json();return c.json(await enqueueScope(actor(),c.req.header('X-Review-Company'),c.req.param('id'),Number(input.expectedRevision),{mode:'manual'}),202);});
 knowledgeScopeRouter.get('/admin/knowledge/scope-catalog',async c=>c.json(await postgresTransaction(db=>scopeCatalog(db,actor(),c.req.header('X-Review-Company')))));
 knowledgeScopeRouter.post('/admin/skills/knowledge-drafts/generate',async c=>c.json(await requestSkillGeneration(actor(),c.req.header('X-Review-Company'),await c.req.json()),202));
 knowledgeScopeRouter.get('/admin/skills/knowledge-drafts/jobs/:id',async c=>c.json(await generationDetail(actor(),c.req.header('X-Review-Company'),c.req.param('id'))));

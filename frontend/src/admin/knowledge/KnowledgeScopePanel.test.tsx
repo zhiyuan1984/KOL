@@ -51,9 +51,9 @@ describe('知识提炼真实状态与刷新恢复', () => {
     mocks.scope.mockResolvedValueOnce(scope()).mockResolvedValueOnce(scope({ job: { id: 'scope-job', status: 'queued' } }))
       .mockResolvedValue(scope({ state: 'candidate', scope: candidate, job: { id: 'scope-job', status: 'succeeded' }, actions: { edit: true, generate: true, check: true } }));
     await render(<MemoryRouter><DocumentRail id="doc" path="" reload={reload} notify={vi.fn()} fail={vi.fn()} /></MemoryRouter>);
-    expect(host.textContent).toContain('完成后将自动提炼知识范围');
+    expect(host.textContent).toContain('正在建立资料索引');
     await advance(3000);
-    expect(host.textContent).toContain('等待知识范围提炼服务');
+    expect(host.textContent).toContain('范围提炼已排队');
     await advance(2500);
     expect(host.textContent).toContain('范围待核对');
     expect(host.querySelector<HTMLInputElement>('input[aria-label="主题 1"]')!.value).toBe('目标与差距');
@@ -66,7 +66,7 @@ describe('知识提炼真实状态与刷新恢复', () => {
       .mockRejectedValueOnce(error).mockRejectedValueOnce(error)
       .mockResolvedValue(scope({ state: 'candidate', scope: candidate, job: { id: 'j', status: 'succeeded' } }));
     await render(panel());
-    await advance(2500); expect(host.textContent).toContain('刷新暂时失败，将自动重试');
+    await advance(2500); expect(host.textContent).toContain('加工状态暂时无法读取');
     await advance(2500); expect(mocks.scope).toHaveBeenCalledTimes(3);
     await advance(2500); expect(host.textContent).toContain('范围待核对');
     await advance(10000); expect(mocks.scope).toHaveBeenCalledTimes(4);
@@ -78,7 +78,7 @@ describe('知识提炼真实状态与刷新恢复', () => {
       .mockResolvedValueOnce(scope({ job: { id: 'j', status: 'running' } }))
       .mockResolvedValue(scope({ state: 'candidate', scope: candidate, job: { id: 'j', status: 'succeeded' } }));
     await render(panel()); await advance(2500);
-    expect(host.textContent).toContain('自动刷新已暂停，请重新读取');
+    expect(host.textContent).toContain('权限错误时已停止自动刷新');
     await advance(10000); expect(mocks.scope).toHaveBeenCalledTimes(2);
     const button = Array.from(host.querySelectorAll('button')).find(b => b.textContent === '重新读取')!;
     await act(async () => button.click()); await advance(2500);
@@ -88,7 +88,7 @@ describe('知识提炼真实状态与刷新恢复', () => {
   it('父资料状态更新不会覆盖未保存的解释，也不会误报可审批', async () => {
     mocks.scope.mockResolvedValue(scope({ state: 'checked', scope: candidate, actions: { edit: true, generate: true, check: true } }));
     await render(panel('a', 'pending_review'));
-    const textarea = host.querySelector('textarea')!;
+    const textarea = host.querySelector<HTMLTextAreaElement>('textarea[placeholder^="资料讲什么"]')!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, '我的未保存解释');
       textarea.dispatchEvent(new Event('input', { bubbles: true }));
@@ -102,7 +102,8 @@ describe('知识提炼真实状态与刷新恢复', () => {
   it('资料加工失败时解释范围未启动原因，保留服务端重试入口', async () => {
     mocks.document.mockResolvedValue(documentDetail('failed')); mocks.scope.mockResolvedValue(scope());
     await render(<MemoryRouter><DocumentRail id="doc" path="" reload={reload} notify={vi.fn()} fail={vi.fn()} /></MemoryRouter>);
-    expect(host.textContent).toContain('知识范围提炼尚未启动。请先重试加工');
+    expect(host.textContent).toContain('资料加工失败');
+    expect(host.textContent).not.toContain('尚未提炼');
     expect(host.textContent).not.toContain('自动刷新中');
     expect(host.querySelector<HTMLButtonElement>('[data-kbv-doc-action="retry"]')!.disabled).toBe(false);
   });
@@ -113,10 +114,32 @@ describe('知识提炼真实状态与刷新恢复', () => {
       .mockResolvedValue(documentDetail('pending_review'));
     mocks.scope.mockResolvedValue(scope());
     await render(<MemoryRouter><DocumentRail id="doc" path="" reload={reload} notify={vi.fn()} fail={vi.fn()} /></MemoryRouter>);
-    await advance(3000); expect(host.textContent).toContain('刷新暂时失败，将自动重试');
+    await advance(3000); expect(host.textContent).toContain('资料读取失败');
     await advance(7999); expect(mocks.document).toHaveBeenCalledTimes(2);
     await advance(1); expect(mocks.document).toHaveBeenCalledTimes(3);
     expect(host.textContent).not.toContain('刷新暂时失败，将自动重试');
     expect(mocks.scope).toHaveBeenCalledTimes(2);
+  });
+  it('同一批次耗时超过20秒仍继续读取，候选终态不因历史queued交接被锁住', async () => {
+    let complete = false;
+    mocks.scope.mockImplementation(async () => scope({
+      handoff: { status: 'queued' },
+      job: { id: 'long-job', status: complete ? 'succeeded' : 'running', progress: { done: complete ? 4 : 0, total: 4, unit: 'batches' } },
+      state: complete ? 'candidate' : 'empty', scope: complete ? candidate : null,
+      actions: { edit: complete, generate: complete, check: complete },
+    }));
+    await render(panel('long', 'pending_review'));
+    for (let i = 0; i < 12; i++) await advance(2500);
+    expect(mocks.scope).toHaveBeenCalledTimes(13);
+    expect(host.textContent).toContain('正在依据原文提炼');
+    expect(host.textContent).not.toContain('读取已到上限');
+    complete = true;
+    await advance(2500);
+    const count = mocks.scope.mock.calls.length;
+    expect(host.textContent).toContain('范围待核对');
+    const confirm = Array.from(host.querySelectorAll('button')).find(button => button.textContent === '确认已核对原文范围')!;
+    expect(confirm.disabled).toBe(false);
+    await advance(30000);
+    expect(mocks.scope).toHaveBeenCalledTimes(count);
   });
 });

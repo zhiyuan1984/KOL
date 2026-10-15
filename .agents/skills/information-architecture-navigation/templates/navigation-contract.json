@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "kind": "navigation-contract",
+  "status": "draft",
+  "owner": "ui-ux",
+  "requirement_refs": [
+    "CONST-04",
+    "TECH-FE-03",
+    "PROD-PLAT-02"
+  ],
+  "subject": {
+    "task_id": "",
+    "source_revision": ""
+  },
+  "decisions": {
+    "nodes": [
+      {
+        "url": "/admin/knowledge",
+        "question": "管理资料与加工候选",
+        "identity": "document.id + version"
+      }
+    ],
+    "edges": [
+      {
+        "from": "list",
+        "to": "document-detail",
+        "preserve": [
+          "filter",
+          "selection",
+          "scroll"
+        ]
+      }
+    ],
+    "local_switches": [
+      "原件预览/提取文本不改变对象身份"
+    ],
+    "route_migration": false
+  },
+  "verification": {
+    "state": "unverified",
+    "evidence": []
+  },
+  "task_id": "",
+  "summary": "",
+  "status_claims": []
+}

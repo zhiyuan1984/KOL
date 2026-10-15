@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "kind": "layout-contract",
+  "status": "draft",
+  "owner": "ui-ux/frontend",
+  "requirement_refs": [
+    "CONST-04",
+    "TECH-FE-02",
+    "TECH-TEST-02"
+  ],
+  "subject": {
+    "task_id": "",
+    "source_revision": ""
+  },
+  "decisions": {
+    "pattern": "list-detail-document-reading",
+    "density": "data-dense-dashboard",
+    "tree": [
+      "资料标题/版本",
+      "任务事实信息区",
+      "主要操作",
+      "原件/文本阅读区",
+      "候选范围",
+      "次级加工记录"
+    ],
+    "container_rules": [
+      "<480px 单列字段",
+      ">=720px 才允许多列内容",
+      "长文本自然换行且提供展开",
+      "阅读区内部滚动不遮挡操作"
+    ],
+    "axes": [
+      "width",
+      "height",
+      "input-modality"
+    ]
+  },
+  "verification": {
+    "state": "unverified",
+    "evidence": []
+  },
+  "task_id": "",
+  "summary": "",
+  "status_claims": []
+}

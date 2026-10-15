@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "kind": "async-contract",
+  "status": "draft",
+  "owner": "backend/frontend",
+  "requirement_refs": [
+    "TECH-BE-03",
+    "TECH-BE-04",
+    "TECH-FE-03",
+    "TECH-TEST-02"
+  ],
+  "subject": {
+    "task_id": "",
+    "source_revision": ""
+  },
+  "decisions": {
+    "source": "shared/knowledge-scope.ts",
+    "intent": "持久授权自动提炼请求",
+    "progress": {
+      "done": "真实已完成批次",
+      "total": "真实计划批次；未知为无数值进度",
+      "last_progress_at": "仅业务进展写入"
+    },
+    "recovery": [
+      "索引完成但未入队的持久交接恢复",
+      "重复恢复不建第二个活跃作业",
+      "权限错误停止前端自动刷新",
+      "同ID/版本读取不污染新选择"
+    ],
+    "uncertain": "展示待核查，不自动重试"
+  },
+  "verification": {
+    "state": "unverified",
+    "evidence": []
+  },
+  "task_id": "",
+  "summary": "",
+  "status_claims": []
+}

@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "development-task.schema.json",
+  "title": "Governed development task contract and delivery evidence",
+  "$defs": {
+    "fileHash": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "purposes": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
+    "skillSnapshot": {
+      "type": "object",
+      "required": ["id", "version", "skill_file", "source_hash", "template_hashes", "dependency_hashes"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "const": "1.0.0"},
+        "skill_file": {"type": "string", "minLength": 1},
+        "source_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "template_hashes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/fileHash"}},
+        "dependency_hashes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/fileHash"}}
+      },
+      "additionalProperties": false
+    },
+    "requiredOutput": {
+      "type": "object",
+      "required": ["id", "fulfillment", "owner_roles", "route_ids"],
+      "properties": {
+        "id": {"enum": ["task-contract", "state-and-action-map", "navigation-contract", "layout-contract", "component-selection", "preview-contract", "async-contract", "browser-and-source-evidence"]},
+        "fulfillment": {"enum": ["preflight", "delivery"]},
+        "owner_roles": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "route_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
+    "requiredCheck": {
+      "type": "object",
+      "required": ["id", "type", "description", "route_ids"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "type": {"enum": ["machine", "human", "human-browser"]},
+        "description": {"type": "string", "minLength": 1},
+        "route_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
+    "taskContract": {
+      "type": "object",
+      "required": ["schema_version", "kind", "status", "owner", "requirement_refs", "subject", "decisions", "verification", "task", "matched_routes", "governance", "required_outputs", "required_checks"],
+      "properties": {
+        "schema_version": {"type": "integer", "const": 1},
+        "kind": {"const": "task-contract"},
+        "status": {"enum": ["complete", "failed"]},
+        "owner": {"type": "string", "minLength": 1},
+        "requirement_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "subject": {"type": "object", "minProperties": 1},
+        "decisions": {"type": "object", "minProperties": 1},
+        "verification": {"type": "object", "minProperties": 1},
+        "task": {
+          "type": "object",
+          "required": ["id", "intents", "paths"],
+          "properties": {
+            "id": {"type": "string", "minLength": 1},
+            "intents": {"type": "array", "items": {"type": "string"}},
+            "paths": {"type": "array", "items": {"type": "string"}}
+          },
+          "additionalProperties": false
+        },
+        "matched_routes": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["id", "match_reasons"], "properties": {"id": {"type": "string"}, "match_reasons": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": false}},
+        "governance": {
+          "type": "object",
+          "required": ["roles", "clauses", "must_read", "skills", "loaded_files"],
+          "properties": {
+            "roles": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+            "clauses": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+            "must_read": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+            "skills": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/skillSnapshot"}},
+            "loaded_files": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/fileHash"}}
+          },
+          "additionalProperties": false
+        },
+        "required_outputs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/requiredOutput"}},
+        "required_checks": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/requiredCheck"}}
+      },
+      "additionalProperties": false
+    },
+    "artifact": {
+      "type": "object",
+      "required": ["schema_version", "kind", "status", "owner", "requirement_refs", "subject", "decisions", "verification", "task_id", "summary", "status_claims"],
+      "properties": {
+        "schema_version": {"type": "integer", "const": 1},
+        "kind": {"enum": ["state-and-action-map", "navigation-contract", "layout-contract", "component-selection", "preview-contract", "async-contract", "browser-and-source-evidence"]},
+        "status": {"enum": ["complete", "passed"]},
+        "owner": {"type": "string", "minLength": 1},
+        "requirement_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "subject": {"type": "object", "minProperties": 1},
+        "decisions": {"type": "object", "minProperties": 1},
+        "verification": {"type": "object", "minProperties": 1},
+        "task_id": {"type": "string", "minLength": 1},
+        "summary": {"type": "string", "minLength": 1},
+        "status_claims": {"type": "array", "items": {"type": "object", "required": ["subject", "fact", "value"], "properties": {"subject": {"type": "string", "minLength": 1}, "fact": {"type": "string", "minLength": 1}, "value": {"type": "string", "minLength": 1}}, "additionalProperties": false}}
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["file", "sha256", "kind"],
+      "properties": {
+        "file": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "kind": {"enum": ["test-report", "screenshot", "browser-record", "source-compare", "source-review"]}
+      },
+      "additionalProperties": false
+    },
+    "checkRecord": {
+      "type": "object",
+      "required": ["id", "type", "status", "evidence"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "type": {"enum": ["machine", "human", "human-browser"]},
+        "status": {"enum": ["passed", "failed", "skipped", "pending", "not-run"]},
+        "command": {"type": "string", "minLength": 1},
+        "exit_code": {"type": "integer"},
+        "reviewer": {"type": "string", "minLength": 1},
+        "reviewed_at": {"type": "string", "minLength": 1},
+        "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/evidence"}}
+      },
+      "additionalProperties": false
+    },
+    "deliveryRecord": {
+      "type": "object",
+      "required": ["schema_version", "kind", "task_contract", "artifacts", "checks"],
+      "properties": {
+        "schema_version": {"const": "1.0.0"},
+        "kind": {"const": "development-delivery-record"},
+        "task_contract": {"type": "object", "required": ["file", "sha256"], "properties": {"file": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}, "additionalProperties": false},
+        "artifacts": {"type": "array", "items": {"type": "object", "required": ["id", "file", "sha256", "status"], "properties": {"id": {"enum": ["state-and-action-map", "navigation-contract", "layout-contract", "component-selection", "preview-contract", "async-contract", "browser-and-source-evidence"]}, "file": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "status": {"enum": ["complete", "failed", "skipped", "pending"]}}, "additionalProperties": false}},
+        "checks": {"type": "array", "items": {"$ref": "#/$defs/checkRecord"}}
+      },
+      "additionalProperties": false
+    }
+  }
+}

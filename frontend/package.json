@@ -24,6 +24,7 @@
   "dependencies": {
     "@ant-design/icons": "6.3.4",
     "antd": "6.6.5",
+    "pdfjs-dist": "5.4.149",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
