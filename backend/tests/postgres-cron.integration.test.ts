@@ -76,14 +76,21 @@ describePostgres("native PostgreSQL Cron scheduler", () => {
 
   afterAll(async () => { await closePostgresPool(); });
 
-  it("seeds five system jobs and atomically enqueues a due run with an Outbox event", async () => {
+  it("seeds six system jobs and atomically enqueues a due run with an Outbox event", async () => {
     const pool = postgresPool();
     const now = new Date("2031-01-01T00:00:00.000Z");
     await pgEnsureSystemCronJobs(now);
-    const seed = await pool.query<{ count: string; disabled: string }>(
-      "SELECT COUNT(*)::text AS count,MAX(status) FILTER (WHERE job_key='discovery-search') AS disabled FROM cron_jobs",
+    const seed = await pool.query<{ job_key: string; status: string }>(
+      "SELECT job_key,status FROM cron_jobs ORDER BY job_key",
     );
-    expect(seed.rows[0]).toEqual({ count: "5", disabled: "disabled" });
+    expect(seed.rows).toEqual([
+      { job_key: "daily-task-snapshot", status: "published" },
+      { job_key: "discovery-search", status: "disabled" },
+      { job_key: "kol-pool-sync", status: "published" },
+      { job_key: "mail-memory-increment", status: "published" },
+      { job_key: "overdue-scan", status: "published" },
+      { job_key: "ownership-release", status: "published" },
+    ]);
 
     const overdue = await pgCronJobById("overdue-scan");
     expect(overdue).toBeTruthy();

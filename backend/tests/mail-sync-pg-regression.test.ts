@@ -91,14 +91,14 @@ describe("mail sync PostgreSQL regressions", () => {
     expect(invalid).toMatchObject({ renewed: false, effective: true, reason: "occurred_at_invalid" });
     expect(newerLocalSend).toMatchObject({ renewed: true, effective: true, reason: "human" });
 
-    const row = await pool.query<{ last_effective_mail_at: string; release_due_at: string; data_version: string }>(
+    const row = await pool.query<{ last_effective_mail_at: string; release_due_at: string; data_version: number }>(
       "SELECT last_effective_mail_at,release_due_at,data_version FROM kol_follow_index WHERE id=$1",
       ["follow-mail-clock"],
     );
     expect(row.rows[0]).toEqual({
       last_effective_mail_at: "2026-10-10T12:00:00.000Z",
       release_due_at: "2026-10-24T12:00:00.000Z",
-      data_version: "8",
+      data_version: 8,
     });
   });
 });
