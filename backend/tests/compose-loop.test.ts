@@ -151,10 +151,13 @@ describe("KOL stage-mail communication", () => {
   });
 
   async function composeOn(colId: string, text: string) {
+    const collaboration = (await getConn().query("SELECT email FROM collaborations WHERE id=$1", [colId])).rows[0] as { email?: string } | undefined;
+    const peer = String(collaboration?.email || "").trim();
+    expect(peer, "positive Compose correspondence must use the bound collaboration recipient").not.toBe("");
     (await ingestKolMail(colId, {
       subject: "LiTime 合作沟通",
       body: "Thanks, I am interested. Please send the next letter.",
-      from: "creator.desk@gmail.com",
+      from: peer,
       to: "larry.zhao@amperetime.com",
       mailbox: "larry.zhao@amperetime.com",
       direction: "inbound",

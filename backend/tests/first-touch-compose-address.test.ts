@@ -776,9 +776,9 @@ describe("compose never asks first-touch for a conversation id", () => {
 
   it("previews after getKolProfileDetail unmasks a followed QQ portrait", async () => {
     const followed = [
-      { kolUid: "KOL9D62420657814F6BAEC8", kolName: "测试网红-qq-01", ownerUserName: "赵良玉", ownerMailbox: LARRY },
-      { kolUid: "KOL2B64916C7B1F4014B14A", kolName: "测试1号", ownerUserName: "赵良玉", ownerMailbox: LARRY },
-      { kolUid: "KOL95A26C996BC74D3AA07E", kolName: "test-1", ownerUserName: "赵良玉", ownerMailbox: LARRY },
+      { kolUid: "KOL9D62420657814F6BAEC8", kolName: "测试网红-qq-01", ownerUserName: "赵良玉", ownerMailbox: LARRY, ownership_source_ready: true, verified_owner_mailbox: LARRY },
+      { kolUid: "KOL2B64916C7B1F4014B14A", kolName: "测试1号", ownerUserName: "赵良玉", ownerMailbox: LARRY, ownership_source_ready: true, verified_owner_mailbox: LARRY },
+      { kolUid: "KOL95A26C996BC74D3AA07E", kolName: "test-1", ownerUserName: "赵良玉", ownerMailbox: LARRY, ownership_source_ready: true, verified_owner_mailbox: LARRY },
     ];
     setEmailMcpClientFactory(() => ({
       async callTool(name, args: Json = {}) {
@@ -817,7 +817,7 @@ describe("compose never asks first-touch for a conversation id", () => {
       ...(await extractTaskEntities(OPERATOR)),
       prompt: OPERATOR,
     });
-    expect(calls.some((row) => row.name === "getKolProfileDetail")).toBe(true);
+    expect(calls.some((row) => row.name === "getKolProfileDetail"), JSON.stringify(calls)).toBe(true);
     expect(calls.some((row) => row.name === "decryptKolContact")).toBe(false);
     expect(JSON.parse(String(calls.filter((row) => row.name === "createEmailConversation").at(-1)?.args.requestJson))).toMatchObject({
       mailboxEmail: LARRY,

@@ -152,7 +152,12 @@ describe("followed KOL unread mail sync", () => {
       async close() { /* noop */ },
     }));
 
-    await ensureFollowedMailSync(true);
+    const foreground = await ensureFollowedMailSync(true);
+    // The foreground receipt commits only the index. A slow body must never
+    // block this employee-facing path; assert body-derived facts after the
+    // explicit test-only background settlement boundary.
+    expect(foreground.body_pending).toBe(1);
+    await waitForBackgroundSync();
     expect(calls.filter((name) => name === "getEmailConversation")).toHaveLength(1);
     expect((await getConn().query("SELECT conversation_id,mailbox,last_at FROM kol_mail_threads WHERE conversation_id='4901'",[])).rows[0]).toBeTruthy();
     calls.length = 0;
@@ -164,6 +169,7 @@ describe("followed KOL unread mail sync", () => {
     (await getConn().query("UPDATE kol_mail_items SET body_text=NULL WHERE provider_message_id='mid-4901'",[]));
     calls.length = 0;
     await ensureFollowedMailSync(true);
+    await waitForBackgroundSync();
     expect(calls.filter((name) => name === "getEmailConversation")).toHaveLength(1);
     expect((await getConn().query("SELECT body_text FROM kol_mail_items WHERE provider_message_id='mid-4901'",[])).rows[0]).toMatchObject({body_text: "Stored once"});
   });

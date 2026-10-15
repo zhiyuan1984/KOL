@@ -234,7 +234,11 @@ function taskConnectorId(id: string): string {
 export async function requireTaskAccess(skill: string, agentId?: string): Promise<void> {
   const definition = (await taskDefinition(skill));
   if (!definition) throw new HttpFail(400, { code: "unknown_task_type", task_type: skill });
-  if (codexMode() !== "stub") {
+  // Native authenticated requests use the same published Agent/Skill/tool
+  // tuple even with a deterministic provider. Retired per-user connector rows
+  // are not a second authority source. Only the explicit anonymous stub profile
+  // retains its fixture-only compatibility branch below.
+  if (codexMode() !== "stub" || !authDisabled()) {
     const selectedAgent = agentId || (await runtimeAgentForSkill(skill, scopedUser()?.id || ""));
     await assertRuntimeSkill({ agentId: selectedAgent, skillId: skill,
       userId: scopedUser()?.id || "", runId: "submission" });
@@ -885,6 +889,10 @@ async function stoppedBoundTask(bound: BoundTask | null): Promise<void> {
 
 async function finishBoundTask(bound: BoundTask | null, sid: string, result?: Json, error?: unknown): Promise<void> {
   if (!bound) return;
+  const resultError = result?.error && typeof result.error === "object" && !Array.isArray(result.error)
+    ? result.error as Json
+    : {};
+  const needsClarification = Boolean(result?.context_gap) || String(resultError.code || "") === "needs_context";
   let failed = Boolean(error || result?.error);
   if (bound.taskType === KOL_ANALYZE_TASK_TYPE) {
     const worker = result?.worker && typeof result.worker === "object" ? result.worker as Json : {};
@@ -903,7 +911,7 @@ async function finishBoundTask(bound: BoundTask | null, sid: string, result?: Js
     }
   }
   const runStatus = failed ? "failed" : "completed";
-  const taskStatus = failed ? "failed" : "waiting";
+  const taskStatus = failed ? (needsClarification ? "needs_clarification" : "failed") : "waiting";
   const now = nowIso();
   const worker = result?.worker && typeof result.worker === "object" ? result.worker as Json : {};
   try {
@@ -935,10 +943,12 @@ async function finishBoundTask(bound: BoundTask | null, sid: string, result?: Js
     bound.workItemId,
     bound.runId,
     `run.${runStatus}`,
-    failed ? "执行失败" : "结果已生成",
-    runStatus,
+    failed ? (needsClarification ? "还需要补充信息" : "执行失败") : "结果已生成",
+    failed && needsClarification ? "needs_clarification" : runStatus,
     failed
-      ? `未生成结果：${failureReason || "执行未完成"}。可重新执行。`
+      ? needsClarification
+        ? `${failureReason || "还需要补充信息"}。未启动处理；补齐后可重新执行。`
+        : `未生成结果：${failureReason || "执行未完成"}。可重新执行。`
       : (await taskDefinition(bound.taskType))?.side_effects === "none"
         ? "本轮只读查询已结束。结果已生成，可查看资料来源；正式任务仍可验收。"
         : "本轮结果已生成，任务待验收；正式操作仍需单独确认。",
@@ -2488,16 +2498,21 @@ export async function contextGapResponse(sid: string, me: Json, intent: Intent, 
     required: entry.tier === "requires",
     value: "",
   }));
+  const message = `${missing.map((entry) => `${entry.reason}（${entry.key}）`).join("；")}。本次未起箱。`;
   (await addMsg(sid, "assistant", "supplement_card", {
     intent: intent.skill || intent.type || "",
     title: `补全${fields.map((field) => field.label).join("、")}`,
     handle: intent.handle || "",
     collaboration_id: intent.collaboration_id || null,
     fields,
-    message: `${missing.map((entry) => `${entry.reason}（${entry.key}）`).join("；")}。本次未起箱。`,
+    message,
     context_gap: contextGap,
   }));
-  return (ok(sid, me, intent, { worker: null, context_gap: contextGap }));
+  return (ok(sid, me, intent, {
+    worker: null,
+    context_gap: contextGap,
+    error: { code: "needs_context", message, context_gap: contextGap },
+  }));
 }
 
 const CONNECTOR_GAP_CODE = "runtime_connector_unmounted";

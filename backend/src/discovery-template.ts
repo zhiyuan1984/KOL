@@ -6,6 +6,7 @@ import { allowedFromMailboxes, normalizeBrandCode } from "./host/pep.js";
 import { currentUser } from "./host/persona.js";
 import { getConn } from "./db.js";
 import type { Json } from "./types.js";
+import { DISCOVERY_DEFAULT_DIRECTIONS, DISCOVERY_DEFAULT_KEYWORDS } from "../../shared/discovery-defaults.js";
 
 export const DISCOVERY_PLATFORMS = ["youtube", "instagram", "facebook"] as const;
 export const DOMESTIC_PLATFORM_CODES = ["xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu"] as const;
@@ -154,8 +155,8 @@ export async function discoveryTemplate(): Promise<Awaited<Json>> {
       brand: defaultBrand,
       region: defaultRegion,
       platforms: ["youtube"],
-      directions: [],
-      keywords: ["camping", "portable power station"],
+      directions: [...DISCOVERY_DEFAULT_DIRECTIONS],
+      keywords: [...DISCOVERY_DEFAULT_KEYWORDS],
       thresholds: { ...DEFAULT_DISCOVERY_THRESHOLDS },
     },
     employee: {

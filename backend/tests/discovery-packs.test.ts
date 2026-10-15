@@ -18,17 +18,23 @@ describe("discovery direction packs", () => {
     );
     expect(template.defaults).toMatchObject({
       platforms: ["youtube"],
-      directions: [],
-      keywords: ["camping", "portable power station"],
+      directions: ["portable_power"],
+      keywords: ["camping", "outdoor camping", "camping gear", "van life", "RV travel", "RV living", "portable power station", "solar generator", "energy storage", "road trip"],
     });
   });
 
-  it("defaults to YouTube, 全球英文, no direction and the outdoor keywords", () => {
+  it("keeps accepted compact YouTube/global_en/portable_power defaults identical online and offline", async () => {
     expect(defaultDiscoveryBrief()).toMatchObject({
       platforms: ["youtube"],
       region: "global_en",
-      directions: [],
-      keywords: ["camping", "portable power station"],
+      directions: ["portable_power"],
+      keywords: ["camping", "outdoor camping", "camping gear", "van life", "RV travel", "RV living", "portable power station", "solar generator", "energy storage", "road trip"],
     });
+    const online = (await discoveryTemplate()).defaults as Record<string, unknown>;
+    const offline = defaultDiscoveryBrief();
+    expect(online.platforms).toEqual(offline.platforms);
+    expect(online.region).toEqual(offline.region);
+    expect(online.directions).toEqual(offline.directions);
+    expect(online.keywords).toEqual(offline.keywords);
   });
 });

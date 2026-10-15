@@ -18,6 +18,7 @@ import {
 import type { Json } from "../types.js";
 import { createDiscoveryWorkspace, pendingDiscoveryWorkspace } from "../crawl/discovery-workspace.js";
 import { runtimeCandidateCommand } from "../crawl/candidate-actions.js";
+import { HttpFail } from "../host/errors.js";
 
 export const homeDiscovery = new Hono();
 homeDiscovery.post("/home/discovery/runtime/:actionId/candidates/:candidateId/:verb", async c => {
@@ -92,5 +93,15 @@ homeDiscovery.post("/home/discovery/candidates/:id/ingest", async (c) => {
 
 homeDiscovery.post("/home/discovery/candidates/:id/follow", async (c) => {
   const body = await c.req.json().catch(() => ({})) as Json;
-  return c.json(await followHomeDiscoveryCandidate(c.req.param("id"), body), 201);
+  try {
+    return c.json(await followHomeDiscoveryCandidate(c.req.param("id"), body), 201);
+  } catch (error) {
+    // This Home surface has a deliberate no-write boundary.  Expose its stable
+    // denial receipt directly rather than wrapping it as a generic error.
+    if (error instanceof HttpFail && error.status === 403) {
+      const detail = error.detail as Json;
+      if (detail.code === "home_discovery_follow_forbidden") return c.json(detail, 403);
+    }
+    throw error;
+  }
 });

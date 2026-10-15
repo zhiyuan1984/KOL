@@ -32,7 +32,6 @@ import {
   isDiscoveryRegion,
   isDomesticPlatform,
 } from "./discovery-template.js";
-import { randomUUID } from "node:crypto";
 import { onCrawlJobSettled, startCrawl, stopCrawl } from "./crawl/service.js";
 import {
   DEFAULT_DEDUP_WINDOW_DAYS,
@@ -43,10 +42,7 @@ import {
 } from "./crawl/dedup.js";
 import { audit, getConn, nowIso, tx } from "./db.js";
 import { ingestOne } from "./host/discovery-ingest.js";
-import { brandScope } from "./host/inbound-scope.js";
-import { memoryCompanyId } from "./host/kol-memory.js";
 import { postgresPool } from "./postgres/pool.js";
-import { createKolLead } from "./ticket-domain/kol-leads.js";
 
 /** 本文件内的 asObject（此前 1572 行引用缺失，tsc TS2552）。 */
 function asObject(value: unknown): Record<string, unknown> {
@@ -456,12 +452,15 @@ function publicCandidate(row: Row, ranking?: Json | null): Json {
     ? "followed"
     : alreadyInPool || alreadyInLibrary ? "pool" : "not_in_library";
   const scoreDetails = objectOf(payload.score_details);
-  const why = asStringList(ranking?.why);
-  const matchReason = why.length ? why.join(" · ") : fallbackMatchReason({
+  const rankingWhy = asStringList(ranking?.why);
+  // Source observations can help a reviewer, but they are not a brief ranking
+  // conclusion.  Keep them separately so rank_failed never manufactures why/band/score.
+  const sourceSnippet = fallbackMatchReason({
     matchedKeywords: asStringList(payload.matched_keywords),
     followers: followersPresent ? Number(row.followers || 0) : null,
     avgViews10: views.length ? avgViews10(row) : null,
   });
+  const matchReason = rankingWhy.length ? rankingWhy.join(" · ") : null;
   const contactEmail = candidateContactEmail(row) || null;
   // This is an explainable pre-flight projection only. The L3 gateway repeats
   // every authority, version, de-duplication and source-batch check before it
@@ -510,6 +509,8 @@ function publicCandidate(row: Row, ranking?: Json | null): Json {
     fit: nullableString(ranking?.fit),
     match_reason: matchReason,
     why: matchReason,
+    // Captured platform facts are deliberately distinct from a Ranking reason.
+    source_snippet: sourceSnippet,
     view_mean: nullableNumber(scoreDetails.view_mean),
     view_median: nullableNumber(scoreDetails.view_median),
     stability: nullableNumber(scoreDetails.stability),
@@ -1460,114 +1461,18 @@ export async function ingestHomeDiscoveryCandidate(id: string, body: Json): Prom
  * Collaboration/排他认领」部分推翻——此处创建的是**线索业务对象**，不是
  * 排他认领（`kol_follow_index`）；排他认领仍只在公海完成。
  */
-export async function followHomeDiscoveryCandidate(id: string, body: Json): Promise<Json> {
-  const { candidate, sqliteRow, sourceBatch, runId } = await resolveCandidateForAction(id, body);
-  if (!body || (body as Record<string, unknown>).confirmed !== true) {
-    throw new HttpFail(422, { code: "follow_confirm_required", message: "跟进需要确认。" });
-  }
-  // 同上：本路由无 ticket principal，用工作台身份；id 与 ticket principal 同源（String(user.id)）。
-  const actorId = ownerId();
-  const admin = isAdmin();
-  const platform = String(candidate.platform || "").toLowerCase();
-  const platformCreatorId = String(candidate.platform_creator_id || "").trim();
-  if (!platform || !platformCreatorId) {
-    throw new HttpFail(422, { code: "candidate_identity_missing", message: "候选缺少平台或稳定外部编号，无法跟进。" });
-  }
-  const payload = asObject(candidate.payload);
-  const handle = String(candidate.handle || payload.handle || "").trim();
-  const displayName = String(candidate.nickname || handle || platformCreatorId).trim();
-  const accountUrl = String(payload.profile_url || payload.source_url || candidate.source_url || "").trim() || null;
-  const followers = Number(candidate.followers);
-  // 归一化去重预检：同一创作者已有线索直接返回，不重复建档。
-  const key = normalizeCreatorKey(platform, platformCreatorId);
-  const handleKey = handle ? normalizeCreatorKey(platform, handle) : null;
-  const existingLead = (
-    await postgresConnection().query(
-      `SELECT id FROM kol_leads
-        WHERE NOT is_archived AND lower(platform)=$1
-          AND (lower(account_handle)=$2 OR ($3::text IS NOT NULL AND lower(account_handle)=$3))
-        LIMIT 1`,
-      [platform, key.slice(key.indexOf(":") + 1), handleKey ? handleKey.slice(handleKey.indexOf(":") + 1) : null],
-    )
-  ).rows[0] as { id: string } | undefined;
-  if (existingLead) {
-    return { ok: true, lead_id: existingLead.id, reused: true };
-  }
-  const created = await createKolLead(actorId, admin, {
-    platform,
-    account_handle: handle || platformCreatorId,
-    account_url: accountUrl,
-    display_name: displayName,
-    follower_count: Number.isFinite(followers) ? followers : null,
-    category: String(payload.direction || payload.category || "").trim() || null,
-    platform_creator_id: platformCreatorId,
-    source: "ai_discovery",
-    source_ref: String(candidate.id),
-    contact: payload.contact_email ? { email: payload.contact_email } : {},
-    owner_principal_id: actorId,
-    note: `AI发现跟进（run ${candidate.run_id}）`,
-    idempotency_key: `discovery:follow:${candidate.id}`,
-  }, {
-    // 品牌归属：跟进人唯一品牌（LT 跟进 → 公海对 LT 用户隐藏该 KOL，其他品牌仍可见）。
-    actorBrands: brandScope(scopedUser()),
+/**
+ * Home discovery is a candidate-reading surface.  It must not create a lead,
+ * change ownership, import to Starry, or otherwise turn a follow click into a
+ * write.  The separately governed follow path retains its own permission and
+ * confirmation contract.
+ */
+export async function followHomeDiscoveryCandidate(_id: string, _body: Json): Promise<Json> {
+  throw new HttpFail(403, {
+    code: "home_discovery_follow_forbidden",
+    message: "首页 AI 发现仅展示候选线索，不提供跟进写入。请通过受控跟进流程操作。",
+    collaboration_created: false,
   });
-  const leadId = String((created as { lead: { id: string } }).lead.id);
-  // Starry 库表更新：upsert 画像（PG kol_profile_index），仍在公海（open），不做排他认领。
-  const now = new Date().toISOString();
-  await postgresConnection().query(
-    `INSERT INTO kol_profile_index
-       (id, company_id, kol_uid, handle, display_name, platform, homepage_url, followers,
-        avg_plays, region, ingest_source, pool_status, platform_creator_id, source_batch,
-        created_at, updated_at, avatar_url, direction)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'discovery-lead','open',$11,$12,$13,$13,$14,$15)
-     ON CONFLICT (company_id, kol_uid) DO UPDATE SET
-       handle = COALESCE(EXCLUDED.handle, kol_profile_index.handle),
-       display_name = COALESCE(EXCLUDED.display_name, kol_profile_index.display_name),
-       followers = COALESCE(EXCLUDED.followers, kol_profile_index.followers),
-       updated_at = EXCLUDED.updated_at`,
-    [
-      `profile_${randomUUID()}`,
-      memoryCompanyId(),
-      `candidate:${key}`,
-      handle || platformCreatorId,
-      displayName,
-      platform,
-      accountUrl,
-      Number.isFinite(followers) ? String(followers) : null,
-      candidate.avg_views_10 == null ? null : String(candidate.avg_views_10),
-      String(payload.region || "").trim() || null,
-      platformCreatorId,
-      `home:follow:${candidate.id}`,
-      now,
-      String(payload.avatar_url || candidate.avatar_url || "").trim() || null,
-      String(payload.direction || "").trim() || null,
-    ],
-  );
-  // SQLite 行状态回写仅在有行时做；会话视图（运行时回退）无行可写，前端已本地标已跟进。
-  if (sqliteRow) {
-    (await getConn().query("UPDATE creator_candidates SET status='followed', updated_at=$1 WHERE id=$2",[now,candidate.id]));
-  }
-  // 需求变更（2026-10-08 qiyou）：跟进成功后写 Starry 公海（复用 ingestOne，真邮箱才写）。
-  // 失败不破坏跟进（无邮箱 409 等如实降级），状态返回给前端展示。
-  let starry: { imported: boolean; kol_uid?: string; error?: string } = { imported: false };
-  try {
-    const receipt = await ingestOne({ candidate, source_batch: sourceBatch, run_id: runId }) as Record<string, unknown>;
-    starry = { imported: true, kol_uid: String(receipt.kol_uid || "") };
-  } catch (error) {
-    const detail = error instanceof HttpFail ? (error.detail as { code?: string; message?: string } | undefined) : undefined;
-    starry = { imported: false, error: String(detail?.message || (error instanceof Error ? error.message : "Starry 入库失败")) };
-  }
-  (await audit(ownerId(), "discovery.candidate.followed", {
-    candidate_id: candidate.id,
-    lead_id: leadId,
-    platform,
-    platform_creator_id: platformCreatorId,
-    sent: false,
-    stage_changed: false,
-    starry_imported: starry.imported,
-  }));
-  return { ok: true, lead_id: leadId, kol_uid: `candidate:${key}`, reused: false,
-    starry_imported: starry.imported, starry_kol_uid: starry.kol_uid, starry_error: starry.error };
 }
 
 export async function starryWriteCounts(): Promise<Awaited<{ sends: number; stageWrites: number; transitions: number }>> {

@@ -1307,6 +1307,9 @@ async function profileFollowsMailbox(row: Json, fromAddr?: string): Promise<bool
   if (!scope.mailbox_email && !scope.owner_name) return false;
   return matchesFollowedMailbox({
     owner_name: firstString(row.ownerUserName, row.owner_user_name, row.ownerName, row.owner_name, row.owner),
+    owner_open_id: firstString(row.ownerOpenId, row.owner_open_id, row.ownerUserId, row.owner_user_id),
+    verified_owner_mailbox: firstEmail(row.verifiedOwnerMailbox || row.verified_owner_mailbox),
+    ownership_source_ready: row.ownershipSourceReady ?? row.ownership_source_ready,
     owner_mailbox: firstEmail(row.ownerMailbox || row.owner_mailbox || row.mailboxEmail || row.mailbox_from),
     mailbox_from: firstEmail(row.mailbox_from),
     mailboxEmail: firstEmail(row.mailboxEmail),

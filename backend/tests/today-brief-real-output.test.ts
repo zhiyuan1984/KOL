@@ -87,7 +87,7 @@ describe("today_brief real codex output", () => {
     const partial = { display_tasks: [{ work_item_id: "tsk_c29224c0b37d" }] };
     expect(missingDisplayCoverage(partial, pack)).toEqual(["tsk_other"]);
     const legacy = { todo_layout: [{ work_item_id: "tsk_c29224c0b37d" }, { work_item_id: "tsk_other" }] };
-    expect(missingDisplayCoverage(legacy, pack)).toEqual([]);
+    expect(missingDisplayCoverage(legacy, pack)).toEqual(["tsk_c29224c0b37d", "tsk_other"]);
   });
 
   it("prefers the latest brief candidate carrying display_tasks", () => {

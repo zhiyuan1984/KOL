@@ -3,20 +3,26 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
+import { mapUser, withScopedUser } from "../src/auth.js";
+import { DEMO_USER } from "../src/config.js";
 import { getConn, resetConn } from "../src/db.js";
 import { HttpFail } from "../src/host/errors.js";
 import { mailOperations } from "../src/mail/operations.js";
 import { operationRouter } from "../src/runtime/operations.js";
 import type { Json } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { seedAll } from "../src/seed.js";
+import { bindStarryUser } from "./helpers/starry-binding.js";
 
 let tmp = "";
 let app: Hono;
 
 async function query(conversationId: string) {
-  const response = await app.request(
-    `/queries/mail.collaboration-stage?conversation_id=${encodeURIComponent(conversationId)}`,
-  );
+  const actor = (await getConn().query("SELECT * FROM users WHERE id=$1", [DEMO_USER.id])).rows[0] as Json | undefined;
+  const invoke = async () => app.request(
+      `/queries/mail.collaboration-stage?conversation_id=${encodeURIComponent(conversationId)}`,
+    );
+  const response = actor ? await withScopedUser((await mapUser(actor)), invoke) : await invoke();
   const text = await response.text();
   return { status: response.status, body: (text ? JSON.parse(text) : {}) as Json };
 }
@@ -26,6 +32,10 @@ beforeEach(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mail-stage-"));
   process.env.LINGONG_DATA = tmp;
   (await resetConn());
+  await seedAll();
+  // Visibility is mailbox-scoped. This fixture binds the same real test actor
+  // used to issue the query; it does not bypass the authorization predicate.
+  await bindStarryUser();
   const router = operationRouter(mailOperations);
   router.onError((error, c) => {
     if (error instanceof HttpFail) return c.json({ detail: error.detail }, error.status as 400);

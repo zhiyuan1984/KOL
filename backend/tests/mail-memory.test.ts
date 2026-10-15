@@ -13,6 +13,7 @@ import { DEMO_USER } from "../src/config.js";
 import { HOME_ENTRY_REGISTRY } from "../src/host/entry-registry.js";
 import { mailPreview } from "../src/host/mail-preview.js";
 import { letterSummaryRecord } from "../src/host/mail-summary.js";
+import { memoryCompanyId } from "../src/host/kol-memory.js";
 import { listMailboxConversations } from "../src/host/mail-memory.js";
 import { matchesFollowedMailbox, saveStarryBinding } from "../src/host/starry-bind.js";
 import { seedAll } from "../src/seed.js";
@@ -180,6 +181,7 @@ describe("mailbox memory P0", () => {
   it("runs the selected summary and translation Skills through named routes", async () => {
     (await bindLarry());
     await ensureFollowedMailSync(true);
+    await waitForBackgroundSync();
     process.env.INTENT_LLM_MODE = "real";
     const listed = await request("GET", "/api/queries/mail.conversations");
     const first = (listed.body.conversations as Json[])[0];
@@ -202,6 +204,9 @@ describe("mailbox memory P0", () => {
   it("GET box / conversations / thread create no session and call no model", async () => {
     (await bindLarry());
     await ensureFollowedMailSync(true);
+    // The sync intentionally schedules remote body hydration after its index
+    // receipt. Settle it before this test isolates GET behavior from that job.
+    await waitForBackgroundSync();
     const starryBefore = calls.filter((name) => name === "pageEmailConversations" || name === "getEmailConversation").length;
     const sessionsBefore = (await sessionCount());
     calls.length = 0;
@@ -226,6 +231,7 @@ describe("mailbox memory P0", () => {
   it("returns each mail title separately from the conversation subject", async () => {
     (await bindLarry());
     await ensureFollowedMailSync(true);
+    await waitForBackgroundSync();
     const listed = await request("GET", "/api/queries/mail.conversations");
     const conversation = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "3901")!;
     const opened = await request("GET", `/api/queries/mail.conversation?id=${conversation.id}`);
@@ -297,13 +303,34 @@ describe("mailbox memory P0", () => {
     expect(first.body).toMatchObject({ accepted: true, entry: "command" });
   });
 
-  it("finds threads when collaboration mailbox_from ≠ bound mailbox but peer/binding matches", async () => {
+  it("finds threads only after the source assigns the bound mailbox to the collaboration", async () => {
     (await bindLarry());
     (await getConn().query("UPDATE collaborations SET mailbox_from=$1, owner_mailbox=$2 WHERE id='col_xiaomei'",["kol.lt@litime.example",""]));
+    // A display name or the collaboration's brand mailbox cannot authorize a
+    // cross-mailbox read. The source ownership snapshot is the authority.
     expect(matchesFollowedMailbox({
       mailbox_from: "kol.lt@litime.example",
       owner_mailbox: "",
+      ownership_source_ready: false,
+    }, { mailbox_email: "larry.zhao@amperetime.com", owner_name: "赵良玉" })).toBe(false);
+    expect(matchesFollowedMailbox({
+      verified_owner_mailbox: "larry.zhao@amperetime.com",
+      ownership_source_ready: true,
     }, { mailbox_email: "larry.zhao@amperetime.com", owner_name: "赵良玉" })).toBe(true);
+    const now = new Date().toISOString();
+    const companyId = memoryCompanyId();
+    (await getConn().query(
+      `INSERT INTO starry_ownership_sync_state(company_id,state,source_version,profile_count,updated_at)
+       VALUES($1,'ready','mail-memory-verified-owner',1,$2)
+       ON CONFLICT(company_id) DO UPDATE SET state=EXCLUDED.state,source_version=EXCLUDED.source_version,updated_at=EXCLUDED.updated_at`,
+      [companyId, now],
+    ));
+    (await getConn().query(
+      `INSERT INTO starry_profile_ownership(company_id,kol_uid,owner_open_id,owner_mailbox,brand,source_version,synced_at)
+       VALUES($1,$2,'',$3,'LT','mail-memory-verified-owner',$4)
+       ON CONFLICT(company_id,kol_uid) DO UPDATE SET owner_mailbox=EXCLUDED.owner_mailbox,source_version=EXCLUDED.source_version,synced_at=EXCLUDED.synced_at`,
+      [companyId, "KOL51DA646D8D8A4544BB93", "larry.zhao@amperetime.com", now],
+    ));
     expect(matchCollaboration(
       {
         from: "xiaomei.beauty@example.com",
@@ -321,6 +348,7 @@ describe("mailbox memory P0", () => {
     )?.id).toBe("col_xiaomei");
 
     await ensureFollowedMailSync(true);
+    await waitForBackgroundSync();
     const listed = await request("GET", "/api/queries/mail.conversations");
     const thread = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "3901");
     expect(thread).toMatchObject({
@@ -349,6 +377,7 @@ describe("mailbox memory P0", () => {
 
     (await bindLarry());
     await ensureFollowedMailSync(true);
+    await waitForBackgroundSync();
     const listed = await request("GET", "/api/queries/mail.conversations");
     const thread = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "3901");
     expect(String(thread?.last_preview)).toMatch(/Please share the rate|想和贵品牌litime合作|测试邮件/);
@@ -365,8 +394,10 @@ describe("mailbox memory P0", () => {
   it("keeps provider_message_id inserts idempotent", async () => {
     (await bindLarry());
     await ensureFollowedMailSync(true);
+    await waitForBackgroundSync();
     const first = Number(((await getConn().query("SELECT COUNT(*) AS n FROM kol_mail_items",[])).rows[0] as { n: number }).n);
     await ensureFollowedMailSync(true);
+    await waitForBackgroundSync();
     const second = Number(((await getConn().query("SELECT COUNT(*) AS n FROM kol_mail_items",[])).rows[0] as { n: number }).n);
     expect(first).toBeGreaterThan(0);
     expect(second).toBe(first);

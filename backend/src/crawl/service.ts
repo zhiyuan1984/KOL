@@ -208,7 +208,18 @@ export async function monitorCrawlJob(jobId: string): Promise<Json> {
       if (updated) await eventIn(client, updated, "status", persistedStatus, `Remote status: ${status || "running"}`, uploadError ? { upload_error: sanitize(uploadError) } : {});
     });
     try { const logs = await remoteCall("get_crawl_logs", { task_id: String(job.remote_task_id) }, jobId); const data = json(logs.data); const raw = logs.logs || logs.items || data.logs || data.items || []; const lines = (Array.isArray(raw) ? raw : [raw]).slice(-20).map(line => sanitize(typeof line === "object" ? JSON.stringify(line) : line)).filter(Boolean); if (lines.length) await event(jobId, "logs", status || "running", lines.join("\n")); } catch { /* older collector may not expose logs */ }
-    if (["idle", "completed", "done"].includes(status) || (["error", "failed"].includes(status) && uploadError)) { try { await completeJob(jobId); } catch (error) { await failJob(jobId, error); } }
+    const uploadFallback = ["error", "failed"].includes(status) && Boolean(uploadError);
+    if (["idle", "completed", "done"].includes(status) || uploadFallback) {
+      if (uploadFallback) {
+        // Do not rewrite the collector's failure as success: retain a sanitized, durable
+        // receipt before using the read-only get_creators recovery path.
+        await event(jobId, "upload_fallback", String(job.status), "远程上传失败；原始失败已记录，改为只读获取候选数据。", {
+          original_upload_error: sanitize(uploadError),
+          fallback: "get_creators",
+        });
+      }
+      try { await completeJob(jobId); } catch (error) { await failJob(jobId, error); }
+    }
     else if (["error", "failed"].includes(status)) await failJob(jobId, remoteError || "remote crawl failed");
     return await requireCrawlJob(jobId);
   } catch (error) { await event(jobId, "monitor_error", "running", persistableEmployeeError(error)); throw error; }
@@ -222,7 +233,7 @@ function nonNegativeInt(value: unknown): number { const n = Number(value || 0); 
 function normalizeViews(value: unknown): number[] { const raw = Array.isArray(value) ? value : value && typeof value === "object" ? Object.values(value as Record<string, unknown>) : []; return raw.map(Number).filter(n => Number.isFinite(n) && n >= 0).slice(-10); }
 function safeId(value: string): string { return Buffer.from(value).toString("base64url").slice(0, 80); }
 function validDate(value: unknown): string | null { const date = value ? new Date(String(value)) : null; return date && !Number.isNaN(date.valueOf()) ? date.toISOString() : null; }
-async function ingestCreatorsIn(client: PoolClient, body: Json): Promise<{ accepted: number; inserted: number; updated: number }> {
+async function ingestCreatorsIn(client: PoolClient, body: Json): Promise<{ accepted: number; inserted: number; updated: number; rejected: number }> {
   const nested = json(body.data); const raw = body.items ?? body.creators ?? nested.items ?? nested.creators ?? body.data ?? []; const items = Array.isArray(raw) ? raw : [raw]; const batchId = nid("ing"); const source = String(body.source || nested.source || "mediacrawler").slice(0, 120); const taskId = body.task_id || body.remote_task_id || nested.task_id || null; const crawlJobId = body.crawl_job_id || null; const now = nowIso(); let inserted = 0; let updated = 0; let rejected = 0; let accepted = 0;
   for (const value of items) {
     if (!value || typeof value !== "object" || Array.isArray(value)) { rejected += 1; continue; }
@@ -234,7 +245,7 @@ async function ingestCreatorsIn(client: PoolClient, body: Json): Promise<{ accep
     await client.query(`INSERT INTO creator_snapshots (id,creator_id,ingestion_batch_id,crawl_job_id,platform,platform_creator_id,nickname,followers,recent_views,score,score_details,source,task_id,collected_at,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, [nid("snap"), creatorId, batchId, crawlJobId, platform, platformCreatorId, nickname, followers, JSON.stringify(recentViews), scoring.score, JSON.stringify(scoring), source, taskId, collectedAt, now]); accepted += 1;
   }
   await client.query(`INSERT INTO ingestion_batches (id,source,task_id,crawl_job_id,accepted,inserted,updated,rejected,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [batchId, source, taskId, crawlJobId, accepted, inserted, updated, rejected, now]);
-  return { accepted, inserted, updated };
+  return { accepted, inserted, updated, rejected };
 }
 async function completeJob(jobId: string): Promise<void> {
   let job = (await postgresConnection().query<Row>("SELECT * FROM crawl_jobs WHERE id=$1", [jobId])).rows[0]; if (!job) return;
@@ -256,7 +267,14 @@ export async function ingestMediacrawler(body: Json): Promise<Json> {
     "INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)",
     [nowIso(), "claw", "claw.ingest.mediacrawler", JSON.stringify({ accepted: result.accepted, inserted: result.inserted, updated: result.updated, source: String(body.source || "mediacrawler").slice(0, 120) })],
   );
-  return { ok: true, batch_id: null, accepted: result.accepted, inserted: result.inserted, updated: result.updated };
+  return {
+    ok: true,
+    batch_id: null,
+    accepted: result.accepted,
+    inserted: result.inserted,
+    updated: result.updated,
+    rejected: result.rejected,
+  };
 }
 export async function clearRemoteHistory(): Promise<Json> { return remoteCall("clear_history", { confirm: true }); }
 export async function restoreActiveCrawlJobs(): Promise<void> { clearMonitors(); const rows = (await postgresConnection().query<Row>(`SELECT id,status,remote_task_id FROM crawl_jobs WHERE status=ANY($1::text[])`, [[...ACTIVE]])).rows; for (const row of rows) { if (!row.remote_task_id) await failJob(String(row.id), "Process restarted before remote task id was persisted"); else scheduleMonitor(String(row.id)); } }

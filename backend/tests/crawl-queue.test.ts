@@ -18,6 +18,7 @@ import { operationRouter } from "../src/runtime/operations.js";
 import { runtimeActionOperations } from "../src/runtime/action-operations.js";
 import { mapUser, withScopedUser } from "../src/auth.js";
 import { Hono } from "hono";
+import { HttpFail } from "../src/host/errors.js";
 import type { Json } from "../src/types.js";
 import type { ClaimedExecutionJob } from "../src/execution-jobs/contracts.js";
 
@@ -205,6 +206,9 @@ it("dequeue cancels a queued job through the operation", async () => {
     [actionId, context.userId, JSON.stringify(context), JSON.stringify({ platforms: ["youtube"] })]);
   await insertJob(actionId, "queued");
   const app = new Hono();
+  app.onError((error, c) => error instanceof HttpFail
+    ? c.json({ detail: error.detail }, error.status as 409)
+    : c.json({ detail: "unexpected" }, 500));
   app.route("/api", operationRouter(runtimeActionOperations));
   const owner = (await mapUser((await getConn().query("SELECT * FROM users WHERE id=$1",[context.userId])).rows[0] as Json));
   const response = await withScopedUser(owner, async () => (app.request("/api/actions/runtime.crawl.dequeue", {

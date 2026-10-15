@@ -8,13 +8,27 @@ import { knowledgeReviewDefinition, type ReviewDefinition, type ReviewInstance }
 import type { KnowledgePublicationCommand } from "../../../shared/knowledge-publication.js";
 import { executePublication, preparePublication, submitPublication } from "../../src/knowledge-publication/service.js";
 import { postgresTransaction } from "../../src/postgres/pool.js";
-import { getAgentSkills, setAgentSkill } from "../../src/runtime/store.js";
+import { getAgentSkills, getSkillConnectors, getSkillTool, getToolPolicy, setAgentSkill, setConnectorConfig, setSkillConnector, setSkillTool, setToolPolicy } from "../../src/runtime/store.js";
+import { toolSchemaHash } from "../../src/runtime/execution.js";
 import { createAgentBinding, ensureOrganizationTree, syncUserOrganization } from "../../src/runtime/organization-tree.js";
 import { seedPublishedAgent } from "../fixtures/runtime-auth.js";
 
 export const NATIVE_KNOWLEDGE_TENANT = "company:amperetime";
 export const NATIVE_KNOWLEDGE_AGENT_ID = "agent_native_knowledge_fixture";
 const AGENT_ID = NATIVE_KNOWLEDGE_AGENT_ID;
+
+// The isolated adapter's formal sender contract.  It is mounted for the
+// published email_compose Skill so the fixture mirrors the production
+// Agent→Skill→connector→tool path; it is never a per-user connector grant.
+const NATIVE_MAIL_SENDER_TOOL = {
+  name: "sendEmailNow",
+  description: "Send a human-confirmed email conversation.",
+  inputSchema: {
+    type: "object",
+    properties: { conversationId: { type: "number" } },
+    required: ["conversationId"],
+  },
+};
 
 type Principal = {
   id: string;
@@ -67,17 +81,14 @@ export async function setupNativeKnowledgeFixture(skills = ["email_compose"]): P
       [id, username, name, "native-fixture-no-login-password", roles, id === "sriphy" ? '["LT","RO","PQ"]' : '["LT"]', "", now],
     );
   }
-  // Session authorization reads the actual connector-grant table.  These are
-  // disposable test rows for the configured stub connector, not a bypass of
-  // runtime policy; every request still hydrates its authority from PostgreSQL.
+  // The native connector remains a managed resource.  A user connector grant
+  // is deliberately not seeded: production permission is User→Agent→Skill,
+  // then the Skill's resource and tool mounts.
   await getConn().query(
     "INSERT INTO connectors(id,label,enabled,status,credential_ref,updated_at) VALUES($1,$2,1,$3,$4,$5) ON CONFLICT (id) DO UPDATE SET enabled=1,status=EXCLUDED.status,credential_ref=EXCLUDED.credential_ref,updated_at=EXCLUDED.updated_at",
     ["starrykol", "StarryKOL 测试连接器", "configured", "test://native-knowledge", now],
   );
-  await getConn().query(
-    "INSERT INTO user_connector_grants(user_id,connector_id,access,created_at) VALUES($1,$2,$3,$4) ON CONFLICT (user_id,connector_id) DO UPDATE SET access=EXCLUDED.access,created_at=EXCLUDED.created_at",
-    ["sriphy", "starrykol", "write", now],
-  );
+  await getConn().query("DELETE FROM user_connector_grants WHERE user_id=$1 AND connector_id=$2", ["sriphy", "starrykol"]);
   // Current review organization facts—not a persona mapping—authorize the
   // management actor and named reviewer for the approval instance.
   await getConn().query("UPDATE organization_people SET user_id=$1 WHERE person_ref='person:yan_chen'", ["sriphy"]);
@@ -89,6 +100,23 @@ export async function setupNativeKnowledgeFixture(skills = ["email_compose"]): P
     const current = (await getAgentSkills(AGENT_ID)).find((row) => row.skill_id === skill);
     if (!current) await setAgentSkill(AGENT_ID, skill, true, 0);
     else if (!current.enabled) await setAgentSkill(AGENT_ID, skill, true, Number(current.version));
+  }
+  if (skills.includes("email_compose")) {
+    const connector = (await getSkillConnectors("email_compose")).find((row) => row.connector_id === "starrykol");
+    const bound = await setSkillConnector("email_compose", "starrykol", true, Number(connector?.version || 0));
+    await setConnectorConfig("starrykol", {
+      protocol: "mcp",
+      url: "https://api.example.test/mcp",
+      headers_secret_refs: { "X-MCP-API-KEY": "isolated-native-knowledge-secret" },
+    }, 0);
+    const schema_hash = toolSchemaHash(NATIVE_MAIL_SENDER_TOOL);
+    const policy = await getToolPolicy("starrykol", NATIVE_MAIL_SENDER_TOOL.name);
+    await setToolPolicy("starrykol", NATIVE_MAIL_SENDER_TOOL.name, {
+      enabled: true, risk: "L3", access: "write", schema_hash,
+    }, Number(policy?.version || 0));
+    const tool = await getSkillTool("email_compose", "starrykol", NATIVE_MAIL_SENDER_TOOL.name);
+    await setSkillTool("email_compose", "starrykol", NATIVE_MAIL_SENDER_TOOL.name, true, Number(tool?.version || 0));
+    if (!bound.enabled) throw new Error("native email_compose connector binding must be enabled");
   }
   // Both actor types used by the legacy suites receive an explicit active
   // person binding.  This is the production Agent → Skill eligibility chain.

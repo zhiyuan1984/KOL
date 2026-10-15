@@ -69,6 +69,12 @@ beforeEach(async () => {
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
   (await seedWorkbenchFixtures());
+  // First contact also verifies the actor's own mailbox. Do not borrow sriphy's
+  // mail: this native test principal owns a separate controlled fixture box.
+  await getConn().query(`INSERT INTO user_starry_bindings
+    (user_id,mailbox_email,owner_name,status,is_default,synced_at,updated_at)
+    VALUES($1,$2,$3,'connected',1,now(),now())`,
+  [native.admin.id, "wiki-admin@fixture.example", "Native knowledge fixture admin"]);
 });
 
 afterEach(async () => {
@@ -128,7 +134,7 @@ describe("WikiSkill knowledge", () => {
     expect(typeof card.knowledge_version).toBe("number");
     expect(String(card.knowledge_title || "")).not.toBe("");
     const sent = await confirmAndSendDraft(request, String(draft.id), {});
-    expect(sent.status).toBe(200);
+    expect(sent.status, await sent.text()).toBe(200);
     const sj = await sent.json();
     expect(sj.stage_changed).toBe(false);
     expect(sj.official_stage).toBe("INITIAL_CONTACT");
@@ -246,7 +252,8 @@ describe("WikiSkill knowledge", () => {
       knowledge_id: owned.id,
     });
     const draft = data.draft as Json;
-    expect((await confirmAndSendDraft(request, String(draft.id), {})).status).toBe(200);
+    const sent = await confirmAndSendDraft(request, String(draft.id), {});
+    expect(sent.status, await sent.text()).toBe(200);
     const archived = await request("POST", `/api/admin/knowledge/${owned.id}/archive`, {});
     expect(archived.status).toBe(200);
     const del = await request("DELETE", `/api/admin/knowledge/${owned.id}`);
