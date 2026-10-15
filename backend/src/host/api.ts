@@ -3364,7 +3364,8 @@ export async function hostConfirmStage(
     remote_stage_code: toLegacyStarryStage(target),
   }));
   (await syncSessionStageCopy(String(col.id), target, String(metadata.session_id || ""), skip));
-  void import("./kol-journey.js").then(async (mod) => (mod.publishJourneyForCollaboration(String(col.id))));
+  const { publishJourneyForCollaboration } = await import("./kol-journey.js");
+  await publishJourneyForCollaboration(String(col.id));
   return {
     ...result,
     expected_version: ver,
@@ -3552,7 +3553,8 @@ export async function hostRejectStage(
     rejected: true,
   }));
   if (colId) {
-    void import("./kol-journey.js").then(async (mod) => (mod.publishJourneyForCollaboration(colId)));
+    const { publishJourneyForCollaboration } = await import("./kol-journey.js");
+    await publishJourneyForCollaboration(colId);
   }
   (await audit("host", "host.confirm_stage.rejected", { session_id: sid, collaboration_id: colId || null, reason: note }));
   return {

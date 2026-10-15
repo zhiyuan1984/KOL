@@ -17,6 +17,7 @@ import { isKolClawTask } from "../src/kolclaw/service.js";
 import { profileFor } from "../src/profiles.js";
 import { emailCardPayload, persistDraft } from "../src/host/api.js";
 import { emailMcpResultCard } from "../src/starrykol/service.js";
+import { subscribeSession } from "../src/host/session-events.js";
 import { classify } from "../src/host/intent.js";
 import { taskDefinition } from "../src/tasks/registry.js";
 import { ensureStarryHomeLibrary } from "../src/starrykol/library-sync.js";
@@ -403,14 +404,31 @@ describe("host contracts", () => {
     expect(body.stage_code).toBe("CONTENT_PLANNING");
     const held = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_mum'",[])).rows[0] as Json;
     expect(held.stage_code).toBe("CONTENT_PLANNING");
-    const decided = await request("POST", `/api/approvals/${body.approval_id}/decide`, {
-      decision: "approve",
-      expected_version: 0,
-      idempotency_key: `host-content-${body.approval_id}`,
+
+    const opened = await request("POST", "/api/sessions", { collaboration_id: "col_mum" });
+    expect(opened.status, await opened.text()).toBe(200);
+    const journeyEvents: Json[] = [];
+    const unsubscribe = subscribeSession(String((await opened.json()).id), (event) => {
+      if (event.type === "journey" && event.journey) journeyEvents.push(event.journey);
     });
-    expect(decided.status, await decided.text()).toBe(200);
-    const after = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_mum'",[])).rows[0] as Json;
-    expect(after.stage_code).toBe("CONTENT_REVIEW");
+    try {
+      const decided = await request("POST", `/api/approvals/${body.approval_id}/decide`, {
+        decision: "approve",
+        expected_version: 0,
+        idempotency_key: `host-content-${body.approval_id}`,
+      });
+      expect(decided.status, await decided.text()).toBe(200);
+      const after = (await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_mum'",[])).rows[0] as Json;
+      expect(after.stage_code).toBe("CONTENT_REVIEW");
+      // Approval response may return only after the official-stage projection has
+      // completed and notified the collaboration session; it must not outlive DB teardown.
+      expect(journeyEvents).toContainEqual(expect.objectContaining({
+        collaboration_id: "col_mum",
+        stage_code: "CONTENT_REVIEW",
+      }));
+    } finally {
+      unsubscribe();
+    }
   });
 
   it("plan-pending stage confirm queues approval and writes after agree", async () => {
