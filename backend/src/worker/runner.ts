@@ -734,9 +734,15 @@ export async function runCodex(
   const skill = definition.id;
   emitPhase(onProgress, "preparing");
   const wid = nid("wrk");
-  const agentScope = (await runtimeAgentScopeContext(String(extra.agent_id || (await runtimeAgentForSkill(skill, scopedUser()?.id || "")))));
+  // Durable workers do not have an HTTP scopedUser(). The native job payload is
+  // created only after owner-scoped facts are persisted, so carry that owner as
+  // the authorization subject and re-check it through assertRuntimeSkill here.
+  const actorUserId = typeof extra.actor_user_id === "string" && extra.actor_user_id.trim()
+    ? extra.actor_user_id.trim()
+    : scopedUser()?.id || "";
+  const agentScope = (await runtimeAgentScopeContext(String(extra.agent_id || (await runtimeAgentForSkill(skill, actorUserId)))));
   const runtimeContext = { agentId: agentScope.agent_id, skillId: skill,
-    userId: scopedUser()?.id || "", runId: wid, sessionId };
+    userId: actorUserId, runId: wid, sessionId };
   const runtimeAuthorization = (await assertRuntimeSkill(runtimeContext));
   const taskContext = await taskSessionHarnessEvidence(runtimeContext.userId, sessionId);
   if (taskContext) {

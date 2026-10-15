@@ -405,3 +405,17 @@ export async function pgRetryFailedExecutionJob(
 export function pgExecutionJobPayload(job: Row): Json {
   return parseJson(job.payload_json);
 }
+
+/** Transactional look-up for callers already holding the aggregate lock. */
+export async function pgExecutionJobByIdempotencyKey(key: string, client?: PoolClient): Promise<Row | undefined> {
+  const result = await (client || postgresPool()).query<Row>("SELECT * FROM execution_jobs WHERE idempotency_key=$1", [key]);
+  return result.rows[0] ? normalizedJob(result.rows[0]) : undefined;
+}
+/** Records delivery only when the publishing lease belongs to this publisher. */
+export async function pgPublishExecutionOutboxForJob(jobId: string, publisher: string, now = new Date()): Promise<number> {
+  const result = await postgresPool().query(
+    "UPDATE execution_outbox SET status='published',published_at=$1,updated_at=$1,publisher_id=NULL,publisher_lease_until=NULL WHERE job_id=$2 AND status='publishing' AND publisher_id=$3",
+    [now.toISOString(), jobId, publisher],
+  );
+  return result.rowCount || 0;
+}

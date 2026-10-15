@@ -1,14 +1,16 @@
-import { getConn } from "../db.js";
 import { HttpFail } from "../host/errors.js";
 import { credentialVaultReady, getCredentialMetadata } from "../runtime/credentials.js";
 import { createManagedClient } from "../runtime/managed-client.js";
 import { getConnectorConfig } from "../runtime/store.js";
-import type { Row } from "../types.js";
+import { postgresPool } from "../postgres/pool.js";
 
 /** The asynchronous collector uses organization credentials; never a process or personal fallback. */
 export async function mediaCrawlerConfig() {
   const config = (await getConnectorConfig("claw"))?.config;
-  const enabled = (getConn().prepare("SELECT enabled FROM connectors WHERE id='claw'").get() as Row | undefined)?.enabled;
+  const connector = (await postgresPool().query<{ enabled: number | string }>(
+    "SELECT enabled FROM connectors WHERE id=$1", ["claw"],
+  )).rows[0];
+  const enabled = Number(connector?.enabled || 0) === 1;
   if (!enabled || !config || !config.url || (config.protocol || "mcp") !== "mcp" || config.transport === "sse") {
     throw new HttpFail(503, { code: "runtime_connector_not_configured" });
   }

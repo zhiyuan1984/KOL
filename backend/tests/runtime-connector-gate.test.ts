@@ -19,10 +19,8 @@ type Json = Record<string, unknown>;
 
 const HASH = "b".repeat(64);
 /**
- * 会话消息入口要读 PostgreSQL 权威表（authorizedTaskSession），本机没有 PostgreSQL——
- * 与 context-resolve.test.ts 同一环境限制；配了 TEST_DATABASE_URL 就一起跑。
+ * 每例先由 freshTestDatabase() 克隆合法模板；运行时闸门只能读该独立 PostgreSQL 库。
  */
-const hasPostgres = Boolean(process.env.TEST_DATABASE_URL || process.env.DATABASE_URL);
 
 /** 员工可见文案：不得出现 MCP、skill_runtime、连接器 id、工具别名或技能 id（DESIGN §15、§16）。 */
 function expectBusinessCopy(payload: Json): void {
@@ -76,10 +74,9 @@ function intentFor(skill: string): Intent {
 
 beforeEach(async () => {
   env = Object.fromEntries(["LINGONG_DB", "LINGONG_DATA", "DATABASE_URL", "CODEX_MODE", "AUTH_MODE"].map((key) => [key, process.env[key]]));
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "connector-gate-"));
-  delete process.env.DATABASE_URL;
   Object.assign(process.env, {
-    LINGONG_DB: path.join(tmp, "test.db"),
     LINGONG_DATA: tmp,
     CODEX_MODE: "stub",
     AUTH_MODE: "disabled",
@@ -87,7 +84,7 @@ beforeEach(async () => {
   });
   publishFixtureSkills(tmp, ["declared_fixture"]);
   resetConn();
-  (await ensureRuntimeSchema());
+  await ensureRuntimeSchema();
 });
 
 afterEach(() => {
@@ -204,7 +201,7 @@ describe("连接缺口卡（Host 闸门）", () => {
     const cards = messages.filter((message) => message.kind === "error_card");
     expect(cards).toHaveLength(1);
     const card = cards[0].payload as Json;
-    expect(card).toMatchObject({
+    expect(card, JSON.stringify(messages)).toMatchObject({
       code: "runtime_connector_unmounted",
       // 前端 errorTitle(status || code)：可读 status 就是员工看到的标题，机器码只留在 code。
       status: "数据连接尚未接通",
@@ -264,7 +261,7 @@ async function waitForKind(app: Hono, sid: string, kind: string, timeoutMs = 15_
   return last;
 }
 
-describe.skipIf(!hasPostgres)("运行路径的连接缺口闸门（需要 PostgreSQL）", () => {
+describe("运行路径的连接缺口闸门（需要 PostgreSQL）", () => {
   beforeEach(async () => {
     await freshTestDatabase();
     setMode("real");
@@ -293,14 +290,14 @@ describe.skipIf(!hasPostgres)("运行路径的连接缺口闸门（需要 Postgr
   }
 
   it("声明了连接器却没有任何挂载：不起箱、不起 turn，员工只看到连接缺口卡", async () => {
-    const cookie = (await seedRuntimeTestActor(["creator_library_query"]));
+    const cookie = (await seedRuntimeTestActor(["creator_library_query"], true));
     (await policiesFor("creator_library_query"));
     const { createApp } = await import("../src/app.js");
     const app = authenticatedTestApp((await createApp()), cookie);
     const sid = await ask(app, "creator_library_query", "查询达人库");
     const messages = await waitForKind(app, sid, "error_card");
     const card = messages.find((message) => message.kind === "error_card")?.payload as Json;
-    expect(card).toMatchObject({
+    expect(card, JSON.stringify(messages)).toMatchObject({
       code: "runtime_connector_unmounted",
       message: "“达人库查询”所需的数据连接尚未接通，本次没有开始处理，也没有使用缓存或虚构数据。",
       next_action: "请联系管理员在连接管理中为该技能完成挂载。",

@@ -344,6 +344,7 @@ describe("employee Agent sources", () => {
         { target_type: "organization_unit", target_id: "org:digital_intelligence_center" },
       ],
       org_version: bulk.json.org_version,
+      preview_signature: bulk.json.preview_signature,
     });
     expect(saved.response.status, JSON.stringify(saved.json)).toBe(200);
     expect(rows<{ target_id: string }>((saved.json.agent as Json).bindings).map((row) => row.target_id).sort()).toEqual([

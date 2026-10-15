@@ -20,7 +20,7 @@ const resolveAction: Operation["handle"] = async (c, input) => {
   return c.json((await resolveContext({
     skillId,
     body,
-    session: sessionId ? sessionRow(sessionId) : null,
+    session: sessionId ? (await sessionRow(sessionId)) : null,
     text: String(body.text || ""),
   })));
 };

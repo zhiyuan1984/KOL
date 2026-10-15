@@ -18,7 +18,7 @@
  * 数据、非静默回退），不是 cron 模块治理所禁止的「悄悄走业务仓储兼容层」。
  */
 import { HttpFail } from "../host/errors.js";
-import { getConn } from "../db.js";
+import { postgresPool } from "../postgres/pool.js";
 import { getConnectorConfig, type ConnectorConfig } from "../runtime/store.js";
 import { createConfiguredClient, type RuntimeContext, type RuntimeRemote } from "../runtime/execution.js";
 import { RemoteMcpClient, type RemoteMcpOptions } from "../mcp/remote.js";
@@ -98,9 +98,9 @@ export type CrawlConnectorAuth = {
  * 组织级凭据可被平台主体解析；个人账号凭据会如实失败（见 ADR-2026-10-06）。
  */
 export async function assertCrawlConnectorAvailable(): Promise<CrawlConnectorAuth> {
-  const connector = getConn().prepare("SELECT id,enabled,updated_at FROM connectors WHERE id=?").get("claw") as
-    | Row
-    | undefined;
+  const connector = (await postgresPool().query<Row>(
+    "SELECT id,enabled,updated_at FROM connectors WHERE id=$1", ["claw"],
+  )).rows[0];
   if (!connector?.enabled) {
     throw new HttpFail(409, { code: "runtime_connector_disabled" });
   }

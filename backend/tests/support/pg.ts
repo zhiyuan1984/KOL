@@ -5,13 +5,13 @@ import fs from "node:fs";
  *
  * 用法：测试文件的 beforeEach 里调用 `await freshTestDatabase()`，它会把 DATABASE_URL 指向新库；
  * 模板库由 `npm run db:apply:postgres-schema` 建出（见 docs 与 migrations/pg-baseline.sql）。
- * 管理连接只用 TEST_DATABASE_URL（缺省回落到 DATABASE_URL），仅用于 CREATE/DROP 测试库。
+ * 管理连接只用显式 TEST_DATABASE_URL，仅用于 CREATE/DROP 本 worker 以唯一前缀创建的测试库。
  */
-import { Client, Pool } from "pg";
+import { Client } from "pg";
 import { resetConn } from "../../src/db.js";
 import { closePostgresPool } from "../../src/postgres/pool.js";
 
-const ADMIN_URL = String(process.env.TEST_DATABASE_URL || process.env.DATABASE_URL || "").trim();
+const ADMIN_URL = String(process.env.TEST_DATABASE_URL || "").trim();
 const TEMPLATE = String(process.env.TEST_DB_TEMPLATE || "lingong_template").trim();
 const PREFIX = String(process.env.TEST_DB_PREFIX || "lingong_t").trim();
 
@@ -31,7 +31,7 @@ function ident(name: string): string {
 
 /** 建一个全新测试库并把 DATABASE_URL 指向它，返回库名。 */
 export async function freshTestDatabase(): Promise<string> {
-  if (!ADMIN_URL) throw new Error("TEST_DATABASE_URL（或 DATABASE_URL）未设置：PostgreSQL 测试需要它");
+  if (!ADMIN_URL) throw new Error("TEST_DATABASE_URL is required for isolated PostgreSQL tests");
   const name = ident(`${PREFIX}_${process.pid}_${++counter}`);
   const admin = new Client({ connectionString: ADMIN_URL });
   await admin.connect();
@@ -41,7 +41,11 @@ export async function freshTestDatabase(): Promise<string> {
     await admin.end();
   }
   created.push(name);
+  // Close the previous native pool before selecting the new independent database.
+  // Close it before switching, then make the new clone the only application target.
+  await closePostgresPool();
   process.env.DATABASE_URL = urlWithDatabase(name);
+  await resetConn();
   const { postgresPool } = await import("../../src/postgres/pool.js");
   const { runtimeActionSchema, crawlQueueStateMigration } = await import("../../src/runtime/action-schema.js");
   await postgresPool().query(runtimeActionSchema);
@@ -63,7 +67,7 @@ export async function freshTestDatabase(): Promise<string> {
   const { runtimeActionEventSchema } = await import("../../src/runtime/action-event-schema.js");
   await postgresPool().query(runtimeActionEventSchema);
   // Formal domain extensions are executed only against this newly created test DB.
-  for (const filename of ["032_review_postgres.sql", "033_credential_native_default.sql", "042_organization_native_postgres.sql", "043_mail_send_native.sql"]) {
+  for (const filename of ["032_review_postgres.sql", "033_credential_native_default.sql", "042_organization_native_postgres.sql", "043_mail_send_native.sql", "044_mail_memory_native_cache.sql"]) {
     await postgresPool().query(fs.readFileSync(fileURLToPath(new URL(`../../migrations/${filename}`, import.meta.url)), "utf8"));
   }
   return name;
@@ -72,25 +76,31 @@ export async function freshTestDatabase(): Promise<string> {
 /** 删掉本 worker 建过的所有测试库（由 tests/setup.ts 的 afterAll 调用）。 */
 export async function dropTestDatabases(): Promise<void> {
   if (!ADMIN_URL || !created.length) return;
-  // Durable job routes use the native pool alongside historical mail fixtures.
-  // Release it before DROP rather than waiting for PostgreSQL to evict it.
-  await closePostgresPool();
-  // 先把应用侧连接从测试库上摘下来：resetConn() 会立即重连，所以先把 DATABASE_URL 指回管理库，
-  // 否则 DROP 会踢掉在线连接并抛 57P01（admin_shutdown）噪声错误。
-  process.env.DATABASE_URL = ADMIN_URL;
+  // Never reconnect application clients to the management URL during cleanup.
+  await resetConn();
+  const names = created.splice(0, created.length);
+  const admin = new Client({ connectionString: ADMIN_URL });
+  const failures: unknown[] = [];
   try {
-    resetConn();
-  } catch {
-    /* 连接已关闭等情形忽略 */
+    await admin.connect();
+    // Serial, bounded retries keep teardown deterministic and retain a real
+    // failure if PostgreSQL cannot release one of our own databases.
+    for (const name of names) {
+      let failure: unknown;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          await admin.query(`DROP DATABASE IF EXISTS ${ident(name)} WITH (FORCE)`);
+          failure = undefined;
+          break;
+        } catch (error) {
+          failure = error;
+          if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+        }
+      }
+      if (failure) failures.push(failure);
+    }
+    if (failures.length) throw new AggregateError(failures, "test database cleanup failed");
+  } finally {
+    await admin.end();
   }
-  // Drop only databases this worker created. Bounded parallel drops share the
-  // server checkpoint instead of waiting for one Windows checkpoint per DB.
-  const admin = new Pool({ connectionString: ADMIN_URL, max: 8 });
-  try {
-    const results = await Promise.allSettled(created.splice(0, created.length).map((name) =>
-      admin.query(`DROP DATABASE IF EXISTS ${ident(name)} WITH (FORCE)`),
-    ));
-    const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
-    if (failures.length) throw new AggregateError(failures.map((result) => result.reason), "test database cleanup failed");
-  } finally { await admin.end(); }
 }

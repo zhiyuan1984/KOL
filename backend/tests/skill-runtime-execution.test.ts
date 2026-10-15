@@ -511,8 +511,10 @@ describe("governed Skill Runtime", () => {
     const result = await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
     const action = await runtimeAction(String((result.structuredContent as Json).action_id), context.userId);
     expect(calls).toHaveLength(0);
-    const confirmed = await Promise.allSettled((await Promise.all([1, 2].map(async () => (await new SkillExecution(context, factory).confirm(action.id, action.snapshot))))));
-    expect(confirmed.some((item) => item.status === "fulfilled")).toBe(true);
+    const confirmed = await Promise.allSettled([1, 2].map(() => new SkillExecution(context, factory).confirm(action.id, action.snapshot)));
+    expect(confirmed.every((item) => item.status === "fulfilled")).toBe(true);
+    const receipts = confirmed.map((item) => (item as PromiseFulfilledResult<Json>).value);
+    expect(receipts[0]).toEqual(receipts[1]);
     expect(calls).toHaveLength(1);
     expect((await runtimeAction(action.id, context.userId)).state).toBe("succeeded");
     await new SkillExecution(context, factory).confirm(action.id, action.snapshot);

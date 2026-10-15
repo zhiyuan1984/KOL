@@ -21,7 +21,7 @@ export function persistTodayDisplayFromBrief(input: {
     scope,
   });
   if (!written.ok) return written;
-  persistIncrement({
+  void persistIncrement({
     owner: input.owner,
     family: scope === "todo" ? "todo" : "task",
     layer: "display",

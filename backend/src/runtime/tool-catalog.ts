@@ -1,6 +1,7 @@
 import { runtimeRequiresGate } from "../gateway/runtime-policy.js";
 import { toolSchemaHash } from "./execution.js";
 import { getToolPolicy, setToolPolicy } from "./store.js";
+import type { PoolClient } from "pg";
 import type { Json } from "../types.js";
 
 /** 只读家族：`07-mcp-data-contract.md`「画像读取、邮件读取、爬虫状态为 L1」。 */
@@ -38,34 +39,37 @@ export type ToolCatalogRegistration = { total: number; created: number; refreshe
  * 管理员也可继续用既有策略接口覆盖。既有行保留风险档与启用状态（覆盖不被回写），
  * 只在远端指纹变化时刷新指纹。L3 可挂载；执行由统一提交门禁控制。
  */
-export async function registerDiscoveredToolPolicies(connectorId: string, tools: Json[]): Promise<ToolCatalogRegistration> {
+export async function registerDiscoveredToolPolicies(connectorId: string, tools: Json[], client?: PoolClient): Promise<ToolCatalogRegistration> {
   const result: ToolCatalogRegistration = { total: tools.length, created: 0, refreshed: 0, skipped: 0 };
   for (const tool of tools) {
     const name = typeof tool.name === "string" ? tool.name.trim() : "";
-    if (!name) {
-      result.skipped += 1;
+    if (!name) { result.skipped += 1; continue; }
+    const schemaHash = policyHashOf(tool);
+    if (client) {
+      const existing = (await client.query<{ enabled: number; risk: string; access: string; schema_hash: string; version: number }>(
+        "SELECT enabled,risk,access,schema_hash,version FROM runtime_tool_policies WHERE connector_id=$1 AND tool_name=$2 FOR UPDATE",
+        [connectorId, name],
+      )).rows[0];
+      if (!existing) {
+        const derived = deriveToolPolicy(name);
+        await client.query(`INSERT INTO runtime_tool_policies(connector_id,tool_name,enabled,risk,access,schema_hash,version,updated_at)
+          VALUES($1,$2,1,$3,$4,$5,1,$6)`, [connectorId, name, derived.risk, derived.access, schemaHash, new Date().toISOString()]);
+        result.created += 1;
+      } else if (String(existing.schema_hash || "").trim().toLowerCase() !== schemaHash) {
+        await client.query(`UPDATE runtime_tool_policies SET schema_hash=$1,version=version+1,updated_at=$2
+          WHERE connector_id=$3 AND tool_name=$4 AND version=$5`, [schemaHash, new Date().toISOString(), connectorId, name, Number(existing.version)]);
+        result.refreshed += 1;
+      }
       continue;
     }
-    const schemaHash = policyHashOf(tool);
     const existing = await getToolPolicy(connectorId, name);
     if (!existing) {
       const derived = deriveToolPolicy(name);
-      await setToolPolicy(connectorId, name, {
-        enabled: true,
-        risk: derived.risk,
-        access: derived.access,
-        schema_hash: schemaHash,
-      }, 0);
+      await setToolPolicy(connectorId, name, { enabled: true, risk: derived.risk, access: derived.access, schema_hash: schemaHash }, 0);
       result.created += 1;
-      continue;
-    }
-    if (String(existing.schema_hash || "").trim().toLowerCase() !== schemaHash) {
-      await setToolPolicy(connectorId, name, {
-        enabled: Number(existing.enabled) === 1,
-        risk: String(existing.risk) as DerivedToolPolicy["risk"],
-        access: String(existing.access) as DerivedToolPolicy["access"],
-        schema_hash: schemaHash,
-      }, Number(existing.version) || 0);
+    } else if (String(existing.schema_hash || "").trim().toLowerCase() !== schemaHash) {
+      await setToolPolicy(connectorId, name, { enabled: Number(existing.enabled) === 1,
+        risk: String(existing.risk) as DerivedToolPolicy["risk"], access: String(existing.access) as DerivedToolPolicy["access"], schema_hash: schemaHash }, Number(existing.version) || 0);
       result.refreshed += 1;
     }
   }

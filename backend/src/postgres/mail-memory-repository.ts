@@ -120,3 +120,106 @@ export async function nativeMailMemoryParity(mailbox?: string): Promise<Json> {
             (SELECT COUNT(*)::text FROM kol_mail_person_memory ${clause}) AS memories`, args);
   return { repository: "postgresql_native", version: NATIVE_MAIL_MEMORY_VERSION, mailbox: mailbox || "*", ...result.rows[0] };
 }
+
+export type NativeOnDemandMemory = {
+  status: "未开始" | "已完成";
+  mailbox: string;
+  subject: string;
+  conversation_id: string;
+  message_id?: string;
+  text: string;
+  fingerprint: string;
+  completed_at?: string;
+  error?: string;
+};
+
+/** Actor scope is part of the cache key; callers must still authorize the mailbox before reading. */
+export async function readNativeOnDemandMemory(actorId: string, key: string): Promise<NativeOnDemandMemory | null> {
+  if (!text(actorId) || !text(key)) return null;
+  const result = await postgresPool().query<{ value_json: unknown }>(
+    "SELECT value_json FROM kol_mail_memory_cache WHERE actor_id=$1 AND memory_key=$2",
+    [actorId, key],
+  );
+  const value = result.rows[0]?.value_json;
+  if (!value || typeof value !== "object") return null;
+  const row = value as Partial<NativeOnDemandMemory>;
+  if (row.status !== "未开始" && row.status !== "已完成") return null;
+  return {
+    status: row.status,
+    mailbox: text(row.mailbox),
+    subject: text(row.subject),
+    conversation_id: text(row.conversation_id),
+    ...(row.message_id ? { message_id: text(row.message_id) } : {}),
+    text: text(row.text),
+    fingerprint: text(row.fingerprint),
+    ...(row.completed_at ? { completed_at: text(row.completed_at) } : {}),
+    ...(row.error ? { error: text(row.error) } : {}),
+  };
+}
+
+export async function writeNativeOnDemandMemory(actorId: string, key: string, value: NativeOnDemandMemory): Promise<void> {
+  if (!text(actorId) || !text(key)) throw new Error("mail_memory_actor_required");
+  await postgresPool().query(
+    `INSERT INTO kol_mail_memory_cache(actor_id,memory_key,value_json,updated_at)
+     VALUES($1,$2,$3::jsonb,now())
+     ON CONFLICT(actor_id,memory_key) DO UPDATE SET value_json=EXCLUDED.value_json,updated_at=now()`,
+    [actorId, key, JSON.stringify(value)],
+  );
+}
+
+export async function findNativeMailThread(mailbox: string, idOrConversation: string): Promise<Row | undefined> {
+  if (!text(mailbox) || !text(idOrConversation)) return undefined;
+  const result = await postgresPool().query<Row>(
+    `SELECT * FROM kol_mail_threads
+     WHERE lower(mailbox)=lower($1) AND (id=$2 OR conversation_id=$2)
+     ORDER BY updated_at DESC NULLS LAST LIMIT 1`,
+    [mailbox, idOrConversation],
+  );
+  return result.rows[0];
+}
+
+export async function listNativeConversationItems(conversationId: string, mailbox: string): Promise<Row[]> {
+  if (!text(conversationId) || !text(mailbox)) return [];
+  const result = await postgresPool().query<Row>(
+    `SELECT i.* FROM kol_mail_items i JOIN kol_mail_threads t ON t.id=i.thread_id
+     WHERE i.conversation_id=$1 AND lower(t.mailbox)=lower($2)
+     ORDER BY i.occurred_at ASC NULLS LAST, i.created_at ASC, i.id ASC`,
+    [conversationId, mailbox],
+  );
+  return result.rows;
+}
+
+export async function findNativeMailItem(mailbox: string, idOrProviderId: string): Promise<Row | undefined> {
+  if (!text(mailbox) || !text(idOrProviderId)) return undefined;
+  const result = await postgresPool().query<Row>(
+    `SELECT i.* FROM kol_mail_items i JOIN kol_mail_threads t ON t.id=i.thread_id
+     WHERE lower(t.mailbox)=lower($1) AND (i.id=$2 OR i.provider_message_id=$2)
+     ORDER BY i.created_at DESC NULLS LAST LIMIT 1`,
+    [mailbox, idOrProviderId],
+  );
+  return result.rows[0];
+}
+
+/** Mark only source-backed body rows; this is a local index-state update, never a mail send. */
+export async function markNativeMailMemoryPending(mailbox?: string): Promise<number> {
+  const result = mailbox
+    ? await postgresPool().query(
+      `UPDATE kol_mail_items i SET memory_source='pending',memory_generated_at=NULL,memory_error=''
+       FROM kol_mail_threads t WHERE t.id=i.thread_id AND lower(t.mailbox)=lower($1)
+       AND COALESCE(i.body_text,'') <> '' AND COALESCE(i.translation_zh,'') = ''
+       AND COALESCE(i.memory_source,'') <> 'pending'`, [mailbox],
+    )
+    : await postgresPool().query(
+      `UPDATE kol_mail_items SET memory_source='pending',memory_generated_at=NULL,memory_error=''
+       WHERE COALESCE(body_text,'') <> '' AND COALESCE(translation_zh,'') = ''
+       AND COALESCE(memory_source,'') <> 'pending'`,
+    );
+  return Number(result.rowCount || 0);
+}
+
+export async function writeNativeMailMemoryAudit(eventType: string, payload: Json): Promise<void> {
+  await postgresPool().query(
+    "INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)",
+    [new Date().toISOString(), "host", eventType, JSON.stringify(payload)],
+  );
+}

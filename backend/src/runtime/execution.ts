@@ -19,7 +19,7 @@ import { DOCUMENT_TOOL, documentDependencies, documentToolSchema, hasDocumentToo
 import { runtimeKnowledgeManifest } from '../knowledge/scopes.js';
 import { scopeDescription } from '../knowledge/scope-contract.js';
 import {isKnowledgePreview,previewManifest} from './knowledge-preview.js';
-import { proposeRuntimeAction, runtimeAction, claimRuntimeAction, finishRuntimeAction, rejectPendingRuntimeAction } from "./action-store.js";
+import { proposeRuntimeAction, runtimeAction, claimRuntimeAction, finishRuntimeAction, rejectPendingRuntimeAction, waitForRuntimeActionTerminal } from "./action-store.js";
 import { assertRuntimeActionAllowed, runtimeActionGate, runtimeToolPresentation, validateRuntimeToolScope } from "./action-gates.js";
 import { rejectDiscoveryHarnessTool } from "../gateway/discovery-harness.js";
 import { assertRuntimeToolArguments, RuntimeToolArgumentsInvalid } from "./tool-arguments.js";
@@ -119,7 +119,7 @@ export async function assertRuntimeSkill(context: RuntimeContext): Promise<{ use
   if (lifecycle && lifecycle.stage !== "published") reject("runtime_skill_not_published");
   if (!lifecycle && definition.source === "published") reject("runtime_skill_not_published");
   // 人员资格锚点是「人 → Agent」使用绑定（CONST-05 / ADR-2026-10-03），不再有逐人技能授权。
-  if (!platform && !parseRoles(user.roles).includes("admin") && !(await canUseAgent(context.userId, context.agentId))) {
+  if (!platform && !(await canUseAgent(context.userId, context.agentId))) {
     reject("runtime_agent_not_usable");
   }
   const skillVersion=(await runtimeSkillVersion(context.skillId));
@@ -145,12 +145,11 @@ export async function runtimeAgentCandidates(skillId: string, userId: string): P
   requireTaskDefinition(skillId);
   const user = (await postgresQuery<Row>("SELECT active,roles FROM users WHERE id=$1", [userId]))[0] as Row | undefined;
   if (!user?.active) reject("runtime_identity_unavailable", 401);
-  const admin = parseRoles(user.roles).includes("admin");
   const rows = (await postgresQuery<Row>("SELECT agent_id FROM runtime_agent_skills WHERE skill_id=$1 AND enabled=1 ORDER BY agent_id", [skillId])) as Row[];
   const candidates: string[] = [];
   for (const row of rows) {
     const id = String(row.agent_id);
-    if (!isPlatformAgent(id) && await agentIsPublished(id) && (admin || await canUseAgent(userId, id))) candidates.push(id);
+    if (!isPlatformAgent(id) && await agentIsPublished(id) && await canUseAgent(userId, id)) candidates.push(id);
   }
   return candidates;
 }
@@ -184,7 +183,7 @@ export async function runtimeAgentForSkill(skillId: string, userId: string, opti
  */
 export async function authorizeConnector(context: RuntimeContext, connectorId: string) {
   const skill = await assertRuntimeSkill(context);
-  if (!isPlatformPrincipal(context.userId) && !parseRoles(skill.user.roles).includes("admin") && !(await canUseSkill(context.userId, context.skillId))) {
+  if (!isPlatformPrincipal(context.userId) && !(await canUseSkill(context.userId, context.skillId))) {
     reject("runtime_agent_not_usable");
   }
   const binding = (await getSkillConnectors(context.skillId)).find((row) => row.connector_id === connectorId);
@@ -487,7 +486,20 @@ export class SkillExecution {
         const gate = runtimeActionGate(handle.connectorId, handle.remoteName);
         await gate.validate(this.context, args);
         (await guardedCheck());
-        if (!await claimRuntimeAction(action.id, this.context.userId, snapshot)) reject("runtime_action_already_claimed", 409);
+        const claim = await claimRuntimeAction(action.id, this.context.userId, snapshot, {
+          agentId: this.context.agentId, skillId: this.context.skillId, connectorId: handle.connectorId, toolName: handle.remoteName,
+          agentSkillVersion: Number(authorized.binding.version), connectorConfigVersion: Number(authorized.configuration.version),
+          skillConnectorVersion: Number(authorized.resourceBinding.version), toolBindingVersion: Number(authorized.toolBinding.version),
+          toolPolicyVersion: Number(authorized.policy.version),
+        });
+        if (!claim.claimed) {
+          const terminal = claim.action.state === "dispatching"
+            ? await waitForRuntimeActionTerminal(action.id, this.context.userId)
+            : claim.action;
+          if (terminal.state === "succeeded" && terminal.receipt_json) return terminal.receipt_json;
+          // A persisted dispatch is potentially remote side-effecting.  Do not claim or retry it here.
+          reject("runtime_action_already_claimed", 409);
+        }
         claimedHere = true;
       }
       Object.assign(trace, { agent_binding_version: authorized.binding.version,

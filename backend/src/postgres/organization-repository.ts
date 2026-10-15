@@ -69,6 +69,11 @@ export async function pgLockOrganization(client: PoolClient, companyId: string):
   await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`organization:${companyId}`]);
 }
 
+/** Serialize all changes to one Agent's binding set before locking its organization facts. */
+export async function pgLockAgentBindings(client: PoolClient, agentId: string): Promise<void> {
+  await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`agent-bindings:${agentId}`]);
+}
+
 export async function pgCurrentOrgVersion(companyId: string, client?: PoolClient): Promise<number> {
   const query = client ? client.query.bind(client) : undefined;
   const result = query
@@ -131,6 +136,16 @@ export async function pgListAgentBindings(agentId?: string, stamp = new Date().t
   );
 }
 
+/** Read the currently effective bindings with row locks inside the caller's transaction. */
+export async function pgListAgentBindingsInTransaction(client: PoolClient, agentId: string, stamp = new Date().toISOString()): Promise<AgentBindingRow[]> {
+  const result = await client.query<AgentBindingRow>(
+    `SELECT * FROM agent_bindings WHERE status='active' AND ${activeNow} AND agent_id=$2
+       ORDER BY target_type,target_id FOR UPDATE`,
+    [stamp, agentId],
+  );
+  return result.rows;
+}
+
 export async function pgOrganizationCoverageSource(stamp = new Date().toISOString()): Promise<{
   units: OrganizationUnitRow[]; people: OrganizationPersonRow[]; memberships: OrganizationMembershipRow[];
   versions: Array<{ company_id: string; version: number }>;
@@ -143,6 +158,30 @@ export async function pgOrganizationCoverageSource(stamp = new Date().toISOStrin
       "SELECT DISTINCT ON (company_id) company_id,version FROM org_versions ORDER BY company_id,version DESC",
     ),
   ]);
+  return { units, people, memberships, versions };
+}
+
+/**
+ * Lock the effective organization facts that form a binding preview basis.  The
+ * caller must already hold the relevant company advisory locks, so the version
+ * rows are protected by that lock while facts use native PostgreSQL row locks.
+ */
+export async function pgOrganizationCoverageSourceInTransaction(client: PoolClient, stamp = new Date().toISOString()): Promise<{
+  units: OrganizationUnitRow[]; people: OrganizationPersonRow[]; memberships: OrganizationMembershipRow[];
+  versions: Array<{ company_id: string; version: number }>;
+}> {
+  const units = (await client.query<OrganizationUnitRow>(
+    "SELECT * FROM organization_units ORDER BY level,display_name FOR KEY SHARE",
+  )).rows;
+  const people = (await client.query<OrganizationPersonRow>(
+    "SELECT * FROM organization_people ORDER BY display_name FOR KEY SHARE",
+  )).rows;
+  const memberships = (await client.query<OrganizationMembershipRow>(
+    `SELECT * FROM organization_memberships WHERE status='active' AND ${activeNow} FOR KEY SHARE`, [stamp],
+  )).rows;
+  const versions = (await client.query<{ company_id: string; version: number }>(
+    "SELECT DISTINCT ON (company_id) company_id,version FROM org_versions ORDER BY company_id,version DESC",
+  )).rows;
   return { units, people, memberships, versions };
 }
 
@@ -170,7 +209,8 @@ async function assertBindingTarget(client: PoolClient, input: AgentBindingInput,
     const unit = (await client.query<{ company_id: string; status: string }>(
       "SELECT company_id,status FROM organization_units WHERE id=$1 FOR KEY SHARE", [input.target_id],
     )).rows[0];
-    if (!unit || unit.status !== "active") throw new Error(`unknown active organization unit: ${input.target_id}`);
+    // This text is the public organization-target error contract; inactive is not an authorization grant.
+    if (!unit || unit.status !== "active") throw new Error(`unknown organization unit: ${input.target_id}`);
     if (unit.company_id !== input.company_id) throw new Error("binding target is outside the company");
     return;
   }
@@ -187,6 +227,7 @@ async function assertBindingTarget(client: PoolClient, input: AgentBindingInput,
 }
 
 export async function pgCreateAgentBindingInTransaction(client: PoolClient, input: AgentBindingInput, stamp: string): Promise<AgentBindingRow> {
+  await pgLockAgentBindings(client, input.agent_id);
   await pgLockOrganization(client, input.company_id);
   await assertBindingTarget(client, input, stamp);
   const id = `binding:${input.agent_id}:${input.target_type}:${input.target_id}`;
@@ -214,48 +255,63 @@ export async function pgCreateAgentBinding(input: AgentBindingInput, stamp = new
 
 export async function pgRevokeAgentBinding(bindingId: string, reason: string, stamp = new Date().toISOString()): Promise<boolean> {
   return postgresTransaction(async (client) => {
+    // Acquire the Agent lock before row locks so bulk apply and revoke share one lock order.
+    const candidate = (await client.query<{ agent_id: string }>("SELECT agent_id FROM agent_bindings WHERE id=$1", [bindingId])).rows[0];
+    if (!candidate) return false;
+    await pgLockAgentBindings(client, candidate.agent_id);
+    const binding = (await client.query<{ agent_id: string; company_id: string }>(
+      "SELECT agent_id,company_id FROM agent_bindings WHERE id=$1 AND status='active' FOR UPDATE", [bindingId],
+    )).rows[0];
+    if (!binding) return false;
+    await pgLockOrganization(client, binding.company_id);
     const result = await client.query<{ id: string }>(`UPDATE agent_bindings SET status='revoked',binding_version=binding_version+1,
       reason=$2,effective_to=$3,updated_at=$3 WHERE id=$1 AND status='active' RETURNING id`, [bindingId, reason, stamp]);
     return result.rowCount === 1;
   }, { isolation: "SERIALIZABLE" });
 }
 
+/** Synchronize the durable person/membership projection under an existing native transaction. */
+export async function pgSyncOrganizationMembershipInTransaction(client: PoolClient, userId: string, unitId: string | null, now: string): Promise<string> {
+  const user = (await client.query<Row>("SELECT id,name,username,email FROM users WHERE id=$1 FOR KEY SHARE", [userId])).rows[0];
+  if (!user) throw new Error("unknown user");
+  const target = unitId ? (await client.query<{ id: string; company_id: string; status: string }>(
+    "SELECT id,company_id,status FROM organization_units WHERE id=$1 FOR KEY SHARE", [unitId],
+  )).rows[0] : undefined;
+  if (unitId && (!target || target.status !== "active")) throw new Error("unknown organization unit");
+  const current = (await client.query<{ person_ref: string }>(
+    "SELECT person_ref FROM organization_people WHERE user_id=$1 LIMIT 1 FOR UPDATE", [userId],
+  )).rows[0];
+  const personRef = current?.person_ref || `person:user:${userId}`;
+  await client.query(`INSERT INTO organization_people(person_ref,display_name,user_ref,user_id,email,status,source,created_at,updated_at)
+    VALUES($1,$2,$3,$3,$4,'active','admin',$5,$5)
+    ON CONFLICT(person_ref) DO UPDATE SET display_name=EXCLUDED.display_name,user_id=EXCLUDED.user_id,
+      email=EXCLUDED.email,status='active',updated_at=EXCLUDED.updated_at`,
+  [personRef, user.name, userId, String(user.email || (String(user.username).includes("@") ? user.username : "")), now]);
+  const old = (await client.query<{ id: string; company_id: string; org_unit_id: string }>(
+    "SELECT id,company_id,org_unit_id FROM organization_memberships WHERE person_ref=$1 AND relation='primary' AND status='active' FOR UPDATE", [personRef],
+  )).rows;
+  for (const row of old) {
+    if (row.org_unit_id === unitId) continue;
+    await pgLockOrganization(client, row.company_id);
+    await client.query("UPDATE organization_memberships SET status='ended',effective_to=$2,updated_at=$2 WHERE id=$1", [row.id, now]);
+    await pgBumpOrgVersion(client, row.company_id, `员工 ${userId} 离开 ${row.org_unit_id}`, "admin", now);
+  }
+  if (target && !old.some((row) => row.org_unit_id === target.id)) {
+    await pgLockOrganization(client, target.company_id);
+    const id = `member:${personRef}:${target.id}:primary`;
+    await client.query(`INSERT INTO organization_memberships
+      (id,person_ref,company_id,org_unit_id,relation,status,effective_from,effective_to,source,created_at,updated_at)
+      VALUES($1,$2,$3,$4,'primary','active',$5,NULL,'admin',$5,$5)
+      ON CONFLICT(id) DO UPDATE SET status='active',effective_from=EXCLUDED.effective_from,effective_to=NULL,updated_at=EXCLUDED.updated_at`,
+    [id, personRef, target.company_id, target.id, now]);
+    await pgBumpOrgVersion(client, target.company_id, `员工 ${userId} 加入 ${target.id}`, "admin", now);
+  }
+  return personRef;
+}
+
 /** Synchronize the durable person/membership projection and atomically record all organization fact changes. */
 export async function pgSyncOrganizationMembership(userId: string, unitId: string | null, now: string): Promise<void> {
   await postgresTransaction(async (client) => {
-    const user = (await client.query<Row>("SELECT id,name,username,email FROM users WHERE id=$1 FOR KEY SHARE", [userId])).rows[0];
-    if (!user) throw new Error("unknown user");
-    const target = unitId ? (await client.query<{ id: string; company_id: string; status: string }>(
-      "SELECT id,company_id,status FROM organization_units WHERE id=$1 FOR KEY SHARE", [unitId],
-    )).rows[0] : undefined;
-    if (unitId && (!target || target.status !== "active")) throw new Error("unknown active organization unit");
-    const current = (await client.query<{ person_ref: string }>(
-      "SELECT person_ref FROM organization_people WHERE user_id=$1 LIMIT 1 FOR UPDATE", [userId],
-    )).rows[0];
-    const personRef = current?.person_ref || `person:user:${userId}`;
-    await client.query(`INSERT INTO organization_people(person_ref,display_name,user_ref,user_id,email,status,source,created_at,updated_at)
-      VALUES($1,$2,$3,$3,$4,'active','admin',$5,$5)
-      ON CONFLICT(person_ref) DO UPDATE SET display_name=EXCLUDED.display_name,user_id=EXCLUDED.user_id,
-        email=EXCLUDED.email,status='active',updated_at=EXCLUDED.updated_at`,
-    [personRef, user.name, userId, String(user.email || (String(user.username).includes("@") ? user.username : "")), now]);
-    const old = (await client.query<{ id: string; company_id: string; org_unit_id: string }>(
-      "SELECT id,company_id,org_unit_id FROM organization_memberships WHERE person_ref=$1 AND relation='primary' AND status='active' FOR UPDATE", [personRef],
-    )).rows;
-    for (const row of old) {
-      if (row.org_unit_id === unitId) continue;
-      await pgLockOrganization(client, row.company_id);
-      await client.query("UPDATE organization_memberships SET status='ended',effective_to=$2,updated_at=$2 WHERE id=$1", [row.id, now]);
-      await pgBumpOrgVersion(client, row.company_id, `员工 ${userId} 离开 ${row.org_unit_id}`, "admin", now);
-    }
-    if (target && !old.some((row) => row.org_unit_id === target.id)) {
-      await pgLockOrganization(client, target.company_id);
-      const id = `member:${personRef}:${target.id}:primary`;
-      await client.query(`INSERT INTO organization_memberships
-        (id,person_ref,company_id,org_unit_id,relation,status,effective_from,effective_to,source,created_at,updated_at)
-        VALUES($1,$2,$3,$4,'primary','active',$5,NULL,'admin',$5,$5)
-        ON CONFLICT(id) DO UPDATE SET status='active',effective_from=EXCLUDED.effective_from,effective_to=NULL,updated_at=EXCLUDED.updated_at`,
-      [id, personRef, target.company_id, target.id, now]);
-      await pgBumpOrgVersion(client, target.company_id, `员工 ${userId} 加入 ${target.id}`, "admin", now);
-    }
+    await pgSyncOrganizationMembershipInTransaction(client, userId, unitId, now);
   }, { isolation: "SERIALIZABLE" });
 }

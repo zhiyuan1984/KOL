@@ -1241,7 +1241,7 @@ async function syncFollowedKolMailInner(mailboxOverride: string): Promise<Follow
     });
     await mailSyncAudit("host", "starrykol.followed_mail_sync", partial);
     if (!nativeRuntime()) {
-      markPendingMailMemory(mailbox);
+      await markPendingMailMemory(mailbox);
       if (!durableSync.getStore()?.durable) triggerMailMemoryIncrement(mailbox);
     }
     if (durableSync.getStore()?.durable) {

@@ -112,7 +112,7 @@ describe("employee Agent routing", () => {
       [other.id, other.username, "另一位产品员工", "fixture", '["employee"]', "[]", other.site, 1, now, now]);
     const otherPerson = (await syncUserOrganization(other.id, other.site));
     (await createAgentBinding({ agent_id: agentId, target_type: "person", target_id: otherPerson, company_id: "company:amperetime", source: "test" }));
-    expect(withScopedUser(other, async () => (await employeeExperts()))).toContainEqual(expect.objectContaining({ id: agentId }));
+    expect(await withScopedUser(other, () => employeeExperts())).toContainEqual(expect.objectContaining({ id: agentId }));
     expect(await withScopedUser(other, () => employeeAgentPreferences())).toEqual([]);
     await expect(asUser(() => updateEmployeeAgentPreference(agentId, { favorite: "true" }))).rejects.toThrow();
     await expect(asUser(() => updateEmployeeAgentPreference(agentId, { viewed: false }))).rejects.toThrow();
@@ -218,10 +218,10 @@ describe("employee Agent routing", () => {
 
   it("removes disabled Agents and unpublished skills from the candidate catalog", async () => (await asUser(async () => {
     (await updateManagedAgent(agentId, { status: "disabled", expected_version: 2 }));
-    expect(availableAgentRoutes(agentId)).toEqual([]);
+    expect(await availableAgentRoutes(agentId)).toEqual([]);
     (await updateManagedAgent(agentId, { status: "published", expected_version: 3 }));
     getConn().prepare("UPDATE skill_lifecycle SET stage='draft' WHERE skill_id=?").run(skillId);
-    expect(availableAgentRoutes(agentId)).toEqual([]);
+    expect(await availableAgentRoutes(agentId)).toEqual([]);
   })));
 
   it("retains the model-selected Agent when the same skill also belongs to the default Agent", async () => {

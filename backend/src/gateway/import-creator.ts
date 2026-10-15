@@ -8,7 +8,7 @@ import {
   codexMode,
   liveRemoteSideEffectsEnabled,
 } from "../config.js";
-import { audit } from "../db.js";
+import { postgresPool } from "../postgres/pool.js";
 import { sanitizeSecret } from "../discovery-errors.js";
 import {
   employeeImportError,
@@ -60,6 +60,13 @@ const STARRY_IMPORT_TIMEOUT_MS = 120_000;
 const STARRY_LOOKUP_TIMEOUT_MS = 100_000;
 const STARRY_KEYWORD_LOOKUP_MS = 20_000;
 const STARRY_LISTALL_LOOKUP_MS = 60_000;
+
+async function audit(actor: string, eventType: string, payload: Json): Promise<void> {
+  await postgresPool().query(
+    "INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)",
+    [new Date().toISOString(), actor === "usr_sriphy" ? "sriphy" : actor, eventType, JSON.stringify(payload)],
+  );
+}
 
 export async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -179,7 +186,7 @@ async function safeStarryList(tool: string, args: Json, actor: string): Promise<
   try {
     return await callStarryKolTool(tool, args);
   } catch (error) {
-    audit(actor, "host.find_existing_kol_uid.failed", {
+    await audit(actor, "host.find_existing_kol_uid.failed", {
       tool,
       reason: isStarryTimeout(error) ? "timeout" : "failed",
       retried: false,
@@ -269,7 +276,7 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
     );
   } catch (error) {
     if (isStarryTimeout(error)) {
-      audit(actor, "host.import_creator.timeout_lookup", {
+      await audit(actor, "host.import_creator.timeout_lookup", {
         policy: IMPORT_CREATOR_POLICY,
         tool: "pageKolProfiles",
         source_batch: input.sourceBatch,
@@ -300,7 +307,7 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
           });
         }
       } catch (lookupError) {
-        audit(actor, "host.import_creator.failed", {
+        await audit(actor, "host.import_creator.failed", {
           policy: IMPORT_CREATOR_POLICY, tool: "pageKolProfiles/listAllKolProfiles",
           source_batch: input.sourceBatch, creator_external_id: input.creatorExternalId,
           candidate_id: input.candidateId || null, error_detail: sanitizeSecret(lookupError), retried_import: false,
@@ -315,7 +322,7 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
         });
       }
     } else {
-      audit(actor, "host.import_creator.failed", {
+      await audit(actor, "host.import_creator.failed", {
         policy: IMPORT_CREATOR_POLICY,
         tool: IMPORT_CREATOR_TOOL,
         source_batch: input.sourceBatch,
@@ -341,7 +348,7 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
     ? echoed
     : (isRealKolUid(input.knownKolUid) ? String(input.knownKolUid).trim() : "");
   if (!isRealKolUid(kolUid)) {
-    audit(actor, "host.import_creator.failed", {
+    await audit(actor, "host.import_creator.failed", {
       policy: IMPORT_CREATOR_POLICY,
       tool: IMPORT_CREATOR_TOOL,
       source_batch: input.sourceBatch,
@@ -357,7 +364,7 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
       policy: IMPORT_CREATOR_POLICY,
     });
   }
-  audit(actor, "host.import_creator", {
+  await audit(actor, "host.import_creator", {
     policy: IMPORT_CREATOR_POLICY,
     tool: IMPORT_CREATOR_TOOL,
     source_batch: input.sourceBatch,
@@ -440,7 +447,7 @@ export async function addKolProfileConfirmed(input: AddKolProfileInput): Promise
     );
   } catch (error) {
     const reason = isStarryTimeout(error) ? "timeout" : "failed";
-    audit(actor, "host.add_kol_profile.failed", {
+    await audit(actor, "host.add_kol_profile.failed", {
       policy: IMPORT_CREATOR_POLICY,
       tool: ADD_KOL_PROFILE_TOOL,
       source_batch: input.sourceBatch,
@@ -468,7 +475,7 @@ export async function addKolProfileConfirmed(input: AddKolProfileInput): Promise
   }
   const kolUid = parseImportedKolUid(data);
   if (!isRealKolUid(kolUid)) {
-    audit(actor, "host.add_kol_profile.failed", {
+    await audit(actor, "host.add_kol_profile.failed", {
       policy: IMPORT_CREATOR_POLICY,
       tool: ADD_KOL_PROFILE_TOOL,
       source_batch: input.sourceBatch,
@@ -484,7 +491,7 @@ export async function addKolProfileConfirmed(input: AddKolProfileInput): Promise
       policy: IMPORT_CREATOR_POLICY,
     });
   }
-  audit(actor, "host.add_kol_profile", {
+  await audit(actor, "host.add_kol_profile", {
     policy: IMPORT_CREATOR_POLICY,
     tool: ADD_KOL_PROFILE_TOOL,
     source_batch: input.sourceBatch,

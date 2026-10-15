@@ -103,6 +103,13 @@ afterEach(() => {
 });
 
 describe("connector enable gate follows Skill bindings only", () => {
+  it("requires a boolean enabled flag so numeric 0 cannot silently change connector state", async () => {
+    const created = await call("POST", "/api/admin/connectors", { id: "gate_boolean", label: "Gate Boolean", purpose: "启用门禁用例" });
+    expect(created.status).toBe(201);
+    const invalid = await call("PATCH", "/api/admin/connectors/gate_boolean", { enabled: 0 });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body).toMatchObject({ detail: { code: "connector_enabled_must_be_boolean" } });
+  });
   it("requires a version-matched directory probe and Skill mount for MediaCrawler", async () => {
     const id = "gate_hostcrawler";
     await verifiedConnector(id);

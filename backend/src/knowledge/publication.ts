@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { requireAdmin, scopedUser } from "../auth.js";
 import { dataDir } from "../config.js";
-import type { ReviewContext } from "../approval/review-service.js";
+import type { ReviewContext } from "../approval/review-context.js";
 import { postgresReviewContext } from "../approval/review-postgres-access.js";
 import { PostgresReviewService } from "../approval/review-postgres-service.js";
 import { reviewIntake } from "../approval/review-rollout.js";
@@ -14,7 +14,9 @@ import { registerExecutionHandler } from "../execution-jobs/handlers.js";
 import type { ClaimedExecutionJob } from "../execution-jobs/contracts.js";
 import type { ReviewCommand } from "../../../shared/review.js";
 import { ensureOrganizationTree } from "../runtime/organization-tree.js";
-import { queryDocuments, validateDocumentFile } from "../host/knowledge-documents.js";
+import { validateDocumentFile } from "../host/knowledge-documents.js";
+import { originalDocumentPage } from "./document-pages.js";
+import { bridgeMode, chatModel, runBridge } from "../knowledge-bridge.js";
 
 type Row = Record<string, any>;
 const fail = (code: string, message: string, status = 409): never => { throw new HttpFail(status, { code, message }); };
@@ -42,6 +44,91 @@ async function document(id: string, tenant: string, client?: PoolClient) {
   const row = rows.rows[0];
   if (!row || (row.bound_tenant && row.bound_tenant !== tenant)) fail("knowledge_document_unavailable", "资料不存在或不在当前组织范围", 404);
   return row;
+}
+
+/**
+ * Approval trial retrieval deliberately lives in this native module instead of
+ * delegating to the historical synchronous document store.  The first snapshot
+ * freezes the exact reviewed material; the second transaction re-checks the
+ * participant, material and source version before recording the read receipt.
+ */
+async function publicationTrialSnapshot(instanceId: string, ctx: ReviewContext) {
+  return postgresTransaction(async client => {
+    const access = (await client.query(`SELECT r.snapshot,r.document_id FROM knowledge_publication_requests r
+      JOIN review_participants p ON p.tenant=r.tenant AND p.instance_id=r.instance_id
+      WHERE r.tenant=$1 AND r.instance_id=$2 AND p.user_id=$3`, [ctx.tenant, instanceId, ctx.actor])).rows[0];
+    if (!access) fail("knowledge_review_unavailable", "资料不存在或不可见", 404);
+    const snapshot = decode(access.snapshot);
+    const doc = await document(String(access.document_id), ctx.tenant, client);
+    verifySnapshot(snapshot, doc);
+    if (!['pending_review', 'published'].includes(String(doc.status)))
+      fail("knowledge_document_missing", "待审资料不存在", 404);
+    const base = (await client.query("SELECT kind,status FROM knowledge_bases WHERE id=$1 FOR SHARE", [doc.base_id])).rows[0];
+    if (!base) fail("knowledge_base_missing", "知识库不存在", 400);
+    if (base.status !== "active") fail("knowledge_base_archived", "知识库已归档");
+    if (base.kind !== "unstructured") fail("knowledge_base_not_unstructured", "只有非结构化库支持资料检索", 400);
+    const index = decode(doc.artifacts).index as Row | undefined;
+    const engineId = String(index?.doc_id || "");
+    if (!engineId) fail("knowledge_not_indexed", "所选资料还没有完成索引");
+    const configuredLibrary = typeof index?.library === "string" ? index.library : "";
+    const library = configuredLibrary ? (path.isAbsolute(configuredLibrary) ? configuredLibrary : path.join(dataDir(), configuredLibrary))
+      : path.join(dataDir(), "knowledge", "bases", String(doc.base_id), "library");
+    return { snapshot, doc, engineId, library };
+  });
+}
+
+async function nativePublicationTrial(instanceId: string, query: string, ctx: ReviewContext) {
+  const prompt = String(query || "").trim();
+  if (!prompt || prompt.length > 2000) fail("knowledge_query_required", "请输入试算问题，最多2000字", 422);
+  const initial = await publicationTrialSnapshot(instanceId, ctx);
+  const outcome = await runBridge({
+    cmd: "ask",
+    args: ["--library", initial.library, "--question", prompt, "--chat-model", chatModel(), "--citations", "--doc-id", initial.engineId],
+    timeoutMs: 10 * 60_000,
+  });
+  if (!outcome.ok) {
+    const status = outcome.code === "knowledge_ask_failed" ? 502 : 503;
+    fail(String(outcome.code || "knowledge_ask_failed"), String(outcome.message || "试算失败"), status);
+  }
+  const rawCitations = Array.isArray(outcome.citations) ? outcome.citations as Row[] : [];
+  if (!rawCitations.length) fail("knowledge_missing_citations", "引擎未返回可验证引用，请重试或检查原文", 502);
+  const citations = rawCitations.map(item => {
+    const page = Number(item.page || 0);
+    if (String(item.doc_id || "") !== initial.engineId || !Number.isInteger(page) || page < 1)
+      fail("knowledge_invalid_citation", "检索引用不属于本次资料范围", 502);
+    const normalize = decode(initial.doc.artifacts).normalize as Row | undefined;
+    return {
+      document: String(item.document || ""), engine_doc_id: initial.engineId,
+      page: originalDocumentPage(normalize, page), document_id: String(initial.doc.id), title: String(initial.doc.title),
+    };
+  });
+  await postgresTransaction(async client => {
+    const current = await publicationTrialSnapshotInClient(instanceId, ctx, client);
+    if (current.doc.updated_at !== initial.doc.updated_at || current.engineId !== initial.engineId)
+      fail("knowledge_document_changed", "资料已变更，请重新查询");
+    await publicationAudit(client, ctx.actor, "knowledge.review.trial", {
+      instance_id: instanceId, document_id: current.doc.id, base_id: current.doc.base_id, include_pending: true,
+      engine: { mode: bridgeMode(), model: chatModel() },
+    });
+  });
+  return {
+    answer: String(outcome.answer || ""), citations, usage: outcome.usage || null,
+    engine: { mode: bridgeMode(), model: chatModel() },
+    scope: { base_id: String(initial.doc.base_id), include_pending: true,
+      documents: [{ id: String(initial.doc.id), title: String(initial.doc.title), status: String(initial.doc.status) }] },
+  };
+}
+
+async function publicationTrialSnapshotInClient(instanceId: string, ctx: ReviewContext, client: PoolClient) {
+  const access = (await client.query(`SELECT r.snapshot,r.document_id FROM knowledge_publication_requests r
+    JOIN review_participants p ON p.tenant=r.tenant AND p.instance_id=r.instance_id
+    WHERE r.tenant=$1 AND r.instance_id=$2 AND p.user_id=$3`, [ctx.tenant, instanceId, ctx.actor])).rows[0];
+  if (!access) fail("knowledge_review_unavailable", "资料不存在或不可见", 404);
+  const snapshot = decode(access.snapshot);
+  const doc = await document(String(access.document_id), ctx.tenant, client);
+  verifySnapshot(snapshot, doc);
+  const index = decode(doc.artifacts).index as Row | undefined;
+  return { doc, engineId: String(index?.doc_id || "") };
 }
 
 /** Verify actual files; a completed job or zero-valued metadata is not enough. */
@@ -228,12 +315,9 @@ export async function knowledgeReviewMaterial(instanceId: string,ctx: ReviewCont
 }
 
 export async function knowledgeReviewTrial(instanceId:string,query:string,ctx:ReviewContext) {
-  if(typeof query!=="string" || !query.trim() || query.length>2000) fail("knowledge_query_required","请输入试算问题，最多2000字",422);
-  const material=await knowledgeReviewMaterial(instanceId,ctx);
-  const result=await queryDocuments({query,base_id:material.base_id,doc_ids:[material.document_id],include_pending:true},ctx.actor);
-  await postgresTransaction(async client => knowledgeReviewMaterial(instanceId,await postgresReviewContext(client,ctx.actor,ctx.tenant)));
-  return {...result,citations:Array.isArray(result.citations) ? result.citations.map((citation:Row)=>({...citation,
-    source_url:`/api/approvals/v2/instances/${encodeURIComponent(instanceId)}/knowledge/file?company=${encodeURIComponent(ctx.tenant)}#page=${citation.page}`})):[],
+  const result = await nativePublicationTrial(instanceId, query, ctx);
+  return {...result,citations:result.citations.map((citation:Row)=>({...citation,
+    source_url:`/api/approvals/v2/instances/${encodeURIComponent(instanceId)}/knowledge/file?company=${encodeURIComponent(ctx.tenant)}#page=${citation.page}`})),
     scope:"本次审批版本试算，未发布内容不进入员工问答"};
 }
 

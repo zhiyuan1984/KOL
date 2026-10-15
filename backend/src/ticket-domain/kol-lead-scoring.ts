@@ -115,7 +115,7 @@ export async function scoreKolLeadWithJev(
     await writeLeadAssessment(leadId, reused);
     return;
   }
-  const resolvedCriteria = criteria ?? latestDiscoveryCriteria(String(lead.owner_principal_id || ""));
+  const resolvedCriteria = criteria ?? await latestDiscoveryCriteria(String(lead.owner_principal_id || ""));
   try {
     const assessment = await assessPublicKolWithJev(leadToProfileRow(lead), resolvedCriteria);
     await writeLeadAssessment(leadId, {

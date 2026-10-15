@@ -77,12 +77,12 @@ export function isFormalAuthorityPath(pathname: string): boolean {
 
 export async function createApp(): Promise<Hono> {
   getConn();
-  seedIfEmpty();
-  reconcileTickets();
+  await seedIfEmpty();
+  await reconcileTickets();
   reconcileDocumentJobs();
   (await ensureRuntimeSchema());
   ensureDemoAdmin();
-  restoreActiveCrawlJobs();
+  await restoreActiveCrawlJobs();
   restoreActiveDiscoveryRuns();
   restoreActiveHomeDiscoveryRuns();
 

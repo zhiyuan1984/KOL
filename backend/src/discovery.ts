@@ -701,7 +701,7 @@ export function ingestDiscoveryFromCrawlJob(job: Row): void {
   }
 }
 
-function createContainerWorkItem(input: {
+async function createContainerWorkItem(input: {
   ownerUserId: string;
   platform: string;
   mode: string;
@@ -735,7 +735,7 @@ function createContainerWorkItem(input: {
     now,
     now,
   );
-  ensureTicketForWorkItem(id);
+  await ensureTicketForWorkItem(id);
   return id;
 }
 
@@ -779,7 +779,7 @@ export async function startDiscoveryRun(input: {
   if (existing) return { ...(await publicRun(existing)), duplicate: true };
 
   const ownerUserId = String(request.owner_user_id);
-  const workItemId = createContainerWorkItem({ ownerUserId, platform, mode, keywords });
+  const workItemId = await createContainerWorkItem({ ownerUserId, platform, mode, keywords });
   const runId = nid("drun");
   const now = nowIso();
   tx((db) => {

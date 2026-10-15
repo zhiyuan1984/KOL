@@ -561,7 +561,7 @@ ${body.state?.target_criteria || ""}`;
 
   it("explicit null scoring criteria never inherit an older discovery scope", async () => {
     seedProfile("KOL_NO_CRITERIA");
-    const latest = vi.spyOn(scoringCriteria, "latestDiscoveryCriteria").mockReturnValue(
+    const latest = vi.spyOn(scoringCriteria, "latestDiscoveryCriteria").mockResolvedValue(
       scoringCriteria.normalizeScoringCriteria({ platforms: ["youtube"], keywords: ["old scope"] }),
     );
     const priorKey = process.env.OPENROUTER_API_KEY;

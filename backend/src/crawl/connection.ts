@@ -4,7 +4,7 @@
  * Never logs tokens or employee-facing URLs.
  */
 import { createMediaCrawlerClient, mediaCrawlerConfig, mediaCrawlerConfigured } from "./managed-connection.js";
-import { nowIso } from "../db.js";
+const nowIso = (): string => new Date().toISOString();
 import {
   COLLECTOR_CONNECT_MESSAGE,
   COLLECTOR_NOT_CONFIGURED_MESSAGE,

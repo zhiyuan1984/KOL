@@ -6,6 +6,7 @@
  */
 import fs from "node:fs";
 import { createHash } from "node:crypto";
+import type { PoolClient } from "pg";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
@@ -17,19 +18,23 @@ import {
   pgCreateAgentBindingInTransaction,
   pgCurrentOrgVersion,
   pgListAgentBindings,
+  pgListAgentBindingsInTransaction,
   pgListOrganizationMemberships,
   pgListOrganizationPeople,
   pgListOrganizationUnits,
   pgListScopeMemberships,
+  pgLockAgentBindings,
   pgLockOrganization,
   pgOrganizationCoverageSource,
+  pgOrganizationCoverageSourceInTransaction,
   pgPersonRefForUser,
   pgRevokeAgentBinding,
   pgSyncOrganizationMembership,
+  pgSyncOrganizationMembershipInTransaction,
   type AgentBindingInput,
 } from "../postgres/organization-repository.js";
+import { pgUserCanUseAgent, pgUserCanUseSkill, pgVisibleSkillIdsForUser } from "../postgres/auth-pg.js";
 import { postgresQuery, postgresTransaction } from "../postgres/pool.js";
-import { agentIsPublished } from "./managed-agents.js";
 import { isPlatformAgent } from "./platform-principal.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -361,26 +366,39 @@ export type AgentBindingChange =
   | { add_many: Array<{ target_type: "organization_unit" | "person"; target_id: string; company_id: string }> }
   | { remove: string };
 
-async function simulatePersonFromSite(personRef: string, companyId: string): Promise<SimulatedPerson | null> {
-  const [row] = await postgresQuery<OrganizationPersonRow>("SELECT * FROM organization_people WHERE person_ref=$1", [personRef]);
+async function simulatePersonFromSite(personRef: string, companyId: string, client?: PoolClient): Promise<SimulatedPerson | null> {
+  const people = client
+    ? (await client.query<OrganizationPersonRow>("SELECT * FROM organization_people WHERE person_ref=$1", [personRef])).rows
+    : await postgresQuery<OrganizationPersonRow>("SELECT * FROM organization_people WHERE person_ref=$1", [personRef]);
+  const row = people[0];
   const userId = row?.user_id || (personRef.startsWith(USER_PERSON_PREFIX) ? personRef.slice(USER_PERSON_PREFIX.length) : "");
   if (!userId) return null;
-  const [user] = await postgresQuery<{ id: string; name: string; site: string | null; active: number }>("SELECT id,name,site,active FROM users WHERE id=$1", [userId]);
+  const users = client
+    ? (await client.query<{ id: string; name: string; site: string | null; active: number }>("SELECT id,name,site,active FROM users WHERE id=$1", [userId])).rows
+    : await postgresQuery<{ id: string; name: string; site: string | null; active: number }>("SELECT id,name,site,active FROM users WHERE id=$1", [userId]);
+  const user = users[0];
   if (!user) return null;
   const person = row ? { ...row, user_id: userId } : { person_ref: personRef, display_name: user.name, user_ref: userId, user_id: userId,
     starry_open_id: null, email: null, employee_no: null, avatar_url: null, status: Number(user.active) === 1 ? "active" : "left", source: "preview" };
-  const [unit] = user.site ? await postgresQuery<OrganizationUnitRow>("SELECT * FROM organization_units WHERE id=$1 AND status='active'", [user.site]) : [];
+  const units = user.site
+    ? (client
+      ? (await client.query<OrganizationUnitRow>("SELECT * FROM organization_units WHERE id=$1 AND status='active'", [user.site])).rows
+      : await postgresQuery<OrganizationUnitRow>("SELECT * FROM organization_units WHERE id=$1 AND status='active'", [user.site]))
+    : [];
+  const unit = units[0];
   if (!unit || unit.company_id !== companyId) return { person, membership: null };
   return { person, membership: { id: `preview:${personRef}:${unit.id}`, person_ref: personRef, company_id: unit.company_id, org_unit_id: unit.id,
     relation: "primary", position: null, status: "active", effective_from: null, effective_to: null, source: "preview" } };
 }
-export async function personRefForUser(userId: string): Promise<string | null> {
-  await ensureOrganizationTree();
-  return pgPersonRefForUser(userId);
-}
-export async function previewAgentBinding(agentId: string, change: AgentBindingChange): Promise<AgentBindingPreview> {
-  await ensureOrganizationTree();
-  const [current, source] = await Promise.all([pgListAgentBindings(agentId), pgOrganizationCoverageSource()]);
+
+async function previewAgentBindingFromBasis(
+  agentId: string,
+  change: AgentBindingChange,
+  current: AgentBindingRow[],
+  source: OrganizationCoverageSource,
+  personExists: (personRef: string) => Promise<boolean>,
+  simulatePerson: (personRef: string, companyId: string) => Promise<SimulatedPerson | null>,
+): Promise<AgentBindingPreview> {
   const before = computeCoverage(agentId, current, source);
   let bindings = current;
   let needsSimulation = false;
@@ -396,8 +414,8 @@ export async function previewAgentBinding(agentId: string, change: AgentBindingC
         if (!unit) throw new Error(`unknown organization unit: ${target.target_id}`);
         if (unit.company_id !== target.company_id) throw new Error("binding target is outside the company");
       } else {
-        const known = source.people.find((person) => person.person_ref === target.target_id && person.status === "active")
-          || (target.target_id.startsWith(USER_PERSON_PREFIX) && (await postgresQuery("SELECT 1 FROM users WHERE id=$1", [target.target_id.slice(USER_PERSON_PREFIX.length)])).length > 0);
+        const known = source.people.some((person) => person.person_ref === target.target_id && person.status === "active")
+          || (target.target_id.startsWith(USER_PERSON_PREFIX) && await personExists(target.target_id.slice(USER_PERSON_PREFIX.length)));
         if (!known) throw new Error(`unknown person: ${target.target_id}`);
         needsSimulation = true;
       }
@@ -409,7 +427,7 @@ export async function previewAgentBinding(agentId: string, change: AgentBindingC
     }
     bindings = [...current, ...virtual];
   }
-  const after = needsSimulation ? await computeEffectiveAgentUsers(agentId, bindings, simulatePersonFromSite, source) : computeCoverage(agentId, bindings, source);
+  const after = needsSimulation ? await computeEffectiveAgentUsers(agentId, bindings, simulatePerson, source) : computeCoverage(agentId, bindings, source);
   const beforeRefs = new Set(before.person_refs); const afterRefs = new Set(after.person_refs);
   const versions = [...new Set(bindings.map((row) => row.company_id))].sort().map((company_id) => ({ company_id, version: Number(source.versions.find((row) => row.company_id === company_id)?.version || 0) }));
   return { agent_id: agentId, org_version: Math.max(before.org_version, after.org_version),
@@ -417,12 +435,191 @@ export async function previewAgentBinding(agentId: string, change: AgentBindingC
     before: { person_refs: before.person_refs, user_ids: before.user_ids }, after: { person_refs: after.person_refs, user_ids: after.user_ids },
     added: after.users.filter((user) => !beforeRefs.has(user.person_ref)), removed: before.users.filter((user) => !afterRefs.has(user.person_ref)) };
 }
-export async function canUseAgent(userId: string | null | undefined, agentId: string): Promise<boolean> {
-  if (!userId || !(await agentIsPublished(agentId))) return false;
+
+export async function previewAgentBinding(agentId: string, change: AgentBindingChange): Promise<AgentBindingPreview> {
   await ensureOrganizationTree();
-  const [account] = await postgresQuery<{ active: number }>("SELECT active FROM users WHERE id=$1", [userId]);
-  if (!account || Number(account.active) !== 1) return false;
-  return (await effectiveAgentUsers(agentId)).user_ids.includes(userId);
+  const [current, source] = await Promise.all([pgListAgentBindings(agentId), pgOrganizationCoverageSource()]);
+  return previewAgentBindingFromBasis(
+    agentId, change, current, source,
+    async (userId) => (await postgresQuery("SELECT 1 FROM users WHERE id=$1", [userId])).length > 0,
+    (personRef, companyId) => simulatePersonFromSite(personRef, companyId),
+  );
+}
+
+/** Request shape accepted by the administrative bulk preview/apply endpoints. */
+export type BulkAgentBindingTarget = {
+  target_type?: "organization_unit" | "person";
+  target_id?: string;
+  user_id?: string;
+};
+type ResolvedBulkAgentBindingTarget = {
+  target_type: "organization_unit" | "person";
+  target_id: string;
+  company_id: string;
+  sync_user_id?: string;
+  sync_user_site?: string | null;
+};
+
+/**
+ * Resolve an administrative target using the transaction client.  The server,
+ * never the caller, derives its company from authoritative organization facts.
+ */
+async function resolveBulkBindingTargetsInTransaction(client: PoolClient, rows: BulkAgentBindingTarget[]): Promise<ResolvedBulkAgentBindingTarget[]> {
+  if (!rows.length || rows.length > 200) throw new HttpFail(400, "请选择 1 至 200 个绑定目标");
+  const configuredCompanies = (await client.query<{ company_id: string }>(
+    "SELECT DISTINCT company_id FROM organization_units WHERE status='active' ORDER BY company_id",
+  )).rows.map((row) => row.company_id);
+  const resolved: ResolvedBulkAgentBindingTarget[] = [];
+  for (const row of rows) {
+    if (row.target_type !== "organization_unit" && row.target_type !== "person") throw new HttpFail(400, "绑定类型无效");
+    const targetType = row.target_type;
+    let targetId = String(row.target_id || "").trim();
+    let syncUserId: string | undefined;
+    let syncUserSite: string | null | undefined;
+    if (targetType === "person" && row.user_id) {
+      const userId = String(row.user_id).trim();
+      const user = (await client.query<{ id: string; site: string | null; active: number }>(
+        "SELECT id,site,active FROM users WHERE id=$1 FOR KEY SHARE", [userId],
+      )).rows[0];
+      if (!user || Number(user.active) !== 1) throw new HttpFail(404, "员工不存在或已停用");
+      const linked = (await client.query<{ person_ref: string }>(
+        "SELECT person_ref FROM organization_people WHERE user_id=$1 FOR KEY SHARE", [user.id],
+      )).rows[0];
+      targetId = linked?.person_ref || `${USER_PERSON_PREFIX}${user.id}`;
+      syncUserId = user.id;
+      syncUserSite = user.site;
+    }
+    if (!targetId) throw new HttpFail(400, targetType === "organization_unit" ? "请选择有效的组织单元" : "请选择已确认的人员");
+    if (targetType === "organization_unit") {
+      const unit = (await client.query<{ company_id: string; status: string }>(
+        "SELECT company_id,status FROM organization_units WHERE id=$1 FOR KEY SHARE", [targetId],
+      )).rows[0];
+      if (!unit || unit.status !== "active") throw new HttpFail(400, "请选择有效的组织单元");
+      resolved.push({ target_type: targetType, target_id: targetId, company_id: unit.company_id });
+      continue;
+    }
+    if (!syncUserId) {
+      const person = (await client.query<{ status: string }>(
+        "SELECT status FROM organization_people WHERE person_ref=$1 FOR KEY SHARE", [targetId],
+      )).rows[0];
+      if (!person || person.status !== "active") throw new HttpFail(400, "请选择已确认的人员");
+    }
+    const membership = (await client.query<{ company_id: string }>(
+      `SELECT company_id FROM organization_memberships
+       WHERE person_ref=$1 AND status='active' AND (effective_from IS NULL OR effective_from <= $2)
+         AND (effective_to IS NULL OR effective_to > $2) ORDER BY company_id LIMIT 1 FOR KEY SHARE`,
+      [targetId, nowIso()],
+    )).rows[0];
+    let companyId = membership?.company_id;
+    if (!companyId && syncUserSite) {
+      const unit = (await client.query<{ company_id: string; status: string }>(
+        "SELECT company_id,status FROM organization_units WHERE id=$1 FOR KEY SHARE", [syncUserSite],
+      )).rows[0];
+      if (unit?.status === "active") companyId = unit.company_id;
+    }
+    if (!companyId && configuredCompanies.length !== 1) throw new HttpFail(409, "人员公司归属未确认");
+    if (!companyId) companyId = configuredCompanies[0];
+    if (!companyId) throw new HttpFail(409, "组织公司未配置");
+    resolved.push({ target_type: targetType, target_id: targetId, company_id: companyId, sync_user_id: syncUserId, sync_user_site: syncUserSite });
+  }
+  return [...new Map(resolved.map((target) => [`${target.target_type}:${target.target_id}`, target])).values()];
+}
+
+async function previewBulkFromTransaction(
+  client: PoolClient,
+  agentId: string,
+  targets: ResolvedBulkAgentBindingTarget[],
+  current?: AgentBindingRow[],
+  source?: OrganizationCoverageSource,
+): Promise<AgentBindingPreview> {
+  const bindings = current || await pgListAgentBindingsInTransaction(client, agentId);
+  const coverage = source || await pgOrganizationCoverageSourceInTransaction(client);
+  const change: AgentBindingChange = { add_many: targets.map(({ target_type, target_id, company_id }) => ({ target_type, target_id, company_id })) };
+  return previewAgentBindingFromBasis(
+    agentId, change, bindings, coverage,
+    async (userId) => (await client.query("SELECT 1 FROM users WHERE id=$1", [userId])).rowCount > 0,
+    (personRef, companyId) => simulatePersonFromSite(personRef, companyId, client),
+  );
+}
+
+/** Native PostgreSQL preview. Apply recomputes this exact shape under locks before writing. */
+export async function previewBulkAgentBindings(agentId: string, rows: BulkAgentBindingTarget[]): Promise<AgentBindingPreview> {
+  await ensureOrganizationTree();
+  return postgresTransaction(async (client) => {
+    const targets = await resolveBulkBindingTargetsInTransaction(client, rows);
+    return previewBulkFromTransaction(client, agentId, targets);
+  }, { isolation: "REPEATABLE READ" });
+}
+
+export type ApplyBulkAgentBindingsInput = {
+  agent_id: string;
+  targets: BulkAgentBindingTarget[];
+  expected_org_version: number;
+  preview_signature: string;
+  created_by: string;
+  reason?: string | null;
+};
+export type AppliedBulkAgentBindings = { preview: AgentBindingPreview; bindings: AgentBindingRow[] };
+
+/** Authorization is checked again from the authoritative user row within apply's transaction. */
+async function assertBindingAdministratorInTransaction(client: PoolClient, actorId: string): Promise<void> {
+  const actor = (await client.query<{ active: number; roles: string }>(
+    "SELECT active,roles FROM users WHERE id=$1 FOR KEY SHARE", [actorId],
+  )).rows[0];
+  let roles: unknown = [];
+  try { roles = JSON.parse(String(actor?.roles || "[]")); } catch { /* fail closed below */ }
+  if (!actor || Number(actor.active) !== 1 || !Array.isArray(roles) || !roles.map(String).includes("admin")) {
+    throw new HttpFail(403, "admin required");
+  }
+}
+
+/**
+ * Recompute and verify preview evidence on the same locked basis, then write
+ * every target on this PoolClient.  No target may start its own transaction.
+ */
+export async function applyBulkAgentBindings(input: ApplyBulkAgentBindingsInput): Promise<AppliedBulkAgentBindings> {
+  if (!Number.isInteger(input.expected_org_version) || input.expected_org_version < 0 || !input.preview_signature) {
+    throw new HttpFail(400, "org_version 和 preview_signature 必填");
+  }
+  await ensureOrganizationTree();
+  return postgresTransaction(async (client) => {
+    await assertBindingAdministratorInTransaction(client, input.created_by);
+    await pgLockAgentBindings(client, input.agent_id);
+    const targets = await resolveBulkBindingTargetsInTransaction(client, input.targets);
+    const current = await pgListAgentBindingsInTransaction(client, input.agent_id);
+    const companies = [...new Set([...current, ...targets].map((row) => row.company_id))].sort();
+    for (const companyId of companies) await pgLockOrganization(client, companyId);
+    const source = await pgOrganizationCoverageSourceInTransaction(client);
+    const preview = await previewBulkFromTransaction(client, input.agent_id, targets, current, source);
+    if (preview.org_version !== input.expected_org_version) throw new HttpFail(409, "组织版本已变化，请重新预览绑定影响");
+    if (preview.preview_signature !== input.preview_signature) throw new HttpFail(409, "覆盖依据已变化，请重新预览绑定影响");
+
+    const stamp = nowIso();
+    for (const target of targets) {
+      if (!target.sync_user_id) continue;
+      const personRef = await pgSyncOrganizationMembershipInTransaction(client, target.sync_user_id, target.sync_user_site || null, stamp);
+      if (personRef !== target.target_id) throw new Error("organization person reference changed while applying binding");
+    }
+    const bindings: AgentBindingRow[] = [];
+    for (const target of targets) {
+      bindings.push(await pgCreateAgentBindingInTransaction(client, {
+        agent_id: input.agent_id,
+        target_type: target.target_type,
+        target_id: target.target_id,
+        company_id: target.company_id,
+        created_by: input.created_by,
+        reason: input.reason || "管理侧批量绑定",
+        source: "admin",
+      }, stamp));
+    }
+    return { preview, bindings };
+  }, { isolation: "SERIALIZABLE" });
+}
+
+export async function canUseAgent(userId: string | null | undefined, agentId: string): Promise<boolean> {
+  if (!userId) return false;
+  await ensureOrganizationTree();
+  return pgUserCanUseAgent(userId, agentId, nowIso());
 }
 /** Account organization projection is changed and versioned atomically in the repository transaction. */
 export async function syncUserOrganization(userId: string, unitId: string | null | undefined): Promise<string> {
@@ -433,17 +630,12 @@ export async function syncUserOrganization(userId: string, unitId: string | null
 export async function canUseSkill(userId: string | null | undefined, skillId: string): Promise<boolean> {
   if (!userId) return false;
   await ensureOrganizationTree();
-  const rows = await postgresQuery<{ agent_id: string }>("SELECT agent_id FROM runtime_agent_skills WHERE skill_id=$1 AND enabled=1", [skillId]);
-  for (const row of rows) if (await canUseAgent(userId, row.agent_id)) return true;
-  return false;
+  return pgUserCanUseSkill(userId, skillId, nowIso());
 }
 export async function visibleSkillIdsForUser(userId: string | null | undefined): Promise<string[]> {
   if (!userId) return [];
   await ensureOrganizationTree();
-  const agents = await postgresQuery<{ agent_id: string }>("SELECT DISTINCT agent_id FROM runtime_agent_skills WHERE enabled=1");
-  const usable = (await Promise.all((await Promise.all(agents.map(async (row) => (await canUseAgent(userId, row.agent_id)) ? row.agent_id : null))))).filter((id): id is string => Boolean(id));
-  if (!usable.length) return [];
-  return (await postgresQuery<{ skill_id: string }>("SELECT DISTINCT skill_id FROM runtime_agent_skills WHERE enabled=1 AND agent_id=ANY($1::text[])", [usable])).map((row) => row.skill_id);
+  return pgVisibleSkillIdsForUser(userId, nowIso());
 }
 export type LeaderScope = { isLeader: boolean; unitIds: string[]; memberUserIds: string[] };
 export async function leaderScopeForUser(userId: string | null | undefined): Promise<LeaderScope> {

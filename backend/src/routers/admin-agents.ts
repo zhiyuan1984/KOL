@@ -10,8 +10,9 @@ import {
   createManagedAgent, listManagedAgents, managedAgent, updateManagedAgent,
 } from "../runtime/managed-agents.js";
 import {
-  createAgentBinding, effectiveAgentUsers, listAgentBindings, listOrganizationPeople,
-  listOrganizationUnits, listOrganizationMemberships, personRefForUser, previewAgentBinding, revokeAgentBinding, syncUserOrganization,
+  applyBulkAgentBindings, createAgentBinding, effectiveAgentUsers, listAgentBindings, listOrganizationPeople,
+  listOrganizationUnits, listOrganizationMemberships, personRefForUser, previewAgentBinding, previewBulkAgentBindings,
+  revokeAgentBinding, syncUserOrganization, type BulkAgentBindingTarget,
 } from "../runtime/organization-tree.js";
 import { getAgentSkills, setAgentSkill, setAgentSkills } from "../runtime/store.js";
 import {postgresTransaction} from '../postgres/pool.js';
@@ -266,46 +267,38 @@ adminAgentsRouter.post("/admin/agents/:id/bindings/preview", async (c) => {
   }));
 });
 
-type BulkBindingTarget = { target_type?: "organization_unit" | "person"; target_id?: string; user_id?: string };
-async function resolveBulkTargets(rows: BulkBindingTarget[], syncPerson: boolean) {
-  if (!rows.length || rows.length > 200) throw new HttpFail(400, "请选择 1 至 200 个绑定目标");
-  const targets = await Promise.all(rows.map(async (row) => {
-    const resolved = await resolveBindingTarget(row, { syncPerson });
-    return { target_type: resolved.targetType, target_id: resolved.targetId, company_id: resolved.companyId } as const;
-  }));
-  const unique = [...new Map(targets.map((target) => [`${target.target_type}:${target.target_id}`, target])).values()];
-  return unique;
-}
-
 adminAgentsRouter.post("/admin/agents/:id/bindings/bulk-preview", async (c) => {
   requireAdmin();
   const id = c.req.param("id");
   await managedAgent(id);
-  const body = await c.req.json() as { targets?: BulkBindingTarget[] };
+  const body = await c.req.json() as { targets?: BulkAgentBindingTarget[] };
   if (!Array.isArray(body.targets)) throw new HttpFail(400, "targets 必须是数组");
-  const targets = await resolveBulkTargets(body.targets, false);
-  return c.json(await previewAgentBinding(id, { add_many: targets }));
+  return c.json(await previewBulkAgentBindings(id, body.targets));
 });
 
 adminAgentsRouter.post("/admin/agents/:id/bindings/bulk", async (c) => {
   const admin = requireAdmin();
   const id = c.req.param("id");
   await managedAgent(id);
-  const body = await c.req.json() as { targets?: BulkBindingTarget[]; org_version?: number; reason?: string;preview_signature?:string };
-  if (!Array.isArray(body.targets) || !Number.isInteger(body.org_version)) throw new HttpFail(400, "targets 和 org_version 必填");
-  const targets = await resolveBulkTargets(body.targets, true);
-  const preview = await previewAgentBinding(id, { add_many: targets });
-  if (preview.org_version !== body.org_version) throw new HttpFail(409, "组织版本已变化，请重新预览绑定影响");
-  if (body.preview_signature !== undefined && preview.preview_signature !== body.preview_signature) throw new HttpFail(409, "覆盖依据已变化，请重新预览绑定影响");
-  for (const target of targets) await createAgentBinding({
-    agent_id: id, target_type: target.target_type, target_id: target.target_id,
-    company_id: target.company_id, created_by: admin.id, reason: body.reason || "管理侧批量绑定", source: "admin",
+  const body = await c.req.json() as {
+    targets?: BulkAgentBindingTarget[]; org_version?: number; reason?: string; preview_signature?: string;
+  };
+  if (!Array.isArray(body.targets) || !Number.isInteger(body.org_version) || typeof body.preview_signature !== "string" || !body.preview_signature) {
+    throw new HttpFail(400, "targets、org_version 和 preview_signature 必填");
+  }
+  const applied = await applyBulkAgentBindings({
+    agent_id: id,
+    targets: body.targets,
+    expected_org_version: body.org_version,
+    preview_signature: body.preview_signature,
+    created_by: admin.id,
+    reason: body.reason || "管理侧批量绑定",
   });
   audit(admin.id, "admin.agent.bind.bulk", {
-    agent_id: id, org_version: preview.org_version, count: targets.length,
-    targets: targets.map(({ target_type, target_id }) => ({ target_type, target_id })), reason: body.reason || null,
+    agent_id: id, org_version: applied.preview.org_version, count: applied.bindings.length,
+    targets: applied.bindings.map(({ target_type, target_id }) => ({ target_type, target_id })), reason: body.reason || null,
   });
-  return c.json({ agent: agentView(id), preview });
+  return c.json({ agent: await agentView(id), preview: applied.preview });
 });
 
 adminAgentsRouter.post("/admin/agents/:id/bindings/:bindingId/revoke-preview", async (c) => {

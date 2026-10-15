@@ -261,7 +261,7 @@ kolMemory.post("/home/pool/jev-assess", async (c) => {
   const targets = normalizeJevTargets(raw);
   // 口径来源：显式传入（校验并收紧）优先，其次员工最近一次 AI 发现请求；都没有就不带条件。
   const employee = currentMemoryEmployee();
-  const criteria = body.criteria === null ? null : normalizeScoringCriteria(body.criteria) ?? latestDiscoveryCriteria(employee.id);
+  const criteria = body.criteria === null ? null : normalizeScoringCriteria(body.criteria) ?? await latestDiscoveryCriteria(employee.id);
   const started = startJevAssessment(targets, criteria);
   c.header("Cache-Control", "no-store");
   return c.json({
@@ -421,8 +421,8 @@ kolMemory.post("/home/kol-analyze/enqueue", async (c) => {
       JSON.stringify({ kol_uids: people, task_type: KOL_ANALYZE_TASK_TYPE }),
       1, now, now,
     );
-    ensureTicketForWorkItem(id, { conn: db });
   });
+  await ensureTicketForWorkItem(id);
   audit(employee.id, "kol.analyze.enqueue", {
     work_item_id: id,
     task_type: KOL_ANALYZE_TASK_TYPE,

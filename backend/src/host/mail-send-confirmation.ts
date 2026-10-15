@@ -1,3 +1,4 @@
+import type { PoolClient } from "pg";
 import { starryKolMcpConfigured } from "../starrykol/connection.js";
 import { authDisabled, requireSkill, scopedUser } from "../auth.js";
 import { authorizeConnector, runtimeAgentForSkill } from "../runtime/execution.js";
@@ -25,8 +26,8 @@ function extraOf(draft: Row): Json {
 
 /** Schema-only bootstrap; a GET never creates an attempt or changes a business record. */
 
-async function attemptFor(draftId: string): Promise<Attempt | undefined> {
-  return (await postgresQuery<Row>("SELECT * FROM mail_send_attempts WHERE draft_id=$1", [draftId]))[0] as Attempt | undefined;
+async function attemptFor(draftId: string, client: Pick<PoolClient, "query"> = postgresPool()): Promise<Attempt | undefined> {
+  return (await client.query("SELECT * FROM mail_send_attempts WHERE draft_id=$1", [draftId])).rows[0] as Attempt | undefined;
 }
 
 function sendSnapshot(draft: Row) {
@@ -81,7 +82,7 @@ export async function validateMailSend(draft: Row): Promise<void> {
   let checked = draft;
   let objectBrand = String(extra.brand || "");
   if (draft.collaboration_id) {
-    const col = assertCollaborationInScope(String(draft.collaboration_id));
+    const col = await assertCollaborationInScope(String(draft.collaboration_id));
     checked = { ...draft, official_stage: col.stage_code };
     objectBrand = String(col.brand || "");
   }
@@ -141,8 +142,8 @@ export async function mailSendAction(draft: Row): Promise<{ draft_id: string; ac
   };
 }
 
-export async function assertDraftEditable(draft: Row): Promise<void> {
-  const attempt = (await attemptFor(String(draft.id)));
+export async function assertDraftEditable(draft: Row, client: Pick<PoolClient, "query"> = postgresPool()): Promise<void> {
+  const attempt = (await attemptFor(String(draft.id), client));
   if (draft.sent_at || ["sent", "sending", "send_unknown"].includes(String(draft.status)) || (attempt && ["sent", "sending", "unknown"].includes(attempt.status))) {
     throw new HttpFail(409, { code: "draft_not_editable", message: "此邮件已发送、正在发送或结果待核实，不能修改；如需另发请新建草稿。" });
   }

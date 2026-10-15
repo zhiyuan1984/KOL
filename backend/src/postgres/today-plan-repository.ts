@@ -5,7 +5,8 @@ import { postgresPool, postgresQuery, postgresTransaction } from "./pool.js";
 import { appendTaskEventIn } from "../task-events.js";
 import type { Json, Row } from "../types.js";
 import type { ClaimedExecutionJob } from "../execution-jobs/contracts.js";
-import { packTodayPlanContext, planningRunInput, type PlanScope, type SourceItem, type TodayPlanPack } from "../host/today-plan-context.js";
+import { packTodayPlanContext, planningRunInput, planningRuntimeIdentity, type PlanScope, type SourceItem, type TodayPlanPack } from "../host/today-plan-context.js";
+import { validateTodayBrief } from "../host/today-brief.js";
 import { runWorker } from "../worker/runner.js";
 
 export type NativePlanStart = {
@@ -98,8 +99,9 @@ export async function startNativeTodayPlan(input: NativePlanInput): Promise<Nati
       if (current) return { ...current, producer: input.producer };
     }
     const now = stamp(); const sessionId = nid("ses"); const workItemId = nid("tsk"); const runId = nid("run");
+    const identity = planningRuntimeIdentity(input.taskType);
     await client.query(`INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id,expert_version)
-      VALUES ($1,$2,$3,$3,$4,0,$5,$6,NULL)`, [sessionId, input.title.slice(0, 200), now, input.taskType, input.owner, input.taskType]);
+      VALUES ($1,$2,$3,$3,$4,0,$5,$6,NULL)`, [sessionId, input.title.slice(0, 200), now, input.taskType, input.owner, identity.session_identity]);
     await client.query(`INSERT INTO tickets (id,owner_user_id,task_type,title,source,status,priority,skill,profile,session_id,input,entities,data_version,created_at,updated_at,kind,channel,requester_type,kind_version)
       VALUES ($1,$2,$3,$4,'planning','queued','normal',$3,$5,$6,$7,'{}',1,$8,$8,'general','system','system',1)`,
       [workItemId, input.owner, input.taskType, input.title.slice(0, 200), input.taskType, sessionId, JSON.stringify(input.payload), now]);
@@ -144,8 +146,10 @@ function missingDisplayCoverage(brief: Json | null, pack: TodayPlanPack): string
 }
 
 async function writeNativeBrief(client: PoolClient, input: { owner: string; workItemId: string; runId: string; scope: PlanScope; brief: Json; producer: "agent_plan" }): Promise<{ artifactId: string }> {
+  const checked = validateTodayBrief(input.brief);
+  if (!checked.ok) throw new Error(checked.reason);
   const now = stamp(); const artifactId = nid("art"); const table = pointerTable(input.scope);
-  const snapshot: Json = { ...input.brief, producer: input.producer, source_revision: String((input.brief.source_cursor as Json | undefined)?.cursor_to || ""), generated_at: now };
+  const snapshot: Json = { ...checked.brief, producer: input.producer, source_revision: String((checked.brief.source_cursor as Json | undefined)?.cursor_to || ""), generated_at: now };
   await client.query(`INSERT INTO task_artifacts (id,work_item_id,run_id,artifact_type,message_id,version,payload,created_at) VALUES ($1,$2,$3,'today_brief',NULL,1,$4,$5)`, [artifactId, input.workItemId, input.runId, JSON.stringify(snapshot), now]);
   await client.query(`INSERT INTO ${table} (owner_user_id,artifact_id,work_item_id,updated_at) VALUES ($1,$2,$3,$4)
     ON CONFLICT (owner_user_id) DO UPDATE SET artifact_id=EXCLUDED.artifact_id,work_item_id=EXCLUDED.work_item_id,updated_at=EXCLUDED.updated_at`, [input.owner, artifactId, input.workItemId, now]);
@@ -157,7 +161,12 @@ async function writeNativeBrief(client: PoolClient, input: { owner: string; work
 
 async function nativePlanTerminalIn(client: PoolClient, workItemId: string, runId: string, ok: boolean, reason?: string): Promise<void> {
   const now = stamp();
-  await client.query(`UPDATE task_runs SET status=$1,error=$2,completed_at=$3 WHERE id=$4 AND work_item_id=$5`, [ok ? "completed" : "failed", ok ? null : JSON.stringify({ message: reason || "planning failed" }), now, runId, workItemId]);
+  const run = await client.query(
+    `UPDATE task_runs SET status=$1,error=$2,completed_at=$3
+       WHERE id=$4 AND work_item_id=$5 AND status NOT IN ('completed','failed','cancelled')`,
+    [ok ? "completed" : "failed", ok ? null : JSON.stringify({ message: reason || "planning failed" }), now, runId, workItemId],
+  );
+  if (!run.rowCount) return;
   await client.query(`UPDATE tickets SET status=$1,completed_at=$2,updated_at=$2,data_version=data_version+1 WHERE id=$3`, [ok ? "waiting" : "failed", now, workItemId]);
   await appendTaskEventIn(client, workItemId, runId, ok ? "run.completed" : "run.failed", ok ? "今日规划已完成" : "今日规划失败", ok ? "completed" : "failed", ok ? "真实模型计划结果已写入 PostgreSQL" : String(reason || "planning failed"));
 }
@@ -191,14 +200,14 @@ export async function executeNativeClaimedPlanningJob(claimed: ClaimedExecutionJ
   try {
     if (String(claimed.job_type) === "today_analyze.run") {
       const taskPayload = payload.task_payload && typeof payload.task_payload === "object" && !Array.isArray(payload.task_payload) ? payload.task_payload as Json : {};
-      const result = await Promise.resolve(runWorker(claimedRun.sessionId, "today_analyze", String(payload.prompt || "分析所选对象并建议下一步，不要改状态。"), { ...taskPayload, work_item_id: workItemId, task_run_id: runId }));
+      const result = await Promise.resolve(runWorker(claimedRun.sessionId, "today_analyze", String(payload.prompt || "分析所选对象并建议下一步，不要改状态。"), { ...taskPayload, work_item_id: workItemId, task_run_id: runId, actor_user_id: owner }));
       await nativePlanTerminal(workItemId, runId, true);
       return { work_item_id: workItemId, run_id: runId, mode: "agent_plan", side_effect: "none", worker_id: result.worker_id };
     }
     const scope: PlanScope = String(payload.scope) === "todo" ? "todo" : "today";
     const packRaw = payload.pack;
     const pack = packRaw && typeof packRaw === "object" && !Array.isArray(packRaw) ? packRaw as TodayPlanPack : await nativeTodayPlanContext(owner, scope);
-    const extra = planningRunInput(pack, { work_item_id: workItemId, task_run_id: runId }, scope);
+    const extra = planningRunInput(pack, { work_item_id: workItemId, task_run_id: runId, actor_user_id: owner }, scope);
     const result = await Promise.resolve(runWorker(claimedRun.sessionId, planTaskType(scope), scope === "todo" ? "规划待办工作。只输出 today_brief JSON。" : "规划今天的工作。只输出 today_brief JSON。", extra));
     const brief = briefFromWorkerItems(result.items);
     const missing = missingDisplayCoverage(brief, pack);
@@ -256,7 +265,12 @@ export async function nativeTodayTaskResults(owner: string, scope: PlanScope = "
 export async function recoverNativeTaskRuns(reason: string, olderThanMs = 0): Promise<string[]> {
   const cutoff = olderThanMs > 0 ? new Date(Date.now() - olderThanMs).toISOString() : null;
   return postgresTransaction(async (client) => {
-    const rows = await client.query<Row>(`SELECT r.id AS run_id,r.work_item_id FROM task_runs r JOIN tickets t ON t.id=r.work_item_id WHERE r.status='running' ${cutoff ? "AND COALESCE(t.updated_at,r.created_at)<$1" : ""} FOR UPDATE OF r SKIP LOCKED`, cutoff ? [cutoff] : []);
+    const rows = await client.query<Row>(
+      `SELECT r.id AS run_id,r.work_item_id FROM task_runs r JOIN tickets t ON t.id=r.work_item_id
+        WHERE r.status='running' AND t.task_type=ANY($1::text[]) ${cutoff ? "AND COALESCE(t.updated_at,r.created_at)<$2" : ""}
+        FOR UPDATE OF r SKIP LOCKED`,
+      cutoff ? [["today_plan", "todo_plan", "today_analyze"], cutoff] : [["today_plan", "todo_plan", "today_analyze"]],
+    );
     const touched: string[] = [];
     for (const row of rows.rows) {
       const now = stamp();

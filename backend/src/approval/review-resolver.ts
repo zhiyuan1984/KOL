@@ -1,5 +1,5 @@
 import type { ReviewNode, ReviewTask, ReviewChoices, ReviewAssigneeRule } from "../../../shared/review.js";
-import type { ReviewContext } from "./review-service.js";
+import type { ReviewContext } from "./review-context.js";
 import { taskPolicy } from "./review-operations.js";
 
 /** One authority policy for both generic and knowledge publication reviews. */

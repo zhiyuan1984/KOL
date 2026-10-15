@@ -3,6 +3,7 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
+import type { PoolClient } from "pg";
 import {
   authDisabled,
   hashPassword,
@@ -25,7 +26,7 @@ import type { Json, Row } from "../types.js";
 import { boxDir } from "../config.js";
 import { isBuiltinConnectorId, requireManagedConnector } from "../connectors/catalog.js";
 import { hasBundledIcon } from "./connector-icons.js";
-import { connectorInUseBySkill, ensureRuntimeSchema } from "../runtime/store.js";
+import { ensureRuntimeSchema } from "../runtime/store.js";
 import {
   avatarUrlForUser,
   listOrganizationMemberships,
@@ -33,11 +34,10 @@ import {
   listOrganizationUnits,
   organizationCompanyName,
 } from "../runtime/organization-tree.js";
-import { getConnectorConfig } from "../runtime/store.js";
 import { syncUserOrganization } from "../runtime/organization-tree.js";
 import { pgCreateOrganizationUser, pgDeactivateOrganizationUser, pgSyncOrganizationMembership, pgUpdateOrganizationUser, pgUserById } from "../postgres/organization-repository.js";
 import { pgBindApprovalRole, pgSetApprovalRoles, pgUnbindApprovalRole, pgUpdatePreferences } from "../postgres/account-access-repository.js";
-import { pgCreateConnector, pgDeleteConnector, pgUpdateConnector } from "../postgres/connector-authorization-repository.js";
+import { pgCreateConnector, pgDeleteConnector, pgUpdateConnectorInTransaction } from "../postgres/connector-authorization-repository.js";
 
 import { pgEnterpriseAccount, pgEnterpriseAccounts, pgEnterpriseEmployeeContext } from "../postgres/enterprise-account-read-repository.js";
 
@@ -54,16 +54,25 @@ enterprise.use("/sessions/:sid",async (c,next) => {
   await next();
 });
 
-async function connectorProbeVerified(id: string, version: number): Promise<boolean> {
-  try {
-    const probe = (await postgresPool().query<Row>(`SELECT status, probe_kind, config_version FROM runtime_connector_probes
-      WHERE connector_id=$1 ORDER BY id DESC LIMIT 1`, [id])).rows[0] as Row | undefined;
-    return probe?.status === "succeeded" && ["mcp_tools_list", "http_definition"].includes(String(probe.probe_kind))
-      && Number(probe.config_version) === version;
-  } catch {
-    // Legacy databases without a probe table cannot infer a successful test.
-    return false;
+async function assertConnectorEnableBasis(client: PoolClient, id: string): Promise<void> {
+  const connector = (await client.query<Row>("SELECT id,status,enabled FROM connectors WHERE id=$1 FOR UPDATE", [id])).rows[0];
+  if (!connector) throw new HttpFail(404, "connector not found");
+  if (String(connector.status) !== "verified") {
+    throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
   }
+  const config = (await client.query<Row>("SELECT version FROM runtime_connector_config WHERE connector_id=$1 FOR SHARE", [id])).rows[0];
+  if (!config) throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
+  const probe = (await client.query<Row>(`SELECT status,probe_kind,config_version FROM runtime_connector_probes
+    WHERE connector_id=$1 ORDER BY id DESC LIMIT 1 FOR SHARE`, [id])).rows[0];
+  if (probe?.status !== "succeeded" || !["mcp_tools_list", "http_definition"].includes(String(probe.probe_kind))
+    || Number(probe.config_version) !== Number(config.version)) {
+    throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
+  }
+  const mounted = (await client.query<Row>(`SELECT t.skill_id FROM runtime_skill_tools t
+    JOIN runtime_skill_connectors c ON c.skill_id=t.skill_id AND c.connector_id=t.connector_id
+    WHERE t.connector_id=$1 AND t.enabled=1 AND c.enabled=1
+    FOR SHARE OF t,c`, [id])).rows[0];
+  if (!mounted) throw new HttpFail(409, { code: "connector_skill_binding_required", connector_id: id });
 }
 
 function parseJson(value: unknown, fallback: unknown): unknown {
@@ -553,38 +562,26 @@ enterprise.patch("/admin/connectors/:id", async (c) => {
   requireManagedConnector(id);
   const body = (await c.req.json()) as Json;
   if ("credential" in body || "secret" in body || "password" in body) throw new HttpFail(400, "only credential_ref may be stored");
-  const sets: string[] = [];
-  const values: unknown[] = [];
+  const changes: Record<string, unknown> = {};
   for (const field of ["label", "purpose", "status", "credential_ref"] as const) {
-    if (body[field] !== undefined) { sets.push(`${field}=?`); values.push(body[field]); }
+    if (body[field] !== undefined) changes[field] = body[field];
   }
   if (body.enabled !== undefined) {
-    if (body.enabled) {
-      const current = (await postgresPool().query<Row>("SELECT status FROM connectors WHERE id=$1", [id])).rows[0] as Row | undefined;
-      if (!current) throw new HttpFail(404, "connector not found");
-      if (String(current.status) !== "verified") {
-        throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
-      }
-      const config = (await getConnectorConfig(id));
-      if (!config || !(await connectorProbeVerified(id, config.version))) {
-        throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
-      }
-      if (!(await connectorInUseBySkill(id))) {
-        throw new HttpFail(409, { code: "connector_skill_binding_required", connector_id: id });
-      }
-    }
-    sets.push("enabled=?"); values.push(body.enabled ? 1 : 0);
+    if (typeof body.enabled !== "boolean") throw new HttpFail(400, { code: "connector_enabled_must_be_boolean" });
+    changes.enabled = body.enabled ? 1 : 0;
   }
-  if (!sets.length) throw new HttpFail(400, "no changes");
-  sets.push("updated_at=?"); values.push(nowIso(), id);
-  const changes: Record<string, unknown> = {};
-for (const [field,value] of Object.entries(body)) if (["label","purpose","status","credential_ref","enabled"].includes(field)) changes[field]=field === "enabled" ? (value ? 1 : 0) : value;
-const updated = await pgUpdateConnector(id, changes);
-if (!updated) throw new HttpFail(404, "connector not found");
+  if (!Object.keys(changes).length) throw new HttpFail(400, "no changes");
+  const updated = await postgresTransaction(async (client) => {
+    // Enabling is a single basis transaction: locks prevent config/probe/mount changes
+    // between verification and the persistent enabled flag.
+    if (changes.enabled === 1) await assertConnectorEnableBasis(client, id);
+    const row = await pgUpdateConnectorInTransaction(client, id, changes, nowIso());
+    if (!row) throw new HttpFail(404, "connector not found");
+    return row;
+  }, { isolation: "SERIALIZABLE" });
   await pgAudit(admin.id, "admin.connector.update", { connector_id: id }, nowIso());
-  return c.json((await connectorPublic(await (async()=>{ const { pgConnectorById } = await import("../postgres/connector-authorization-repository.js"); return pgConnectorById(id); })())));
+  return c.json((await connectorPublic(updated)));
 });
-
 enterprise.delete("/admin/connectors/:id", async (c) => {
   const admin = requireAdmin();
   const connectorId = requireManagedConnector(c.req.param("id"));

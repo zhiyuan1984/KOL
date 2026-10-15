@@ -53,7 +53,7 @@ export async function pgUpsertMailboxBindingInTransaction(client: PoolClient, in
   const currentDefault = await pgMailboxRow(input.userId, undefined, client, true);
   const result = await client.query<Row>(`INSERT INTO user_starry_bindings
     (user_id,mailbox_email,is_default,mailbox_id,owner_name,bearer_token,status,updated_at,owner_open_id,owner_verified_at)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,CASE WHEN $9 IS NULL THEN NULL ELSE $8 END)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::text,CASE WHEN $9::text IS NULL THEN NULL ELSE $8 END)
     ON CONFLICT(user_id,mailbox_email) DO UPDATE SET
       mailbox_id=EXCLUDED.mailbox_id,owner_name=EXCLUDED.owner_name,bearer_token=EXCLUDED.bearer_token,status=EXCLUDED.status,updated_at=EXCLUDED.updated_at,
       owner_open_id=COALESCE(EXCLUDED.owner_open_id,user_starry_bindings.owner_open_id),

@@ -104,10 +104,11 @@ export async function executePostgresReviewTimeout(job: ClaimedExecutionJob): Pr
     const previousVersion = Number(row.version);
     instance.version = previousVersion + 1;
     instance.updatedAt = now;
-    await client.query(
+    const updated = await client.query(
       "UPDATE review_instances SET version=$1,payload=$2,updated_at=$3,status=$4 WHERE tenant=$5 AND id=$6 AND version=$7",
       [instance.version, JSON.stringify(instance), now, instance.status, tenant, instance.id, previousVersion],
     );
+    if (updated.rowCount !== 1) throw new Error("超时评审版本冲突");
     await client.query(
       "INSERT INTO review_events(id,tenant,resource_id,actor,action,version,detail,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
       [randomUUID(), tenant, instance.id, actor, `timeout.${status}`, instance.version, JSON.stringify({ taskId, dueAt, policyVersion: instance.templateVersion }), now],

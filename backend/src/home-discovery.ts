@@ -707,7 +707,7 @@ function createSession(owner: string, title: string): string {
   return id;
 }
 
-function createWorkItem(input: {
+async function createWorkItem(input: {
   owner: string;
   sessionId: string;
   taskType: string;
@@ -738,7 +738,7 @@ function createWorkItem(input: {
     now,
     now,
   );
-  ensureTicketForWorkItem(id);
+  await ensureTicketForWorkItem(id);
   return id;
 }
 
@@ -1329,7 +1329,7 @@ export async function createHomeDiscoveryPlan(body: Json): Promise<Json> {
   const owner = ownerId();
   const title = "发现计划草稿";
   const sessionId = createSession(owner, title);
-  const workItemId = createWorkItem({
+  const workItemId = await createWorkItem({
     owner,
     sessionId,
     taskType: "discovery_plan",
@@ -1400,7 +1400,7 @@ export async function startHomeDiscoveryRun(body: Json): Promise<Json> {
   const platform = spec.platforms[0];
   const title = `AI发现 · ${platform} · ${spec.keywords.join(" ") || spec.mode}`.slice(0, 200);
   const sessionId = createSession(owner, title);
-  const workItemId = createWorkItem({
+  const workItemId = await createWorkItem({
     owner,
     sessionId,
     taskType: "discovery_crawl",

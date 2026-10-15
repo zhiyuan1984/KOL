@@ -1,8 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { PoolClient, QueryResult } from "pg";
 import { HttpFail } from "../host/errors.js";
-import { mapUser } from "../auth.js";
-import { collaborationInScope } from "../host/inbound-scope.js";
 import { pgEnqueueExecutionJob } from "../execution-jobs/postgres-store.js";
 import { reviewResolver, reviewCandidates, reviewChoiceCandidates } from "./review-resolver.js";
 import { reviewProgress } from "./review-progress.js";
@@ -10,7 +8,8 @@ import { reviewIntake } from "./review-rollout.js";
 import { definitionDiff } from "./review-diff.js";
 import { REVIEW_ACTIONS, currentTasks, normalizeTasks, applyReviewOperation, reassignTask } from "./review-operations.js";
 import { advanceReview, decideReview, validateDefinition, validatePublicationNames, validateValues } from "./review-engine.js";
-import type { ReviewContext } from "./review-service.js";
+import type { ReviewContext } from "./review-context.js";
+import { checkedReviewSource, collaborationReviewSource } from "./review-source.js";
 import type { ReviewCommand, ReviewDefinition, ReviewDraft, ReviewInstance, ReviewNode, ReviewTemplate, ReviewTask, ReviewIssue, ReviewTraceStep, ReviewChoices, ReviewSource } from "../../../shared/review.js";
 
 type Row = Record<string, any>;
@@ -19,31 +18,14 @@ const canonical=(value:unknown):string=>Array.isArray(value)?`[${value.map(canon
 const hash=(value:unknown)=>createHash("sha256").update(canonical(value)).digest("hex");
 const json=<T>(value:string):T=>JSON.parse(value) as T;
 
-/** Native asynchronous PostgreSQL approval service. It deliberately does not accept
- * SqliteConn or use the historical prepare/get/all/run compatibility surface. */
+/** Native asynchronous PostgreSQL approval service using a caller-owned PoolClient. */
 export class PostgresReviewService {
   constructor(private readonly db:PoolClient, readonly ctx:ReviewContext, private readonly now=new Date().toISOString()) {}
   private query<T extends Row=Row>(sql:string,values:unknown[]=[]):Promise<QueryResult<T>> { return this.db.query<T>(sql,values); }
   private async one<T extends Row=Row>(sql:string,values:unknown[]=[]):Promise<T|undefined>{ return (await this.query<T>(sql,values)).rows[0]; }
   private admin(){if(!this.ctx.admin)fail(403,"需要流程管理权限");}
-  private async source(source?:ReviewSource):Promise<ReviewSource|undefined>{
-    if(source===undefined)return undefined;
-    if(!source||source.type!=="collaboration"||typeof source.id!=="string"||typeof source.version!=="string")fail(422,"申请来源格式错误");
-    const user=await this.one("SELECT * FROM users WHERE id=$1 AND active=1",[this.ctx.actor]);
-    const row=await this.one("SELECT id,handle,display_name,brand,stage_code,notes FROM collaborations WHERE id=$1",[source.id]);
-    if(!user||!row||!collaborationInScope(row,mapUser(user)))fail(404,"合作对象不存在或超出当前权限范围");
-    const found=row as Row; const label=String(found.display_name||found.handle),snapshot={handle:String(found.handle),brand:String(found.brand),stage:String(found.stage_code),notes:String(found.notes||"")};
-    const current={type:"collaboration" as const,id:source.id,version:createHash("sha256").update(JSON.stringify({id:source.id,label,snapshot})).digest("hex"),label,snapshot};
-    if(current.version!==source.version)fail(409,"来源对象已变化，请重新打开合作对象并核对材料");
-    return current;
-  }
-  async collaborationSource(id:string):Promise<ReviewSource>{ return (await this.source({type:"collaboration",id,version:(await this.sourceVersion(id))} as ReviewSource))!; }
-  private async sourceVersion(id:string):Promise<string>{
-    const user=await this.one("SELECT * FROM users WHERE id=$1 AND active=1",[this.ctx.actor]); const row=await this.one("SELECT id,handle,display_name,brand,stage_code,notes FROM collaborations WHERE id=$1",[id]);
-    if(!user||!row||!collaborationInScope(row,mapUser(user)))fail(404,"合作对象不存在或超出当前权限范围");
-    const found=row as Row; const label=String(found.display_name||found.handle),snapshot={handle:String(found.handle),brand:String(found.brand),stage:String(found.stage_code),notes:String(found.notes||"")};
-    return createHash("sha256").update(JSON.stringify({id,label,snapshot})).digest("hex");
-  }
+  private source(source?:ReviewSource): Promise<ReviewSource|undefined>{ return checkedReviewSource(this.db,this.ctx.actor,source); }
+  async collaborationSource(id:string):Promise<ReviewSource>{ return collaborationReviewSource(this.db,this.ctx.actor,id); }
   async uploadAttachment(name:string,content:Buffer){
     if(!content.length||content.length>2*1024*1024)fail(413,"附件须为 1 字节至 2 MiB");
     const used=await this.one<{total:string}>("SELECT COALESCE(SUM(size_bytes),0) AS total FROM review_attachments WHERE tenant=$1 AND actor=$2",[this.ctx.tenant,this.ctx.actor]);

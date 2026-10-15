@@ -9,7 +9,7 @@ import { pgUpdatePasswordAndRevokeSessions } from "./postgres/organization-repos
 import { postgresQuery } from "./postgres/pool.js";
 import { examPassed, examTodoCount } from "./exam.js";
 import { HttpFail } from "./host/errors.js";
-import { avatarUrlForUser, canUseSkill, visibleSkillIdsForUser } from "./runtime/organization-tree.js";
+import { ensureOrganizationTree } from "./runtime/organization-tree.js";
 import { nid } from "./ids.js";
 import type { Json, Row } from "./types.js";
 import { DEMO_ADMIN, DEMO_USER, PERSONAS } from "./config.js";
@@ -177,6 +177,8 @@ function setSessionCookie(c: Context, token: string, maxAge: number): void {
 }
 
 async function hydrateNativeAuthority(user: AppUser): Promise<AppUser> {
+  // Authority snapshots are derived only after the migrated organization facts exist.
+  await ensureOrganizationTree();
   const now = nowIso();
   const [authority_skills, authority_connectors, authority_approval_roles] = await Promise.all([
     pgVisibleSkillIdsForUser(user.id, now),
@@ -256,7 +258,7 @@ async function permissions(user: AppUser): Promise<Json> {
     user.authority_connectors ? Promise.resolve(user.authority_connectors) : pgConnectorPermissions(user.id),
     user.authority_approval_roles ? Promise.resolve(user.authority_approval_roles) : pgApprovalRoles(user.id, now),
   ]);
-  return { admin, skills: admin ? ["*"] : skills, connectors, approval_roles: admin ? ["*"] : approvalRoles };
+  return { admin, skills, connectors, approval_roles: admin ? ["*"] : approvalRoles };
 }
 
 async function createSession(c: Context, userId: string): Promise<void> {
@@ -381,7 +383,6 @@ export function requireSkill(skillId: string): void {
   if (authDisabled()) return;
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
-  if (isAdmin(user)) return;
   // Middleware loads this directly from PostgreSQL for each request. A missing
   // snapshot (e.g. a background invocation) is deliberately denied, never
   // recovered through retired user_skill_grants or the synchronous bridge.

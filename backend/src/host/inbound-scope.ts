@@ -1,5 +1,5 @@
 import { authDisabled, isAdmin, scopedUser, type AppUser } from "../auth.js";
-import { getConn } from "../db.js";
+import { postgresPool } from "../postgres/pool.js";
 import type { Row } from "../types.js";
 import { HttpFail } from "./errors.js";
 import { departmentHeadAccessForUser } from "../contract-scope.js";
@@ -69,29 +69,23 @@ export function collaborationInScope(row: { brand?: unknown; mailbox_from?: unkn
   return false;
 }
 
-export function assertCollaborationInScope(collaborationId: string, user = inboundActor()): Row {
-  const row = getConn().prepare("SELECT * FROM collaborations WHERE id = ?").get(collaborationId) as Row | undefined;
+export async function assertCollaborationInScope(collaborationId: string, user = inboundActor()): Promise<Row> {
+  const row = (await postgresPool().query("SELECT * FROM collaborations WHERE id = $1", [collaborationId])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(404, "collaboration not found");
   if (!collaborationInScope(row, user)) throw new HttpFail(403, "超出当前品牌范围");
   return row;
 }
 
-export function scopedCollaborationSearch(query: string, user = inboundActor()): Row[] {
+export async function scopedCollaborationSearch(query: string, user = inboundActor()): Promise<Row[]> {
   const q = `%${query}%`;
   const brands = brandScope(user);
   if (!brands) {
-    return getConn()
-      .prepare("SELECT id, handle, brand, stage_code, mailbox_from FROM collaborations WHERE handle LIKE ? OR display_name LIKE ?")
-      .all(q, q) as Row[];
+    return (await postgresPool().query("SELECT id, handle, brand, stage_code, mailbox_from FROM collaborations WHERE handle LIKE $1 OR display_name LIKE $2", [q, q])).rows as Row[];
   }
   if (!brands.length) return [];
-  const placeholders = brands.map(() => "?").join(",");
-  return getConn()
-    .prepare(
-      `SELECT id, handle, brand, stage_code, mailbox_from FROM collaborations
-       WHERE (handle LIKE ? OR display_name LIKE ?) AND brand IN (${placeholders})`,
-    )
-    .all(q, q, ...brands) as Row[];
+  const placeholders = brands.map((_, i) => `$${i + 3}`).join(",");
+  return (await postgresPool().query(`SELECT id, handle, brand, stage_code, mailbox_from FROM collaborations
+       WHERE (handle LIKE $1 OR display_name LIKE $2) AND brand IN (${placeholders})`, [q, q, ...brands])).rows as Row[];
 }
 
 export function inboundVisibleSql(user = inboundActor()): { sql: string; params: unknown[] } {
@@ -103,4 +97,12 @@ export function inboundVisibleSql(user = inboundActor()): { sql: string; params:
     sql: `(IFNULL(brand,'') = '' OR brand IN (${placeholders}))`,
     params: brands,
   };
+}
+
+/** Native parameterized range SQL; offset is chosen by the caller, never SQL translation. */
+export function nativeInboundVisibleSql(firstParameter = 1, user = inboundActor()): { sql: string; params: unknown[] } {
+  const brands = brandScope(user);
+  if (!brands) return { sql: "1=1", params: [] };
+  if (!brands.length) return { sql: "1=0", params: [] };
+  return { sql: `(COALESCE(brand, '') = '' OR brand IN (${brands.map((_, i) => `$${firstParameter + i}`).join(",")}))`, params: brands };
 }
