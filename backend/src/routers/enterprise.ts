@@ -488,7 +488,11 @@ if (body.password !== undefined) { const { pgRevokeUserSessions } = await import
     if (validUnit || (siteChanged && !site)) await pgSyncOrganizationMembership(uid, site || null, nowIso());
   }
   await pgAudit(admin.id, "admin.user.update", { user_id: uid, fields: sets.map((s) => s.split("=")[0]) }, nowIso());
-  return c.json({ ...(await pgUserById(uid)), password_hash: undefined });
+  // PATCH must return the same safe projection as GET. Returning the raw PG
+  // row dropped membership-derived org_unit_ids and normalized grant fields.
+  const updated = await pgUserById(uid);
+  if (!updated) throw new HttpFail(404, "user not found");
+  return c.json(await safeUser(updated));
 });
 
 enterprise.delete("/admin/users/:uid", async (c) => {

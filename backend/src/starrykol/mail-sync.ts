@@ -1,4 +1,4 @@
-import { postgresConnection } from "../postgres/pool.js";
+import { postgresConnection, postgresPool } from "../postgres/pool.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { starryKolMcpConfigured } from "../starrykol/connection.js";
 import { audit, getConn, nowIso, onConnReset } from "../db.js";
@@ -38,7 +38,6 @@ import {
 import { verifyExistingStarryBindings } from "../postgres/kol-source-authority.js";
 import { executeStarryKolTask, listStarryMailboxes } from "./service.js";
 import { observeReplyMail } from "../mail/reply-source.js";
-import { postgresPool } from "../postgres/pool.js";
 import { replyMessageBody } from "./mail-fields.js";
 import {
   bindingHealthPg,
@@ -530,9 +529,9 @@ async function upsertThread(input: {
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12,$13,$14,$15,$16,$17)
      ON CONFLICT(mailbox,conversation_id) DO UPDATE SET
       collaboration_id=COALESCE(kol_mail_threads.collaboration_id,excluded.collaboration_id),subject=excluded.subject,last_direction=excluded.last_direction,
-      last_snippet=excluded.last_snippet,last_from=excluded.last_from,last_from_name=excluded.last_from_name,
+      last_snippet=COALESCE(NULLIF(excluded.last_snippet,''),kol_mail_threads.last_snippet),last_from=excluded.last_from,last_from_name=excluded.last_from_name,
       unread_count=excluded.unread_count,last_at=excluded.last_at,updated_at=excluded.updated_at,
-      peer_email=excluded.peer_email,peer_name=excluded.peer_name,last_preview=excluded.last_preview,
+      peer_email=excluded.peer_email,peer_name=excluded.peer_name,last_preview=COALESCE(NULLIF(excluded.last_preview,''),kol_mail_threads.last_preview),
       match_state=excluded.match_state,last_receipt=excluded.last_receipt
      WHERE kol_mail_threads.collaboration_id IS NULL OR excluded.collaboration_id IS NULL
        OR kol_mail_threads.collaboration_id=excluded.collaboration_id

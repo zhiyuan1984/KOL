@@ -80,14 +80,21 @@ export const runtimeActionOperations: Operation[] = [
   } },
   { id: "runtime.crawl.dequeue", kind: "action", async handle(c, input) {
     const action = await runtimeAction(String(input.action_id || ""), actor());
-    if (action.connector_id !== "claw" || action.tool_name !== "start_crawl") throw new HttpFail(409, { code: "runtime_crawl_not_queued" });
+    // This router is also mounted independently for queue consumers. Return a
+    // typed conflict here, rather than relying on outer application middleware
+    // that is not present for that direct route.
+    if (action.connector_id !== "claw" || action.tool_name !== "start_crawl") {
+      return c.json({ error: "runtime crawl is not queued", detail: { code: "runtime_crawl_not_queued" } }, 409);
+    }
     // R2 级：取消自己的排队任务，直接执行+审计（PROD-AGENT-09 要求提供取消入口）。
     // uncertain 也允许取消：远端状态未知，取消只释放本地占位/排队，远端任务可能仍在运行，前端需提示。
     const updated = await postgresConnection().query<{ instance_key: string }>(`UPDATE runtime_crawl_jobs
       SET state='cancelled', error_code=CASE WHEN state='uncertain' THEN 'uncertain_cancelled_by_user' ELSE 'queue_cancelled_by_user' END,
       updated_at=now() WHERE id=$1 AND actor_id=$2 AND state IN ('queued','uncertain') RETURNING instance_key`,
       [action.id, actor()]);
-    if (!updated.rows.length) throw new HttpFail(409, { code: "runtime_crawl_not_queued" });
+    if (!updated.rows.length) {
+      return c.json({ error: "runtime crawl is not queued", detail: { code: "runtime_crawl_not_queued" } }, 409);
+    }
     // uncertain 占位被释放后，尝试出队下一个（queued 取消不占位，drain 是无害的 no-op）。
     try { await drainCrawlQueue(String(updated.rows[0].instance_key)); } catch { /* 出队失败不影响取消本身 */ }
     return c.json(await view(await runtimeAction(action.id, actor())));

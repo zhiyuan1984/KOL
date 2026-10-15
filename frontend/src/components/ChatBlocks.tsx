@@ -22,7 +22,7 @@ import { occurredAtMs } from "../mail-time";
 import { officialStageReached } from "../journey";
 import { MESSAGE_RISK_LABEL, messageRisk, type MessageRisk } from "../agentUx";
 import { useConfirmedDraftSend } from "../hooks/useConfirmedDraftSend";
-import { applyComposerDraft } from "../composer/draft";
+import { applyDraft } from "../composer/draft";
 import { discoveryTimeline } from "../home/discoveryTimeline";
 import { stripEngineCopy } from "../employeeCopy";
 import { orderStream } from "../streamOrder";
@@ -1307,7 +1307,8 @@ function firstRealMailbox(...values: unknown[]): string {
   return "";
 }
 
-function prepareMailReply(payload: Record<string, unknown>) {
+function prepareMailReply(payload: Record<string, unknown>, sessionId?: string) {
+  if (!sessionId) return;
   const inbound = String(payload.direction || "inbound") !== "outbound";
   const handle = String(payload.handle || "");
   const subject = String(payload.subject || "");
@@ -1315,7 +1316,7 @@ function prepareMailReply(payload: Record<string, unknown>) {
   const brandBox = inbound ? firstRealMailbox(payload.mailbox, payload.to) : firstRealMailbox(payload.mailbox, payload.from);
   const kolAddr = inbound ? firstRealMailbox(payload.from) : firstRealMailbox(payload.to);
   const replySubject = replySubjectOf(subject);
-  applyComposerDraft({
+  applyDraft({ page: "session", sessionId }, {
     text: [conversationId ? `回复会话 ${conversationId}` : (handle ? `给@${handle} 写跟进邮件` : "写跟进邮件"),
       brandBox ? `发件: ${brandBox}` : "", kolAddr ? `收件: ${kolAddr}` : "", replySubject ? `主题: ${replySubject}` : ""].filter(Boolean).join(" "),
     intent: "mail_reply",
@@ -1362,7 +1363,7 @@ export function KolMailWorkbench({ messages, sessionId, officialStage, onReviewS
     <section className="mail-decision-actions" aria-label="下一步动作" ref={actionsRef} tabIndex={-1}>
       <strong>{nextActions ? "邮件与阶段操作" : "下一步动作"}</strong>
       {onReviewStage ? <button className="evidence-text-button" type="button" onClick={onReviewStage}>核对阶段变更 · R3 需确认</button> : null}
-      <button className="evidence-text-button" type="button" data-mail-reply disabled={!sessionId} onClick={() => { prepareMailReply(latest.payload); setNotice("已预填回复要求，请在输入框继续准备草稿。尚未发送。"); }}>准备回复 · R2 草稿</button>
+      <button className="evidence-text-button" type="button" data-mail-reply disabled={!sessionId} onClick={() => { prepareMailReply(latest.payload, sessionId); setNotice("已预填回复要求，请在输入框继续准备草稿。尚未发送。"); }}>准备回复 · R2 草稿</button>
       {notice ? <p role="status">{notice}</p> : null}
     </section>
     <div className="mail-decision-heading"><strong>证据链</strong><span className="mail-evidence-label">R1 只读 · {messages.length} 封</span></div>
@@ -1413,7 +1414,7 @@ export function KolMailCard({
   const fromLine = [fromName, inbound ? fromEmail : (fromEmail || brandBox)].filter(Boolean).join(" · ");
   const reply = async () => {
     if (!sessionId) return;
-    prepareMailReply(payload);
+    prepareMailReply(payload, sessionId);
     setNotice("已预填回复要求，请在输入框继续准备草稿。尚未发送。");
   };
   if (bodyOnly) {
@@ -2004,45 +2005,4 @@ export function runPendingAsk(
     });
   pendingRuns.set(key, run);
   return run;
-}
-
-export type ComposerDraft = {
-  text: string;
-  intent?: string;
-  title?: string;
-};
-
-const draftCache = new Map<string, ComposerDraft>();
-
-function parseComposerDraft(raw: string): ComposerDraft {
-  try {
-    const parsed = JSON.parse(raw) as ComposerDraft | string;
-    if (typeof parsed === "string") return { text: parsed };
-    if (parsed && typeof parsed.text === "string") return parsed;
-  } catch {
-    /* treat the raw slot as plain text */
-  }
-  return { text: raw };
-}
-
-export function storeComposerDraft(sessionId: string, draft: ComposerDraft) {
-  draftCache.delete(sessionId);
-  sessionStorage.setItem(`draft:${sessionId}`, JSON.stringify(draft));
-}
-
-/** Consume a template draft. Cached so React StrictMode remounts still see it. */
-export function takeComposerDraft(sessionId: string): ComposerDraft | null {
-  const cached = draftCache.get(sessionId);
-  if (cached) return cached;
-  const raw = sessionStorage.getItem(`draft:${sessionId}`);
-  if (!raw) return null;
-  sessionStorage.removeItem(`draft:${sessionId}`);
-  const draft = parseComposerDraft(raw);
-  draftCache.set(sessionId, draft);
-  return draft;
-}
-
-export function clearComposerDraft(sessionId: string) {
-  draftCache.delete(sessionId);
-  sessionStorage.removeItem(`draft:${sessionId}`);
 }

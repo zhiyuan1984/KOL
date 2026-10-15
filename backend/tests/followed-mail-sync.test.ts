@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
-import { ensureFollowedMailSync, resetFollowedMailSync, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
+import { ensureFollowedMailSync as startFixtureMailSync, resetFollowedMailSync, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import type { Json } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
@@ -19,6 +19,14 @@ import { freshTestDatabase } from "./support/pg.js";
 let tmp: string;
 let app: Hono;
 const calls: string[] = [];
+
+// The native sync commits its index before body hydration. Fixture assertions
+// explicitly await that background work; the job-route test still tests 202.
+async function ensureFollowedMailSync(force: boolean): Promise<Awaited<ReturnType<typeof startFixtureMailSync>>> {
+  const result = await startFixtureMailSync(force);
+  await waitForBackgroundSync();
+  return result;
+}
 
 async function request(method: string, url: string, body?: unknown) {
   const actor = (await getConn().query("SELECT * FROM users WHERE id=$1",[DEMO_USER.id])).rows[0] as Json | undefined;
@@ -159,6 +167,8 @@ describe("followed KOL unread mail sync", () => {
     await ensureFollowedMailSync(true);
     expect(calls).toContain("pageEmailConversations");
     expect(calls.filter((name) => name === "getEmailConversation")).toHaveLength(0);
+    expect((await getConn().query("SELECT last_snippet,last_preview FROM kol_mail_threads WHERE conversation_id='4901'",[])).rows[0])
+      .toMatchObject({ last_snippet: "Stored once", last_preview: "Stored once" });
     // A remembered index cannot certify a missing body. Fetch the authorized
     // detail again, without creating another event for the same source version.
     (await getConn().query("UPDATE kol_mail_items SET body_text=NULL WHERE provider_message_id='mid-4901'",[]));
@@ -246,7 +256,7 @@ describe("followed KOL unread mail sync", () => {
   it("POST /api/jobs/mail.sync/start accepts immediately and syncs in the background", async () => {
     (await bindLarry());
     const started = Date.now();
-    const response = await request("POST", "/api/jobs/mail.sync/start");
+    const response = await request("POST", "/api/jobs/mail.sync/start", { box: "larry.zhao@amperetime.com" });
     const elapsed = Date.now() - started;
     expect(response.status).toBe(202);
     expect(response.body.accepted).toBe(true);
@@ -291,8 +301,9 @@ describe("followed KOL unread mail sync", () => {
       )).rows[0].n)).toBe(0);
   });
 
-  it("matches inbound by handle suffix and keeps the conversation body", async () => {
-    (await getConn().query("UPDATE collaborations SET handle=$1, email=$2, kol_uid=$3 WHERE id='col_xiaomei'",["灵工连通测试-qiyou1984","","KOLQIYOU1984"]));
+  it("matches inbound by stable KOL identity and keeps the conversation body", async () => {
+    (await bindLarry());
+    (await getConn().query("UPDATE collaborations SET handle=$1, email=$2, kol_uid=$3 WHERE id='col_xiaomei'",["灵工连通测试-qiyou1984","qiyou1984@gmail.com","KOLQIYOU1984"]));
     setStarryKolClientFactory(() => ({
       async callTool(name: string) {
         calls.push(name);
@@ -303,6 +314,7 @@ describe("followed KOL unread mail sync", () => {
                 id: 320,
                 conversationId: 320,
                 subject: "",
+                kolUid: "KOLQIYOU1984",
                 from: "黄启友 <qiyou1984@gmail.com>",
                 recipientEmail: "larry.zhao@amperetime.com",
                 mailboxEmail: "larry.zhao@amperetime.com",

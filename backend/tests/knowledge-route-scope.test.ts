@@ -16,6 +16,7 @@ function appFor(admin=true,allowed=true){
  legacy.get('/admin/knowledge/proposals',c=>admin?c.json([]):c.json({detail:'需要管理权限'},403));
  legacy.get('/admin/knowledge/index-health',c=>admin?c.json([]):c.json({detail:'需要管理权限'},403));
  legacy.get('/admin/knowledge/extract-jobs',c=>admin?c.json([]):c.json({detail:'需要管理权限'},403));
+ legacy.post('/admin/knowledge/search',c=>admin?c.json({answer:'authorized'}):c.json({detail:'需要管理权限'},403));
  legacy.post('/admin/knowledge/:id/feedback-handle',c=>c.json({handled:true}));
  app.route('/api',publication);app.route('/api',legacy);
  return {app,authorized};
@@ -30,11 +31,21 @@ describe('knowledge collection route scope',()=>{
  it('feedback retains its own administrator check',async()=>{
   const {app}=appFor(false);expect((await app.request('/api/admin/knowledge/feedback')).status).toBe(403);
  });
+ it('search reaches its own administrator-checked handler rather than a fake entry',async()=>{
+  const {app,authorized}=appFor();
+  expect((await app.request('/api/admin/knowledge/search',{method:'POST'})).status).toBe(200);
+  expect(authorized).toEqual([]);
+  const denied=appFor(false);expect((await denied.app.request('/api/admin/knowledge/search',{method:'POST'})).status).toBe(403);
+ });
  it('real entry feedback action still authorizes the original entry',async()=>{
   const {app,authorized}=appFor();expect((await app.request('/api/admin/knowledge/entry-1/feedback-handle',{method:'POST'})).status).toBe(200);expect(authorized).toEqual(['entry-1']);
  });
  it('cross-organization entry still cannot be handled',async()=>{
   const {app,authorized}=appFor(true,false);expect((await app.request('/api/admin/knowledge/entry-foreign/feedback-handle',{method:'POST'})).status).toBe(404);expect(authorized).toEqual(['entry-foreign']);
+ });
+ it('fixed search, evolve and upload endpoints are not entry identifiers',()=>{
+  for(const collection of ['search','evolve','upload'])expect(requiresKnowledgeEntryAuthorization(collection)).toBe(false);
+  for(const lookalike of ['search-extra','evolve-extra','upload-extra'])expect(requiresKnowledgeEntryAuthorization(lookalike)).toBe(true);
  });
  it('unknown paths are not treated as privileged collection routes',()=>{
   expect(requiresKnowledgeEntryAuthorization('unknown-entry')).toBe(true);expect(requiresKnowledgeEntryAuthorization('feedback-lookalike')).toBe(true);

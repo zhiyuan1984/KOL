@@ -47,16 +47,12 @@ async function request(method: string, url: string, body?: unknown) {
   return { status: response.status, text, body: text ? JSON.parse(text) as Json : {} };
 }
 
-/**
- * 会话消息入口要读 PostgreSQL 权威表（authorizedTaskSession），本机没有 PostgreSQL——
- * 与 mail-compose-prepare.test.ts 同一环境限制；配了 TEST_DATABASE_URL 就一起跑。
- */
-const hasPostgres = Boolean(process.env.TEST_DATABASE_URL || process.env.DATABASE_URL);
+/** 会话消息入口读 PostgreSQL 权威表；测试始终使用完整 native template。 */
 
 beforeEach(async () => {
   // 每个用例一份全新权威库并把它切成 DATABASE_URL；createApp 之前必须完成，
   // 否则应用侧连接拿不到 DATABASE_URL（PostgreSQL 是唯一权威存储）。
-  if (hasPostgres) await freshTestDatabase({ reclaimPrevious: true });
+  await freshTestDatabase({ reclaimPrevious: true });
   process.env.CODEX_MODE = "stub";
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "context-resolve-"));
   Object.assign(process.env, {
@@ -446,7 +442,7 @@ describe("阶段类技能（P2.1）", () => {
   });
 });
 
-describe.skipIf(!hasPostgres)("运行路径的阶段上下文闸门（需要 PostgreSQL）", () => {
+describe("运行路径的阶段上下文闸门（PostgreSQL native template）", () => {
   it("requires 未满足：不起箱、不出结果，返回结构化缺口", async () => {
     const opened = await request("POST", "/api/sessions", { title: "阶段缺口" });
     expect(opened.status, opened.text).toBe(200);
@@ -520,8 +516,8 @@ describe("POST /api/actions/context.resolve", () => {
 });
 
 /**
- * mail-compose-prepare.test.ts 的 PostgreSQL 套件锁的是同一组行为；这里只跑本地可复现的
- * 关键分支，证明接入解析层后响应字段与状态口径没变。
+ * mail-compose-prepare.test.ts 的 PostgreSQL 套件锁的是同一组行为；这里只跑
+ * native template 中可复现的关键分支，证明接入解析层后响应字段与状态口径没变。
  */
 describe("POST /api/actions/mail.prepare 行为回归", () => {
   async function addPublishedTemplate(id: string): Promise<Awaited<void>> {

@@ -535,6 +535,7 @@ describe("host contracts", () => {
     // The current worker starts one fresh, capability-scoped thread per run; it
     // intentionally no longer forks an opaque child thread from a prior turn.
     expect(runner).not.toContain("deriveChildThread");
+    expect(runner).toContain("fresh capability set");
     expect(runner).toContain("fresh_runtime: true");
     expect(runner).toContain('method: "thread/start"');
     expect(runner).toContain('method: "turn/start"');
@@ -770,6 +771,15 @@ describe("host contracts", () => {
         expect(messages.some((message) => message.kind === "task_result_card"), `${rec.id}: artifact`).toBe(true);
         continue;
       }
+      // These capabilities require a current creator or conversation selected
+      // from the authorized surface. Home recommendations carry neither, so the
+      // Host returns an explicit gap card and never opens a worker.
+      if (taskDefinition(String(rec.id))?.context?.requires.length) {
+        expect(data.worker ?? null, `${rec.id}: no worker without current context`).toBeNull();
+        expect(messages.some((message) => message.kind === "supplement_card"), `${rec.id}: context gap card`).toBe(true);
+        expect(messages.some((message) => message.kind === "task_result_card"), `${rec.id}: no result without context`).toBe(false);
+        continue;
+      }
       if (isKolClawTask(String(rec.id)) || isStarryKolTask(String(rec.id))) {
         const prefix = isStarryKolTask(String(rec.id)) ? "starrykol." : "kolclaw.";
         expect((data.worker as Json)?.skill, String(rec.id)).toBe(rec.id);
@@ -975,7 +985,8 @@ describe("host contracts", () => {
       const denied = await request("POST", `/api/sessions/${ses.id}/messages`, {
         text: "搜索 YouTube 露营达人", act: "ask", intent: "creator_discovery",
       }, employeeCookie);
-      expect(denied.status).toBe(400);
+      expect(denied.status).toBe(403);
+      expect((await denied.json()).detail).toMatchObject({ code: "runtime_agent_not_usable" });
 
       // 资格来自真实的已发布 Agent：合成员工先挂到权威组织人员，
       // Agent 挂载技能并绑定其所在三级组；不使用废止的逐人技能授权。

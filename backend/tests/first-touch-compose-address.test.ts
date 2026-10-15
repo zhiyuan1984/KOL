@@ -774,7 +774,9 @@ describe("compose never asks first-touch for a conversation id", () => {
     expect(String((await emailMcpResultCard("email_compose", compose.data)).summary)).toContain("不要换收件邮箱");
   });
 
-  it("previews after getKolProfileDetail unmasks a followed QQ portrait", async () => {
+  it("does not enumerate portrait details from an unverified owner-name/mailbox list", async () => {
+    // Returned owner fields are not a verified ownership snapshot or authorized
+    // binding; they must not grant contact-detail access (BIZ-02/04).
     const followed = [
       { kolUid: "KOL9D62420657814F6BAEC8", kolName: "测试网红-qq-01", ownerUserName: "赵良玉", ownerMailbox: LARRY },
       { kolUid: "KOL2B64916C7B1F4014B14A", kolName: "测试1号", ownerUserName: "赵良玉", ownerMailbox: LARRY },
@@ -817,15 +819,12 @@ describe("compose never asks first-touch for a conversation id", () => {
       ...(await extractTaskEntities(OPERATOR)),
       prompt: OPERATOR,
     });
-    expect(calls.some((row) => row.name === "getKolProfileDetail")).toBe(true);
+    expect(calls.some((row) => row.name === "getKolProfileDetail")).toBe(false);
     expect(calls.some((row) => row.name === "decryptKolContact")).toBe(false);
-    expect(JSON.parse(String(calls.filter((row) => row.name === "createEmailConversation").at(-1)?.args.requestJson))).toMatchObject({
-      mailboxEmail: LARRY,
-      recipientEmail: QQ,
-      kolUid: "KOL9D62420657814F6BAEC8",
-    });
-    expect(compose.data).toMatchObject({ sent: false, conversationId: 811, mailboxEmail: LARRY, to: [QQ] });
-    expect((await emailMcpResultCard("email_compose", compose.data)).summary).not.toContain("看不见");
+    const created = calls.filter((row) => row.name === "createEmailConversation");
+    expect(created.every((row) => !JSON.parse(String(row.args.requestJson || "{}")).kolUid)).toBe(true);
+    expect(compose.data.needs_input).toBe(true);
+    expect(calls.some((row) => row.name === "previewEmailDraft")).toBe(false);
     expect((await emailMcpResultCard("email_compose", compose.data)).summary).not.toContain("粘贴 JWT");
   });
 

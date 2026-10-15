@@ -75,7 +75,10 @@ export async function startTodayPlan(
     scope: canonicalScope,
     producer,
     payload: (await planningRunInput(pack, {}, canonicalScope)),
-    extraPayload: { producer },
+    // The compact model input intentionally omits full history. Persist the
+    // accepted, authorization-filtered source pack separately so a queued job
+    // can resume with the exact planning facts it was accepted against.
+    extraPayload: { producer, pack },
     queuedLabel: "工作计划已入队",
     progress: [
       { label: PLAN_EMPLOYEE_EVENTS[scope].memoryRead, summary: `未了结 ${pack.now_counts.unfinished} 项` },

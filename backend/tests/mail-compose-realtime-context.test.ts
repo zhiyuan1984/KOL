@@ -5,8 +5,7 @@
  * 发件箱取本人挂载的默认邮箱，收件人取最近真实往来的对方，每项标出来源，
  * 输入框不再出现 [发件邮箱]/[收件邮箱] 占位符。
  *
- * 运行环境：配了 TEST_DATABASE_URL 就走 PostgreSQL 真库（freshTestDatabase），
- * 否则走本机 SQLite（与 context-resolve.test.ts 同一模式）。
+ * 运行环境：完整 PostgreSQL native template（freshTestDatabase）。
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -19,15 +18,13 @@ import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { freshTestDatabase } from "./support/pg.js";
 import {
-  approveKnowledge,
   cite,
   createKnowledge,
-  knowledgeRow,
 } from "../src/host/knowledge.js";
+import { writeNativePersonMemory } from "../src/postgres/mail-memory-repository.js";
+import { publishKnowledgeEntry } from "./support/knowledge-publication-fixture.js";
 
 type Json = Record<string, unknown>;
-
-const hasPostgres = Boolean(process.env.TEST_DATABASE_URL || process.env.DATABASE_URL);
 
 let tmp: string;
 let app: Hono;
@@ -73,7 +70,15 @@ async function insertThread(input: {
 }
 
 async function writePersonDigest(mailbox: string, peerEmail: string, text: string, mailCount: number): Promise<Awaited<void>> {
-  (await getConn().query("INSERT INTO app_state (key, value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",[`mail_person_digest:${mailbox}:${peerEmail}`,JSON.stringify({ text, source: "memory", mail_count: mailCount, fingerprint: "fp1" })]));
+  await writeNativePersonMemory({
+    id: `rtctx-person-memory-${mailbox}-${peerEmail}`.replace(/[^a-z0-9]+/gi, "-"),
+    mailbox,
+    peerEmail,
+    text,
+    source: "memory",
+    fingerprint: "fp1",
+    mailCount,
+  });
 }
 
 async function insertCollab(input: { id: string; handle: string; email: string; brand?: string; stage?: string }): Promise<Awaited<void>> {
@@ -81,7 +86,7 @@ async function insertCollab(input: { id: string; handle: string; email: string; 
 }
 
 async function addPublishedTemplate(input: { id: string; brand?: string; stages?: string[] }): Promise<Awaited<void>> {
-  (await createKnowledge({
+  await createKnowledge({
     id: input.id,
     title: input.id,
     body: "template source",
@@ -94,13 +99,13 @@ async function addPublishedTemplate(input: { id: string; brand?: string; stages?
     placeholders: ["[红人]"],
     stage_codes: input.stages || ["INITIAL_CONTACT"],
     status: "draft",
-  }));
-  (await approveKnowledge(input.id, Number((await knowledgeRow(input.id)).current_version || 1)));
-  (await cite(input.id));
+  });
+  await publishKnowledgeEntry(input.id);
+  await cite(input.id);
 }
 
 beforeEach(async () => {
-  if (hasPostgres) await freshTestDatabase();
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mail-compose-rtctx-"));
   Object.assign(process.env, {
     LINGONG_DB: path.join(tmp, "test.db"),

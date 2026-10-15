@@ -39,12 +39,12 @@ for (const theme of ["light", "dark"]) {
           feedClientWidth: feed.clientWidth, composerWidth: composer.width,
           aligned: Math.abs(body.left - composer.left) < 1 && Math.abs(body.right - composer.right) < 1,
           railWidth: rail.width, rightEdge: rail.right,
-          // New density contract: the jump floats inside the scroll-wrap; its
-          // content tail reserves enough vertical space to keep the final row
-          // reachable without introducing a side lane or a permanent footer.
+          // DESIGN §27.2: Chat/discovery own a control row after the process
+          // viewport. Other Home modes retain their reserved-tail layout.
           jumpPosition: getComputedStyle(jumpElement).position,
-          jumpWithinFeed: jump.top >= feed.getBoundingClientRect().top && jump.bottom <= feed.getBoundingClientRect().bottom + 1,
-          jumpReservedTail: parseFloat(getComputedStyle(el.querySelector('.scope-workspace-center-scroll-content')!).paddingBottom) >= jump.height,
+          jumpAfterFeed: jump.top >= feed.getBoundingClientRect().bottom - 1,
+          jumpWithinContent: jump.left >= content.left && jump.right <= content.right,
+          jumpReachable: jump.top >= 0 && jump.bottom <= innerHeight,
           jumpAboveComposer: jump.bottom <= composer.top,
           overflow: document.documentElement.scrollWidth > innerWidth,
         };
@@ -53,7 +53,8 @@ for (const theme of ["light", "dark"]) {
       const normal = await measure();
       expect(normal).toMatchObject({ leftWidth: 260, centerWidth: 432, contentWidth: 400,
         feedWidth: 400, feedClientWidth: 400, composerWidth: 400, aligned: true,
-        rightEdge: 1440, jumpPosition: "absolute", jumpWithinFeed: true, jumpReservedTail: true, jumpAboveComposer: true, overflow: false });
+        rightEdge: 1440, jumpPosition: "static", jumpAfterFeed: true, jumpWithinContent: true,
+        jumpReachable: true, jumpAboveComposer: true, overflow: false });
       // Classic and overlay scrollbars, including a nav rail that becomes
       // scrollable after loading, must not alter the content gutters.
       await page.locator(".sidebar-nav-stack").evaluate(el => {

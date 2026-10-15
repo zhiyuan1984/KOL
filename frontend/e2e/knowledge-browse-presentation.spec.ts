@@ -123,6 +123,17 @@ test("title-kind rows stay compact; footer expands and actions remain in detail"
   expect(state.writes).toEqual(["POST /api/knowledge/kb-0/favorite", "POST /api/knowledge/kb-0/cite"]);
 });
 
+test("workbench target hands the knowledge draft to the home composer", async ({ page }) => {
+  const state = await surface(page);
+  await page.locator('[data-kb-open="kb-0"]').click();
+  await page.getByRole("combobox", { name: "选择目标任务" }).click();
+  await page.getByText("工作台提问框", { exact: true }).click();
+  await page.locator('[data-kb-use="kb-0"]').click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator("[data-composer-input]")).toHaveValue(/Please review the outline/);
+  expect(state.writes).toEqual(["POST /api/knowledge/kb-0/cite"]);
+});
+
 test("container width switches views and restores filter, pagination, scroll and focus", async ({ page }) => {
   await surface(page);
   await page.locator("[data-kb-page]").evaluate(node => { (node as HTMLElement).style.width = "600px"; });

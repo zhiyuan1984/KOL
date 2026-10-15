@@ -15,6 +15,22 @@
 - **证据**：后端 tsc / 前端 tsc 零报错（adm-zip 缺失为沙箱 node_modules 环境缺口，补装声明版本后通过，不属本次改动）；前端 mail 单测 29/29；mail-gmail-v2 e2e 12/12（含 3 项新/改写标签用例）；mail.spec.ts e2e 待后台结果。PG 集成测试（mail-private-labels / mail-label-suggestions / followed-mail-sync / mail-sync-pg-regression）在沙箱因无 PG（`TEST_DATABASE_URL` 未设置）无法运行，待 qiyou 环境；其失败均为 setup 阶段抛环境错误，未进入业务断言。
 - **限制**：PG 集成验证待 qiyou 环境；真机视觉待用户；本 patch 基于 main@cf5ab357（含顶栏恢复），与旧版 `mail-immersive-v2-topbar-from-cf5ab357.patch` 合并为一条新 patch 交付，旧 patch 作废。
 
+## ADR-2026-10-15（三）：Composer 草稿 / 提交 / 上下文统一
+
+- **状态**：已接受（用户批准统一方案，D1–D5 全部选 A）。
+- **背景**：三套草稿（全局 stash、邮件 localDraft、会话 workspace draft）+ 两条提交链（工作台 / 邮件）+ 两套上下文（邮件有、工作台无）并存。`f44a676a` 删了技能目录 `useSkill` 与知识 `useForTask` 的工作台预填生产者，工作台提问框预填随之消失；`a8040019` 的邮件直接提交路径被 `9910fab7` 冲掉后，邮件靠自有 `submitComposer` 活着。另有四处死代码：邮件 stash（`composer:mail-draft`，main 上无生产者）、知识 fill stash（`kb_fill_composer`，生产者已删）、Home 对邮件 stash 的孤儿 peek、`?knowledge_id=` 预填链路。
+- **决定**（D1–D5 全部 A）：
+  1. **D1 邮件草稿范围不变**：仍按邮箱 + 会话隔离。
+  2. **D2 先统一工作台 + 邮件提交**：共享 `composer/submit.ts`（`assembleComposerText` + `submitFromText`：组装 → `createTaskFromText` → `runTask`）；会话页保持现有提交行为，只把草稿调用适配新 API。
+  3. **D3 工作台上下文 = 当前已选对象**：已选跟进红人 handle/阶段、已选任务标题、公海选中、AI 发现条件；只写已加载内容，缺失如实标注「无 / 未设置」，末尾「以上仅为已加载内容；未加载的不得猜测」。
+  4. **D4 会话页不追加上下文**：会话历史即上下文。
+  5. **D5 删 Home 的 `?knowledge_id=` 预填 effect**：统一草稿接替它。
+  6. **统一草稿**：`composer/draft.ts` 为唯一草稿入口，`read/write/clear/takeDraft(scope)` + `applyDraft(scope, draft)`（广播带 scope）。`scope = { page: "home" | "mail" | "session", mailbox?, conversationId?, sessionId? }`，actor 只进存储 key、不进 scope 身份。现场 key 原样保留：工作台 `composer_draft_stash`、邮件 `mail-draft:v2:<actor>:<mailbox>:<conversation>`、会话 `workspace:asset-draft:<actor>:<sessionId>`，在途草稿不丢。死 key（`composer:mail-draft`、`kb_fill_composer`）只删不读。`ComposerDock` 只应用与其 `draftScope` 相同 scope 的广播——隔离靠 scope，不靠另建模块，不重蹈 `a8040019`「全局广播 + 延迟挂载丢首个技能芯片、污染背景工作台」的覆辙。
+  7. **目录交接**：`AssetTaskAction` 目标列表 = 会话列表 + 「工作台提问框」；选工作台写统一 home-scope 草稿并 `nav("/")`；选会话行为不变（既有 e2e 断言 `/s/kb-task` 保留）。技能交接 = `skillFillText + skill_template + 技能芯片`；知识交接 = `composerFillText + 锁定模板`。
+  8. **影子模块删除**：`composer/taskDraft.ts`、`mail/localDraft.ts`、`mail/composerDraft.ts`（构建器移入 `mail/draftContent.ts`）并入统一草稿；`knowledgeCopy.ts` 的 fill stash、`agents/browserState.ts` 的会话工作草稿、`ChatBlocks` 的 `draft:<sessionId>` 存取全部并入统一草稿；Chat 的五源草稿 effect 保持优先级与行为不变。
+- **审宪记录**：需求 → 统一 Composer 草稿/提交/上下文，恢复目录→工作台预填 → 主责角色 → 架构师（模块边界）+ 前端专家（实现）+ 智能体产品经理（交互/入口契约）+ 平台产品经理（通用能力）；D1–D5 由用户裁决 → 宪法 → CONST-02（平台/业务分离：草稿与提交是平台能力，不写死业务事实）、CONST-03（确定性规则由程序执行：阶段绑定与确认不交给模型）、CONST-05（读/草稿/正式动作分离：草稿 ≠ 执行，R3 确认保留）、CONST-07（AI 提问框进 Codex 流程；记忆快捷方式不动）、CONST-10（可验证：tsc + 单元测试 + e2e）→ 基本法 → TECHNOLOGY.md TECH-FE/TECH-TEST；IA §1.1（`/s/:id` 独立会话地址不变，`/?tab=discovery&session_id=…` 恢复链接不变，既有 URL 断言不为新跳转改写）；DESIGN.md（无新视觉 token：一个 Select 选项 + 一个按钮文案，复用 antd Select + CompactButton）→ 结论 → **符合** → 证据 → 无后端改动；邮件语义不变（阶段绑定、`mailCompose`、R3 确认、按邮箱+会话草稿）；`lastComposer` 仍存裸文本，重试不重复追加上下文 → 下一步 → 实施。
+- **限制**：工作台上下文只追加到 from-text 尾巴；分析入队 / AI 发现 / 异常关怀三条路径保持各自载荷，不追加。本轮 e2e 只覆盖知识→工作台交接；技能目录→工作台交接走同一 `AssetTaskAction` 分支，未单独立 e2e 用例。
+
 ## ADR-2026-10-15：通讯恢复全宽顶栏（以原 immersive D1/D5 为准）
 
 - **状态**：已接受（用户 2026-10-15 明确「还是用你的」——以原 immersive 设计为准，分析现有代码重做）。

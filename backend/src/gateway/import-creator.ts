@@ -83,6 +83,36 @@ export async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, l
   }
 }
 
+/**
+ * Starry 回包摘要（审计用）：JSON 截断 2000 字符，排查"成功但无编号"时
+ * 能看到 Starry 实际说了什么。回包不含请求文件，只含档案字段。
+ */
+function starryResponseDigest(data: Json): string {
+  try {
+    const text = JSON.stringify(data);
+    return text.length > 2000 ? `${text.slice(0, 2000)}…(truncated)` : text;
+  } catch {
+    return String(data).slice(0, 2000);
+  }
+}
+
+/**
+ * Starry 习惯把业务拒绝包在 200 回包里（normalize 不识别）。
+ * 无编号时若回包带明确的错误标记/文案，直接取原文，免得只报"无编号"误导。
+ */
+function starryBodyError(data: Json): string {
+  const obj = asObject(data);
+  const message = firstString(obj.message, obj.msg, obj.error, obj.errMessage, obj.errMsg);
+  if (obj.success === false || obj.ok === false) return message;
+  const code = obj.code ?? obj.errCode ?? obj.status;
+  if (typeof code === "number" && code !== 0 && code !== 200) return message;
+  if (typeof code === "string") {
+    const normalized = code.trim().toLowerCase();
+    if (normalized && normalized !== "0" && normalized !== "200" && normalized !== "success" && normalized !== "ok") return message;
+  }
+  return "";
+}
+
 const CONTACT_EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
 /** Starry 列表行的字段名（见 `PROFILE_LIST_WHITELIST`）。 */
@@ -356,12 +386,15 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
       creator_external_id: input.creatorExternalId,
       candidate_id: input.candidateId || null,
       reason: "missing_kol_uid",
+      // Starry 200 回包里可能藏着业务错误原文，记下来才能定位。
+      starry_response: starryResponseDigest(data),
       sent: false,
       stage_changed: false,
     });
+    const bodyError = starryBodyError(data);
     throw new HttpFail(502, {
       code: "import_creator_no_kol_uid",
-      message: "档案未回传红人编号，未加入跟进。",
+      message: bodyError ? `Starry 建档未成功：${bodyError}` : "档案未回传红人编号，未加入跟进。",
       policy: IMPORT_CREATOR_POLICY,
     });
   }
@@ -483,12 +516,14 @@ export async function addKolProfileConfirmed(input: AddKolProfileInput): Promise
       creator_external_id: input.creatorExternalId,
       candidate_id: input.candidateId || null,
       reason: "missing_kol_uid",
+      starry_response: starryResponseDigest(data),
       sent: false,
       stage_changed: false,
     });
+    const bodyError = starryBodyError(data);
     throw new HttpFail(502, {
       code: "import_creator_no_kol_uid",
-      message: "档案未回传红人编号，未加入跟进。",
+      message: bodyError ? `Starry 建档未成功：${bodyError}` : "档案未回传红人编号，未加入跟进。",
       policy: IMPORT_CREATOR_POLICY,
     });
   }

@@ -1,6 +1,12 @@
 import { MAIL_ANALYZE_PREFILL_PREFIX } from "./types";
 
-export const COMPOSER_DRAFT_KEY = "composer:mail-draft";
+/**
+ * Mail composer draft content builders (ADR-2026-10-15 (iii)). This file
+ * keeps only the live builders moved verbatim from the deleted
+ * `mail/composerDraft.ts`. Draft *storage* lives in the unified
+ * `../composer/draft.ts`; the old `composer:mail-draft` stash had no
+ * producer on main and was deleted, never read.
+ */
 
 export type ComposerDraftChip = { id: string; label: string };
 
@@ -20,35 +26,6 @@ export type ComposerDraft =
       kol_uids: string[];
       chips: ComposerDraftChip[];
     };
-
-export function stashComposerDraft(draft: ComposerDraft): ComposerDraft {
-  try {
-    sessionStorage.setItem(COMPOSER_DRAFT_KEY, JSON.stringify(draft));
-  } catch {
-    /* ignore quota / private mode */
-  }
-  return draft;
-}
-
-export function peekComposerDraft(): ComposerDraft | null {
-  try {
-    const raw = sessionStorage.getItem(COMPOSER_DRAFT_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as ComposerDraft;
-    if (parsed?.kind === "mail-reply" || parsed?.kind === "kol-analyze-enqueue") return parsed;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-export function clearComposerDraft() {
-  try {
-    sessionStorage.removeItem(COMPOSER_DRAFT_KEY);
-  } catch {
-    /* ignore */
-  }
-}
 
 export function mailReplyDraft(input: {
   mailbox: string;

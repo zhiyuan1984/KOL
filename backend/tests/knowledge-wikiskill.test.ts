@@ -5,22 +5,32 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
+import { mapUser, withScopedUser, type AppUser } from "../src/auth.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { bundledSkillPath } from "../src/host/skill-sop.js";
 import { resolveMailTemplate } from "../src/host/knowledge.js";
 import { DEMO_ADMIN, DEMO_USER } from "../src/config.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { installKnowledgePublicationFixture, publishKnowledgeEntry } from "./support/knowledge-publication-fixture.js";
 
 type Json = Record<string, unknown>;
 
 let tmp: string;
 let app: Hono;
+let admin: AppUser;
+
+async function persistedAdmin(): Promise<AppUser> {
+  const row = (await getConn().query("SELECT * FROM users WHERE id=$1", [DEMO_USER.id])).rows[0] as Record<string, unknown> | undefined;
+  if (!row) throw new Error("missing test admin");
+  return mapUser(row);
+}
 
 async function request(
   method: string,
   url: string,
   body?: unknown,
+  actor: AppUser | undefined = admin,
 ): Promise<{ status: number; json: () => Promise<Json>; text: () => Promise<string> }> {
   const init: RequestInit = { method, headers: {} };
   if (body instanceof FormData) {
@@ -29,7 +39,7 @@ async function request(
     (init.headers as Record<string, string>)["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
-  const res = await app.request(url, init);
+  const res = actor ? await withScopedUser(actor, () => app.request(url, init)) : await app.request(url, init);
   const text = await res.text();
   return {
     status: res.status,
@@ -61,6 +71,8 @@ beforeEach(async () => {
   const { createApp } = await import("../src/app.js");
   app = (await createApp());
   (await seedWorkbenchFixtures());
+  await installKnowledgePublicationFixture();
+  admin = await persistedAdmin();
 });
 
 afterEach(async () => {
@@ -157,7 +169,7 @@ describe("WikiSkill knowledge", () => {
       status: "draft",
     })).json();
     expect(created.stage_codes).toEqual(["TESTING"]);
-    await request("POST", `/api/admin/knowledge/${created.id}/approve`, { expected_version: created.current_version });
+    await publishKnowledgeEntry(String(created.id));
     const published = await (await request("GET", `/api/knowledge/${created.id}`)).json();
     expect(published.status).toBe("published");
     expect(published.stage_codes).toEqual(["TESTING"]);

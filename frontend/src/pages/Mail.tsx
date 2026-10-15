@@ -5,7 +5,8 @@ import ComposerDock, { type ComposerSubmit, type ComposerSuggestion } from "../c
 import { storePending } from "../components/ChatBlocks";
 import { useAccount } from "../components/AuthGate";
 import { lastMailbox, navigationMailbox, rememberMailbox } from "../mail/navigation";
-import { takeComposerDraftStash } from "../composer/draft";
+import { draftKey, readDraft, writeDraft, type ComposerDraftScope } from "../composer/draft";
+import { assembleComposerText, submitFromText } from "../composer/submit";
 import { applyAddressesToText } from "../composer/addresses";
 import { useMailComposeFlow } from "../hooks/useMailComposeFlow";
 import type { ComposerDraftStash } from "../composer/types";
@@ -18,14 +19,13 @@ import { MailDigestCard } from "../mail/components/MailDigestCard";
 import { MailFold, MAIL_FOLD_KEYS, readMailFolds, writeMailFold, type MailFoldKey } from "../mail/components/MailFold";
 import { MailboxSwitcher } from "../mail/components/MailboxSwitcher";
 import { MailIcon, mailLabelTone } from "../mail/components/MailIcon";
-import { mailDraftKey, readLocalMailDraft, writeLocalMailDraft } from "../mail/localDraft";
+import { mailAnalyzeDraft, mailReplyDraft } from "../mail/draftContent";
 import type { MailLabelSuggestion, MailLabelSuggestionResponse } from "../mail/labelSuggestionTypes.js";
 import { MailLabelEditor } from "../mail/components/MailLabelEditor";
 import { useMailLabels } from "../mail/useMailLabels";
 import { MailTimelineItem, type MailReadState } from "../mail/components/MailTimelineItem";
 import { PlainText } from "../mail/components/PlainText";
 import { ActionGroup, PropertyList, RecordRow, TruncatableText } from "../components/InformationLayout";
-import { mailAnalyzeDraft, mailReplyDraft } from "../mail/composerDraft";
 import { formatMailTime } from "../mail/format";
 import { firstConversationOf, groupByPeer } from "../mail/groups";
 import { selectedConversationOf, selectedMessageOf, timelineOf } from "../mail/selection";
@@ -210,18 +210,24 @@ export default function Mail() {
   const labels = useMailLabels(account?.id || "", workspace?.box.bound && loadState === "ok" ? workspace.box.mailbox : "", labelConversation);
   useEffect(() => { setLabelFilter(""); setStageFilter(""); }, [boxParam, account?.id]);
   /** 沉浸式：阅读区 AI 提问框输入 */
-  const currentDraftKey = mailDraftKey(account?.id || "", boxParam || workspace?.box.mailbox || "", focusId || peerParam || "mailbox");
+  const mailDraftScope: ComposerDraftScope = useMemo(() => ({
+    page: "mail",
+    actor: account?.id || "",
+    mailbox: boxParam || workspace?.box.mailbox || "",
+    conversationId: focusId || peerParam || "mailbox",
+  }), [account?.id, boxParam, workspace?.box.mailbox, focusId, peerParam]);
+  const currentDraftKey = draftKey(mailDraftScope);
   const draftScopeRef = useRef(currentDraftKey);
   draftScopeRef.current = currentDraftKey;
   const saveComposerDraft = useCallback((draft: ComposerDraftStash) => {
-    writeLocalMailDraft(currentDraftKey, draft);
-  }, [currentDraftKey]);
+    writeDraft(mailDraftScope, draft);
+  }, [mailDraftScope]);
   useEffect(() => {
-    const draft = readLocalMailDraft(currentDraftKey);
+    const draft = readDraft(mailDraftScope) || { text: "", chips: [], attachments: [], object_refs: [] };
     setComposerText(draft.text);
     setLocalDraft(current => ({ version: current.version + 1, scope: currentDraftKey, draft }));
     mailCompose.clear();
-  }, [currentDraftKey]);
+  }, [mailDraftScope, currentDraftKey]);
   const requestControllers = useRef<Record<string, AbortController>>({});
   const workspaceController = useRef<AbortController | null>(null);
   const [slowThreads, setSlowThreads] = useState<Record<string, boolean>>({});
@@ -841,70 +847,75 @@ export default function Mail() {
     const submittingScope = draftScopeRef.current;
     const binding = stageChangeBinding;
     const submitScope = !binding && payload.scope ? { ...payload.scope, skills: payload.scope.skills?.filter(skill => skill !== "confirm_stage") } : payload.scope;
-    const text = binding || mailCompose.active ? question : `${question}\n\n${buildAiContext()}`;
+    const text = binding || mailCompose.active ? question : assembleComposerText(question, buildAiContext);
     const selected = selectedConversation;
     intakeCancelled.current = false;
     setBusy(true);
     setError("");
     setNotice("");
     try {
-      const recognized = await api.createTaskFromText({
+      const { created, run } = await submitFromText({
         text,
-        intent: payload.intent || payload.scope?.skills?.find(skill => mailSuggestions.some(item => item.intent === skill)) || undefined,
-        source: "text",
-        attachments: payload.attachments,
-        model_tier: payload.model_tier,
-        knowledge_id: payload.knowledge_id,
-        // 通讯页阶段变更：文本里已有 @红人，再显式带上合作绑定，
-        // 避免 handle 歧义导致 422 needs_clarification。
-        collaboration_id: payload.collaboration_id || binding?.collaboration_id,
-        entities: {
-          ...(payload.entities || {}),
-          mailbox: activeBox,
-          conversation_id: selected?.conversation_id,
-          message_id: currentMessage?.id,
-          body_fingerprint: currentMessage?.memory_fingerprint,
-          stage_code: kolStage?.stage_code || selected?.stage_code,
-          saved_label_ids: labels.data?.selected_label_ids || [],
-          mail_context_complete: Boolean(currentMessage?.body_text),
-          ...(binding
-            ? {
-                handle: binding.handle,
-                ...(binding.targetCode
-                  ? { stage_code: binding.targetCode, proposed_stage: binding.targetCode }
-                  : {}),
-              }
-            : {}),
+        createBody: {
+          intent: payload.intent || payload.scope?.skills?.find(skill => mailSuggestions.some(item => item.intent === skill)) || undefined,
+          source: "text",
+          attachments: payload.attachments,
+          model_tier: payload.model_tier,
+          knowledge_id: payload.knowledge_id,
+          // 通讯页阶段变更：文本里已有 @红人，再显式带上合作绑定，
+          // 避免 handle 歧义导致 422 needs_clarification。
+          collaboration_id: payload.collaboration_id || binding?.collaboration_id,
+          entities: {
+            ...(payload.entities || {}),
+            mailbox: activeBox,
+            conversation_id: selected?.conversation_id,
+            message_id: currentMessage?.id,
+            body_fingerprint: currentMessage?.memory_fingerprint,
+            stage_code: kolStage?.stage_code || selected?.stage_code,
+            saved_label_ids: labels.data?.selected_label_ids || [],
+            mail_context_complete: Boolean(currentMessage?.body_text),
+            ...(binding
+              ? {
+                  handle: binding.handle,
+                  ...(binding.targetCode
+                    ? { stage_code: binding.targetCode, proposed_stage: binding.targetCode }
+                    : {}),
+                }
+              : {}),
+          },
+          scope: submitScope,
+          object_refs: payload.object_refs,
+          client_entry: payload.client_entry,
+          compose_input: payload.compose_input,
         },
-        scope: submitScope,
-        object_refs: payload.object_refs,
-        client_entry: payload.client_entry,
-        compose_input: payload.compose_input,
+        shouldRun: (recognized) => {
+          const created = recognized.task;
+          if (draftScopeRef.current !== submittingScope) return false;
+          if (intakeCancelled.current) {
+            // 停止只停了本页的等待：from-text 已经落库，把结果留在屏幕上。
+            setNotice(stoppedIntakeCopy(created?.title));
+            return false;
+          }
+          if (!created?.id) {
+            setError(String(recognized.clarification || recognized.message || "无法识别这个任务，请补充后重试。"));
+            return false;
+          }
+          setNotice(`已识别任务「${created.title || "邮件任务"}」，正在提交执行。`);
+          return true;
+        },
       });
-      const created = recognized.task;
-      if (draftScopeRef.current !== submittingScope) return;
-      if (intakeCancelled.current) {
-        // 停止只停了本页的等待：from-text 已经落库，把结果留在屏幕上。
-        setNotice(stoppedIntakeCopy(created?.title));
-        return;
-      }
-      if (!created?.id) {
-        setError(String(recognized.clarification || recognized.message || "无法识别这个任务，请补充后重试。"));
-        return;
-      }
-      setNotice(`已识别任务「${created.title || "邮件任务"}」，正在提交执行。`);
-      const run = await api.runTask(created.id);
+      if (!run) return;
       if (draftScopeRef.current !== submittingScope) return;
       if (intakeCancelled.current) {
         // 任务已经在服务器开始跑：不擅自跳转，但说清它会出现的位置。
-        setNotice(`已停止等待。任务「${created.title}」已在服务器开始运行，可在「进行中」查看。`);
+        setNotice(`已停止等待。任务「${created?.title}」已在服务器开始运行，可在「进行中」查看。`);
         return;
       }
       if (!run.session_id) throw new Error("任务已接受但没有会话回执，请在进行中核对；草稿保留。");
-      writeLocalMailDraft(submittingScope, { text: "", chips: [], attachments: [] });
+      writeDraft(mailDraftScope, { text: "", chips: [], attachments: [] });
       storePending(run.session_id, {
         text,
-        intent: String(payload.intent || created.task_type || ""),
+        intent: String(payload.intent || created?.task_type || ""),
         model_tier: payload.model_tier,
       });
       nav(`/s/${run.session_id}`);
@@ -1608,9 +1619,9 @@ export default function Mail() {
               </div>
               {error ? <p className="error" role="alert" data-mail-error>{error}</p> : null}
               {notice ? <p className="muted" role="status" data-mail-notice>{notice}</p> : null}
-              <ComposerDock key={currentDraftKey} draftToken={localDraft.version} initialDraft={localDraft.scope === currentDraftKey ? localDraft.draft : readLocalMailDraft(currentDraftKey)} onDraftChange={saveComposerDraft} retainAttachmentsOnSubmit
+              <ComposerDock key={currentDraftKey} draftToken={localDraft.version} initialDraft={localDraft.scope === currentDraftKey ? localDraft.draft : (readDraft(mailDraftScope) ?? undefined)} onDraftChange={saveComposerDraft} retainAttachmentsOnSubmit draftScope={mailDraftScope}
                 variant="workspace" placement="dock" value={composerText} onChange={setComposerText}
-                onClearDraft={() => {setComposerText("");setStageTarget("");mailCompose.clear();writeLocalMailDraft(currentDraftKey,{text:"",chips:[],attachments:[]});}}
+                onClearDraft={() => {setComposerText("");setStageTarget("");mailCompose.clear();writeDraft(mailDraftScope,{text:"",chips:[],attachments:[]});}}
                 onSubmit={payload => void submitComposer(payload)} disabled={busy} running={busy} onStop={stopIntake}
                 hint={mailCompose.active ? "编辑邮件草稿，发送前仍需独立确认" : "询问当前邮件，或选择任务；Shift+Enter 换行"}
                 suggestions={mailCompose.active ? undefined : mailSuggestions} suggestionsMode="menu" onPickSuggestion={chooseMailTask}

@@ -84,7 +84,7 @@ async function rejectMailReadWrites(): Promise<void> {
     CREATE OR REPLACE FUNCTION reject_mail_read_write() RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN RAISE EXCEPTION 'mail read attempted a write to %', TG_TABLE_NAME; END $$;
   `);
-  for (const table of ["kol_mail_threads", "kol_mail_items", "app_state"]) {
+  for (const table of ["kol_mail_threads", "kol_mail_items", "kol_mail_person_memory", "app_state"]) {
     await postgresPool().query(`CREATE TRIGGER reject_${table}_write
       BEFORE INSERT OR UPDATE OR DELETE ON ${table}
       FOR EACH ROW EXECUTE FUNCTION reject_mail_read_write()`);
@@ -101,10 +101,10 @@ beforeEach(async () => {
   await insertThread("thread-b", "conversation-b", BOX_B, "Foreign mailbox");
   await insertItem({ id: "item-b", threadId: "thread-b", conversationId: "conversation-b", body: "Foreign original" });
   await postgresPool().query(
-    "INSERT INTO app_state(key,value) VALUES ($1,$2)",
-    [`mail_person_digest:${BOX_A}:peer@example.test`, JSON.stringify({
-      text: "Stored person digest", source: "body_analysis", mail_count: 2, fingerprint: "fixture", generated_at: "2026-10-12T00:00:00.000Z",
-    })],
+    `INSERT INTO kol_mail_person_memory
+      (id,mailbox,peer_email,digest_text,digest_source,mail_count,digest_fingerprint,generated_at)
+     VALUES ('person-memory-fixture',$1,'peer@example.test','Stored person digest','body_analysis',2,'fixture',$2)`,
+    [BOX_A, "2026-10-12T00:00:00.000Z"],
   );
 
   const router = operationRouter(mailOperations);

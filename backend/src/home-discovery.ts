@@ -1063,8 +1063,18 @@ async function defaultPlanRunner(input: { sessionId: string; prompt: string; ext
   return runWorker(input.sessionId, "discovery_plan", input.prompt, input.extra);
 }
 
-async function onHomeCrawlSettled(job: Row): Promise<void> {
-  const run = (await getConn().query("SELECT * FROM discovery_runs WHERE crawl_job_id=$1 AND kind=$2",[job.id,HOME_KIND])).rows[0] as Row | undefined;
+function onHomeCrawlSettled(job: Row): void {
+  // Crawl settlement subscribers are fire-and-forget in the crawl service.
+  // Register the entire continuation before its first await so callers cannot
+  // observe an empty work tracker between result ingestion and rank dispatch.
+  track(handleHomeCrawlSettled(job));
+}
+
+async function handleHomeCrawlSettled(job: Row): Promise<void> {
+  const run = (await getConn().query(
+    "SELECT * FROM discovery_runs WHERE crawl_job_id=$1 AND kind=$2",
+    [job.id, HOME_KIND],
+  )).rows[0] as Row | undefined;
   if (run) {
     const status = String(job.status);
     if (status === "result_ready") {

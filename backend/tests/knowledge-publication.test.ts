@@ -23,6 +23,7 @@ import {
 } from "../src/knowledge-publication/service.js";
 import { getDocumentDetail, startDocument, uploadDocument } from "../src/host/knowledge-documents.js";
 import { saveScope } from "../src/knowledge/scopes.js";
+import { confirmFixtureDocumentScope } from "./support/knowledge-document-scope-fixture.js";
 
 const tenant = "company:amperetime";
 type Template = { id: string; version: number; definition: ReviewDefinition };
@@ -134,24 +135,10 @@ async function nativePublication(id: string) {
 }
 
 async function checkedScope(documentId: string) {
-  const candidate = {
-    schema_version: 1,
-    summary: "本次审批资料包含产品规格和适用条件",
-    entities: [{ name: "产品规格", evidence_ids: ["original"] }],
-    topics: [{ label: "产品参数", evidence_ids: ["original"] }],
-    question_types: ["overview", "parameter_lookup"],
-    limitations: ["只覆盖本次审批原件"],
-    unverified_notes: [],
-    evidence: [{ id: "original", document_id: documentId, original_pages: [1], text: "product specs" }],
-    coverage: { status: "complete", unreadable_pages: [], catalog_completeness: "unknown" },
-  };
-  // A candidate is the persisted output of the scope-extraction job. Freeze it
-  // through saveScope, rather than inventing a checked snapshot in the test.
-  await getConn().query(
-    "INSERT INTO knowledge_document_scopes(document_id,tenant,state,scope,explanation,fingerprint,updated_at) VALUES($1,$2,'candidate',$3,$4,$5,$6)",
-    [documentId, tenant, JSON.stringify(candidate), "产品规格审批范围", "candidate-fixture", new Date().toISOString()],
-  );
-  return saveScope("sriphy", tenant, documentId, { expectedRevision: 1, checked: true, scope: candidate });
+  // Create a real candidate via the native scope job, then record an explicit human check.
+  await confirmFixtureDocumentScope(documentId, "sriphy", tenant);
+  const { scopeDetail } = await import("../src/knowledge/scopes.js");
+  return scopeDetail("sriphy", tenant, documentId);
 }
 
 async function authenticatedHeaders(actor: string) {

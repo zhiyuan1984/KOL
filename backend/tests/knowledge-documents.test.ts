@@ -5,14 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as bridge from "../src/knowledge-bridge.js";
 import { tokenDigest,withScopedUser,requireAdmin,authDisabled } from "../src/auth.js";
 import type { Hono } from "hono";
-import { getConn, resetConn,tx } from "../src/db.js";
+import { getConn, resetConn } from "../src/db.js";
 import { randomUUID } from "node:crypto";
 import { ensureOrganizationTree } from "../src/runtime/organization-tree.js";
-import { reviewContextForActor } from "../src/approval/review-access.js";
-import { ReviewService } from "../src/approval/review-service.js";
-import { knowledgeReviewDefinition } from "../../shared/review.js";
-import { bindPublication,preparePublication,guardKnowledgeReview } from "../src/knowledge/publication.js";
-import { processExecutionJobById } from "../src/execution-jobs/dispatcher.js";
+import { knowledgeReviewDefinition, type ReviewInstance } from "../../shared/review.js";
+import { decideReview } from "../src/approval/review-engine.js";
+import { postgresReviewContext } from "../src/approval/review-postgres-access.js";
+import { reviewResolver } from "../src/approval/review-resolver.js";
+import { postgresTransaction } from "../src/postgres/pool.js";
+import { executePublication, preparePublication, submitPublication } from "../src/knowledge-publication/service.js";
 import { seedAll } from "../src/seed.js";
 import { setPersona } from "../src/host/persona.js";
 import { freshTestDatabase } from "./support/pg.js";
@@ -114,19 +115,35 @@ async function auditCount(eventType: string): Promise<number> {
   return Number(row.n || 0);
 }
 
-async function approveAndPublish(id:string,base:string){
-  const context=async (actor="sriphy")=>await tx(client=>reviewContextForActor(client,actor,"company:amperetime"));
-  const definition=knowledgeReviewDefinition();definition.nodes.find(n=>n.type==="review")!.assignee={kind:"named",userIds:["pdf-reviewer"]};
-  const template=(await tx(async db=>(new ReviewService(db,(await context())).saveTemplate(undefined,undefined,definition))));
-  (await tx(async db=>{const service=new ReviewService(db,(await context())),command={action:"publish" as const,templateId:template.id,expectedVersion:template.version};
-    const prepare=(await service.prepare(command));(await service.execute(command,prepare.confirmationId,randomUUID()));}));
-  await bindPublication(base,template.id,0,(await context()));
-  const prepare=await preparePublication(id,"核对原文后发布",(await context()));await guardKnowledgeReview(prepare.command,(await context()));
-  const submit=(await tx(async db=>(await new ReviewService(db,(await context())).execute(prepare.command,prepare.confirmationId,randomUUID()))));
-  const instance=String(submit.resourceId),view=await tx(async client=>new ReviewService(client,await context("pdf-reviewer")).instance(instance));
-  const command={action:"approve" as const,instanceId:instance,expectedVersion:view.version,reason:"已核对"};await guardKnowledgeReview(command,(await context("pdf-reviewer")));
-  (await tx(async db=>{const s=new ReviewService(db,(await context("pdf-reviewer"))),p=(await s.prepare(command));(await s.execute(command,p.confirmationId,randomUUID()));}));
-  expect((await processExecutionJobById(`knowledge-publish:company:amperetime:${instance}`,"pdf-test"))?.outcome).toBe("processed");
+async function approveAndPublish(id: string, _base: string) {
+  const definition = knowledgeReviewDefinition();
+  const review = definition.nodes.find((node) => node.type === "review");
+  if (!review) throw new Error("knowledge publication definition needs a reviewer");
+  review.assignee = { kind: "named", userIds: ["pdf-reviewer"] };
+  const templateId = `pdf-native-release-${randomUUID()}`;
+  const now = new Date().toISOString();
+  await getConn().query(
+    "INSERT INTO review_templates(tenant,id,version,published_version,definition,updated_at) VALUES($1,$2,1,1,$3,$4)",
+    ["company:amperetime", templateId, JSON.stringify(definition), now],
+  );
+  await getConn().query(
+    "INSERT INTO review_versions(tenant,template_id,version,definition,published_by,published_at) VALUES($1,$2,1,$3,$4,$5)",
+    ["company:amperetime", templateId, JSON.stringify(definition), "sriphy", now],
+  );
+  const command = { templateId, templateVersion: 1, values: {}, releaseNote: "核对原文后发布" };
+  const prepared = await preparePublication("sriphy", "company:amperetime", id, command);
+  const submitted = await submitPublication("sriphy", "company:amperetime", id, command, prepared.confirmationId, randomUUID());
+  await postgresTransaction(async (db) => {
+    const row = (await db.query("SELECT payload FROM review_instances WHERE tenant=$1 AND id=$2 FOR UPDATE", ["company:amperetime", submitted.instanceId])).rows[0] as { payload?: string } | undefined;
+    if (!row?.payload) throw new Error("native review instance missing");
+    const instance = JSON.parse(row.payload) as ReviewInstance;
+    const context = await postgresReviewContext(db, "pdf-reviewer", "company:amperetime");
+    decideReview(instance, "pdf-reviewer", "approve", "已核对原件", reviewResolver(context), new Date().toISOString());
+    instance.version += 1;
+    instance.updatedAt = new Date().toISOString();
+    await db.query("UPDATE review_instances SET status=$3,payload=$4,version=$5,updated_at=$6 WHERE tenant=$1 AND id=$2", ["company:amperetime", submitted.instanceId, instance.status, JSON.stringify(instance), instance.version, instance.updatedAt]);
+  });
+  expect((await executePublication("company:amperetime", submitted.instanceId)).status).toBe("published");
 }
 
 beforeEach(async () => {
@@ -540,6 +557,20 @@ describe("knowledge documents (P1 pipeline)", () => {
     });
     expect(notPublished.status).toBe(409);
     expect(await detailCode(notPublished)).toBe("knowledge_no_published_documents");
+  });
+
+  it("rejects search without current organization evidence before invoking retrieval", async () => {
+    const base = await createUnstructuredBase();
+    const document = await upload(String(base.id), "未核验来源.pdf", pdfBytes());
+    await waitStatus(String(document.id), ["pending_review"]);
+    // The base remains readable; only the document's actor evidence is revoked.
+    await getConn().query("UPDATE knowledge_documents SET created_by=$1 WHERE id=$2", ["foreign-organization-owner", document.id]);
+    const retrieval = vi.spyOn(bridge, "runBridge");
+    const response = await request("POST", "/api/admin/knowledge/search", {
+      query: "不得检索未授权原文", base_id: base.id, include_pending: true, doc_ids: [document.id],
+    });
+    expect(response.status, await response.text()).toBe(403);
+    expect(retrieval).not.toHaveBeenCalled();
   });
 
   it("fails an index job honestly and retries from the failed stage", async () => {

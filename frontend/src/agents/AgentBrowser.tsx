@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, type EmployeeAgentBrowse, type EmployeeAgentPreference, type EmployeeAgentWorkspace } from "../api";
 import { useAccount } from "../components/AuthGate";
-import { storeComposerDraft } from "../components/ChatBlocks";
+import { storeSessionDraft } from "../composer/draft";
 import CompactButton from "../components/CompactButton";
 import WorkspaceSearchInput from "../components/WorkspaceSearchInput";
 import { BrowseDetailHeader, BrowseListRow, DetailActionBar, KnowledgeBrowseWorkspace, ListLoadFooter } from "../components/KnowledgeBrowse";
@@ -253,7 +253,7 @@ function AgentDirectory() {
 
   const enterSession = (expert: Expert, result: ExpertSummonResult, text: string) => {
     bindExpertSession(result.session_id, expert, result);
-    if (text) storeComposerDraft(result.session_id, { text });
+    if (text) storeSessionDraft(result.session_id, { text });
     nav(`/s/${result.session_id}`, { state: { expertBound: true, expert: result, ...(text ? { composerDraft: { text } } : {}) } });
   };
   const startWork = async (expert: Expert, text = draft.current, resumeId?: string) => {

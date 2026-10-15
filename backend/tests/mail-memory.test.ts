@@ -19,7 +19,7 @@ import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { freshTestDatabase } from "./support/pg.js";
 import { matchCollaboration } from "../src/starrykol/mail-fields.js";
-import { ensureFollowedMailSync, resetFollowedMailSync, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
+import { ensureFollowedMailSync as startFixtureMailSync, resetFollowedMailSync, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import { setIntentLlmFetch } from "../src/tasks/openai-intent.js";
 import { bindStarryUser } from "./helpers/starry-binding.js";
@@ -29,6 +29,14 @@ let tmp: string;
 let app: Hono;
 const calls: string[] = [];
 let listDelayMs = 0;
+
+// The production sync returns after durable index persistence and hydrates
+// bodies asynchronously. Tests that inspect bodies wait explicitly here.
+async function ensureFollowedMailSync(force: boolean): Promise<Awaited<ReturnType<typeof startFixtureMailSync>>> {
+  const result = await startFixtureMailSync(force);
+  await waitForBackgroundSync();
+  return result;
+}
 
 async function request(method: string, url: string, body?: unknown) {
   const actor = (await getConn().query("SELECT * FROM users WHERE id=$1",[DEMO_USER.id])).rows[0] as Json | undefined;
@@ -141,7 +149,7 @@ function stubStarry(extraConversations: Json[] = []): void {
 }
 
 beforeEach(async () => {
-  if (process.env.TEST_DATABASE_URL) await freshTestDatabase();
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-mail-memory-"));
   process.env.LINGONG_DB = path.join(tmp, "mail.db");
   process.env.LINGONG_DATA = tmp;
@@ -165,6 +173,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await waitForBackgroundSync();
   await closePostgresPool();
   setStarryKolClientFactory();
   setIntentLlmFetch();
@@ -279,8 +288,8 @@ describe("mailbox memory P0", () => {
     (await bindLarry());
     listDelayMs = 40;
     const [first, second] = await Promise.all([
-      (await request("POST", "/api/jobs/mail.sync/start")),
-      (await request("POST", "/api/jobs/mail.sync/start")),
+      request("POST", "/api/jobs/mail.sync/start", { box: "larry.zhao@amperetime.com" }),
+      request("POST", "/api/jobs/mail.sync/start", { box: "larry.zhao@amperetime.com" }),
     ]);
     expect(first.status).toBe(202);
     expect(second.status).toBe(202);
@@ -302,6 +311,11 @@ describe("mailbox memory P0", () => {
     expect(matchesFollowedMailbox({
       mailbox_from: "kol.lt@litime.example",
       owner_mailbox: "",
+    }, { mailbox_email: "larry.zhao@amperetime.com", owner_name: "赵良玉" })).toBe(false);
+    expect(matchesFollowedMailbox({
+      mailbox_from: "kol.lt@litime.example",
+      ownership_source_ready: true,
+      verified_owner_mailbox: "larry.zhao@amperetime.com",
     }, { mailbox_email: "larry.zhao@amperetime.com", owner_name: "赵良玉" })).toBe(true);
     expect(matchCollaboration(
       {

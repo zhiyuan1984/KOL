@@ -1,14 +1,13 @@
 import { useLocation } from "react-router-dom";
 import { useAccount } from "./AuthGate";
 import CompactButton from "./CompactButton";
-import { readWorkspaceDraft, saveWorkspaceDraft } from "../composer/taskDraft";
+import { readWorkspaceDraft, saveWorkspaceDraft, takeDraft, scopeEquals, draftScopeKey, type ComposerDraftScope, type DraftBroadcast } from "../composer/draft";
 import { fieldLabel } from "../labels";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type ComposeInput, type KnowledgeRow, type SkillTemplate } from "../api";
 import ChipRail from "../composer/ChipRail";
 import { mergeSubjectIntoText } from "../composer/addresses";
 import { expertChipLabel, isWriteSkill, labelOfSkill, type CatalogSkill } from "../composer/catalog";
-import { peekComposerDraft, takeComposerDraftStash } from "../composer/draft";
 import ModelTierControl from "../composer/ModelTierControl";
 import PlusMenu from "../composer/PlusMenu";
 import { fetchExperts, type Expert } from "../experts";
@@ -187,6 +186,7 @@ export default function ComposerDock({
   submitEmphasis = "primary",
   draftToken,
   onDraftChange,
+  draftScope,
   suggestionsMode = "inline",
   retainAttachmentsOnSubmit = false,
 }: {
@@ -237,6 +237,14 @@ export default function ComposerDock({
   submitEmphasis?: "primary" | "secondary";
   draftToken?: number;
   onDraftChange?: (draft: ComposerDraftStash) => void;
+  /**
+   * The draft scope this dock owns. Defaults to inferring from the route:
+   * `/s/*` → that session, `/mail` without a prop → no auto-read (the mail
+   * page passes its full mailbox+conversation scope), anything else → home.
+   * Broadcasts are only applied for the owned scope, so a mail draft can
+   * never pollute the background workbench composer.
+   */
+  draftScope?: ComposerDraftScope;
   suggestionsMode?: "inline" | "menu";
   retainAttachmentsOnSubmit?: boolean;
 }) {
@@ -276,6 +284,10 @@ export default function ComposerDock({
   const { account } = useAccount();
   const workspaceSessionId = location.pathname.startsWith("/s/") ? decodeURIComponent(location.pathname.slice(3))
     : location.pathname === "/" && new URLSearchParams(location.search).get("tab") === "discovery" ? new URLSearchParams(location.search).get("session_id") || "" : "";
+  const ownScope: ComposerDraftScope | null = draftScope ?? (workspaceSessionId
+    ? { page: "session", actor: account?.id || "", sessionId: workspaceSessionId }
+    : location.pathname.startsWith("/mail") ? null : { page: "home" });
+  const ownScopeKey = ownScope ? draftScopeKey(ownScope) : "";
   const [restoredObjectRefs, setRestoredObjectRefs] = useState<ComposerObjectRef[]>([]);
   const composerObjectRefs = [...objectRefs, ...restoredObjectRefs.filter(ref => !objectRefs.some(item => item.id === ref.id && item.kind === ref.kind))];
   const versionCheckingRef = useRef(false);
@@ -604,21 +616,21 @@ export default function ComposerDock({
     };
     const workspaceDraft = account?.id && workspaceSessionId ? readWorkspaceDraft(account.id,workspaceSessionId)?.draft : undefined;
     const effectiveInitialDraft = initialDraft || workspaceDraft;
-    const stashed = effectiveInitialDraft ? null : peekComposerDraft();
+    const stashed = effectiveInitialDraft || ownScope?.page !== "home" ? null : takeDraft({ page: "home" });
     if (effectiveInitialDraft) apply(effectiveInitialDraft);
     else if (stashed) {
-      apply(takeComposerDraftStash() || stashed);
+      apply(stashed);
     }
     const onDraft = (event: Event) => {
-      const draft = (event as CustomEvent<ComposerDraftStash>).detail;
-      if (draft) apply(draft);
+      const { scope, draft } = (event as CustomEvent<DraftBroadcast>).detail || {};
+      if (draft && scope && ownScope && scopeEquals(scope, ownScope)) apply(draft);
     };
     window.addEventListener(COMPOSER_DRAFT_EVENT, onDraft);
     return () => window.removeEventListener(COMPOSER_DRAFT_EVENT, onDraft);
     // Existing callers apply once. Mail can explicitly replace its local draft
     // without remounting the editor and losing attachments/menu state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftToken,workspaceSessionId,account?.id]);
+  }, [draftToken,workspaceSessionId,account?.id,ownScopeKey]);
 
   useEffect(() => {
     if (applyingDraftRef.current) { applyingDraftRef.current = false; return; }

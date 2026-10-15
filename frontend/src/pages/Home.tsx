@@ -17,15 +17,13 @@ import {
 import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
 import { clearPending, storePending, runPendingAsk } from "../components/ChatBlocks";
 import { applyAddressesToText } from "../composer/addresses";
-import { stashComposerDraft } from "../composer/draft";
+import { clearDraft, writeDraft } from "../composer/draft";
+import { assembleComposerText } from "../composer/submit";
 import type { ComposerEntryIntent, ComposerObjectRef } from "../composer/types";
 import Markdown from "../components/Markdown";
 import { starterPrompt } from "../taskStarters";
 import {
-  clearComposerFill,
-  composerFillText,
   lockedTemplateFromRow,
-  peekComposerFill,
   type LockedMailTemplate,
 } from "../knowledgeCopy";
 import { rememberJourney } from "../journey";
@@ -88,12 +86,7 @@ import { surfaceDownView, type HomeSurface } from "../home/surfaceError";
 import { sharedRead } from "../home/sharedRead";
 import { SHELL_READ_DELAY_MS } from "../home/firstPaint";
 
-import {
-  clearComposerDraft,
-  isAnalyzeEnqueuePrefill,
-  peekComposerDraft,
-  type ComposerDraftChip,
-} from "../mail/composerDraft";
+import { isAnalyzeEnqueuePrefill } from "../mail/draftContent";
 import { mailHref } from "../mail/fallback";
 import {
   ANALYZE_QUEUED_COPY,
@@ -378,30 +371,25 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
   const [followScope, setFollowScope] = useState<StarryBinding | null>(null);
   const followScopeRef = useRef<StarryBinding | null>(null);
   const [sort, setSort] = useState("priority");
-  const initialFill = sessionRoute ? null : peekComposerFill();
   const initialHomeMode = sessionRoute ? "discovery" : parseHomeMode(new URLSearchParams(window.location.search).get("tab"));
   // AI发现 tab：条件卡与提问框正文在首帧就位，不等 GET /api/home/discovery/template。
   const discoveryEntryTab = initialHomeMode === "discovery";
-  const todayEntryDefault = !initialFill && !discoveryEntryTab && initialHomeMode === "today";
-  const todoEntryDefault = !initialFill && !discoveryEntryTab && initialHomeMode === "todo";
+  const todayEntryDefault = !discoveryEntryTab && initialHomeMode === "today";
+  const todoEntryDefault = !discoveryEntryTab && initialHomeMode === "todo";
   const [text, setText] = useState(
-    initialFill
-      ? composerFillText(initialFill)
-      : discoveryEntryTab
-        ? renderDiscoveryBody(defaultDiscoveryBrief())
-        : todayEntryDefault
-          ? starterPrompt({ id: "creator_daily_tasks", title: "今日任务" })
-          : todoEntryDefault
-            ? starterPrompt({ id: "todo_plan", title: "我的待办" })
-            : "",
+    discoveryEntryTab
+      ? renderDiscoveryBody(defaultDiscoveryBrief())
+      : todayEntryDefault
+        ? starterPrompt({ id: "creator_daily_tasks", title: "今日任务" })
+        : todoEntryDefault
+          ? starterPrompt({ id: "todo_plan", title: "我的待办" })
+          : "",
   );
   const [lockedIntent, setLockedIntent] = useState<string | null>(
-    initialFill?.skill_id
-      || (discoveryEntryTab ? DISCOVERY_INTENT : todayEntryDefault ? "creator_daily_tasks" : todoEntryDefault ? "todo_plan" : null),
+    discoveryEntryTab ? DISCOVERY_INTENT : todayEntryDefault ? "creator_daily_tasks" : todoEntryDefault ? "todo_plan" : null,
   );
   const [lockedLabel, setLockedLabel] = useState<string | null>(
-    initialFill?.title
-      || (discoveryEntryTab ? DISCOVERY_LOCK_LABEL : todayEntryDefault ? "今日任务" : todoEntryDefault ? "我的待办" : null),
+    discoveryEntryTab ? DISCOVERY_LOCK_LABEL : todayEntryDefault ? "今日任务" : todoEntryDefault ? "我的待办" : null,
   );
   // 一次性快捷指令预设：只有在下一次提交时它仍然「没被动过」，才拥有这次提交。
   const [preset, setPreset] = useState<HomePreset | null>(
@@ -417,11 +405,8 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
     setLockedIntent((current) => (current === active ? null : current));
     setLockedLabel((current) => (current === PRESET_LABEL[active] ? null : current));
   };
-  const [lockedKnowledgeId, setLockedKnowledgeId] = useState<string | null>(initialFill?.id || null);
-  const [lockedTemplate, setLockedTemplate] = useState<LockedMailTemplate | null>(
-    initialFill ? lockedTemplateFromRow(initialFill) : null,
-  );
-  const [composerChips, setComposerChips] = useState<ComposerDraftChip[]>([]);
+  const [lockedKnowledgeId, setLockedKnowledgeId] = useState<string | null>(null);
+  const [lockedTemplate, setLockedTemplate] = useState<LockedMailTemplate | null>(null);
   const [analyzePeople, setAnalyzePeople] = useState<string[]>([]);
   const [enqueueNotice, setEnqueueNotice] = useState("");
   const mailCompose = useMailComposeFlow({
@@ -509,7 +494,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
       applyLockedKnowledge(null);
       setComposerFocused(true);
       setDraftFocus((value) => value + 1);
-      stashComposerDraft({
+      writeDraft({ page: "home" }, {
         text: template.body,
         intent: "discover",
         chips: [{ kind: "discovery", id: DISCOVERY_INTENT, label: DISCOVERY_LOCK_LABEL }],
@@ -532,7 +517,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
       applyLockedKnowledge(null);
       setComposerFocused(true);
       setDraftFocus((value) => value + 1);
-      stashComposerDraft({
+      writeDraft({ page: "home" }, {
         text: template.body,
         intent: "discover",
         chips: [{ kind: "discovery", id: DISCOVERY_INTENT, label: DISCOVERY_LOCK_LABEL }],
@@ -756,7 +741,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
     );
   };
   const [params, setParams] = useSearchParams();
-  const [draftFocus, setDraftFocus] = useState(initialFill ? 1 : 0);
+  const [draftFocus, setDraftFocus] = useState(0);
   const [blockSubmit, setBlockSubmit] = useState(false);
   const [err, setErr] = useState("");
   const [retryingSurface, setRetryingSurface] = useState<HomeSurface | null>(null);
@@ -779,7 +764,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
   const [recognizeStartedAt, setRecognizeStartedAt] = useState<number | null>(null);
   const [recognizeNow, setRecognizeNow] = useState(() => Date.now());
   const [panelOpen, setPanelOpen] = useState(false);
-  const [composerFocused, setComposerFocused] = useState(Boolean(initialFill));
+  const [composerFocused, setComposerFocused] = useState(false);
   const [stageScrolled, setStageScrolled] = useState(false);
   const [discoveryBrief, setDiscoveryBrief] = useState<DiscoveryBrief | null>(
     () => (discoveryEntryTab ? defaultDiscoveryBrief() : null),
@@ -798,7 +783,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
   /** 条件卡表单真值的同步副本：芯片草稿在提交同一拍写回，state 可能还没重渲染。 */
   const discoveryBriefRef = useRef<DiscoveryBrief | null>(null);
   const [entryIntent, setEntryIntent] = useState<ComposerEntryIntent>(
-    initialFill?.skill_id === DISCOVERY_INTENT || discoveryEntryTab ? "discover" : "free",
+    discoveryEntryTab ? "discover" : "free",
   );
   const [objectRefs, setObjectRefs] = useState<ComposerObjectRef[]>([]);
   const [lastDiscoverySubmit, setLastDiscoverySubmit] = useState<{
@@ -1153,51 +1138,6 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
   const [intakeRunning, setIntakeRunning] = useState(false);
   const [stopping, setStopping] = useState(false);
   const intakeCancelled = useRef(false);
-
-  useEffect(() => {
-    const stashed = peekComposerFill();
-    const kid = stashed?.id || params.get("knowledge_id");
-    if (!kid) return;
-    if (stashed) {
-      setText(composerFillText(stashed));
-      applyLockedKnowledge(stashed);
-      setComposerFocused(true);
-      setDraftFocus((value) => (value === 0 ? 1 : value));
-    }
-    void api.knowledgeItem(kid).then((row) => {
-      if (row.status && row.status !== "published") return;
-      setText(composerFillText(row));
-      applyLockedKnowledge(row);
-      setComposerFocused(true);
-      setDraftFocus((value) => value + 1);
-    }).catch(() => undefined).finally(() => {
-      clearComposerFill();
-      if (params.get("knowledge_id")) {
-        const next = new URLSearchParams(params);
-        next.delete("knowledge_id");
-        setParams(next, { replace: true });
-      }
-    });
-  }, [params, setParams]);
-
-  useEffect(() => {
-    const draft = peekComposerDraft();
-    if (!draft) return;
-    setText(draft.text);
-    setComposerChips(draft.chips);
-    setComposerFocused(true);
-    setDraftFocus((value) => value + 1);
-    if (draft.kind === "mail-reply") {
-      setLockedIntent("email_compose");
-      setLockedLabel("回复");
-      setAnalyzePeople([]);
-    } else {
-      setLockedIntent("kol-analyze-enqueue");
-      setLockedLabel("分析");
-      setAnalyzePeople(draft.kol_uids);
-    }
-    clearComposerDraft();
-  }, []);
 
   const openRun = (result: TaskRunResult) => {
     sessionStorage.setItem(`task:${result.session_id}`, result.task.id);
@@ -1623,6 +1563,36 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
     }
   };
 
+  /**
+   * Workbench realtime context (D3): only what Home actually has loaded —
+   * the selected followed KOLs, the pool selection, the selected task, the
+   * discovery brief. Missing content is marked as missing, never invented.
+   * Appended only to the from-text tail; the analyze-enqueue, discovery and
+   * exception paths keep their own payloads.
+   */
+  const buildWorkbenchContext = () => {
+    const selectedFollowed = followedWorkspace.rows.filter((row) => selectedKolIds.includes(row.id));
+    const followedLine = selectedFollowed.length
+      ? `选中红人：${selectedFollowed.map((row) => `@${row.handle}（阶段：${row.stage_label || "未知"}）`).join("，")}`
+      : "选中红人：无";
+    const poolLine = selectedPoolCards.length
+      ? `公海选中：${selectedPoolCards.map((card) => card.identity.display || card.kol_uid).join("，")}`
+      : "公海选中：无";
+    const taskLine = detailTask?.title ? `选中任务：${detailTask.title}` : "选中任务：无";
+    const brief = discoveryBrief;
+    const briefLine = brief
+      ? `AI发现条件：平台 ${brief.platforms.join("、") || "未设置"}，地区 ${brief.region || "未设置"}，方向 ${brief.directions.join("、") || "未设置"}，关键词 ${brief.keywords.join("、") || "未设置"}，粉丝 ${brief.min_followers}${brief.max_followers != null ? `–${brief.max_followers}` : "+"}，近10条最低均播 ${brief.min_avg_plays_10}，期望数量 ${brief.expect_count}`
+      : "AI发现条件：未设置";
+    return [
+      `当前页面：工作台（模式：${mode}）`,
+      followedLine,
+      poolLine,
+      taskLine,
+      briefLine,
+      "以上仅为已加载内容；未加载的不得猜测。",
+    ].join("\n");
+  };
+
   const onComposer = async (p: ComposerSubmit) => {
     const prompt = p.text.trim();
     const skillFromScope = p.scope?.skills?.[0];
@@ -1709,7 +1679,6 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
         // ▪ 只中止客户端后续动作：不调用后端取消，也不改任何服务端状态。
         if (intakeCancelled.current) return;
         if (queued.creates_session) throw new Error("分析入队不应创建会话");
-        setComposerChips([]);
         setAnalyzePeople([]);
         setLockedIntent(null);
         setLockedLabel(null);
@@ -1796,7 +1765,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
       // ambiguous request remains on the home page with an actionable card;
       // only a resolved task opens a session and starts the run.
       const recognized = await api.createTaskFromText({
-        text: intakeText,
+        text: assembleComposerText(intakeText, buildWorkbenchContext),
         task_type: intent || undefined,
         intent: intent || undefined,
         source: "text",
@@ -2449,14 +2418,12 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
           setDiscoveryBrief(null);
           discoveryBriefRef.current = null;
           setEntryIntent("free");
-          setComposerChips([]);
           setObjectRefs([]);
           setAnalyzeSurface(null);
           setAnalyzeUids([]);
           setAnalyzePeople([]);
           mailCompose.clear();
-          clearComposerDraft();
-          clearComposerFill();
+          clearDraft({ page: "home" });
         }}
         onSubmit={onComposer}
         disabled={busy || blockSubmit || (mode === "pool" && (poolAgentBusy || Boolean(poolAgent.scoreConfirm)))}
@@ -2479,7 +2446,6 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
         onDiscoveryBriefChange={onDiscoveryBriefChange}
         onOpenDiscoveryTemplate={() => void openDiscoveryTemplate()}
         onClearDiscoveryLock={clearDiscoveryLock}
-        contextChips={composerChips}
         entryIntent={entryIntent}
         objectRefs={objectRefs}
         onObjectRefsChange={setObjectRefs}

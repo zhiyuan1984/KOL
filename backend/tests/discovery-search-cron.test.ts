@@ -51,8 +51,9 @@ describe("normalizeSystemTemplate", () => {
   });
 
   it("dedup 缺省为 platform_creator_id", () => {
-    expect(normalizeSystemTemplate({}).dedup).toEqual({ dedup_by: "platform_creator_id" });
-    expect(normalizeSystemTemplate({ dedup: { dedup_by: "url" } }).dedup).toEqual({ dedup_by: "url" });
+    expect(normalizeSystemTemplate({}).dedup).toEqual({ dedup_by: "platform_creator_id", window_days: 30 });
+    expect(normalizeSystemTemplate({ dedup: { dedup_by: "url" } }).dedup).toEqual({ dedup_by: "url", window_days: 30 });
+    expect(normalizeSystemTemplate({ dedup: { window_days: 90 } }).dedup).toEqual({ dedup_by: "platform_creator_id", window_days: 90 });
   });
 });
 

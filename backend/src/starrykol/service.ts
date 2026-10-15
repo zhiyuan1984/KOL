@@ -1602,8 +1602,8 @@ async function composeNeedsInputSummary(data: Json): Promise<string> {
       String(actor.label || ""),
       owner ? `该红人负责人是 ${owner}。` : "",
       alreadyBound
-        ? "不要换收件邮箱。发件箱已经是当前绑定的 Starry 身份，不用再粘贴 JWT。"
-        : "不要换收件邮箱。到个人设置 → 连接 Starry，用该红人负责人的账号粘贴 JWT 并绑定对应发件箱后重试。",
+        ? "不要换收件邮箱。发件箱已经绑定当前 Starry 身份，无需重新提供凭证；请管理员核验该画像的跟进归属。"
+        : "不要换收件邮箱。请在个人设置 → 连接 Starry 中核对已授权账号与发件箱绑定，或请管理员核验画像归属后重试。",
     ].filter(Boolean).join("");
   }
   if (isMissingKolProfile(error)) {

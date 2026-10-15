@@ -11,6 +11,7 @@ import { starryKolMcpConfigured } from "../starrykol/connection.js";
  */
 import { Hono } from "hono";
 import { requireConnector, requireSkill, requireStageWrite, scopedUser, authDisabled, isAdmin } from "../auth.js";
+import { agentSubmissionAllowed } from "../contract-scope.js";
 import { translateDraftInternal, stubInternalZh } from "../starrykol/translate-zh.js";
 import {
   BRAND_MAILBOXES,
@@ -810,7 +811,13 @@ function employeeFailReason(error: unknown): string {
     const nested = error.payload.error as Json | undefined;
     return String(nested?.message || error.message || "需要补充信息");
   }
-  if (error instanceof HttpFail) return error.message || "请求未通过校验";
+  if (error instanceof HttpFail) {
+    const code = error.detail && typeof error.detail === "object" ? String((error.detail as Json).code || "") : "";
+    if (["runtime_agent_not_usable", "runtime_skill_unbound"].includes(code)) {
+      return "当前账号未授权使用该智能体或技能，请联系管理员核对当前绑定";
+    }
+    return error.message || "请求未通过校验";
+  }
   if (error instanceof Error) return error.message || "执行未开始";
   if (error && typeof error === "object") {
     const nested = error as Json;
@@ -2695,6 +2702,15 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
     entities: extra.entities as Json,
   };
   const skill = String(intent.skill || intent.type || "creator_discovery");
+  // Publication is an employee-submission gate, distinct from the later
+  // runtime authorization check. Do not create a context card or worker turn
+  // for an unpublished KOL Agent; platform-owned planning agents are excluded.
+  if ((await taskDefinition(skill))?.runtime_agent_id === "agent:kol" && !agentSubmissionAllowed()) {
+    throw new HttpFail(409, {
+      code: "agent_not_published",
+      message: "KOL Agent 尚未发布，员工端暂不可提交任务",
+    });
+  }
   const context = (await workerRunContext(skill, extra, text));
   if (context && context.status !== "ready") return (contextGapResponse(sid, me, intent, context));
   if (context) extra.context_resolution = context;
@@ -3782,6 +3798,22 @@ async function recognizeBoxOrAsk(
 ): Promise<Intent | null> {
   const locked = boundTask?.taskType
     || (body.intent && (await taskDefinition(String(body.intent))) ? String(body.intent) : undefined);
+  if (locked) {
+    // A catalog-filtered recognizer can return no intent for an unbound person.
+    // That is not a successful clarification: reject an explicit submission
+    // before recognition/context reads, using the same current assembly guard.
+    if ((await taskDefinition(locked))?.runtime_agent_id === "agent:kol" && !agentSubmissionAllowed()) {
+      throw new HttpFail(409, { code: "agent_not_published", message: "KOL Agent 尚未发布，员工端暂不可提交任务" });
+    }
+    const anonymousFixture = isTestRuntime() && codexMode() === "stub" && authDisabled()
+      && !scopedUser() && !body.agent_id;
+    if (!anonymousFixture) {
+      const userId = scopedUser()?.id || "";
+      const agentId = String(body.agent_id || (await sessionAgentDefault(sid, locked, userId))
+        || (await runtimeAgentForSkill(locked, userId, { employeeChoice: true })));
+      await assertRuntimeSkill({ agentId, skillId: locked, userId, runId: "submission", sessionId: sid });
+    }
+  }
   const resolution = await recognizeTaskIntent({
     text,
     agent_id: body.agent_id ? String(body.agent_id) : undefined,
@@ -3899,7 +3931,7 @@ host.post("/sessions/:sid/messages", async (c) => {
   const explicitActor = scopedUser();
   if (explicitSkill && !authDisabled() && explicitActor && !isAdmin(explicitActor)
     && !explicitActor.authority_skills?.includes(explicitSkill)) {
-    throw new HttpFail(400, "未授权该技能");
+    throw new HttpFail(403, { code: "runtime_agent_not_usable" });
   }
   // A named real submission must receive its actual Runtime rejection before
   // capability-filtered recognition can downgrade it into accepted clarification.
@@ -3985,10 +4017,14 @@ host.post("/sessions/:sid/messages", async (c) => {
   const submittingUser = scopedUser();
   if (!authDisabled() && submittingUser && !isAdmin(submittingUser)
     && (!requestedSkill || !submittingUser.authority_skills?.includes(requestedSkill))) {
-    throw new HttpFail(400, "未授权该技能");
+    throw new HttpFail(403, { code: "runtime_agent_not_usable" });
   }
-  // Historical unauthenticated stub fixtures do not execute a harness. Real or identified runs always validate the selected pair.
-  const unscopedFixture = isTestRuntime() && codexMode() === "stub" && !submittingUser && !body.agent_id;
+  // Only truly anonymous stub fixtures may avoid a harness. A logged-in employee
+  // must always resolve the current Agent→Skill assembly, even when tests use the
+  // deterministic stub worker; otherwise a revoked or absent Agent binding could
+  // submit a turn without a current authorization receipt.
+  const unscopedFixture = isTestRuntime() && codexMode() === "stub" && authDisabled()
+    && !scopedUser() && !body.agent_id;
   let selectedAgent: string | undefined;
   let agent: Awaited<ReturnType<typeof managedAgent>> | null = null;
   try {
@@ -4025,6 +4061,12 @@ host.post("/sessions/:sid/messages", async (c) => {
   const skill = intent.skill || intent.type || "creator_discovery";
   let col: Row | null = null;
   try {
+    if (startsWorker && taskDefinition(skill)?.runtime_agent_id === "agent:kol" && !agentSubmissionAllowed()) {
+      throw new HttpFail(409, {
+        code: "agent_not_published",
+        message: "KOL Agent 尚未发布，员工端暂不可提交任务",
+      });
+    }
     if (!workspace) mergeExtractedOntoIntent(intent, {
       ...(await extractTaskEntities(text)),
       ...(intent.extras.entities && typeof intent.extras.entities === "object" ? intent.extras.entities as Json : {}),

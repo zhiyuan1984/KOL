@@ -24,9 +24,21 @@ export function ReplyContextPanel({ sessionId, onAnalyze, analyzing = false }: {
       try {
         const next = await api.replyContext(sessionId);
         if (!active) return;
+        // The evidence panel is intentionally independent from the editable
+        // mail draft. If this refresh causes a render that drops browser focus,
+        // return it only when the human was still editing the draft as this
+        // response arrived; never override a deliberate focus change.
+        const draftWasFocused = document.activeElement instanceof HTMLTextAreaElement
+          && document.activeElement.matches("[data-draft-body]");
         if (revision.current && revision.current !== next.version) setChanged(true);
         revision.current = next.version;
         setContext(next); setError("");
+        if (draftWasFocused) {
+          requestAnimationFrame(() => {
+            if (!active || document.activeElement !== document.body) return;
+            document.querySelector<HTMLTextAreaElement>("[data-draft-body]")?.focus({ preventScroll: true });
+          });
+        }
       } catch (cause) {
         if (!active) return;
         const status = (cause as { status?: number }).status;

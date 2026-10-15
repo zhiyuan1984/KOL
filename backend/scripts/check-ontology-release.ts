@@ -390,55 +390,46 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const blocked: GateResult[] = [];
+  // 审批只做提醒，不阻断部署（2026-10-15 qiyou 决策，ADR-2026-10-15）：
+  // 部署时系统正在替换，审批人无法在系统里审批；部署等审批是死锁。
+  // 审批是治理留痕，不是部署前置条件。缺失审批只警告、不拦部署。
+  const unapproved: GateResult[] = [];
+  let approvalAuthorityUnavailable = false;
   try {
     for (const item of changed) {
       const approval = await matchingApproval(item.scope, item.base, item.target);
       if (approval) item.approval_id = approval.id;
       else {
-        item.reason = "缺少已消费的 PostgreSQL ontology_change 审批，或审批的 scope/base_version/target_digest 与待发布文件不完全一致";
-        blocked.push(item);
+        item.reason = "缺少已消费的 PostgreSQL ontology_change 审批，或审批的 scope/base_version/target_digest 与待发布文件不完全一致（仅提醒，不阻断部署）";
+        unapproved.push(item);
       }
     }
   } catch (error) {
-    print({
-      status: "blocked",
-      code: "ontology_approval_authority_unavailable",
-      message: "registry 已变化但无法读取 PostgreSQL 审批权威记录；不能以环境开关、SQLite 或推测 CEO 批准替代。",
-      error: error instanceof Error ? error.message : String(error),
-      base_commit: baseCommit,
-      changed_scopes: changed.map((item) => item.scope),
-    });
-    return 1;
-  }
-
-  if (blocked.length) {
-    print({
-      status: "blocked",
-      code: "ontology_change_approval_required",
-      message: "待发布 registry 变化被阻断：每个范围都必须有同真实基线、同目标内容摘要的已消费审批。",
-      base_commit: baseCommit,
-      base_source: baseSource,
-      blocked_scopes: blocked.map((item) => ({
-        scope: item.scope,
-        config_path: item.config_path,
-        required_base_version: item.base.base_version,
-        target_digest: item.target.content_digest,
-        reason: item.reason,
-      })),
-      approved_scopes: changed.filter((item) => item.approval_id).map((item) => ({ scope: item.scope, approval_id: item.approval_id })),
-    });
-    return 1;
+    approvalAuthorityUnavailable = true;
+    for (const item of changed) {
+      item.reason = `无法读取 PostgreSQL 审批权威记录（仅提醒，不阻断部署）：${error instanceof Error ? error.message : String(error)}`;
+      unapproved.push(item);
+    }
   }
 
   if (record) await recordRelease([...changed, ...unchanged], false);
   print({
     status: "pass",
-    message: "所有待发布 registry 变化均匹配 PostgreSQL 中已消费的范围、真实基线和目标内容摘要审批。",
-    receipt: { bootstrap: false, approval_not_claimed: false, ledger_recorded: record },
+    message: unapproved.length
+      ? "部署放行（审批仅提醒）：部分待发布 registry 变化缺少已消费审批，请事后补治理记录。"
+      : "所有待发布 registry 变化均匹配 PostgreSQL 中已消费的范围、真实基线和目标内容摘要审批。",
+    receipt: { bootstrap: false, approval_not_claimed: unapproved.length > 0, ledger_recorded: record },
     base_commit: baseCommit,
     base_source: baseSource,
-    approved_scopes: changed.map((item) => ({
+    approval_authority_unavailable: approvalAuthorityUnavailable,
+    unapproved_scopes: unapproved.map((item) => ({
+      scope: item.scope,
+      config_path: item.config_path,
+      required_base_version: item.base.base_version,
+      target_digest: item.target.content_digest,
+      reason: item.reason,
+    })),
+    approved_scopes: changed.filter((item) => item.approval_id).map((item) => ({
       scope: item.scope,
       approval_id: item.approval_id,
       base_version: item.base.base_version,

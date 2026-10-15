@@ -10,6 +10,7 @@ import { createAgentBinding, syncUserOrganization } from "../src/runtime/organiz
 import { setAgentSkill } from "../src/runtime/store.js";
 import { currentMemoryEmployee } from "../src/host/kol-memory.js";
 import { saveStarryBinding } from "../src/host/starry-bind.js";
+import { taskDefinition } from "../src/tasks/registry.js";
 import {
   STARRY_KOL_TASKS as EMAIL_MCP_TASKS,
   emailMcpResultCard,
@@ -23,7 +24,7 @@ import {
 import { setAgentSubmissionOverride } from "../src/contract-scope.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
-import type { Json } from "../src/types.js";
+import type { Json, Row } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
@@ -734,6 +735,7 @@ describe("Email MCP task run path", () => {
       expect(task.task_type).toBe(taskType);
       const queued = await request("POST", `/api/tasks/${task.id}/run`, {});
       expect(queued.status, `${taskType}: queue`).toBe(202);
+      const beforeCalls = calls.length;
       const executed = await request(
         "POST",
         `/api/sessions/${queued.body.session_id}/messages`,
@@ -741,7 +743,19 @@ describe("Email MCP task run path", () => {
       );
       expect(executed.status, `${taskType}: run`).toBe(200);
       const messages = executed.body.messages as Json[];
-      expect(messages.some((message) => message.kind === "task_result_card"), `${taskType}: card ${JSON.stringify(messages)}`).toBe(true);
+      if ((await taskDefinition(taskType))?.context?.requires.some((key) => key === "creator" || key === "conversation")) {
+        // A name or bare UID in prose is not current object authorization.
+        // Without an explicit authorized selection, preserve a recoverable
+        // context gap and do not start a tool turn or persist a fake result.
+        expect(executed.body.worker ?? null, `${taskType}: missing selected context`).toBeNull();
+        expect(messages.some((message) => message.kind === "supplement_card"), `${taskType}: gap`).toBe(true);
+        expect(messages.some((message) => message.kind === "task_result_card"), `${taskType}: no invented artifact`).toBe(false);
+        expect(calls.length, `${taskType}: no remote reads before scope`).toBe(beforeCalls);
+        const detail = await request("GET", `/api/tasks/${task.id}`);
+        expect((detail.body.artifacts as Json[]).some((artifact) => artifact.artifact_type === "task_result_card")).toBe(false);
+        continue;
+      }
+      expect(messages.some((message) => message.kind === "task_result_card"), `${taskType}: card`).toBe(true);
       expect((executed.body.worker as Json)?.skill).toBe(taskType);
       const detail = await request("GET", `/api/tasks/${task.id}`);
       expect((detail.body.artifacts as Json[]).some((artifact) => artifact.artifact_type === "task_result_card")).toBe(true);

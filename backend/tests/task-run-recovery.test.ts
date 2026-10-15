@@ -149,7 +149,8 @@ describe("task run lifecycle honesty", () => {
       // 撤掉 Agent 绑定：ask 必须在任何执行之前被拒绝。
       (await revokeAgentBinding(binding.id));
       const posted = await request("POST", `/api/sessions/${sessionId}/messages`, pending, cookie);
-      expect(posted.status, posted.text).toBe(400);
+      expect(posted.status, posted.text).toBe(403);
+      expect((posted.body.detail as Json).code).toBe("runtime_agent_not_usable");
       expect((await workItemStatus(taskId))).toBe("failed");
       expect((await runRow(runId)).status).toBe("failed");
       const rows = (await taskEvents(taskId));

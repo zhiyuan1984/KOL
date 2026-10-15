@@ -22,6 +22,15 @@ export const DEFAULT_DISCOVERY_THRESHOLDS = {
 export const MAX_DISCOVERY_TARGET = 80;
 export const MAX_DISCOVERY_DIRECTIONS = 8;
 
+/** Keep API-delivered initial conditions equal to the Home fallback brief. */
+export const DEFAULT_DISCOVERY_DIRECTIONS = ["portable_power"] as const;
+export const DEFAULT_DISCOVERY_KEYWORDS = [
+  "camping", "outdoor camping", "camping gear",
+  "van life", "RV travel", "RV living",
+  "portable power station", "solar generator", "energy storage",
+  "road trip",
+] as const;
+
 export type DiscoveryPlatform = (typeof DISCOVERY_PLATFORMS)[number];
 export type DiscoveryRegion = (typeof DISCOVERY_REGION_CODES)[number];
 
@@ -154,8 +163,8 @@ export async function discoveryTemplate(): Promise<Awaited<Json>> {
       brand: defaultBrand,
       region: defaultRegion,
       platforms: ["youtube"],
-      directions: [],
-      keywords: ["camping", "portable power station"],
+      directions: [...DEFAULT_DISCOVERY_DIRECTIONS],
+      keywords: [...DEFAULT_DISCOVERY_KEYWORDS],
       thresholds: { ...DEFAULT_DISCOVERY_THRESHOLDS },
     },
     employee: {

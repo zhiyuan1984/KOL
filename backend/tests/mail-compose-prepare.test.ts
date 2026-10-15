@@ -7,17 +7,16 @@ import { BRAND_MAILBOXES, DEMO_USER, PERSONAS, type Persona } from "../src/confi
 import { getConn, resetConn } from "../src/db.js";
 import { enforceSend } from "../src/host/pep.js";
 import {
-  approveKnowledge,
   archiveKnowledge,
   assertMailTemplateSnapshotApplicable,
   cite,
   createKnowledge,
   editKnowledge,
-  knowledgeRow,
 } from "../src/host/knowledge.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { publishKnowledgeEntry } from "./support/knowledge-publication-fixture.js";
 
 type Json = Record<string, unknown>;
 type Reply = { status: number; body: Json; text: string };
@@ -45,10 +44,9 @@ async function removeSeededMailTemplates(): Promise<Awaited<void>> {
   }
 }
 
-// approveKnowledge 现在强制带 expected_version（kb 的乐观并发契约），
-// 直接调用的测试助手按当前版本号审核即可。
-async function approveCurrentVersion(id: string): Promise<Awaited<void>> {
-  (await approveKnowledge(id, Number((await knowledgeRow(id)).current_version || 1)));
+/** 发布必须经过真实的独立审批；该夹具不会绕过数据库发布守卫。 */
+async function approveCurrentVersion(id: string): Promise<void> {
+  await publishKnowledgeEntry(id);
 }
 
 async function addPublishedTemplate(input: {
@@ -59,8 +57,8 @@ async function addPublishedTemplate(input: {
   subject?: string;
   body?: string;
   placeholders?: string[];
-}): Promise<Awaited<void>> {
-  (await createKnowledge({
+}): Promise<void> {
+  await createKnowledge({
     id: input.id,
     title: input.title || input.id,
     body: "template source",
@@ -73,9 +71,9 @@ async function addPublishedTemplate(input: {
     placeholders: input.placeholders || ["[红人]"],
     stage_codes: input.stages || ["INITIAL_CONTACT"],
     status: "draft",
-  }));
-  (await approveCurrentVersion(input.id));
-  (await cite(input.id));
+  });
+  await approveCurrentVersion(input.id);
+  await cite(input.id);
 }
 
 async function prepare(input: Json = {}): Promise<Reply> {
@@ -268,10 +266,10 @@ describe("POST /api/actions/mail.prepare", () => {
   });
 
   it("does not offer disabled, archived, hidden, or uncited templates", async () => {
-    const scenarios: Array<{ id: string; disable: () => void; code: string }> = [
+    const scenarios: Array<{ id: string; disable: () => Promise<void>; code: string }> = [
       {
         id: "mail_disabled",
-        disable: async () => (getConn().query("UPDATE knowledge SET in_market=0 WHERE id=$1",["mail_disabled"])),
+        disable: async () => { await getConn().query("UPDATE knowledge SET in_market=0 WHERE id=$1",["mail_disabled"]); },
         code: "knowledge_disabled",
       },
       {
@@ -281,12 +279,12 @@ describe("POST /api/actions/mail.prepare", () => {
       },
       {
         id: "mail_hidden",
-        disable: async () => (getConn().query("INSERT INTO knowledge_deprecations (user_id,knowledge_id,reason,reason_note,deprecated_at) VALUES ($1,$2,$3,$4,$5)",[DEMO_USER.id,"mail_hidden","outdated","hidden in test",new Date().toISOString()])),
+        disable: async () => { await getConn().query("INSERT INTO knowledge_deprecations (user_id,knowledge_id,reason,reason_note,deprecated_at) VALUES ($1,$2,$3,$4,$5)",[DEMO_USER.id,"mail_hidden","outdated","hidden in test",new Date().toISOString()]); },
         code: "knowledge_deprecated",
       },
       {
         id: "mail_uncited",
-        disable: async () => (getConn().query("DELETE FROM knowledge_citations WHERE user_id=$1 AND knowledge_id=$2",[DEMO_USER.id,"mail_uncited"])),
+        disable: async () => { await getConn().query("DELETE FROM knowledge_citations WHERE user_id=$1 AND knowledge_id=$2",[DEMO_USER.id,"mail_uncited"]); },
         code: "knowledge_uncited",
       },
     ];
@@ -294,7 +292,7 @@ describe("POST /api/actions/mail.prepare", () => {
     for (const scenario of scenarios) {
       (await removeSeededMailTemplates());
       (await addPublishedTemplate({ id: scenario.id }));
-      scenario.disable();
+      await scenario.disable();
       const response = await prepare({ knowledge_id: scenario.id });
       expect(response.status, `${scenario.id}: ${response.text}`).toBe(403);
       expect(detailCode(response)).toBe(scenario.code);
