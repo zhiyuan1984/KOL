@@ -143,7 +143,8 @@ export function mcpDir(): string {
 }
 
 export function frontendDist(): string {
-  return path.join(REPO_ROOT, "frontend", "dist");
+  const configured = process.env.LINGONG_FRONTEND_DIST?.trim();
+  return configured ? path.resolve(REPO_ROOT, configured) : path.join(REPO_ROOT, "frontend", "dist");
 }
 
 export function starryMode(): string {
