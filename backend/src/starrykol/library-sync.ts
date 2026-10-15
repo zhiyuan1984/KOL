@@ -98,11 +98,11 @@ function remoteStageOf(profile: Json): string | null {
   ));
 }
 
-function recordedOfficialStage(existing: Row): string {
-  return recordedOfficialStages([existing]).get(String(existing.id || "")) || "";
+async function recordedOfficialStage(existing: Row): Promise<string> {
+  return (await recordedOfficialStages([existing])).get(String(existing.id || "")) || "";
 }
 
-function recordedOfficialStages(cols: Row[]): Map<string, string> {
+async function recordedOfficialStages(cols: Row[]): Promise<Map<string, string>> {
   const recorded = new Map<string, string>();
   if (!cols.length) return recorded;
   const db = getConn();
@@ -111,16 +111,22 @@ function recordedOfficialStages(cols: Row[]): Map<string, string> {
   if (!ids.length && !lifecycleIds.length) return recorded;
 
   const transitionByCol = new Map<string, string>();
-  const idPh = ids.map(() => "?").join(",");
-  const lcPh = lifecycleIds.map(() => "?").join(",");
-  const transitionSql = lifecycleIds.length
-    ? `SELECT collaboration_id, lifecycle_id, to_stage FROM stage_transitions
-       WHERE ${ids.length ? `collaboration_id IN (${idPh}) OR ` : ""}lifecycle_id IN (${lcPh})
-       ORDER BY data_version_after DESC, occurred_at DESC`
-    : `SELECT collaboration_id, lifecycle_id, to_stage FROM stage_transitions
-       WHERE collaboration_id IN (${idPh})
-       ORDER BY data_version_after DESC, occurred_at DESC`;
-  const transitions = db.prepare(transitionSql).all(...ids, ...lifecycleIds) as Row[];
+  const transitionConditions: string[] = [];
+  const transitionParams: string[][] = [];
+  if (ids.length) {
+    transitionConditions.push("collaboration_id = ANY($1)");
+    transitionParams.push(ids);
+  }
+  if (lifecycleIds.length) {
+    transitionConditions.push(`lifecycle_id = ANY($${transitionParams.length + 1})`);
+    transitionParams.push(lifecycleIds);
+  }
+  const transitions = (await db.query(
+    `SELECT collaboration_id, lifecycle_id, to_stage FROM stage_transitions
+     WHERE ${transitionConditions.join(" OR ")}
+     ORDER BY data_version_after DESC, occurred_at DESC`,
+    transitionParams,
+  )).rows as Row[];
   for (const row of transitions) {
     for (const col of cols) {
       const key = String(col.id || "");
@@ -137,11 +143,12 @@ function recordedOfficialStages(cols: Row[]): Map<string, string> {
 
   const writeByLifecycle = new Map<string, string>();
   if (lifecycleIds.length) {
-    const writes = db.prepare(
+    const writes = (await db.query(
       `SELECT lifecycle_id, stage_code FROM starry_stage_writes
-       WHERE lifecycle_id IN (${lcPh})
+       WHERE lifecycle_id = ANY($1)
        ORDER BY ts DESC, id DESC`,
-    ).all(...lifecycleIds) as Row[];
+      [lifecycleIds],
+    )).rows as Row[];
     for (const row of writes) {
       const lc = String(row.lifecycle_id || "");
       if (lc && !writeByLifecycle.has(lc)) writeByLifecycle.set(lc, normalizeStage(String(row.stage_code || "")));
@@ -159,9 +166,9 @@ function recordedOfficialStages(cols: Row[]): Map<string, string> {
   return recorded;
 }
 
-function resolvedLocalStage(existing: Row | undefined): string {
+async function resolvedLocalStage(existing: Row | undefined): Promise<string> {
   if (!existing) return "";
-  return preferLaterMainStage(String(existing.stage_code || ""), recordedOfficialStage(existing));
+  return preferLaterMainStage(String(existing.stage_code || ""), await recordedOfficialStage(existing));
 }
 
 /** Batch official-stage restore. Mutates every supplied row sharing an id. */
@@ -176,7 +183,7 @@ export async function restoreOfficialCollaborationStages(cols: Row[]): Promise<A
     seen.add(id);
     unique.push(col);
   }
-  const recorded = recordedOfficialStages(unique);
+  const recorded = await recordedOfficialStages(unique);
   const updates: Array<{ id: string; stage: string }> = [];
   for (const col of unique) {
     const local = preferLaterMainStage(String(col.stage_code || ""), recorded.get(String(col.id)) || "");
@@ -251,7 +258,7 @@ export async function syncStarryHomeLibrary(): Promise<StarryLibrarySync> {
         const mailbox = firstString(existing?.mailbox_from, BRAND_MAILBOXES[brand]);
         const remoteStage = remoteStageOf(profile);
         const stage = mergeRemoteLibraryStage(
-          existing ? resolvedLocalStage(existing) : null,
+          existing ? await resolvedLocalStage(existing) : null,
           remoteStage,
           Number(existing?.stage_version || 0),
         );
