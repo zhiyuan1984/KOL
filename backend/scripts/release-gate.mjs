@@ -64,6 +64,8 @@ const steps = [
   { id: "registry", cwd: backend, command: process.execPath, args: ["scripts/validate-registry.mjs", "--require-all"] },
   { id: "contracts-pilot", cwd: backend, command: process.execPath, args: ["scripts/validate-contracts.mjs"] },
   { id: "design-tokens", cwd: backend, command: process.execPath, args: ["scripts/check-design-tokens.mjs"] },
+  { id: "native-health-contract", cwd: root, command: process.execPath, args: ["scripts/test-production-health.mjs"] },
+  { id: "knowledge-e2e-partition", cwd: path.join(root, "frontend"), command: process.execPath, args: ["scripts/verify-native-knowledge-partition.mjs"] },
   ...(internal ? [] : [
     { id: "contracts-production", cwd: backend, command: process.execPath, args: ["scripts/validate-contracts.mjs", "--production"] },
     { id: "tb-binding", cwd: backend, command: process.execPath, args: ["scripts/validate-tb-binding.mjs"] },
@@ -82,6 +84,25 @@ const steps = [
     args: ["run", "test:e2e"],
     timeout: e2eTimeoutMs,
     env: stubE2eEnv,
+  },
+  {
+    id: "frontend-e2e-native-knowledge",
+    cwd: path.join(root, "frontend"),
+    command: process.execPath,
+    args: ["node_modules/@playwright/test/cli.js", "test", "--config=playwright.native-knowledge.config.ts", "--workers=1", "--retries=0"],
+    timeout: e2eTimeoutMs,
+    env: {
+      ...stubE2eEnv,
+      E2E_AUTH_MODE: "enabled",
+      DATABASE_URL: process.env.RELEASE_GATE_NATIVE_E2E_DATABASE_URL || "",
+      TEST_DB_PREFIX: process.env.RELEASE_GATE_NATIVE_E2E_TEST_DB_PREFIX || "",
+      CODEX_BIN: path.join(backend, "tests", "support", "source-evidence-codex-fixture.mjs"),
+      KNOWLEDGE_ENGINE_MODE: "stub",
+      KNOWLEDGE_NORMALIZE_MODE: "stub",
+      LINGONG_DATA: path.join(root, "data-e2e-release-native"),
+      LINGONG_FRONTEND_DIST: path.join(root, "artifacts", "release-e2e-native-dist"),
+      PLAYWRIGHT_OUTPUT_DIR: path.join(root, "artifacts", "release-e2e-native-results"),
+    },
   },
 ];
 
