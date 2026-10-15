@@ -1,0 +1,150 @@
+name: Development experience execution assets
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'AGENTS.md'
+      - 'docs/AGENTS.md'
+      - 'frontend/AGENTS.md'
+      - 'backend/AGENTS.md'
+      - 'docs/governance/development-execution.md'
+      - 'config/development-task-routes.yaml'
+      - 'config/development-skill-registry.yaml'
+      - 'schemas/development-task.schema.json'
+      - 'scripts/development-*'
+      - '.agents/skills/**'
+      - '.github/workflows/development-experience.yml'
+      - 'frontend/src/admin/knowledge/**'
+      - 'frontend/src/components/ProjectTheme.tsx'
+      - 'frontend/e2e/knowledge-*-pilot*'
+      - 'frontend/e2e/fixtures/knowledge-pilot-surface.ts'
+      - 'frontend/playwright.knowledge-pilot.config.ts'
+      - 'shared/knowledge-scope.ts'
+      - 'backend/src/knowledge/**'
+      - 'backend/src/queue/execution-worker.ts'
+      - 'backend/tests/knowledge-scope*'
+      - 'backend/migrations/043_20261015_knowledge_scope_async.sql'
+  pull_request:
+    paths:
+      - 'AGENTS.md'
+      - 'docs/AGENTS.md'
+      - 'frontend/AGENTS.md'
+      - 'backend/AGENTS.md'
+      - 'docs/governance/development-execution.md'
+      - 'config/development-task-routes.yaml'
+      - 'config/development-skill-registry.yaml'
+      - 'schemas/development-task.schema.json'
+      - 'scripts/development-*'
+      - '.agents/skills/**'
+      - '.github/workflows/development-experience.yml'
+      - 'frontend/src/admin/knowledge/**'
+      - 'frontend/src/components/ProjectTheme.tsx'
+      - 'frontend/e2e/knowledge-*-pilot*'
+      - 'frontend/e2e/fixtures/knowledge-pilot-surface.ts'
+      - 'frontend/playwright.knowledge-pilot.config.ts'
+      - 'shared/knowledge-scope.ts'
+      - 'backend/src/knowledge/**'
+      - 'backend/src/queue/execution-worker.ts'
+      - 'backend/tests/knowledge-scope*'
+      - 'backend/migrations/043_20261015_knowledge_scope_async.sql'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: development-experience-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  execution-assets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # This suite constructs disposable skills and evidence. It exercises real
+      # file reads and all blocking negative paths without calling a browser or
+      # claiming that an expert has reviewed a product screen.
+      - name: Regression test the governance executor
+        run: |
+          node scripts/test-development-execution.mjs
+          node scripts/test-development-entry.mjs
+      # These two calls load the repository's actual skill packages and their
+      # declared templates/dependencies. They validate discovery assets only;
+      # they are not a release gate and cannot certify feature delivery.
+      - name: Preflight actual knowledge-processing loading bundle
+        run: |
+          node scripts/development-preflight.mjs \
+            --task-id ci-knowledge-routing \
+            --intent 'knowledge processing, async job, document preview' \
+            --path frontend/src/admin/knowledge/DocumentRail.tsx \
+            --path backend/src/knowledge/knowledge-job.ts \
+            --out "$RUNNER_TEMP/knowledge-loading"
+      - name: Preflight actual navigation loading bundle
+        run: |
+          node scripts/development-preflight.mjs \
+            --task-id ci-navigation-routing \
+            --intent navigation \
+            --path frontend/src/App.tsx \
+            --out "$RUNNER_TEMP/navigation-loading"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: development-loading-bundles
+          path: |
+            ${{ runner.temp }}/knowledge-loading
+            ${{ runner.temp }}/navigation-loading
+          if-no-files-found: ignore
+
+  knowledge-pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kol_uiux_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/kol_uiux_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install locked dependencies
+        run: |
+          npm ci --prefix frontend --no-audit --no-fund
+          npm ci --prefix backend --no-audit --no-fund
+      - name: Validate knowledge component contracts and build
+        working-directory: frontend
+        run: |
+          npm run typecheck
+          npm run test:knowledge
+          npm run build
+      - name: Validate durable handoff and real PostgreSQL progress
+        working-directory: backend
+        run: |
+          npm run typecheck
+          npm test -- tests/knowledge-scope-async.test.ts tests/knowledge-scope-concurrency.test.ts tests/knowledge-scope-contract.test.ts tests/knowledge-scope-async.postgres.integration.test.ts tests/knowledge-scope-progress.postgres.integration.test.ts
+      - name: Install Chromium for HTTP contract browser tests
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Verify knowledge processing browser workflow
+        working-directory: frontend
+        run: npx playwright test --config playwright.knowledge-pilot.config.ts --reporter=line
+      # The private original is not in Git. This CI never certifies PPTX conversion
+      # fidelity or live-model/production quality from an HTTP/model fixture.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: knowledge-pilot-browser-evidence
+          path: frontend/test-results
+          if-no-files-found: ignore

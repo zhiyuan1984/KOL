@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "kind": "task-contract",
+  "status": "draft",
+  "owner": "project-manager",
+  "requirement_refs": [
+    "CONST-04",
+    "CONST-08",
+    "CONST-10",
+    "TECH-TEST-01"
+  ],
+  "subject": {
+    "task_id": "",
+    "source_revision": ""
+  },
+  "decisions": {
+    "classification": [
+      "ui",
+      "async-job",
+      "document-preview"
+    ],
+    "protected_contracts": [
+      "原地址与资料 ID/版本不变",
+      "仅服务端允许动作",
+      "核对、审批、发布保持独立"
+    ],
+    "handoffs": [
+      "UX 状态设计 → 前端投影",
+      "后端持久作业 → 真实进展",
+      "实施提交 → 验收证据"
+    ],
+    "completion": [
+      "无相互冲突状态",
+      "无永久停刷",
+      "来源页可定位",
+      "缺证据不通过"
+    ]
+  },
+  "verification": {
+    "state": "unverified",
+    "evidence": []
+  }
+}

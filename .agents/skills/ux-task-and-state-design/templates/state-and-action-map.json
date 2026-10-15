@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "kind": "state-and-action-map",
+  "status": "draft",
+  "owner": "ui-ux",
+  "requirement_refs": [
+    "CONST-04",
+    "TECH-FE-01",
+    "TECH-FE-03",
+    "TECH-BE-03"
+  ],
+  "subject": {
+    "task_id": "",
+    "source_revision": ""
+  },
+  "decisions": {
+    "states": [
+      {
+        "fact": "job.queued",
+        "stage": "提炼排队",
+        "reason": "已保存执行请求，等待服务领取",
+        "progress": "未知时不显示百分比",
+        "next": "可离开；稍后查看"
+      },
+      {
+        "fact": "job.running",
+        "stage": "提炼执行中",
+        "reason": "依据原文生成候选范围",
+        "progress": "已完成批次/总批次",
+        "next": "等待候选，不代人核对"
+      },
+      {
+        "fact": "handoff.pending",
+        "stage": "等待提炼交接",
+        "reason": "索引完成，持久意图尚未入队",
+        "progress": "不得伪装批次开始",
+        "next": "有界刷新与后端恢复"
+      },
+      {
+        "fact": "job.uncertain",
+        "stage": "结果待核查",
+        "reason": "无法确认执行结果",
+        "progress": "保留上次事实",
+        "next": "重新查询；不自动重跑"
+      },
+      {
+        "fact": "state.candidate",
+        "stage": "候选待核对",
+        "reason": "机器提炼已结束，未人工核对",
+        "next": "核对原件与范围"
+      },
+      {
+        "fact": "read.failure",
+        "stage": "读取暂时失败",
+        "reason": "保留上次成功快照并明确可能过期",
+        "next": "重试读取；权限失败停止自动刷新"
+      }
+    ]
+  },
+  "verification": {
+    "state": "unverified",
+    "evidence": []
+  },
+  "task_id": "",
+  "summary": "",
+  "status_claims": []
+}

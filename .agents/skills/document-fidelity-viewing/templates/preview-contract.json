@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "kind": "preview-contract",
+  "status": "draft",
+  "owner": "ui-ux/frontend/backend",
+  "requirement_refs": [
+    "CONST-06",
+    "TECH-FE-02",
+    "TECH-BE-01",
+    "TECH-BE-06"
+  ],
+  "subject": {
+    "task_id": "",
+    "source_revision": ""
+  },
+  "decisions": {
+    "modes": [
+      {
+        "id": "original",
+        "label": "原件预览",
+        "source": "已有逐页 PDF /preview 或 PDF /file",
+        "fidelity": "保留原页版式；转换不是重新拼文本"
+      },
+      {
+        "id": "text",
+        "label": "提取文本",
+        "source": "text_preview.text",
+        "fidelity": "便于检索阅读，不保留原件版式"
+      }
+    ],
+    "identity": [
+      "document_id",
+      "version",
+      "original_pages"
+    ],
+    "fallbacks": [
+      "转换不可用说明",
+      "新窗口查看 PDF",
+      "查看原始 PPTX"
+    ],
+    "fixtures": [
+      "多栏幻灯片",
+      "图表与页码",
+      "中文长段落",
+      "窄屏阅读"
+    ]
+  },
+  "verification": {
+    "state": "unverified",
+    "evidence": []
+  },
+  "task_id": "",
+  "summary": "",
+  "status_claims": []
+}

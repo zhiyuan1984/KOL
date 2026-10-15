@@ -25,6 +25,16 @@
 
 旧规范全文在 `nothings/`，**不是现行法**，只在核对迁移或历史时读。已废止的 UI/UX 设计法 11 份在 `nothings/law-ui-ux/`。
 
+## 1.1 开发治理执行链
+
+涉及前端、导航、布局、文档预览、异步作业，或用户报告“等待/状态/预览”问题的开发，先按 [`docs/governance/development-execution.md`](docs/governance/development-execution.md) 运行 `scripts/development-preflight.mjs`。它必须同时接收**用户意图和实际改动路径**，实际读取所选 `SKILL.md`、模板、依赖和必读文件，再生成 `task-contract.json` 与 `loading-bundle.json` 给 Codex CLI 等开发入口。
+
+- `task-contract` 明确责任角色、适用条款、必读、技能 registry 版本与源文件哈希、所需输出和检查；不得用 YAML 的自我声明替代 loading bundle 的真实文件内容。
+- 只按路由加载适用技能；纯后端无关改动不得被迫加载整套 UI 技能。`frontend/src/admin/knowledge/**` 或 `backend/src/knowledge/**` 必须同时获得 UI、异步作业、文档保真和证据要求。
+- CLI 开发用 `scripts/development-exec.mjs ... -- codex exec -`（或其他明确指定的 stdin 开发入口）；该入口先 preflight，核对 bundle 哈希，再实际注入已加载的规则、技能与模板，留 `entry-prompt.md` 和 `entry-receipt.json`。回执只证明内容已交给 CLI，不证明模型采用了技能或实现已通过。
+- 完成前运行 `scripts/development-verify.mjs` 校验 schema、必需产物、测试证据和已加载源文件哈希。缺失、失败、`skipped`、`pending` 或状态冲突均不通过。
+- 机器验证与人工/浏览器复核分开记录：脚本只验证记录和证据文件，不得声称 UI/UX 专家已经审阅或原件保真已获人工认可。
+
 ## 2. 审宪程序（CONST-08，任何变更都要做）
 
 先审宪、再审法。审查记录至少包含：
@@ -68,6 +78,7 @@
 
 ```text
 AGENTS.md                      本文件（唯一自动加载的规范入口）
+.agents/skills/                已登记的可版本化开发技能包（按 task contract 按需加载）
 README.md                      项目说明
 docs/
   CONSTITUTION.md              宪法（十条 + 审宪程序）
@@ -82,6 +93,7 @@ docs/
   business-rules/stage-transitions.md   合法阶段转移（15 + exception）
   superpowers/                 实施计划与设计稿
   codex/                       app-server 协议 schema
+  governance/development-execution.md  开发路由、交付和验证操作说明
 nothings/                      已废止的旧规范全文（只供迁移核对）
   law-ui-ux/                   已废止的 UI/UX 设计法 11 份（原 design.md、MASTER.md、单页规范、openai-style 等）
 specs/  policies/  workflows/  config/  schemas/   规格、策略、流程、配置、契约
@@ -91,5 +103,6 @@ specs/  policies/  workflows/  config/  schemas/   规格、策略、流程、�
 
 - 后端：`backend/package.json` 的契约校验、类型检查、测试、评价与发布门禁。
 - 前端：`frontend/package.json` 的构建、类型检查与 E2E。
+- 开发执行链：`node scripts/test-development-execution.mjs` 回归路由、实际加载、产物/证据、状态冲突和 source hash 负例；按任务运行 preflight 与 verify，不把该脚本通过当作发布完成。
 - 发布门禁：`.github/workflows/release-gate.yml`。
 - 只读或记忆类功能不需要为了证明可用而发信；验证外部写入必须用明确授权的对象与范围。

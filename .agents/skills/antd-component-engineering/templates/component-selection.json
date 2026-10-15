@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "kind": "component-selection",
+  "status": "draft",
+  "owner": "frontend",
+  "requirement_refs": [
+    "TECH-ARCH-01",
+    "TECH-ARCH-04",
+    "TECH-FE-02"
+  ],
+  "subject": {
+    "task_id": "",
+    "source_revision": ""
+  },
+  "decisions": {
+    "dependency_versions": {
+      "antd": "6.6.5",
+      "@ant-design/icons": "6.3.4"
+    },
+    "reuse": [
+      {
+        "responsibility": "元数据与动作",
+        "source": "frontend/src/components/InformationLayout.tsx",
+        "exports": [
+          "PropertyList",
+          "ActionGroup"
+        ]
+      },
+      {
+        "responsibility": "搜索",
+        "source": "frontend/src/components/WorkspaceSearchInput.tsx"
+      },
+      {
+        "responsibility": "局部切换",
+        "library": "antd Tabs"
+      },
+      {
+        "responsibility": "提示和真实进度",
+        "library": "antd Alert / Progress"
+      }
+    ],
+    "theme_source": "frontend/src/styles.css",
+    "exceptions": []
+  },
+  "verification": {
+    "state": "unverified",
+    "evidence": []
+  },
+  "task_id": "",
+  "summary": "",
+  "status_claims": []
+}

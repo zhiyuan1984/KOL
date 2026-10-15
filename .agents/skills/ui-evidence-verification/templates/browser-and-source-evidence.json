@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "kind": "browser-and-source-evidence",
+  "status": "draft",
+  "owner": "test-manager/ui-ux",
+  "requirement_refs": [
+    "CONST-10",
+    "TECH-TEST-01",
+    "TECH-TEST-02",
+    "TECH-TEST-03"
+  ],
+  "subject": {
+    "task_id": "",
+    "source_revision": ""
+  },
+  "decisions": {
+    "layers": [
+      "组件状态单元",
+      "mock-browser流程与截图",
+      "PG/真实服务契约",
+      "真实原件对应页对照",
+      "UI/UX人工复核"
+    ],
+    "critical_cases": [
+      "索引→提炼入队间隙",
+      "重试与读取失败",
+      "uncertain接管",
+      "同名文档切换",
+      "候选不是已发布",
+      "窄屏无关键裁切"
+    ],
+    "evidence_records": [],
+    "unverified": [],
+    "review_questions": [
+      "哪份资料/版本？",
+      "当前阶段与等待原因？",
+      "最近真实进展？",
+      "现在/完成后该做什么？"
+    ]
+  },
+  "verification": {
+    "state": "unverified",
+    "evidence": []
+  },
+  "task_id": "",
+  "summary": "",
+  "status_claims": []
+}

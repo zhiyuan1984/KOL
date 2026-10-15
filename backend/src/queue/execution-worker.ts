@@ -5,6 +5,7 @@ import { Client, Pool } from "pg";
 import { processExecutionJobById } from "../execution-jobs/dispatcher.js";
 import { runtimeRecoverExpiredExecutionJobs } from "../execution-jobs/runtime-store.js";
 import { EXECUTION_QUEUE, ensureExecutionInfrastructure } from "./outbox-publisher.js";
+import { recoverPendingScopeHandoffs } from "../knowledge/scopes.js";
 
 function required(name: string, value: string | undefined): string {
   if (!value?.trim()) throw new Error(`${name} is required for PostgreSQL/BullMQ execution`);
@@ -51,6 +52,15 @@ export async function runBullMqExecutionWorker(options: { workerId?: string; con
   const stop = () => { stopping = true; };
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
+  let repairingScope = false;
+  const repairScope = async () => {
+    if (repairingScope || stopping) return;
+    repairingScope = true;
+    try { await recoverPendingScopeHandoffs(); }
+    catch (error) { console.error("[execution-worker] scope handoff recovery failed", error); }
+    finally { repairingScope = false; }
+  };
+  await repairScope();
   const tick = setInterval(() => {
     void heartbeat(client, { id: workerId, status: "running", details: { concurrency, queue: EXECUTION_QUEUE } }).catch((error) => {
       console.error("[execution-worker] heartbeat failed", error);
@@ -60,6 +70,7 @@ export async function runBullMqExecutionWorker(options: { workerId?: string; con
     }).catch((error) => {
       console.error("[execution-worker] lease recovery failed", error);
     });
+    void repairScope();
   }, Math.max(5_000, Number(process.env.EXECUTION_HEARTBEAT_MS || 15_000)));
   tick.unref();
   console.log(`[execution-worker] started ${workerId} (postgres + BullMQ, concurrency=${concurrency}, lease_ms=${leaseMs})`);
