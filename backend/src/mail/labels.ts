@@ -15,6 +15,7 @@ import {
   type MailLabelSuggestionReceipt,
   type MailLabelSuggestionReceiptCandidate,
 } from "./label-suggestions.js";
+import { resolveLabelPeerEmail } from "./label-peer.js";
 
 const MEMORY = {
   entry: "memory" as const,
@@ -34,7 +35,8 @@ const COMMAND = {
 
 type Actor = { id: string; active: boolean };
 type Label = { id: string; name: string; count: number };
-type Assignment = { conversation_id: string; label_ids: string[] };
+/** 标签跟人走：指派键是对方邮箱 peer_email，同一对方的多会话共享同一组标签。 */
+type Assignment = { peer_email: string; label_ids: string[] };
 type LabelsEnvelope = {
   mailbox: string;
   labels: Label[];
@@ -168,46 +170,46 @@ async function labelEnvelope(
 ): Promise<LabelsEnvelope> {
   await assertMailboxBound(client, actor.id, mailbox);
   if (selectedConversationId) await assertConversationAccessible(client, mailbox, selectedConversationId);
+  // 选中会话只用来定位“对方”；信封的 selected 是该对方的标签（跨会话共享）。
+  const selectedPeerEmail = selectedConversationId
+    ? await resolveLabelPeerEmail(client, mailbox, selectedConversationId)
+    : "";
 
   const versionResult = await client.query<{ version: number }>(
     "SELECT version FROM mail_private_label_states WHERE user_id=$1 AND mailbox=$2",
     [actor.id, mailbox],
   );
   const labelsResult = await client.query<{ id: string; name: string; count: number | string }>(
-    `SELECT l.id, l.name, COUNT(DISTINCT t.conversation_id)::int AS count
+    `SELECT l.id, l.name, COUNT(DISTINCT a.peer_email)::int AS count
        FROM mail_private_labels l
        LEFT JOIN mail_private_label_assignments a
          ON a.user_id=l.user_id AND a.mailbox=l.mailbox AND a.label_id=l.id
-       LEFT JOIN kol_mail_threads t
-         ON t.conversation_id=a.conversation_id AND lower(t.mailbox)=lower(l.mailbox)
        WHERE l.user_id=$1 AND l.mailbox=$2
        GROUP BY l.id, l.name, l.normalized_name
        ORDER BY l.normalized_name, l.id`,
     [actor.id, mailbox],
   );
-  const assignmentsResult = await client.query<{ conversation_id: string; label_ids: string[] }>(
-    `SELECT a.conversation_id, array_agg(a.label_id ORDER BY l.normalized_name, l.id) AS label_ids
+  const assignmentsResult = await client.query<{ peer_email: string; label_ids: string[] }>(
+    `SELECT a.peer_email, array_agg(a.label_id ORDER BY l.normalized_name, l.id) AS label_ids
        FROM mail_private_label_assignments a
        JOIN mail_private_labels l
          ON l.id=a.label_id AND l.user_id=a.user_id AND l.mailbox=a.mailbox
-       JOIN kol_mail_threads t
-         ON t.conversation_id=a.conversation_id AND lower(t.mailbox)=lower(a.mailbox)
        WHERE a.user_id=$1 AND a.mailbox=$2
-       GROUP BY a.conversation_id
-       ORDER BY a.conversation_id`,
+       GROUP BY a.peer_email
+       ORDER BY a.peer_email`,
     [actor.id, mailbox],
   );
 
   const assignments = assignmentsResult.rows.map((row) => ({
-    conversation_id: String(row.conversation_id),
+    peer_email: String(row.peer_email),
     label_ids: Array.isArray(row.label_ids) ? row.label_ids.map(String) : [],
   }));
   return {
     mailbox,
     labels: labelsResult.rows.map((row) => ({ id: String(row.id), name: String(row.name), count: Number(row.count || 0) })),
     assignments,
-    selected_label_ids: selectedConversationId
-      ? (assignments.find((row) => row.conversation_id === selectedConversationId)?.label_ids || [])
+    selected_label_ids: selectedPeerEmail
+      ? (assignments.find((row) => row.peer_email === selectedPeerEmail)?.label_ids || [])
       : [],
     version: Number(versionResult.rows[0]?.version || 0),
   };
@@ -371,21 +373,23 @@ async function applyLabelAction(input: LabelInput): Promise<LabelsEnvelope> {
     const scopedLabel = receiptCandidate
       ? await selectReceiptCandidateLabel(client, actor.id, mailbox, receiptCandidate.candidate)
       : await selectScopedLabel(client, actor.id, mailbox, selector!, mode);
+    // 打标对象是会话的对方（peer_email），不是会话本身：同一对方多会话共享标签。
+    const peerEmail = await resolveLabelPeerEmail(client, mailbox, conversationId);
     let changed = false;
     if (scopedLabel && mode === "add") {
       const inserted = await client.query(
         `INSERT INTO mail_private_label_assignments
-         (user_id,mailbox,conversation_id,label_id,assigned_at,assigned_by)
+         (user_id,mailbox,peer_email,label_id,assigned_at,assigned_by)
          VALUES ($1,$2,$3,$4,now(),$1)
-         ON CONFLICT (user_id,mailbox,conversation_id,label_id) DO NOTHING`,
-        [actor.id, mailbox, conversationId, scopedLabel.id],
+         ON CONFLICT (user_id,mailbox,peer_email,label_id) DO NOTHING`,
+        [actor.id, mailbox, peerEmail, scopedLabel.id],
       );
       changed = inserted.rowCount === 1;
     } else if (scopedLabel && mode === "remove") {
       const removed = await client.query(
         `DELETE FROM mail_private_label_assignments
-         WHERE user_id=$1 AND mailbox=$2 AND conversation_id=$3 AND label_id=$4`,
-        [actor.id, mailbox, conversationId, scopedLabel.id],
+         WHERE user_id=$1 AND mailbox=$2 AND peer_email=$3 AND label_id=$4`,
+        [actor.id, mailbox, peerEmail, scopedLabel.id],
       );
       changed = removed.rowCount === 1;
     }
@@ -413,6 +417,7 @@ async function applyLabelAction(input: LabelInput): Promise<LabelsEnvelope> {
             actor_id: actor.id,
             mailbox,
             conversation_id: conversationId,
+            peer_email: peerEmail,
             label_id: scopedLabel?.id || null,
             version_before: actual,
             version_after: next,

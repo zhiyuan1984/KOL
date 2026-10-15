@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import type { AppUser } from "../src/auth.js";
@@ -23,10 +22,6 @@ const BOX_A = "operator-a@example.test";
 const BOX_B = "operator-b@example.test";
 const CONVERSATION_A = "label-suggestions-conversation-a";
 const CONVERSATION_B = "label-suggestions-conversation-b";
-const migrationSql = fs.readFileSync(
-  new URL("../migrations/035_20261012_mail_private_labels.sql", import.meta.url),
-  "utf8",
-);
 
 let app: Hono;
 let calls: LabelSuggestionHarnessInput[];
@@ -91,8 +86,8 @@ async function bind(userId: string, mailbox: string, isDefault = true): Promise<
 async function thread(conversationId = CONVERSATION_A, mailbox = BOX_A): Promise<void> {
   const suffix = `${conversationId}-${mailbox}`.replace(/[^a-z0-9]+/gi, "-");
   await postgresPool().query(
-    `INSERT INTO kol_mail_threads(id,conversation_id,mailbox,subject,digest_text,digest_source,digest_fingerprint,created_at,last_at,updated_at)
-     VALUES ($1,$2,$3,'Price and timing','Stored summary: the creator asked for a rate card.','codex_memory',$4,now(),now(),now())`,
+    `INSERT INTO kol_mail_threads(id,conversation_id,mailbox,subject,digest_text,digest_source,digest_fingerprint,peer_email,created_at,last_at,updated_at)
+     VALUES ($1,$2,$3,'Price and timing','Stored summary: the creator asked for a rate card.','codex_memory',$4,'peer-a@example.test',now(),now(),now())`,
     [`thread-${suffix}`, conversationId, mailbox, `thread-fingerprint-${suffix}`],
   );
   await postgresPool().query(
@@ -178,11 +173,11 @@ async function clearDictionary(): Promise<void> {
   );
 }
 
-async function assignmentCount(userId = ACTOR_A.id, mailbox = BOX_A, conversationId = CONVERSATION_A): Promise<number> {
+async function assignmentCount(userId = ACTOR_A.id, mailbox = BOX_A, peerEmail = "peer-a@example.test"): Promise<number> {
   const result = await postgresPool().query<{ n: string }>(
     `SELECT count(*)::int AS n FROM mail_private_label_assignments
-     WHERE user_id=$1 AND mailbox=$2 AND conversation_id=$3`,
-    [userId, mailbox, conversationId],
+     WHERE user_id=$1 AND mailbox=$2 AND peer_email=$3`,
+    [userId, mailbox, peerEmail],
   );
   return Number(result.rows[0]?.n || 0);
 }
@@ -220,8 +215,9 @@ function candidateConfirm(receiptId: string, candidateId: string, input: Record<
 
 beforeEach(async () => {
   await freshTestDatabase();
-  (await resetConn());
-  await postgresPool().query(migrationSql);
+  await resetConn();
+  // freshTestDatabase applies the complete formal native manifest, including
+  // the already-deployed peer assignment schema; never replay obsolete 035 SQL.
   await ensureUser(ACTOR_A);
   (await seedCurrentAgentEligibility(ACTOR_A));
   await bind(ACTOR_A.id, BOX_A);
