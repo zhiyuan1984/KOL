@@ -244,15 +244,21 @@ function parsePresentation(values: Record<string, unknown>, file: string): Pick<
 
 /**
  * 内置技能的展示字段可在管理端经「草稿 → 发布」覆盖；运行契约（工具、必填、权限）仍随代码发布。
- * 覆盖来源由 Host 注册（读库），注册前或读取失败时不覆盖——注册表本身不触碰数据库。
+ * 覆盖来源由 Host 注册（读库）。注册表本身不触碰数据库；已注册来源读取失败必须如实失败，不能静默省略覆盖。
  */
 export const PRESENTATION_OVERLAY_FIELDS = ["icon", "badge", "starter", "result_title", "category", "funnel", "aliases", "next_actions"] as const;
 export type PresentationOverlay = Partial<Pick<TaskDefinition, (typeof PRESENTATION_OVERLAY_FIELDS)[number]>>;
-let presentationOverlaySource: (() => ReadonlyMap<string, PresentationOverlay>) | null = null;
+/**
+ * Presentation overrides are persisted in PostgreSQL.  The registry deliberately
+ * accepts a promise-returning source so callers cannot accidentally use a pending
+ * database read as a map.
+ */
+export type PresentationOverlaySource = () => ReadonlyMap<string, PresentationOverlay> | Promise<ReadonlyMap<string, PresentationOverlay>>;
+let presentationOverlaySource: PresentationOverlaySource | null = null;
 
-export function setPresentationOverlaySource(source: (() => ReadonlyMap<string, PresentationOverlay>) | null): void {
+export function setPresentationOverlaySource(source: PresentationOverlaySource | null): void {
   presentationOverlaySource = source;
-  cached = null;
+  clearTaskRegistryCache();
 }
 
 function withPresentationOverlay(definition: TaskDefinition, overlays: ReadonlyMap<string, PresentationOverlay>): TaskDefinition {
@@ -799,18 +805,29 @@ function combinedSkillFiles(): { folder: string; file: string; stamp: string; so
   return [...bundled, ...published].sort((a, b) => a.folder.localeCompare(b.folder));
 }
 
-export function taskDefinitions(root?: string): readonly TaskDefinition[] {
+let registryCacheGeneration = 0;
+
+/**
+ * Load the filesystem definitions and the PostgreSQL presentation overlay as one
+ * asynchronous contract.  The returned frozen array is a fully loaded snapshot;
+ * consumers may do purely synchronous filtering/mapping only after awaiting it.
+ * A failed overlay read is intentionally observable rather than being converted
+ * into an empty overlay, which could make disabled or revoked presentation state
+ * appear valid.
+ */
+export async function taskDefinitions(root?: string): Promise<readonly TaskDefinition[]> {
   const usingDefault = root === undefined || root === skillsDir();
   const files = usingDefault
     ? combinedSkillFiles()
     : skillFiles(root).map((entry) => ({ ...entry, source: "bundled" as const }));
   const signature = files.map((entry) => `${entry.source}:${entry.stamp}`).join("|");
   if (usingDefault && cached?.signature === signature) return cached.definitions;
+
+  const generation = registryCacheGeneration;
   const parsed = files.map((entry) => parseDefinition(entry.file, entry.folder, entry.source));
-  let overlays: ReadonlyMap<string, PresentationOverlay> = new Map();
-  if (usingDefault && presentationOverlaySource) {
-    try { overlays = presentationOverlaySource(); } catch { overlays = new Map(); }
-  }
+  const overlays = usingDefault && presentationOverlaySource
+    ? await presentationOverlaySource()
+    : new Map<string, PresentationOverlay>();
   const definitions = parsed.map((definition) => withPresentationOverlay(definition, overlays));
   const ids = new Set<string>();
   for (const definition of definitions) {
@@ -818,20 +835,22 @@ export function taskDefinitions(root?: string): readonly TaskDefinition[] {
     ids.add(definition.id);
   }
   const frozen = Object.freeze(definitions);
-  if (usingDefault) cached = { signature, definitions: frozen };
+  // Do not let a read that began before a publish/invalidation repopulate cache.
+  if (usingDefault && generation === registryCacheGeneration) cached = { signature, definitions: frozen };
   return frozen;
 }
 
-export function taskDefinition(id: string): TaskDefinition | undefined {
-  return taskDefinitions().find((definition) => definition.id === id);
+export async function taskDefinition(id: string): Promise<TaskDefinition | undefined> {
+  return (await taskDefinitions()).find((definition) => definition.id === id);
 }
 
-export function requireTaskDefinition(id: string): TaskDefinition {
-  const definition = taskDefinition(id);
+export async function requireTaskDefinition(id: string): Promise<TaskDefinition> {
+  const definition = await taskDefinition(id);
   if (!definition) throw new Error(`unknown task type: ${id}`);
   return definition;
 }
 
 export function clearTaskRegistryCache(): void {
+  registryCacheGeneration += 1;
   cached = null;
 }

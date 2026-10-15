@@ -16,21 +16,33 @@ import {
 } from "../tasks/registry.js";
 import { HttpFail } from "./errors.js";
 
-let ensured: unknown = null;
+let ensured: { db: ReturnType<typeof getConn>; verification: Promise<void> } | null = null;
 
-function ensureTable(): void {
+/**
+ * This is intentionally read-only.  `skill_presentation_overlays` belongs to
+ * the formal PostgreSQL schema/migration; host request handling must never make
+ * schema changes.  The zero-row projection validates both the relation and its
+ * required columns before any read or write is attempted.
+ */
+async function ensureTable(): Promise<void> {
   const db = getConn();
-  if (ensured === db) return;
-  db.exec(`CREATE TABLE IF NOT EXISTS skill_presentation_overlays (
-    skill_id TEXT PRIMARY KEY,
-    payload TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  )`);
-  ensured = db;
+  if (ensured?.db === db) return ensured.verification;
+  const verification = db.query(
+    "SELECT skill_id,payload,updated_at FROM skill_presentation_overlays WHERE FALSE",
+    [],
+  ).then(() => undefined);
+  ensured = { db, verification };
+  try {
+    await verification;
+  } catch (error) {
+    if (ensured?.verification === verification) ensured = null;
+    const detail = error instanceof Error ? `: ${error.message}` : "";
+    throw new Error(`required PostgreSQL schema skill_presentation_overlays is unavailable; apply the formal migration${detail}`);
+  }
 }
 
 export async function readPresentationOverlays(): Promise<Awaited<ReadonlyMap<string, PresentationOverlay>>> {
-  ensureTable();
+  await ensureTable();
   const rows = (await getConn().query("SELECT skill_id,payload FROM skill_presentation_overlays",[])).rows as { skill_id: string; payload: string }[];
   const out = new Map<string, PresentationOverlay>();
   for (const row of rows) {
@@ -83,7 +95,7 @@ export function normalizePresentationPatch(skillId: string, patch: Record<string
 }
 
 export async function savePresentationOverlay(skillId: string, overlay: PresentationOverlay): Promise<Awaited<void>> {
-  ensureTable();
+  await ensureTable();
   const current = (await readPresentationOverlays()).get(skillId) || {};
   const next = { ...current, ...overlay };
   (await getConn().query("INSERT INTO skill_presentation_overlays (skill_id,payload,updated_at) VALUES ($1,$2,$3)\n     ON CONFLICT(skill_id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at",[skillId,JSON.stringify(next),nowIso()]));
