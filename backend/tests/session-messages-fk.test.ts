@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { databaseEngine, getConn, isForeignKeyError, resetConn } from "../src/db.js";
+import { getConn, isForeignKeyError, resetConn } from "../src/db.js";
 import { HttpFail } from "../src/host/errors.js";
 import { ingestKolMail } from "../src/host/kol-journey.js";
 import { insertSessionMessage, isSessionNotFound } from "../src/host/session-messages.js";
@@ -36,9 +36,8 @@ async function rawInsertMessage(sid: string): Promise<Awaited<void>> {
 }
 
 beforeEach(async () => {
-  if (process.env.TEST_DATABASE_URL) await freshTestDatabase();
+  await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-msg-fk-"));
-  process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   (await resetConn());
@@ -55,14 +54,6 @@ afterEach(async () => {
 
 describe("messages.session_id foreign key", () => {
   it("raw INSERT still enforces FK when session_id is missing", async () => {
-    if (databaseEngine() === "sqlite") {
-      const fk = getConn().pragma("foreign_keys");
-      const enabled = Array.isArray(fk)
-        ? fk.some((row) => Number((row as { foreign_keys?: number }).foreign_keys ?? Object.values(row as object)[0]) === 1)
-        : Number(fk) === 1 || String(fk).includes("1");
-      expect(enabled, "foreign_keys must stay ON").toBe(true);
-    }
-
     let thrown: unknown;
     try {
       (await rawInsertMessage("ses_does_not_exist"));

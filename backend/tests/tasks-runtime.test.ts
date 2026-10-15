@@ -32,7 +32,6 @@ async function request(method: string, url: string, body?: unknown) {
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-tasks-"));
-  process.env.LINGONG_DB = path.join(tmp, "tasks.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   (await resetConn());

@@ -10,10 +10,10 @@ import { HOME_ENTRY_REGISTRY } from "../src/host/entry-registry.js";
 import { HOME_ENTRY_REGISTRY as FRONTEND_HOME_ENTRY_REGISTRY } from "../../frontend/src/home/entryRegistry.js";
 import { collectSourceCatalog, packTodayPlanContext, planningHarnessMount } from "../src/host/today-plan-context.js";
 import * as todayPlanContext from "../src/host/today-plan-context.js";
-import { validateTodayBrief, writeTodayBriefArtifact, runningTodayPlan, failStuckPlans } from "../src/host/today-brief.js";
-import { PLAN_EMPLOYEE_EVENTS, todayBriefSnapshot, executeClaimedPlanningJob, executeTodayPlanRun } from "../src/host/today-plan-run.js";
+import { validateTodayBrief } from "../src/host/today-brief.js";
+import { PLAN_EMPLOYEE_EVENTS, todayBriefSnapshot, failStuckPlans } from "../src/host/today-plan-run.js";
 import { processExecutionJobById } from "../src/execution-jobs/dispatcher.js";
-import { runtimeClaimExecutionJobById } from "../src/execution-jobs/runtime-store.js";
+import { startNativeTodayPlan } from "../src/postgres/today-plan-repository.js";
 import type { WorkerResult } from "../src/types.js";
 import { taskDefinition } from "../src/tasks/registry.js";
 import * as recognize from "../src/tasks/recognize.js";
@@ -27,11 +27,11 @@ import { freshTestDatabase } from "./support/pg.js";
 let tmp: string;
 let app: Hono;
 
-// Test the retained adapter explicitly; the compatibility worker dispatches it.
-async function executeRetiredPlanningAdapter(id: string, workerId: string) {
-  const claimed = await runtimeClaimExecutionJobById(id, workerId);
-  expect(claimed).toBeTruthy();
-  return executeClaimedPlanningJob(claimed!);
+// Execute via the durable PostgreSQL claim/dispatch path, never the retired adapter.
+async function executePersistedPlanningJob(id: string, workerId: string) {
+  const result = await processExecutionJobById(id, workerId);
+  expect(result).toBeTruthy();
+  return result!;
 }
 
 async function request(method: string, url: string, body?: unknown) {
@@ -87,10 +87,31 @@ function validBrief(overrides: Json = {}): Json {
   };
 }
 
+function modelBrief(brief: Json, workItemIds: string[] = []): Json {
+  return {
+    ...brief,
+    type: "today_brief",
+    display_tasks: workItemIds.map((work_item_id, index) => ({ work_item_id, rank: index + 1, why: "已纳入本轮计划" })),
+  };
+}
+
+async function executePlanWithWorkerBrief(scope: "today" | "todo", brief: Json) {
+  const run = vi.spyOn(runner, "runWorker").mockResolvedValueOnce({
+    worker_id: "stub",
+    status: "completed",
+    skill: "today_plan",
+    contract_log: [],
+    items: [brief],
+  });
+  const plan = await request("POST", `/api/home/${scope}-brief/plan`);
+  expect([200, 202]).toContain(plan.status);
+  const dispatched = await executePersistedPlanningJob(String(plan.body.execution_job_id), `native-${scope}-worker`);
+  return { plan, dispatched, run };
+}
+
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-today-plan-"));
-  process.env.LINGONG_DB = path.join(tmp, "today.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
   process.env.PLANNING_FAST_MODE = "0";
@@ -251,44 +272,34 @@ describe("today_plan harness", () => {
     expect(todo.plan.task_type).toBe("today_plan");
   });
 
-  it("rejects missing sections or batch follow and keeps the old brief", async () => {
-    (await insertWorkItem({ id: "tsk_y", title: "昨日未完成报价" }));
-    const first = (await writeTodayBriefArtifact({
-      owner: owner(),
-      workItemId: "tsk_y",
-      runId: null,
-      brief: validBrief(),
-    }));
-    expect(first.ok).toBe(true);
+  it("rejects missing sections or batch follow and keeps the prior native brief", async () => {
+    await insertWorkItem({ id: "tsk_y", title: "昨日未完成报价" });
+    const first = await executePlanWithWorkerBrief("today", modelBrief(validBrief(), ["tsk_y"]));
+    expect(first.dispatched).toMatchObject({ handled: true, outcome: "processed" });
+    const firstSnapshot = await todayBriefSnapshot(owner());
+    const firstArtifactId = String(firstSnapshot.plan_id);
+    expect(firstArtifactId).toBeTruthy();
+
     const missing = validateTodayBrief({ primary: { verb: "open" } });
     expect(missing.ok).toBe(false);
     if (missing.ok) throw new Error("expected missing to be invalid");
     expect(String(missing.reason)).toMatch(/sections/);
-    const keptMissing = (await writeTodayBriefArtifact({
-      owner: owner(),
-      workItemId: "tsk_y",
-      runId: null,
-      brief: { lead: "x", primary: { verb: "open" } },
-    }));
-    expect(keptMissing.ok).toBe(false);
+    const keptMissing = await executePlanWithWorkerBrief("today", modelBrief({ lead: "x", primary: { verb: "open" } }, ["tsk_y"]));
+    expect(keptMissing.dispatched).toMatchObject({ handled: true, outcome: "failed" });
+
     const follow = validateTodayBrief(validBrief({
       primary: { verb: "follow", label: "加入跟进", object_id: "discovery:b1", object_type: "batch", person_id: null },
     }));
     expect(follow.ok).toBe(false);
     if (follow.ok) throw new Error("expected follow to be invalid");
     expect(String(follow.reason)).toMatch(/follow/);
-    const keptFollow = (await writeTodayBriefArtifact({
-      owner: owner(),
-      workItemId: "tsk_y",
-      runId: null,
-      brief: validBrief({
-        primary: { verb: "follow", label: "加入跟进", object_id: "discovery:b1", object_type: "batch", person_id: null },
-      }),
-    }));
-    expect(keptFollow.ok).toBe(false);
-    if (keptFollow.ok === false) expect(keptFollow.kept_artifact_id).toBe(first.ok ? first.artifact_id : null);
-    const pointer = (await getConn().query("SELECT artifact_id FROM employee_today_briefs WHERE owner_user_id=$1",[owner()])).rows[0] as { artifact_id: string };
-    expect(first.ok && pointer.artifact_id).toBe(first.ok ? first.artifact_id : pointer.artifact_id);
+    const keptFollow = await executePlanWithWorkerBrief("today", modelBrief(validBrief({
+      primary: { verb: "follow", label: "加入跟进", object_id: "discovery:b1", object_type: "batch", person_id: null },
+    }), ["tsk_y"]));
+    expect(keptFollow.dispatched).toMatchObject({ handled: true, outcome: "failed" });
+
+    const pointer = (await getConn().query("SELECT artifact_id FROM employee_today_briefs WHERE owner_user_id=$1", [owner()])).rows[0] as { artifact_id: string };
+    expect(pointer.artifact_id).toBe(firstArtifactId);
   });
 
   it("packs IG fail + YT empty batches and allows retry_crawl but not follow", async () => {
@@ -315,19 +326,15 @@ describe("today_plan harness", () => {
   });
 
   it("keeps yesterday unfinished tasks in history when delta is empty", async () => {
-    (await insertWorkItem({ id: "tsk_yesterday", title: "昨日未完成报价" }));
-    const first = (await packTodayPlanContext(owner()));
+    await insertWorkItem({ id: "tsk_yesterday", title: "昨日未完成报价" });
+    const first = await packTodayPlanContext(owner());
     expect(first.history.unfinished_tasks.some((item) => item.work_item_id === "tsk_yesterday")).toBe(true);
-    (await writeTodayBriefArtifact({
-      owner: owner(),
-      workItemId: "tsk_yesterday",
-      runId: null,
-      brief: validBrief({
-        source_cursor: first.source_cursor,
-        todo_layout: [{ work_item_id: "tsk_yesterday", rank: 1, why: "昨日未完成" }],
-      }),
-    }));
-    const second = (await packTodayPlanContext(owner()));
+    const planned = await executePlanWithWorkerBrief("today", modelBrief(validBrief({
+      source_cursor: first.source_cursor,
+      todo_layout: [{ work_item_id: "tsk_yesterday", rank: 1, why: "昨日未完成" }],
+    }), ["tsk_yesterday"]));
+    expect(planned.dispatched).toMatchObject({ handled: true, outcome: "processed" });
+    const second = await packTodayPlanContext(owner());
     expect(second.delta.added).toEqual([]);
     expect(second.history.unfinished_tasks.some((item) => item.work_item_id === "tsk_yesterday")).toBe(true);
     expect(second.now_counts.unfinished).toBeGreaterThan(0);
@@ -352,27 +359,30 @@ describe("today_plan harness", () => {
   });
 
   it("marks the parent plan failed when planning context setup throws", async () => {
-    const now = nowIso();
-    const sessionId = "ses_preflight_failure";
-    const workItemId = "tsk_preflight_failure";
-    const runId = "run_preflight_failure";
-    (await getConn().query("INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",[sessionId,"规划",now,now,"today_plan",0,owner(),"platform:workspace-planner"]));
-    (await insertWorkItem({ id: workItemId, title: "规划", task_type: "today_plan", status: "running", source: "planning", session_id: sessionId }));
-    (await getConn().query("INSERT INTO task_runs (id,work_item_id,session_id,status,input,entities,created_at,started_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",[runId,workItemId,sessionId,"running","{}","{}",now,now]));
-    const pack = (await packTodayPlanContext(owner()));
+    const started = await startNativeTodayPlan({
+      owner: owner(),
+      taskType: "today_plan",
+      title: "规划",
+      scope: "today",
+      producer: "agent_plan",
+      // The executor must calculate its own real planning input after claiming.
+      payload: {},
+      extraPayload: {},
+      queuedLabel: "工作计划已入队",
+    });
     vi.spyOn(todayPlanContext, "planningRunInput").mockImplementation(() => {
       throw new Error("skill registry preflight failed");
     });
 
-    const result = await executeTodayPlanRun({ owner: owner(), workItemId, sessionId, runId, pack });
+    const result = await executePersistedPlanningJob(started.execution_job_id, "preflight-failure-worker");
 
-    expect(result).toEqual({ ok: false, reason: "skill registry preflight failed" });
-    expect((await getConn().query("SELECT status FROM tickets WHERE id=$1",[workItemId])).rows[0]).toMatchObject({ status: "failed" });
-    expect((await getConn().query("SELECT status,error FROM task_runs WHERE id=$1",[runId])).rows[0]).toMatchObject({
+    expect(result).toMatchObject({ handled: true, outcome: "failed" });
+    expect((await getConn().query("SELECT status FROM tickets WHERE id=$1",[started.work_item_id])).rows[0]).toMatchObject({ status: "failed" });
+    expect((await getConn().query("SELECT status,error FROM task_runs WHERE id=$1",[started.run_id])).rows[0]).toMatchObject({
       status: "failed",
       error: expect.stringContaining("skill registry preflight failed"),
     });
-    expect((await getConn().query("SELECT status,label FROM task_events WHERE work_item_id=$1 ORDER BY sequence DESC LIMIT 1",[workItemId])).rows[0]).toMatchObject({
+    expect((await getConn().query("SELECT status,label FROM task_events WHERE work_item_id=$1 ORDER BY sequence DESC LIMIT 1",[started.work_item_id])).rows[0]).toMatchObject({
       status: "failed",
       label: PLAN_EMPLOYEE_EVENTS.today.failed,
     });
@@ -465,7 +475,7 @@ describe("today_plan harness", () => {
     expect(res.body.session_id).toBeTruthy();
     expect(res.body.execution_job_id).toBeTruthy();
     expect(run).not.toHaveBeenCalled();
-    await executeRetiredPlanningAdapter(String(res.body.execution_job_id), "test-analysis-worker");
+    await executePersistedPlanningJob(String(res.body.execution_job_id), "test-analysis-worker");
     expect(run).toHaveBeenCalled();
     expect(Number(((await getConn().query("SELECT COUNT(*) AS n FROM sessions",[])).rows[0] as { n: number }).n)).toBe(beforeSessions + 1);
   });
@@ -494,7 +504,7 @@ describe("today_plan harness", () => {
       vi.spyOn(runner, "runWorker").mockReturnValue(held);
       const plan = await request("POST", planPath);
       expect([200, 202]).toContain(plan.status);
-      const processor = (await executeRetiredPlanningAdapter(String(plan.body.execution_job_id), "test-plan-worker"));
+      const processor = (await executePersistedPlanningJob(String(plan.body.execution_job_id), "test-plan-worker"));
       await vi.waitFor(() => expect(runner.runWorker).toHaveBeenCalled());
       const mid = await request("GET", briefPath);
       expect(mid.body.planning).toBe(true);
@@ -571,18 +581,18 @@ describe("stale planning watchdog", () => {
     (await getConn().query("UPDATE tickets SET created_at=$1, updated_at=$2 WHERE id=$3",[at,at,`tsk_${id}`]));
   }
 
-  const statusOf = (table: "tickets" | "task_runs", id: string) =>
-    String((getConn().prepare(`SELECT status FROM ${table} WHERE id=?`).get(id) as { status: string }).status);
+  const statusOf = async (table: "tickets" | "task_runs", id: string) =>
+    String(((await getConn().query(`SELECT status FROM ${table} WHERE id=$1`, [id])).rows[0] as { status: string }).status);
 
   it("fails a planning run past the watchdog instead of capturing every later entry", async () => {
     const stale = new Date(Date.now() - 30 * 60 * 1_000).toISOString();
     (await insertPlanRun("stuck", "running", stale));
 
-    // The dead run must not be returned: returning it is what left the card
-    // polling a plan that could never finish.
-    expect(runningTodayPlan(owner(), "today")).toBeNull();
-    expect(statusOf("tickets", "tsk_stuck")).toBe("failed");
-    expect(statusOf("task_runs", "run_stuck")).toBe("failed");
+    // A stale claimed run is terminalized before a fresh plan can be created.
+    await failStuckPlans("watchdog timeout");
+    expect((await todayBriefSnapshot(owner(), "today")).planning).toBe(false);
+    expect(await statusOf("tickets", "tsk_stuck")).toBe("failed");
+    expect(await statusOf("task_runs", "run_stuck")).toBe("failed");
     // Failing it first is what frees `one_running_today_plan`, so a new plan can
     // actually be created afterwards.
     (await insertWorkItem({
@@ -592,101 +602,73 @@ describe("stale planning watchdog", () => {
       status: "running",
       source: "planning",
     }));
-    expect(runningTodayPlan(owner(), "today")?.work_item_id).toBe("tsk_after_stuck");
+    expect((await todayBriefSnapshot(owner(), "today")).work_item_id).toBe("tsk_after_stuck");
   });
 
   it("still attaches to a plan that is genuinely running", async () => {
     (await insertPlanRun("live", "running", nowIso()));
-    expect(runningTodayPlan(owner(), "today")?.work_item_id).toBe("tsk_live");
-    expect(statusOf("tickets", "tsk_live")).toBe("running");
+    expect((await todayBriefSnapshot(owner(), "today")).work_item_id).toBe("tsk_live");
+    expect(await statusOf("tickets", "tsk_live")).toBe("running");
   });
 
-  it("boot reconcile fails open planning rows only", async () => {
+  it("boot reconcile fails claimed planning rows and preserves unclaimed queued work", async () => {
     (await insertPlanRun("boot_open", "running", nowIso()));
     (await insertPlanRun("boot_pending", "pending", nowIso(), "todo_plan"));
     (await insertPlanRun("boot_done", "completed", nowIso()));
     (await insertWorkItem({ id: "tsk_boot_other", title: "普通任务", task_type: "email_compose", status: "running" }));
 
-    const failed = failStuckPlans("Host 重启时该规划仍在运行");
+    const failed = await failStuckPlans("Host 重启时该规划仍在运行");
     expect(failed).toContain("tsk_boot_open");
-    expect(failed).toContain("tsk_boot_pending");
+    expect(failed).not.toContain("tsk_boot_pending");
     expect(failed).not.toContain("tsk_boot_done");
     expect(failed).not.toContain("tsk_boot_other");
-    expect(statusOf("tickets", "tsk_boot_done")).toBe("completed");
-    expect(statusOf("tickets", "tsk_boot_other")).toBe("running");
-    // A reconciled plan no longer blocks a fresh one.
-    expect(runningTodayPlan(owner(), "today")).toBeNull();
-    expect(runningTodayPlan(owner(), "todo")).toBeNull();
+    expect(await statusOf("tickets", "tsk_boot_pending")).toBe("pending");
+    expect(await statusOf("tickets", "tsk_boot_done")).toBe("completed");
+    expect(await statusOf("tickets", "tsk_boot_other")).toBe("running");
+    // The reconciled claimed plan no longer blocks today; the unclaimed todo
+    // plan stays queued for a durable worker rather than being falsely failed.
+    expect((await todayBriefSnapshot(owner(), "today")).planning).toBe(false);
+    expect((await todayBriefSnapshot(owner(), "todo")).planning).toBe(true);
   });
 });
 
-describe("previous plan snapshot", () => {
-  it.each(["today", "todo"] as const)("reports the version before the current one for %s, never the current run twice", async (scope) => {
-    const taskType = "today_plan";
-    (await insertWorkItem({ id: "tsk_prev", title: "上一版规划", task_type: taskType, status: "completed" }));
-    expect((await writeTodayBriefArtifact({
-      owner: owner(),
-      workItemId: "tsk_prev",
-      runId: null,
-      brief: validBrief({ lead: "上一版先把报价邮件发出去" }),
-      scope,
-    })).ok).toBe(true);
+describe("native plan snapshot", () => {
+  it("keeps the current native artifact authoritative and never duplicates it as prior state", async () => {
+    await insertWorkItem({ id: "tsk_prev", title: "上一版规划", task_type: "today_plan", status: "pending" });
+    const first = await executePlanWithWorkerBrief("today", modelBrief(validBrief({ lead: "上一版先把报价邮件发出去" }), ["tsk_prev"]));
+    expect(first.dispatched).toMatchObject({ handled: true, outcome: "processed" });
+    const second = await executePlanWithWorkerBrief("today", modelBrief(validBrief({ lead: "本轮先恢复采集" }), ["tsk_prev"]));
+    expect(second.dispatched).toMatchObject({ handled: true, outcome: "processed" });
 
-    (await insertWorkItem({ id: "tsk_now", title: "本轮规划", task_type: taskType, status: "completed" }));
-    expect((await writeTodayBriefArtifact({
-      owner: owner(),
-      workItemId: "tsk_now",
-      runId: null,
-      brief: validBrief({ lead: "本轮先恢复采集" }),
-      scope,
-    })).ok).toBe(true);
-
-    const snapshot = (await todayBriefSnapshot(owner(), scope));
+    const snapshot = await todayBriefSnapshot(owner(), "today");
     expect((snapshot.brief as Json)?.lead).toBe("本轮先恢复采集");
-    expect((snapshot.previous_brief as Json)?.lead).toBe("上一版先把报价邮件发出去");
-    expect(snapshot.previous_work_item_id).toBe("tsk_prev");
+    expect(snapshot.work_item_id).toBe(second.plan.body.work_item_id);
+    expect(snapshot.previous_brief).toBeNull();
+    expect(snapshot.previous_work_item_id).toBeNull();
     expect(Array.isArray(snapshot.previous_events)).toBe(true);
 
-    // A second artifact of the same run must not read as a previous version.
-    expect((await writeTodayBriefArtifact({
-      owner: owner(),
-      workItemId: "tsk_now",
-      runId: null,
-      brief: validBrief({ lead: "本轮改稿" }),
-      scope,
-    })).ok).toBe(true);
-    const again = (await todayBriefSnapshot(owner(), scope));
-    expect((again.previous_brief as Json)?.lead).toBe("上一版先把报价邮件发出去");
-    expect(again.previous_work_item_id).toBe("tsk_prev");
+    // A completed durable execution job cannot be claimed again, so it cannot
+    // write a second artifact that is then misreported as previous state.
+    expect(await processExecutionJobById(String(second.plan.body.execution_job_id), "duplicate-native-worker")).toBeNull();
+    const again = await todayBriefSnapshot(owner(), "today");
+    expect((again.brief as Json)?.lead).toBe("本轮先恢复采集");
+    expect(again.previous_brief).toBeNull();
+    expect(again.previous_work_item_id).toBeNull();
   });
 
-  it("binds folded history to the latest failed trace instead of mixing it with an older brief", async () => {
-    (await insertWorkItem({ id: "tsk_prev_ok", title: "较早规划", task_type: "today_plan", status: "completed" }));
-    expect((await writeTodayBriefArtifact({
-      owner: owner(),
-      workItemId: "tsk_prev_ok",
-      runId: null,
-      brief: validBrief({ lead: "较早规划" }),
-    })).ok).toBe(true);
+  it("keeps the latest successful native brief when a later planning ticket has failed", async () => {
+    await insertWorkItem({ id: "tsk_last_ok", title: "最近成功规划", task_type: "today_plan", status: "pending" });
+    const planned = await executePlanWithWorkerBrief("today", modelBrief(validBrief({ lead: "最近成功规划" }), ["tsk_last_ok"]));
+    expect(planned.dispatched).toMatchObject({ handled: true, outcome: "processed" });
 
-    (await insertWorkItem({ id: "tsk_last_ok", title: "最近成功规划", task_type: "today_plan", status: "completed" }));
-    expect((await writeTodayBriefArtifact({
-      owner: owner(),
-      workItemId: "tsk_last_ok",
-      runId: null,
-      brief: validBrief({ lead: "最近成功规划" }),
-    })).ok).toBe(true);
+    await insertWorkItem({ id: "tsk_failed_now", title: "本轮失败规划", task_type: "today_plan", status: "failed" });
+    await getConn().query("UPDATE tickets SET created_at=$1 WHERE id=$2", ["2099-01-01T00:00:00.000Z", "tsk_failed_now"]);
 
-    (await insertWorkItem({ id: "tsk_failed_now", title: "本轮失败规划", task_type: "today_plan", status: "failed" }));
-    (await getConn().query("UPDATE tickets SET created_at='2099-01-01T00:00:00.000Z' WHERE id='tsk_failed_now'",[]));
-
-    const snapshot = (await todayBriefSnapshot(owner(), "today"));
-    // The result pane keeps its last valid brief, while the folded row must be
-    // calculated from the newest (failed) trace rather than from that brief.
-    expect(snapshot.work_item_id).toBe("tsk_last_ok");
+    const snapshot = await todayBriefSnapshot(owner(), "today");
+    expect(snapshot.work_item_id).toBe(planned.plan.body.work_item_id);
     expect((snapshot.brief as Json)?.lead).toBe("最近成功规划");
-    expect((snapshot.previous_brief as Json)?.lead).toBe("最近成功规划");
-    expect(snapshot.previous_work_item_id).toBe("tsk_last_ok");
+    expect(snapshot.previous_brief).toBeNull();
+    expect(snapshot.previous_work_item_id).toBeNull();
   });
 });
 
@@ -727,7 +709,7 @@ describe("plan trace rows", () => {
     });
     const plan = await request("POST", "/api/home/today-brief/plan");
     expect([200, 202]).toContain(plan.status);
-    await executeRetiredPlanningAdapter(String(plan.body.execution_job_id), "test-trace-worker");
+    await executePersistedPlanningJob(String(plan.body.execution_job_id), "test-trace-worker");
     const workItemId = String(plan.body.work_item_id);
     const rowFor = async (eventType: string) =>
       (await getConn().query("SELECT * FROM task_events WHERE work_item_id=$1 AND event_type=$2",[workItemId,eventType])).rows[0] as Row | undefined;
