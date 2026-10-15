@@ -537,7 +537,7 @@ describe("transactional generic review service", () => {
     expect(
       (await service("employee")
         .revisions(i.id))
-        .map((r) => r.values.content),
+        .map((r) => typeof r.values === "object" && r.values !== null && "content" in r.values ? r.values.content : undefined),
     ).toEqual(["初稿", "二稿"]);
   });
   it("withdraws suspended tasks and keeps immutable revisions", async () => {

@@ -8,7 +8,7 @@ import { filterTools } from "../mcp/stdio.js";
 import { STARRY_TOOLS } from "../mcp/tools.js";
 import { getConn, resetConn } from "../src/db.js";
 import { appendTaskEvent } from "../src/task-events.js";
-import { SKILL_CATALOG } from "../src/host/skills-catalog.js";
+import { skillCatalog } from "../src/host/skills-catalog.js";
 import { profileFor } from "../src/profiles.js";
 import { seedAll } from "../src/seed.js";
 import { resolveTaskIntent, stubResolveTaskIntent } from "../src/tasks/resolver.js";
@@ -48,7 +48,7 @@ afterEach(async () => {
 describe("manifest task registry", () => {
   it("loads complete, unique and read-only definitions without the retired per-stage SOPs", async () => {
     const definitions = (await taskDefinitions());
-    expect(definitions.length).toBe(SKILL_CATALOG.length);
+    expect(definitions.length).toBe((await skillCatalog()).length);
     expect(definitions.filter((row) => row.id.startsWith("sop_"))).toHaveLength(0);
     expect(definitions.some((row) => row.id === "stage_sop")).toBe(true);
     expect(new Set(definitions.map((definition) => definition.id)).size).toBe(definitions.length);
@@ -65,10 +65,10 @@ describe("manifest task registry", () => {
 
   it("keeps compatibility catalog and profile mapping derived from manifests", async () => {
     const definitions = (await taskDefinitions());
-    expect(SKILL_CATALOG.map((entry) => entry.id).sort()).toEqual(definitions.map((entry) => entry.id).sort());
+    expect((await skillCatalog()).map((entry) => entry.id).sort()).toEqual(definitions.map((entry) => entry.id).sort());
     for (const definition of definitions) {
       expect((await profileFor(definition.id)).id).toBe(definition.profile);
-      expect(SKILL_CATALOG.find((entry) => entry.id === definition.id)?.label).toBe(definition.title);
+      expect((await skillCatalog()).find((entry) => entry.id === definition.id)?.label).toBe(definition.title);
     }
   });
 });

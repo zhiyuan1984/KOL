@@ -68,7 +68,7 @@ describe("first-touch To cannot stay empty for 灵工连通测试-qiyou1984", ()
   });
 
   afterEach(async () => {
-    getConn().close();
+    await resetConn();
     (await resetConn());
     fs.rmSync(tmp, { recursive: true, force: true });
   });

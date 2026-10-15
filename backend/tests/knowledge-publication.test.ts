@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { freshTestDatabase } from "./support/pg.js";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
-import { ensureDemoAdmin } from "../src/auth.js";
+import { ensureDemoAdmin, tokenDigest } from "../src/auth.js";
 import { ensureOrganizationTree } from "../src/runtime/organization-tree.js";
 import { knowledgeReviewDefinition, type ReviewDefinition, type ReviewInstance } from "../../shared/review.js";
 import type { KnowledgePublicationCommand } from "../../shared/knowledge-publication.js";
@@ -22,6 +22,7 @@ import {
   submitPublication,
 } from "../src/knowledge-publication/service.js";
 import { getDocumentDetail, startDocument, uploadDocument } from "../src/host/knowledge-documents.js";
+import { saveScope } from "../src/knowledge/scopes.js";
 
 const tenant = "company:amperetime";
 type Template = { id: string; version: number; definition: ReviewDefinition };
@@ -132,6 +133,40 @@ async function nativePublication(id: string) {
   return (await publicationOptions("sriphy", tenant, id)).publication;
 }
 
+async function checkedScope(documentId: string) {
+  const candidate = {
+    schema_version: 1,
+    summary: "本次审批资料包含产品规格和适用条件",
+    entities: [{ name: "产品规格", evidence_ids: ["original"] }],
+    topics: [{ label: "产品参数", evidence_ids: ["original"] }],
+    question_types: ["overview", "parameter_lookup"],
+    limitations: ["只覆盖本次审批原件"],
+    unverified_notes: [],
+    evidence: [{ id: "original", document_id: documentId, original_pages: [1], text: "product specs" }],
+    coverage: { status: "complete", unreadable_pages: [], catalog_completeness: "unknown" },
+  };
+  // A candidate is the persisted output of the scope-extraction job. Freeze it
+  // through saveScope, rather than inventing a checked snapshot in the test.
+  await getConn().query(
+    "INSERT INTO knowledge_document_scopes(document_id,tenant,state,scope,explanation,fingerprint,updated_at) VALUES($1,$2,'candidate',$3,$4,$5,$6)",
+    [documentId, tenant, JSON.stringify(candidate), "产品规格审批范围", "candidate-fixture", new Date().toISOString()],
+  );
+  return saveScope("sriphy", tenant, documentId, { expectedRevision: 1, checked: true, scope: candidate });
+}
+
+async function authenticatedHeaders(actor: string) {
+  const token = `knowledge-publication-${actor}-${randomUUID()}`;
+  const now = new Date().toISOString();
+  await getConn().query(
+    "INSERT INTO auth_sessions(id_hash,user_id,expires_at,created_at) VALUES($1,$2,$3,$4)",
+    [tokenDigest(token), actor, new Date(Date.now() + 60_000).toISOString(), now],
+  );
+  return {
+    Cookie: `lingong_session=${token}`,
+    "X-Review-Company": tenant,
+  };
+}
+
 beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kol-native-publication-"));
@@ -144,7 +179,7 @@ beforeEach(async () => {
   ensureDemoAdmin();
   await ensureOrganizationTree();
   const now = new Date().toISOString();
-  for (const [id, roles] of [["sriphy", '["employee","admin"]'], ["knowledge-reviewer", '["employee"]']] as const) {
+  for (const [id, roles] of [["sriphy", '["employee","admin"]'], ["knowledge-reviewer", '["employee"]'], ["outsider", '["employee"]']] as const) {
     await getConn().query(
       "INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)",
       [id, id, id, "unused", roles, "[]", "", 1, now],
@@ -152,6 +187,7 @@ beforeEach(async () => {
   }
   await getConn().query("UPDATE organization_people SET user_id=$1 WHERE person_ref='person:yan_chen'", ["sriphy"]);
   await getConn().query("UPDATE organization_people SET user_id=$1 WHERE person_ref='person:ye_guanwang'", ["knowledge-reviewer"]);
+  await getConn().query("UPDATE organization_people SET user_id=$1 WHERE person_ref='person:yue_jialin'", ["outsider"]);
 });
 
 afterEach(async () => {
@@ -170,7 +206,7 @@ describe("knowledge publication through native PostgreSQL submission, review and
     expect(checked.allowed).toBe(true);
     expect(checked.reviewers.length).toBeGreaterThan(0);
     expect((await getConn().query("SELECT count(*)::int AS n FROM knowledge_publication_confirmations", [])).rows[0]).toEqual(before);
-    expect((await getConn().query("SELECT id FROM knowledge_publication_applications WHERE document_id=$1", [document.id])).rowCount).toBe(0);
+    expect((await getConn().query("SELECT instance_id FROM knowledge_publication_applications WHERE document_id=$1", [document.id])).rowCount).toBe(0);
   });
 
   it("requires an explicit native confirmation before creating the review instance", async () => {
@@ -254,5 +290,152 @@ describe("knowledge publication through native PostgreSQL submission, review and
     await waitReady(document.id);
     const prepared = await prepareNativeSubmission(document.id, template);
     expect(prepared.confirmationId).toEqual(expect.any(String));
+  });
+  it("serves a native frozen PDF only to its authenticated reviewer and fails closed after source tampering", async () => {
+    const document = await fixture();
+    const receipt = await submitNativePublication(document.id, await prepareNativeSubmission(document.id, await createTemplate()));
+    const { createApp } = await import("../src/app.js");
+    const previousAuthMode = process.env.AUTH_MODE;
+    process.env.AUTH_MODE = "enabled";
+    try {
+      const app = await createApp();
+      const reviewer = await authenticatedHeaders("knowledge-reviewer");
+      const endpoint = `/api/approvals/v2/instances/${receipt.instanceId}/knowledge-source`;
+      const response = await app.request(endpoint, { headers: reviewer });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/pdf");
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(Buffer.from(await response.arrayBuffer()).toString("utf8")).toContain("product specs");
+      expect((await app.request(endpoint)).status).toBe(401);
+      expect((await app.request(endpoint, { headers: await authenticatedHeaders("outsider") })).status).toBe(403);
+
+      const source = (await getConn().query("SELECT source_path FROM knowledge_documents WHERE id=$1", [document.id])).rows[0] as { source_path: string };
+      const file = path.isAbsolute(source.source_path) ? source.source_path : path.join(tmp, source.source_path);
+      const original = fs.readFileSync(file);
+      try {
+        fs.appendFileSync(file, "tampered-after-native-submission");
+        expect((await app.request(endpoint, { headers: reviewer })).status).toBe(409);
+      } finally {
+        fs.writeFileSync(file, original);
+      }
+    } finally {
+      process.env.AUTH_MODE = previousAuthMode;
+    }
+  });
+  it("serves native approval material metadata and legacy file only to current participants", async () => {
+    const document = await fixture();
+    const scope = await checkedScope(document.id);
+    const receipt = await submitNativePublication(document.id, await prepareNativeSubmission(document.id, await createTemplate()));
+    const { createApp } = await import("../src/app.js");
+    const previousAuthMode = process.env.AUTH_MODE;
+    process.env.AUTH_MODE = "enabled";
+    try {
+      const app = await createApp();
+      const metadataUrl = `/api/approvals/v2/instances/${receipt.instanceId}/knowledge`;
+      const fileUrl = `${metadataUrl}/file?company=${encodeURIComponent(tenant)}`;
+      const reviewer = await authenticatedHeaders("knowledge-reviewer");
+
+      expect((await app.request(metadataUrl)).status).toBe(401);
+      expect((await app.request(fileUrl)).status).toBe(401);
+
+      const metadataResponse = await app.request(metadataUrl, { headers: reviewer });
+      expect(metadataResponse.status).toBe(200);
+      const metadata = await metadataResponse.json() as Record<string, unknown>;
+      expect(metadata).toMatchObject({
+        base_id: document.base,
+        pages: 1,
+        version: 1,
+        publication_status: "waiting",
+        document_id: document.id,
+        knowledge_scope: { fingerprint: scope.fingerprint },
+      });
+      expect(metadata).not.toHaveProperty("source_path");
+      expect(metadata).not.toHaveProperty("file_mime");
+      expect(metadata).not.toHaveProperty("sourceHash");
+
+      const fileResponse = await app.request(fileUrl, { headers: reviewer });
+      expect(fileResponse.status).toBe(200);
+      expect(fileResponse.headers.get("content-type")).toContain("application/pdf");
+      expect(fileResponse.headers.get("cache-control")).toBe("private, no-store");
+      expect(fileResponse.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(fileResponse.headers.get("content-security-policy")).toBe("sandbox");
+      expect(Buffer.from(await fileResponse.arrayBuffer()).toString("utf8")).toContain("product specs");
+
+      const outsider = await authenticatedHeaders("outsider");
+      expect((await app.request(metadataUrl, { headers: outsider })).status).toBe(403);
+      expect((await app.request(fileUrl, { headers: outsider })).status).toBe(403);
+
+      await expect(saveScope("sriphy", tenant, document.id, {
+        expectedRevision: scope.revision,
+        explanation: "尝试改变已冻结的范围",
+      })).rejects.toMatchObject({ status: 409 });
+
+      const source = (await getConn().query("SELECT source_path FROM knowledge_documents WHERE id=$1", [document.id])).rows[0] as { source_path: string };
+      const file = path.isAbsolute(source.source_path) ? source.source_path : path.join(tmp, source.source_path);
+      const original = fs.readFileSync(file);
+      try {
+        fs.appendFileSync(file, "tampered-native-material");
+        expect((await app.request(metadataUrl, { headers: reviewer })).status).toBe(409);
+        expect((await app.request(fileUrl, { headers: reviewer })).status).toBe(409);
+      } finally {
+        fs.writeFileSync(file, original);
+      }
+
+      await getConn().query("DELETE FROM review_participants WHERE tenant=$1 AND instance_id=$2 AND user_id=$3", [tenant, receipt.instanceId, "knowledge-reviewer"]);
+      expect((await app.request(metadataUrl, { headers: reviewer })).status).toBe(403);
+      expect((await app.request(fileUrl, { headers: reviewer })).status).toBe(403);
+    } finally {
+      process.env.AUTH_MODE = previousAuthMode;
+    }
+  });
+
+  it("trials exactly the native frozen document over HTTP, ignoring foreign document input", async () => {
+    const document = await fixture();
+    const receipt = await submitNativePublication(document.id, await prepareNativeSubmission(document.id, await createTemplate()));
+    const { createApp } = await import("../src/app.js");
+    const previousAuthMode = process.env.AUTH_MODE;
+    process.env.AUTH_MODE = "enabled";
+    try {
+      const app = await createApp();
+      const endpoint = `/api/approvals/v2/instances/${receipt.instanceId}/knowledge/trial`;
+      expect((await app.request(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: "规格", doc_ids: ["foreign"] }) })).status).toBe(401);
+      const response = await app.request(endpoint, {
+        method: "POST",
+        headers: { ...(await authenticatedHeaders("knowledge-reviewer")), "Content-Type": "application/json" },
+        body: JSON.stringify({ query: "规格", doc_ids: ["foreign"] }),
+      });
+      expect(response.status).toBe(200);
+      const trial = await response.json() as { citations: Array<{ document_id: string; page: number; source_url: string }> };
+      expect(trial.citations[0]).toMatchObject({ document_id: document.id, page: 1 });
+      expect(trial.citations[0]?.source_url).toContain(`/instances/${receipt.instanceId}/knowledge-source`);
+    } finally {
+      process.env.AUTH_MODE = previousAuthMode;
+    }
+  });
+  it("closes legacy mutation routes once a native publication is submitted", async () => {
+    const document = await fixture();
+    await submitNativePublication(document.id, await prepareNativeSubmission(document.id, await createTemplate()));
+    const { createApp } = await import("../src/app.js");
+    const previousAuthMode = process.env.AUTH_MODE;
+    process.env.AUTH_MODE = "enabled";
+    try {
+      const app = await createApp();
+      const admin = await authenticatedHeaders("sriphy");
+      for (const action of ["reprocess", "publish"])
+        expect((await app.request(`/api/admin/knowledge/documents/${document.id}/${action}`, { method: "POST", headers: admin })).status).toBe(409);
+    } finally {
+      process.env.AUTH_MODE = previousAuthMode;
+    }
+    expect(((await getDocumentDetail(document.id)).document as Record<string, unknown>).status).toBe("pending_review");
+  });
+  it("fails native publication when the submitter loses current knowledge-management authority", async () => {
+    const document = await fixture();
+    const receipt = await submitNativePublication(document.id, await prepareNativeSubmission(document.id, await createTemplate()));
+    await decide(receipt.instanceId, "approve");
+    await getConn().query("UPDATE users SET roles='[\"employee\"]' WHERE id='sriphy'");
+    expect((await executePublication(tenant, receipt.instanceId)).status).toBe("failed");
+    expect((await getConn().query("SELECT status,error FROM knowledge_publication_applications WHERE tenant=$1 AND instance_id=$2", [tenant, receipt.instanceId])).rows[0]).toMatchObject({ status: "failed" });
+    expect(((await getDocumentDetail(document.id)).document as Record<string, unknown>).status).toBe("pending_review");
   });
 });

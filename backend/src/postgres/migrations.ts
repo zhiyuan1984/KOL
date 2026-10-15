@@ -1100,6 +1100,7 @@ const migrations: SchemaMigration[] = [
   { id: "20261015_042_organization_native_postgres", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "042_organization_native_postgres.sql"), "utf8")] },
   { id: "20261015_043_mail_send_native", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "043_mail_send_native.sql"), "utf8")] },
   { id: "20261015_045_skill_presentation_overlays", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "045_skill_presentation_overlays.sql"), "utf8")] },
+  { id: "20261015_046_knowledge_legacy_backfill", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "046_knowledge_legacy_backfill.sql"), "utf8")] },
 ];
 
 const { replyContextSchema } = await import("../mail/reply-context-schema.js");
@@ -1539,6 +1540,11 @@ migrations.push(
   { id: "20261008_knowledge_taxonomy_guards", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "031_knowledge_taxonomy_guards.sql"), "utf8")] },
   { id: "20261012_mail_private_labels", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "035_20261012_mail_private_labels.sql"), "utf8")] },
 );
+
+/** Immutable version/checksum metadata for release preflight; no database access. */
+export function postgresMigrationManifest(): ReadonlyArray<{ id: string; checksum: string }> {
+  return migrations.map(migration => ({ id: migration.id, checksum: createHash("sha256").update(migration.statements.join("\n-- statement --\n")).digest("hex") }));
+}
 
 export async function applyPostgresMigrations(client: Client | PoolClient, options: { only?: string } = {}): Promise<string[]> {
 const onlyMigration = options.only;

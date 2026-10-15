@@ -139,14 +139,15 @@ knowledge.put("/admin/knowledge/documents/:id/draft-file",async c=>{
   return c.json(await replaceDraftDocument(c.req.param("id"),{name:file.name,bytes:Buffer.from(await file.arrayBuffer())},String(b.updated_at || ""),(await publicationContext(c.req.header("X-Review-Company")))));
 });
 knowledge.get("/approvals/v2/instances/:id/knowledge", async c => {
-  const {source_path,...material} = await knowledgeReviewMaterial(c.req.param("id"),(await publicationContext(c.req.header("X-Review-Company"))));
+  const {source_path,file_mime,...material} = await knowledgeReviewMaterial(c.req.param("id"),(await publicationContext(c.req.header("X-Review-Company"))));
   return c.json(material);
 });
 knowledge.get("/approvals/v2/instances/:id/knowledge/file", async c => {
   const material = await knowledgeReviewMaterial(c.req.param("id"),(await publicationContext(c.req.query("company"))));
   const file = path.isAbsolute(material.source_path) ? material.source_path : path.join(dataDir(),material.source_path);
-  c.header("Content-Type","application/pdf"); c.header("X-Content-Type-Options","nosniff");
-  c.header("Cache-Control","private, no-store");
+  c.header("Content-Type",material.file_mime); c.header("X-Content-Type-Options","nosniff");
+  c.header("Cache-Control","private, no-store"); c.header("Content-Security-Policy","sandbox");
+  c.header("Content-Disposition",`inline; filename*=UTF-8''${encodeURIComponent(material.filename)}`);
   return c.body(new Uint8Array(fs.readFileSync(file)));
 });
 

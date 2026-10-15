@@ -117,8 +117,8 @@ describe("home workbench", () => {
     expect(recs.some((row) => row.source === "catalog")).toBe(true);
   });
 
-  it("still recommends catalog tasks when there is no board data", () => {
-    const recs = buildRecommendedTasks([], []) as Json[];
+  it("still recommends catalog tasks when there is no board data", async () => {
+    const recs = await buildRecommendedTasks([], []);
     expect(recs).toHaveLength(8);
     expect(recs[0]).toMatchObject({ n: 1, source: "catalog", source_label: "任务模板", act: "ask" });
     expect(recs.map((row) => Number(row.n))).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
@@ -149,14 +149,16 @@ describe("home workbench", () => {
   });
 
   it("seedAll does not plant demo KOL work items", async () => {
-    const count = (table: "tickets" | "collaborations", prefix: string) => Number((getConn()
-      .prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE id LIKE ?`).get(prefix) as { c: number }).c);
-    const ticketsBefore = count("tickets", "tsk_home_%");
-    const collaborationsBefore = count("collaborations", "col_%");
+    const count = async (table: "tickets" | "collaborations", prefix: string) => {
+      if (table !== "tickets" && table !== "collaborations") throw new Error("invalid test table");
+      return Number((await getConn().query(`SELECT COUNT(*) AS c FROM ${table} WHERE id LIKE $1`, [prefix])).rows[0].c);
+    };
+    const ticketsBefore = await count("tickets", "tsk_home_%");
+    const collaborationsBefore = await count("collaborations", "col_%");
     (await seedAll());
-    // PostgreSQL preserves already inserted fixture facts; SQLite demo cleanup removes them.
-    expect(count("tickets", "tsk_home_%")).toBe(databaseEngine() === "postgres" ? ticketsBefore : 0);
-    expect(count("collaborations", "col_%")).toBe(databaseEngine() === "postgres" ? collaborationsBefore : 0);
+    // Native bootstrap preserves previously inserted fixture facts.
+    expect(await count("tickets", "tsk_home_%")).toBe(ticketsBefore);
+    expect(await count("collaborations", "col_%")).toBe(collaborationsBefore);
   });
 
   it("demo reset drops leftover Starry library rows before stub listAll re-syncs", async () => {
@@ -347,8 +349,8 @@ describe("home workbench", () => {
     expect(todo?.candidate).toBe(false);
   });
 
-  it("persists promote columns on tickets", () => {
-    const cols = getConn().pragma("table_info(tickets)") as { name: string }[];
+  it("persists promote columns on tickets", async () => {
+    const cols = (await getConn().query<{ name: string }>("SELECT column_name AS name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=$1", ["tickets"])).rows;
     expect(cols.map((col) => col.name)).toEqual(expect.arrayContaining([
       "promoted_at",
       "dismissed_at",

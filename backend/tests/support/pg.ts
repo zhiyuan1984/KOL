@@ -30,13 +30,13 @@ function ident(name: string): string {
 }
 
 /** 建一个全新测试库并把 DATABASE_URL 指向它，返回库名。 */
-export async function freshTestDatabase(): Promise<string> {
+export async function freshTestDatabase(options: { empty?: boolean } = {}): Promise<string> {
   if (!ADMIN_URL) throw new Error("TEST_DATABASE_URL is required for isolated PostgreSQL tests");
   const name = ident(`${PREFIX}_${process.pid}_${++counter}`);
   const admin = new Client({ connectionString: ADMIN_URL });
   await admin.connect();
   try {
-    await admin.query(`CREATE DATABASE ${name} TEMPLATE ${ident(TEMPLATE)}`);
+    await admin.query(options.empty ? `CREATE DATABASE ${name}` : `CREATE DATABASE ${name} TEMPLATE ${ident(TEMPLATE)}`);
   } finally {
     await admin.end();
   }
@@ -47,6 +47,11 @@ export async function freshTestDatabase(): Promise<string> {
   process.env.DATABASE_URL = urlWithDatabase(name);
   await resetConn();
   const { postgresPool } = await import("../../src/postgres/pool.js");
+  if (options.empty) {
+    const { applyPostgresMigrations } = await import("../../src/postgres/migrations.js");
+    const client = await postgresPool().connect();
+    try { await applyPostgresMigrations(client); } finally { client.release(); }
+  }
   const { runtimeActionSchema, crawlQueueStateMigration } = await import("../../src/runtime/action-schema.js");
   await postgresPool().query(runtimeActionSchema);
   for (const statement of crawlQueueStateMigration) await postgresPool().query(statement);

@@ -72,22 +72,25 @@ export async function saveStarryBinding(userId: string, input: { mailbox_email: 
       : String(existing?.bearer_token || "");
     const saved = await pgUpsertMailboxBindingInTransaction(client, { userId, email: mailbox, mailboxId: String(input.mailbox_id || existing?.mailbox_id || ""), ownerName: String(input.owner_name || existing?.owner_name || ""), credentialRef: bearer, status: input.status || "connected", now, ownerOpenId: input.owner_open_id });
     if (existing?.bearer_token && existing.bearer_token !== bearer) await removeUnusedMailboxCredential(existing.bearer_token, client);
+    await writeCredentialAudit(userId, "starry.bind", { mailbox_email: mailbox, owner_name: String(input.owner_name || ""), admin: userId === DEMO_ADMIN.handle });
     return saved;
   });
-  await writeCredentialAudit(userId, "starry.bind", { mailbox_email: mailbox, owner_name: String(input.owner_name || ""), admin: userId === DEMO_ADMIN.handle });
   return publicStarryBinding(row);
 }
 export async function clearStarryBinding(userId: string, mailbox?: string): Promise<PublicStarryBinding> {
   const result = await postgresTransaction(async (client) => {
     await pgLockMailboxAccount(client, userId);
     const target = await pgMailboxRow(userId, mailbox, client, true);
-    if (!target) return { target: undefined, default: undefined as Row | undefined };
+    if (!target) {
+      await writeCredentialAudit(userId, "starry.unbind", {});
+      return { target: undefined, default: undefined as Row | undefined };
+    }
     await pgDeleteMailboxBindingInTransaction(client, userId, String(target.mailbox_email));
     if (Number(target.is_default || 0) === 1) await client.query("UPDATE user_starry_bindings SET is_default=0 WHERE user_id=$1", [userId]);
     await removeUnusedMailboxCredential(target.bearer_token, client);
+    await writeCredentialAudit(userId, "starry.unbind", { mailbox_email: String(target.mailbox_email || "") });
     return { target, default: await pgMailboxRow(userId, undefined, client) };
   });
-  await writeCredentialAudit(userId, "starry.unbind", result.target ? { mailbox_email: String(result.target.mailbox_email || "") } : {});
   return publicStarryBinding(result.default);
 }
 export function mailboxFromStarryRow(row: Json): { id: string; mailbox_email: string; owner_name: string; owner_open_id: string; brand: string } {

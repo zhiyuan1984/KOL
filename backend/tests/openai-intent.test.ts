@@ -41,8 +41,8 @@ function jevResponse(choice: string, confidence: number) {
 }
 
 describe("gpt-5.6 Luna intent verdict", () => {
-  it("drops invented catalog ids", () => {
-    const verdict = parseIntentVerdict(JSON.stringify({
+  it("drops invented catalog ids", async () => {
+    const verdict = await parseIntentVerdict(JSON.stringify({
       task_type: "not_a_skill",
       confidence: 0.99,
       entities: {},
@@ -52,8 +52,8 @@ describe("gpt-5.6 Luna intent verdict", () => {
     expect(verdict.clarification_kind).toBe("direction");
   });
 
-  it("reads email_compose slots from a fenced JSON blob", () => {
-    const verdict = parseIntentVerdict(`\`\`\`json
+  it("reads email_compose slots from a fenced JSON blob", async () => {
+    const verdict = await parseIntentVerdict(`\`\`\`json
 {"task_type":"email_compose","confidence":0.96,"entities":{"mailboxEmail":"${LARRY}","to":["${QQ}"],"subject":"LiTime MCP 连通测试"},"missing_fields":[],"clarification_kind":"none"}
 \`\`\``);
     expect(verdict).toMatchObject({

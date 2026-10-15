@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import type { AppUser } from "../src/auth.js";
 import { withScopedUser } from "../src/auth.js";
-import { resetConn } from "../src/db.js";
+import { getConn, resetConn } from "../src/db.js";
 import { HttpFail } from "../src/host/errors.js";
 import {
   createMailLabelSuggestionOperations,
@@ -109,7 +109,7 @@ async function seedCurrentAgentEligibility(user: AppUser): Promise<void> {
   // mail_summary skill guard as production, not an auth-disabled bypass.
   (await ensureRuntimeSchema());
   (await ensureManagedAgents());
-  const db = (await resetConn());
+  const db = getConn();
   (await db.query("INSERT INTO managed_agents(id,name,description,status,version,created_at,updated_at)\n    VALUES ('agent:kol','KOL test Agent','', 'published',1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)\n    ON CONFLICT (id) DO UPDATE SET status='published'",[]));
   (await setAgentSkill("agent:kol", "mail_summary", true, 1));
   const personRef = (await syncUserOrganization(user.id, "org:lt_team"));

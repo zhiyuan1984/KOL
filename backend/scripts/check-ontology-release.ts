@@ -449,10 +449,10 @@ async function main(): Promise<number> {
   return 0;
 }
 
-main()
+(await main()
   .then((code) => { process.exitCode = code; })
   .catch((error) => {
     print({ status: "blocked", code: "ontology_release_gate_error", message: error instanceof Error ? error.message : String(error) });
     process.exitCode = 1;
   })
-  .finally(async () => { await closePostgresPool(); });
+  .finally(async () => { await closePostgresPool(); }));

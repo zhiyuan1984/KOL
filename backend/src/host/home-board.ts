@@ -854,7 +854,7 @@ if (definitions === undefined) definitions = (await taskDefinitionIndex());
     todo: capped(todo, MAX_WORKBENCH_TASKS).map(slimWorkbenchTask),
     today: capped(today, MAX_WORKBENCH_TASKS).map(slimWorkbenchTask),
     insights: capped(insights, MAX_WORKBENCH_TASKS).map(slimWorkbenchTask),
-    recommendations: buildRecommendedTasks(tasks, kols, definitions),
+    recommendations: await buildRecommendedTasks(tasks, kols, definitions),
   };
 }
 

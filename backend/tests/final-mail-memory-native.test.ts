@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { withScopedUser } from "../src/auth.js";
+import { mapUser, withScopedUser } from "../src/auth.js";
 import { DEMO_USER } from "../src/config.js";
 import { getConn, resetConn } from "../src/db.js";
 import {
@@ -74,7 +74,9 @@ describe("mail-memory native PostgreSQL repository", () => {
     ]);
     await expect(threadsByCollaborationIds([])).resolves.toEqual(new Map());
 
-    await withScopedUser(DEMO_USER, async () => {
+    const actorRow = (await getConn().query("SELECT * FROM users WHERE id=$1", [DEMO_USER.id])).rows[0];
+    expect(actorRow).toBeTruthy();
+    await withScopedUser(await mapUser(actorRow), async () => {
       await expect(findMailThread("native-thread-authorized")).resolves.toMatchObject({ mailbox: AUTHORIZED_MAILBOX });
       await expect(findMailThread("native-conversation")).resolves.toMatchObject({ id: "native-thread-authorized" });
       await expect(findMailThread("native-thread-unbound")).resolves.toBeUndefined();

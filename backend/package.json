@@ -47,7 +47,6 @@
     "zod": "^4.6.5"
   },
   "allowScripts": {
-    "better-sqlite3": true,
     "esbuild": true
   }
 }

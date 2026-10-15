@@ -11,7 +11,7 @@ async function seedCore(): Promise<void> {
   await tx(async (client) => {
     await seedDirectory(client);
     await seedKnowledge(client);
-    await client.query("INSERT INTO app_state (key,value) VALUES ('persona','sriphy') ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value");
+    await client.query("INSERT INTO app_state (key,value) VALUES ('persona','sriphy') ON CONFLICT (key) DO NOTHING");
     await seedMailboxOwners(client);
     await client.query("UPDATE collaborations SET list_in_projects=1 WHERE id=ANY($1::text[])", [DEMO_COLLAB_IDS]);
   });
@@ -53,6 +53,6 @@ async function seedMailboxOwners(client: PoolClient): Promise<void> {
     ["amperetimemarketing.de@gmail.com", "LT", "古佳睿", "推广部", "shared", "active", "李伟瑜", "LT欧洲品牌往来邮件", ""],
   ];
   for (const row of owners) await client.query(
-    "INSERT INTO mailbox_owners (email,brand,owner_name,dept,account_type,status,shared_with,permission_scope,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (email) DO UPDATE SET brand=EXCLUDED.brand,owner_name=EXCLUDED.owner_name,dept=EXCLUDED.dept,account_type=EXCLUDED.account_type,status=EXCLUDED.status,shared_with=EXCLUDED.shared_with,permission_scope=EXCLUDED.permission_scope,notes=EXCLUDED.notes", row,
+    "INSERT INTO mailbox_owners (email,brand,owner_name,dept,account_type,status,shared_with,permission_scope,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (email) DO NOTHING", row,
   );
 }

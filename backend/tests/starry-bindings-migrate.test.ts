@@ -1,4 +1,3 @@
-import { createRequire } from "node:module";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,50 +5,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import { clearStarryBinding, saveStarryBinding, starryBindingRow, starryBindingRows } from "../src/host/starry-bind.js";
 import type { Row } from "../src/types.js";
-
-const require = createRequire(import.meta.url);
-
-type RawDb = {
-  exec: (sql: string) => unknown;
-  prepare: (sql: string) => { run: (...args: unknown[]) => unknown };
-  close: () => void;
-};
-
-function openRaw(file: string): RawDb {
-  try {
-    const Database = require("better-sqlite3") as new (p: string) => RawDb;
-    return new Database(file);
-  } catch {
-    const { DatabaseSync } = require("node:sqlite") as { DatabaseSync: new (p: string) => RawDb };
-    return new DatabaseSync(file);
-  }
-}
-
-const OLD_DDL = `
-  CREATE TABLE user_starry_bindings (
-      user_id TEXT PRIMARY KEY,
-      mailbox_email TEXT NOT NULL,
-      mailbox_id TEXT,
-      owner_name TEXT,
-      bearer_token TEXT,
-      status TEXT NOT NULL DEFAULT 'connected',
-      updated_at TEXT NOT NULL,
-      sync_cursor_at TEXT,
-      sync_cursor_id TEXT,
-      sync_page_no INTEGER NOT NULL DEFAULT 1,
-      synced_at TEXT,
-      last_error TEXT,
-      last_tool TEXT,
-      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-  );
-`;
+import { freshTestDatabase } from "./support/pg.js";
 
 let tmp = "";
-let databaseUrl: string | undefined;
 
-beforeEach(() => {
-  databaseUrl = process.env.DATABASE_URL;
-  delete process.env.DATABASE_URL; // This suite exercises SQLite file migrations.
+beforeEach(async () => {
+  await freshTestDatabase();
+  await resetConn();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-bind-migrate-"));
   process.env.LINGONG_DB = path.join(tmp, "test.db");
   process.env.LINGONG_DATA = tmp;
@@ -58,15 +20,16 @@ beforeEach(() => {
 afterEach(async () => {
   (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
-  if (databaseUrl === undefined) delete process.env.DATABASE_URL;
-  else process.env.DATABASE_URL = databaseUrl;
 });
 
-function pkColumns(): string[] {
-  return (getConn().prepare("PRAGMA table_info(user_starry_bindings)").all() as { name: string; pk: number }[])
-    .filter((row) => row.pk > 0)
-    .sort((a, b) => a.pk - b.pk)
-    .map((row) => row.name);
+async function pkColumns(): Promise<string[]> {
+  const rows = (await getConn().query<{ name: string }>(`SELECT k.column_name AS name
+    FROM information_schema.table_constraints AS c
+    JOIN information_schema.key_column_usage AS k
+      USING (constraint_catalog,constraint_schema,constraint_name)
+    WHERE c.constraint_type='PRIMARY KEY' AND c.table_schema=current_schema()
+      AND c.table_name=$1 ORDER BY k.ordinal_position`, ["user_starry_bindings"])).rows;
+  return rows.map(row => row.name);
 }
 
 async function seedUser(id: string): Promise<Awaited<void>> {
@@ -75,31 +38,18 @@ async function seedUser(id: string): Promise<Awaited<void>> {
 }
 
 describe("user_starry_bindings multi-mailbox migration", () => {
-  it("migrates an existing single-mailbox DB: row survives with is_default=1", async () => {
-    const raw = openRaw(process.env.LINGONG_DB!);
-    raw.exec(`
-      CREATE TABLE users (
-        id TEXT PRIMARY KEY, username TEXT, name TEXT, password_hash TEXT,
-        roles TEXT, active INTEGER, created_at TEXT, updated_at TEXT
-      );
-      ${OLD_DDL}
-    `);
-    (await raw.query("INSERT INTO users (id, username, name) VALUES ('usr_a', 'a', '甲')",[]));
-    (await raw.query("INSERT INTO user_starry_bindings\n         (user_id, mailbox_email, mailbox_id, owner_name, bearer_token, status, updated_at, synced_at, last_error)\n       VALUES ('usr_a', 'first@example.com', 'mbx_1', '甲', 'tok', 'connected', '2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z', '')",[]));
-    raw.close();
-
-    // Opening the app connection runs initSchema → rebuildUserStarryBindings.
-    getConn();
-
-    expect(pkColumns()).toEqual(["user_id", "mailbox_email"]);
-    const rows = (await starryBindingRows("usr_a"));
+  it("preserves an existing mailbox across native pool reopen and verifies the composite key", async () => {
+    await seedUser("usr_a");
+    await getConn().query(`INSERT INTO user_starry_bindings
+      (user_id,mailbox_email,mailbox_id,owner_name,status,is_default,updated_at,synced_at,last_error)
+      VALUES($1,$2,$3,$4,'connected',1,$5,$6,'')`,
+      ["usr_a","first@example.com","mbx_1","甲","2026-01-01T00:00:00.000Z","2026-01-02T00:00:00.000Z"]);
+    await resetConn();
+    expect(await pkColumns()).toEqual(["user_id","mailbox_email"]);
+    const rows = await starryBindingRows("usr_a");
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      mailbox_email: "first@example.com",
-      owner_name: "甲",
-      is_default: 1,
-      synced_at: "2026-01-02T00:00:00.000Z",
-    });
+    expect(rows[0]).toMatchObject({ mailbox_email: "first@example.com",owner_name: "甲",is_default: 1 });
+    expect(new Date(String(rows[0].synced_at)).toISOString()).toBe("2026-01-02T00:00:00.000Z");
     expect((await starryBindingRow("usr_a"))?.mailbox_email).toBe("first@example.com");
   });
 

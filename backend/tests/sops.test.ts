@@ -12,7 +12,7 @@ import {
   sopPhaseByStage,
   stageSopView,
 } from "../src/sops.js";
-import { matchSkillId } from "../src/host/skills-catalog.js";
+import { matchSkillId, skillCatalog } from "../src/host/skills-catalog.js";
 import { taskDefinitions } from "../src/tasks/registry.js";
 import { collectStageSopItems } from "../src/worker/session-items.js";
 
@@ -30,8 +30,8 @@ describe("15 SOP packs", () => {
   });
 
   it("retires per-stage SOP skill names and leaves them unbound", async () => {
-    expect(matchSkillId("初步接触")).toBeNull();
-    expect(matchSkillId("初步接触SOP")).toBeNull();
+    expect(matchSkillId("初步接触", await skillCatalog())).toBeNull();
+    expect(matchSkillId("初步接触SOP", await skillCatalog())).toBeNull();
     expect((await taskDefinitions()).some((row) => row.id.startsWith("sop_"))).toBe(false);
   });
 });
@@ -81,8 +81,8 @@ describe("eight SOP phases", () => {
     expect(walk?.items?.some((item) => item.includes("由人选定具体正式阶段"))).toBe(true);
     expect(step?.items?.join("；")).not.toContain("EVALUATING");
     expect(isStageSopSkill("stage_sop")).toBe(true);
-    expect(matchSkillId("阶段SOP")).toBe("stage_sop");
-    expect(matchSkillId("八个阶段")).toBe("stage_sop");
+    expect(matchSkillId("阶段SOP", await skillCatalog())).toBe("stage_sop");
+    expect(matchSkillId("八个阶段", await skillCatalog())).toBe("stage_sop");
     expect((await taskDefinitions()).some((row) => row.id === "stage_sop")).toBe(true);
   });
 });
@@ -102,7 +102,7 @@ describe("eight-phase exception flow", () => {
     expect(flow.some((item) => item.includes("已完成是结算后的终态"))).toBe(true);
   });
 
-  it("outputs bypass SOP for 争议中 and freezes the eight-phase track", () => {
+  it("outputs bypass SOP for 争议中 and freezes the eight-phase track", async () => {
     const view = stageSopView("DISPUTED");
     expect(view.exception).toBe(true);
     expect(view.exception_kind).toBe("bypass");
@@ -114,8 +114,8 @@ describe("eight-phase exception flow", () => {
     expect(items[0].title).toContain("八阶段异常 SOP");
     const titles = (items[0].sections as { title: string }[]).map((section) => section.title);
     expect(titles).toContain("异常流程");
-    expect(matchSkillId("异常流程")).toBe("stage_sop");
-    expect(matchSkillId("八阶段异常")).toBe("stage_sop");
+    expect(matchSkillId("异常流程", await skillCatalog())).toBe("stage_sop");
+    expect(matchSkillId("八阶段异常", await skillCatalog())).toBe("stage_sop");
   });
 
   it("SOP 建议下一步 names this stage's letter", () => {

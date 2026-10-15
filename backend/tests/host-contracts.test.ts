@@ -10,7 +10,7 @@ import { seedAll, seedIfEmpty } from "../src/seed.js";
 import { createAgentBinding } from "../src/runtime/organization-tree.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { workerCannotSend } from "../src/worker/common.js";
-import { SKILL_CATALOG } from "../src/host/skills-catalog.js";
+import { skillCatalog } from "../src/host/skills-catalog.js";
 import { isStarryKolTask, setEmailMcpClientFactory } from "../src/starrykol/service.js";
 import { toLegacyStarryStage } from "../src/stages.js";
 import { isKolClawTask } from "../src/kolclaw/service.js";
@@ -654,8 +654,8 @@ describe("host contracts", () => {
   it("home exposes every catalog task as ask and Skill-backed", async () => {
     const home = await (await request("GET", "/api/home")).json();
     const recs = home.recs as Json[];
-    expect(recs).toHaveLength(SKILL_CATALOG.length);
-    expect(new Set(recs.map((rec) => rec.intent))).toEqual(new Set(SKILL_CATALOG.map((skill) => skill.id)));
+    expect(recs).toHaveLength((await skillCatalog()).length);
+    expect(new Set(recs.map((rec) => rec.intent))).toEqual(new Set((await skillCatalog()).map((skill) => skill.id)));
     expect(recs.every((rec) => rec.act === "ask" && rec.intent === rec.id)).toBe(true);
     expect(recs.every((rec) => rec.category && rec.group && rec.profile)).toBe(true);
     expect(recs.some((rec) => rec.act === "go")).toBe(false);
@@ -695,7 +695,7 @@ describe("host contracts", () => {
   });
 
   it("every catalog skill has a file and explicit profile", async () => {
-    for (const skill of SKILL_CATALOG) {
+    for (const skill of (await skillCatalog())) {
       const skillPath = path.join(import.meta.dirname, `../skills/${skill.id}/SKILL.md`);
       expect(fs.existsSync(skillPath), skill.id).toBe(true);
       expect((await profileFor(skill.id)).id, skill.id).toBe(skill.profile);

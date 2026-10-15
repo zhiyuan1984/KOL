@@ -53,29 +53,48 @@ async function document(id: string, tenant: string, client?: PoolClient) {
  * freezes the exact reviewed material; the second transaction re-checks the
  * participant, material and source version before recording the read receipt.
  */
+/**
+ * The native publication service persists a different snapshot contract from the
+ * historical request store. Validate its own identifiers and frozen material
+ * before reusing the engine-file checksum verifier; this is deliberately not a
+ * permissive adapter for legacy request rows.
+ */
+function verifyNativePublicationTrialSnapshot(snapshot: Row, doc: Row) {
+  const engine = decode(snapshot.engine);
+  const frozenArtifacts = decode(snapshot.artifacts);
+  const currentArtifacts = decode(doc.artifacts);
+  const engineId = String(frozenArtifacts.index?.doc_id || "");
+  const currentEngineId = String(currentArtifacts.index?.doc_id || "");
+  const version = Number(doc.document_version || 1);
+  const expectedActiveId = doc.expected_active_id == null ? null : String(doc.expected_active_id);
+  const source = path.isAbsolute(String(doc.source_path))
+    ? String(doc.source_path)
+    : path.join(dataDir(), String(doc.source_path));
+  if (
+    typeof snapshot.documentId !== "string" || snapshot.documentId !== String(doc.id) ||
+    String(snapshot.baseId || "") !== String(doc.base_id) ||
+    snapshot.title !== doc.title || snapshot.filename !== doc.filename ||
+    snapshot.updatedAt !== doc.updated_at || snapshot.artifacts !== doc.artifacts ||
+    !/^[a-f0-9]{64}$/.test(String(snapshot.sourceHash || "")) ||
+    engine.document_id !== doc.id || engine.base_id !== doc.base_id ||
+    engine.updated_at !== snapshot.updatedAt || engine.artifacts !== doc.artifacts ||
+    engine.title !== doc.title || engine.source_path !== doc.source_path ||
+    !Number.isInteger(Number(engine.document_version)) || Number(engine.document_version) !== version ||
+    engine.root_id !== (doc.root_id || doc.id) ||
+    (engine.expected_active_id == null ? null : String(engine.expected_active_id)) !== expectedActiveId ||
+    !Array.isArray(engine.files) || !engineId || engineId !== currentEngineId
+  ) fail("knowledge_material_changed", "审批冻结材料或索引版本已变化，需要重新申请");
+  if (!fs.existsSync(source) || digest(fs.readFileSync(source)) !== snapshot.sourceHash)
+    fail("knowledge_material_changed", "原件已变化，需要重新申请");
+  if (engine.files.some((file: unknown) => !file || typeof file !== "object" ||
+    typeof (file as Row).path !== "string" || !/^[a-f0-9]{64}$/.test(String((file as Row).hash || ""))))
+    fail("knowledge_material_changed", "审批冻结索引不完整，需要重新申请");
+  verifySnapshot(engine, doc);
+  return { engineId, frozenIndex: frozenArtifacts.index as Row | undefined };
+}
+
 async function publicationTrialSnapshot(instanceId: string, ctx: ReviewContext) {
-  return postgresTransaction(async client => {
-    const access = (await client.query(`SELECT r.snapshot,r.document_id FROM knowledge_publication_requests r
-      JOIN review_participants p ON p.tenant=r.tenant AND p.instance_id=r.instance_id
-      WHERE r.tenant=$1 AND r.instance_id=$2 AND p.user_id=$3`, [ctx.tenant, instanceId, ctx.actor])).rows[0];
-    if (!access) fail("knowledge_review_unavailable", "资料不存在或不可见", 404);
-    const snapshot = decode(access.snapshot);
-    const doc = await document(String(access.document_id), ctx.tenant, client);
-    verifySnapshot(snapshot, doc);
-    if (!['pending_review', 'published'].includes(String(doc.status)))
-      fail("knowledge_document_missing", "待审资料不存在", 404);
-    const base = (await client.query("SELECT kind,status FROM knowledge_bases WHERE id=$1 FOR SHARE", [doc.base_id])).rows[0];
-    if (!base) fail("knowledge_base_missing", "知识库不存在", 400);
-    if (base.status !== "active") fail("knowledge_base_archived", "知识库已归档");
-    if (base.kind !== "unstructured") fail("knowledge_base_not_unstructured", "只有非结构化库支持资料检索", 400);
-    const index = decode(doc.artifacts).index as Row | undefined;
-    const engineId = String(index?.doc_id || "");
-    if (!engineId) fail("knowledge_not_indexed", "所选资料还没有完成索引");
-    const configuredLibrary = typeof index?.library === "string" ? index.library : "";
-    const library = configuredLibrary ? (path.isAbsolute(configuredLibrary) ? configuredLibrary : path.join(dataDir(), configuredLibrary))
-      : path.join(dataDir(), "knowledge", "bases", String(doc.base_id), "library");
-    return { snapshot, doc, engineId, library };
-  });
+  return postgresTransaction(async client => publicationTrialSnapshotInClient(instanceId, ctx, client));
 }
 
 async function nativePublicationTrial(instanceId: string, query: string, ctx: ReviewContext) {
@@ -120,16 +139,41 @@ async function nativePublicationTrial(instanceId: string, query: string, ctx: Re
   };
 }
 
+/**
+ * Load one native document application and prove the caller is still a current
+ * participant. This deliberately has no fallback to knowledge_publication_requests:
+ * native submissions only persist knowledge_publication_applications.
+ */
+async function nativePublicationReviewSnapshotInClient(instanceId: string, ctx: ReviewContext, client: PoolClient) {
+  const application = (await client.query(`SELECT p.snapshot,p.document_id,p.status,p.error,p.receipt
+    FROM knowledge_publication_applications p
+    WHERE p.tenant=$1 AND p.instance_id=$2 AND p.document_id IS NOT NULL FOR SHARE`,
+    [ctx.tenant, instanceId])).rows[0];
+  if (!application) fail("knowledge_review_unavailable", "资料不存在或不可见", 404);
+  const participant = (await client.query(`SELECT 1 FROM review_participants
+    WHERE tenant=$1 AND instance_id=$2 AND user_id=$3 FOR KEY SHARE`,
+    [ctx.tenant, instanceId, ctx.actor])).rows[0];
+  if (!participant) fail("knowledge_review_forbidden", "仅当前组织的流程参与人可查看审批资料", 403);
+
+  const snapshot = decode(application.snapshot);
+  const doc = await document(String(application.document_id), ctx.tenant, client);
+  const frozen = verifyNativePublicationTrialSnapshot(snapshot, doc);
+  if (!['pending_review', 'published'].includes(String(doc.status)))
+    fail("knowledge_document_missing", "待审资料不存在", 404);
+  const base = (await client.query("SELECT kind,status FROM knowledge_bases WHERE id=$1 FOR SHARE", [doc.base_id])).rows[0];
+  if (!base) fail("knowledge_base_missing", "知识库不存在", 400);
+  if (base.status !== "active") fail("knowledge_base_archived", "知识库已归档");
+  if (base.kind !== "unstructured") fail("knowledge_base_not_unstructured", "只有非结构化库支持资料检索", 400);
+  return { application, snapshot, doc, frozen };
+}
+
 async function publicationTrialSnapshotInClient(instanceId: string, ctx: ReviewContext, client: PoolClient) {
-  const access = (await client.query(`SELECT r.snapshot,r.document_id FROM knowledge_publication_requests r
-    JOIN review_participants p ON p.tenant=r.tenant AND p.instance_id=r.instance_id
-    WHERE r.tenant=$1 AND r.instance_id=$2 AND p.user_id=$3`, [ctx.tenant, instanceId, ctx.actor])).rows[0];
-  if (!access) fail("knowledge_review_unavailable", "资料不存在或不可见", 404);
-  const snapshot = decode(access.snapshot);
-  const doc = await document(String(access.document_id), ctx.tenant, client);
-  verifySnapshot(snapshot, doc);
-  const index = decode(doc.artifacts).index as Row | undefined;
-  return { doc, engineId: String(index?.doc_id || "") };
+  const access = await nativePublicationReviewSnapshotInClient(instanceId, ctx, client);
+  const configuredLibrary = typeof access.frozen.frozenIndex?.library === "string" ? access.frozen.frozenIndex.library : "";
+  const library = configuredLibrary
+    ? (path.isAbsolute(configuredLibrary) ? configuredLibrary : path.join(dataDir(), configuredLibrary))
+    : path.join(dataDir(), "knowledge", "bases", String(access.doc.base_id), "library");
+  return { snapshot: access.snapshot, doc: access.doc, engineId: access.frozen.engineId, library };
 }
 
 /** Verify actual files; a completed job or zero-valued metadata is not enough. */
@@ -299,26 +343,42 @@ export async function guardKnowledgeReview(command: ReviewCommand, ctx: ReviewCo
 }
 
 export async function knowledgeReviewMaterial(instanceId: string,ctx: ReviewContext) {
-  const req = (await postgresQuery(`SELECT r.snapshot,r.document_id,p.publication_status,p.error,p.receipt
-    FROM knowledge_publication_requests r JOIN review_participants m ON m.tenant=r.tenant AND m.instance_id=r.instance_id
-    LEFT JOIN knowledge_publications p ON p.tenant=r.tenant AND p.instance_id=r.instance_id
-    WHERE r.tenant=$1 AND r.instance_id=$2 AND m.user_id=$3`,[ctx.tenant,instanceId,ctx.actor]))[0];
-  if (!req) fail("knowledge_review_unavailable", "资料不存在或不可见",404);
-  const snapshot = decode(req.snapshot);
-  verifySnapshot(snapshot,await document(req.document_id,ctx.tenant));
-  const normalize = decode(snapshot.artifacts).normalize;
-  const previewPath = /\.pptx$/i.test(snapshot.source_path) ? normalize?.preview_path || normalize?.normalized_path : snapshot.source_path;
-  if (!previewPath) fail("knowledge_artifact_missing", "PPTX 转换预览缺失");
-  return {title:snapshot.title,base_id:snapshot.base_id,pages:snapshot.pages,version:snapshot.document_version,
-    publication_status:req.publication_status || "unpublished",error:req.error,receipt:req.receipt,source_path:previewPath,document_id:req.document_id,
-    knowledge_scope:snapshot.knowledge_scope || null,
-    management_url:ctx.admin ? `/admin/knowledge?document=${encodeURIComponent(req.document_id)}&reviewCompany=${encodeURIComponent(ctx.tenant)}` : null};
+  return postgresTransaction(async client => {
+    const access = await nativePublicationReviewSnapshotInClient(instanceId, ctx, client);
+    const engine = decode(access.snapshot.engine);
+    const artifacts = decode(access.snapshot.artifacts);
+    const pages = Number(engine.pages);
+    if (!Number.isInteger(pages) || pages < 1)
+      fail("knowledge_material_changed", "审批冻结材料页码无效，需要重新申请");
+    const previewPath = /\.pptx$/i.test(String(access.snapshot.filename || ""))
+      ? artifacts.normalize?.preview_path || artifacts.normalize?.normalized_path
+      : access.doc.source_path;
+    if (typeof previewPath !== "string" || !previewPath)
+      fail("knowledge_artifact_missing", "PPTX 转换预览缺失");
+    // source_path is transport-only and stripped by the router; neither it nor
+    // snapshot hashes/artifact locations are exposed in the metadata DTO.
+    return {
+      title: String(access.snapshot.title),
+      filename: String(access.snapshot.filename),
+      base_id: String(access.snapshot.baseId),
+      pages,
+      version: Number(engine.document_version),
+      publication_status: String(access.application.status),
+      error: access.application.error || null,
+      receipt: access.application.receipt ? decode(access.application.receipt) : null,
+      source_path: previewPath,
+      file_mime: "application/pdf",
+      document_id: String(access.application.document_id),
+      knowledge_scope: access.snapshot.knowledgeScope || engine.knowledge_scope || null,
+      management_url: ctx.admin ? `/admin/knowledge?document=${encodeURIComponent(String(access.application.document_id))}&reviewCompany=${encodeURIComponent(ctx.tenant)}` : null,
+    };
+  });
 }
 
 export async function knowledgeReviewTrial(instanceId:string,query:string,ctx:ReviewContext) {
   const result = await nativePublicationTrial(instanceId, query, ctx);
   return {...result,citations:result.citations.map((citation:Row)=>({...citation,
-    source_url:`/api/approvals/v2/instances/${encodeURIComponent(instanceId)}/knowledge/file?company=${encodeURIComponent(ctx.tenant)}#page=${citation.page}`})),
+    source_url:`/api/approvals/v2/instances/${encodeURIComponent(instanceId)}/knowledge-source?company=${encodeURIComponent(ctx.tenant)}#page=${citation.page}`})),
     scope:"本次审批版本试算，未发布内容不进入员工问答"};
 }
 

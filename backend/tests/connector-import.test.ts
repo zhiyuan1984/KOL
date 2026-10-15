@@ -32,8 +32,8 @@ async function post(body: unknown) {
   return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 }
 
-function count(sql: string, ...params: unknown[]): number {
-  return Number((getConn().prepare(`SELECT COUNT(*) AS n ${sql}`).get(...params) as { n: number }).n);
+async function count(sql: string, ...params: unknown[]): Promise<number> {
+  return Number((await getConn().query(`SELECT COUNT(*) AS n ${sql}`, params)).rows[0].n);
 }
 
 /** Imported records only; the platform seeds two built-in connectors on open. */
@@ -92,9 +92,8 @@ describe("connector JSON import", () => {
     const broken = servers.find((server) => server.label === "Broken Url");
     expect(broken?.valid).toBe(false);
     expect((await importedIds())).toEqual([]);
-    // PostgreSQL creates the table from its baseline; SQLite creates it lazily.
-    if (databaseEngine() === "postgres") expect(count("FROM runtime_credentials")).toBe(0);
-    else expect(count("FROM sqlite_master WHERE type='table' AND name='runtime_credentials'")).toBe(0);
+    // Native baseline creates an empty vault before any preview.
+    expect(await count("FROM runtime_credentials")).toBe(0);
   });
 
   it("imports on confirm: pending verification, transports, vaulted secrets and references", async () => {
@@ -123,7 +122,7 @@ describe("connector JSON import", () => {
     const gammaConfig = JSON.parse(String(((await getConn().query("SELECT config_json FROM runtime_connector_config WHERE connector_id='gamma-ref'",[])).rows[0] as { config_json: string }).config_json));
     expect(gammaConfig.headers_secret_refs["X-API-Key"]).toBe(CRED_REF);
 
-    expect(count("FROM runtime_credentials")).toBe(1);
+    expect(await count("FROM runtime_credentials")).toBe(1);
     const credential = (await getConn().query("SELECT label,purpose FROM runtime_credentials",[])).rows[0] as Record<string, unknown>;
     expect(String(credential.label)).toBe("Alpha Server · X-API-Key");
     expect(String(credential.purpose)).toContain("JSON 导入");

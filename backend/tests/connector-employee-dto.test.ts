@@ -111,8 +111,8 @@ describe("employee connector use-surface DTO", () => {
     (await getConn().query("UPDATE connectors SET credential_ref=$1, status=$2, enabled=1 WHERE id='starrykol'",["vault://starrykol/prod","configured"]));
     (await getConn().query("INSERT INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING",["hidden_tool","Hidden tool",0,"configured","vault://hidden",new Date().toISOString()]));
 
-    seedConnectorGrant(String(employee.id), "starrykol", "read");
-    seedConnectorGrant(String(employee.id), "hidden_tool", "write");
+    await seedConnectorGrant(String(employee.id), "starrykol", "read");
+    await seedConnectorGrant(String(employee.id), "hidden_tool", "write");
 
     const cookie = await employeeLogin("dto-user");
     const listed = await call("GET", "/api/connectors", undefined, cookie);
@@ -128,7 +128,7 @@ describe("employee connector use-surface DTO", () => {
   it("projects explicit write grants and never returns the word admin", async () => {
     const employee = await createEmployee("admin-grant");
     (await getConn().query("UPDATE connectors SET enabled=1, status='configured' WHERE id='starrykol'",[]));
-    seedConnectorGrant(String(employee.id), "starrykol", "write");
+    await seedConnectorGrant(String(employee.id), "starrykol", "write");
     const cookie = await employeeLogin("admin-grant");
     const listed = await call("GET", "/api/connectors", undefined, cookie);
     const rows = listed.json as Record<string, unknown>[];
@@ -172,7 +172,7 @@ describe("employee connector use-surface DTO", () => {
     expect(starrykol).toHaveProperty("status");
 
     const employee = await createEmployee("serializer-user");
-    seedConnectorGrant(String(employee.id), "starrykol", "read");
+    await seedConnectorGrant(String(employee.id), "starrykol", "read");
     const employeeSurface = await call("GET", "/api/connectors", undefined, await employeeLogin("serializer-user"));
     const useRows = employeeSurface.json as Record<string, unknown>[];
     expect(useRows.length).toBeGreaterThan(0);

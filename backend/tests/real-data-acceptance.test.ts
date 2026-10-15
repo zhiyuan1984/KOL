@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { BRAND_MAILBOXES } from "../src/config.js";
-import { SKILL_CATALOG } from "../src/host/skills-catalog.js";
+import { skillCatalog } from "../src/host/skills-catalog.js";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { EMAIL_TEMPLATES, templateAllowedForStage } from "../src/email-templates.js";
@@ -452,7 +452,7 @@ describe("home board and host flows with Starry + markdown creators", () => {
 
   it("keeps the skill home catalog while the board uses real creator rows", async () => {
     const home = await request("GET", "/api/home");
-    expect((home.body.recs as Json[]).length).toBe(SKILL_CATALOG.length);
+    expect((home.body.recs as Json[]).length).toBe((await skillCatalog()).length);
     expect((home.body.recs as Json[]).every((rec) => rec.act === "ask")).toBe(true);
     expect((home.body.recs as Json[]).some((rec) => rec.id === "business_approval")).toBe(true);
   });

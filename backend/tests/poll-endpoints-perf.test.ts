@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { postgresPool } from "../src/postgres/pool.js";
 import type { Hono } from "hono";
-import { getConn, resetConn } from "../src/db.js";
+import { getConn, resetConn, tx } from "../src/db.js";
 import { DEMO_USER } from "../src/config.js";
 import { buildHomeBoard, MAX_BOARD_TASKS, MAX_KOL_MAIL_THREADS, MAX_KOL_TASKS, MAX_WORKBENCH_TASKS, OPEN_WORK_ITEM_SQL } from "../src/host/home-board.js";
 import { POLL_CACHE_MAX_TOTAL_BYTES, POLL_CACHE_MAX_VALUE_BYTES, pollCacheCounters, resetPollCache } from "../src/host/response-cache.js";
@@ -98,8 +98,7 @@ describe("GET /api/tasks list payloads", () => {
     const listed = await request("GET", "/api/tasks?view=open");
     expect(listed.status).toBe(200);
     const expected = Number((
-      getConn().prepare(`SELECT COUNT(*) AS c FROM tickets WHERE owner_user_id=? AND ${OPEN_WORK_ITEM_SQL}`)
-        .get(DEMO_USER.id) as { c: number }
+      (await getConn().query(`SELECT COUNT(*) AS c FROM tickets WHERE owner_user_id=$1 AND ${OPEN_WORK_ITEM_SQL}`, [DEMO_USER.id])).rows[0] as { c: number }
     ).c);
     expect(listed.body.total).toBe(expected);
     const tasks = listed.body.tasks as Json[];
@@ -224,11 +223,11 @@ describe("GET /api/sessions projection", () => {
   it("ships no field the shell does not read, under a byte ceiling", async () => {
     const stamp = "2026-09-01T00:00:00.000Z";
     const insert = "INSERT INTO sessions (id,title,created_at,updated_at,collaboration_id,kind,owner_user_id,archived_at,expert_id,thread_ref) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)";
-    getConn().transaction(async () => {
+    await tx(async (client) => {
       for (let i = 0; i < 200; i += 1) {
-        (await getConn().query(insert,[`ses_proj_${String(i).padStart(3, "0")}`,`与 达人${i} 的合作会话 · 第 ${i} 轮`,stamp,stamp,`col_proj_${i}`,"work",DEMO_USER.id,i % 9 === 0 ? stamp : null,`expert_${i}`,`thread_${i}`]));
+        (await client.query(insert,[`ses_proj_${String(i).padStart(3, "0")}`,`与 达人${i} 的合作会话 · 第 ${i} 轮`,stamp,stamp,`col_proj_${i}`,"work",DEMO_USER.id,i % 9 === 0 ? stamp : null,`expert_${i}`,`thread_${i}`]));
       }
-    })();
+    });
 
     const listed = await request("GET", "/api/sessions");
     expect(listed.status).toBe(200);

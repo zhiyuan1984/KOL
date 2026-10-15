@@ -115,7 +115,7 @@ async function auditCount(eventType: string): Promise<number> {
 }
 
 async function approveAndPublish(id:string,base:string){
-  const context=async (actor="sriphy")=>(await reviewContextForActor(getConn(),actor,"company:amperetime"));
+  const context=async (actor="sriphy")=>await tx(client=>reviewContextForActor(client,actor,"company:amperetime"));
   const definition=knowledgeReviewDefinition();definition.nodes.find(n=>n.type==="review")!.assignee={kind:"named",userIds:["pdf-reviewer"]};
   const template=(await tx(async db=>(new ReviewService(db,(await context())).saveTemplate(undefined,undefined,definition))));
   (await tx(async db=>{const service=new ReviewService(db,(await context())),command={action:"publish" as const,templateId:template.id,expectedVersion:template.version};
@@ -123,7 +123,7 @@ async function approveAndPublish(id:string,base:string){
   await bindPublication(base,template.id,0,(await context()));
   const prepare=await preparePublication(id,"核对原文后发布",(await context()));await guardKnowledgeReview(prepare.command,(await context()));
   const submit=(await tx(async db=>(await new ReviewService(db,(await context())).execute(prepare.command,prepare.confirmationId,randomUUID()))));
-  const instance=String(submit.resourceId),service=new ReviewService(getConn(),(await context("pdf-reviewer"))),view=(await service.instance(instance));
+  const instance=String(submit.resourceId),view=await tx(async client=>new ReviewService(client,await context("pdf-reviewer")).instance(instance));
   const command={action:"approve" as const,instanceId:instance,expectedVersion:view.version,reason:"已核对"};await guardKnowledgeReview(command,(await context("pdf-reviewer")));
   (await tx(async db=>{const s=new ReviewService(db,(await context("pdf-reviewer"))),p=(await s.prepare(command));(await s.execute(command,p.confirmationId,randomUUID()));}));
   expect((await processExecutionJobById(`knowledge-publish:company:amperetime:${instance}`,"pdf-test"))?.outcome).toBe("processed");

@@ -182,7 +182,7 @@ function nullableString(value: unknown): string | null {
 }
 
 async function tableExists(name: string): Promise<Awaited<boolean>> {
-  const row = (await getConn().query("SELECT name FROM sqlite_master WHERE type='table' AND name=$1",[name])).rows[0] as { name?: string } | undefined;
+  const row = (await getConn().query("SELECT table_name AS name FROM information_schema.tables WHERE table_schema=current_schema() AND table_name=$1",[name])).rows[0] as { name?: string } | undefined;
   return Boolean(row?.name);
 }
 
