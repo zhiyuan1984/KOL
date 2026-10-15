@@ -7,6 +7,8 @@ import { getConn, nowIso, resetConn } from "../src/db.js";
 import { mapUser, tokenDigest, withScopedUser, type AppUser } from "../src/auth.js";
 import { drainBackgroundWork } from "../src/background-work.js";
 import { saveStarryBinding } from "../src/host/starry-bind.js";
+import { publishJourneyForCollaboration } from "../src/host/kol-journey.js";
+import { subscribeSession } from "../src/host/session-events.js";
 import { pgVisibleSkillIdsForUser } from "../src/postgres/auth-pg.js";
 import { persistStarryOwnership } from "../src/postgres/kol-source-authority.js";
 import { closePostgresPool } from "../src/postgres/pool.js";
@@ -254,5 +256,32 @@ describe("follow-style tags", () => {
     expect([403, 404]).toContain(asked.status);
     expect((await getConn().query("SELECT follow_style_tags FROM collaborations WHERE id='col_xiaomei'")).rows[0]).toEqual(before);
     expect((await getConn().query("SELECT count(*)::int AS n FROM audit_events WHERE event_type='follow_style_tags.update'")).rows[0].n).toBe(0);
+  });
+
+  it("does not reuse another employee's private session or mail cards in the same brand", async () => {
+    const now = nowIso();
+    await getConn().query("INSERT INTO users(id,username,name,password_hash,created_at,updated_at) VALUES('private-other','private-other','Other employee','test-only',$1,$1)", [now]);
+    await getConn().query("INSERT INTO sessions(id,title,created_at,updated_at,owner_user_id,collaboration_id) VALUES('private-session','Private',$1,$1,'private-other','col_xiaomei')", [now]);
+    await getConn().query("INSERT INTO messages(id,session_id,role,kind,payload,created_at) VALUES('private-message','private-session','assistant','kol_mail_card',$1,$2)", [JSON.stringify({ body: "private-other-employee-body", collaboration_id: "col_xiaomei" }), now]);
+    const opened = await request("POST", "/api/collaborations/col_xiaomei/session", {});
+    expect(opened.status, opened.text).toBe(200);
+    expect(opened.body.id).not.toBe("private-session");
+    expect(opened.text).not.toContain("private-other-employee-body");
+    expect((await getConn().query("SELECT owner_user_id FROM sessions WHERE id=$1", [opened.body.id])).rows[0].owner_user_id).toBe(ACTOR_ID);
+    expect((await getConn().query("SELECT payload FROM messages WHERE id='private-message'")).rows[0].payload).toContain("private-other-employee-body");
+    await waitForFollowedMailSync(String(opened.body.id));
+    const privateEvents: unknown[] = [];
+    const ownEvents: unknown[] = [];
+    const stopPrivate = subscribeSession("private-session", event => privateEvents.push(event));
+    const stopOwn = subscribeSession(String(opened.body.id), event => ownEvents.push(event));
+    try {
+      await withScopedUser(actor, () => publishJourneyForCollaboration("col_xiaomei"));
+      expect(privateEvents).toEqual([]);
+      expect(ownEvents).toHaveLength(1);
+      expect(JSON.stringify(ownEvents)).not.toContain("private-other-employee-body");
+    } finally {
+      stopPrivate();
+      stopOwn();
+    }
   });
 });

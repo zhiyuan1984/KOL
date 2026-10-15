@@ -7,6 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { getConn, nowIso, tx } from "../db.js";
+import { scopedUser } from "../auth.js";
 import { codexMode, mailAnalysisTimeout, mailDigestFailRetryMs } from "../config.js";
 import {
   codexRecognizeThreadConfig,
@@ -315,7 +316,7 @@ function mailHistoryKey(row: Json): string {
 
 export async function mailHistoryRows(collaborationId: string): Promise<Awaited<Json[]>> {
   if (!collaborationId) return [];
-  const session = (await getConn().query("SELECT id FROM sessions WHERE collaboration_id=$1 AND deleted_at IS NULL AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 1",[collaborationId])).rows[0] as { id: string } | undefined;
+  const session = (await getConn().query("SELECT id FROM sessions WHERE collaboration_id=$1 AND owner_user_id IS NOT DISTINCT FROM $2 AND deleted_at IS NULL AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 1",[collaborationId,scopedUser()?.id || null])).rows[0] as { id: string } | undefined;
   const fromCards: Json[] = [];
   if (session?.id) {
     const cards = (await getConn().query("SELECT id, payload, created_at FROM messages WHERE session_id=$1 AND kind='kol_mail_card'",[session.id])).rows as { id: string; payload: string; created_at: string }[];

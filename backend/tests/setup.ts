@@ -8,6 +8,10 @@ import { dropTestDatabases, freshTestDatabase } from "./support/pg.js";
 // replace this clone; missing or unsafe management configuration still fails closed.
 await freshTestDatabase();
 
+// Retained native integration suites use this alias to opt into PostgreSQL.
+// It must name the same helper-owned clone, never a caller's long-lived URL.
+process.env.TEST_POSTGRES_URL = process.env.DATABASE_URL;
+
 // PostgreSQL 测试库的清理：每个用例从模板库拷出来的新库在本文件结束后统一 DROP。
 afterAll(async () => {
   await dropTestDatabases();

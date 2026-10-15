@@ -86,7 +86,7 @@ function collabPortrait(col: Row): Json {
 export async function publishJourneyForCollaboration(collaborationId: string): Promise<Awaited<Json | null>> {
   const next = (await journeyPayload(collaborationId));
   if (!next) return null;
-  const sessions = (await getConn().query("SELECT id FROM sessions WHERE collaboration_id=$1",[collaborationId])).rows as { id: string }[];
+  const sessions = (await getConn().query("SELECT id FROM sessions WHERE collaboration_id=$1 AND owner_user_id IS NOT DISTINCT FROM $2",[collaborationId,scopedUser()?.id || null])).rows as { id: string }[];
   for (const session of sessions) publishSession(session.id, { type: "journey", journey: next });
   return next;
 }
@@ -262,7 +262,7 @@ export async function journeyPayloadWithMailMemory(
     .then(async () => {
       const next = (await journeyPayload(colId));
       if (!next) return;
-      const sessions = (await getConn().query("SELECT id FROM sessions WHERE collaboration_id=$1",[colId])).rows as { id: string }[];
+      const sessions = (await getConn().query("SELECT id FROM sessions WHERE collaboration_id=$1 AND owner_user_id IS NOT DISTINCT FROM $2",[colId,scopedUser()?.id || null])).rows as { id: string }[];
       for (const session of sessions) publishSession(session.id, { type: "journey", journey: next });
     })
     .finally(async () => {
@@ -694,8 +694,8 @@ export async function openKolSession(collaborationId: string): Promise<Awaited<J
   if (!col) throw new HttpFail(404, "collaboration not found");
   const owner = scopedUser()?.id || null;
   const existing = (owner
-    ? (await getConn().query("SELECT * FROM sessions WHERE collaboration_id=$1 AND deleted_at IS NULL AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 1",[collaborationId])).rows[0]
-    : (await getConn().query("SELECT * FROM sessions WHERE collaboration_id=$1 AND deleted_at IS NULL AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 1",[collaborationId])).rows[0]) as Row | undefined;
+    ? (await getConn().query("SELECT * FROM sessions WHERE collaboration_id=$1 AND owner_user_id=$2 AND deleted_at IS NULL AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 1",[collaborationId,owner])).rows[0]
+    : (await getConn().query("SELECT * FROM sessions WHERE collaboration_id=$1 AND owner_user_id IS NULL AND deleted_at IS NULL AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 1",[collaborationId])).rows[0]) as Row | undefined;
   if (existing) {
     (await syncSessionStageCopy(collaborationId, normalizeStage(String(col.stage_code))));
     const refreshed = (await getConn().query("SELECT title FROM sessions WHERE id=$1",[existing.id])).rows[0] as { title?: string } | undefined;

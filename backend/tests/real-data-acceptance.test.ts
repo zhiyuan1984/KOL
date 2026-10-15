@@ -11,6 +11,7 @@ import { drainBackgroundWork } from "../src/background-work.js";
 import { waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
 import { skillCatalog } from "../src/host/skills-catalog.js";
 import { saveStarryBinding } from "../src/host/starry-bind.js";
+import { journeyPayload } from "../src/host/kol-journey.js";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { EMAIL_TEMPLATES, templateAllowedForStage } from "../src/email-templates.js";
@@ -143,16 +144,17 @@ async function insertUnboundCreator(portrait: Record<string, string>): Promise<A
 
 /** Wait for the actual detached mail-memory write before this clone is torn down. */
 async function awaitOutboundDigest(collaborationId: string): Promise<void> {
-  const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline) {
-    const row = (await getConn().query(
-      "SELECT digest_source,digest_fingerprint FROM kol_mail_threads WHERE collaboration_id=$1 AND COALESCE(digest_source,'')<>'' AND COALESCE(digest_fingerprint,'')<>'' ORDER BY updated_at DESC LIMIT 1",
-      [collaborationId],
-    )).rows[0] as { digest_source?: string; digest_fingerprint?: string } | undefined;
-    if (row?.digest_source && row.digest_fingerprint) return;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  throw new Error(`outbound mail digest did not finish for ${collaborationId}`);
+  await drainBackgroundWork();
+  const journey = await journeyPayload(collaborationId);
+  const digest = journey?.mail_digest as Json;
+  // CODEX_MODE=stub intentionally returns transparent body_analysis rather than
+  // fabricating a remote Codex/Luna persisted result. The outgoing card itself
+  // must be durably ingested before the derived summary is asserted.
+  expect(digest?.source).toBe("body_analysis");
+  expect(Number(digest?.mail_count || 0)).toBeGreaterThanOrEqual(1);
+  expect(String(digest?.text || "")).not.toBe("");
+  const history = journey?.mail_history as Json[];
+  expect(history.some(row => row.direction === "outbound" && String(row.body).includes("Just a follow-up."))).toBe(true);
 }
 
 beforeEach(async () => {
@@ -564,8 +566,9 @@ describe("home board and host flows with Starry + markdown creators", () => {
     await saveStarryBinding(fixtureUser.id, { mailbox_email: BRAND_MAILBOXES.LT, mailbox_id: "mbx_snapshot_fixture", owner_name: fixtureUser.name, owner_open_id: "open_snapshot_fixture" });
     const id = (await insertCollaboration(wendellProfile(), "INITIAL_CONTACT"));
     const [sid] = await ask("记状态 @Wendell Fishing", "confirm_stage", id);
+    const selected = await getConn().query("UPDATE sessions SET collaboration_id=$1 WHERE id=$2 AND owner_user_id=$3", [id, sid, fixtureUser.id]);
+    expect(selected.rowCount).toBe(1);
     const { persistDraft } = await import("../src/host/api.js");
-    const { BRAND_MAILBOXES } = await import("../src/config.js");
     const scopedActor = await mapUser((await getConn().query("SELECT * FROM users WHERE id=$1", [fixtureUser.id])).rows[0]);
     const draft = await withScopedUser(scopedActor, () => persistDraft(sid, {
       skill: "email_compose",
@@ -584,7 +587,7 @@ describe("home board and host flows with Starry + markdown creators", () => {
     expect(sent.status, JSON.stringify(sent.body)).toBe(200);
     expect(sent.body.stage_changed).toBe(false);
     expect(sent.body.official_stage).toBe("INITIAL_CONTACT");
-    await awaitOutboundDigest(id);
+    await withScopedUser(scopedActor, () => awaitOutboundDigest(id));
     // The acceptance path uses the local gateway stub only: no Starry MCP tool
     // is called to fabricate an external result or alter the official stage.
     expect(calls).toEqual([]);

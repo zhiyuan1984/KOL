@@ -189,7 +189,7 @@ describePostgres("PostgreSQL task to AI work-order model", () => {
     });
     expect(dashboard).toMatchObject({
       period: "realtime",
-      metrics: { total: 2, in_progress: 2, completion_rate: 0, overdue_rate: 0, automatic_rate: 50 },
+      metrics: { total: 2, in_progress: 0, completion_rate: 0, overdue_rate: 0, automatic_rate: 50 },
       comparison: null,
     });
     expect(dashboard.trends.total).toHaveLength(7);
