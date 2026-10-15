@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type APIRequestContext, type APIResponse, type Browser, type Page } from "@playwright/test";
 import { processExecutionJobById } from "../../backend/src/execution-jobs/dispatcher";
+import { postgresQuery } from "../../backend/src/postgres/pool";
 import { knowledgeReviewDefinition } from "../../shared/review";
 import { prepareNativeKnowledgeAdmin } from "./fixtures/native-knowledge-admin";
 import { nativeKnowledgeAuth, reviewerContext } from "./fixtures/native-knowledge-auth";
@@ -181,7 +182,12 @@ async function independentlyApprove(
     expect(detail.allowedActions).toContain("approve");
     const decision = { action: "approve", instanceId, expectedVersion: detail.version, reason: "已核对原文与冻结版本" };
     const requesterDenied = await requester.post("/api/approvals/v2/prepare", { headers, data: decision });
-    expect(requesterDenied.status(), "申请人不得审核自己的知识发布").toBe(422);
+    expect(requesterDenied.status(), "申请人不得审核自己的知识发布").toBe(403);
+    const reviewerInvalid = await reviewerPage.request.post(apiUrl("/api/approvals/v2/prepare"), {
+      headers,
+      data: { ...decision, reason: "x".repeat(2001) },
+    });
+    expect(reviewerInvalid.status(), "独立评审人的超长决定理由必须被拒绝").toBe(422);
     const prepared = await jsonOk<{ confirmationId: string }>(
       await reviewerPage.request.post(apiUrl("/api/approvals/v2/prepare"), { headers, data: decision }),
     );
@@ -256,7 +262,9 @@ test("上传 PDF → 待审 → 发布（L3 回执）→ 库详情试算返回�
   await expect(page.locator("[data-workspace-mode='review']")).toBeVisible();
   const publication = page.getByRole("region", { name: "知识发布审批" });
   const templatePicker = publication.getByLabel("审批流程");
-  if (process.env.E2E_AUTH_MODE === "enabled") await templatePicker.selectOption(template.id);
+  // The current panel selects its sole published template, then collapses the
+  // native picker. Assert that durable default instead of forcing its hidden
+  // implementation control; the selected workflow/version remains explicit.
   await expect(templatePicker).toHaveValue(template.id);
   await publication.getByLabel("发布说明").fill("已核对上传原文、范围与适用对象后提交独立审批");
   const submit = page.locator("[data-kbv-doc-action='submit']");
@@ -269,20 +277,41 @@ test("上传 PDF → 待审 → 发布（L3 回执）→ 库详情试算返回�
   await expect(page.locator("[data-workspace-mode='detail']")).toContainText("审批中");
 
   // 5) 旧“库详情试算”迁到当前冻结审批资料版本：答案和原件页级引用仍须可追溯。
-  const reviewUrl = await publication.getByRole("link", { name: /查看审批记录与处理入口/ }).getAttribute("href");
+  const reviewUrl = await page.getByRole("link", { name: /查看审批记录与处理入口/ }).getAttribute("href");
   expect(reviewUrl).toBeTruthy();
   await page.goto(reviewUrl!);
-  const material = page.getByRole("region", { name: "审批资料版本" });
+  const material = page.getByRole("region", { name: "审批材料" });
   await expect(material).toContainText(title);
-  await material.getByText("本次资料版本试算", { exact: true }).click();
-  await material.getByLabel("试算问题").fill("这份资料讲了什么？");
-  await material.getByRole("button", { name: "试算", exact: true }).click();
-  await expect(material).toContainText("这份资料讲了什么？");
-  await expect(material.getByRole("link", { name: /原文第\d+页/ })).toHaveCount(1);
+  const frozenScope = material.getByRole("region", { name: "审批冻结的知识范围" });
+  await expect(frozenScope).toBeVisible();
+  await expect(frozenScope.getByRole("link", { name: /原件第\d+页/ })).toHaveCount(1);
+  const reviewInstanceId = new URL(reviewUrl!, process.env.E2E_BASE || "http://127.0.0.1:8949")
+    .pathname.split("/").filter(Boolean).at(-1) || "";
+  expect(reviewInstanceId, "提交回执必须链接到真实审批实例").not.toBe("");
+  const frozenTrial = await jsonOk<{
+    answer: string;
+    scope: string;
+    citations: Array<{ page: number; source_url: string }>;
+  }>(await api.post(`/api/approvals/v2/instances/${encodeURIComponent(reviewInstanceId)}/knowledge/trial`, {
+    headers: { "X-Review-Company": nativeKnowledgeAuth.company },
+    data: { query: "这份资料讲了什么？" },
+  }));
+  expect(frozenTrial.answer).toContain("这份资料讲了什么？");
+  expect(frozenTrial.scope).toContain("本次审批版本试算");
+  expect(frozenTrial.citations).toEqual([
+    expect.objectContaining({ page: 1, source_url: expect.stringContaining("#page=1") }),
+  ]);
 
   if (process.env.E2E_AUTH_MODE === "enabled") {
     const instanceId = await independentlyApprove(browser, api, reviewUrl!);
-    expect(await processExecutionJobById(`knowledge-publish:${nativeKnowledgeAuth.company}:${instanceId}`, "wave6-knowledge-admin-publication")).toMatchObject({
+    const durableJobs = await postgresQuery<{ id: string }>(
+      "SELECT id FROM execution_jobs WHERE job_type='knowledge.publication' AND tenant_ref=$1 AND payload_json::jsonb->>'instanceId'=$2",
+      [nativeKnowledgeAuth.company, instanceId],
+    );
+    expect(durableJobs, "独立审批应入队唯一真实持久发布作业").toHaveLength(1);
+    const durableJobId = durableJobs[0].id;
+    expect(await processExecutionJobById(durableJobId, "wave6-knowledge-admin-publication")).toMatchObject({
+      execution_job_id: durableJobId,
       job_type: "knowledge.publication",
       handled: true,
       outcome: "processed",

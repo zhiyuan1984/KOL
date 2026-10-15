@@ -3807,13 +3807,41 @@ test("composer renders uploaded files as removable attachment cards", async ({ p
 });
 
 test("task workbench switches today/templates, filters sources, and runs one of 25 templates", async ({ page }) => {
-  const templates = Array.from({ length: 25 }, (_, index) => ({
-    id: `template-${index + 1}`,
+  // These are employee-visible, current registry ids. The test catalog keeps the
+  // TaskDefinition contract (prompt / skill_id / schema) rather than inventing
+  // the retired panel's unsupported template intents.
+  const skillIds = [
+    "business_approval", "confirm_stage", "crawler_collect", "creator_budget_report", "creator_contact_decrypt",
+    "creator_daily_tasks", "creator_discovery", "creator_library_query", "creator_library_sync", "creator_lifecycle_kanban",
+    "creator_outreach", "creator_owner_update", "creator_profile", "creator_scoring", "creator_status_update",
+    "deal_memory", "email_compose", "email_conversation_list", "kol_analyze", "mail_summary",
+    "mail_translate", "reply_analysis", "risk_scan", "stage_sop", "todo_plan",
+  ] as const;
+  const templates = skillIds.map((id, index) => ({
+    id,
+    skill_id: id,
     title: `任务模板 ${index + 1}`,
     description: `模板说明 ${index + 1}`,
+    prompt: index === 0 ? "Expense approval [requester] [amount] [currency]" : `任务模板 ${index + 1} [任务对象]`,
     category: `分组 ${Math.floor(index / 5) + 1}`,
+    input_schema: [],
+    granted: true,
+    employee_visible: true,
+  }));
+  const menuSkills = templates.map(({ id, title, description, prompt, input_schema }) => ({
+    id,
+    title,
+    label: title,
+    description,
+    starter: prompt,
+    input_schema,
+    granted: true,
+    employee_visible: true,
   }));
   const posted: string[] = [];
+  const fromTextBodies: Record<string, unknown>[] = [];
+  const runBodies: Record<string, unknown>[] = [];
+  let taskDefinitionGets = 0;
   await page.route("**/api/sessions", async (route) => {
     const url = new URL(route.request().url());
     if (route.request().method() === "POST" && url.pathname === "/api/sessions") {
@@ -3832,10 +3860,17 @@ test("task workbench switches today/templates, filters sources, and runs one of 
     }
     await route.fallback();
   });
-  await page.route("**/api/task-definitions", (route) => route.fulfill({ json: templates }));
-  await page.route("**/api/home", (route) => route.fulfill({
-    json: { brand: "灵工 工作", h1: "今天有什么工作要处理？", recs: templates },
-  }));
+  await page.route("**/api/task-definitions", async (route) => {
+    expect(route.request().method()).toBe("GET");
+    taskDefinitionGets += 1;
+    await route.fulfill({ json: templates });
+  });
+  await page.route(/\/api\/skills(?:\/market)?(?:\?.*)?$/, async (route) => {
+    await route.fulfill({ json: new URL(route.request().url()).pathname.endsWith("/market") ? [] : menuSkills });
+  });
+  // The high-confidence /from-text result below remains the sole execution
+  // route; selecting a skill only prefills the editable composer draft.
+  await page.route("**/api/knowledge/skill-templates", (route) => route.fulfill({ json: [] }));
   await page.route("**/api/tasks**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname !== "/api/tasks") {
@@ -3849,15 +3884,16 @@ test("task workbench switches today/templates, filters sources, and runs one of 
     }
     await route.fulfill({ json: [
       { id: "manual-1", title: "手动跟进", source: "manual", status: "pending", priority: "high" },
-      { id: "ai-1", title: "AI 风险发现", source: "ai", status: "running", risk: "合作临近延期" },
+      { id: "ai-1", title: "AI 风险发现", source: "ai", status: "running", priority: "normal", risk: "合作临近延期", risk_level: "high", due_at: new Date().toISOString() },
       { id: "done-1", title: "已完成复盘", source: "manual", status: "completed", priority: "low" },
     ] });
   });
   await page.route("**/api/tasks/*/run", async (route) => {
     posted.push(new URL(route.request().url()).pathname);
+    runBodies.push(route.request().postDataJSON() as Record<string, unknown>);
     await route.fulfill({
       json: {
-        task: { id: "task-created", title: "任务模板 1", source: "manual", status: "running" },
+        task: { id: "task-created", title: "任务模板 1", source: "manual", status: "running", task_type: "business_approval" },
         run: { status: "running" },
         session_id: "session-created",
         pending: { status: "running" },
@@ -3866,11 +3902,16 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   });
   await page.route("**/api/tasks/from-text", async (route) => {
     posted.push("/api/tasks/from-text");
+    fromTextBodies.push(route.request().postDataJSON() as Record<string, unknown>);
     await route.fulfill({
       json: {
-        task: { id: "task-created", title: "任务模板 1", source: "manual", status: "pending" },
-        tasks: [{ id: "task-created", title: "任务模板 1", source: "manual", status: "pending" }],
-        resolved_tasks: [{ id: "task-created", title: "任务模板 1", source: "manual", status: "pending" }],
+        confidence: "high",
+        needs_clarification: false,
+        clarification_kind: "none",
+        task: { id: "task-created", title: "任务模板 1", source: "manual", status: "pending", task_type: "business_approval", skill: "business_approval" },
+        tasks: [{ id: "task-created", title: "任务模板 1", source: "manual", status: "pending", task_type: "business_approval" }],
+        resolved_tasks: [{ id: "business_approval", title: "任务模板 1", skill_id: "business_approval", prompt: "Expense approval [requester] [amount] [currency]", input_schema: [] }],
+        resolution: { confidence: 0.99, needs_clarification: false, clarification_kind: "none", task_type: "business_approval", entities: {}, source: "fixture" },
       },
     });
   });
@@ -3896,7 +3937,7 @@ test("task workbench switches today/templates, filters sources, and runs one of 
       ],
       tasks: [
         { id: "manual-1", title: "手动跟进", source: "manual", status: "pending", priority: "high", history_summary: "任务已创建 · 待处理", kol_name: "小美妆日记", collab_summary: "LT品牌合作", recent_followup: "任务已创建 · 待处理", current_stage: "初步接触", suggested_stage: "已回复-有兴趣" },
-        { id: "ai-1", title: "AI 风险发现", source: "ai", status: "running", risk: "合作临近延期", history_summary: "识别风险 · 进行中", recent_followup: "识别风险 · 进行中" },
+        { id: "ai-1", title: "AI 风险发现", source: "ai", status: "running", priority: "normal", risk: "合作临近延期", risk_level: "high", due_at: new Date().toISOString(), history_summary: "识别风险 · 进行中", recent_followup: "识别风险 · 进行中" },
         { id: "done-1", title: "已完成复盘", source: "manual", status: "completed", priority: "low", history_summary: "复盘完成 · 已完成", recent_followup: "复盘完成 · 已完成" },
       ],
       tabs: [
@@ -3908,6 +3949,7 @@ test("task workbench switches today/templates, filters sources, and runs one of 
       ],
   });
   await page.goto("/");
+  await expect.poll(() => taskDefinitionGets).toBeGreaterThan(0);
   await expectHomeModeOrder(page);
   await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-today-summary], [data-home-stats]")).toHaveCount(0);
@@ -3969,23 +4011,37 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await expect(exceptionCard.locator("[data-stage-label]")).toHaveText("争议中");
   await expect(exceptionCard.locator("[data-current-state]")).not.toContainText(" · 异常");
   await expect(exceptionCard.locator('[data-kol-chip="exception"]')).toHaveText("异常");
-  await page.locator("[data-open-work-panel]").click();
-  await expect(page.locator("[data-work-panel]")).toBeVisible();
-  await page.locator('[data-home-tab="today"]').click();
-  await page.locator('[data-panel-filter="open"]').click();
-  await expect(page.locator("[data-work-panel] .today-task")).toHaveCount(2);
-  await page.locator('[data-panel-filter="ai"]').click();
-  await expect(page.locator("[data-work-panel] .today-task")).toHaveCount(1);
-  await expect(page.locator("[data-work-panel] .today-task.task-ai")).toContainText("AI 风险发现");
-  await page.getByRole("tab", { name: "任务模板" }).click();
-  await expect(page.locator("[data-task-template]").filter({ hasText: /任务模板 \d+/ })).toHaveCount(25);
-  await page.locator("[data-task-template]").filter({
-    has: page.locator(".rec-title", { hasText: /^任务模板 1$/ }),
-  }).click();
-  await expectHomeComposerDraft(page, "任务模板 1");
+  // Retired work-panel source filters are intentionally absent. The native
+  // Todo TaskBoard owns priority, reminder, and query filtering over the two
+  // open rows; the AI risk row must remain independently discoverable.
+  await openHomeTodo(page);
+  const taskBoard = page.locator('[data-home-pane="todo"] [data-todo-list]');
+  const boardRows = taskBoard.locator("[data-today-todo]");
+  await expect(taskBoard).toBeVisible();
+  await expect(boardRows).toHaveCount(2);
+  await expect(taskBoard.locator('[data-board-filter="in"]')).toBeVisible();
+  await taskBoard.locator('[data-board-filter="in"]').click();
+  await expect(boardRows).toHaveCount(1);
+  await expect(boardRows).toContainText("手动跟进");
+  await taskBoard.locator('[data-board-filter="all"]').click();
+  await expect(taskBoard.locator('[data-attention-filter="due_today"]')).toBeVisible();
+  await taskBoard.locator('[data-attention-filter="due_today"]').click();
+  await expect(boardRows).toHaveCount(1);
+  await taskBoard.locator(".task-board-search input").fill("AI 风险发现");
+  await expect(boardRows).toContainText("AI 风险发现");
+  await expect(boardRows).not.toContainText("手动跟进");
+  await openHomeTemplates(page);
+  const menu = page.getByRole("menu", { name: "添加内容" });
+  await expect(menu.locator('[data-skill-option]')).toHaveCount(25);
+  await homeRecByTitle(page, "任务模板 1").click();
+  await expectHomeComposerDraft(page, "Expense approval [requester] [amount] [currency]");
   expect(posted).toEqual([]);
   await submitHomeComposer(page);
   expect(posted).toEqual(["/api/tasks/from-text", "/api/tasks/task-created/run"]);
+  expect(fromTextBodies).toHaveLength(1);
+  expect(fromTextBodies[0]).toMatchObject({ task_type: "business_approval", intent: "business_approval" });
+  expect(runBodies).toHaveLength(1);
+  expect(runBodies[0]).toMatchObject({ intent: "business_approval" });
   await expect(page).toHaveURL(/\/s\/session-created/);
 });
 

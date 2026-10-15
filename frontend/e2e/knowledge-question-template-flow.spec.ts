@@ -1,5 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { expect, test, type APIRequestContext, type APIResponse, type Browser, type Page } from "@playwright/test";
+import { processExecutionJobById } from "../../backend/src/execution-jobs/dispatcher";
 import { nativeKnowledgeAuth, reviewerContext } from "./fixtures/native-knowledge-auth";
 import { nativeKnowledgeReviewer, prepareNativeKnowledgeAdmin } from "./fixtures/native-knowledge-admin";
 
@@ -20,10 +21,10 @@ import { nativeKnowledgeReviewer, prepareNativeKnowledgeAdmin } from "./fixtures
  */
 
 const MISSING_COPY = "问题模板未在管理端知识库发布，该入口暂不可用。";
-// Run-scoped identity prevents a prior interrupted native publication from
-// colliding with this run while still allowing the cleanup prefix to remove
-// durable historical fixtures through the product's archive path.
-const E2E_TITLE = `E2E 样例 · 公海评分提问模板 · ${randomUUID()}`;
+// This run's titles cannot collide with previous approval history. The set is
+// intentionally process-local: it never sweeps frozen rows from another run.
+const E2E_TITLE_PREFIX = `E2E 样例 · 公海评分提问模板 · ${randomUUID()}`;
+const OWN_TITLES = new Set<string>();
 const E2E_BODY = "请按公开资料给这些 KOL 打潜力与风险两个分（0-100），说明口径、依据与置信度，并列出资料缺口。";
 
 const POOL_ITEM = {
@@ -76,51 +77,69 @@ async function stubPool(page: Page) {
   }));
 }
 
-/** 清掉上一次运行残留的 E2E 自建知识（草稿可硬删；已发布只能归档，仍会从用户面消失）。 */
+/** Only remove an ordinary draft from this run; retained approval history remains auditable. */
 async function cleanupE2eRows(request: APIRequestContext) {
   const rows = await request.get("/api/admin/knowledge")
     .then((response) => response.json() as Promise<Array<Record<string, unknown>>>);
   for (const row of rows || []) {
-    if (!String(row.title || "").startsWith("E2E 样例")) continue;
+    if (!OWN_TITLES.has(String(row.title || ""))) continue;
     const id = String(row.id || "");
     const status = String(row.status || "");
-    if (!id || status === "archived") continue;
-    if (status === "draft") {
-      // An interrupted native publication leaves retained approval history on
-      // its draft. Keep the existing hard-delete cleanup for ordinary drafts,
-      // but archive history-bearing drafts rather than bypassing that guard.
-      const deleted = await request.delete(`/api/admin/knowledge/${id}`);
-      if (deleted.ok()) continue;
-    }
-    const archived = await request.post(`/api/admin/knowledge/${id}/archive`);
-    expect(archived.ok(), `清理 E2E 知识 ${id} 失败：${archived.status()} ${await archived.text()}`).toBeTruthy();
+    if (!id || status !== "draft") continue;
+    const deleted = await request.delete(`/api/admin/knowledge/${id}`);
+    if (deleted.ok()) continue;
+    const detail = await deleted.text();
+    // A server-side approval-history guard is a required preservation result,
+    // not a license to archive or delete the frozen entry through another path.
+    expect(deleted.status() === 500 && detail.includes("knowledge_entry_history_retained"), `清理本运行草稿 ${id} 失败：${deleted.status()} ${detail}`).toBeTruthy();
   }
 }
 
 /** 管理端 UI 新建草稿 → 用管理端列表反查 id（草稿此时对用户端不可见）。 */
-async function createDraftViaAdmin(page: Page, request: APIRequestContext): Promise<string> {
-  // 新建条目挂在结构化库下（种子存量统一迁入默认库 kbase_legacy）。
-  await page.goto("/admin/knowledge/bases/kbase_legacy");
-  await expect(page.locator("[data-admin-kb-base-meta]")).toBeVisible();
-  await page.locator("[data-admin-kb-create-entry]").click();
-  const form = page.locator("[data-admin-kb-create]");
+async function createDraftViaAdmin(page: Page, request: APIRequestContext): Promise<{ id: string; title: string }> {
+  const title = `${E2E_TITLE_PREFIX} · ${randomUUID()}`;
+  OWN_TITLES.add(title);
+  // Current v2 creation remains in the governance home; the retired base URL
+  // is intentionally not revived just to satisfy this native acceptance flow.
+  await page.goto("/admin/knowledge?stage=create");
+  await expect(page.locator('[data-admin-kb-v2="home"]')).toBeVisible();
+  await page.locator("[data-kbv-new]").click();
+  const form = page.locator("form.kbw-editor");
   await expect(form).toBeVisible();
-  await form.locator("input[name='title']").fill(E2E_TITLE);
+  await form.locator("input[name='title']").fill(title);
   await form.locator("select[name='kind']").selectOption("question_template");
+  await form.locator("select[name='base_id']").selectOption("kbase_legacy");
+  await expect(form.locator("select[name='base_id']")).toHaveValue("kbase_legacy");
   await form.locator("input[name='tags']").fill("pool-question:score");
   // question_template 的必填结构化字段按 kind 字段表渲染。
   await form.locator("[name='structured:question']").fill("请分析这些 KOL 的公开资料。");
   await form.locator("[name='structured:answer']").fill("按潜力与风险给出评分、依据与资料缺口。");
   await form.locator("textarea[name='body']").fill(E2E_BODY);
-  await form.locator("[data-admin-kb-create-submit]").click();
-  await expect(page.locator("[data-admin-receipt]")).toContainText("草稿已创建");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.locator("[data-admin-receipt]")).toContainText("草稿已保存");
 
   const rows = await request.get("/api/admin/knowledge")
     .then((response) => response.json() as Promise<Array<Record<string, unknown>>>);
-  const hits = (rows || []).filter((row) => String(row.title) === E2E_TITLE && String(row.status) !== "archived");
+  const hits = (rows || []).filter((row) => String(row.title) === title && String(row.status) !== "archived");
   expect(hits.length, "管理端列表应恰好出现一条本次新建的草稿").toBe(1);
   expect(String(hits[0].status)).toBe("draft");
-  return String(hits[0].id);
+  return { id: String(hits[0].id), title };
+}
+
+/** Archive the unfrozen seeded slot through the current admin UI to exercise the real missing-template negative. */
+async function archiveSeedScoreTemplate(page: Page): Promise<void> {
+  await page.goto("/admin/knowledge?stage=published&mode=detail&assetType=entry&assetId=kb_q_pool_score");
+  const archive = page.locator("[data-kb-archive='kb_q_pool_score']");
+  await expect(archive).toBeEnabled();
+  await archive.click();
+  await expect(page.locator("[data-admin-confirm='knowledge-archive']")).toBeVisible();
+  await page.locator("[data-admin-confirm-ok]").click();
+  await expect(archive).toBeDisabled();
+}
+
+async function expandEmployeeKnowledgeList(page: Page): Promise<void> {
+  const more = page.locator("[data-kb-load-more]");
+  while (await more.count()) await more.click();
 }
 
 async function responseJson<T>(response: APIResponse, message: string): Promise<T> {
@@ -197,10 +216,22 @@ async function approveViaAdmin(request: APIRequestContext, browser: Browser, id:
     const decisionConfirmation = await responseJson<{ confirmationId: string }>(
       await reviewer.post("/api/approvals/v2/prepare", { headers, data: decision }), "准备独立审批确认失败",
     );
-    await responseJson(
+    const receipt = await responseJson<{ action: string; resourceId: string }>(
       await reviewer.post("/api/approvals/v2/commands", { headers, data: { command: decision, confirmationId: decisionConfirmation.confirmationId, idempotencyKey: randomUUID() } }),
       "确认独立审批失败",
     );
+    expect(receipt).toMatchObject({ action: "approve", resourceId: submitted.instanceId });
+    // The product's durable trigger assigns `kp_<md5>` from the approved
+    // instance/version; retain the logical ID in the worker receipt while
+    // dispatching the actual persisted execution_jobs primary key.
+    const jobId = `knowledge-publish:${nativeKnowledgeAuth.company}:${submitted.instanceId}`;
+    const executionJobId = `kp_${createHash("md5").update(`knowledge-publication:${nativeKnowledgeAuth.company}:${submitted.instanceId}:${review.version + 1}`).digest("hex")}`;
+    expect(await processExecutionJobById(executionJobId, `wave7-knowledge-employee-publication:${jobId}`)).toMatchObject({
+      execution_job_id: executionJobId,
+      job_type: "knowledge.publication",
+      handled: true,
+      outcome: "processed",
+    });
   } finally {
     await context.close();
   }
@@ -225,23 +256,12 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(async ({ page }) => {
   const request = page.request;
   // 先归档本用例刚发布的知识，再复位种子（被归档的 kb_q_pool_score 变回已发布），保持套件可重复运行。
-  await cleanupE2eRows(request).catch(() => undefined);
-  await request.post("/api/demo/reset", { data: { workbench: true } }).catch(() => undefined);
+  await cleanupE2eRows(request);
+  await request.post("/api/demo/reset", { data: { workbench: true } });
 });
 
-test("归档槽位模板后，公海入口禁用并如实提示", async ({ page, browser }) => {
-  const request = page.request;
-  const id = await createDraftViaAdmin(page, request);
-  await approveViaAdmin(request, browser, id);
-
-  // 只归档本 principal 刚通过独立发布链发布的条目；不把当前组织无权访问的旧 fixture 当作可归档资产。
-  await page.goto(`/admin/knowledge/entries/${id}`);
-  const archive = page.locator(`[data-kb-archive='${id}']`);
-  await expect(archive).toBeEnabled();
-  await archive.click();
-  await expect(page.locator("[data-admin-confirm='knowledge-archive']")).toBeVisible();
-  await page.locator("[data-admin-confirm-ok]").click();
-  await expect(archive).toBeDisabled();
+test("归档槽位模板后，公海入口禁用并如实提示", async ({ page }) => {
+  await archiveSeedScoreTemplate(page);
 
   await page.goto("/?tab=pool");
   await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
@@ -263,7 +283,8 @@ test("草稿未审批用户端不可见；发布后入口恢复并预填模板�
     }
   });
 
-  const id = await createDraftViaAdmin(page, request);
+  await archiveSeedScoreTemplate(page);
+  const draft = await createDraftViaAdmin(page, request);
 
   // 草稿还没审批：用户端该入口照旧禁用。
   await page.goto("/?tab=pool");
@@ -271,7 +292,7 @@ test("草稿未审批用户端不可见；发布后入口恢复并预填模板�
   await expect(scoreEntry).toBeDisabled();
   await expect(scoreEntry).toHaveAttribute("title", MISSING_COPY);
 
-  await approveViaAdmin(request, browser, id);
+  await approveViaAdmin(request, browser, draft.id);
 
   await page.goto("/?tab=pool");
   await expect(scoreEntry).toBeEnabled();
@@ -288,14 +309,15 @@ test("草稿未审批用户端不可见；发布后入口恢复并预填模板�
 
 test("员工知识库能看到这条已发布的问题模板", async ({ page, browser }) => {
   const request = page.request;
-  const id = await createDraftViaAdmin(page, request);
-  await approveViaAdmin(request, browser, id);
+  const draft = await createDraftViaAdmin(page, request);
+  await approveViaAdmin(request, browser, draft.id);
 
   await page.goto("/kb");
   const kb = page.locator("[data-kb-page='mine']");
-  const row = kb.locator(`[data-knowledge='${id}']`);
+  await expandEmployeeKnowledgeList(page);
+  const row = kb.locator(`[data-knowledge='${draft.id}']`);
   await expect(row).toBeVisible();
   await expect(row).toHaveAttribute("data-kind", "question_template");
   await expect(row).toContainText("问题模板");
-  await expect(row).toContainText(E2E_TITLE);
+  await expect(row).toContainText(draft.title);
 });
