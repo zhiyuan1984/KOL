@@ -74,14 +74,43 @@ async function mountedMailboxSet(user: Persona): Promise<Set<string>> {
 
 const emptySender = (): ComposeSender => ({ from: "", send_from: "", brand: "", source: "none", candidates: [] });
 
+/**
+ * A connected mailbox binding is the identity fact for a personal mailbox. This
+ * fallback applies only when no collaboration supplies a server-side brand: an
+ * absent mailbox_owners row means the mailbox is unbranded, never that its
+ * domain or address can be used to infer a brand.
+ */
+async function verifiedUnbrandedPersonalBinding(email: string, user: Persona): Promise<{ email: string; brand: string; source: "user_binding" } | null> {
+  const normalized = normalizeEmail(email);
+  if (!normalized || !user.id) return null;
+  try {
+    const binding = (await starryBindingRows(user.id)).find((row) => {
+      return normalizeEmail(String(row.mailbox_email || "")) === normalized
+        && String(row.status || "").trim() === "connected";
+    });
+    if (!binding) return null;
+    const owner = (await getConn().query("SELECT email FROM mailbox_owners WHERE lower(email)=lower($1)", [normalized])).rows[0] as Row | undefined;
+    if (owner) return null;
+    return { email: normalizeEmail(String(binding.mailbox_email || "")), brand: "", source: "user_binding" };
+  } catch {
+    // A failed binding/owner read cannot create a sender authorization.
+    return null;
+  }
+}
+
 /** Compose is only an early hint; PEP repeats this at the Gateway write boundary. */
 async function usableSender(email: string, user: Persona, collaborationBrand: string) {
   const policy = remoteWriteDecision(collaborationBrand);
   if (!policy.write_allowed) return null;
   const owned = await authorizedSenderBrand(email, user, collaborationBrand);
-  if (!owned) return null;
-  if (collaborationBrand && !sameBrand(owned.brand, collaborationBrand)) return null;
-  return owned;
+  if (owned) {
+    if (collaborationBrand && !sameBrand(owned.brand, collaborationBrand)) return null;
+    return owned;
+  }
+  // With a collaboration, authorizedSenderBrand already checked the authoritative
+  // brand and the user's scope. Never fall back from it to an unbranded mailbox.
+  if (collaborationBrand) return null;
+  return verifiedUnbrandedPersonalBinding(email, user);
 }
 
 export async function composeSenderFor(input: {

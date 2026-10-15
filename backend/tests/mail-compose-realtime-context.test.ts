@@ -18,6 +18,7 @@ import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { composeSenderFor } from "../src/host/compose-sender.js";
 import {
   cite,
   createKnowledge,
@@ -298,18 +299,31 @@ describe("无合作对象时的收发件准备", () => {
   });
 
   it("k. 绑定的个人企业邮箱（非品牌邮箱、无 mailbox_owners 登记）直接作为发件箱", async () => {
-    // 复现生产问题：用户绑定 larry.zhao@amperetime.com（非品牌邮箱），
-    // 发件箱不应因品牌核对失败而留空。绑定即授权。
+    // 正例边界：无合作对象时，当前用户已验证的绑定可作为个人发件箱；
+    // 无 mailbox_owners 登记只表示未品牌化，绝不从企业域名推断品牌。
     const conn = getConn();
     const now = new Date().toISOString();
     (await conn.query("INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING",[DEMO_USER.id,DEMO_USER.handle,DEMO_USER.name,"x",JSON.stringify(["employee", "admin"]),JSON.stringify(["LT"]),DEMO_USER.site,1,now,now]));
     // 只绑个人邮箱，不写 mailbox_owners（模拟真实绑定：非品牌域名无品牌登记）
     (await conn.query("INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, status, updated_at)\n       VALUES ($1,$2,1,'connected',$3)",[DEMO_USER.id,"larry.zhao@amperetime.com",now]));
 
+    await expect(composeSenderFor({ requested: "larry.zhao@amperetime.com", user: DEMO_USER })).resolves.toMatchObject({
+      from: "larry.zhao@amperetime.com", send_from: "larry.zhao@amperetime.com", brand: "", source: "explicit",
+    });
     const response = await prepareNoCollab();
     expect(response.status, response.text).toBe(200);
     const editor = response.body.editor as Json;
     expect(String(editor.from)).toBe("larry.zhao@amperetime.com");
     expect(String((response.body.sources as Json).from || "")).toContain("挂载");
+  });
+
+  it("l. 有明确品牌的挂载邮箱不能为不同合作品牌默认代发", async () => {
+    // 负例边界：mailbox_owners 明确为 RO 后，广泛的用户品牌范围也不能
+    // 让它成为 LT 合作的默认发件箱；允许既有 LT 唯一品牌箱兜底，不因个人绑定
+    // 回退或猜测品牌。
+    await bindMailbox("operator.ro@example.com", "RO", true);
+    await expect(composeSenderFor({ collaboration: { brand: "LT" }, user: DEMO_USER })).resolves.toMatchObject({
+      from: "kol.lt@litime.example", send_from: "kol.lt@litime.example", source: "brand_unique",
+    });
   });
 });

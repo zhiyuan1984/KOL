@@ -612,6 +612,9 @@ describe("host contracts", () => {
   });
 
   it("maps a Starry operator mailbox onto the authorized From dropdown and still translates", async () => {
+    // Larry is the actual RO operator mailbox. This controlled collaboration
+    // fixture must say RO too; draft.extra.brand is not sender authority.
+    (await getConn().query("UPDATE collaborations SET brand=$1, mailbox_from=$2 WHERE id=$3", ["RO", BRAND_MAILBOXES.RO, "col_xiaomei"]));
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
     const draft = (await persistDraft(sid, {
       skill: "email_compose",
@@ -640,7 +643,7 @@ describe("host contracts", () => {
       to_addr: "xiaomei.beauty@example.com",
     });
     expect(sent.status, await sent.text()).toBe(200);
-    expect((await sent.json()).status).toBe("sent");
+    expect((await sent.json())).toMatchObject({ status: "sent", keep_stage: true, stage_changed: false, official_stage: "INITIAL_CONTACT" });
   });
 
   it("generates an internal Chinese draft when the cache is empty", async () => {
