@@ -26,6 +26,7 @@ flock -n 9 || { echo 'Another staging E2E run owns this checkout' >&2; exit 1; }
 git fetch github
 git checkout --detach "$REV"
 echo "E2E revision: $(git rev-parse HEAD)"
+node "$ROOT/scripts/check-staging-headroom.mjs" "$ROOT" "${TMPDIR:-/tmp}"
 if [ frontend/package-lock.json -nt frontend/node_modules ] 2>/dev/null; then (cd frontend && npm ci --no-audit --no-fund); fi
 if [ backend/package-lock.json -nt backend/node_modules ] 2>/dev/null; then (cd backend && npm ci --no-audit --no-fund); fi
 
@@ -64,5 +65,6 @@ if [ "$AUTH_KIND" = enabled ]; then FIXTURE_SCRIPT=prepare-authenticated-e2e.ts;
 (cd backend && npm run db:apply:postgres-schema >/dev/null && npm run db:seed:reference >/dev/null && node_modules/.bin/tsx "scripts/$FIXTURE_SCRIPT")
 # Backend fixtures require test; static assets must match the production bundle.
 if [ "$NOBUILD" = 0 ]; then (cd frontend && NODE_ENV=production npm run build); fi
+node "$ROOT/scripts/check-staging-headroom.mjs" "$ROOT" "${TMPDIR:-/tmp}"
 cd frontend
 E2E_SKIP_BUILD=1 npx playwright test "$@" --workers="${E2E_WORKERS:-1}" --retries=0
