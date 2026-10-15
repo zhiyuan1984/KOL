@@ -186,7 +186,7 @@
 /* PDF.js renders the actual PDF viewport, not text-extraction coordinates. */
 .kbpilot-pdf { min-width: 0; }
 .kbpilot-pdf-controls { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); margin-block: var(--space-2); }
-.kbw-scope-panel .kbpilot-pdf-controls > label { display: inline-flex; flex-direction: row; width: auto; white-space: nowrap; align-items: center; gap: var(--space-1); font-size: var(--ds-font-xs); }
+.kbpilot-pdf .kbpilot-pdf-controls > label { display: inline-flex; flex-direction: row; width: auto; white-space: nowrap; align-items: center; gap: var(--space-1); font-size: var(--ds-font-xs); }
 .kbpilot-pdf-controls .ant-input-number { width: var(--property-label-w-short); }
 .kbpilot-pdf-canvas { min-width: 0; width: 100%; overflow: auto; border: 1px solid var(--border); box-sizing: border-box; background: var(--bg-subtle); }
 .kbpilot-pdf-canvas canvas { display: block; margin: 0; }

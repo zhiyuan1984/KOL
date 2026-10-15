@@ -38,6 +38,7 @@ test('real existing PDF bytes and original page link survive PDF.js container re
   await page.setViewportSize({ width: 375, height: 900 });
   await expect.poll(() => reader.locator('canvas').evaluate(canvas => canvas.clientWidth <= canvas.parentElement!.clientWidth + 1)).toBe(true);
   await expect(reader.locator('canvas')).toHaveAttribute('data-rendered', 'true');
+  await expect(reader.locator('.kbpilot-pdf-controls > label')).toHaveCSS('flex-direction', 'row');
   await reader.scrollIntoViewIfNeeded();
   await page.waitForTimeout(1000);
   await reader.screenshot({ path: 'test-results/knowledge-real-pdf-reader-375.png' });
