@@ -19,7 +19,7 @@ export async function collaborationReviewSource(
   ]);
   const user = userResult.rows[0];
   const row = sourceResult.rows[0];
-  if (!user || !row || !collaborationInScope(row, mapUser(user)))
+  if (!user || !row || !collaborationInScope(row, (await mapUser(user))))
     throw new HttpFail(404, "合作对象不存在或超出当前权限范围");
   const label = String(row.display_name || row.handle);
   const snapshot = {

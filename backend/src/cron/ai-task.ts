@@ -52,7 +52,7 @@ export const runAiTask: CronHandler = async ({ job }): Promise<CronHandlerResult
     await post(host, `/sessions/${encodeURIComponent(sessionId)}/messages`, pending);
     return { sessionId, taskId: String(task.id), taskRunId: String(run.run_id || "") };
   };
-  const result = row ? await withScopedUser(mapUser(row), execute) : await execute();
+  const result = row ? await withScopedUser((await mapUser(row)), execute) : await execute();
   return {
     status: "succeeded", session_id: result.sessionId,
     receipt: { handler_key: "ai-task", submitted: true, task_id: result.taskId, task_run_id: result.taskRunId,

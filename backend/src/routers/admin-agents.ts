@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { requireAdmin } from "../auth.js";
-import { AUDIT_PAYLOAD_PREVIEW_CHARS, audit, auditPayloadPreview, getConn, txImmediate } from "../db.js";
+import { AUDIT_PAYLOAD_PREVIEW_CHARS, audit, auditPayloadPreview, getConn } from "../db.js";
 import { HttpFail } from "../host/errors.js";
 import { deleteBinding, listBases, saveBinding } from "../host/knowledge.js";
 import { skillCatalog } from "../host/skills-catalog.js";
@@ -37,11 +37,11 @@ async function agentView(id: string) {
   const agent = await managedAgent(id);
   const skills = (await getAgentSkills(id));
   const [bindings, coverage] = await Promise.all([(await listAgentBindings(id)), (await effectiveAgentUsers(id))]);
-  const knowledge = getConn().prepare(
+  const knowledge = (await getConn().query(
     `SELECT kb.id,kb.skill_id,kb.selector,kb.enabled,kb.note FROM knowledge_bindings kb
-      JOIN runtime_agent_skills ras ON ras.skill_id=kb.skill_id AND ras.agent_id=? AND ras.enabled=1
-      ORDER BY kb.created_at,kb.id`,
-  ).all(id);
+      JOIN runtime_agent_skills ras ON ras.skill_id=kb.skill_id AND ras.agent_id=$1 AND ras.enabled=1
+      ORDER BY kb.created_at,kb.id`, [id],
+  )).rows;
   return { ...agent, skills, bindings, coverage, knowledge };
 }
 
@@ -63,7 +63,7 @@ async function resolveBindingTarget(body: BindingBody, opts: { syncPerson: boole
   const targetType = body.target_type;
   let targetId = String(body.target_id || "");
   if (targetType === "person" && body.user_id) {
-    const user = db.prepare("SELECT id,site,active FROM users WHERE id=?").get(body.user_id) as
+    const user = (await db.query("SELECT id,site,active FROM users WHERE id=$1", [body.user_id])).rows[0] as
       { id: string; site: string | null; active: number } | undefined;
     if (!user?.active) throw new HttpFail(404, "员工不存在或已停用");
     targetId = opts.syncPerson ? await syncUserOrganization(user.id, user.site) : (await personRefForUser(user.id) || "");
@@ -81,8 +81,7 @@ async function resolveBindingTarget(body: BindingBody, opts: { syncPerson: boole
     throw new HttpFail(400, "请选择已确认的人员");
   }
   const companyRow = unit?.company_id ||
-    db.prepare("SELECT company_id FROM organization_memberships WHERE person_ref=? AND status='active' LIMIT 1")
-      .get(targetId) as { company_id?: string } | undefined;
+    (await db.query("SELECT company_id FROM organization_memberships WHERE person_ref=$1 AND status='active' LIMIT 1", [targetId])).rows[0] as { company_id?: string } | undefined;
   const company = typeof companyRow === "string" ? companyRow : companyRow?.company_id;
   if (!company) {
     const companies = [...new Set(units.map((row) => row.company_id))];
@@ -104,7 +103,7 @@ adminAgentsRouter.get("/admin/agents", async (c) => {
       return { ...person, company_id: personMemberships[0]?.company_id || null, unit_ids: personMemberships.map((membership) => membership.org_unit_id) };
     }),
     skills: skillCatalog().map((skill) => ({ id: skill.id, label: skill.label, category: skill.category, summary: skill.summary, document_query: hasDocumentTool(skill.id) })),
-    bases: listBases(),
+    bases: await listBases(),
   });
 });
 
@@ -112,7 +111,7 @@ adminAgentsRouter.post("/admin/agents", async (c) => {
   const admin = requireAdmin();
   const body = await c.req.json() as { name?: string; description?: string };
   const created = await createManagedAgent({ name: String(body.name || ""), description: body.description });
-  audit(admin.id, "admin.agent.create", { agent_id: created.id });
+  await audit(admin.id, "admin.agent.create", { agent_id: created.id });
   return c.json(await agentView(created.id), 201);
 });
 
@@ -133,7 +132,7 @@ adminAgentsRouter.patch("/admin/agents/:id", async (c) => {
     await confirmKnowledgeReleases(id,admin.id);
   }
   const updated = await updateManagedAgent(id, body);
-  audit(admin.id, "admin.agent.update", { agent_id: id, status: updated.status, version: updated.version });
+  await audit(admin.id, "admin.agent.update", { agent_id: id, status: updated.status, version: updated.version });
   return c.json(await agentView(id));
 });
 
@@ -151,7 +150,7 @@ adminAgentsRouter.put("/admin/agents/:id/skills", async (c) => {
   }));
   const updated = (await setAgentSkills(id, skills));
   if((await managedAgent(id)).status==='published')await confirmKnowledgeReleases(id,admin.id);
-  audit(admin.id, "admin.agent.skills", {
+  await audit(admin.id, "admin.agent.skills", {
     agent_id: id,
     changed: skills.map((row) => ({ skill_id: row.skill_id, enabled: row.enabled })),
   });
@@ -176,7 +175,7 @@ adminAgentsRouter.post("/admin/agents/:id/skill-recommendations", async (c) => {
   });
   try {
     const result = await recommendAgentSkills({ agentName: agent.name, agentDescription: agent.description, candidates });
-    audit(admin.id, "admin.agent.skill_recommendation", {
+    await audit(admin.id, "admin.agent.skill_recommendation", {
       agent_id: id, model: result.model, assessment_version: result.assessment_version, candidate_count: candidates.length,
     });
     return c.json({ ...result, agent_id: id, agent_version: agent.version, status: "completed" });
@@ -196,7 +195,7 @@ adminAgentsRouter.put("/admin/agents/:id/skills/:skillId", async (c) => {
     throw new HttpFail(400, "enabled 与 expected_version 必填");
   }
   const row = (await setAgentSkill(id, c.req.param("skillId"), body.enabled, Number(body.expected_version)));
-  audit(admin.id, "admin.agent.skill", { agent_id: id, skill_id: row.skill_id, enabled: row.enabled, version: row.version });
+  await audit(admin.id, "admin.agent.skill", { agent_id: id, skill_id: row.skill_id, enabled: row.enabled, version: row.version });
   return c.json(await agentView(id));
 });
 
@@ -211,19 +210,19 @@ adminAgentsRouter.post("/admin/agents/:id/knowledge", async (c) => {
   if (!(await getAgentSkills(id)).some((skill) => skill.skill_id === skillId && Number(skill.enabled) === 1)) {
     throw new HttpFail(409, "先将该技能装配到 Agent");
   }
-  const base = listBases().find((row) => String(row.id) === baseId);
+  const base = (await listBases()).find((row) => String(row.id) === baseId);
   if (!base) throw new HttpFail(404, "知识库不存在");
   if (String(base.kind) === "unstructured" && !hasDocumentTool(skillId)) {
     throw new HttpFail(409, "请先为该技能启用非结构化文档问答能力");
   }
-  const binding = saveBinding({
+  const binding = await saveBinding({
     skill_id: skillId,
     selector: { base_ids: [baseId] },
     enabled: true,
     note: `Agent ${id} 从管理页为技能添加知识库；此技能的其他 Agent 也会使用该依赖。`,
   }, admin.id);
-  audit(admin.id, "admin.agent.knowledge.bind", { agent_id: id, skill_id: skillId, base_id: baseId, binding_id: binding.id });
-  return c.json(agentView(id), 201);
+  await audit(admin.id, "admin.agent.knowledge.bind", { agent_id: id, skill_id: skillId, base_id: baseId, binding_id: binding.id });
+  return c.json(await agentView(id), 201);
 });
 
 adminAgentsRouter.post("/admin/agents/:id/bindings", async (c) => {
@@ -236,7 +235,7 @@ adminAgentsRouter.post("/admin/agents/:id/bindings", async (c) => {
     agent_id: id, target_type: target.targetType, target_id: target.targetId,
     company_id: target.companyId, created_by: admin.id, reason: body.reason || null, source: "admin",
   });
-  audit(admin.id, "admin.agent.bind", { agent_id: id, binding_id: row.id, target_type: row.target_type, target_id: row.target_id });
+  await audit(admin.id, "admin.agent.bind", { agent_id: id, binding_id: row.id, target_type: row.target_type, target_id: row.target_id });
   return c.json(await agentView(id));
 });
 
@@ -252,7 +251,7 @@ adminAgentsRouter.delete("/admin/agents/:id/bindings/:bindingId", async (c) => {
   if (body.org_version !== undefined && preview.org_version !== body.org_version) throw new HttpFail(409, "组织版本已变化，请重新预览撤销影响");
   if (body.preview_signature !== undefined && preview.preview_signature !== body.preview_signature) throw new HttpFail(409, "覆盖依据已变化，请重新预览撤销影响");
   await revokeAgentBinding(bindingId, { reason });
-  audit(admin.id, "admin.agent.unbind", { agent_id: id, binding_id: bindingId, reason });
+  await audit(admin.id, "admin.agent.unbind", { agent_id: id, binding_id: bindingId, reason });
   return c.json(await agentView(id));
 });
 
@@ -294,7 +293,7 @@ adminAgentsRouter.post("/admin/agents/:id/bindings/bulk", async (c) => {
     created_by: admin.id,
     reason: body.reason || "管理侧批量绑定",
   });
-  audit(admin.id, "admin.agent.bind.bulk", {
+  await audit(admin.id, "admin.agent.bind.bulk", {
     agent_id: id, org_version: applied.preview.org_version, count: applied.bindings.length,
     targets: applied.bindings.map(({ target_type, target_id }) => ({ target_type, target_id })), reason: body.reason || null,
   });
@@ -317,14 +316,14 @@ adminAgentsRouter.delete("/admin/agents/:id/knowledge/:bindingId", async (c) => 
   await managedAgent(id);
   const bindingId = c.req.param("bindingId");
   // 只允许解绑「该 Agent 已启用技能」上的知识库绑定；技能未装配的绑定不属于本 Agent。
-  const owned = getConn().prepare(
+  const owned = (await getConn().query(
     `SELECT kb.id FROM knowledge_bindings kb
-       JOIN runtime_agent_skills ras ON ras.skill_id=kb.skill_id AND ras.agent_id=? AND ras.enabled=1
-      WHERE kb.id=?`,
-  ).get(id, bindingId);
+       JOIN runtime_agent_skills ras ON ras.skill_id=kb.skill_id AND ras.agent_id=$1 AND ras.enabled=1
+      WHERE kb.id=$2`, [id, bindingId],
+  )).rows[0];
   if (!owned) throw new HttpFail(404, "知识库绑定不存在");
-  deleteBinding(bindingId, admin.id);
-  audit(admin.id, "admin.agent.knowledge.unbind", { agent_id: id, binding_id: bindingId });
+  await deleteBinding(bindingId, admin.id, id);
+  await audit(admin.id, "admin.agent.knowledge.unbind", { agent_id: id, binding_id: bindingId });
   return c.json(await agentView(id));
 });
 
@@ -351,12 +350,13 @@ adminAgentsRouter.get("/admin/agents/:id/audit", async (c) => {
   const cursor = Number(c.req.query("cursor") || 0);
   if (!Number.isInteger(cursor) || cursor < 0) throw new HttpFail(400, "invalid audit cursor");
   const pattern = `%${id.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
-  const rows = getConn().prepare(
-    `SELECT id,ts,actor,event_type,substr(payload,1,?) AS payload_preview,length(payload) AS payload_size
+  const rows = (await getConn().query<AgentAuditRow>(
+    `SELECT id,ts,actor,event_type,substr(payload,1,$1) AS payload_preview,length(payload) AS payload_size
        FROM audit_events
-      WHERE event_type LIKE 'admin.agent.%' AND payload LIKE ? ESCAPE '\\'${cursor ? " AND id<?" : ""}
-      ORDER BY id DESC LIMIT ?`,
-  ).all(AUDIT_PAYLOAD_PREVIEW_CHARS, pattern, ...(cursor ? [cursor] : []), limit + 1) as AgentAuditRow[];
+      WHERE event_type LIKE 'admin.agent.%' AND payload LIKE $2 ESCAPE '\\'${cursor ? " AND id<$3" : ""}
+      ORDER BY id DESC LIMIT $${cursor ? 4 : 3}`,
+    [AUDIT_PAYLOAD_PREVIEW_CHARS, pattern, ...(cursor ? [cursor] : []), limit + 1],
+  )).rows;
   const page = rows.slice(0, limit).map((row) => ({
     id: Number(row.id), ts: row.ts, actor: row.actor, event_type: row.event_type,
     payload: auditPayloadPreview(String(row.payload_preview || ""), Number(row.payload_size || 0)),
@@ -370,7 +370,7 @@ adminAgentsRouter.get("/admin/agents/:id/audit", async (c) => {
 adminAgentsRouter.get("/admin/users/:uid/agents", async (c) => {
   requireAdmin();
   const uid = c.req.param("uid");
-  const user = getConn().prepare("SELECT id FROM users WHERE id=?").get(uid);
+  const user = (await getConn().query("SELECT id FROM users WHERE id=$1", [uid])).rows[0];
   if (!user) throw new HttpFail(404, "员工不存在");
   const agents = await Promise.all((await listManagedAgents()).map(async (agent) => {
     const access = (await effectiveAgentUsers(agent.id)).users.find((entry) => entry.user_id === uid);

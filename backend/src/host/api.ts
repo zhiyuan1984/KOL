@@ -968,7 +968,7 @@ async function finishBoundTask(bound: BoundTask | null, sid: string, result?: Js
         issues.length ? "结果不符合技能声明的保存结构。" : "缺少可保存的结果或任务归属。"));
     } else {
       try {
-        persistValidatedSkillResult({
+        await persistValidatedSkillResult({
           owner: owner.owner_user_id,
           skillId: bound.taskType,
           runId: bound.runId,
@@ -1602,11 +1602,11 @@ async function handleFollowStyleTagMessage(sid: string, me: Json, session: Row, 
 export async function getDraft(did: string, client: Pick<PoolClient, "query"> = postgresPool()): Promise<Row> {
   const row = (await client.query("SELECT * FROM drafts WHERE id = $1", [did])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(404, "draft not found");
-  (await assertSessionAccess(String(row.session_id)));
+  (await assertSessionAccess(String(row.session_id), false, client));
   const d = { ...row };
   if (d.extra) {
     try {
-      d.extra = JSON.parse(String(d.extra));
+      d.extra = typeof d.extra === "object" ? d.extra : JSON.parse(String(d.extra));
     } catch {
       d.extra = {};
     }
@@ -4310,17 +4310,17 @@ host.patch("/drafts/:did", async (c) => {
   }
   if (!fields.length) return c.json((await getDraft(did)));
   (await postgresTransaction(async (db) => {
-    const current = (await getDraft(did, db));
+    // Lock the session first (same order as session deletion), then re-read the locked draft.
+    await getDraft(did, db);
     await db.query("SELECT id FROM drafts WHERE id=$1 FOR UPDATE", [did]);
+    const current = await getDraft(did, db);
     (await assertDraftEditable(current, db));
     const extra = typeof current.extra === "object" && current.extra ? current.extra as Json : {};
     const revisedExtra = { ...extra, confirmation_revision: Number(extra.confirmation_revision || 0) + 1 };
     await db.query(`UPDATE drafts SET ${fields.join(", ")}, extra = $${vals.length + 1} WHERE id = $${vals.length + 2}`, [...vals, JSON.stringify(revisedExtra), did]);
-  }));
-  let d = (await getDraft(did));
-  const fp = currentFingerprint(d);
-  (await postgresTransaction(async (db) => {
-    (await db.query("UPDATE drafts SET fingerprint = $1 WHERE id = $2", [fp, did]));
+    const edited = await getDraft(did, db);
+    await db.query("UPDATE drafts SET fingerprint=$1 WHERE id=$2", [currentFingerprint(edited), did]);
+    await audit(currentUser().id, "mail.draft.edited", { draft_id: did, confirmation_revision: revisedExtra.confirmation_revision }, db);
   }));
   (await syncDraftArtifacts(did));
   return c.json((await getDraft(did)));

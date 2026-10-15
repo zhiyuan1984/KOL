@@ -15,6 +15,8 @@ import { effectiveSkillTemplate as skillTemplate } from "../host/skill-sop.js";
 import { buildHomeBoard, historySummary, decorateTaskFromCollab, isInsightWorkItem, isOpenWorkItem, isTodoWorkItem, OPEN_WORK_ITEM_SQL, TODO_WORK_ITEM_SQL, displayStatusOf, normalizePriority, TASK_RISK_LEVELS, taskDefinitionIndex, todayDateStr, todayMembershipReasons, type TaskDefinitionIndex } from "../host/home-board.js";
 import { cachedPoll, cachedPollAsync, pollEpoch } from "../host/response-cache.js";
 import { postgresQuery } from "../postgres/pool.js";
+import { pgVisibleSkillIdsForUser } from "../postgres/auth-pg.js";
+import type { PoolClient } from "pg";
 import { formatMissingFields, missingFieldsMessage } from "../labels.js";
 import { kolAgentManifest } from "../contract-scope.js";
 import { assertRuntimeSkill, runtimeAgentForSkill } from "../runtime/execution.js";
@@ -25,12 +27,8 @@ import { extractTaskFieldUpdates, type TaskFieldUpdates } from "../tasks/openai-
 import { parseTaskFieldUpdatesFallback } from "../tasks/task-field-updates.js";
 import { parseTaskRecommendationCandidate } from "../host/task-recommendations.js";
 import { ensureTicketForWorkItem, ticketStatusFromWorkItem } from "../tickets.js";
-import { appendTaskEvent } from "../task-events.js";
-// This retired compatibility route still owns a SQLite transaction; production
-// PostgreSQL event authority is imported above.
-import { appendTaskEventInConn } from "../task-events-legacy.js";
+import { appendTaskEvent, appendTaskEventIn } from "../task-events.js";
 import { ticketAllowedLifecycleActions, transitionTicketLifecyclePostgres } from "../ticket-lifecycle.js";
-import { transitionTicketLifecycle } from "../ticket-lifecycle-legacy.js";
 import { createFormalTicketPostgres, type FormalTicketCreateInput } from "../ticket-domain/create-ticket.js";
 import { editFormalTicketPostgres, type FormalTicketEditInput } from "../ticket-domain/edit-ticket.js";
 import { assignFormalTicketPostgres } from "../ticket-domain/assign-ticket.js";
@@ -54,21 +52,21 @@ const PRIORITIES = new Set(["important_urgent", "important", "urgent", "normal",
 export const MAX_TASK_LIST_TEXT_CHARS = 4_096;
 export const MAX_TASK_LIST_ROWS = 200;
 
-const TASK_LIST_TICKET_COLUMNS = `
+function taskListTicketColumns(parameter: number): string { return `
   id, owner_user_id, task_type, title, source, status, priority, skill, profile,
   project_id, collaboration_id, session_id, due_at, last_acted_at, acknowledged_at,
   promoted_at, dismissed_at, started_at, completed_at, data_version, created_at,
   updated_at, kind, channel, requester_type, requester_id, object_type, object_id,
   kind_version, start_date, risk_level,
-  substr(content, 1, ?) AS content, length(content) AS content_size,
-  substr(input, 1, ?) AS input, length(input) AS input_size,
-  substr(entities, 1, ?) AS entities, length(entities) AS entities_size
-`;
+  substr(content, 1, $${parameter}) AS content, length(content) AS content_size,
+  substr(input, 1, $${parameter}) AS input, length(input) AS input_size,
+  substr(entities, 1, $${parameter}) AS entities, length(entities) AS entities_size
+`; }
 
 const TASK_LIST_EVENT_COLUMNS = `
   id, work_item_id, run_id, sequence, event_type, event_class,
-  substr(label, 1, ?) AS label, length(label) AS label_size,
-  status, substr(safe_summary, 1, ?) AS safe_summary,
+  substr(label, 1, $2) AS label, length(label) AS label_size,
+  status, substr(safe_summary, 1, $2) AS safe_summary,
   length(safe_summary) AS safe_summary_size, time, created_at
 `;
 
@@ -122,11 +120,11 @@ function resolutionIssueFields(resolution: ReturnType<typeof resolveTaskIntent>)
   ])];
 }
 
-function publicWorkItem(row: Row, collab?: Row | null, definitions?: TaskDefinitionIndex, listReads?: {
+async function publicWorkItem(row: Row, collab?: Row | null, definitions?: TaskDefinitionIndex, listReads?: {
   templates: Map<string, ReturnType<typeof skillTemplate>>;
   discoveryRuns: Map<string, string>;
   projects: Map<string, Row>;
-}): Json {
+}): Promise<Json> {
   const definition = definitions ? definitions.get(String(row.task_type)) : taskDefinition(String(row.task_type));
   const input = parseJson(row.input) as Json;
   const templateId = String(row.task_type);
@@ -144,7 +142,7 @@ function publicWorkItem(row: Row, collab?: Row | null, definitions?: TaskDefinit
     project = String(listReads.projects.get(String(row.project_id))?.display_name || "") || null;
   } else if (!project && row.project_id && !collab) {
     // Single-item paths only. List endpoints must pass the batched collab.
-    const hit = getConn().prepare("SELECT display_name FROM collaborations WHERE id=?").get(row.project_id) as
+    const hit = (await getConn().query("SELECT display_name FROM collaborations WHERE id=$1", [row.project_id])).rows[0] as
       | { display_name?: string }
       | undefined;
     project = hit?.display_name || null;
@@ -152,9 +150,7 @@ function publicWorkItem(row: Row, collab?: Row | null, definitions?: TaskDefinit
   const discoveryRun = listReads
     ? { id: listReads.discoveryRuns.get(String(row.id)) }
     : String(row.task_type) === "discovery_crawl"
-    ? getConn().prepare(
-      "SELECT id FROM discovery_runs WHERE work_item_id=? AND kind='home' ORDER BY created_at DESC LIMIT 1",
-    ).get(row.id) as { id?: string } | undefined
+    ? (await getConn().query("SELECT id FROM discovery_runs WHERE work_item_id=$1 AND kind='home' ORDER BY created_at DESC LIMIT 1", [row.id])).rows[0] as { id?: string } | undefined
     : undefined;
   return {
     ...row,
@@ -183,19 +179,16 @@ function publicWorkItem(row: Row, collab?: Row | null, definitions?: TaskDefinit
   };
 }
 
-function lastEventsByWorkItem(ids: string[]): Map<string, Row> {
+async function lastEventsByWorkItem(ids: string[]): Promise<Map<string, Row>> {
   const map = new Map<string, Row>();
   if (!ids.length) return map;
-  const placeholders = ids.map(() => "?").join(",");
-  const rows = getConn().prepare(
-    `SELECT ${TASK_LIST_EVENT_COLUMNS.replaceAll("\n", " ")}
-     FROM task_events
-     WHERE (work_item_id, sequence) IN (
-       SELECT work_item_id, MAX(sequence)
-       FROM task_events WHERE work_item_id IN (${placeholders})
-       GROUP BY work_item_id
-     )`,
-  ).all(MAX_TASK_LIST_TEXT_CHARS, MAX_TASK_LIST_TEXT_CHARS, ...ids) as Row[];
+  const rows = (await getConn().query<Row>(
+    `SELECT ${TASK_LIST_EVENT_COLUMNS}
+       FROM task_events WHERE (work_item_id,sequence) IN (
+         SELECT work_item_id,MAX(sequence) FROM task_events
+          WHERE work_item_id=ANY($1::text[]) GROUP BY work_item_id
+       )`, [ids, MAX_TASK_LIST_TEXT_CHARS],
+  )).rows;
   for (const row of rows) map.set(String(row.work_item_id), row);
   return map;
 }
@@ -217,7 +210,7 @@ async function eventsByWorkItem(ids: string[], max = MAX_LIST_HISTORY_EVENTS): P
   const rows = await postgresQuery<Row>(
     `SELECT event.* FROM unnest($1::text[]) AS requested(id)
      CROSS JOIN LATERAL (
-       SELECT ${TASK_LIST_EVENT_COLUMNS.replaceAll("?", "$2")}
+       SELECT ${TASK_LIST_EVENT_COLUMNS}
        FROM task_events WHERE work_item_id=requested.id ORDER BY sequence DESC LIMIT $3
      ) AS event ORDER BY event.work_item_id, event.sequence`,
     [ids, MAX_TASK_LIST_TEXT_CHARS, max],
@@ -231,16 +224,14 @@ async function eventsByWorkItem(ids: string[], max = MAX_LIST_HISTORY_EVENTS): P
   return map;
 }
 
-function collabsByIds(ids: string[]): Map<string, Row> {
+async function collabsByIds(ids: string[]): Promise<Map<string, Row>> {
   const map = new Map<string, Row>();
   if (!ids.length) return map;
-  const placeholders = ids.map(() => "?").join(",");
-  const rows = getConn().prepare(
-    `SELECT id, handle, display_name, brand, owner_name, sku, qty,
-            group_brand_overlap, substr(notes, 1, ?) AS notes,
-            stage_code, days_in_stage
-     FROM collaborations WHERE id IN (${placeholders})`,
-  ).all(MAX_TASK_LIST_TEXT_CHARS, ...ids) as Row[];
+  const rows = (await getConn().query<Row>(
+    `SELECT id,handle,display_name,brand,owner_name,sku,qty,
+            group_brand_overlap,substr(notes,1,$2) AS notes,stage_code,days_in_stage
+       FROM collaborations WHERE id=ANY($1::text[])`, [ids, MAX_TASK_LIST_TEXT_CHARS],
+  )).rows;
   for (const row of rows) map.set(String(row.id), row);
   return map;
 }
@@ -310,11 +301,11 @@ function ticketSourceRefs(row: Row): Json[] {
   return refs;
 }
 
-function ticketView(row: Row, definitions?: TaskDefinitionIndex, collab?: Row | null): Json {
+async function ticketView(row: Row, definitions?: TaskDefinitionIndex, collab?: Row | null): Promise<Json> {
   const resolvedCollab = collab === undefined && (row.collaboration_id || row.project_id)
-    ? (getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(row.collaboration_id || row.project_id) as Row | undefined)
+    ? ((await getConn().query("SELECT * FROM collaborations WHERE id=$1", [row.collaboration_id || row.project_id])).rows[0] as Row | undefined)
     : collab || undefined;
-  const base = decorateTaskFromCollab(publicWorkItem(row, resolvedCollab || null, definitions), resolvedCollab);
+  const base = decorateTaskFromCollab((await publicWorkItem(row, resolvedCollab || null, definitions)), resolvedCollab);
   return {
     ...base,
     ticket_id: String(row.id),
@@ -324,8 +315,8 @@ function ticketView(row: Row, definitions?: TaskDefinitionIndex, collab?: Row | 
   };
 }
 
-function ownedWorkItem(id: string): Row {
-  const row = getConn().prepare("SELECT * FROM tickets WHERE id=?").get(id) as Row | undefined;
+async function ownedWorkItem(id: string, client?: PoolClient): Promise<Row> {
+  const row = (await (client || getConn()).query<Row>(`SELECT * FROM tickets WHERE id=$1${client ? " FOR UPDATE" : ""}`, [id])).rows[0];
   if (!row) throw new HttpFail(404, "task not found");
   if (!isAdmin() && String(row.owner_user_id) !== ownerId()) throw new HttpFail(404, "task not found");
   return row;
@@ -340,60 +331,33 @@ function dateInput(value: unknown, field: string): string {
 /** Shared task-operations activity window: created_at OR completed_at is in range. */
 function appendOperationalRangeClause(clauses: string[], values: unknown[], range: TaskOperationsDateRange): void {
   if (!range) return;
-  const created: string[] = [];
-  const completed: string[] = [];
-  const rangeValues: string[] = [];
-  if (range.start) {
-    created.push("created_at>=?");
-    completed.push("completed_at>=?");
-    rangeValues.push(range.start.toISOString());
-  }
-  if (range.end) {
-    created.push("created_at<?");
-    completed.push("completed_at<?");
-    rangeValues.push(range.end.toISOString());
-  }
+  const created: string[] = [], completed: string[] = [];
+  if (range.start) { values.push(range.start.toISOString()); const p = `$${values.length}`; created.push(`created_at>=${p}`); completed.push(`completed_at>=${p}`); }
+  if (range.end) { values.push(range.end.toISOString()); const p = `$${values.length}`; created.push(`created_at<${p}`); completed.push(`completed_at<${p}`); }
   clauses.push(`((${created.join(" AND ")}) OR (${completed.join(" AND ")}))`);
-  values.push(...rangeValues, ...rangeValues);
 }
-
 function appendLifecycleStatusClause(clauses: string[], values: unknown[], requested: string): void {
   const lifecycle = taskOperationsStatusGroup(requested);
-  if (!lifecycle) {
-    clauses.push("status=?");
-    values.push(requested);
-    return;
-  }
-  const statuses = lifecycle === "queued"
-    ? taskOperationsNonQueuedStatusValues()
-    : taskOperationsStatusValues(lifecycle);
-  const placeholders = statuses.map(() => "?").join(",");
-  clauses.push(lifecycle === "queued"
-    ? `LOWER(COALESCE(status,'')) NOT IN (${placeholders})`
-    : `LOWER(COALESCE(status,'')) IN (${placeholders})`);
-  values.push(...statuses);
+  if (!lifecycle) { values.push(requested); clauses.push(`status=$${values.length}`); return; }
+  values.push(lifecycle === "queued" ? taskOperationsNonQueuedStatusValues() : taskOperationsStatusValues(lifecycle));
+  clauses.push(`LOWER(COALESCE(status,'')) ${lifecycle === "queued" ? "<>ALL" : "=ANY"}($${values.length}::text[])`);
 }
-
 function appendOverdueClause(clauses: string[], values: unknown[], overdue: boolean): void {
-  const terminalPlaceholders = TASK_OPERATION_TERMINAL_STATUSES.map(() => "?").join(",");
-  const condition = `(due_at IS NOT NULL AND due_at<? AND LOWER(COALESCE(status,'')) NOT IN (${terminalPlaceholders}))`;
-  if (overdue) {
-    clauses.push(condition);
-    values.push(nowIso(), ...TASK_OPERATION_TERMINAL_STATUSES);
-    return;
-  }
-  clauses.push(`(due_at IS NULL OR due_at>=? OR LOWER(COALESCE(status,'')) IN (${terminalPlaceholders}))`);
-  values.push(nowIso(), ...TASK_OPERATION_TERMINAL_STATUSES);
+  values.push(nowIso(), TASK_OPERATION_TERMINAL_STATUSES);
+  const time = `$${values.length - 1}`, terminal = `$${values.length}::text[]`;
+  clauses.push(overdue
+    ? `(due_at IS NOT NULL AND due_at<${time} AND LOWER(COALESCE(status,''))<>ALL(${terminal}))`
+    : `(due_at IS NULL OR due_at>=${time} OR LOWER(COALESCE(status,''))=ANY(${terminal}))`);
 }
 
 /** Shared structured field update for PATCH and the Codex /edit endpoint. */
-function applyTaskUpdate(item: Row, patch: Json, note?: string): { task: Json; applied: string[] } {
+async function applyTaskUpdate(item: Row, patch: Json, note?: string): Promise<{ task: Json; applied: string[] }> {
   const sets: string[] = [];
   const values: unknown[] = [];
   const applied: string[] = [];
   const push = (field: string, value: unknown) => {
-    sets.push(`${field}=?`);
     values.push(value);
+    sets.push(`${field}=$${values.length}`);
     applied.push(field);
   };
   if (patch.title !== undefined) {
@@ -426,23 +390,17 @@ function applyTaskUpdate(item: Row, patch: Json, note?: string): { task: Json; a
     const raw = dateInput(patch[field], field);
     push(field, field === "start_date" ? raw.slice(0, 10) : raw.slice(0, 40));
   }
-  if (!applied.length) return { task: publicWorkItem(item), applied };
+  if (!applied.length) return { task: (await publicWorkItem(item)), applied };
   const now = nowIso();
-  tx((db) => {
-    db.prepare(`UPDATE tickets SET ${sets.join(",")},updated_at=?,data_version=data_version+1 WHERE id=?`)
-      .run(...values, now, item.id);
+  await tx(async (db) => {
+    const current = await ownedWorkItem(String(item.id), db);
+    if (Number(current.data_version) !== Number(item.data_version)) throw new HttpFail(409, { code: "version_conflict", message: "工单已更新，请刷新后确认。" });
+    await db.query(`UPDATE tickets SET ${sets.join(",")},updated_at=$${values.length + 1},data_version=data_version+1 WHERE id=$${values.length + 2}`, [...values, now, item.id]);
+    const names = applied.map((field) => TASK_FIELD_LABELS[field] || field).join("、");
+    await appendTaskEventIn(db, String(item.id), null, "task.updated", "更新任务", String(patch.status || current.status), note ? `${note}：${names}` : `已更新：${names}`);
+    await audit(ownerId(), "task.updated", { work_item_id: item.id, fields: applied }, db);
   });
-  const names = applied.map((field) => TASK_FIELD_LABELS[field] || field).join("、");
-  appendTaskEvent(
-    String(item.id),
-    null,
-    "task.updated",
-    "更新任务",
-    String(patch.status || item.status),
-    note ? `${note}：${names}` : `已更新：${names}`,
-  );
-  audit(ownerId(), "task.updated", { work_item_id: item.id, fields: applied });
-  return { task: publicWorkItem(ownedWorkItem(String(item.id))), applied };
+  return { task: await publicWorkItem(await ownedWorkItem(String(item.id))), applied };
 }
 
 async function createWorkItem(body: Json, source: string): Promise<Json> {
@@ -488,20 +446,16 @@ async function createWorkItem(body: Json, source: string): Promise<Json> {
   const now = nowIso();
   const id = nid("tsk");
   const owner = ownerId();
-  tx((db) => {
-    db.prepare(
-      `INSERT INTO tickets
+  await tx(async (db) => {
+    (await db.query(`INSERT INTO tickets
        (id,owner_user_id,task_type,title,source,status,priority,skill,profile,project_id,
         collaboration_id,session_id,due_at,start_date,content,risk_level,input,entities,data_version,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      id, owner, definition.id, String(body.title || definition.title).slice(0, 200), source,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`, [id, owner, definition.id, String(body.title || definition.title).slice(0, 200), source,
       status, priority, definition.id, definition.profile, body.project_id || null,
       body.collaboration_id || input.collaboration_id || null, body.session_id || null, dueAt,
       startDate, content, riskLevel,
-      JSON.stringify(input), JSON.stringify(resolution.entities), 1, now, now,
-    );
-    appendTaskEventInConn(
+      JSON.stringify(input), JSON.stringify(resolution.entities), 1, now, now]));
+    await appendTaskEventIn(
       db,
       id,
       null,
@@ -510,21 +464,21 @@ async function createWorkItem(body: Json, source: string): Promise<Json> {
       status,
       resolution.missing_fields.length ? `缺少：${formatMissingFields(resolution.missing_fields)}` : "任务已创建",
     );
+    await audit(owner, "task.created", { work_item_id: id, task_type: definition.id, source }, db);
   });
   await ensureTicketForWorkItem(id);
-  audit(owner, "task.created", { work_item_id: id, task_type: definition.id, source });
   return {
-    ...publicWorkItem(ownedWorkItem(id)),
+    ...(await publicWorkItem((await ownedWorkItem(id)))),
     resolution,
   };
 }
 
-tasks.get("/task-definitions", (c) => {
+tasks.get("/task-definitions", async (c) => {
   const user = scopedUser();
   const granted = authDisabled() || isAdmin(user)
     ? new Set(taskDefinitions().map((definition) => definition.id))
     : new Set(
-        (getConn().prepare("SELECT skill_id FROM user_skill_grants WHERE user_id=?").all(user?.id || "") as Row[])
+        ((await pgVisibleSkillIdsForUser(user?.id || "", nowIso())).map((skill_id) => ({ skill_id })))
           .map((row) => String(row.skill_id)),
       );
   return c.json(taskDefinitions().map((definition) => {
@@ -542,7 +496,7 @@ tasks.get("/task-definitions", (c) => {
   }));
 });
 
-tasks.get("/agent-manifest", (c) => {
+tasks.get("/agent-manifest", async (c) => {
   const manifest = kolAgentManifest();
   const employeeViews = (manifest.employee_views || {}) as Record<string, unknown>;
   return c.json({
@@ -556,31 +510,27 @@ tasks.get("/agent-manifest", (c) => {
 });
 
 /**
- * Cheap "did anything the list reads change" fingerprint. Keep it portable
- * across SQLite and PostgreSQL: task event count catches every append and the
+ * Cheap "did anything the list reads change" fingerprint. Native PostgreSQL: task event count catches every append and the
  * latest creation time provides a readable companion value. Any write that
  * moves it drops the cached projection immediately instead of waiting out TTL.
  */
-function tasksEpoch(): string {
-  const row = getConn().prepare(
-    `SELECT (SELECT COUNT(*) FROM task_events) AS event_count,
+async function tasksEpoch(): Promise<string> {
+  const row = (await getConn().query(`SELECT (SELECT COUNT(*) FROM task_events) AS event_count,
             (SELECT MAX(created_at) FROM task_events) AS event_updated_at,
             (SELECT MAX(updated_at) FROM tickets) AS work_items,
             (SELECT COUNT(*) FROM tickets) AS work_item_count,
-            (SELECT COUNT(*) FROM collaborations) AS collaborations`,
-  ).get() as { event_count: number; event_updated_at: string | null; work_items: string | null; work_item_count: number; collaborations: number };
+            (SELECT COUNT(*) FROM collaborations) AS collaborations`, [])).rows[0] as { event_count: number; event_updated_at: string | null; work_items: string | null; work_item_count: number; collaborations: number };
   return pollEpoch([row.event_count, row.event_updated_at, row.work_items, row.work_item_count, row.collaborations]);
 }
 
 /** Canonical employee task projection. Today is deliberately a subset of todo. */
-tasks.get("/workbench/tasks", (c) => {
+tasks.get("/workbench/tasks", async (c) => {
   const view = String(c.req.query("view") || "");
   if (view !== "today" && view !== "todo") throw new HttpFail(400, "view must be today or todo");
   const limit = parseLimit(c.req.query("limit"));
   const cursor = decodeProjectionCursor(c.req.query("cursor"));
   const owner = ownerId();
-  const todoCount = getConn().prepare(`SELECT COUNT(*) AS count FROM tickets WHERE owner_user_id=? AND ${TODO_WORK_ITEM_SQL}`)
-    .get(owner) as { count: number };
+  const todoCount = (await getConn().query<{count: number}>(`SELECT COUNT(*) AS count FROM tickets WHERE owner_user_id=$1 AND ${TODO_WORK_ITEM_SQL}`, [owner])).rows[0];
   // Today is currently evaluated by a versioned server predicate rather than a
   // SQL business rule. Scan bounded raw chunks until this filtered page is full;
   // the cursor remains the last emitted ticket so no non-matching raw row can
@@ -590,15 +540,15 @@ tasks.get("/workbench/tasks", (c) => {
   let exhausted = false;
   const rawChunk = Math.max(limit + 1, 200);
   while (!exhausted && rows.length < limit + 1) {
-    const clauses = ["owner_user_id=?", TODO_WORK_ITEM_SQL];
+    const clauses = ["owner_user_id=$1", TODO_WORK_ITEM_SQL];
     const values: unknown[] = [owner];
     if (scanCursor) {
-      clauses.push("(updated_at < ? OR (updated_at = ? AND id < ?))");
-      values.push(scanCursor.updated_at, scanCursor.updated_at, scanCursor.id);
+      clauses.push("(updated_at < $2 OR (updated_at = $2 AND id < $3))");
+      values.push(scanCursor.updated_at, scanCursor.id);
     }
-    const batch = getConn().prepare(
-      `SELECT * FROM tickets WHERE ${clauses.join(" AND ")} ORDER BY updated_at DESC, id DESC LIMIT ?`,
-    ).all(...values, rawChunk) as Row[];
+    const batch = (await getConn().query<Row>(
+      `SELECT * FROM tickets WHERE ${clauses.join(" AND ")} ORDER BY updated_at DESC, id DESC LIMIT $${values.length + 1}`, [...values, rawChunk],
+    )).rows;
     if (!batch.length) {
       exhausted = true;
       break;
@@ -611,13 +561,13 @@ tasks.get("/workbench/tasks", (c) => {
     if (batch.length < rawChunk) exhausted = true;
   }
   const page = rows.slice(0, limit);
-  const collabs = collabsByIds([...new Set(page.map((row) => String(row.collaboration_id || row.project_id || "")).filter(Boolean))]);
+  const collabs = (await collabsByIds([...new Set(page.map((row) => String(row.collaboration_id || row.project_id || "")).filter(Boolean))]));
   const definitions = taskDefinitionIndex();
-  const items = page
-    .map((row) => {
+  const items = await Promise.all(page
+    .map(async (row) => {
       const reasons = todayMembershipReasons(row);
       const collab = collabs.get(String(row.collaboration_id || row.project_id || ""));
-      const projected = decorateTaskFromCollab(publicWorkItem(row, collab || null, definitions), collab);
+      const projected = decorateTaskFromCollab((await publicWorkItem(row, collab || null, definitions)), collab);
       return {
         ...projected,
         plan_view: reasons.length ? "today" : "todo",
@@ -625,7 +575,7 @@ tasks.get("/workbench/tasks", (c) => {
         membership_reason: reasons,
         source_ref: { ticket_id: String(row.id), data_version: Number(row.data_version || 1) },
       };
-    });
+    }));
   const hasMore = rows.length > limit || !exhausted;
   const meta = requestMetadata();
   c.header("Cache-Control", "no-store");
@@ -674,10 +624,8 @@ function runEventView(event: Row, run: Row, ticket: Row): Json {
   };
 }
 
-function runEventsAfter(ticketId: string, runId: string, after: number, limit: number): Row[] {
-  return getConn().prepare(
-    "SELECT * FROM task_events WHERE work_item_id=? AND run_id=? AND sequence>? ORDER BY sequence LIMIT ?",
-  ).all(ticketId, runId, after, limit) as Row[];
+async function runEventsAfter(ticketId: string, runId: string, after: number, limit: number): Promise<Row[]> {
+  return (await getConn().query("SELECT * FROM task_events WHERE work_item_id=$1 AND run_id=$2 AND sequence>$3 ORDER BY sequence LIMIT $4", [ticketId, runId, after, limit])).rows as Row[];
 }
 
 function streamAfter(c: { req: { query(name: string): string | undefined; header(name: string): string | undefined } }): number {
@@ -689,24 +637,18 @@ function streamAfter(c: { req: { query(name: string): string | undefined; header
 
 const TERMINAL_RUN_STATUSES = new Set(["succeeded", "completed", "failed", "cancelled", "stopped", "needs_takeover"]);
 
-function ownedTaskRun(runId: string): { run: Row; ticket: Row } {
-  const row = getConn().prepare(
-    `SELECT tr.*, t.owner_user_id AS ticket_owner_user_id
-       FROM task_runs tr JOIN tickets t ON t.id=tr.work_item_id WHERE tr.id=?`,
-  ).get(runId) as Row | undefined;
+async function ownedTaskRun(runId: string): Promise<{ run: Row; ticket: Row }> {
+  const row = (await getConn().query(`SELECT tr.*, t.owner_user_id AS ticket_owner_user_id
+       FROM task_runs tr JOIN tickets t ON t.id=tr.work_item_id WHERE tr.id=$1`, [runId])).rows[0] as Row | undefined;
   if (!row || (!isAdmin() && String(row.ticket_owner_user_id) !== ownerId())) throw new HttpFail(404, "run not found");
-  const ticket = getConn().prepare("SELECT * FROM tickets WHERE id=?").get(row.work_item_id) as Row | undefined;
+  const ticket = (await getConn().query("SELECT * FROM tickets WHERE id=$1", [row.work_item_id])).rows[0] as Row | undefined;
   if (!ticket) throw new HttpFail(404, "ticket not found");
   return { run: row, ticket };
 }
 
-function ticketSummaryView(ticket: Row): Json {
-  const latestEvent = getConn().prepare(
-    "SELECT id,sequence,event_type,label,status,safe_summary,time FROM task_events WHERE work_item_id=? ORDER BY sequence DESC LIMIT 1",
-  ).get(ticket.id) as Row | undefined;
-  const latestArtifact = getConn().prepare(
-    "SELECT id,version,artifact_type,created_at FROM task_artifacts WHERE work_item_id=? ORDER BY created_at DESC LIMIT 1",
-  ).get(ticket.id) as Row | undefined;
+async function ticketSummaryView(ticket: Row): Promise<Json> {
+  const latestEvent = (await getConn().query("SELECT id,sequence,event_type,label,status,safe_summary,time FROM task_events WHERE work_item_id=$1 ORDER BY sequence DESC LIMIT 1", [ticket.id])).rows[0] as Row | undefined;
+  const latestArtifact = (await getConn().query("SELECT id,version,artifact_type,created_at FROM task_artifacts WHERE work_item_id=$1 ORDER BY created_at DESC LIMIT 1", [ticket.id])).rows[0] as Row | undefined;
   const input = parseJson(ticket.input) as Json;
   const goal = String(ticket.content || input.goal || input.prompt || ticket.title || "");
   return {
@@ -889,12 +831,12 @@ tasks.post("/tickets/:id/commands", async (c) => {
   return c.json({ ...result, ticket: await nativeTicketById(ownerId(), ticket.id), ...requestMetadata() });
 });
 
-tasks.get("/runs/:id/events", (c) => {
-  const { run, ticket } = ownedTaskRun(c.req.param("id"));
+tasks.get("/runs/:id/events", async (c) => {
+  const { run, ticket } = (await ownedTaskRun(c.req.param("id")));
   const after = Math.max(0, Number(c.req.query("after") || 0));
   if (!Number.isFinite(after)) throw new HttpFail(400, "invalid after");
   const limit = parseLimit(c.req.query("limit"), 100);
-  const events = runEventsAfter(String(ticket.id), String(run.id), after, limit);
+  const events = (await runEventsAfter(String(ticket.id), String(run.id), after, limit));
   const meta = requestMetadata();
   return c.json({
     run_id: String(run.id), ticket_id: String(ticket.id),
@@ -910,10 +852,10 @@ tasks.get("/runs/:id/events", (c) => {
  * immutable task_event in sequence order. This deliberately avoids in-process
  * pub/sub, which would lose events on API restarts or across PostgreSQL nodes.
  */
-tasks.get("/runs/:id/stream", (c) => {
-  const { run, ticket } = ownedTaskRun(c.req.param("id"));
+tasks.get("/runs/:id/stream", async (c) => {
+  const { run, ticket } = (await ownedTaskRun(c.req.param("id")));
   let cursor = streamAfter(c);
-  const initial = runEventsAfter(String(ticket.id), String(run.id), cursor, 200);
+  const initial = (await runEventsAfter(String(ticket.id), String(run.id), cursor, 200));
   if (initial.length) cursor = Number(initial.at(-1)?.sequence || cursor);
   const meta = requestMetadata();
   return new Response(new ReadableStream({
@@ -936,13 +878,13 @@ tasks.get("/runs/:id/stream", (c) => {
         if (closed || polling) return;
         polling = true;
         try {
-          const rows = runEventsAfter(String(ticket.id), String(run.id), cursor, 200);
+          const rows = (await runEventsAfter(String(ticket.id), String(run.id), cursor, 200));
           for (const event of rows) {
             const item = runEventView(event, run, ticket);
             cursor = Number(item.sequence || cursor);
             send("task_event", item, cursor);
           }
-          const current = getConn().prepare("SELECT status,completed_at,error FROM task_runs WHERE id=?").get(run.id) as Row | undefined;
+          const current = (await getConn().query("SELECT status,completed_at,error FROM task_runs WHERE id=$1", [run.id])).rows[0] as Row | undefined;
           if (current && TERMINAL_RUN_STATUSES.has(String(current.status || ""))) {
             send("terminal", { run_id: String(run.id), status: String(current.status), completed_at: current.completed_at || null, error: current.error || null, next_sequence: cursor });
             close();
@@ -975,8 +917,8 @@ tasks.get("/runs/:id/stream", (c) => {
   });
 });
 
-tasks.get("/runs/:id", (c) => {
-  const { run, ticket } = ownedTaskRun(c.req.param("id"));
+tasks.get("/runs/:id", async (c) => {
+  const { run, ticket } = (await ownedTaskRun(c.req.param("id")));
   const meta = requestMetadata();
   return c.json({ ...taskRunView(run), ...meta, source_refs: ticketSourceRefs(ticket) });
 });
@@ -991,14 +933,14 @@ tasks.get("/tasks", async (c) => {
   const scoped = !isAdmin() || c.req.query("scope") !== "all";
   const owner = scoped ? ownerId() : "all";
   if (scoped) {
-    clauses.push("owner_user_id=?");
     values.push(owner);
+    clauses.push(`owner_user_id=$${values.length}`);
   }
   for (const key of ["priority", "source", "profile"] as const) {
     const value = c.req.query(key);
     if (value) {
-      clauses.push(`${key}=?`);
       values.push(key === "priority" ? normalizePriority(value) || value : value);
+      clauses.push(`${key}=$${values.length}`);
     }
   }
   const requestedStatus = String(c.req.query("status") || "").trim();
@@ -1022,9 +964,9 @@ tasks.get("/tasks", async (c) => {
   }
   const queryText = String(c.req.query("q") || "").trim().slice(0, 200);
   if (queryText) {
-    clauses.push("(title LIKE ? COLLATE NOCASE OR content LIKE ? COLLATE NOCASE)");
-    const like = `%${queryText.replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
-    values.push(like, like);
+    const like = `%${queryText.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+    values.push(like);
+    clauses.push(`(title ILIKE $${values.length} OR content ILIKE $${values.length})`);
   }
   const from = String(c.req.query("from") || "").trim();
   const to = String(c.req.query("to") || "").trim();
@@ -1038,16 +980,16 @@ tasks.get("/tasks", async (c) => {
   appendOperationalRangeClause(clauses, values, manualRange || periodRange);
   const taskType = String(c.req.query("task_type") || "").trim();
   if (taskType) {
-    clauses.push("task_type=?");
     values.push(taskType);
+    clauses.push(`task_type=$${values.length}`);
   }
   const overdue = taskOperationsOverdue(c.req.query("overdue"));
   if (overdue != null) appendOverdueClause(clauses, values, overdue);
   const countWhere = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
   const countValues = [...values];
   if (cursor) {
-    clauses.push("(updated_at < ? OR (updated_at = ? AND id < ?))");
-    values.push(cursor.updated_at, cursor.updated_at, cursor.id);
+    values.push(cursor.updated_at, cursor.id);
+    clauses.push(`(updated_at < $${values.length - 1} OR (updated_at = $${values.length - 1} AND id < $${values.length}))`);
   }
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
   // A list projection is not an export endpoint. Keeping it bounded protects
@@ -1058,28 +1000,22 @@ tasks.get("/tasks", async (c) => {
   // This endpoint is polled every few seconds by every open tab, so an
   // unchanged data window is served from the 4s in-process cache.
   const cacheKey = `tasks:${owner}:${ownerId()}:${view}:${sort}:${limit}:${cursor ? c.req.query("cursor") : ""}:${queryText}:${from}:${to}:${reportPeriod || ""}:${requestedStatus}:${taskType}:${overdue ?? ""}:${c.req.query("priority") || ""}:${c.req.query("source") || ""}:${c.req.query("profile") || ""}`;
-  const payload = await cachedPollAsync(cacheKey, tasksEpoch(), async () => {
+  const payload = await cachedPollAsync(cacheKey, (await tasksEpoch()), async () => {
     const definitions = taskDefinitionIndex();
     const total = paged || openView
-      ? Number((getConn().prepare(`SELECT COUNT(*) AS c FROM tickets ${countWhere}`).get(...countValues) as { c: number }).c || 0)
+      ? Number((await getConn().query<{c: number}>(`SELECT COUNT(*) AS c FROM tickets ${countWhere}`, countValues)).rows[0]?.c || 0)
       : 0;
-    const fetched = getConn().prepare(
-      `SELECT ${TASK_LIST_TICKET_COLUMNS.replaceAll("\n", " ")}
-       FROM tickets ${where} ORDER BY ${order[sort]} LIMIT ?`,
-    ).all(
-      MAX_TASK_LIST_TEXT_CHARS,
-      MAX_TASK_LIST_TEXT_CHARS,
-      MAX_TASK_LIST_TEXT_CHARS,
-      ...values,
-      paged ? limit + 1 : limit,
-    ) as Row[];
+    const fetched = (await getConn().query<Row>(
+      `SELECT ${taskListTicketColumns(values.length + 1)} FROM tickets ${where} ORDER BY ${order[sort]} LIMIT $${values.length + 2}`,
+      [...values, MAX_TASK_LIST_TEXT_CHARS, paged ? limit + 1 : limit],
+    )).rows;
     const hasMore = paged && fetched.length > limit;
     const rows = paged ? fetched.slice(0, limit) : fetched;
     const ids = rows.map((row) => String(row.id));
-    const lastByTask = openView ? lastEventsByWorkItem(ids) : new Map<string, Row>();
+    const lastByTask = openView ? (await lastEventsByWorkItem(ids)) : new Map<string, Row>();
     const eventsByTask = openView ? new Map<string, Row[]>() : await eventsByWorkItem(ids);
     const collabIds = [...new Set(rows.flatMap((row) => [String(row.collaboration_id || ""), String(row.project_id || "")]).filter(Boolean))];
-    const collabById = collabsByIds(collabIds);
+    const collabById = (await collabsByIds(collabIds));
     const discoveryIds = rows.filter((row) => row.task_type === "discovery_crawl").map((row) => String(row.id));
     const discoveryRows = discoveryIds.length ? await postgresQuery<Row>(
       `SELECT DISTINCT ON (work_item_id) work_item_id, id FROM discovery_runs
@@ -1091,17 +1027,17 @@ tasks.get("/tasks", async (c) => {
       discoveryRuns: new Map(discoveryRows.map((row) => [String(row.work_item_id), String(row.id)])),
       projects: collabById,
     };
-    const list = rows.map((row) => {
+    const list = await Promise.all(rows.map(async (row) => {
       const collab = collabById.get(String(row.collaboration_id || row.project_id || ""));
       const events = openView
         ? (lastByTask.get(String(row.id)) ? [eventView(lastByTask.get(String(row.id))!)] : [])
         : (eventsByTask.get(String(row.id)) || []).map(eventView);
       return decorateTaskFromCollab({
-        ...publicWorkItem(row, collab, definitions, listReads),
+        ...(await publicWorkItem(row, collab, definitions, listReads)),
         ...(openView ? {} : { history: events }),
         history_summary: historySummary(events),
       }, collab);
-    });
+    }));
     if (paged) {
       const meta = requestMetadata();
       return {
@@ -1129,7 +1065,7 @@ tasks.get("/tasks", async (c) => {
  * used by GET /api/tasks. It deliberately remains in this router so the KPI
  * and the task table share one authorization boundary and one source of truth.
  */
-tasks.get("/tasks/operations-dashboard", (c) => {
+tasks.get("/tasks/operations-dashboard", async (c) => {
   const period = taskOperationsPeriod(c.req.query("period"));
   const queryText = String(c.req.query("q") || "").trim().slice(0, 200);
   const from = String(c.req.query("from") || "").trim();
@@ -1142,17 +1078,17 @@ tasks.get("/tasks/operations-dashboard", (c) => {
   const clauses: string[] = [];
   const values: unknown[] = [];
   if (scoped) {
-    clauses.push("owner_user_id=?");
     values.push(owner);
+    clauses.push(`owner_user_id=$${values.length}`);
   }
   if (queryText) {
-    clauses.push("(title LIKE ? COLLATE NOCASE OR content LIKE ? COLLATE NOCASE)");
-    const like = `%${queryText.replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
-    values.push(like, like);
+    const like = `%${queryText.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+    values.push(like);
+    clauses.push(`(title ILIKE $${values.length} OR content ILIKE $${values.length})`);
   }
   if (taskType) {
-    clauses.push("task_type=?");
     values.push(taskType);
+    clauses.push(`task_type=$${values.length}`);
   }
   // Period windows remain inside the dashboard builder so its previous-period
   // comparison and trends keep their established semantics. Manual ranges are
@@ -1161,11 +1097,10 @@ tasks.get("/tasks/operations-dashboard", (c) => {
   appendOperationalRangeClause(clauses, values, manualRange);
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
   const cacheKey = `task-operations:${owner}:${period}:${queryText}:${from}:${to}:${taskType}`;
-  const payload = cachedPoll(cacheKey, tasksEpoch(), () => {
-    const rows = getConn().prepare(
-      `SELECT id,task_type,title,status,due_at,created_at,completed_at,updated_at
-       FROM tickets ${where}`,
-    ).all(...values) as TaskOperationsRow[];
+  const payload = await cachedPollAsync(cacheKey, (await tasksEpoch()), async () => {
+    const rows = (await getConn().query<TaskOperationsRow>(
+      `SELECT id,task_type,title,status,due_at,created_at,completed_at,updated_at FROM tickets ${where}`, values,
+    )).rows;
     const dashboard = buildTaskOperationsDashboard(rows, { period, timezone: "Asia/Shanghai", scope: scoped ? "personal" : "organization" });
     return {
       ...dashboard,
@@ -1185,15 +1120,15 @@ tasks.post("/tasks", async (c) => {
 });
 
 tasks.patch("/tasks/:id", async (c) => {
-  const item = ownedWorkItem(c.req.param("id"));
+  const item = (await ownedWorkItem(c.req.param("id")));
   const body = await c.req.json().catch(() => ({})) as Json;
-  const { task, applied } = applyTaskUpdate(item, body);
+  const { task, applied } = (await applyTaskUpdate(item, body));
   if (!applied.length) throw new HttpFail(400, "no updatable fields");
   return c.json(task);
 });
 
 tasks.post("/tasks/:id/edit", async (c) => {
-  const item = ownedWorkItem(c.req.param("id"));
+  const item = (await ownedWorkItem(c.req.param("id")));
   const body = await c.req.json().catch(() => ({})) as Json;
   const text = String(body.text || "").trim();
   if (!text) throw new HttpFail(400, "text required");
@@ -1214,7 +1149,7 @@ tasks.post("/tasks/:id/edit", async (c) => {
   if (!Object.keys(patch).length) {
     return c.json({ code: "edit_not_recognized", message: "没有识别出要修改的字段" }, 422);
   }
-  const { task, applied } = applyTaskUpdate(item, patch, `根据「${text.slice(0, 80)}」更新`);
+  const { task, applied } = (await applyTaskUpdate(item, patch, `根据「${text.slice(0, 80)}」更新`));
   if (!applied.length) {
     return c.json({ code: "edit_not_recognized", message: "没有识别出要修改的字段" }, 422);
   }
@@ -1226,16 +1161,14 @@ function normDedupe(value: unknown): string {
 }
 
 /** FE `todoDedupe` semantics — same identity must not create a second formal WorkItem. */
-function findDuplicateTodoRow(owner: string, suggestion: {
+async function findDuplicateTodoRow(owner: string, suggestion: {
   id?: string;
   title?: string;
   handle?: string;
   intent?: string;
   collaboration_id?: string | null;
-}): Row | undefined {
-  const rows = getConn().prepare(
-    "SELECT * FROM tickets WHERE owner_user_id=? AND dismissed_at IS NULL ORDER BY updated_at DESC",
-  ).all(owner) as Row[];
+}): Promise<Row | undefined> {
+  const rows = (await getConn().query("SELECT * FROM tickets WHERE owner_user_id=$1 AND dismissed_at IS NULL ORDER BY updated_at DESC", [owner])).rows as Row[];
   const recId = normDedupe(suggestion.id);
   const title = normDedupe(suggestion.title);
   const handle = normDedupe(suggestion.handle) || normDedupe(suggestion.collaboration_id);
@@ -1287,9 +1220,9 @@ tasks.post("/tasks/adopt-recommendation", async (c) => {
   const existingId = workItemId || fromInsight;
   if (existingId) {
     try {
-      const item = ownedWorkItem(existingId);
+      const item = (await ownedWorkItem(existingId));
       if (item.promoted_at) {
-        return c.json({ ...publicWorkItem(item), candidate: false, reused: true, created: false });
+        return c.json({ ...(await publicWorkItem(item)), candidate: false, reused: true, created: false });
       }
       if (!isInsightWorkItem(item)) {
         throw new HttpFail(409, "only an active recommendation candidate can be adopted");
@@ -1299,16 +1232,14 @@ tasks.post("/tasks/adopt-recommendation", async (c) => {
       }
       const now = nowIso();
       const nextTitle = candidate.title;
-      tx((db) => {
-        db.prepare(
-          "UPDATE tickets SET promoted_at=COALESCE(promoted_at,?),dismissed_at=NULL,title=CASE WHEN ?!='' THEN ? ELSE title END,updated_at=?,data_version=data_version+1 WHERE id=?",
-        ).run(now, nextTitle, nextTitle, now, item.id);
+      await tx(async (db) => {
+        (await db.query("UPDATE tickets SET promoted_at=COALESCE(promoted_at,$1),dismissed_at=NULL,title=CASE WHEN $2!='' THEN $3 ELSE title END,updated_at=$4,data_version=data_version+1 WHERE id=$5", [now, nextTitle, nextTitle, now, item.id]));
       });
       if (!item.promoted_at) {
-        appendTaskEvent(String(item.id), null, "task.promoted", "转为我的待办", String(item.status), "已从今天推荐转入待办");
-        audit(owner, "task.adopted", { work_item_id: item.id, recommendation_id: recId || null });
+        (await appendTaskEvent(String(item.id), null, "task.promoted", "转为我的待办", String(item.status), "已从今天推荐转入待办"));
+        (await audit(owner, "task.adopted", { work_item_id: item.id, recommendation_id: recId || null }));
       }
-      return c.json({ ...publicWorkItem(ownedWorkItem(String(item.id))), candidate: false, reused: Boolean(item.promoted_at), created: false });
+      return c.json({ ...(await publicWorkItem((await ownedWorkItem(String(item.id))))), candidate: false, reused: Boolean(item.promoted_at), created: false });
     } catch (error) {
       if (!(error instanceof HttpFail) || error.status !== 404) throw error;
     }
@@ -1320,9 +1251,9 @@ tasks.post("/tasks/adopt-recommendation", async (c) => {
     intent: candidate.intent || "",
     collaboration_id: candidate.collaboration_id || null,
   };
-  const duplicate = findDuplicateTodoRow(owner, identity);
+  const duplicate = (await findDuplicateTodoRow(owner, identity));
   if (duplicate) {
-    return c.json({ ...publicWorkItem(duplicate), candidate: false, reused: true, created: false });
+    return c.json({ ...(await publicWorkItem(duplicate)), candidate: false, reused: true, created: false });
   }
   const intent = candidate.intent || "creator_daily_tasks";
   const created = (await createWorkItem({
@@ -1339,14 +1270,12 @@ tasks.post("/tasks/adopt-recommendation", async (c) => {
     },
   }, "manual"));
   const now = nowIso();
-  tx((db) => {
-    db.prepare(
-      "UPDATE tickets SET promoted_at=COALESCE(promoted_at,?),dismissed_at=NULL,updated_at=? WHERE id=?",
-    ).run(now, now, created.id);
+  await tx(async (db) => {
+    (await db.query("UPDATE tickets SET promoted_at=COALESCE(promoted_at,$1),dismissed_at=NULL,updated_at=$2 WHERE id=$3", [now, now, created.id]));
   });
-  appendTaskEvent(String(created.id), null, "task.adopted", "采纳为待办", String(created.status), "今天推荐已写入正式待办");
-  audit(owner, "task.adopted", { work_item_id: created.id, recommendation_id: recId || null });
-  return c.json({ ...publicWorkItem(ownedWorkItem(String(created.id))), candidate: false, reused: false, created: true }, 201);
+  (await appendTaskEvent(String(created.id), null, "task.adopted", "采纳为待办", String(created.status), "今天推荐已写入正式待办"));
+  (await audit(owner, "task.adopted", { work_item_id: created.id, recommendation_id: recId || null }));
+  return c.json({ ...(await publicWorkItem((await ownedWorkItem(String(created.id))))), candidate: false, reused: false, created: true }, 201);
 });
 
 tasks.post("/tasks/recognize", async (c) => {
@@ -1483,34 +1412,28 @@ async function executionView(row: Row) {
 }
 
 tasks.get("/tasks/by-session/:sid", async (c) => {
-  const row = getConn().prepare(
-    "SELECT * FROM tickets WHERE session_id=? ORDER BY updated_at DESC LIMIT 1",
-  ).get(c.req.param("sid")) as Row | undefined;
+  const row = (await getConn().query("SELECT * FROM tickets WHERE session_id=$1 ORDER BY updated_at DESC LIMIT 1", [c.req.param("sid")])).rows[0] as Row | undefined;
   if (!row) throw new HttpFail(404, "task not found");
-  const owned = ownedWorkItem(String(row.id));
-  return c.json({ ...publicWorkItem(owned), execution: await executionView(owned) });
+  const owned = (await ownedWorkItem(String(row.id)));
+  return c.json({ ...(await publicWorkItem(owned)), execution: await executionView(owned) });
 });
 
 tasks.get("/tasks/:id", async (c) => {
-  const row = ownedWorkItem(c.req.param("id"));
-  const runs = getConn().prepare("SELECT * FROM task_runs WHERE work_item_id=? ORDER BY created_at").all(row.id) as Row[];
-  const artifacts = getConn().prepare(
-    "SELECT * FROM task_artifacts WHERE work_item_id=? ORDER BY created_at",
-  ).all(row.id) as Row[];
+  const row = (await ownedWorkItem(c.req.param("id")));
+  const runs = (await getConn().query("SELECT * FROM task_runs WHERE work_item_id=$1 ORDER BY created_at", [row.id])).rows as Row[];
+  const artifacts = (await getConn().query("SELECT * FROM task_artifacts WHERE work_item_id=$1 ORDER BY created_at", [row.id])).rows as Row[];
   return c.json({
-    ...publicWorkItem(row),
+    ...(await publicWorkItem(row)),
     execution: await executionView(row),
     runs: runs.map((run) => ({ ...run, input: parseJson(run.input), entities: parseJson(run.entities), error: parseJson(run.error) })),
     artifacts: artifacts.map((artifact) => ({ ...artifact, payload: parseJson(artifact.payload) })),
   });
 });
 
-tasks.get("/tasks/:id/events", (c) => {
-  const row = ownedWorkItem(c.req.param("id"));
+tasks.get("/tasks/:id/events", async (c) => {
+  const row = (await ownedWorkItem(c.req.param("id")));
   const after = Math.max(0, Number(c.req.query("after") || 0));
-  const events = getConn().prepare(
-    "SELECT * FROM task_events WHERE work_item_id=? AND sequence>? ORDER BY sequence",
-  ).all(row.id, after) as Row[];
+  const events = (await getConn().query("SELECT * FROM task_events WHERE work_item_id=$1 AND sequence>$2 ORDER BY sequence", [row.id, after])).rows as Row[];
   return c.json(events.map((event) => ({
     ...event,
     type: event.event_type,
@@ -1521,7 +1444,7 @@ tasks.get("/tasks/:id/events", (c) => {
 });
 
 tasks.post("/tasks/:id/run", async (c) => {
-  const item = ownedWorkItem(c.req.param("id"));
+  const item = (await ownedWorkItem(c.req.param("id")));
   if (["running", "completed", "cancelled"].includes(String(item.status))) {
     throw new HttpFail(409, `task cannot run from ${item.status}`);
   }
@@ -1557,36 +1480,34 @@ tasks.post("/tasks/:id/run", async (c) => {
     input: runInput,
   });
   if (resolution.needs_clarification) {
-    getConn().prepare("UPDATE tickets SET status='needs_clarification',updated_at=? WHERE id=?")
-      .run(nowIso(), item.id);
+    (await getConn().query("UPDATE tickets SET status='needs_clarification',updated_at=$1 WHERE id=$2", [nowIso(), item.id]));
     // 422 响应必须带 message：前端 submit 链路直接展示 error.message，
     // 缺了它用户只能看到裸的「请求失败 (422)」。
     const clarificationMessage = resolution.missing_fields.length
       ? `缺少：${formatMissingFields(resolution.missing_fields)}`
       : missingFieldsMessage(resolutionIssueFields(resolution), "参数值无效");
-    appendTaskEvent(String(item.id), null, "task.clarification", "还需要补充信息", "needs_clarification",
-      clarificationMessage);
+    (await appendTaskEvent(String(item.id), null, "task.clarification", "还需要补充信息", "needs_clarification",
+      clarificationMessage));
     return c.json({ needs_clarification: true, resolution, message: clarificationMessage }, 422);
   }
   const now = nowIso();
   const sid = String(item.session_id || nid("ses"));
   const runId = nid("run");
-  tx((db) => {
-    if (!item.session_id) {
-      db.prepare(
-        "INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id) VALUES (?,?,?,?,?,?,?)",
-      ).run(sid, item.title, now, now, "task", 0, item.owner_user_id);
+  await tx(async (db) => {
+    const current = await ownedWorkItem(String(item.id), db);
+    if (Number(current.data_version) !== Number(item.data_version) || ["running", "completed", "cancelled"].includes(String(current.status))) {
+      throw new HttpFail(409, { code: "version_conflict", message: "工单已更新，请刷新后确认。" });
     }
-    db.prepare(
-      `INSERT INTO task_runs
+    if (!item.session_id) {
+      (await db.query("INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [sid, item.title, now, now, "task", 0, item.owner_user_id]));
+    }
+    (await db.query(`INSERT INTO task_runs
        (id,work_item_id,session_id,status,input,entities,created_at)
-       VALUES (?,?,?,?,?,?,?)`,
-    ).run(runId, item.id, sid, "pending", JSON.stringify(runInput), JSON.stringify(resolution.entities), now);
-    db.prepare("UPDATE tickets SET session_id=?,input=?,status='pending',updated_at=?,data_version=data_version+1 WHERE id=?")
-      .run(sid, JSON.stringify(runInput), now, item.id);
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`, [runId, item.id, sid, "pending", JSON.stringify(runInput), JSON.stringify(resolution.entities), now]));
+    (await db.query("UPDATE tickets SET session_id=$1,input=$2,status='pending',updated_at=$3,data_version=data_version+1 WHERE id=$4", [sid, JSON.stringify(runInput), now, item.id]));
+    await appendTaskEventIn(db, String(item.id), runId, "run.pending", "任务已加入队列", "pending", "等待会话开始执行");
+    await audit(ownerId(), "task.run.created", { work_item_id: item.id, run_id: runId, session_id: sid }, db);
   });
-  appendTaskEvent(String(item.id), runId, "run.pending", "任务已加入队列", "pending", "等待会话开始执行");
-  audit(ownerId(), "task.run.created", { work_item_id: item.id, run_id: runId, session_id: sid });
   const pendingMessage = {
     ...runInput,
     act: "ask",
@@ -1598,8 +1519,8 @@ tasks.post("/tasks/:id/run", async (c) => {
     collaboration_id: item.collaboration_id,
     entities: resolution.entities,
   };
-  const taskRow = publicWorkItem(ownedWorkItem(String(item.id)));
-  const runRow = getConn().prepare("SELECT * FROM task_runs WHERE id=?").get(runId);
+  const taskRow = (await publicWorkItem((await ownedWorkItem(String(item.id)))));
+  const runRow = (await getConn().query("SELECT * FROM task_runs WHERE id=$1", [runId])).rows[0];
   return c.json({
     work_item_id: item.id,
     run_id: runId,
@@ -1613,78 +1534,84 @@ tasks.post("/tasks/:id/run", async (c) => {
 });
 
 tasks.post("/tasks/:id/acknowledge", async (c) => {
-  const item = ownedWorkItem(c.req.param("id"));
+  const item = (await ownedWorkItem(c.req.param("id")));
   if (["completed", "cancelled"].includes(String(item.status))) {
     throw new HttpFail(409, `task cannot acknowledge from ${item.status}`);
   }
   const now = nowIso();
   const status = String(item.status || "");
   const nextStatus = status === "pending" || status === "queued" ? "in_progress" : status;
-  tx((db) => {
-    db.prepare(
-      `UPDATE tickets
-       SET last_acted_at=?,
-           acknowledged_at=COALESCE(acknowledged_at,?),
-           status=?,
-           updated_at=?,
+  await tx(async (db) => {
+    const current = await ownedWorkItem(String(item.id), db);
+    if (Number(current.data_version) !== Number(item.data_version) || ["completed", "cancelled"].includes(String(current.status))) {
+      throw new HttpFail(409, { code: "version_conflict", message: "工单已更新，请刷新后确认。" });
+    }
+    (await db.query(`UPDATE tickets
+       SET last_acted_at=$1,
+           acknowledged_at=COALESCE(acknowledged_at,$2),
+           status=$3,
+           updated_at=$4,
            data_version=data_version+1
-       WHERE id=?`,
-    ).run(now, now, nextStatus, now, item.id);
-  });
-  appendTaskEvent(
+       WHERE id=$5`, [now, now, nextStatus, now, item.id]));
+  (await appendTaskEventIn(db,
     String(item.id),
     null,
     "task.acknowledged",
     "处理今日任务",
     nextStatus,
     "已记录打开/处理，未创建会话",
-  );
-  audit(ownerId(), "task.acknowledged", { work_item_id: item.id, creates_session: false });
+  ));
+  (await audit(ownerId(), "task.acknowledged", { work_item_id: item.id, creates_session: false }, db));
+  });
   return c.json({
-    ...publicWorkItem(ownedWorkItem(String(item.id))),
+    ...(await publicWorkItem((await ownedWorkItem(String(item.id))))),
     entry: "command",
     creates_session: false,
   });
 });
 
 tasks.post("/tasks/:id/promote", async (c) => {
-  const item = ownedWorkItem(c.req.param("id"));
+  const item = (await ownedWorkItem(c.req.param("id")));
   if (["completed", "cancelled"].includes(String(item.status))) {
     throw new HttpFail(409, `task cannot promote from ${item.status}`);
   }
   const now = nowIso();
-  tx((db) => {
-    db.prepare(
-      "UPDATE tickets SET promoted_at=COALESCE(promoted_at,?),dismissed_at=NULL,updated_at=?,data_version=data_version+1 WHERE id=?",
-    ).run(now, now, item.id);
-  });
+  await tx(async (db) => {
+    const current = await ownedWorkItem(String(item.id), db);
+    if (Number(current.data_version) !== Number(item.data_version) || ["completed", "cancelled"].includes(String(current.status))) {
+      throw new HttpFail(409, { code: "version_conflict", message: "工单已更新，请刷新后确认。" });
+    }
+    (await db.query("UPDATE tickets SET promoted_at=COALESCE(promoted_at,$1),dismissed_at=NULL,updated_at=$2,data_version=data_version+1 WHERE id=$3", [now, now, item.id]));
   if (!item.promoted_at) {
-    appendTaskEvent(String(item.id), null, "task.promoted", "转为我的待办", String(item.status), "已从今日任务转入待办");
-    audit(ownerId(), "task.promoted", { work_item_id: item.id });
+    (await appendTaskEventIn(db, String(item.id), null, "task.promoted", "转为我的待办", String(item.status), "已从今日任务转入待办"));
+    (await audit(ownerId(), "task.promoted", { work_item_id: item.id }, db));
   }
-  return c.json(publicWorkItem(ownedWorkItem(String(item.id))));
+  });
+  return c.json((await publicWorkItem((await ownedWorkItem(String(item.id))))));
 });
 
 tasks.post("/tasks/:id/dismiss", async (c) => {
-  const item = ownedWorkItem(c.req.param("id"));
+  const item = (await ownedWorkItem(c.req.param("id")));
   if (["completed", "cancelled"].includes(String(item.status))) {
     throw new HttpFail(409, `task cannot dismiss from ${item.status}`);
   }
   const now = nowIso();
-  tx((db) => {
-    db.prepare(
-      "UPDATE tickets SET dismissed_at=COALESCE(dismissed_at,?),updated_at=?,data_version=data_version+1 WHERE id=?",
-    ).run(now, now, item.id);
-  });
+  await tx(async (db) => {
+    const current = await ownedWorkItem(String(item.id), db);
+    if (Number(current.data_version) !== Number(item.data_version) || ["completed", "cancelled"].includes(String(current.status))) {
+      throw new HttpFail(409, { code: "version_conflict", message: "工单已更新，请刷新后确认。" });
+    }
+    (await db.query("UPDATE tickets SET dismissed_at=COALESCE(dismissed_at,$1),updated_at=$2,data_version=data_version+1 WHERE id=$3", [now, now, item.id]));
   if (!item.dismissed_at) {
-    appendTaskEvent(String(item.id), null, "task.dismissed", "忽略建议", String(item.status), "已从今日任务中移除");
-    audit(ownerId(), "task.dismissed", { work_item_id: item.id });
+    (await appendTaskEventIn(db, String(item.id), null, "task.dismissed", "忽略建议", String(item.status), "已从今日任务中移除"));
+    (await audit(ownerId(), "task.dismissed", { work_item_id: item.id }, db));
   }
-  return c.json(publicWorkItem(ownedWorkItem(String(item.id))));
+  });
+  return c.json((await publicWorkItem((await ownedWorkItem(String(item.id))))));
 });
 
 /** The PostgreSQL ticket command is the only lifecycle write path. */
-tasks.post("/tasks/:id/cancel", (c) => {
+tasks.post("/tasks/:id/cancel", async (c) => {
   throw new HttpFail(410, {
     code: "legacy_write_endpoint_retired",
     message: "旧任务取消端点已停用；请使用 POST /api/tickets/:id/commands。",
@@ -1693,7 +1620,7 @@ tasks.post("/tasks/:id/cancel", (c) => {
 });
 
 tasks.post("/tasks/:id/actions", async (c) => {
-  const item = ownedWorkItem(c.req.param("id"));
+  const item = (await ownedWorkItem(c.req.param("id")));
   const body = await c.req.json().catch(() => ({})) as Json;
   if (String(item.task_type) !== KOL_ANALYZE_TASK_TYPE) {
     throw new HttpFail(409, {
@@ -1701,7 +1628,7 @@ tasks.post("/tasks/:id/actions", async (c) => {
       message: "generic actions are only enforced for kol_analyze",
     });
   }
-  const result = applyKolAnalyzeAction({
+  const result = await applyKolAnalyzeAction({
     workItemId: String(item.id),
     verb: body.verb ? String(body.verb) : undefined,
     action: body.action ? String(body.action) : body.verb ? String(body.verb) : undefined,
@@ -1717,7 +1644,7 @@ tasks.post("/tasks/:id/actions", async (c) => {
 });
 
 tasks.post("/tasks/:id/complete", async (c) => {
-  ownedWorkItem(c.req.param("id"));
+  (await ownedWorkItem(c.req.param("id")));
   throw new HttpFail(410, {
     code: "legacy_write_endpoint_retired",
     message: "旧任务完成端点已停用；请使用带验收证据、版本和幂等键的 /api/tickets/:id/commands。",

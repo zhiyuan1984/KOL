@@ -63,11 +63,11 @@ function jsonArray(value: unknown): string[] {
   }
 }
 
-export function mapUser(row: Row): AppUser {
+export async function mapUser(row: Row): Promise<AppUser> {
   const roles = jsonArray(row.roles);
   const username = String(row.username);
   const email = String(row.email || (username.includes("@") ? username : "") || "");
-  const todo = examTodoCount(String(row.id));
+  const todo = await examTodoCount(String(row.id));
   return {
     id: String(row.id),
     username,
@@ -81,7 +81,7 @@ export function mapUser(row: Row): AppUser {
     site: String(row.site || ""),
     manager_user_id: row.manager_user_id ? String(row.manager_user_id) : null,
     active: Boolean(row.active),
-    exam_passed: examPassed(String(row.id)),
+    exam_passed: await examPassed(String(row.id)),
     exam_todo_count: todo,
     exam_module: "数据安全与最小权限",
   };
@@ -115,8 +115,8 @@ export function requireAdmin(): AppUser {
       site: DEMO_USER.site,
       manager_user_id: null,
       active: true,
-      exam_passed: examPassed(DEMO_USER.id),
-      exam_todo_count: examTodoCount(DEMO_USER.id),
+      exam_passed: scopedUser()?.exam_passed ?? DEMO_USER.exam_passed,
+      exam_todo_count: scopedUser()?.exam_todo_count ?? DEMO_USER.exam_todo_count,
       exam_module: DEMO_USER.exam_module,
     };
   }
@@ -196,7 +196,7 @@ async function sessionUser(c: Context): Promise<AppUser | undefined> {
       WHERE s.id_hash = $1 AND s.expires_at > $2 AND u.active = 1`,
     [hashToken(token), nowIso()],
   );
-  return row ? hydrateNativeAuthority(mapUser(row)) : undefined;
+  return row ? hydrateNativeAuthority((await mapUser(row))) : undefined;
 }
 
 function publicPath(path: string): boolean {
@@ -279,7 +279,7 @@ authRouter.get("/auth/status", async (c) => {
       username: persona.handle,
       email: persona.handle === "lingong" ? "" : DEMO_ADMIN.email,
       phone: persona.handle === "lingong" ? "" : DEMO_ADMIN.phone,
-      exam_todo_count: examTodoCount(persona.id),
+      exam_todo_count: await examTodoCount(persona.id),
       ...access,
     };
     return c.json({
@@ -324,7 +324,7 @@ authRouter.post("/auth/setup", async (c) => {
   const createdRow = await pgCreateUser({ id, username, name, passwordHash, brands: (body.brands || ["LT", "RO", "PQ"]) as Json, site: String(body.site || ""), email, phone, now });
   await createSession(c, id);
   await pgAudit(id, "admin.setup", { user_id: id }, now);
-  const created = await userPublic(await hydrateNativeAuthority(mapUser(createdRow)));
+  const created = await userPublic(await hydrateNativeAuthority((await mapUser(createdRow))));
   return c.json({ ok: true, user: created, account: created }, 201);
 });
 
@@ -351,7 +351,7 @@ authRouter.post("/auth/login", async (c) => {
   await pgAudit(String(row.id), "auth.login", {}, nowIso());
   const { startFollowedMailSync } = await import("./starrykol/mail-sync.js");
   void startFollowedMailSync(true).catch(() => undefined);
-  const loggedIn = await userPublic(await hydrateNativeAuthority(mapUser(row)));
+  const loggedIn = await userPublic(await hydrateNativeAuthority((await mapUser(row))));
   return c.json({ ok: true, user: loggedIn, account: loggedIn });
 });
 

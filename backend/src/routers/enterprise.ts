@@ -780,8 +780,8 @@ enterprise.delete("/memory/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-export async function assertSessionAccess(sessionId: string, includeDeleted = false): Promise<Row> {
-  const row = (await postgresPool().query<Row>("SELECT * FROM sessions WHERE id=$1", [sessionId])).rows[0] as Row | undefined;
+export async function assertSessionAccess(sessionId: string, includeDeleted = false, client: Pick<PoolClient, "query"> = postgresPool()): Promise<Row> {
+  const row = (await client.query<Row>("SELECT * FROM sessions WHERE id=$1 FOR SHARE", [sessionId])).rows[0] as Row | undefined;
   if (!row || (!includeDeleted && row.deleted_at)) throw new HttpFail(404, "session not found");
   if (authDisabled()) return row;
   const user = scopedUser();

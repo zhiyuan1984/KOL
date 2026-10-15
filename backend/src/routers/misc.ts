@@ -759,7 +759,7 @@ misc.get("/me", async (c) => {
   return c.json({
     ...user,
     avatar_url: (await avatarUrlForUser(user.id)),
-    exam_todo_count: appUser?.exam_todo_count ?? examTodoCount(user.id),
+    exam_todo_count: appUser?.exam_todo_count ?? await examTodoCount(user.id),
     ...(appUser ? {
       username: appUser.username,
       email: appUser.email || appUser.username,
@@ -887,7 +887,7 @@ misc.post("/me/persona", async (c) => {
 
 misc.get("/exam", (c) => {
   const u = currentUser();
-  return c.json(examDemoStatus(u.id, u.name, u.brands || []));
+  return c.json(await examDemoStatus(u.id, u.name, u.brands || []));
 });
 
 misc.get("/admin", async (c) => {

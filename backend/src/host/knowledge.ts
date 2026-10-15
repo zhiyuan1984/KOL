@@ -275,24 +275,16 @@ function baseView(row: Row): Json {
   };
 }
 
-export function listBases(opts: { domain_id?: string | null; kind?: string | null } = {}): Json[] {
+export async function listBases(opts: { domain_id?: string | null; kind?: string | null } = {}): Promise<Json[]> {
   requireAdmin();
   const clauses: string[] = [];
   const args: unknown[] = [];
   const domainId = String(opts.domain_id || "").trim();
-  if (domainId) {
-    clauses.push("b.domain_id=?");
-    args.push(domainId);
-  }
+  if (domainId) { args.push(domainId); clauses.push(`b.domain_id=$${args.length}`); }
   const kind = String(opts.kind || "").trim();
-  if (kind) {
-    clauses.push("b.kind=?");
-    args.push(kind);
-  }
+  if (kind) { args.push(kind); clauses.push(`b.kind=$${args.length}`); }
   const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
-  const rows = getConn()
-    .prepare(`${BASE_SELECT}${where} ORDER BY f.sort, f.name, d.sort, d.name, b.name, b.code`)
-    .all(...args) as Row[];
+  const rows = (await getConn().query<Row>(`${BASE_SELECT}${where} ORDER BY f.sort, f.name, d.sort, d.name, b.name, b.code`, args)).rows;
   return rows.map(baseView);
 }
 
@@ -1985,55 +1977,49 @@ export function listBindings(): Json[] {
   return bindingRows().map((row) => ({ ...row, selector: parseSelectorStored(row.selector) }));
 }
 
-export function saveBinding(
+export async function saveBinding(
   input: { id?: string; skill_id?: string; selector?: unknown; enabled?: boolean | number; note?: string },
   actor = knowledgeActorId(),
-): Json {
+): Promise<Json> {
   requireAdmin();
-  const id = String(input.id || "").trim();
-  const prev = id
-    ? getConn().prepare("SELECT * FROM knowledge_bindings WHERE id=?").get(id) as Row | undefined
-    : undefined;
-  if (id && !prev) throw new HttpFail(404, "binding not found");
-  const skillId = String(input.skill_id == null ? prev?.skill_id ?? "" : input.skill_id).trim();
-  if (!skillId) throw new HttpFail(400, "skill_id required");
-  if(getConn().prepare('SELECT 1 FROM skill_knowledge_configs WHERE skill_id=? OR skill_id=?').get(skillId,String(prev?.skill_id || '')))throw new HttpFail(409,'知识技能的资源依赖请在技能页修改草稿并试算发布；不能从智能体页直接修改共享范围。');
-  const selector = input.selector == null ? parseSelectorStored(prev?.selector) : normalizeSelector(input.selector);
-  const enabled = input.enabled == null ? (Number(prev?.enabled ?? 1) ? 1 : 0) : (input.enabled ? 1 : 0);
-  const note = input.note == null ? String(prev?.note ?? "") : String(input.note);
-  const bindingId = id || nid("kbind");
-  const now = nowIso();
-  tx((db) => {
-    if (prev) {
-      db.prepare("UPDATE knowledge_bindings SET skill_id=?,selector=?,enabled=?,note=?,updated_at=? WHERE id=?")
-        .run(skillId, JSON.stringify(selector), enabled, note, now, bindingId);
-    } else {
-      db.prepare(
-        `INSERT INTO knowledge_bindings (id,skill_id,selector,enabled,note,created_by,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?)`,
-      ).run(bindingId, skillId, JSON.stringify(selector), enabled, note, actor, now, now);
-    }
-  });
-  audit(actor, "knowledge.binding.save", { binding_id: bindingId, skill_id: skillId, enabled });
-  const row = getConn().prepare("SELECT * FROM knowledge_bindings WHERE id=?").get(bindingId) as Row;
-  return { ...row, selector: parseSelectorStored(row.selector) };
+  return tx(async (db) => {
+    const id = String(input.id || "").trim();
+    const prev = id ? (await db.query<Row>("SELECT * FROM knowledge_bindings WHERE id=$1 FOR UPDATE", [id])).rows[0] : undefined;
+    if (id && !prev) throw new HttpFail(404, "binding not found");
+    const skillId = String(input.skill_id == null ? prev?.skill_id ?? "" : input.skill_id).trim();
+    if (!skillId) throw new HttpFail(400, "skill_id required");
+    const config = await db.query("SELECT 1 FROM skill_knowledge_configs WHERE skill_id=$1 OR skill_id=$2 FOR SHARE", [skillId, String(prev?.skill_id || "")]);
+    if (config.rows.length) throw new HttpFail(409, "知识技能的资源依赖请在技能页修改草稿并试算发布；不能从智能体页直接修改共享范围。");
+    const selector = input.selector == null ? parseSelectorStored(prev?.selector) : normalizeSelector(input.selector);
+    const enabled = input.enabled == null ? (Number(prev?.enabled ?? 1) ? 1 : 0) : (input.enabled ? 1 : 0);
+    const note = input.note == null ? String(prev?.note ?? "") : String(input.note);
+    const bindingId = id || nid("kbind");
+    const now = nowIso();
+    const result = prev
+      ? await db.query<Row>("UPDATE knowledge_bindings SET skill_id=$1,selector=$2,enabled=$3,note=$4,updated_at=$5 WHERE id=$6 RETURNING *", [skillId, JSON.stringify(selector), enabled, note, now, bindingId])
+      : await db.query<Row>(`INSERT INTO knowledge_bindings (id,skill_id,selector,enabled,note,created_by,created_at,updated_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$7) RETURNING *`, [bindingId, skillId, JSON.stringify(selector), enabled, note, actor, now]);
+    await audit(actor, "knowledge.binding.save", { binding_id: bindingId, skill_id: skillId, enabled }, db);
+    const row = result.rows[0];
+    return { ...row, selector: parseSelectorStored(row.selector) };
+  }, { isolation: "SERIALIZABLE" });
 }
 
-export function deleteBinding(id: string, actor = knowledgeActorId()): Json {
+export async function deleteBinding(id: string, actor = knowledgeActorId(), agentId?: string): Promise<Json> {
   requireAdmin();
-  const row = getConn().prepare("SELECT * FROM knowledge_bindings WHERE id=?").get(id) as Row | undefined;
-  if (!row) throw new HttpFail(404, "binding not found");
-  if(getConn().prepare('SELECT 1 FROM skill_knowledge_configs WHERE skill_id=?').get(String(row.skill_id)))throw new HttpFail(409,'请在技能页修改知识依赖草稿并发布。');
-  tx((db) => {
-    db.prepare("DELETE FROM knowledge_bindings WHERE id=?").run(id);
-  });
-  audit(actor, "knowledge.binding.save", {
-    binding_id: id,
-    skill_id: String(row.skill_id || ""),
-    enabled: Number(row.enabled || 0),
-    deleted: true,
-  });
-  return { ok: true, id };
+  return tx(async (db) => {
+    const row = (await db.query<Row>("SELECT * FROM knowledge_bindings WHERE id=$1 FOR UPDATE", [id])).rows[0];
+    if (!row) throw new HttpFail(404, "binding not found");
+    if (agentId && !(await db.query("SELECT 1 FROM runtime_agent_skills WHERE agent_id=$1 AND skill_id=$2 AND enabled=1 FOR SHARE", [agentId, row.skill_id])).rows.length) {
+      throw new HttpFail(404, "知识库绑定不存在");
+    }
+    if ((await db.query("SELECT 1 FROM skill_knowledge_configs WHERE skill_id=$1 FOR SHARE", [String(row.skill_id)])).rows.length) {
+      throw new HttpFail(409, "请在技能页修改知识依赖草稿并发布。");
+    }
+    await db.query("DELETE FROM knowledge_bindings WHERE id=$1", [id]);
+    await audit(actor, "knowledge.binding.save", { binding_id: id, skill_id: String(row.skill_id || ""), enabled: Number(row.enabled || 0), deleted: true }, db);
+    return { ok: true, id };
+  }, { isolation: "SERIALIZABLE" });
 }
 
 export function bindingMatchesRow(selector: KnowledgeBindingSelector, row: Row): boolean {

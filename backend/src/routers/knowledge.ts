@@ -226,8 +226,8 @@ knowledge.get("/admin/knowledge/proposals", (c) => c.json(listProposals()));
 // 知识分层（主题域族 → 主题域 → 知识库）；分类只做业务归类，不承载权限。
 knowledge.get("/admin/knowledge/domains", (c) => c.json({ domains: listDomains() }));
 knowledge.post("/admin/knowledge/domains", async (c) => c.json(createDomain((await c.req.json()) as Json), 201));
-knowledge.get("/admin/knowledge/bases", (c) => c.json({
-  bases: listBases({ domain_id: c.req.query("domain_id"), kind: c.req.query("kind") }),
+knowledge.get("/admin/knowledge/bases", async (c) => c.json({
+  bases: await listBases({ domain_id: c.req.query("domain_id"), kind: c.req.query("kind") }),
 }));
 knowledge.post("/admin/knowledge/bases", async (c) => c.json(createBase((await c.req.json()) as Json), 201));
 
@@ -334,12 +334,12 @@ knowledge.get("/admin/knowledge", (c) => {
 knowledge.get("/admin/knowledge/assets", (c) => c.json(adminAssets()));
 knowledge.get("/admin/knowledge/feedback", (c) => c.json(listFeedback()));
 knowledge.get("/admin/knowledge/bindings", (c) => c.json(listBindings()));
-knowledge.post("/admin/knowledge/bindings", async (c) => c.json(saveBinding((await c.req.json()) as Json)));
+knowledge.post("/admin/knowledge/bindings", async (c) => c.json(await saveBinding((await c.req.json()) as Json)));
 knowledge.patch("/admin/knowledge/bindings/:id", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Json;
-  return c.json(saveBinding({ ...body, id: c.req.param("id") }));
+  return c.json(await saveBinding({ ...body, id: c.req.param("id") }));
 });
-knowledge.delete("/admin/knowledge/bindings/:id", (c) => c.json(deleteBinding(c.req.param("id"))));
+knowledge.delete("/admin/knowledge/bindings/:id", async (c) => c.json(await deleteBinding(c.req.param("id"))));
 knowledge.post("/admin/knowledge/resolve-preview", async (c) => c.json(resolvePreview((await c.req.json()) as Json)));
 knowledge.get("/admin/knowledge/:id/versions/:v", (c) => c.json(getKnowledgeVersion(c.req.param("id"), Number(c.req.param("v")))));
 knowledge.get("/admin/knowledge/:id/grants", (c) => c.json(grantsForKnowledge(c.req.param("id"))));

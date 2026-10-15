@@ -756,7 +756,7 @@ export async function runCodex(
   if (replyTask && !authDisabled() && !(await canUseAgent(runtimeContext.userId,runtimeContext.agentId))) throw new HttpFail(403, {code: "runtime_agent_not_usable"});
   const col = taskContext ? null : await collab(extra);
   const profile = profileFor(skill, col?.stage_code as string | undefined);
-  const budgetBlock = budgetBlockFor(runtimeContext.agentId, runtimeContext.userId || null);
+  const budgetBlock = await budgetBlockFor(runtimeContext.agentId, runtimeContext.userId || null);
   if (budgetBlock) {
     await pgAudit("worker", "cost.budget.blocked", {
       worker_id: wid,

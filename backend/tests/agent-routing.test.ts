@@ -37,32 +37,31 @@ beforeEach(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-agent-route-"));
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  await resetConn();
+  await seedAll();
   const dir = path.join(tmp, "published-skills", skillId);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "SKILL.md"), `---\nid: ${skillId}\ntitle: 产品咨询\ndescription: 查询产品规格和使用方法\ncategory: 产品\nprofile: commander\noutput: task_result\nmcp: ["knowledge.ask_documents"]\nrequired_inputs: []\npermissions: []\nactions: ["analyze"]\naliases: ["产品参数"]\nin_market: true\n---\n依据绑定知识库回答产品问题，给出来源。\n`);
   clearTaskRegistryCache();
   const now = new Date().toISOString();
-  getConn().prepare("INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
-    .run(user.id, user.username, user.name, "x", JSON.stringify(user.roles), "[]", user.site, 1, now, now);
+  (await getConn().query("INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", [user.id, user.username, user.name, "x", JSON.stringify(user.roles), "[]", user.site, 1, now, now]));
   const person = (await syncUserOrganization(user.id, user.site));
   const agent = (await createManagedAgent({ name: "产品专家", description: "负责产品规格、选型和使用咨询" }));
   agentId = agent.id;
   (await setAgentSkill(agentId, skillId, true, 0));
-  getConn().prepare("INSERT INTO skill_lifecycle (skill_id,stage,updated_at) VALUES (?,?,?)").run(skillId, "published", now);
+  (await getConn().query("INSERT INTO skill_lifecycle (skill_id,stage,updated_at) VALUES ($1,$2,$3)", [skillId, "published", now]));
   bindingId = (await createAgentBinding({ agent_id: agentId, target_type: "person", target_id: person,
     company_id: "company:amperetime", source: "test" })).id;
   (await updateManagedAgent(agentId, { status: "published", expected_version: 1 }));
 });
 
-afterEach(() => {
+afterEach(async () => {
   setTaskClassifier();
   setJevIntentFetch();
   setIntentLlmFetch();
   vi.restoreAllMocks();
   clearTaskRegistryCache();
-  resetConn();
+  await resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.LINGONG_DATA;
   delete process.env.OPENROUTER_API_KEY;
@@ -205,7 +204,7 @@ describe("employee Agent routing", () => {
   it("lists and summons a published managed Agent with a persisted entry binding", async () => (await asUser(async () => {
     expect((await employeeExperts())).toContainEqual(expect.objectContaining({ id: agentId, display_name: "产品专家", skill_ids: [skillId] }));
     const session = (await summonEmployeeAgent(agentId));
-    expect(getConn().prepare("SELECT expert_id,expert_version FROM sessions WHERE id=?").get(session.session_id))
+    expect((await getConn().query("SELECT expert_id,expert_version FROM sessions WHERE id=$1", [session.session_id])).rows[0])
       .toMatchObject({ expert_id: agentId, expert_version: "2" });
   })));
 
@@ -220,7 +219,7 @@ describe("employee Agent routing", () => {
     (await updateManagedAgent(agentId, { status: "disabled", expected_version: 2 }));
     expect(await availableAgentRoutes(agentId)).toEqual([]);
     (await updateManagedAgent(agentId, { status: "published", expected_version: 3 }));
-    getConn().prepare("UPDATE skill_lifecycle SET stage='draft' WHERE skill_id=?").run(skillId);
+    (await getConn().query("UPDATE skill_lifecycle SET stage='draft' WHERE skill_id=$1", [skillId]));
     expect(await availableAgentRoutes(agentId)).toEqual([]);
   })));
 
@@ -263,12 +262,12 @@ describe("employee Agent routing", () => {
     // The persisted run, rather than a browser echo, must supply the chosen Agent.
     delete pending.agent_id;
     const worker = vi.spyOn(runner, "runWorker").mockRejectedValue(new Error("测试仅核验 Worker 输入，停止模拟执行"));
-    const result = await request(`/api/sessions/${pending.session_id || (getConn().prepare("SELECT session_id FROM tickets WHERE id=?").get(task.id) as { session_id: string }).session_id}/messages`, pending);
+    const result = await request(`/api/sessions/${pending.session_id || ((await getConn().query("SELECT session_id FROM tickets WHERE id=$1", [task.id])).rows[0] as { session_id: string }).session_id}/messages`, pending);
     // Stub dispatch is synchronous: the deliberate Worker rejection must surface as failure.
     expect(result.status).toBe(500);
     await vi.waitFor(() => expect(worker).toHaveBeenCalled(), { timeout: 10000 });
     expect(worker.mock.calls[0][3]?.agent_id).toBe(agentId);
-    await vi.waitFor(() => expect(getConn().prepare("SELECT status FROM task_runs WHERE id=?").get(pending.run_id)).toMatchObject({ status: "failed" }), { timeout: 10000 });
+    await vi.waitFor(async () => expect((await getConn().query("SELECT status FROM task_runs WHERE id=$1", [pending.run_id])).rows[0]).toMatchObject({ status: "failed" }), { timeout: 10000 });
   });
 
   it("gives Luna/Codex only qualified pairs and Jev selects the same pair in one classification", async () => {
@@ -289,14 +288,10 @@ describe("employee Agent routing", () => {
 
   it("does not query unpublished document resources, and rejects a revoked running authorization", async () => {
     const now = new Date().toISOString();
-    getConn().prepare("INSERT INTO knowledge_domains(id,code,name,level,parent_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)")
-      .run("kfamily_test", "family_fixture", "产品业务族", "family", null, "active", now, now);
-    getConn().prepare("INSERT INTO knowledge_domains(id,code,name,level,parent_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)")
-      .run("kdom_test", "domain_fixture", "产品资料", "domain", "kfamily_test", "active", now, now);
-    getConn().prepare("INSERT INTO knowledge_bases (id,code,name,domain_id,kind,description,owner_user_id,status,settings,version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
-      .run("kb_product", "kb_product", "产品知识库", "kdom_test", "unstructured", "", user.id, "active", "{}", 1, now, now);
-    getConn().prepare("INSERT INTO knowledge_bindings (id,skill_id,selector,enabled,note,created_at,updated_at) VALUES (?,?,?,?,?,?,?)")
-      .run("kb_bind_product", skillId, JSON.stringify({ base_ids: ["kb_product"] }), 1, "test", now, now);
+    (await getConn().query("INSERT INTO knowledge_domains(id,code,name,level,parent_id,status,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", ["kfamily_test", "family_fixture", "产品业务族", "family", null, "active", now, now]));
+    (await getConn().query("INSERT INTO knowledge_domains(id,code,name,level,parent_id,status,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", ["kdom_test", "domain_fixture", "产品资料", "domain", "kfamily_test", "active", now, now]));
+    (await getConn().query("INSERT INTO knowledge_bases (id,code,name,domain_id,kind,description,owner_user_id,status,settings,version,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)", ["kb_product", "kb_product", "产品知识库", "kdom_test", "unstructured", "", user.id, "active", "{}", 1, now, now]));
+    (await getConn().query("INSERT INTO knowledge_bindings (id,skill_id,selector,enabled,note,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)", ["kb_bind_product", skillId, JSON.stringify({ base_ids: ["kb_product"] }), 1, "test", now, now]));
     const query = vi.spyOn(documents, "queryDocuments").mockResolvedValue({ answer: "资料答案", citations: [{ document_id: "doc_product", page: 2 }] });
     const execution = new SkillExecution({ agentId, skillId, userId: user.id, runId: "route-doc-test" });
     try {

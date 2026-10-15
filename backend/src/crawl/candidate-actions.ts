@@ -265,7 +265,7 @@ export async function runtimeCandidateViews(context: RuntimeContext, actionId: s
   if (scopedUser() && scopedUser()!.id !== context.userId) throw new HttpFail(403, { code: "candidate_scope_denied" });
   const actorRow = (await postgresPool().query("SELECT * FROM users WHERE id=$1 AND active=1", [context.userId])).rows[0];
   if (!actorRow) throw new HttpFail(401, { code: "runtime_identity_unavailable" });
-  const actor = mapUser(actorRow);
+  const actor = (await mapUser(actorRow));
   const client = await postgresPool().connect();
   try {
     const criteria = await crawlScoringCriteria(actionId, client);

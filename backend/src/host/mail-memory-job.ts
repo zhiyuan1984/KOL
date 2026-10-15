@@ -122,7 +122,7 @@ function threadFingerprint(rows: Row[]): string {
     String(row.id || ""),
     String(row.occurred_at || ""),
     mailBodyFingerprint(row.body_text || row.body || row.snippet || ""),
-  ].join(":"))).join("|")).digest("hex");
+  ].join(":")).join("|")).digest("hex");
 }
 
 function personDigestKey(mailbox: string, peerEmail: string): string {
