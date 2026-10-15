@@ -21,7 +21,13 @@ while [ $# -gt 0 ]; do
 done
 [ -f "$ROOT/.env" ] || { echo "缺少 $ROOT/.env（需指向测试库 DATABASE_URL）" >&2; exit 1; }
 DB_URL="$(sed -n 's/^DATABASE_URL=//p' "$ROOT/.env" | head -1 | sed 's/^"//; s/"$//')"
-export DATABASE_URL="$DB_URL" TEST_DB_PREFIX="${TEST_DB_PREFIX:-lingong}"
+export DATABASE_URL="$DB_URL"
+if [ -z "${TEST_DB_PREFIX:-}" ]; then
+  # Only the documented disposable staging database has a default. Never
+  # derive broad authority from an arbitrary production database's prefix.
+  TEST_DB_PREFIX="$(node --input-type=module -e 'const db=decodeURIComponent(new URL(process.env.DATABASE_URL).pathname.slice(1));if(db!=="lingong_e2e")throw new Error("TEST_DB_PREFIX must explicitly identify an isolated test database");process.stdout.write("lingong")')"
+fi
+export TEST_DB_PREFIX
 export E2E_MODE=stub E2E_AUTH_MODE=disabled NODE_ENV=test
 node --input-type=module -e '
   const prefix = process.env.TEST_DB_PREFIX || "";
