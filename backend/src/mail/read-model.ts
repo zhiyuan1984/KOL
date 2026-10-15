@@ -500,7 +500,8 @@ export async function readMailboxPerson(rawMailbox: unknown, rawPeer: unknown): 
   const row = await readNativePersonMemory(mailbox, peer);
   const digest = row ? {
     text: String(row.digest_text || ""), source: String(row.digest_source || ""),
-    generated_at: row.generated_at ? String(row.generated_at) : undefined,
+    generated_at: row.generated_at instanceof Date ? row.generated_at.toISOString()
+      : row.generated_at ? String(row.generated_at) : undefined,
   } : null;
   return {
     mailbox,

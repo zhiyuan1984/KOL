@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
-import { ensureFollowedMailSync, resetFollowedMailSync, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
+import { ensureFollowedMailSync as startFixtureMailSync, resetFollowedMailSync, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import type { Json } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
@@ -19,7 +19,13 @@ import { freshTestDatabase } from "./support/pg.js";
 let tmp: string;
 let app: Hono;
 const calls: string[] = [];
-
+// Index receipts resolve before body hydration. Wait for committed bodies when
+// setting up assertions; the job-route test below still measures immediate acceptance.
+async function ensureFollowedMailSync(force: boolean) {
+  const result = await startFixtureMailSync(force);
+  await waitForBackgroundSync();
+  return result;
+}
 async function request(method: string, url: string, body?: unknown) {
   const actor = getConn().prepare("SELECT * FROM users WHERE id=?").get(DEMO_USER.id) as Json | undefined;
   const invoke = () => app.request(url, {
@@ -128,7 +134,9 @@ describe("followed KOL unread mail sync", () => {
     getConn().prepare("UPDATE kol_mail_threads SET collaboration_id='col_other_source' WHERE conversation_id='3901'").run();
     const result = await ensureFollowedMailSync(true);
     expect(result.ok).toBe(false);
-    expect(result.error).toContain("mail_conversation_association_mismatch");
+    expect(result.error_code).toBe("mail_sync_failed");
+    expect(result.diagnostic_id).toBeTruthy();
+    expect(result.error).toContain("已保留本地邮件");
     expect(getConn().prepare("SELECT collaboration_id FROM kol_mail_threads WHERE conversation_id='3901'").get()).toMatchObject({collaboration_id: "col_other_source"});
     expect(getConn().prepare("SELECT COUNT(*) AS n FROM kol_mail_items WHERE collaboration_id='col_other_source'").get()).toMatchObject({n: 0});
   });
@@ -169,6 +177,8 @@ describe("followed KOL unread mail sync", () => {
     await ensureFollowedMailSync(true);
     expect(calls).toContain("pageEmailConversations");
     expect(calls.filter((name) => name === "getEmailConversation")).toHaveLength(0);
+    expect(getConn().prepare("SELECT last_snippet,last_preview FROM kol_mail_threads WHERE conversation_id='4901'").get())
+      .toMatchObject({ last_snippet: "Stored once", last_preview: "Stored once" });
     // A remembered index cannot certify a missing body. Fetch the authorized
     // detail again, without creating another event for the same source version.
     getConn().prepare("UPDATE kol_mail_items SET body_text=NULL WHERE provider_message_id='mid-4901'").run();
@@ -256,7 +266,7 @@ describe("followed KOL unread mail sync", () => {
   it("POST /api/jobs/mail.sync/start accepts immediately and syncs in the background", async () => {
     bindLarry();
     const started = Date.now();
-    const response = await request("POST", "/api/jobs/mail.sync/start");
+    const response = await request("POST", "/api/jobs/mail.sync/start", { box: "larry.zhao@amperetime.com" });
     const elapsed = Date.now() - started;
     expect(response.status).toBe(202);
     expect(response.body.accepted).toBe(true);
@@ -301,9 +311,10 @@ describe("followed KOL unread mail sync", () => {
       )).rows[0].n)).toBe(0);
   });
 
-  it("matches inbound by handle suffix and keeps the conversation body", async () => {
+  it("matches inbound by stable KOL identity and keeps the conversation body", async () => {
+    bindLarry();
     getConn().prepare("UPDATE collaborations SET handle=?, email=?, kol_uid=? WHERE id='col_xiaomei'")
-      .run("灵工连通测试-qiyou1984", "", "KOLQIYOU1984");
+      .run("灵工连通测试-qiyou1984", "qiyou1984@gmail.com", "KOLQIYOU1984");
     setStarryKolClientFactory(() => ({
       async callTool(name: string) {
         calls.push(name);
@@ -314,6 +325,7 @@ describe("followed KOL unread mail sync", () => {
                 id: 320,
                 conversationId: 320,
                 subject: "",
+                kolUid: "KOLQIYOU1984",
                 from: "黄启友 <qiyou1984@gmail.com>",
                 recipientEmail: "larry.zhao@amperetime.com",
                 mailboxEmail: "larry.zhao@amperetime.com",

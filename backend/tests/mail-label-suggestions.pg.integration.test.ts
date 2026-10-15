@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import type { AppUser } from "../src/auth.js";
@@ -23,14 +22,6 @@ const BOX_A = "operator-a@example.test";
 const BOX_B = "operator-b@example.test";
 const CONVERSATION_A = "label-suggestions-conversation-a";
 const CONVERSATION_B = "label-suggestions-conversation-b";
-const migrationSql = fs.readFileSync(
-  new URL("../migrations/035_20261012_mail_private_labels.sql", import.meta.url),
-  "utf8",
-);
-const peerMigrationSql = fs.readFileSync(
-  new URL("../migrations/042_20261015_mail_labels_peer_email.sql", import.meta.url),
-  "utf8",
-);
 
 let app: Hono;
 let calls: LabelSuggestionHarnessInput[];
@@ -214,8 +205,8 @@ function candidateConfirm(receiptId: string, candidateId: string, input: Record<
 beforeEach(async () => {
   await freshTestDatabase();
   resetConn();
-  await postgresPool().query(migrationSql);
-  await postgresPool().query(peerMigrationSql);
+  // freshTestDatabase clones the complete production migration chain,
+  // including the peer-email assignment key introduced by migration 042.
   await ensureUser(ACTOR_A);
   seedCurrentAgentEligibility(ACTOR_A);
   await bind(ACTOR_A.id, BOX_A);

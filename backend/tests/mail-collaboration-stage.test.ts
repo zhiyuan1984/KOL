@@ -9,13 +9,14 @@ import { mailOperations } from "../src/mail/operations.js";
 import { operationRouter } from "../src/runtime/operations.js";
 import type { Json } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { bindStarryUser } from "./helpers/starry-binding.js";
 
 let tmp = "";
 let app: Hono;
 
 async function query(conversationId: string) {
   const response = await app.request(
-    `/queries/mail.collaboration-stage?conversation_id=${encodeURIComponent(conversationId)}`,
+    `/queries/mail.collaboration-stage?box=larry.zhao%40amperetime.com&conversation_id=${encodeURIComponent(conversationId)}`,
   );
   const text = await response.text();
   return { status: response.status, body: (text ? JSON.parse(text) : {}) as Json };
@@ -26,6 +27,7 @@ beforeEach(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mail-stage-"));
   process.env.LINGONG_DATA = tmp;
   resetConn();
+  bindStarryUser();
   const router = operationRouter(mailOperations);
   router.onError((error, c) => {
     if (error instanceof HttpFail) return c.json({ detail: error.detail }, error.status as 400);
@@ -77,6 +79,13 @@ describe("mail.collaboration-stage", () => {
 
   it("404s for an unknown conversation instead of leaking collaborations", async () => {
     const { status } = await query("conv_nope");
+    expect(status).toBe(404);
+  });
+
+  it("rejects the conversation after its mailbox binding is revoked", async () => {
+    getConn().prepare("DELETE FROM user_starry_bindings WHERE mailbox_email=?")
+      .run("larry.zhao@amperetime.com");
+    const { status } = await query("conv_1");
     expect(status).toBe(404);
   });
 
