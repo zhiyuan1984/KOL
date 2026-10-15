@@ -493,7 +493,10 @@ describe("未指定发件箱时的默认发件箱", () => {
 
   it("sends from the mounted mailbox once it is inside the brand scope", async () => {
     (await bindMountedMailbox(MOUNTED, "LT"));
-    expect(async () => (enforceSend((await draftRow(MOUNTED)) as never, DEMO_USER))).not.toThrow();
+    const draft = await draftRow(MOUNTED);
+    await expect(enforceSend(draft as never, DEMO_USER)).resolves.toMatchObject({
+      from_addr: MOUNTED, brand: "LT", keep_stage: true,
+    });
   });
 
   it("still refuses an address that is neither a brand mailbox nor the user's own", async () => {

@@ -94,8 +94,8 @@ describe("capability registry", () => {
     expect(String(stats.last_called_at)).toBeTruthy();
   });
 
-  it("recordCapabilityCall never breaks the main flow", () => {
-    expect(async () => (recordCapabilityCall({ kind: "bogus", ref_id: "", ok: true }))).not.toThrow();
-    expect(async () => (recordCapabilityCall({ kind: "model", ref_id: "", ok: true }))).not.toThrow();
+  it("recordCapabilityCall never breaks the main flow", async () => {
+    await expect(recordCapabilityCall({ kind: "bogus", ref_id: "", ok: true })).resolves.toBeUndefined();
+    await expect(recordCapabilityCall({ kind: "model", ref_id: "", ok: true })).resolves.toBeUndefined();
   });
 });
