@@ -1540,6 +1540,8 @@ migrations.push(
   // 042 依赖 035 建的 mail_private_label_assignments 表（ALTER TABLE），必须在 035 之后执行。
   // 之前 042 在数组头部先跑，表不存在报 42P01，CI Prepare PostgreSQL test template 失败。
   { id: "20261015_mail_labels_peer_email", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "042_20261015_mail_labels_peer_email.sql"), "utf8")] },
+  // 域确认（044）无表间依赖，追加在末尾；独立新表，不改已有表。
+  { id: "20261016_domain_confirmations", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations", "044_20261016_domain_confirmations.sql"), "utf8")] },
 );
 
 const onlyMigration = process.argv.find((arg) => arg.startsWith("--only="))?.slice(7);
