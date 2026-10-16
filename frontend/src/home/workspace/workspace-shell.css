@@ -192,10 +192,35 @@
   .scope-workspace :is(.scope-task-rail-toggle, .scope-scroll-jump, .result-pointer-button, .workspace-confirm-hint button) {
     min-height: var(--touch-hit-min); min-width: var(--touch-hit-min);
   }
+  /* DESIGN §27.2: the discovery/session jump must not cover parameter chips.
+     Only coarse pointers reserve a control slot; fine-pointer geometry stays
+     unchanged and Today/Todo keep their separately registered floating tail. */
+  .scope-workspace.scope-workspace[data-agent-visual] [data-scope-scroll-jump] {
+    position: static;
+    align-self: flex-end;
+    flex: 0 0 auto;
+    margin-block-start: var(--space-1);
+  }
+  .scope-workspace.scope-workspace[data-agent-visual] .scope-workspace-center-scroll-wrap:has(> [data-scope-scroll-jump]) .scope-workspace-center-scroll-content {
+    padding-block-end: 0;
+  }
+  .scope-workspace[data-agent-visual] .scope-workspace-center-scroll {
+    scroll-padding-block: var(--space-2);
+  }
+  .scope-workspace[data-agent-visual] [data-runtime-actions] button {
+    scroll-margin-block: var(--space-2);
+  }
+}
+@media (pointer: coarse) and (max-width: 1100px) {
+  /* DESIGN §30: the stacked rail is at most 30dvh. Keep room for a full
+     44px parameter target above the control slot and the opaque composer. */
+  :is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace[data-agent-visual]:not(.is-task-rail-collapsed):not(.is-result-focus) {
+    grid-template-rows: minmax(0, 1fr) minmax(0, 30dvh);
+  }
 }
 
 /* Today/Todo share one width axis, regardless of stream length or scrollbar
- * mode. The jump floats in the reserved content tail and does not narrow cards. */
+* mode. The jump floats in the reserved content tail and does not narrow cards. */
 .home-pane[data-home-workspace] .scope-workspace.scope-workspace:is([data-scope-workspace="today"], [data-scope-workspace="todo"]) .scope-workspace-center-scroll-wrap {
   padding-inline-end: 0;
 }

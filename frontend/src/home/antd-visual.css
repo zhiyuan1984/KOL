@@ -181,7 +181,8 @@
 }
 /* focus → antd focus ring */
 .home-pane[data-home-workspace] .btn:focus-visible {
-  outline: none;
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
   border-color: var(--av-primary);
   box-shadow: var(--av-shadow-focus);
 }
