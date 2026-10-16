@@ -2088,8 +2088,12 @@ test("home does not keep polling GET /api/tasks for 结果待确认 only", async
   await expect(page.locator("[data-home]")).toHaveAttribute("data-home-task-poll", "idle");
   // 原 data-todo-status「后续」桶属性移除；waiting 且无到期时间仍是可读的待确认状态。
   await expectNativeTaskState(page.locator("[data-today-todo]").filter({ hasText: "写报价信" }), "running", "待确认");
+  // Home and the authorized shell each perform one initial scope-stabilizing
+  // read. Start the no-poll window only after both have settled, rather than
+  // mistaking the second initial read for recurring execution polling.
+  await expect.poll(() => taskGets, { timeout: 12000 }).toBe(2);
   const afterLoad = taskGets;
-  expect(afterLoad).toBeGreaterThanOrEqual(1);
+  expect(afterLoad).toBe(2);
   await page.waitForTimeout(4500);
   expect(taskGets).toBe(afterLoad);
 });

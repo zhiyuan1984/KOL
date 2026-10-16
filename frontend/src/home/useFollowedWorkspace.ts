@@ -39,6 +39,11 @@ export type FollowListCompleteness =
   | "complete"
   | "incomplete-error";
 
+type FollowedReadResult =
+  | { state: "loaded"; rows: FollowedKol[] }
+  | { state: "failed" }
+  | { state: "stale" };
+
 export function useFollowedWorkspace(options: {
   /** AuthGate-derived actor/authorization scope supplied by Home. */
   readScopeKey?: string;
@@ -94,6 +99,12 @@ export function useFollowedWorkspace(options: {
   const reconcileSeq = useRef(0);
   const readScopeRef = useRef(scopeKey);
   const scopeVersion = useRef(0);
+  const lastStartedRead = useRef<{ scope: string; version: number } | null>(null);
+  const ensureLoadedRef = useRef<{
+    scope: string;
+    version: number;
+    load: () => Promise<void>;
+  }>({ scope: scopeKey, version: scopeVersion.current, load: async () => undefined });
   // Update during render so a completed previous-scope promise cannot paint in
   // the interval before this effect clears the previous private projection.
   if (readScopeRef.current !== scopeKey) {
@@ -191,17 +202,21 @@ export function useFollowedWorkspace(options: {
     return "none";
   }, [completeness, followScope, loading, rows.length]);
 
-  const readSurface = useCallback(async (): Promise<FollowedKol[] | null> => {
+  const readSurface = useCallback(async (): Promise<FollowedReadResult> => {
     // The server has already verified the authorized local and Starry-history
     // rows. Concurrent reads may overlap; only the newest response can paint.
     const requestScope = scopeKey;
     const requestScopeVersion = scopeVersion.current;
+    if (requestScope !== readScopeRef.current) return { state: "stale" };
+    lastStartedRead.current = { scope: requestScope, version: requestScopeVersion };
     readSeq.current += 1;
     const seq = readSeq.current;
     setReadsInFlight((count) => count + 1);
     try {
       const loaded = await sharedRead(`home:${requestScope}:following`, () => loadHomeFollowing());
-      if (requestScope !== readScopeRef.current || requestScopeVersion !== scopeVersion.current || seq !== readSeq.current) return null;
+      if (requestScope !== readScopeRef.current || requestScopeVersion !== scopeVersion.current || seq !== readSeq.current) {
+        return { state: "stale" };
+      }
       if (loaded.follow_scope) {
         latestFollowScope.current = loaded.follow_scope;
         setFollowScope(loaded.follow_scope);
@@ -210,16 +225,17 @@ export function useFollowedWorkspace(options: {
         if (loaded.partial) setRows(loaded.items.map(followKolToRecord) as FollowedKol[]);
         // 读取失败不清空已经写在屏幕上的名单；空名单时才交给 down 视图。
         setError(loaded.error || "跟进列表读取失败");
-        return null;
+        return { state: "failed" };
       }
       const nextRows = loaded.items.map(followKolToRecord) as FollowedKol[];
       setRows(nextRows);
-      return nextRows;
+      return { state: "loaded", rows: nextRows };
     } catch (cause) {
-      if (requestScope === readScopeRef.current && requestScopeVersion === scopeVersion.current && seq === readSeq.current) {
-        setError(cause instanceof Error ? cause.message : "跟进名单核对失败，请重试");
+      if (requestScope !== readScopeRef.current || requestScopeVersion !== scopeVersion.current || seq !== readSeq.current) {
+        return { state: "stale" };
       }
-      return null;
+      setError(cause instanceof Error ? cause.message : "跟进名单核对失败，请重试");
+      return { state: "failed" };
     } finally {
       if (requestScope === readScopeRef.current && requestScopeVersion === scopeVersion.current) {
         setReadsInFlight((count) => Math.max(0, count - 1));
@@ -233,28 +249,48 @@ export function useFollowedWorkspace(options: {
     reconcileSeq.current += 1;
     const seq = reconcileSeq.current;
     setCompleteness("loading-local");
-    const loaded = await readSurface();
-    if (seq !== reconcileSeq.current) return;
-    if (loaded) setError("");
-    setCompleteness(loaded ? "complete" : "incomplete-error");
+    const result = await readSurface();
+    if (seq !== reconcileSeq.current || result.state === "stale") return;
+    if (result.state === "loaded") setError("");
+    setCompleteness(result.state === "loaded" ? "complete" : "incomplete-error");
   }, [readSurface]);
 
   const ensureLoaded = useCallback(async () => {
     reconcileSeq.current += 1;
     const seq = reconcileSeq.current;
+    const requestScope = scopeKey;
+    const requestScopeVersion = scopeVersion.current;
     // Never erase the last known authorized list merely because a refresh is
     // pending or fails. The completion state makes its freshness explicit.
     setError("");
     setCompleteness("loading-local");
-    const localRows = await readSurface();
+    const result = await readSurface();
+    if (result.state === "stale") {
+      // A scope change makes the old response unusable. Replay through the
+      // current callback so its private shared-read key is the new scope, not
+      // the cancelled request's scope. This remains a GET-only recovery.
+      const current = ensureLoadedRef.current;
+      const started = lastStartedRead.current;
+      if ((current.scope !== requestScope || current.version !== requestScopeVersion)
+        && (started?.scope !== current.scope || started?.version !== current.version)) {
+        await current.load();
+      }
+      return;
+    }
     if (seq !== reconcileSeq.current) return;
-    if (!localRows) {
+    if (result.state !== "loaded") {
       setCompleteness("incomplete-error");
       return;
     }
     setError("");
     setCompleteness("complete");
   }, [readSurface]);
+
+  ensureLoadedRef.current = {
+    scope: scopeKey,
+    version: scopeVersion.current,
+    load: ensureLoaded,
+  };
 
   const openDetails = useCallback(
     (card: FollowedKolCardModel, focusThread?: string) => {

@@ -611,9 +611,14 @@ test("idle discovery keeps a fixed native Agent center and full brief above the 
   expect(Math.round((await center.boundingBox())!.width)).toBe(initialCenterWidth);
   expect(Math.round((await rail.boundingBox())!.width)).toBeLessThan(discoveryRailWidth);
   const card = workspace.locator('[data-discovery-search-card]');
-  const followerMin = card.locator('[data-skill-param="min_followers"]');
-  const followerMax = card.locator('[data-skill-param="max_followers"]');
-  expect(Math.abs((await followerMin.boundingBox())!.y - (await followerMax.boundingBox())!.y)).toBeLessThan(2);
+  // Read the sibling geometry in one browser frame. A pending focus/scroll
+  // can move the whole card between two separate boundingBox round trips;
+  // that is not a difference between the siblings' actual layout.
+  await expect.poll(() => card.evaluate(element => {
+    const min = element.querySelector('[data-skill-param="min_followers"]');
+    const max = element.querySelector('[data-skill-param="max_followers"]');
+    return min && max ? Math.abs(min.getBoundingClientRect().y - max.getBoundingClientRect().y) : Infinity;
+  })).toBeLessThan(2);
   const finalField = card.locator('[data-skill-param="expect_count"]');
   await finalField.scrollIntoViewIfNeeded();
   const finalBox = await finalField.boundingBox();

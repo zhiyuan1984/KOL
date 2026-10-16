@@ -8,17 +8,19 @@ const followed = ["阶段甲", "阶段乙"].map((handle, i) => ({
   last_interaction_at: new Date().toISOString(), days_since_interaction: 2, followers: "76万",
   mail_threads: [{ conversation_id: `thread-${i}`, last_direction: "inbound", subject: "Re: 合作", last_snippet: "我对这次合作有兴趣", last_at: new Date().toISOString(), unread_count: 0 }],
 }));
+const boardOnly = followed.map((row, i) => ({ ...row, id: `board-${i}`, kol_uid: `board-${i}`, handle: `仅看板-${i}` }));
 const pool = [{ kol_uid: "pool-a", handle: "City Prepping", platform: "youtube", avatar_url: avatar,
   followers: 1270000, avg_plays: 1010000, region: "United States", direction: "户外", potential_score: 18, potential_confidence: 0.62,
   ingested_at: "2026-09-23T00:00:00Z" }];
 async function fixture(page: Page, { followingStatus = 200 }: { followingStatus?: number } = {}) {
-  const writes: Array<{ method: string; path: string; body: Record<string, unknown> | null }> = [], errors: string[] = [];
+  const writes: Array<{ method: string; path: string; body: Record<string, unknown> | null }> = [], reads: string[] = [], errors: string[] = [];
   let claimed = false;
   page.on("pageerror", e => errors.push(e.message));
   await page.route("**/api/**", async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const body = request.postDataJSON?.() as Record<string, unknown> | null;
+    if (request.method() === "GET") reads.push(path);
     if (request.method() !== "GET") writes.push({ method: request.method(), path, body });
     let json: unknown = [];
     if (path === "/api/auth/status") json = { authenticated: true, account: { id: "employee", name: "员工", available_modes: ["employee"] } };
@@ -35,7 +37,7 @@ async function fixture(page: Page, { followingStatus = 200 }: { followingStatus?
         });
         return;
       }
-      json = { entry: "memory", kind: "memory", kols: claimed ? [...followed, {
+      json = { entry: "memory", kind: "memory", items: claimed ? [...followed, {
         id: "follow-pool-a", follow_id: "follow-pool-a", kol_uid: "pool-a", handle: "City Prepping", platform: "youtube", status: "active",
         stage_code: "INITIAL_CONTACT", stage_label: "初步接触", last_interaction_at: null, countdown: false,
         source_kind: "local_follow",
@@ -45,7 +47,7 @@ async function fixture(page: Page, { followingStatus = 200 }: { followingStatus?
         authority: "kol_follow_index+verified_starry_binding", completeness: "complete",
         follow_scope: { required: false, bound: false }, creates_session: false, calls_model: false };
     }
-    else if (path === "/api/home/board") json = { kols: followed, follow_scope: { required: false, bound: false }, workbench: {} };
+    else if (path === "/api/home/board") json = { kols: boardOnly, follow_scope: { required: false, bound: false }, workbench: {} };
     else if (path === "/api/home/pool") json = { entry: "memory", kind: "memory", items: pool, kols: pool, creates_session: false, calls_model: false };
     else if (path === "/api/kols/pool-a/claim" && request.method() === "POST") {
       claimed = true;
@@ -57,7 +59,7 @@ async function fixture(page: Page, { followingStatus = 200 }: { followingStatus?
     if (path.endsWith("/events")) return route.fulfill({ contentType: "text/event-stream", body: "" });
     await route.fulfill({ json });
   });
-  return { writes, errors };
+  return { writes, reads, errors };
 }
 
 test("real Home routes use shared KOL geometry and selection never writes", async ({ page }, info) => {
@@ -123,7 +125,10 @@ test("following 409 stays a denied read and never falls back to board data", asy
   await page.goto("/?tab=lifecycle");
 
   await expect(page.getByText("跟进列表读取失败")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-follow-down-reason]")).toHaveAttribute("title", "当前跟进范围已变化，请重新核对。");
+  expect(f.reads).toContain("/api/home/following");
   await expect(page.locator('[data-kol-unified="followed"], [data-followed-kol]')).toHaveCount(0);
+  await expect(page.getByText("仅看板-0")).toHaveCount(0);
   // A rejected read must not synthesize an authorized follow list or trigger a
   // recovery write; only a new server-authorized read can recover this state.
   expect(f.writes).toEqual([]);

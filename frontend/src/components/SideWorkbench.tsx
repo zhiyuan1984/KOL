@@ -232,8 +232,12 @@ export default function SideWorkbench({
         requestAnimationFrame(() => stageReview.current?.querySelector<HTMLElement>("[data-confirm-stage]")?.scrollIntoView({ block: "nearest", behavior: "auto" }));
       } : undefined} />
     {latestStage ? <details className="mail-stage-review" ref={stageReview} data-result-message={latestStage.id} open={stageReviewOpen}
-      onToggle={(event) => persistStageReviewOpen(event.currentTarget.open)}>
-      <summary data-stage-review-summary>正式阶段变更 · 独立确认</summary>{renderArtifact(latestStage)}
+    >
+      <summary data-stage-review-summary onClick={(event) => {
+        // `open` is controlled; do not let the native toggle race the persisted UI state.
+        event.preventDefault();
+        persistStageReviewOpen(!stageReviewOpen);
+      }}>正式阶段变更 · 独立确认</summary>{renderArtifact(latestStage)}
     </details> : null}
   </> : null;
   return (

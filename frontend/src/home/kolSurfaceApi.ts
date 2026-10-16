@@ -238,6 +238,12 @@ export async function loadHomeFollowing(): Promise<FollowingLoad> {
       follow_scope: payload.follow_scope || null,
     };
   } catch (error) {
+    // A scope conflict is an explicit server denial, not a degraded follow
+    // snapshot. Preserve it for the caller's denied-read state; it must never
+    // become a board-derived list or a synthetic empty success.
+    if (error && typeof error === "object" && Number((error as { status?: number }).status) === 409) {
+      throw error;
+    }
     return {
       items: [],
       raw: [],
