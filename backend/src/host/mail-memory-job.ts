@@ -201,6 +201,9 @@ function sourceLineage(...sources: Array<string | undefined>): string {
 function boundedErrorCode(error: unknown): string {
   const value = String(error || "").toLowerCase();
   if (value.includes("provider_disabled") || value.includes("mail_memory_provider_disabled")) return "provider_disabled";
+  for (const code of ["codex_timeout", "codex_auth_or_access_failed", "codex_request_failed", "codex_thread_missing", "codex_empty_result", "codex_translation_unusable"]) {
+    if (value === code) return code;
+  }
   if (value.includes("codex_chunk_unavailable")) return "codex_chunk_unavailable";
   if (value.includes("invalid_chunk_checkpoint")) return "invalid_chunk_checkpoint";
   if (value.includes("merged_translation_unusable")) return "merged_translation_unusable";

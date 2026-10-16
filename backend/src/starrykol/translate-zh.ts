@@ -81,9 +81,15 @@ export function isUsableInternalZh(zh: string, english: string): boolean {
   // Preserve legitimate names/brands/URLs; a single shared English token is not
   // an echoed sentence.  Whole-source echoes and consecutive source clauses are
   // rejected even if wrapped in a Chinese prefix or reformatted punctuation.
-  const sourceWords = normalizedSource.match(/[A-Za-z]{2,}/g) || [];
   if (source.length >= 12 && normalizedZh.includes(normalizedSource)) return false;
-  const outputWords = (normalizedZh.match(/[A-Za-z]{2,}/g) || []).map(word => word.toLowerCase()).join(" ");
+  // URI path segments and address parts are identifiers, not untranslated
+  // English sentences.  Strip them only for lexical echo checks, never from the
+  // original/translated content, quality floor, or whole-source echo comparison.
+  const withoutIdentifiers = (value: string): string => value
+    .replace(/\bhttps?:\/\/[^\s<>"'()[\]{}，。；！？]+/giu, " ")
+    .replace(/(?:mailto:)?[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/giu, " ");
+  const sourceWords = withoutIdentifiers(normalizedSource).match(/[A-Za-z]{2,}/g) || [];
+  const outputWords = (withoutIdentifiers(normalizedZh).match(/[A-Za-z]{2,}/g) || []).map(word => word.toLowerCase()).join(" ");
   for (let index = 0; index + 4 <= sourceWords.length; index += 1) {
     const clause = sourceWords.slice(index, index + 4).map(word => word.toLowerCase()).join(" ");
     if (outputWords.includes(clause)) return false;
@@ -225,7 +231,17 @@ export function splitLongTextForCodex(text: string, maxChars = CODEX_TRANSLATION
   return chunks;
 }
 
-async function translateWithCodexOne(english: string): Promise<string | null> {
+type CodexTranslationFailure = "codex_timeout" | "codex_auth_or_access_failed" | "codex_request_failed" | "codex_thread_missing" | "codex_empty_result" | "codex_translation_unusable";
+
+/** Safe diagnostic metadata only: never return exception text or model content. */
+export function classifyCodexTranslationFailure(error: unknown): CodexTranslationFailure {
+  const message = error instanceof Error ? error.message : String(error || "");
+  if (/timeout|timed?\s*out/i.test(message)) return "codex_timeout";
+  if (/unauthori[sz]ed|not authenticated|authentication|\b401\b|\b403\b/i.test(message)) return "codex_auth_or_access_failed";
+  return "codex_request_failed";
+}
+
+async function translateWithCodexOne(english: string, onFailure?: (code: CodexTranslationFailure) => void): Promise<string | null> {
   let cwd = "";
   let rpc: CodexAppServer | null = null;
   try {
@@ -243,6 +259,7 @@ async function translateWithCodexOne(english: string): Promise<string | null> {
     const thread = (started.thread as { id?: string } | undefined) || started;
     const threadId = String((thread as { id?: string }).id || "");
     if (!threadId) {
+      onFailure?.("codex_thread_missing");
       noteFailure("codex thread/start", "missing thread id");
       return null;
     }
@@ -268,8 +285,12 @@ async function translateWithCodexOne(english: string): Promise<string | null> {
     const extras = completed.turn && typeof completed.turn === "object"
       ? JSON.stringify((completed.turn as { output?: unknown }).output || {})
       : "";
-    return parseTranslatedZh([...rpc.agentTexts, extras].join("\n"), english);
+    const answer = [...rpc.agentTexts, extras].join("\n");
+    const translation = parseTranslatedZh(answer, english);
+    if (!translation) onFailure?.(rpc.agentTexts.some(value => value.trim()) || (extras && extras !== "{}") ? "codex_translation_unusable" : "codex_empty_result");
+    return translation;
   } catch (err) {
+    onFailure?.(classifyCodexTranslationFailure(err));
     noteFailure("codex app-server", err);
     return null;
   } finally {
@@ -333,7 +354,9 @@ export async function translateWithCodexChunks(
 }
 
 async function translateWithCodex(english: string, progress?: CodexLongTextProgress): Promise<CodexTranslationAttempt> {
-  return translateWithCodexChunksResumable(english, translateWithCodexOne, progress);
+  let failure: CodexTranslationFailure | undefined;
+  const result = await translateWithCodexChunksResumable(english, chunk => translateWithCodexOne(chunk, code => { failure = code; }), progress);
+  return result.error === "codex_chunk_unavailable" && failure ? { ...result, error: failure } : result;
 }
 
 /** Mail-body provider order stays MCP -> Codex -> Luna; a budget yield is not a provider failure. */
