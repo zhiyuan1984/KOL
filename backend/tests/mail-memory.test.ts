@@ -717,19 +717,20 @@ describe("mailbox memory P0", () => {
   it("coalesces concurrent same-mailbox starts while their key lookup is held", async () => {
     (await bindLarry());
     const mailboxGate = deferred<string>();
-    const firstLookup = deferred<void>();
+    const bothLookups = deferred<void>();
+    const actor = await mapUser((await getConn().query("SELECT * FROM users WHERE id=$1", [DEMO_USER.id])).rows[0]);
     let lookups = 0;
     const mailboxSpy = vi.spyOn(starryBind, "boundMailboxEmail").mockImplementation(async () => {
       lookups += 1;
-      firstLookup.resolve();
+      if (lookups === 2) bothLookups.resolve();
       return mailboxGate.promise;
     });
     let first: Promise<unknown> | undefined;
     let second: Promise<unknown> | undefined;
     try {
-      first = ensureFollowedMailSync(true);
-      second = ensureFollowedMailSync(true);
-      await firstLookup.promise;
+      first = withScopedUser(actor, () => ensureFollowedMailSync(true));
+      second = withScopedUser(actor, () => ensureFollowedMailSync(true));
+      await bothLookups.promise;
       mailboxGate.resolve("larry.zhao@amperetime.com");
       await Promise.all([first, second]);
       await waitForBackgroundSync();

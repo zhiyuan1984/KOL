@@ -111,6 +111,8 @@ jobs:
         run: node scripts/test-native-knowledge-config.mjs
       - name: Native production health positive and negative contracts
         run: node scripts/test-production-health.mjs
+      - name: Staging E2E bootstrap positive and negative contracts
+        run: node scripts/test-staging-e2e-bootstrap.mjs
       - name: Prepare isolated native knowledge E2E database
         working-directory: backend
         env:
@@ -154,11 +156,27 @@ jobs:
           ssh-keyscan -H 47.88.94.205 >> ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ecs-user@47.88.94.205 \
-            "cd ~/kol-e2e && ./scripts/server-e2e.sh --rev '$E2E_REVISION' $E2E_SPECS"
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ecs-user@47.88.94.205 \
-            "cd ~/kol-e2e && ./scripts/server-e2e.sh --rev '$E2E_REVISION' --no-build --no-schema --config=playwright.runtime.config.ts"
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ecs-user@47.88.94.205 \
-            "cd ~/kol-e2e/frontend && npm run test:e2e:agents"
+            "E2E_REVISION='$E2E_REVISION' E2E_SPECS='$E2E_SPECS' bash -s" <<'STAGING'
+          set -euo pipefail
+          [[ "$E2E_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          cd ~/kol-e2e
+          # Branch and main checks share this disposable staging checkout/port.
+          # Lock all three groups, and select the source before interpreting it:
+          # an old server-e2e.sh cannot safely replace itself while running.
+          umask 077
+          exec 9>/tmp/kol-e2e-release-gate.lock
+          flock -w 900 9
+          if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+            echo "Staging checkout has local changes; preserve them before selecting a revision." >&2
+            exit 1
+          fi
+          git fetch github "$E2E_REVISION"
+          git switch --detach "$E2E_REVISION"
+          [ "$(git rev-parse HEAD)" = "$E2E_REVISION" ]
+          ./scripts/server-e2e.sh --rev "$E2E_REVISION" $E2E_SPECS
+          ./scripts/server-e2e.sh --rev "$E2E_REVISION" --no-build --no-schema --config=playwright.runtime.config.ts
+          (cd frontend && npm run test:e2e:agents)
+          STAGING
 
   deploy-production:
     name: Deploy production
