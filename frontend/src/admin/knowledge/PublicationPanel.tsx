@@ -112,7 +112,9 @@ export default function PublicationPanel({
       setTemplateId(data.templates[0].id);
   }, [data, templateId]);
   useEffect(() => {
-    if (!template || waiting) return;
+    // Detail does not render the submission form. Its reads must not schedule
+    // a POST for that invisible form, including after an archive refresh.
+    if (mode !== "review" || !template || waiting) return;
     let cancelled = false;
     setChecking(true);
     setCheck(null);
@@ -154,6 +156,7 @@ export default function PublicationPanel({
       window.clearTimeout(timer);
     };
   }, [
+    mode,
     id,
     template,
     waiting,

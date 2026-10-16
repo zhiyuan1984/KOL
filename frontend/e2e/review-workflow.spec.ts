@@ -177,15 +177,29 @@ test("notification bell shows total unread, marks opened notices read, and close
 });
 
 test("notification failures preserve unread and offer retry without claiming an empty inbox", async ({ page }) => {
-  await fixture(page); let fail = true, markedRead = false;
-  await page.route("**/api/approvals/v2/notifications/inbox", route => fail ? route.fulfill({ status: 503, json: { detail: "通知暂不可用" } }) : route.fulfill({ json: { unreadCount: 1, items: [{ id: "notice", instance_id: "instance", message: "打开待处理审批", created_at: "2026-10-09T00:00:00Z", read_at: null }] } }));
+  await fixture(page); let markedRead = false;
+  await page.route("**/api/approvals/v2/notifications/inbox", async route => {
+    // Do not let the bell's queued read/focus refresh consume recovery before
+    // the actual retry click. This flag belongs only to this browser fixture.
+    const retried = await page.evaluate(() => Boolean((window as Window & { notificationRetryClicked?: boolean }).notificationRetryClicked));
+    return retried ? route.fulfill({ json: { unreadCount: 1, items: [{ id: "notice", instance_id: "instance", message: "打开待处理审批", created_at: "2026-10-09T00:00:00Z", read_at: null }] } }) : route.fulfill({ status: 503, json: { detail: "通知暂不可用" } });
+  });
   await page.route("**/api/approvals/v2/notifications/notice/read", route => { markedRead = true; return route.fulfill({ json: {} }); });
   await page.route("**/api/approvals/v2/instances/instance", route => route.fulfill({ status: 503, json: { detail: "审批详情暂不可用" } }));
   await page.goto("/approvals");
   await page.getByRole("button", { name: /站内通知.*加载失败/ }).click();
   const panel = page.getByRole("region", { name: "站内通知列表" });
   await expect(panel.getByRole("alert")).toContainText("通知暂不可用"); await expect(panel.getByText("暂无站内通知")).toHaveCount(0);
-  fail = false; await panel.getByRole("button", { name: "重试通知加载" }).click();
+  const retry = panel.getByRole("button", { name: "重试通知加载" });
+  await retry.evaluate(button => button.addEventListener("click", event => {
+    if (event.isTrusted) (window as Window & { notificationRetryClicked?: boolean }).notificationRetryClicked = true;
+  }, { capture: true, once: true }));
+  const backgroundFailure = page.waitForResponse(response => new URL(response.url()).pathname.endsWith("/notifications/inbox") && response.status() === 503);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await backgroundFailure;
+  await expect(retry).toBeVisible();
+  const recovered = page.waitForResponse(response => new URL(response.url()).pathname.endsWith("/notifications/inbox") && response.status() === 200);
+  await retry.click(); await recovered;
   await expect(page.getByRole("button", { name: "站内通知，1 条未读", exact: true })).toBeVisible();
   await panel.getByRole("button", { name: "打开待处理审批" }).click();
   await expect(panel.getByRole("alert")).toContainText("通知仍保留未读"); expect(markedRead).toBe(false);

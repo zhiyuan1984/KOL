@@ -1038,7 +1038,9 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
       followScopeRef.current = scope;
       setFollowScope(scope);
     }
-    setSurfaceError(surface, "");
+    // Board is a pool-only fallback source. A successful prewarm must not
+    // clear a denied `/api/home/following` read before that source recovers.
+    if (surface === "pool") setSurfaceError(surface, "");
   };
 
   const applyTaskCatalog = (catalog: Task[]) => {
@@ -1079,7 +1081,9 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
     }).catch((error) => {
       if (scope !== homeReadScopeRef.current || version !== boardScopeVersion.current) return false;
       if (boardRequestRef.current?.request === request) boardRequestRef.current = null;
-      setSurfaceError(surface, error instanceof Error ? error.message : "工作台读取失败");
+      // The following surface owns its error through its canonical following
+      // read; the board cannot replace either a denied read or its detail.
+      if (surface === "pool") setSurfaceError(surface, error instanceof Error ? error.message : "工作台读取失败");
       return false;
     });
     boardRequestRef.current = { scope, request };

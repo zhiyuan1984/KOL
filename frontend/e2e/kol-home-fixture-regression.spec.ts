@@ -15,6 +15,7 @@ const pool = [{ kol_uid: "pool-a", handle: "City Prepping", platform: "youtube",
 async function fixture(page: Page, { followingStatus = 200 }: { followingStatus?: number } = {}) {
   const writes: Array<{ method: string; path: string; body: Record<string, unknown> | null }> = [], reads: string[] = [], errors: string[] = [];
   let claimed = false;
+  let boardResponses = 0;
   page.on("pageerror", e => errors.push(e.message));
   await page.route("**/api/**", async route => {
     const request = route.request();
@@ -58,8 +59,9 @@ async function fixture(page: Page, { followingStatus = 200 }: { followingStatus?
     }
     if (path.endsWith("/events")) return route.fulfill({ contentType: "text/event-stream", body: "" });
     await route.fulfill({ json });
+    if (path === "/api/home/board") boardResponses += 1;
   });
-  return { writes, reads, errors };
+  return { writes, reads, errors, get boardResponses() { return boardResponses; } };
 }
 
 test("real Home routes use shared KOL geometry and selection never writes", async ({ page }, info) => {
@@ -131,6 +133,20 @@ test("following 409 stays a denied read and never falls back to board data", asy
   await expect(page.getByText("仅看板-0")).toHaveCount(0);
   // A rejected read must not synthesize an authorized follow list or trigger a
   // recovery write; only a new server-authorized read can recover this state.
+  expect(f.writes).toEqual([]);
+  expect(f.errors).toEqual([]);
+});
+
+test("following 409 remains denied after the Home board prewarm completes", async ({ page }) => {
+  const f = await fixture(page, { followingStatus: 409 });
+  await page.goto("/?tab=lifecycle");
+
+  await expect(page.getByText("跟进列表读取失败")).toBeVisible({ timeout: 20000 });
+  await expect.poll(() => f.boardResponses).toBeGreaterThan(0);
+  await expect(page.getByText("跟进列表读取失败")).toBeVisible();
+  await expect(page.locator("[data-follow-down-reason]")).toHaveAttribute("title", "当前跟进范围已变化，请重新核对。");
+  await expect(page.locator('[data-kol-unified="followed"], [data-followed-kol]')).toHaveCount(0);
+  await expect(page.getByText("仅看板-0")).toHaveCount(0);
   expect(f.writes).toEqual([]);
   expect(f.errors).toEqual([]);
 });
