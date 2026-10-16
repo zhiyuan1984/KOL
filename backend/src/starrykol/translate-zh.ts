@@ -43,6 +43,14 @@ function cjkCount(text: string): number {
   return (String(text || "").match(/[\u4e00-\u9fff]/g) || []).length;
 }
 
+function isGenericInternalZhPlaceholder(text: string): boolean {
+  const remaining = String(text || "")
+    .replaceAll("内部转述：这是英文草稿里的合作跟进内容。", "")
+    .replaceAll("发送仍用英文原文，本段仅内部查看。", "")
+    .replace(/[\s\p{P}]/gu, "");
+  return !remaining;
+}
+
 export function stripInternalZhHeader(text: string): string {
   return String(text || "").replace(/^【内部中文译稿[^\n]*】\s*/u, "").trim();
 }
@@ -73,7 +81,7 @@ export function classifyMailSourceLanguage(text: string): MailSourceLanguage {
  * All normal/long mail retains the historical >=8 Han quality floor. */
 export function isUsableInternalZh(zh: string, english: string): boolean {
   const stripped = stripInternalZhHeader(zh);
-  if (!stripped || stripped === INTERNAL_ZH_HEADER || isStubInternalZh(stripped)) return false;
+  if (!stripped || stripped === INTERNAL_ZH_HEADER || isGenericInternalZhPlaceholder(stripped)) return false;
   const source = String(english || "").trim();
   const normalizedSource = source.replace(/\s+/g, " ");
   const normalizedZh = stripped.replace(/\s+/g, " ");
