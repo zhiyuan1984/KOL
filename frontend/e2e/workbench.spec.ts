@@ -2653,16 +2653,40 @@ test("employee stream parses task_result JSON into a card and hides engine jargo
 });
 
 test("记状态 to CONTENT_REVIEW queues content approval and writes after manager agrees", async ({ page, request }) => {
+  const stageConfirmPosts: string[] = [];
+  page.on("request", (event) => {
+    if (event.method() === "POST" && /\/api\/sessions\/[^/]+\/confirm-stage$/.test(new URL(event.url()).pathname)) {
+      stageConfirmPosts.push(event.url());
+    }
+  });
+  async function openCurrentStageReview() {
+    await page.locator("[data-composer-input]").fill("提出阶段变更 @母婴小课 到 内容审核");
+    await page.locator("[data-send]").click();
+    const rail = wb2ResultRail(page);
+    const decisionContext = rail.locator(".mail-decision-context");
+    if (await decisionContext.count() && !(await decisionContext.evaluate((element) => element instanceof HTMLDetailsElement && element.open))) {
+      await decisionContext.locator(":scope > summary").click();
+    }
+    const review = rail.locator(".mail-stage-review");
+    await expect(review).toBeAttached({ timeout: 20000 });
+    if (!(await review.evaluate((element) => element instanceof HTMLDetailsElement && element.open))) {
+      await review.locator(":scope > summary").click();
+    }
+    const current = review.locator('[data-kind="confirm-stage-card"]');
+    await expect(current).toBeVisible({ timeout: 20000 });
+    return current;
+  }
   await page.goto("/pipeline");
   await proposePipelineStage(page, "母婴小课");
   await page.waitForURL(/\/s\//);
-  await wb2AskConfirmStage(page, "母婴小课", "内容审核");
-  const card = wb2StageCard(page);
+  const card = await openCurrentStageReview();
+  await expect(card).toHaveAttribute("data-risk", "L3");
   await expect(card).toContainText("内容策划");
   await pickStageChip(card, "CONTENT_REVIEW");
   await expect(card.locator("[data-confirm-stage]")).toHaveText("提交审批");
   await card.locator("[data-confirm-stage]").click();
   await expect(page.getByText("已提交阶段审批").first()).toBeVisible({ timeout: 15000 });
+  expect(stageConfirmPosts).toHaveLength(1);
   const queued = await request.get("/api/pipeline").then((r) => r.json());
   const before = Object.values(queued.groups).flat().find(
     (c: { handle: string }) => c.handle === "母婴小课",
@@ -3591,14 +3615,21 @@ test("docs/org-permissions.md admin agents governance is reachable from admin ch
   await expect(page.locator("[data-admin-nav='agents']")).toHaveClass(/active/);
 });
 
+/** Wait for a lazy route module itself; semantic assertions below still verify its
+ * actual surface instead of treating the shared shell as route readiness. */
+async function wb12WaitForLazyRoute(page: Page) {
+  await expect(page.locator("[data-route-loading]")).toHaveCount(0, { timeout: 20_000 });
+}
+
 test("admin console uses a left sidebar with short labels for the current account", async ({ page }) => {
   await page.goto("/admin");
+  await wb12WaitForLazyRoute(page);
   await expect(page.locator(".workbench")).toHaveClass(/admin-surface/);
   await expect(page.locator(".settings-tabs.admin-tabs")).toHaveCount(0);
   await expect(page.locator("[data-admin-nav]").first()).toBeVisible();
   const labels = await page.locator(".sidebar [data-admin-nav]").allTextContents();
   expect(labels.map((label) => label.trim())).toEqual([
-    "员工", "工作战报", "业务地图", "连接器", "知识库", "Agent", "本体", "业务域地图", "评审流程", "技能", "考试", "主数据", "数据", "成本", "调度监控", "工单治理", "审计中心", "配置",
+    "员工", "工作战报", "业务地图", "连接器", "知识库", "Agent", "本体", "评审流程", "技能", "考试", "主数据", "数据", "成本", "调度监控", "工单治理", "审计中心", "配置",
   ]);
   // 「审批」已从菜单去掉（ADR-2026-10-12）：菜单不再渲染该条目，深链能力保留（见下方 goto 断言）。
   await expect(page.locator("[data-admin-nav='approvals']")).toHaveCount(0);
@@ -3654,17 +3685,18 @@ test("admin console uses a left sidebar with short labels for the current accoun
 
 test("admin left menu replicates the employee sidebar shell", async ({ page }) => {
   await page.goto("/admin");
+  await wb12WaitForLazyRoute(page);
   const rail = page.locator(".sidebar");
   await expect(rail).toBeVisible();
   // 同一外壳：品牌块 + Lucas + 页脚账户块。
   await expect(rail.locator(".sidebar-head [data-sidebar-brand]")).toBeVisible();
   await expect(rail.locator(".sidebar-head .sidebar-lucas img")).toHaveAttribute("src", /Lucas6\.webp$/);
   await expect(rail.locator(".sidebar-foot [data-account-bar]")).toBeVisible();
-  // 只换菜单文字：管理端 16 条，员工开工条目 0 条。
-  await expect(rail.locator("[data-admin-nav]")).toHaveCount(18);
+  // 只换菜单文字：管理端 17 条，员工开工条目 0 条。
+  await expect(rail.locator("[data-admin-nav]")).toHaveCount(17);
   await expect(rail.locator("[data-nav='new-task'], [data-nav='running'], [data-nav='cron'], [data-nav='mail']")).toHaveCount(0);
   // 同解剖：18px 描边图标 + 标签；分簇靠分隔线，不用可见组标题。
-  await expect(rail.locator("[data-admin-nav] .nav-ico")).toHaveCount(18);
+  await expect(rail.locator("[data-admin-nav] .nav-ico")).toHaveCount(17);
   await expect(rail.locator("nav.nav-group")).toHaveCount(5);
   await expect(rail.locator(".nav-group > h2, .nav-group > .nav-group-title")).toHaveCount(0);
   const clusterBorder = await rail.locator("nav.nav-group").nth(1).evaluate((el) => getComputedStyle(el).borderTopWidth);
@@ -3948,7 +3980,7 @@ test("session chat does not render unimplemented TeamRail", async ({ page, reque
 });
 
 test("home composer renders before delayed task data finishes", async ({ page }) => {
-  // Prime the lazy route once; the reload below isolates delayed task data rather than the one-time route chunk fetch.
+  // Prime the lazy route once; the in-app remount below isolates delayed task data rather than the one-time route chunk fetch.
   await page.goto("/");
   await expect(page.locator("[data-home] [data-composer-input]")).toBeVisible();
   await page.route(/\/api\/tasks(?:\?.*)?$/, async (route) => {
@@ -3959,7 +3991,14 @@ test("home composer renders before delayed task data finishes", async ({ page })
     await new Promise((resolve) => setTimeout(resolve, 1200));
     await route.fulfill({ json: [] });
   });
-  await page.reload({ waitUntil: "domcontentloaded" });
+  // A hard reload re-fetches the lazy Home module, so it measures route-chunk
+  // startup rather than the delayed task reads. Re-enter through the app to
+  // remount the already-loaded route and keep the 500ms first-paint contract.
+  await page.locator("[data-nav='running']").click();
+  await expect(page).toHaveURL(/\/tasks$/);
+  await wb12WaitForLazyRoute(page);
+  await page.locator("[data-nav='new-task']").click();
+  await expect(page).toHaveURL(/\/$/);
   await expect(page.locator("[data-home] [data-composer-input]")).toBeVisible({ timeout: 500 });
   await expect(page.locator("[data-home]")).toBeVisible({ timeout: 500 });
 });
@@ -4415,6 +4454,10 @@ test("task detail keeps process in center, result on right, and supports complet
 
 test("task detail keeps one middle-column scroller and the thinking inside it", async ({ page }) => {
   const now = new Date().toISOString();
+  // Session first probes the task binding before Chat uses this read-only local
+  // task mirror. An explicit 404 preserves the ordinary-chat route and avoids a
+  // live backend read holding the route in its loading state.
+  await page.route("**/api/tasks/by-session/session-one-scroll", (route) => route.fulfill({ status: 404, json: { detail: { code: "task_not_found" } } }));
   await page.addInitScript(() => sessionStorage.setItem("task:session-one-scroll", "task-one-scroll"));
   await page.route("**/api/tasks/task-one-scroll", async (route) => {
     await route.fulfill({ json: {
@@ -4449,6 +4492,7 @@ test("task detail keeps one middle-column scroller and the thinking inside it", 
     ],
   } }));
   await page.goto("/s/session-one-scroll");
+  await wb12WaitForLazyRoute(page);
   await expect(page.locator("[data-session-stream-pane] [data-session-skill-template]")).toHaveCount(1);
   const trace = page.locator("[data-session-stream-pane] [data-kind='process-trace']");
   await expect(trace).toContainText("Comparing AGENTS file and instructions");
@@ -4554,6 +4598,8 @@ test("task detail keeps one middle-column scroller and the thinking inside it", 
 
 test("process trace shows harness thinking in the list instead of a fixed five-step template", async ({ page }) => {
   const now = new Date().toISOString();
+  // This fixture is deliberately a message-only session, not an implicit task.
+  await page.route("**/api/tasks/by-session/session-thinking", (route) => route.fulfill({ status: 404, json: { detail: { code: "task_not_found" } } }));
   await page.route("**/api/sessions/session-thinking", (route) => route.fulfill({ json: {
     agent_status: "listening",
     messages: [
@@ -4571,6 +4617,7 @@ test("process trace shows harness thinking in the list instead of a fixed five-s
     ],
   } }));
   await page.goto("/s/session-thinking");
+  await wb12WaitForLazyRoute(page);
   const trace = page.locator('[data-kind="process-trace"]');
   await expect(trace).toContainText("已根据平台和关键词整理采集范围。");
   await expect(trace).toHaveAttribute("data-harness-thinking", "true");
@@ -4736,6 +4783,10 @@ test("creator discovery shows auto-started crawl progress in the middle and can 
   const now = new Date().toISOString();
   let stopped = false;
   let jobReads = 0;
+  // The current Session route probes this endpoint before the local task mirror.
+  // Keep the intent as an ordinary chat session so Chat reads the explicit task
+  // fixture below rather than changing discovery authorization or behavior.
+  await page.route("**/api/tasks/by-session/crawl-session", (route) => route.fulfill({ status: 404, json: { detail: { code: "task_not_found" } } }));
   await page.addInitScript(() => sessionStorage.setItem("task:crawl-session", "crawl-task"));
   await page.route("**/api/tasks/crawl-task", (route) => route.fulfill({ json: {
     id: "crawl-task",
@@ -4805,6 +4856,7 @@ test("creator discovery shows auto-started crawl progress in the middle and can 
   ] }));
 
   await page.goto("/s/crawl-session");
+  await wb12WaitForLazyRoute(page);
   await expect(page.locator('[data-crawl-middle-status="crawling"]')).toContainText("remote-safe-101");
   await expect(page.locator("[data-start-crawl]")).toHaveCount(0);
   await expect(page.locator("[data-workbench]")).toBeVisible();
@@ -4937,7 +4989,9 @@ test("达人画像 and 更新红人负责人 run through Starry KOL MCP", async 
   const databaseUrl = String(process.env.DATABASE_URL || "");
   expect(process.env.E2E_MODE).toBe("stub");
   expect(new URL(databaseUrl).hostname).toBe("127.0.0.1");
-  expect(new URL(databaseUrl).pathname).toBe("/kol_rem_wb6_5");
+  // Full-browser shards use release-isolated ephemeral databases; never point
+  // this fixture at a production or arbitrary local database.
+  expect(new URL(databaseUrl).pathname).toMatch(/^\/kol_rem_fullbrowser_\d+$/);
   const { default: pg } = await import("../../backend/node_modules/pg/lib/index.js");
   const fixtureDb = new pg.Pool({ connectionString: databaseUrl });
   try {
@@ -5163,6 +5217,7 @@ test("cited knowledge template appears in the home picker and only prefills", as
 test("employee knowledge market URL redirects to /kb", async ({ page }) => {
   await page.goto("/market/kb");
   await expect(page).toHaveURL(/\/kb$/);
+  await wb12WaitForLazyRoute(page);
   await expect(page.locator("[data-kb-page='mine']")).toBeVisible();
   await expect(page.locator("[data-kb-page='market']")).toHaveCount(0);
   await expect(page.locator("[data-kbv-list]")).not.toContainText("知识市场");
@@ -5172,6 +5227,7 @@ test("employee knowledge base uses task copy, taxonomy scope, and an inline deta
   await page.goto("/kb");
   const kb = page.locator("[data-kb-page='mine']");
   await expect(page).toHaveURL(/\/kb$/);
+  await wb12WaitForLazyRoute(page);
   await expect(kb).toBeVisible();
   await expect(page.getByRole("region", { name: "知识列表", exact: true })).toBeVisible();
   await expect(page.getByRole("complementary", { name: "知识详情", exact: true })).toBeVisible();
@@ -5228,6 +5284,7 @@ test("employee knowledge base uses task copy, taxonomy scope, and an inline deta
   // Confirm the account-level preference after a fresh server read, not only the
   // rail's optimistic state while another knowledge-list load may still resolve.
   await page.reload();
+  await wb12WaitForLazyRoute(page);
   await expect(followup).toBeVisible();
   await followup.click();
   await expect(page.getByRole("button", { name: "取消收藏" })).toBeVisible();
@@ -5258,6 +5315,9 @@ test("employee knowledge base uses task copy, taxonomy scope, and an inline deta
 test("HTML session payload is shown as a connection error, not SyntaxError", async ({ page, request }) => {
   const ses = await request.post("/api/sessions", { data: { title: "达人库查询" } }).then((r) => r.json()) as { id: string };
   let failedReads = 0;
+  // Route to Chat through the normal missing-task branch; the test then proves
+  // that its actual session reads render an honest gateway error.
+  await page.route(`**/api/tasks/by-session/${ses.id}`, (route) => route.fulfill({ status: 404, json: { detail: { code: "task_not_found" } } }));
   // 同一次网关故障必须同时阻断 SSE；否则正常 snapshot 会清空 GET 的错误，变成假阳性恢复。
   await page.route((url) => url.pathname === `/api/sessions/${ses.id}/events`, route => route.fulfill({ status: 502, contentType: "text/html", body: "<html><body>bad gateway</body></html>" }));
   await page.route((url) => url.pathname === `/api/sessions/${ses.id}`, async (route) => {
@@ -5273,6 +5333,7 @@ test("HTML session payload is shown as a connection error, not SyntaxError", asy
     });
   });
   await page.goto(`/s/${ses.id}`);
+  await wb12WaitForLazyRoute(page);
   const alert = page.getByRole("alert").filter({ hasText: "当前无法继续这次工作" });
   await expect(alert).toBeVisible();
   await expect(alert).toContainText("连接暂时异常，已保留你的任务。");
@@ -5327,6 +5388,7 @@ test("达人库查询 starter placeholder still lists profiles", async ({ page }
 test("cron 跑一次风险扫描 keeps the run receipt on the cron page", async ({ page }) => {
   await wb5InstallCronStub(page);
   await page.goto("/cron");
+  await wb12WaitForLazyRoute(page);
   await expect(page.getByRole("heading", { name: "定时任务" })).toBeVisible();
   await expect(page.locator("[data-cron-page]")).not.toContainText("T8");
   const row = page.locator('[data-cron-job="overdue-scan"]');
@@ -5344,6 +5406,7 @@ test("cron 跑一次风险扫描 keeps the run receipt on the cron page", async 
 test("approvals page can preview and initiate an expense approval", async ({ page }) => {
   const fixture = await wb5InstallApprovalStub(page);
   await page.goto("/approvals");
+  await wb12WaitForLazyRoute(page);
   await expect(page.getByRole("heading", { name: "审批中心" })).toBeVisible();
   await page.getByRole("button", { name: "发起审批", exact: true }).click();
   const form = page.locator("main.review-page form").first();

@@ -31,36 +31,62 @@ for (const theme of ['light', 'dark']) {
       const samples: Array<{ width: number; left: number; top: number }> = [];
       for (const tab of ['today', 'todo', 'discovery', 'pool', 'lifecycle']) {
         await page.goto(`/?tab=${tab}`);
-        const root = page.locator(`.home-pane[data-home-workspace="${tab}"]`);
+        const root = page.locator(`[data-home-pane="${tab}"][data-scope-workspace="${tab}"]`);
+        await expect(page.locator('[data-home]')).toHaveCount(1);
+        await expect(page.locator('[data-home]')).toHaveAttribute('data-home-active-mode', tab);
         await expect(root).toBeVisible();
         await expect(page.locator(':root')).toHaveAttribute('data-theme', theme);
         const sample = await root.evaluate(el => {
           const style = getComputedStyle(el);
-          const stage = el.querySelector('.home-stage')!;
-          const r = stage.getBoundingClientRect();
+          const stage = el.closest<HTMLElement>('[data-home]')?.querySelector<HTMLElement>('.home-stage');
+          if (!stage) throw new Error('missing current Home stage around workspace');
+          const center = el.querySelector<HTMLElement>('[data-scope-ai-workspace]')!;
+          const rail = el.querySelector<HTMLElement>('[data-scope-task-rail]')!;
+          const r = el.getBoundingClientRect();
+          const stageRect = stage.getBoundingClientRect();
+          const stageStyle = getComputedStyle(stage);
+          const centerRect = center.getBoundingClientRect();
+          const railRect = rail.getBoundingClientRect();
           return { width: r.width, left: r.left, top: r.top,
-            paddingTop: getComputedStyle(stage).paddingTop,
-            maxWidth: getComputedStyle(stage).maxWidth,
+            display: style.display, agentVisual: el.getAttribute('data-agent-visual'),
+            stage: { width: stageRect.width, left: stageRect.left, top: stageRect.top,
+              paddingTop: stageStyle.paddingTop, paddingLeft: stageStyle.paddingLeft,
+              paddingRight: stageStyle.paddingRight, maxWidth: stageStyle.maxWidth },
+            center: { left: centerRect.left, right: centerRect.right, top: centerRect.top, bottom: centerRect.bottom, width: centerRect.width },
+            rail: { left: railRect.left, right: railRect.right, top: railRect.top, bottom: railRect.bottom, width: railRect.width },
             primary: style.getPropertyValue('--av-primary').trim(),
             overflow: document.documentElement.scrollWidth > innerWidth + 1 };
         });
         expect(sample.primary).toBe(theme === 'light' ? '#1677ff' : '#177ddc');
+        expect(sample.display).toBe('grid');
         expect(sample.overflow).toBe(false);
         if (width >= 1101) {
-          // Existing DESIGN §27.2 session geometry overrides this patch for
-          // discovery. Preserve and expose that exception rather than claiming
-          // all five tabs have the same max width.
-          if (tab === 'discovery') expect(sample.width).toBe(width - 260);
-          else {
-            expect(sample.width).toBeLessThanOrEqual(1200);
-            expect(sample.maxWidth).toBe('1200px');
-            expect(Math.abs(sample.left - (260 + (width - 260 - sample.width) / 2))).toBeLessThan(1);
+          expect(sample.rail.width).toBeGreaterThanOrEqual(360);
+          expect(Math.abs(sample.center.top - sample.rail.top)).toBeLessThan(1);
+          expect(Math.abs(sample.center.bottom - sample.rail.bottom)).toBeLessThan(1);
+          expect(Math.abs(sample.center.right - sample.rail.left)).toBeLessThanOrEqual(1);
+          if (tab === 'discovery') {
+            expect(sample.stage.width).toBe(width - 260);
+            expect(sample.width).toBe(sample.stage.width);
+            expect(sample.left).toBe(sample.stage.left);
+            expect(sample.agentVisual).toBe('session-pre-2e909ebe');
+            expect(sample.center.width).toBe(432);
+          } else {
+            expect(sample.stage.width).toBeLessThanOrEqual(1200);
+            expect(sample.stage.maxWidth).toBe('1200px');
+            expect(Math.abs(sample.stage.left - (260 + (width - 260 - sample.stage.width) / 2))).toBeLessThan(1);
+            expect(sample.stage.paddingTop).toBe('4px');
+            expect(Math.abs(sample.left - sample.stage.left - parseFloat(sample.stage.paddingLeft))).toBeLessThan(1);
+            expect(Math.abs(sample.stage.left + sample.stage.width - sample.width - sample.left - parseFloat(sample.stage.paddingRight))).toBeLessThan(1);
+            expect(sample.agentVisual).toBeNull();
           }
-          expect(sample.paddingTop).toBe('4px');
+        } else {
+          expect(sample.rail.top).toBeGreaterThanOrEqual(sample.center.bottom);
         }
         if (tab !== 'discovery') samples.push({ width: sample.width, left: sample.left, top: sample.top });
-        const active = root.locator('.home-quick-tasks button[aria-selected="true"]');
+        const active = root.locator('[data-home-quick-tasks] button[aria-selected="true"]');
         await expect(active).toHaveCount(1);
+        await expect(active).toHaveAttribute('data-home-mode', tab);
         await active.focus();
         await expect(active).toBeFocused();
         await expect(active).toHaveCSS('border-bottom-width', '2px');

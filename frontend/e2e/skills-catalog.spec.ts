@@ -833,20 +833,30 @@ test.describe("技能详情 · 数据真实度、筛选与排版", () => {
   });
 
   test("O45 · 常用仅来自实际 use_count；查看与收藏保持独立个人记录", async ({ page }) => {
-    const personal = await personalRecords(page);
-    const frequent = personal.filter(item => (item.use_count || 0) > 0).map(item => item.skill_id);
+    const [personal, skills] = await Promise.all([personalRecords(page), catalog(page)]);
+    const useCount = new Map(personal.map(item => [item.skill_id, item.use_count || 0]));
+    const frequent = skills.filter(skill => skill.employee_visible !== false && (useCount.get(skill.id) || 0) > 0)
+      .sort((left, right) => (useCount.get(right.id) || 0) - (useCount.get(left.id) || 0)).map(skill => skill.id);
+    const independentlyRecorded = skills.find(skill => skill.employee_visible !== false && (useCount.get(skill.id) || 0) === 0);
+    expect(frequent, "fixture must retain at least one actual-use record").not.toEqual([]);
+    expect(independentlyRecorded, "fixture must retain a visible skill without an actual use").toBeTruthy();
+
+    await page.goto("/skills?mode=all&stage=all");
+    await openSkill(page, independentlyRecorded!.id);
+    const favorite = page.locator("[data-skill-favorite]");
+    await favorite.click();
+    await expect(favorite).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(async () => (await personalRecords(page)).find(item => item.skill_id === independentlyRecorded!.id)?.viewed_at,
+      { message: "opening a skill records only its personal view" }).not.toBeNull();
+    await expect.poll(async () => (await personalRecords(page)).find(item => item.skill_id === independentlyRecorded!.id)?.favorite,
+      { message: "favorite is saved on the same independent personal record" }).toBe(true);
+    await expect.poll(async () => (await personalRecords(page)).find(item => item.skill_id === independentlyRecorded!.id)?.use_count,
+      { message: "viewing or favoriting must not fabricate use_count" }).toBe(0);
+
     await page.goto("/skills?mode=frequent&stage=all");
-    await page.locator("[data-skill-catalog]").waitFor();
-    const shown = await visibleSkillIds(page);
-    expect(shown, "frequent rendering matches the actual personal-use set").toEqual(expect.arrayContaining(frequent.slice(0, shown.length)));
-    expect(shown.every(id => frequent.includes(id)), "view/favorite cannot independently place a skill in frequent").toBe(true);
-    if (shown.length) {
-      await openSkill(page, shown[0]);
-      const favorite = page.locator("[data-skill-favorite]");
-      await expect(favorite).toHaveAttribute("aria-pressed", /true|false/);
-    } else {
-      await expect(page.locator(".kbv-empty")).toContainText("没有匹配的技能");
-    }
+    await expect(page.locator("[data-kbv-list] [data-skill-count]"), "wait for the same-source personal records and TaskDefinition projection").toHaveText(`${frequent.length} 项技能`);
+    await expect.poll(() => visibleSkillIds(page), { message: "frequent rendering keeps the real-use count ordering" }).toEqual(frequent);
+    expect(await visibleSkillIds(page), "view/favorite cannot independently place a skill in frequent").not.toContain(independentlyRecorded!.id);
   });
 
   test("O46 · 键盘从一条选择入口前进到下一条，详情动作也可到达", async ({ page }) => {

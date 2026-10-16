@@ -17,24 +17,28 @@ for (const theme of ["light", "dark"]) {
       await expect(workspace).toBeVisible();
       await expect(workspace.locator("[data-scope-scroll-jump]")).toBeVisible();
       const measure = () => workspace.evaluate(el => {
-        const rect = (selector: string) => el.querySelector(selector)!.getBoundingClientRect();
+        const rect = (selector: string) => {
+          const target = el.querySelector<HTMLElement>(selector);
+          if (!target) throw new Error(`missing current workspace wrapper: ${selector}`);
+          return target.getBoundingClientRect();
+        };
         const sidebar = document.querySelector(".sidebar")!;
         const nav = sidebar.querySelector(".sidebar-nav-stack")!.getBoundingClientRect();
         const left = sidebar.getBoundingClientRect();
-        const center = rect(".scope-workspace-center");
+        const center = rect("[data-scope-ai-workspace]");
         const content = rect(".scope-workspace-center-content");
         const feed = el.querySelector<HTMLElement>(".scope-workspace-center-scroll")!;
         const body = rect(".scope-workspace-center-scroll-content");
-        const composer = rect(".composer");
-        const rail = rect(".scope-task-rail");
-        const result = rect(".result-rail");
+        const composer = rect(".composer--workspace");
+        const rail = rect("[data-scope-task-rail]");
+        const railBody = rect("[data-scope-rail-body]");
         const jumpElement = el.querySelector<HTMLElement>("[data-scope-scroll-jump]")!;
         const jump = jumpElement.getBoundingClientRect();
-        const railBorder = parseFloat(getComputedStyle(el.querySelector(".scope-task-rail")!).borderLeftWidth);
+        const railBorder = parseFloat(getComputedStyle(el.querySelector<HTMLElement>("[data-scope-task-rail]")!).borderLeftWidth);
         return {
           leftWidth: left.width,
           gutters: [nav.left - left.left, left.right - nav.right - parseFloat(getComputedStyle(sidebar).borderRightWidth),
-            content.left - center.left, center.right - content.right, result.left - rail.left - railBorder, rail.right - result.right],
+            content.left - center.left, center.right - content.right, railBody.left - rail.left - railBorder, rail.right - railBody.right],
           centerWidth: center.width, contentWidth: content.width, feedWidth: body.width,
           feedClientWidth: feed.clientWidth, composerWidth: composer.width,
           aligned: Math.abs(body.left - composer.left) < 1 && Math.abs(body.right - composer.right) < 1,
@@ -276,7 +280,9 @@ test("discovery confirmation uses the refreshed snapshot once and waits for remo
   const confirm = page.locator("[data-discovery-start-confirm]");
   await expect(confirm).toBeInViewport();
   await expect(page.locator("[data-discovery-run-status-label]")).toContainText("待确认");
-  expect(await page.locator("[data-ai-prompt-submit]").evaluate(el => getComputedStyle(el).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
+  const submit = page.locator("[data-ai-prompt-submit]");
+  await expect(submit).toHaveAttribute("data-send-emphasis", "secondary");
+  expect(await submit.evaluate(el => getComputedStyle(el).backgroundColor)).toBe("rgba(219, 24, 96, 0.145)");
   state.revise();
   await page.clock.runFor(2100);
   await confirm.evaluate(el => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });

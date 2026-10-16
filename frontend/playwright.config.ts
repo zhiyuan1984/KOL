@@ -24,6 +24,10 @@ export default defineConfig({
       "**/product-knowledge.spec.ts",
     ] : []),
   ],
+  // The two tagged normal-login cases need the isolated principal prepared by
+  // playwright.native-knowledge.config.ts. Keep the anonymous 401 assertion
+  // in this disabled-auth partition as its negative control.
+  ...(nativeKnowledgePartition ? { grepInvert: /@native-knowledge-enabled-auth/ } : {}),
   fullyParallel: false,
   // Stub gate runs the full 72-case file on one worker. A single leftover
   // library-sync race should not fail the release gate; real mode stays strict.

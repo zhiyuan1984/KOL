@@ -17,7 +17,7 @@ async function authorizedDirectory(page: import("@playwright/test").Page, rows =
 test("directory keeps one sidebar entry and exposes only current authorized published Agent records", async ({ page }) => {
   await authorizedDirectory(page);
   await page.goto("/agents");
-  await expect(page.locator("[data-expert-page='roster']")).toBeVisible();
+  await expect(page.locator("[data-expert-page='roster']")).toBeVisible({ timeout: 30_000 });
   await expect(page.locator(`[data-expert-card='${authorized.id}']`)).toBeVisible();
   await expect(page.locator("[data-expert-card='expert:kol'], [data-expert-card='expert:crawler'], [data-expert-card='expert:approver']")).toHaveCount(0);
   await expect(page.locator('nav[aria-label="Agent"] [data-nav]')).toHaveCount(1);

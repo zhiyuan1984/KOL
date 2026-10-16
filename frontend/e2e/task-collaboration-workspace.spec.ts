@@ -1,5 +1,19 @@
 import {expect,test,type Page} from "@playwright/test";
 
+function workspaceResponse(page: Page, pathname: string) {
+  return page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return response.request().method() === "GET" && url.pathname === pathname && response.ok();
+  });
+}
+
+async function gotoWorkspace(page: Page) {
+  const contextRead = workspaceResponse(page, "/api/task-work-orders/sessions/workspace-session/context");
+  const taskRead = workspaceResponse(page, "/api/task-work-orders/workspace-task");
+  await page.goto("/s/workspace-session");
+  await Promise.all([contextRead, taskRead]);
+}
+
 // Transport fixtures verify navigation and rendering, not production approvals.
 async function workspace(page:Page) {
   let revoked=false,version="evidence-v1",posts=0;
@@ -30,11 +44,23 @@ async function workspace(page:Page) {
 
 test("opens the original Task workspace, restores after reload, and returns to that Task without model calls",async({page})=>{
   const control=await workspace(page);
+  const taskRead=workspaceResponse(page,"/api/task-work-orders/workspace-task");
   await page.goto("/tasks?businessTask=workspace-task");
+  await taskRead;
+  const workspaceOpened=page.waitForResponse(response=>{
+    const url=new URL(response.url());
+    return response.request().method()==="POST"&&url.pathname==="/api/task-work-orders/workspace-task/workspace"&&response.ok();
+  });
+  const contextRead=workspaceResponse(page,"/api/task-work-orders/sessions/workspace-session/context");
+  const restoredTaskRead=workspaceResponse(page,"/api/task-work-orders/workspace-task");
   await page.getByRole("button",{name:"打开协作工作台"}).click();
   await expect(page).toHaveURL(/\/s\/workspace-session$/);
+  await Promise.all([workspaceOpened,contextRead,restoredTaskRead]);
   await expect(page.getByRole("region",{name:"当前业务任务"})).toContainText("复核当前依赖");
+  const reloadContextRead=workspaceResponse(page,"/api/task-work-orders/sessions/workspace-session/context");
+  const reloadTaskRead=workspaceResponse(page,"/api/task-work-orders/workspace-task");
   await page.reload();
+  await Promise.all([reloadContextRead,reloadTaskRead]);
   await expect(page.getByRole("region",{name:"当前业务任务"})).toContainText("绑定原任务");
   expect(control.posts()).toBe(0);
   const returnToTask = page.locator('.session-workspace-header [data-session-back-link]');
@@ -49,7 +75,7 @@ test("opens the original Task workspace, restores after reload, and returns to t
 test("marks stale evidence and clears Task content on current permission revocation",async({page})=>{
   await page.clock.install();
   const control=await workspace(page);
-  await page.goto("/s/workspace-session");
+  await gotoWorkspace(page);
   await expect(page.getByRole("region",{name:"当前业务任务"})).toBeVisible();
   control.change();await page.clock.fastForward(15_100);
   await expect(page.getByRole("region",{name:"任务分析依据"})).toContainText("已有分析的依据已变化");
@@ -62,7 +88,7 @@ test("marks stale evidence and clears Task content on current permission revocat
 test("starts only an explicitly submitted Task analysis without creating a legacy task",async({page})=>{
   const control=await workspace(page);let legacyWrites=0;
   page.on("request",request=>{if(request.method()==="POST" && /\/api\/tasks(?:\/|\?|$)/.test(request.url())) legacyWrites++;});
-  await page.goto("/s/workspace-session");
+  await gotoWorkspace(page);
   await page.getByRole("button",{name:"让 Agent 分析当前依赖"}).click();
   expect(control.posts()).toBe(0);
   await page.getByRole("button",{name:"发送",exact:true}).click();
@@ -75,7 +101,7 @@ test.describe("Task workspace width, height and touch input",()=>{
   for(const viewport of [{width:390,height:844},{width:1280,height:600}]) {
     test(`keeps current Task and explicit analysis accessible at ${viewport.width} x ${viewport.height}`,async({page})=>{
       await page.setViewportSize(viewport);const control=await workspace(page);
-      await page.goto("/s/workspace-session");
+      await gotoWorkspace(page);
       await expect(page.getByRole("region",{name:"当前业务任务"})).toContainText("复核当前依赖");
       const analyze=page.getByRole("button",{name:"让 Agent 分析当前依赖"});
       await analyze.scrollIntoViewIfNeeded();await expect(analyze).toBeVisible();

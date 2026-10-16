@@ -1295,20 +1295,42 @@ test("已有标签保存失败不乐观显示成功；409 重载后须再次确�
   expect(store.posts).toHaveLength(3);
 });
 
+async function openCurrentLabelChooser(page: Page, conversationId: string) {
+  const editor = page.locator(`[data-mail-label-editor][data-mail-label-object="${conversationId}"]`);
+  await expect(editor).toHaveCount(1);
+  const trigger = editor.locator("[data-mail-label-picker]");
+  await expect(trigger).toHaveCount(1);
+  await expect(trigger).toBeVisible();
+  await trigger.click();
+  const options = editor.locator("[data-mail-label-option]");
+  await expect(options).toHaveCount(3);
+  await expect(options.first()).toBeVisible();
+  return { editor, options };
+}
+
 test("未确认的已有标签选择留在原对象，切换会话不串线", async ({ page }) => {
   await mockFormalMail(page); await mockTwoConversations(page); const store = await mockLabelStore(page);
-  await page.goto("/mail?c=3901"); await openLabelPicker(page); await selectExistingLabel(page, "manual_review");
+  await page.goto("/mail?c=3901");
+  const original = await openCurrentLabelChooser(page, "3901");
+  const originalOption = original.options.locator('[data-mail-label-option="manual_review"]');
+  await expect(originalOption).toContainText("待人工核对");
+  await originalOption.click();
+  const originalConfirm = original.editor.locator("[data-mail-label-confirm]");
+  await expect(originalConfirm).toHaveText("确认添加");
+  await expect(originalConfirm.locator("..")).toContainText("待人工核对");
   await page.locator('[data-mail-correspondent="other@example.com"]').click();
   await page.locator('[data-mail-thread-row="3902"]').click();
-  await expect(page.locator("[data-mail-label-editor]")).toHaveAttribute("data-mail-label-object", "3902");
-  await openLabelPicker(page);
-  await expect(page.locator("[data-mail-label-confirm]")).toHaveCount(0);
+  const other = await openCurrentLabelChooser(page, "3902");
+  await expect(other.editor.locator("[data-mail-label-confirm]")).toHaveCount(0);
+  await expect(other.options.locator('[data-mail-label-option="manual_review"]')).toHaveAttribute("aria-pressed", "false");
   await page.locator('[data-mail-correspondent="amy@example.com"]').click();
   await page.locator('[data-mail-thread-row="3901"]').click();
-  await expect(page.locator("[data-mail-label-editor]")).toHaveAttribute("data-mail-label-object", "3901");
-  await openLabelPicker(page);
-  await expect(page.locator("[data-mail-label-confirm]")).toContainText("确认添加");
-  await expect(page.locator("[data-mail-label-confirm]").locator(".." )).toContainText("待人工核对");
+  const restored = await openCurrentLabelChooser(page, "3901");
+  const restoredConfirm = restored.editor.locator("[data-mail-label-confirm]");
+  await expect(restoredConfirm).toHaveText("确认添加");
+  await expect(restoredConfirm.locator("..")).toContainText("待人工核对");
+  await expect(restored.options.locator('[data-mail-label-option="manual_review"]')).toHaveAttribute("aria-pressed", "false");
+  await expect(restored.editor.locator('[data-mail-saved-label="manual_review"]')).toHaveCount(0);
   expect(store.posts).toHaveLength(0);
 });
 

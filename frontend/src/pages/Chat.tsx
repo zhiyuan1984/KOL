@@ -453,6 +453,10 @@ export default function Chat() {
   const discoveryWorkspace = discoveryWorkspaceOf(task);
   const discoveryEntry = discoveryWorkspace !== null || (location.state as { discoverySession?: string } | null)?.discoverySession === id;
   const [runtimeActions, setRuntimeActions] = useState<RuntimeActionView[]>([]);
+  const discoveryResultsRevealedSession = useRef<string | null>(null);
+  const hasDiscoveryResults = discoveryWorkspace !== null && runtimeActions.some((action) => (
+    action.operation === "start_crawl" && Boolean(action.crawl?.result_json?.candidates?.length)
+  ));
   const discoveryProgress = runtimeActions.find(action => action.operation === "start_crawl" && action.skill_id === "crawler_collect"
     && (!task?.worker_id || action.run_id === task.worker_id))?.progress;
   const discoveryExecutionResult = discoveryProgress?.replace_result ? discoveryProgress.result : undefined;
@@ -537,6 +541,7 @@ export default function Chat() {
     // The persisted task snapshot remains the default after refresh; an
     // explicit skill switch belongs only to the currently open session.
     setRuntimeActions([]);
+    discoveryResultsRevealedSession.current = null;
     setSelectedTemplateSkillId(null);
     setSelectedSkillTemplate(null);
     paramTemplateKey.current = null;
@@ -544,6 +549,18 @@ export default function Chat() {
     setSkillParamErrors({});
     setSkillParamTouched(new Set());
   }, [id]);
+
+  useEffect(() => {
+    if (!id || !hasDiscoveryResults || discoveryResultsRevealedSession.current === id) return;
+    // A saved discovery session may inherit a collapsed generic result rail.
+    // Reveal its persisted candidate evidence once, without changing any
+    // selection, confirmation, receipt, or later user-controlled collapse.
+    const frame = requestAnimationFrame(() => {
+      revealWorkspace(id, "rail");
+      discoveryResultsRevealedSession.current = id;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [id, hasDiscoveryResults]);
 
   useEffect(() => {
     if (!task) return;

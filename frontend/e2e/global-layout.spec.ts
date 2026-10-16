@@ -18,6 +18,7 @@ async function fixture(page: Page) {
     else if(path.endsWith('/events')) json={events:[]};
     else if(path==='/api/kol/cooperations') json={cooperations:[coop],total:1};
     else if(path==='/api/kol/cooperations/coop-layout') json={cooperation:coop,lead,work_orders:[],events:[],allowed_actions:[]};
+    else if(path==='/api/admin/business-domains') json={version:1,generated_at:'2026-10-11T01:00:00Z',domains:[],relations:[]};
     else if(path==='/api/admin/ontology/registries') json={registries:['objects','events','tickets','rules'].map(scope=>({scope,base_version:'layout-baseline',data:{objects:[{id:'p',name:'人员',status:'active'}]}}))};
     else if(path==='/api/admin/ontology/change-approvals/latest') json={latest:null,base_version:'layout-baseline'};
     else if(path==='/api/admin/work-orders/data-quality') json={active_person_count:1,active_unit_count:1,issue_count:0,issues:[],registry_revision:'layout-org',seeded_at:null,as_of:'2026-10-11T01:00:00Z'};
@@ -31,9 +32,10 @@ async function fixture(page: Page) {
   });
   return { writes, errors };
 }
-for(const entry of [{url:'/leads',text:'线索管理'},{url:'/cooperations',text:'合作项目'},{url:'/admin/ontology',text:'本体管理'},{url:'/admin/work-orders',text:'工单治理'}]) {
+for(const entry of [{url:'/leads',text:'线索管理'},{url:'/cooperations',text:'合作项目'},{url:'/admin/ontology',text:'本体'},{url:'/admin/work-orders',text:'工单治理'}]) {
   test(`global layout read-only smoke ${entry.url}`,async({page})=>{
     const state=await fixture(page);await page.goto(entry.url);await expect(page.getByRole('heading',{name:entry.text,exact:true}).first()).toBeVisible();
+    await expect(page.getByRole('alert')).toHaveCount(0);
     await expect(page.getByText('正在检查账户…')).toHaveCount(0); await page.screenshot({path:`test-results/global-layout/smoke-${entry.url.replaceAll('/','-')}.png`,fullPage:true});
     expect(state.errors).toEqual([]);expect(state.writes).toEqual([]);
   });

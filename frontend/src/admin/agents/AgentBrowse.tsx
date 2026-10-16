@@ -60,7 +60,7 @@ export function AgentBrowse({ data, loading, error, filters, selectedId, page, o
     <div className="agent-list-columns" aria-hidden="true"><span>Agent 名称</span><span>发布状态</span></div>
     {data && rows.slice((currentPage - 1) * 20, currentPage * 20).map(row => <BrowseListRow key={row.id} title={row.name}
       selected={row.id === selectedId} kind={`${agentStatusName(row.status)}${row.published_revision ? ` · v${row.published_revision}` : ""}${row.draft ? " · 有草稿" : ""}`}
-      onOpen={() => onSelect(row.id)} openAttributes={{ "data-agent-record": row.id }} />)}
+      onOpen={() => onSelect(row.id)} recordAttributes={{ "data-agent-record": row.id }} openAttributes={{ "data-agent-open": row.id }} />)}
     {!data && loading && <p className="agent-empty" role="status">正在读取 Agent 与组织覆盖依据…</p>}
     {data && !rows.length && !error && <p className="agent-empty">没有符合条件的 Agent。<CompactButton onClick={onReset}>清除筛选条件</CompactButton></p>}
   </section>;

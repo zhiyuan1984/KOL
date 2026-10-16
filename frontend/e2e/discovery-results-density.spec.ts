@@ -230,7 +230,13 @@ test.describe("touch input", () => {
     const first = page.locator("[data-discovery-candidate=account-0]");
     await expect(first).toBeVisible();
     expect(await page.evaluate(() => matchMedia("(pointer: coarse)").matches)).toBeTruthy();
-    for (const target of await first.locator(".discovery-candidate-selection, button, summary").all()) {
+    const targets = [
+      first.locator(".discovery-candidate-selection.ant-checkbox-wrapper"),
+      ...await first.getByRole("button").all(),
+      first.locator("summary"),
+    ];
+    for (const target of targets) {
+      await expect(target).toBeVisible();
       const box = (await target.boundingBox())!;
       expect(box.height).toBeGreaterThanOrEqual(44);
       expect(box.width).toBeGreaterThanOrEqual(44);

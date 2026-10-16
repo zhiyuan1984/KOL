@@ -157,7 +157,7 @@ test("score confirmation is invalidated by scope changes and can be cancelled wi
   await page.locator("[data-pool-jev-assess]").click();
   await expect(confirm).toHaveAttribute("data-pool-score-targets", "2");
   await page.locator("[data-pool-score-cancel]").click();
-  await expect(input(page)).toHaveValue("保留这份分析草稿");
+  await expect(input(page)).toHaveValue(templates.find((template) => template.slot === "score")!.body);
   expect(posts).toEqual([]);
 });
 

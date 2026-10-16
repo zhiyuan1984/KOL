@@ -642,9 +642,9 @@ test("pool KOL scoring uses the existing Jev endpoint and refreshes public signa
   await page.goto("/?tab=pool");
   await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-select]").check();
   await page.locator("[data-pool-jev-assess]").click();
-  // 评分独立确认，不覆盖输入草稿。
+  // 明确的评分模板入口预填当前已发布正文；R3 确认尚未产生评分写入。
   const input = page.locator("[data-home] [data-composer-input]");
-  await expect(input).toHaveValue("");
+  await expect(input).toHaveValue(QUESTION_TEMPLATES.find((template) => template.slot === "score")!.body);
   expect(posts.map((item) => item.path)).not.toContain("/api/home/pool/jev-assess");
   await expect(page.locator("[data-pool-score-confirm]")).toBeVisible();
   await page.locator("[data-pool-score-execute]").click();

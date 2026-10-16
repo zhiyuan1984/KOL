@@ -35,6 +35,9 @@ export default defineConfig({
     "product-knowledge.spec.ts",
     "native-knowledge-auth.spec.ts",
   ],
+  // Preserve the anonymous 401 case in the legacy disabled-auth partition;
+  // this enabled-auth collection owns only its two normal-login assertions.
+  grepInvert: /@native-knowledge-legacy-anonymous/,
   outputDir,
   globalSetup: "./e2e/fixtures/native-knowledge-auth.ts",
   fullyParallel: false,

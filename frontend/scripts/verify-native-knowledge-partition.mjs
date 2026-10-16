@@ -38,20 +38,43 @@ const nativeOriginalSpecs = [
   "product-knowledge.spec.ts",
 ];
 const nativeOriginal = native.filter((row) => nativeOriginalSpecs.some((spec) => row.startsWith(`e2e/${spec} ›`)));
-const nativeInfra = native.filter((row) => row.startsWith("e2e/native-knowledge-auth.spec.ts ›"));
-const nativeUnexpected = native.filter((row) => !nativeOriginal.includes(row) && !nativeInfra.includes(row));
-const legacyNativeOverlap = legacy.filter((row) => nativeOriginal.includes(row));
-const union = [...legacy, ...nativeOriginal].sort();
+const nativeAuthSpec = "e2e/native-knowledge-auth.spec.ts";
+const enabledNativeAuthCases = [
+  `${nativeAuthSpec} › native login exposes the authenticated knowledge catalog and published template`,
+  `${nativeAuthSpec} › requester cannot self-approve while the independently logged-in reviewer approves`,
+].sort();
+const legacyAnonymousAuthCases = [
+  `${nativeAuthSpec} › anonymous caller is denied the native knowledge catalog`,
+];
+const baselineNativeAuth = baseline.filter((row) => row.startsWith(`${nativeAuthSpec} ›`));
+const legacyNativeAuth = legacy.filter((row) => row.startsWith(`${nativeAuthSpec} ›`));
+const nativeEnabledAuth = native.filter((row) => row.startsWith(`${nativeAuthSpec} ›`));
+const nativeUnexpected = native.filter((row) => !nativeOriginal.includes(row) && !nativeEnabledAuth.includes(row));
+const legacyNativeOverlap = legacy.filter((row) => nativeOriginal.includes(row) || nativeEnabledAuth.includes(row));
+const union = [...legacy, ...nativeOriginal, ...nativeEnabledAuth].sort();
 unique(baseline, "baseline");
 unique(legacy, "legacy partition");
 unique(nativeOriginal, "native original partition");
+unique(nativeEnabledAuth, "native enabled-auth partition");
 unique(union, "partition union");
-if (nativeUnexpected.length || legacyNativeOverlap.length || !same(baseline, union)) {
+if (
+  nativeUnexpected.length
+  || legacyNativeOverlap.length
+  || !same(baseline, union)
+  || !same(baselineNativeAuth, [...enabledNativeAuthCases, ...legacyAnonymousAuthCases].sort())
+  || !same(legacyNativeAuth, legacyAnonymousAuthCases)
+  || !same(nativeEnabledAuth, enabledNativeAuthCases)
+) {
   throw new Error(JSON.stringify({
-    reason: "native/legacy original collection partition is not exact",
+    reason: "native/legacy original collection or native-auth case partition is not exact",
     baselineCount: baseline.length,
     legacyCount: legacy.length,
     nativeOriginalCount: nativeOriginal.length,
+    baselineNativeAuth,
+    legacyNativeAuth,
+    nativeEnabledAuth,
+    expectedLegacyAnonymousAuth: legacyAnonymousAuthCases,
+    expectedEnabledNativeAuth: enabledNativeAuthCases,
     overlap: legacyNativeOverlap,
     missing: baseline.filter((row) => !union.includes(row)),
     extra: union.filter((row) => !baseline.includes(row)),
@@ -63,14 +86,16 @@ const receipt = {
   baseline_original_cases: baseline.length,
   legacy_original_cases: legacy.length,
   native_original_cases: nativeOriginal.length,
-  native_infrastructure_cases: nativeInfra.length,
+  native_enabled_auth_cases: nativeEnabledAuth.length,
+  legacy_anonymous_auth_cases: legacyNativeAuth.length,
   original_overlap: legacyNativeOverlap,
   original_missing: baseline.filter((row) => !union.includes(row)),
   original_extra: union.filter((row) => !baseline.includes(row)),
   native_unexpected_cases: nativeUnexpected,
   native_original_specs: nativeOriginalSpecs,
   native_original_cases_detail: nativeOriginal,
-  native_infrastructure_cases_detail: nativeInfra,
+  native_enabled_auth_cases_detail: nativeEnabledAuth,
+  legacy_anonymous_auth_cases_detail: legacyNativeAuth,
 };
 fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
 fs.writeFileSync(out, `${JSON.stringify(receipt, null, 2)}\n`);

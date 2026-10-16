@@ -1,5 +1,17 @@
 import { expect, test, type Page } from "@playwright/test";
 
+async function openFixtureTask(page: Page, title: string) {
+  const dashboardRead = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return response.request().method() === "GET" && url.pathname === "/api/task-work-orders/dashboard" && response.ok();
+  });
+  await page.goto("/tasks");
+  await dashboardRead;
+  const taskRow = page.getByRole("row").filter({ hasText: title });
+  await expect(taskRow).toHaveCount(1);
+  await taskRow.getByRole("button", { name: "详情", exact: true }).click();
+}
+
 /** UI transport fixtures only; native persistence/permissions have separate tests. */
 async function fixture(page: Page, readSuggestions: () => unknown[] = () => []) {
   await page.route("**/api/task-work-orders/fixture-task/suggestions", route => route.fulfill({ json: { suggestions: readSuggestions(), calls_model: false } }));
@@ -23,10 +35,7 @@ async function fixture(page: Page, readSuggestions: () => unknown[] = () => []) 
         before_state: { status: "reviewing" }, after_state: { status: "approved" }, occurred_at: "2026-10-05T06:00:00Z" }],
     } });
   });
-  await page.goto("/tasks");
-  const taskRow = page.getByRole("row").filter({ hasText: task.title });
-  await expect(taskRow).toHaveCount(1);
-  await taskRow.getByRole("button", { name: "详情", exact: true }).click();
+  await openFixtureTask(page, task.title);
   return { revoke: () => { revoked = true; }, reads: () => reads };
 }
 

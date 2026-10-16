@@ -5,10 +5,16 @@
 .knowledge-governance .knowledge-title-start { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .knowledge-governance .knowledge-title-tail { flex:0 0 auto; white-space:nowrap; }
 .knowledge-governance .knowledge-list-open:focus-visible { border-radius:var(--radius-control); outline:var(--focus-ring-width) solid var(--focus-ring); outline-offset:0; }
-.knowledge-governance .kbv-asset-strip { display:block; padding:var(--space-2) var(--space-3); border-bottom:1px solid var(--border); }
+.knowledge-governance .kbv-asset-strip { display:block; padding:var(--space-2) var(--space-3); border-bottom:1px solid var(--border); container-type:inline-size; container-name:kb-asset-stats; }
 .knowledge-governance .kbv-asset-strip-head { display:flex; align-items:baseline; flex-wrap:wrap; justify-content:space-between; gap:var(--space-1) var(--space-2); margin-bottom:var(--space-2); font-size:var(--ds-font-xs); color:var(--text-quiet); }
 .knowledge-governance .kbv-asset-strip-head > span { font-weight:500; }
 .knowledge-governance .kbv-asset-strip-head > small { font-size:inherit; }
 .knowledge-governance .kbv-asset-strip-segments { display:flex; gap:0; min-width:0; flex-wrap:wrap; border:1px solid var(--border); border-radius:var(--radius-control); overflow:hidden; }
-.knowledge-governance .kbv-asset-strip-segments .kbv-asset-seg { min-width:min-content; flex-shrink:0; }
+.knowledge-governance .kbv-asset-strip-segments .kbv-asset-seg { min-width:0; flex:1 1 0; overflow:hidden; }
+@container kb-asset-stats (max-width: 48rem) {
+  .knowledge-governance .kbv-asset-strip-segments .kbv-asset-seg { flex-basis:50%; }
+}
+@container kb-asset-stats (max-width: 30rem) {
+  .knowledge-governance .kbv-asset-strip-segments .kbv-asset-seg { flex-basis:100%; }
+}
 @media (pointer:coarse) { .knowledge-governance .kbv-filter-tools button { min-height:var(--touch-hit-min); } }

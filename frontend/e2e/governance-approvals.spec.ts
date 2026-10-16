@@ -112,7 +112,7 @@ test("管理员只读投影不能代批；治理源失败不是空列表且可�
 });
 
 test("驳回必须填原因，版本冲突关闭旧确认，重核后只提交新版本", async ({ page }) => {
-  const f = await fixture(page, { staleOnce: true }); await page.goto(`/approvals?id=${AID}`); await expect(detail(page)).toBeVisible();
+  const f = await fixture(page, { staleOnce: true }); await page.goto("/approvals"); await openFromList(page);
   await detail(page).getByRole("button", { name: "驳回", exact: true }).click();
   let dialog = page.getByRole("dialog", { name: "确认驳回？" });
   await expect(dialog.getByRole("button", { name: "确认驳回", exact: true })).toBeDisabled();

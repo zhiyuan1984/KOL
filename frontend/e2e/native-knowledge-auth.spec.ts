@@ -57,7 +57,12 @@ async function createPublicationDraft(page: Page, request: APIRequestContext): P
   return draft!.id;
 }
 
-test("native login exposes the authenticated knowledge catalog and published template", async ({ page }) => {
+// The partition configs use metadata rather than title changes so normal-login
+// coverage and the disabled-auth 401 control remain distinct and traceable.
+const enabledNativeAuth = { tag: "@native-knowledge-enabled-auth" };
+const legacyAnonymousAuth = { tag: "@native-knowledge-legacy-anonymous" };
+
+test("native login exposes the authenticated knowledge catalog and published template", enabledNativeAuth, async ({ page }) => {
   await page.goto("/");
   const result = await page.evaluate(async (company) => {
     const read = async (path: string, init?: RequestInit) => {
@@ -92,7 +97,7 @@ test("native login exposes the authenticated knowledge catalog and published tem
   ]));
 });
 
-test("requester cannot self-approve while the independently logged-in reviewer approves", async ({ page, browser }) => {
+test("requester cannot self-approve while the independently logged-in reviewer approves", enabledNativeAuth, async ({ page, browser }) => {
   const requester = page.request;
   const template = await v2Template(requester);
   const headers = { "X-Review-Company": nativeKnowledgeAuth.company };
@@ -168,7 +173,7 @@ test("requester cannot self-approve while the independently logged-in reviewer a
   }
 });
 
-test("anonymous caller is denied the native knowledge catalog", async ({ baseURL }) => {
+test("anonymous caller is denied the native knowledge catalog", legacyAnonymousAuth, async ({ baseURL }) => {
   const response = await fetch(`${baseURL}/api/admin/knowledge/workspace-v1`, {
     headers: { "X-Review-Company": nativeKnowledgeAuth.company },
   });
