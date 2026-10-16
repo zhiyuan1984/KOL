@@ -212,10 +212,14 @@
   }
 }
 @media (pointer: coarse) and (max-width: 1100px) {
-  /* DESIGN §30: the stacked rail is at most 30dvh. Keep room for a full
-     44px parameter target above the control slot and the opaque composer. */
+  /* DESIGN §30: 30dvh is a maximum, not a required allocation. Cap the rail
+     at one quarter of the actual workspace too: larger fallback-font drafts
+     otherwise leave less than one 44px parameter row above the jump slot. */
   :is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace[data-agent-visual]:not(.is-task-rail-collapsed):not(.is-result-focus) {
-    grid-template-rows: minmax(0, 1fr) minmax(0, 30dvh);
+    grid-template-rows: minmax(0, 1fr) minmax(0, min(30dvh, 25%));
+  }
+  :is(.home-pane[data-home-workspace], .session-workspace) .scope-workspace.scope-workspace[data-agent-visual] .scope-workspace-center-scroll-wrap {
+    min-block-size: calc(2 * var(--touch-hit-min) + var(--space-1) + 2 * var(--space-2));
   }
 }
 
