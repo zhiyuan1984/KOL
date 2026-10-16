@@ -26,11 +26,11 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.14.1",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@typesafe-ai/sdk": "0.6.0",
-    "adm-zip": "^0.5.16",
+    "adm-zip": "0.6.1",
     "bullmq": "^6.3.11",
-    "hono": "^4.7.5",
+    "hono": "4.13.13",
     "ioredis": "^5.8.2",
     "pg": "^8.23.1",
     "smol-toml": "1.9.0",
@@ -44,10 +44,15 @@
     "@types/pg": "^8.23.1",
     "jsdom": "26.1.0",
     "typescript": "^5.8.2",
-    "vitest": "^3.0.9",
+    "vitest": "5.0.5",
     "zod": "^4.6.5"
   },
   "allowScripts": {
     "esbuild": true
+  },
+  "overrides": {
+    "fast-uri": "3.1.8",
+    "ip-address": "10.7.4",
+    "proxy-addr": "2.0.8"
   }
 }

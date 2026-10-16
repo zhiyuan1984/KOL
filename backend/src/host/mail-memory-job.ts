@@ -17,9 +17,7 @@ import {
   finishNativeMemoryRunWithAudit,
   listNativeConversationItems,
   listNativeMemoryItems,
-  listNativeMemoryThreads,
   listNativePersonItems,
-  listNativePersonKeys,
   listNativeThreadItems,
   mailBodyFingerprint,
   mailMemorySourceFingerprint,
@@ -42,7 +40,29 @@ import {
   threadDigestOf,
   type ThreadDigest,
 } from "./mail-summary.js";
-import { translateMailBodyZh, translateMailBodyZhWithCodexLuna } from "../starrykol/translate-zh.js";
+import {
+  classifyMailSourceLanguage,
+  isUsableInternalZh,
+  translateMailBodyZhResumable,
+  translateMailBodyZhWithCodexLuna,
+  CODEX_TRANSLATION_CHUNK_THRESHOLD,
+} from "../starrykol/translate-zh.js";
+import {
+  advanceNativeMailMemoryProgress,
+  nativeMailMemoryRemainingCandidates,
+  nextNativeMemoryItem,
+  nextNativeMemoryThread,
+  nextNativePersonKey,
+  personCursorOf,
+  readNativeChunkCheckpoint,
+  readNativeMailMemoryProgress,
+  writeNativeChunkCheckpoint,
+  writeNativeMailMemoryProgress,
+  clearNativeChunkCheckpoint,
+  recordNativeChunkCheckpointError,
+  type MailMemoryPhase,
+  type NativeMailMemoryProgress,
+} from "../postgres/mail-memory-progress-repository.js";
 
 export type MailMemoryStats = {
   scanned: number;
@@ -58,8 +78,17 @@ export type MailMemoryStats = {
   body_analyzed?: number;
   source_changed?: number;
   skipped?: number;
+  /** Chinese originals are completed as provenance, never as model translations. */
+  source_chinese?: number;
+  chunk_yielded?: number;
+  phase?: MailMemoryPhase;
+  next_phase?: MailMemoryPhase;
+  phase_cursor?: string;
+  remaining_candidates?: { items: number; threads: number; persons: number };
+  budget_remaining_ms?: number;
+  error_types?: Record<string, number>;
   provider_failed?: boolean;
-  completion_scope?: "bounded_increment_batch" | "budget_exhausted" | "provider_failed" | "skipped_lock_contended";
+  completion_scope?: "bounded_increment_batch" | "bounded_increment_batch_with_errors" | "budget_exhausted" | "budget_exhausted_with_errors" | "provider_failed" | "skipped_lock_contended";
   remaining_work?: boolean | "unknown";
   budget_exhausted?: boolean;
   error?: string;
@@ -71,6 +100,7 @@ const nowIso = (): string => new Date().toISOString();
 const EMPTY_STATS = (): MailMemoryStats => ({
   scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 0,
   persisted: 0, body_analyzed: 0, source_changed: 0, skipped: 0,
+  source_chinese: 0, chunk_yielded: 0, error_types: {},
 });
 
 /** Soft wall-clock budget. It is checked before work starts, never used to abort an in-flight model request. */
@@ -125,8 +155,13 @@ function isTrustedTranslation(source: string): boolean { return ["codex_memory",
 function itemTranslationNeeded(row: Row): boolean {
   const body = String(row.body_text ?? "");
   if (!body.trim()) return false;
-  const hasTranslation = Boolean(String(row.translation_zh || "").trim()) && isTrustedTranslation(String(row.translation_source || ""));
-  return !hasTranslation || String(row.memory_fingerprint || "") !== bodyFingerprint(body);
+  const fingerprintMatches = String(row.memory_fingerprint || "") === bodyFingerprint(body);
+  const sourceLanguage = classifyMailSourceLanguage(body);
+  if (sourceLanguage.kind === "source_zh") return !(fingerprintMatches && String(row.translation_source || "") === "source_zh");
+  const stored = String(row.translation_zh || "");
+  const hasTranslation = Boolean(stored.trim()) && isTrustedTranslation(String(row.translation_source || ""))
+    && isUsableInternalZh(stored, body);
+  return !hasTranslation || !fingerprintMatches;
 }
 
 function itemSummaryNeeded(row: Row): boolean {
@@ -158,16 +193,38 @@ async function digestWithRemote(rows: Row[]): Promise<{ text?: string; source?: 
 type ItemOutcome = {
   translationZh?: string; translationSource?: string; summary?: string; summaryZh?: string; summarySource?: string; source: string; error?: string;
   translated: boolean; summarized: boolean; bodyAnalyzed: boolean; providerUnavailable: boolean; budgetExhausted: boolean;
+  sourceChinese: boolean; clearTranslation: boolean; chunkCheckpointComplete: boolean; sourceChanged: boolean;
 };
-
 function sourceLineage(...sources: Array<string | undefined>): string {
   const unique = [...new Set(sources.map((source) => String(source || "").trim()).filter(Boolean))];
   return unique.join("+") || "analysis_failed";
 }
+function boundedErrorCode(error: unknown): string {
+  const value = String(error || "").toLowerCase();
+  if (value.includes("provider_disabled") || value.includes("mail_memory_provider_disabled")) return "provider_disabled";
+  for (const code of ["codex_timeout", "codex_auth_or_access_failed", "codex_request_failed", "codex_thread_missing", "codex_empty_result", "codex_translation_unusable"]) {
+    if (value === code) return code;
+  }
+  if (value.includes("codex_chunk_unavailable")) return "codex_chunk_unavailable";
+  if (value.includes("invalid_chunk_checkpoint")) return "invalid_chunk_checkpoint";
+  if (value.includes("merged_translation_unusable")) return "merged_translation_unusable";
+  if (value.includes("translation_provider_unavailable")) return "translation_provider_unavailable";
+  if (value.includes("summary_provider_unavailable")) return "summary_provider_unavailable";
+  if (value.includes("person_digest_provider_unavailable")) return "person_digest_provider_unavailable";
+  if (value.includes("digest_provider_unavailable")) return "digest_provider_unavailable";
+  if (value.includes("source_changed")) return "source_changed";
+  return "mail_memory_model_error";
+}
+function addErrorType(stats: MailMemoryStats, error: string): void {
+  const key = boundedErrorCode(error);
+  stats.error_types = { ...(stats.error_types || {}), [key]: Number(stats.error_types?.[key] || 0) + 1 };
+}
 
-/** Does model I/O only; its result is persisted later in a SQL-only transaction. */
+/** Does model I/O only; each accepted chunk is separately scope/source checkpointed afterwards. */
 async function prepareItemMemory(row: Row, budgetExceeded: () => boolean): Promise<ItemOutcome> {
   const body = String(row.body_text ?? "");
+  const mailbox = String(row.mailbox || "");
+  const sourceFingerprint = bodyFingerprint(body);
   const needTranslation = itemTranslationNeeded(row);
   const needSummary = itemSummaryNeeded(row);
   let translationZh: string | undefined;
@@ -179,19 +236,60 @@ async function prepareItemMemory(row: Row, budgetExceeded: () => boolean): Promi
   let summarized = false;
   let bodyAnalyzed = false;
   let budgetExhausted = false;
+  let sourceChinese = false;
+  let clearTranslation = false;
+  let chunkCheckpointComplete = false;
+  let sourceChanged = false;
 
   if (needTranslation) {
-    try {
-      const result = await translateMailBodyZh(body);
-      if (result) { translationZh = result.text; translationSource = result.source; translated = true; }
-      else { translationSource = "pending"; error = "translation_provider_unavailable"; }
-    } catch (err) {
-      translationSource = "pending";
-      error = err instanceof Error ? err.message : String(err);
+    const language = classifyMailSourceLanguage(body);
+    if (language.kind === "source_zh") {
+      // Provenance only: original Chinese is not a model output and never raises translated.
+      translationSource = "source_zh";
+      sourceChinese = true;
+      clearTranslation = true;
+    } else {
+      try {
+        // A one-turn body is never checkpointed; only genuinely long Codex work
+        // has resumable state.  This avoids a meaningless temporary row per mail.
+        const resumable = Array.from(body).length > CODEX_TRANSLATION_CHUNK_THRESHOLD;
+        const prior = resumable ? await readNativeChunkCheckpoint({ itemId: String(row.id), mailbox, sourceFingerprint }) : null;
+        let durableChunks = [...(prior?.completed_chunks || [])];
+        const attempt = await translateMailBodyZhResumable(body, resumable ? {
+          completedChunks: durableChunks,
+          shouldYield: budgetExceeded,
+          checkpoint: async ({ index, chunkCount, translation }) => {
+            if (index !== durableChunks.length) return false;
+            const next = [...durableChunks, translation];
+            const applied = await writeNativeChunkCheckpoint({
+              itemId: String(row.id), mailbox, sourceFingerprint, chunkCount,
+              completedChunks: next, expectedCompletedChunks: durableChunks,
+            });
+            if (applied) durableChunks = next;
+            return applied;
+          },
+        } : undefined);
+        if (attempt.text && attempt.source) {
+          translationZh = attempt.text; translationSource = attempt.source; translated = true; chunkCheckpointComplete = resumable;
+        } else if (attempt.yielded) {
+          budgetExhausted = true;
+        } else if (attempt.sourceChanged) {
+          sourceChanged = true;
+        } else {
+          translationSource = "pending";
+          error = boundedErrorCode(attempt.error || "translation_provider_unavailable");
+          // Never rewrite an old prefix on a later chunk failure.  We only attach
+          // safe error metadata to the exact current checkpoint.
+          if (resumable && durableChunks.length) await recordNativeChunkCheckpointError({ itemId: String(row.id), mailbox, sourceFingerprint, error });
+        }
+      } catch (err) {
+        translationSource = "pending";
+        error = boundedErrorCode(err);
+      }
     }
   }
 
-  if (needSummary) {
+  if (needSummary && !budgetExhausted && !sourceChanged) {
     if (budgetExceeded()) {
       budgetExhausted = true;
     } else {
@@ -219,59 +317,85 @@ async function prepareItemMemory(row: Row, budgetExceeded: () => boolean): Promi
     translationZh, translationSource, summary, summaryZh: summary, summarySource,
     source: sourceLineage(translationSource, summarySource), error: error || undefined,
     translated, summarized, bodyAnalyzed, providerUnavailable: Boolean(error) && !modelSucceeded,
-    budgetExhausted,
+    budgetExhausted, sourceChinese, clearTranslation, chunkCheckpointComplete, sourceChanged,
   };
 }
 
-async function persistItemOutcome(runId: string, row: Row, body: string, outcome: ItemOutcome, stats: MailMemoryStats): Promise<{ persisted: boolean; sourceChanged: boolean }> {
+/** Final CAS, checkpoint and durable phase cursor share one SQL client/transaction. */
+async function persistItemOutcome(
+  runId: string, row: Row, body: string, outcome: ItemOutcome, stats: MailMemoryStats,
+  progress: NativeMailMemoryProgress,
+): Promise<{ persisted: boolean; sourceChanged: boolean }> {
   const before = { ...stats };
-  const result = await postgresTransaction(async () => {
+  const nextProgress = advanceNativeMailMemoryProgress(progress, "items", String(row.id));
+  const result = await postgresTransaction(async (client) => {
     const applied = await writeNativeItemMemoryIfFresh({
-      itemId: String(row.id), body, translationZh: outcome.translationZh, translationSource: outcome.translationSource,
-      summary: outcome.summary, summaryZh: outcome.summaryZh, summarySource: outcome.summarySource, source: outcome.source, error: outcome.error || null,
-    });
-    if (!applied) return { applied: false, next: before };
+      itemId: String(row.id), mailbox: String(row.mailbox || ""), body, translationZh: outcome.translationZh,
+      translationSource: outcome.translationSource, clearTranslation: outcome.clearTranslation,
+      summary: outcome.summary, summaryZh: outcome.summaryZh, summarySource: outcome.summarySource,
+      source: outcome.source, error: outcome.error || null,
+    }, client);
+    // Error accounting is a run fact, even when the final source CAS rejects a
+    // stale model response.  Persist it with the same cursor/checkpoint commit.
     const next: MailMemoryStats = {
       ...before,
-      translated: before.translated + (outcome.translated ? 1 : 0), summarized: before.summarized + (outcome.summarized ? 1 : 0),
-      errors: before.errors + (outcome.error ? 1 : 0), persisted: (before.persisted || 0) + 1,
-      body_analyzed: (before.body_analyzed || 0) + (outcome.bodyAnalyzed ? 1 : 0),
+      translated: before.translated + (applied && outcome.translated ? 1 : 0),
+      summarized: before.summarized + (applied && outcome.summarized ? 1 : 0),
+      errors: before.errors + (outcome.error ? 1 : 0),
+      persisted: (before.persisted || 0) + (applied ? 1 : 0),
+      body_analyzed: (before.body_analyzed || 0) + (applied && outcome.bodyAnalyzed ? 1 : 0),
+      source_chinese: (before.source_chinese || 0) + (applied && outcome.sourceChinese ? 1 : 0),
     };
-    await checkpointNativeMemoryRun(runId, next);
-    return { applied: true, next };
+    await writeNativeMailMemoryProgress(nextProgress, client);
+    await checkpointNativeMemoryRun(runId, next, client);
+    if (applied && outcome.chunkCheckpointComplete) {
+      await clearNativeChunkCheckpoint({ itemId: String(row.id), mailbox: String(row.mailbox || ""), sourceFingerprint: bodyFingerprint(body) }, client);
+    }
+    return { applied, next };
   });
-  if (result.applied) Object.assign(stats, result.next);
-  else {
-    stats.source_changed = (stats.source_changed || 0) + 1;
-    if (outcome.error) stats.errors += 1;
-  }
-  return { persisted: result.applied, sourceChanged: !result.applied };
+  Object.assign(stats, result.next);
+  if (outcome.error) addErrorType(stats, outcome.error);
+  if (!result.applied) stats.source_changed = (stats.source_changed || 0) + 1;
+  return { persisted: result.applied, sourceChanged: !result.applied || outcome.sourceChanged };
 }
 
 type DigestOutcome = { persisted: boolean; generated: boolean; bodyAnalyzed: boolean; providerUnavailable: boolean };
 
-async function persistThreadDigestOutcome(runId: string, thread: Row, sourceRows: Row[], digest: ThreadDigest, generated: boolean, providerUnavailable: boolean, stats: MailMemoryStats): Promise<DigestOutcome> {
+async function persistPhaseAdvance(runId: string, stats: MailMemoryStats, progress: NativeMailMemoryProgress, phase: MailMemoryPhase, cursorValue?: string): Promise<NativeMailMemoryProgress> {
+  const next = advanceNativeMailMemoryProgress(progress, phase, cursorValue);
+  await postgresTransaction(async (client) => {
+    await writeNativeMailMemoryProgress(next, client);
+    await checkpointNativeMemoryRun(runId, stats, client);
+  });
+  return next;
+}
+
+async function persistThreadDigestOutcome(
+  runId: string, thread: Row, sourceRows: Row[], digest: ThreadDigest, generated: boolean,
+  providerUnavailable: boolean, stats: MailMemoryStats, progress: NativeMailMemoryProgress,
+): Promise<DigestOutcome> {
   const before = { ...stats };
+  const nextProgress = advanceNativeMailMemoryProgress(progress, "threads", String(thread.id));
   const result = await postgresTransaction(async (client) => {
-    // No model/network call is made in this transaction. Re-read the complete
-    // source on this physical client before accepting its derived digest.
     const current = await listNativeThreadItems(String(thread.id), client);
-    if (threadFingerprint(current) !== threadFingerprint(sourceRows)) return { applied: false, next: before };
-    const applied = await writeNativeThreadDigest(String(thread.id), { text: digest.text, source: digest.source, fingerprint: digest.fingerprint, error: digest.error, failedAt: digest.failed_at, mailCount: digest.mail_count }, client);
-    if (!applied) return { applied: false, next: before };
+    const unchanged = threadFingerprint(current) === threadFingerprint(sourceRows);
+    const applied = unchanged && await writeNativeThreadDigest(String(thread.id), { text: digest.text, source: digest.source, fingerprint: digest.fingerprint, error: digest.error, failedAt: digest.failed_at, mailCount: digest.mail_count }, client);
     const next: MailMemoryStats = {
-      ...before, digested: before.digested + (generated ? 1 : 0), errors: before.errors + (generated ? 0 : 1),
-      persisted: (before.persisted || 0) + 1, body_analyzed: (before.body_analyzed || 0) + (generated ? 0 : 1),
+      ...before, digested: before.digested + (applied && generated ? 1 : 0),
+      errors: before.errors + (applied && !generated ? 1 : 0), persisted: (before.persisted || 0) + (applied ? 1 : 0),
+      body_analyzed: (before.body_analyzed || 0) + (applied && !generated && digest.source === "analysis_failed" ? 1 : 0),
     };
+    await writeNativeMailMemoryProgress(nextProgress, client);
     await checkpointNativeMemoryRun(runId, next, client);
-    return { applied: true, next };
+    return { applied: Boolean(applied), unchanged, next };
   });
   if (result.applied) Object.assign(stats, result.next);
   else { stats.source_changed = (stats.source_changed || 0) + 1; if (!generated) stats.errors += 1; }
-  return { persisted: result.applied, generated: generated && result.applied, bodyAnalyzed: !generated && result.applied, providerUnavailable };
+  if (!generated) addErrorType(stats, "digest_provider_unavailable");
+  return { persisted: result.applied, generated: generated && result.applied, bodyAnalyzed: !generated && result.applied && digest.source === "analysis_failed", providerUnavailable };
 }
 
-async function ensureThreadDigest(thread: Row, runId: string, stats: MailMemoryStats): Promise<DigestOutcome | null> {
+async function ensureThreadDigest(thread: Row, runId: string, stats: MailMemoryStats, progress: NativeMailMemoryProgress): Promise<DigestOutcome | null> {
   const sourceRows = await listNativeThreadItems(String(thread.id));
   const items = sourceRows.map((item) => ({ ...item, body: String(item.body_text || item.body || item.snippet || ""), snippet: String(item.snippet || item.body_text || "") }));
   if (!items.some((item) => String(item.body || "").trim())) return null;
@@ -280,13 +404,18 @@ async function ensureThreadDigest(thread: Row, runId: string, stats: MailMemoryS
   if (stored.fingerprint === fingerprint && isRemoteDigest(stored.source) && stored.text) return null;
   const remote = await digestWithRemote(items);
   const generated = Boolean(remote.text);
+  // Failed refreshes keep a previous remote fact intact and mark the failure/staleness
+  // in its metadata; they must not replace a successful digest with analysis_failed.
+  const preserve = !generated && Boolean(stored.text) && isRemoteDigest(stored.source);
   const digest: ThreadDigest = generated
     ? { text: remote.text!, source: "codex_memory", mail_count: items.filter((item) => String(item.body || "").trim()).length, fingerprint }
-    : { text: threadDigestOf(items, stored).text, source: "analysis_failed", mail_count: items.filter((item) => String(item.body || "").trim()).length, fingerprint, error: remote.error || "unavailable", failed_at: nowIso() };
-  return persistThreadDigestOutcome(runId, thread, sourceRows, digest, generated, !generated, stats);
+    : preserve
+      ? { text: stored.text, source: stored.source, mail_count: stored.mail_count, fingerprint: stored.fingerprint, error: remote.error || "unavailable", failed_at: nowIso() }
+      : { text: threadDigestOf(items, stored).text, source: "analysis_failed", mail_count: items.filter((item) => String(item.body || "").trim()).length, fingerprint, error: remote.error || "unavailable", failed_at: nowIso() };
+  return persistThreadDigestOutcome(runId, thread, sourceRows, digest, generated, !generated, stats, progress);
 }
 
-async function ensurePersonDigest(mailbox: string, peerEmail: string, runId: string, stats: MailMemoryStats): Promise<DigestOutcome | null> {
+async function ensurePersonDigest(mailbox: string, peerEmail: string, runId: string, stats: MailMemoryStats, progress: NativeMailMemoryProgress): Promise<DigestOutcome | null> {
   const sourceRows = await listNativePersonItems(mailbox, peerEmail);
   const bodies = sourceRows.map((item) => ({ ...item, body: String(item.body_text || "") })).filter((item) => item.body.trim());
   if (!bodies.length) return null;
@@ -296,27 +425,32 @@ async function ensurePersonDigest(mailbox: string, peerEmail: string, runId: str
   if (stored && stored.fingerprint === fingerprint && isRemoteDigest(stored.source) && stored.text) return null;
   const remote = await digestWithRemote(bodies);
   const generated = Boolean(remote.text);
+  const preserve = !generated && Boolean(stored?.text) && isRemoteDigest(String(stored?.source || ""));
   const digest: ThreadDigest = generated
     ? { text: remote.text!, source: "codex_memory", mail_count: bodies.length, fingerprint, generated_at: nowIso() }
-    : { text: threadDigestOf(bodies, stored).text, source: "analysis_failed", mail_count: bodies.length, fingerprint, generated_at: nowIso(), error: remote.error || "unavailable", failed_at: nowIso() };
+    : preserve
+      ? { text: stored!.text, source: stored!.source, mail_count: stored!.mail_count, fingerprint: stored!.fingerprint, generated_at: nowIso(), error: remote.error || "unavailable", failed_at: nowIso() }
+      : { text: threadDigestOf(bodies, stored).text, source: "analysis_failed", mail_count: bodies.length, fingerprint, generated_at: nowIso(), error: remote.error || "unavailable", failed_at: nowIso() };
   const before = { ...stats };
+  const nextProgress = advanceNativeMailMemoryProgress(progress, "persons", personCursorOf({ mailbox, peer_email: peerEmail }));
   const result = await postgresTransaction(async (client) => {
-    // The peer selection and every source member are rechecked in this SQL-only
-    // transaction; SERIALIZABLE retry therefore repeats no model I/O.
     const current = await listNativePersonItems(mailbox, peerEmail, client);
-    if (threadFingerprint(current) !== threadFingerprint(sourceRows)) return { applied: false, next: before };
-    await writeNativePersonMemory({ id: `pmm_${Buffer.from(`${mailbox}:${peerEmail}`).toString("base64url")}`, mailbox, peerEmail, text: digest.text, source: digest.source, fingerprint: digest.fingerprint, mailCount: digest.mail_count, generatedAt: digest.generated_at, error: digest.error || null }, client);
+    const unchanged = threadFingerprint(current) === threadFingerprint(sourceRows);
+    if (unchanged) await writeNativePersonMemory({ id: `pmm_${Buffer.from(`${mailbox}:${peerEmail}`).toString("base64url")}`, mailbox, peerEmail, text: digest.text, source: digest.source, fingerprint: digest.fingerprint, mailCount: digest.mail_count, generatedAt: digest.generated_at, error: digest.error || null }, client);
     const next: MailMemoryStats = {
-      ...before, persons: before.persons + (generated ? 1 : 0), errors: before.errors + (generated ? 0 : 1),
-      persisted: (before.persisted || 0) + 1, body_analyzed: (before.body_analyzed || 0) + (generated ? 0 : 1),
+      ...before, persons: before.persons + (unchanged && generated ? 1 : 0), errors: before.errors + (unchanged && !generated ? 1 : 0),
+      persisted: (before.persisted || 0) + (unchanged ? 1 : 0), body_analyzed: (before.body_analyzed || 0) + (unchanged && !generated && digest.source === "analysis_failed" ? 1 : 0),
     };
+    await writeNativeMailMemoryProgress(nextProgress, client);
     await checkpointNativeMemoryRun(runId, next, client);
-    return { applied: true, next };
+    return { applied: unchanged, next };
   });
   if (result.applied) Object.assign(stats, result.next);
   else { stats.source_changed = (stats.source_changed || 0) + 1; if (!generated) stats.errors += 1; }
-  return { persisted: result.applied, generated: generated && result.applied, bodyAnalyzed: !generated && result.applied, providerUnavailable: !generated };
+  if (!generated) addErrorType(stats, "person_digest_provider_unavailable");
+  return { persisted: result.applied, generated: generated && result.applied, bodyAnalyzed: !generated && result.applied && digest.source === "analysis_failed", providerUnavailable: !generated };
 }
+
 export async function markPendingMailMemory(mailbox?: string): Promise<void> {
   if (!remoteMailAnalysisEnabled()) return;
   await markNativeMailMemoryPending(mailbox);
@@ -325,64 +459,103 @@ export async function markPendingMailMemory(mailbox?: string): Promise<void> {
 export async function runMailMemoryIncrement(mailbox?: string): Promise<MailMemoryStats> {
   const stats = EMPTY_STATS();
   const lock = await acquireMailMemoryIncrementLock();
-  if (!lock) {
-    return { ...stats, skipped: 1, completion_scope: "skipped_lock_contended", remaining_work: "unknown" };
-  }
+  if (!lock) return { ...stats, skipped: 1, completion_scope: "skipped_lock_contended", remaining_work: "unknown" };
   let runId = "";
   try {
     runId = await createNativeMemoryRun(mailbox || "*");
     stats.native_run_id = runId;
     if (!remoteMailAnalysisEnabled()) {
-      stats.errors = 1; stats.provider_failed = true; stats.error = "mail_memory_provider_disabled";
+      stats.errors = 1; stats.provider_failed = true; stats.error = "mail_memory_provider_disabled"; addErrorType(stats, stats.error);
       stats.completion_scope = "provider_failed"; stats.remaining_work = true;
       await finishNativeMemoryRunWithAudit(runId, { ...stats, status: "failed" }, "mail_memory.increment", { mailbox: mailbox || "*", repository: "postgresql_native", ...stats });
       return stats;
     }
     const startedAt = Date.now();
-    const budgetExceeded = (): boolean => Date.now() - startedAt >= incrementBudgetMs();
-    let stop = false;
-    const items = await listNativeMemoryItems({ mailbox, limit: 5000, pendingOnly: true });
-    for (const row of items) {
-      if (budgetExceeded()) { stats.budget_exhausted = true; stop = true; break; }
-      stats.scanned += 1;
-      const body = String(row.body_text ?? "");
-      const outcome = await prepareItemMemory(row, budgetExceeded);
-      await persistItemOutcome(runId, row, body, outcome, stats);
-      if (outcome.budgetExhausted) { stats.budget_exhausted = true; stop = true; break; }
-      if (outcome.providerUnavailable) { stats.provider_failed = true; stats.error = "mail_memory_provider_unavailable"; stop = true; break; }
-    }
-    if (!stop) {
-      for (const thread of await listNativeMemoryThreads(mailbox)) {
-        if (budgetExceeded()) { stats.budget_exhausted = true; stop = true; break; }
-        const outcome = await ensureThreadDigest(thread, runId, stats);
-        if (outcome?.providerUnavailable) { stats.provider_failed = true; stats.error = "mail_memory_provider_unavailable"; stop = true; break; }
+    const budgetMs = incrementBudgetMs();
+    const budgetExceeded = (): boolean => Date.now() - startedAt >= budgetMs;
+    let progress = await readNativeMailMemoryProgress(mailbox);
+    stats.phase = progress.next_phase;
+    stats.phase_cursor = progress.next_phase === "items" ? progress.item_cursor : progress.next_phase === "threads" ? progress.thread_cursor : progress.person_cursor;
+    // One candidate per phase turn makes each phase fair.  Three consecutive
+    // empty/fresh turns are a bounded full cycle, so fresh datasets exit instead
+    // of repeatedly wrapping to their earliest row.  Productive turns reset it.
+    let noProgressTurns = 0;
+    let turns = 0;
+    const MAX_TURNS = 96;
+    while (!budgetExceeded() && noProgressTurns < 3 && turns < MAX_TURNS) {
+      turns += 1;
+      const phase = progress.next_phase;
+      let productive = false;
+      if (phase === "items") {
+        const row = await nextNativeMemoryItem(mailbox, progress.item_cursor);
+        if (!row) {
+          progress = await persistPhaseAdvance(runId, stats, progress, phase);
+        } else {
+          stats.scanned += 1;
+          const body = String(row.body_text ?? "");
+          const outcome = await prepareItemMemory(row, budgetExceeded);
+          if (outcome.budgetExhausted) {
+            // Long body yielded: preserve only its durable chunk prefix; do not
+            // write completion fingerprint, attempts, old fields, or counters.
+            progress = await persistPhaseAdvance(runId, stats, progress, phase);
+            stats.budget_exhausted = true;
+            stats.chunk_yielded = (stats.chunk_yielded || 0) + 1;
+            break;
+          }
+          if (outcome.sourceChanged) {
+            // A checkpoint CAS observed another source/scope.  It is not a final
+            // item result, so advance only the fair cursor and leave fields intact.
+            progress = await persistPhaseAdvance(runId, stats, progress, phase, String(row.id));
+            stats.source_changed = (stats.source_changed || 0) + 1;
+          } else {
+            const persisted = await persistItemOutcome(runId, row, body, outcome, stats, progress);
+            progress = advanceNativeMailMemoryProgress(progress, phase, String(row.id));
+            productive = persisted.persisted;
+          }
+          if (outcome.error && !stats.error) stats.error = boundedErrorCode(outcome.error);
+          if (outcome.providerUnavailable) { stats.provider_failed = true; stats.error = boundedErrorCode(outcome.error || "translation_provider_unavailable"); }
+        }
+      } else if (phase === "threads") {
+        const thread = await nextNativeMemoryThread(mailbox, progress.thread_cursor);
+        if (!thread) progress = await persistPhaseAdvance(runId, stats, progress, phase);
+        else {
+          const outcome = await ensureThreadDigest(thread, runId, stats, progress);
+          // ensure* already atomically persisted this exact cursor when it had a
+          // source row.  Fresh/empty rows still advance once, avoiding replays.
+          if (outcome) { progress = advanceNativeMailMemoryProgress(progress, phase, String(thread.id)); productive = outcome.persisted; }
+          else progress = await persistPhaseAdvance(runId, stats, progress, phase, String(thread.id));
+          if (outcome?.providerUnavailable) { stats.provider_failed = true; stats.error = "mail_memory_provider_unavailable"; }
+        }
+      } else {
+        const person = await nextNativePersonKey(mailbox, progress.person_cursor);
+        if (!person) progress = await persistPhaseAdvance(runId, stats, progress, phase);
+        else {
+          const outcome = await ensurePersonDigest(person.mailbox, person.peer_email, runId, stats, progress);
+          if (outcome) { progress = advanceNativeMailMemoryProgress(progress, phase, personCursorOf(person)); productive = outcome.persisted; }
+          else progress = await persistPhaseAdvance(runId, stats, progress, phase, personCursorOf(person));
+          if (outcome?.providerUnavailable) { stats.provider_failed = true; stats.error = "mail_memory_provider_unavailable"; }
+        }
       }
+      noProgressTurns = productive ? 0 : noProgressTurns + 1;
     }
-    if (!stop) {
-      for (const peer of await listNativePersonKeys(mailbox)) {
-        if (budgetExceeded()) { stats.budget_exhausted = true; stop = true; break; }
-        const outcome = await ensurePersonDigest(peer.mailbox, peer.peer_email, runId, stats);
-        if (outcome?.providerUnavailable) { stats.provider_failed = true; stats.error = "mail_memory_provider_unavailable"; stop = true; break; }
-      }
-    }
-    const pendingItems = await listNativeMemoryItems({ mailbox, limit: 1, pendingOnly: true });
-    stats.remaining_work = Boolean(stats.provider_failed || stats.budget_exhausted || pendingItems.length || stats.source_changed);
-    stats.completion_scope = stats.provider_failed ? "provider_failed" : stats.budget_exhausted ? "budget_exhausted" : "bounded_increment_batch";
-    await finishNativeMemoryRunWithAudit(runId, { ...stats, status: stats.errors ? "failed" : "succeeded" }, "mail_memory.increment", {
-      mailbox: mailbox || "*", repository: "postgresql_native", ...stats,
+    if (budgetExceeded()) stats.budget_exhausted = true;
+    stats.next_phase = progress.next_phase;
+    stats.budget_remaining_ms = Math.max(0, budgetMs - (Date.now() - startedAt));
+    stats.remaining_candidates = await nativeMailMemoryRemainingCandidates(mailbox);
+    stats.remaining_work = Boolean(stats.provider_failed || stats.budget_exhausted || stats.source_changed || stats.remaining_candidates.items || stats.remaining_candidates.threads || stats.remaining_candidates.persons);
+    const withErrors = stats.errors > 0;
+    stats.completion_scope = stats.provider_failed ? "provider_failed" : stats.budget_exhausted
+      ? (withErrors ? "budget_exhausted_with_errors" : "budget_exhausted")
+      : (withErrors ? "bounded_increment_batch_with_errors" : "bounded_increment_batch");
+    await finishNativeMemoryRunWithAudit(runId, { ...stats, status: withErrors ? "failed" : "succeeded" }, "mail_memory.increment", {
+      mailbox: mailbox || "*", repository: "postgresql_native", scheduler: "durable_round_robin_v2", ...stats,
     });
     return stats;
   } catch (err) {
-    stats.errors += 1; stats.error = err instanceof Error ? err.message : String(err);
-    if (runId) {
-      // The atomic finish+audit failed or an earlier DB operation failed. Mark
-      // the owned run failed without claiming the increment audit was written.
-      try { await finishNativeMemoryRun(runId, { ...stats, status: "failed", error: stats.error }); } catch { /* preserve original failure */ }
-    }
+    stats.errors += 1; stats.error = boundedErrorCode(err); addErrorType(stats, stats.error);
+    if (runId) { try { await finishNativeMemoryRun(runId, { ...stats, status: "failed", error: stats.error }); } catch { /* preserve original failure */ } }
     throw err;
-  } finally {
-    await lock.release();
-  }
+  } finally { await lock.release(); }
 }
 
 export async function triggerMailMemoryIncrement(mailbox?: string): Promise<Awaited<void>> {
