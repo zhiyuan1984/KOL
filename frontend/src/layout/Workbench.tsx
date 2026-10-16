@@ -394,6 +394,10 @@ export default function Workbench() {
         </nav>
 
         <nav className="nav-group" aria-label="资产">
+          <NavLink to="/performance/me" className={() => "nav-link" + (loc.pathname.startsWith("/performance") ? " active" : "")} data-nav="performance" onClick={() => setMobileOpen(false)}>
+            <Ico path="M5 4h14v16H5z M8 8h8 M8 12h5 M8 16h3" />
+            <span className="sidebar-label">绩效</span>
+          </NavLink>
           <NavLink to="/kb" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} data-nav="knowledge" onClick={() => setMobileOpen(false)}>
             <Ico path="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5z M20 5.5A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5z" />
             <span className="sidebar-label">知识库</span>

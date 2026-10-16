@@ -1195,7 +1195,7 @@ v2 的单页例外（18px 标题）已删除。知识工作区标题统一回 `-
 | `--dialog-pad-compact` | ⚠️ | ✅ |
 | `--dialog-w-sm` | ✅ | ✅ |
 | `--drawer-pad` | ✅ | ✅ |
-| `--drawer-w-lg` | ⚠️ | ✅ |
+| `--drawer-w-lg` | ✅ | ✅ |
 | `--drawer-w-md` | ✅ | ✅ |
 | `--drawer-w-sm` | ✅ | ✅ |
 | `--ds-border` | ✅ | ✅ |

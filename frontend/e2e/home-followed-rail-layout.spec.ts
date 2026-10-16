@@ -233,13 +233,14 @@ test("following 明确成功为空时不等 board，也不补入其他负责人�
   await expect(center.locator("[data-followed-overview-count]")).toHaveText("目前跟进了 0 位");
 });
 
-test("服务端刷新失败时保留已经授权的 following rows", async ({ page }) => {
+test("服务端刷新失败时保留已经授权的 following rows", async ({ page }, testInfo) => {
   let followingReads = 0;
+  let refreshFails = true;
 
   await stubBoard(page);
   await page.route("**/api/home/following", (route) => {
     followingReads += 1;
-    if (followingReads === 1) return route.fulfill({ json: followingEnvelope([row(1), row(2)]) });
+    if (followingReads === 1 || !refreshFails) return route.fulfill({ json: followingEnvelope([row(1), row(2)]) });
     return route.fulfill({ status: 503, json: { error: "following refresh pending failed" } });
   });
 
@@ -247,14 +248,33 @@ test("服务端刷新失败时保留已经授权的 following rows", async ({ pa
 
   await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
   await expect(page.locator('[data-followed-kol="红人2"]')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("following-loaded.png") });
   await page.locator('[data-home-mode="today"]').click();
+  // React may batch rapid tab clicks back to the original mode. Verify that
+  // the intermediate pane committed before expecting a fresh lifecycle read.
+  await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
+  const failedRefresh = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === "/api/home/following" && response.status() === 503);
   await page.locator('[data-home-mode="lifecycle"]').click();
+  await failedRefresh;
 
   await expect(page.locator("[data-follow-refresh-error]")).toBeVisible();
   await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
   await expect(page.locator('[data-followed-kol="红人2"]')).toBeVisible();
   await expect(page.locator("[data-follow-empty]")).toHaveCount(0);
   expect(followingReads).toBeGreaterThanOrEqual(2);
+  await page.screenshot({ path: testInfo.outputPath("following-refresh-failed.png") });
+
+  refreshFails = false;
+  const recoveredRefresh = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === "/api/home/following" && response.status() === 200);
+  await page.locator("[data-follow-retry-loaded]").click();
+  await recoveredRefresh;
+  await expect(page.locator("[data-follow-refresh-error]")).toHaveCount(0);
+  await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
+  await expect(page.locator('[data-followed-kol="红人2"]')).toBeVisible();
+  await expect(page.locator("[data-follow-empty]")).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("following-recovered.png") });
 });
 
 test("未绑定邮箱范围时，首开我的红人不为旧协作对账等 board", async ({ page }) => {

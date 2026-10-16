@@ -10,6 +10,7 @@ import { HttpFail } from "./host/errors.js";
 import { postgresPool, requiredPostgresUrl } from "./postgres/pool.js";
 import { cron } from "./routers/cron.js";
 import { tickets } from "./routers/tickets.js";
+import { performanceRouter } from "./routers/performance.js";
 import { pgEnsureSystemCronJobs } from "./cron/postgres-store.js";
 
 /**
@@ -75,6 +76,7 @@ export function createPostgresOnlyApp(): Hono {
     identity_mode: "workbench_provider_required",
   }));
   app.route("/api", tickets);
+  app.route("/api", performanceRouter);
   app.route("/api", cron);
 
   mountStaticUi(app);

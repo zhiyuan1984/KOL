@@ -38,6 +38,10 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         end: true,
       },
       {
+        id: "performance", label: "绩效管理", href: "/admin/performance/cycles",
+        icon: "M5 4h14v16H5z M8 8h8 M8 12h5 M8 16h3",
+      },
+      {
         id: "overview",
         label: "工作战报",
         href: "/admin/overview",

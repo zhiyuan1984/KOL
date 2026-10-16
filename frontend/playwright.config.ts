@@ -16,6 +16,9 @@ export default defineConfig({
   testIgnore: [
     "**/runtime-actions.spec.ts",
     "**/discovery-accessibility.spec.ts",
+    // New native-authority controls are collected by runtime.config (not the
+    // disabled-auth partition); all existing default cases remain unchanged.
+    "**/fixtures/native-runtime-authority.test.mjs",
     ...(nativeKnowledgePartition ? [
       "**/knowledge-documents.spec.ts",
       "**/knowledge-usage.spec.ts",
