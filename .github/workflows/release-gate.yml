@@ -214,6 +214,11 @@ jobs:
             echo "Production checkout has local changes; preserve and reconcile them before deployment." >&2
             exit 1
           fi
+          # Capture the previously deployed build before moving the checkout.
+          # The ontology ledger validates this actual baseline; current HEAD may
+          # already be newer after an earlier deployment stopped before restart.
+          ONTOLOGY_RELEASE_BASE="$(node --input-type=module -e 'import fs from "node:fs"; const build=JSON.parse(fs.readFileSync("frontend/dist/release.json","utf8")); if(!/^[a-f0-9]{40}$/.test(build.commit||"")) process.exit(1); console.log(build.commit);')"
+          export ONTOLOGY_RELEASE_BASE
           git fetch github "$DEPLOY_REVISION"
           if ! git merge-base --is-ancestor HEAD "$DEPLOY_REVISION"; then
             echo "Production history is not included in the verified revision; reconcile it before deployment." >&2
