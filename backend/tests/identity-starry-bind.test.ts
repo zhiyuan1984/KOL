@@ -6,6 +6,7 @@ import type { Hono } from "hono";
 import { DEMO_ADMIN } from "../src/config.js";
 import { getConn, resetConn } from "../src/db.js";
 import { ensureStarryHomeLibrary, resetStarryHomeLibrarySync } from "../src/starrykol/library-sync.js";
+import { waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
 import { saveStarryBinding } from "../src/host/starry-bind.js";
 import type { Json } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
@@ -54,6 +55,9 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  // Authenticated reads may enqueue mailbox re-certification/hydration. Finish
+  // those operations before retiring this case's PostgreSQL connection.
+  await waitForBackgroundSync();
   (await resetConn());
   resetStarryHomeLibrarySync();
   fs.rmSync(tmp, { recursive: true, force: true });
@@ -165,8 +169,11 @@ describe("admin identity and Starry mailbox bind", () => {
     // The mock paginated source certifies Larry's stable ID. A mismatched
     // legacy display-name-only record must not be rescued by the name.
     expect(kols.map((row) => row.handle)).toEqual([]);
+    // This case asserts the settled binding, not a snapshot while the board's
+    // mailbox re-certification is still mutating that binding in the background.
+    await waitForBackgroundSync();
     const following = await call("GET", "/api/home/following");
-    expect(following.json).toMatchObject({authority:"kol_follow_index+verified_starry_binding",completeness:"complete"});
+    expect(following.json, JSON.stringify(following.json)).toMatchObject({authority:"kol_follow_index+verified_starry_binding",completeness:"complete"});
 
     expect(kols.some((row) => row.handle === "户外电源达人")).toBe(false);
 
