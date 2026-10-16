@@ -63,8 +63,8 @@ async function openDraftTab(page: Page) {
 }
 
 /** 原生结果工作台的正式阶段变更是独立 details；必须经真实控件打开，不修改 DOM open。 */
-async function openStageReview(page: Page) {
-  const review = page.locator('[data-workbench] .mail-stage-review');
+async function openStageReview(page: Page, messageId?: string) {
+  const review = page.locator(`[data-workbench] .mail-stage-review${messageId ? `[data-result-message=${JSON.stringify(messageId)}]` : ""}`);
   await expect(review).toBeAttached({ timeout: 15000 });
   // The R3 card has one per-ID restoration pass. Observe that settled state before
   // deciding whether the employee needs one real summary click; otherwise a late
@@ -448,9 +448,18 @@ async function expectFollowedObjectToolbar(page: Page) {
 }
 
 async function askConfirmStage(page: Page, handle: string, stageLabel: string) {
+  const review = page.locator('[data-workbench] .mail-stage-review');
+  const previousId = await review.evaluateAll((elements) => elements[0]?.getAttribute("data-result-message") || null);
   await page.locator("[data-composer-input]").fill(`提出阶段变更 @${handle} 到 ${stageLabel}`);
   await page.locator("[data-send]").click();
-  await openStageReview(page);
+  // Inbound analysis can already have a closed R3 card. This ask creates a new
+  // message; do not inspect the old card and then click the replacement's summary.
+  await expect(review).toHaveAttribute("data-result-message", /.+/, { timeout: 20000 });
+  if (previousId) await expect(review).not.toHaveAttribute("data-result-message", previousId, { timeout: 20000 });
+  const messageId = await review.getAttribute("data-result-message");
+  expect(messageId).toBeTruthy();
+  test.info().annotations.push({ type: "stage-review-message-identity", description: `previous=${previousId || "none"}; current=${messageId}` });
+  await openStageReview(page, messageId!);
   await expect(page.locator('[data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 20000 });
 }
 
