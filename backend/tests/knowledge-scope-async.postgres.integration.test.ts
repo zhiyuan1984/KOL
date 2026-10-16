@@ -46,7 +46,19 @@ describePostgres('knowledge scope async PostgreSQL persistence', () => {
   afterAll(async () => {
     await pool?.end();
     if (maintenance) {
-      await maintenance.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);
+      // pg-pool.end() can resolve before PostgreSQL observes every socket FIN.
+      // Wait for the actual connections, rather than force-killing an idle
+      // client and emitting an unhandled 57P01 after the assertions have passed.
+      let connections = -1;
+      for (let attempt = 0; attempt < 50; attempt++) {
+        connections = Number((await maintenance.query(
+          'SELECT COUNT(*) AS count FROM pg_stat_activity WHERE datname=$1', [database],
+        )).rows[0].count);
+        if (connections === 0) break;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      expect(connections, '自有测试库连接须退出后才允许普通 DROP').toBe(0);
+      await maintenance.query(`DROP DATABASE IF EXISTS "${database}"`);
       await maintenance.end();
     }
   });
