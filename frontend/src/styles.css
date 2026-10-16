@@ -302,6 +302,10 @@
   --dialog-pad-compact-x: 12px;
   --dialog-pad-compact-y: 16px;
   --radius-dialog: 8px;
+  --drawer-w-md: 720px;
+  --drawer-w-lg: 960px;
+  --drawer-pad-x: var(--dialog-pad-x);
+  --drawer-pad-y: var(--space-4);
   --control-h-form: 32px;
   /* Shared attribute/field patterns, DESIGN §19.2. */
   --property-label-w-short: 96px;
@@ -965,7 +969,7 @@ summary:focus-visible,
   flex-direction: column;
   overflow: hidden;
 }
-.main > :not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.skill-catalog-page):not(.kbv-page):not(.tasks-page) {
+.main > :not(.perf-ant-app):not(.perf-workspace):not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.skill-catalog-page):not(.kbv-page):not(.tasks-page) {
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
@@ -7899,7 +7903,7 @@ body {
   height: var(--scrollbar-size);
 }
 
-.main > :not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.skill-catalog-page):not(.kbv-page):not(.tasks-page) {
+.main > :not(.perf-ant-app):not(.perf-workspace):not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.skill-catalog-page):not(.kbv-page):not(.tasks-page) {
   width: 100%;
   max-width: var(--content-max);
   margin-inline: auto;
@@ -9407,7 +9411,7 @@ body {
   .kb-drawer { width: min(100vw, 440px); }
   .list-page.kb-page.has-drawer { padding-right: 0; }
   .main { padding: 0; }
-  .main > :not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.kbv-page):not(.tasks-page) { padding: 16px 14px 36px; }
+  .main > :not(.perf-ant-app):not(.perf-workspace):not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.kbv-page):not(.tasks-page) { padding: 16px 14px 36px; }
   /* 管理面在窄视口与员工端同规则：导航走 .sidebar 抽屉（由 .mobile-top ☰ 打开），
      不再把导航压成横向顶条。 */
   .admin-body { padding: var(--space-3) var(--space-3) var(--space-5); }

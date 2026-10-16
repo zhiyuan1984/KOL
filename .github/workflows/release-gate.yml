@@ -93,6 +93,11 @@ jobs:
           node -e "const {Client}=require('pg');(async()=>{const c=new Client({connectionString:process.env.ADMIN_URL});await c.connect();const r=await c.query(\"SELECT 1 FROM pg_database WHERE datname='lingong_template'\");if(!r.rowCount)await c.query('CREATE DATABASE lingong_template');await c.end();})().catch((error)=>{console.error(error);process.exit(1)})"
           DATABASE_URL="postgresql://lingong:local-dev-only@127.0.0.1:5432/lingong_template" npm run db:apply:postgres-schema
           DATABASE_URL="postgresql://lingong:local-dev-only@127.0.0.1:5432/lingong_template" npm run db:seed:reference
+      - name: Native PostgreSQL performance workflow and approvals
+        working-directory: backend
+        env:
+          PERFORMANCE_TEST_DATABASE_URL: postgresql://lingong:local-dev-only@127.0.0.1:5432/postgres
+        run: node node_modules/vitest/vitest.mjs run --config vitest.performance.config.ts --configLoader runner
       - name: Backend full deterministic tests
         working-directory: backend
         env:
@@ -129,6 +134,9 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           npx playwright test --config=playwright.native-knowledge.config.ts --workers=1 --retries=0
+      - name: Performance UI and Excel template regression
+        working-directory: frontend
+        run: node node_modules/@playwright/test/cli.js test --config playwright.performance.config.ts
       # E2E 在预发服务器上以 stub + PostgreSQL 运行（复用 ~/kol-e2e 与 lingong_e2e 测试库），
       # 不在 CI 内起 SQLite 实例；spec 集与 npm run test:e2e:release 保持一致。
       - name: E2E on staging server (PostgreSQL)

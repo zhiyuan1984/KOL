@@ -26,6 +26,8 @@ const SkillHub = lazy(() => import("./pages/SkillHub").then((m) => ({ default: m
 const Partners = lazy(() => import("./pages/Partners"));
 const Agents = lazy(() => import("./pages/Agents"));
 const AgentTeams = lazy(() => import("./pages/AgentTeams"));
+const PerformanceWorkspace = lazy(() => import("./performance/PerformanceWorkspace"));
+const AdminPerformance = lazy(() => import("./performance/AdminPerformance"));
 const Tasks = lazy(() => import("./pages/Tasks"));
 const TaskDetailPage = lazy(() => import("./pages/TaskDetailPage"));
 const BusinessMap = lazy(() => import("./pages/BusinessMap"));
@@ -58,6 +60,10 @@ function WorkbenchRoutes() {
             <Route path="/work" element={<Navigate to="/" replace />} />
             <Route path="/s/:id" element={<Session />} />
             <Route path="/tasks" element={<Tasks />} />
+            <Route path="/performance" element={<Navigate to="/performance/me" replace />} />
+            <Route path="/performance/records/:recordId" element={<PerformanceWorkspace />} />
+            <Route path="/performance/:view" element={<PerformanceWorkspace />} />
+            <Route path="/admin/performance/*" element={<AdminPerformance />} />
             <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
             <Route path="/leads" element={<BusinessMap view="leads" />} />
             <Route path="/cooperations" element={<BusinessMap view="cooperations" />} />

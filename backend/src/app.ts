@@ -37,6 +37,7 @@ import { costsRouter } from "./routers/costs.js";
 import { ensureRuntimeSchema } from "./runtime/store.js";
 import { tasks } from "./routers/tasks.js";
 import { tickets } from "./routers/tickets.js";
+import { performanceRouter } from "./routers/performance.js";
 import { kol } from "./routers/kol.js";
 import { kolDashboards } from "./routers/kol-dashboards.js";
 import { syncWorkbenchTicketPrincipal, withTicketPrincipal } from "./ticket-domain/auth.js";
@@ -67,6 +68,7 @@ import { reconcileDocumentJobs } from "./host/knowledge-documents.js";
 /** 需要同步 workbench ticket principal（PG 镜像、可审计外键）的正式权限路径。 */
 export function isFormalAuthorityPath(pathname: string): boolean {
   return pathname.startsWith("/api/tickets")
+    || pathname.startsWith("/api/performance/")
     || pathname === "/api/task-work-orders"
     || pathname.startsWith("/api/task-work-orders/")
     || pathname.startsWith("/api/cron/")
@@ -204,6 +206,7 @@ export async function createApp(): Promise<Hono> {
   // Formal ticket endpoints are isolated from the legacy `/tasks` router so
   // their production request path has no SQLite-shaped repository or identity imports.
   app.route("/api", tickets);
+  app.route("/api", performanceRouter);
   app.route("/api", kol);
   app.route("/api", kolDashboards);
   app.route("/api", tasks);
