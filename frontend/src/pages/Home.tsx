@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { randomUuid } from "../uuid";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -376,6 +376,14 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
   const [libraryCount, setLibraryCount] = useState<number | null>(null);
   const [followScope, setFollowScope] = useState<StarryBinding | null>(null);
   const followScopeRef = useRef<StarryBinding | null>(null);
+  // Following verifies the same scope as its rows. A later board response may
+  // supply task/workbench facts, but cannot replace that verified binding.
+  const followingScopeReadRef = useRef<string | null>(null);
+  const setVerifiedFollowScope = useCallback((scope: StarryBinding | null) => {
+    followingScopeReadRef.current = homeReadScope;
+    followScopeRef.current = scope;
+    setFollowScope(scope);
+  }, [homeReadScope]);
   const [sort, setSort] = useState("priority");
   const initialHomeMode = sessionRoute ? "discovery" : parseHomeMode(new URLSearchParams(window.location.search).get("tab"));
   // AI发现 tab：条件卡与提问框正文在首帧就位，不等 GET /api/home/discovery/template。
@@ -1004,6 +1012,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
     taskCatalogRef.current = [];
     todoItemsRef.current = [];
     followScopeRef.current = null;
+    followingScopeReadRef.current = null;
     setBoardWorkbench(null);
     setLibraryCount(null);
     setFollowScope(null);
@@ -1024,9 +1033,11 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
     if (Array.isArray(board.kols)) boardKolsRef.current = board.kols;
     setBoardWorkbench(board.workbench || null);
     setLibraryCount(Number(board.library?.count || 0));
-    const scope = board.follow_scope || null;
-    followScopeRef.current = scope;
-    setFollowScope(scope);
+    if (followingScopeReadRef.current !== homeReadScope) {
+      const scope = board.follow_scope || null;
+      followScopeRef.current = scope;
+      setFollowScope(scope);
+    }
     setSurfaceError(surface, "");
   };
 
@@ -1981,7 +1992,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
     boardKols: () => boardKolsRef.current,
     followScope,
     latestFollowScope: followScopeRef,
-    setFollowScope,
+    setFollowScope: setVerifiedFollowScope,
     selectedIds: selectedKolIds,
     todoItems: todoItemsRef.current,
     openTask: (task) => openTaskRef.current(task),

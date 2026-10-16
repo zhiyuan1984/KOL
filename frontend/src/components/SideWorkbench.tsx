@@ -235,10 +235,7 @@ export default function SideWorkbench({
   const stageReview = useRef<HTMLDetailsElement>(null);
   // Storage is an initial value for one R3 card, not an authority that can replay
   // over the employee's explicit open/close choice when late props arrive.
-  const initializedStageReviewKeys = useRef(new Set<string>());
-  const stageReviewOpenRef = useRef(false);
-  const stageReviewOpenKeyRef = useRef("");
-  const [stageReviewOpen, setStageReviewOpen] = useState(false);
+  const initializedStageReviewElement = useRef<HTMLDetailsElement | null>(null);
   const [initializedStageReviewKey, setInitializedStageReviewKey] = useState("");
   const stageReviewKey = latestStage ? `ui:stage-review:${sessionId}:${latestStage.id}` : "";
   const lastUser = [...messages].reverse().find(message => message.kind === "me");
@@ -247,15 +244,18 @@ export default function SideWorkbench({
     && lastUserIndex > messages.findIndex(message => message.id === mailMessages.at(-1)?.id));
   const stageReviewInitialized = initializedStageReviewKey === stageReviewKey;
   useEffect(() => {
-    if (!stageReviewKey || !latestStage || !ready
-      || (stageReviewOpenKeyRef.current === stageReviewKey && initializedStageReviewKeys.current.has(stageReviewKey))) return;
+    const element = stageReview.current;
+    if (!stageReviewKey || !latestStage || !ready || !element
+      || initializedStageReviewElement.current === element) return;
     let saved: string | null = null;
     try { saved = sessionStorage.getItem(stageReviewKey); } catch { /* Storage is optional. */ }
     const open = saved === "true" || (saved === null && ready && stageRequested);
-    initializedStageReviewKeys.current.add(stageReviewKey);
-    stageReviewOpenKeyRef.current = stageReviewKey;
-    stageReviewOpenRef.current = open;
-    setStageReviewOpen(open);
+    initializedStageReviewElement.current = element;
+    // Do not control the `open` attribute after this one per-ID restoration.
+    // Chromium queues a native `toggle` for summary activation after React has
+    // committed click work; a controlled attribute can then invert the employee's
+    // one real click. The native element remains authoritative after initialization.
+    element.open = open;
     setInitializedStageReviewKey(stageReviewKey);
     if (saved === null && open) {
       try { sessionStorage.setItem(stageReviewKey, "true"); } catch { /* Storage is optional. */ }
@@ -269,13 +269,7 @@ export default function SideWorkbench({
   }, [ready, stageRequested, latestStage?.id, sessionId, stageReviewKey]);
 
   const persistStageReviewOpen = (open: boolean) => {
-    if (stageReviewKey) {
-      initializedStageReviewKeys.current.add(stageReviewKey);
-      setInitializedStageReviewKey(stageReviewKey);
-    }
-    stageReviewOpenKeyRef.current = stageReviewKey;
-    stageReviewOpenRef.current = open;
-    setStageReviewOpen(open);
+    if (stageReviewKey) setInitializedStageReviewKey(stageReviewKey);
     if (!stageReviewKey) return;
     try { sessionStorage.setItem(stageReviewKey, String(open)); } catch { /* Storage is optional. */ }
   };
@@ -327,20 +321,23 @@ export default function SideWorkbench({
     <KolMailWorkbench messages={mailMessages} sessionId={sessionId} officialStage={officialStage}
       nextActions={decisionActions.length ? <ResultActions compact actions={decisionActions} sessionId={sessionId} onPrefill={onPrefill} /> : null}
       onReviewStage={latestStage ? () => {
+        if (stageReview.current) {
+          initializedStageReviewElement.current = stageReview.current;
+          stageReview.current.open = true;
+        }
         persistStageReviewOpen(true);
         revealWorkspace(sessionId, "rail", latestStage.id);
         stageReview.current?.querySelector<HTMLElement>(":scope > summary")?.focus({ preventScroll: true });
         requestAnimationFrame(() => stageReview.current?.querySelector<HTMLElement>("[data-confirm-stage]")?.scrollIntoView({ block: "nearest", behavior: "auto" }));
       } : undefined} />
-    {latestStage ? <details className="mail-stage-review" ref={stageReview} data-result-message={latestStage.id}
-      data-stage-review-initialized={stageReviewInitialized ? "true" : "false"} open={stageReviewInitialized && stageReviewOpen}
+    {latestStage ? <details key={stageReviewKey} className="mail-stage-review" ref={stageReview} data-result-message={latestStage.id}
+      data-stage-review-initialized={stageReviewInitialized ? "true" : "false"}
+      onToggle={(event) => {
+        initializedStageReviewElement.current = event.currentTarget;
+        persistStageReviewOpen(event.currentTarget.open);
+      }}
     >
-      <summary data-stage-review-summary onClick={(event) => {
-        // `open` is controlled; do not let the native toggle race the persisted UI state.
-        event.preventDefault();
-        const currentOpen = stageReviewOpenKeyRef.current === stageReviewKey && stageReviewOpenRef.current;
-        persistStageReviewOpen(!currentOpen);
-      }}>正式阶段变更 · 独立确认</summary>{renderArtifact(latestStage)}
+      <summary data-stage-review-summary>正式阶段变更 · 独立确认</summary>{renderArtifact(latestStage)}
     </details> : null}
   </> : null;
   return (

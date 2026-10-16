@@ -84,7 +84,13 @@ function review(container: HTMLElement) {
 function clickSummary(container: HTMLElement) {
   const summary = container.querySelector<HTMLElement>("summary[data-stage-review-summary]");
   expect(summary).not.toBeNull();
-  act(() => summary?.click());
+  act(() => {
+    summary?.click();
+    // Chromium emits the native details `toggle` after the summary activation.
+    // jsdom does not reliably flush that queued event inside `click()`, so model
+    // the settled browser event explicitly instead of relying on click-time state.
+    container.querySelector<HTMLDetailsElement>(".mail-stage-review")?.dispatchEvent(new Event("toggle"));
+  });
 }
 
 beforeEach(() => {
@@ -147,6 +153,30 @@ describe("SideWorkbench stage review", () => {
     root = createRoot(host!);
     act(() => root?.render(workbench()));
     expect(review(container).open).toBe(true);
+  });
+
+  it("persists the settled native details toggle without cancelling summary activation", () => {
+    const container = mount(workbench(false));
+    const details = review(container);
+    const summary = container.querySelector<HTMLElement>("summary[data-stage-review-summary]");
+    expect(summary).not.toBeNull();
+
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+    act(() => summary?.dispatchEvent(click));
+    expect(click.defaultPrevented).toBe(false);
+
+    act(() => {
+      details.open = true;
+      details.dispatchEvent(new Event("toggle"));
+    });
+    expect(details.dataset.stageReviewInitialized).toBe("true");
+    expect(sessionStorage.getItem(storageKey)).toBe("true");
+
+    act(() => {
+      details.open = false;
+      details.dispatchEvent(new Event("toggle"));
+    });
+    expect(sessionStorage.getItem(storageKey)).toBe("false");
   });
 
   it("does not reuse a prior card's open ref when a new stage is clicked before its own initialization", () => {

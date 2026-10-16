@@ -113,3 +113,34 @@ test("following 明确成功为空时绝不混入 board 的其他负责人记录
   await expect(page.locator('[data-followed-kol="OtherOwnerOnly"]')).toHaveCount(0);
   await expect(page.locator("[data-followed-overview-count]")).toHaveText("目前跟进了 0 位");
 });
+
+// A board response arriving after the authoritative following read must not
+// replace its binding or turn a verified mailbox empty state into generic empty.
+test("迟到 board 不覆盖 following 已核对的空名单和邮箱范围", async ({ page }) => {
+  let releaseBoard!: () => void;
+  const boardGate = new Promise<void>((resolve) => { releaseBoard = resolve; });
+  await page.route("**/api/home/board*", async (route) => {
+    await boardGate;
+    await route.fulfill({ json: {
+      kols: [{ id: "col_other_owner", handle: "OtherOwnerOnly", owner_name: "其他负责人" }],
+      workbench: {},
+      follow_scope: null,
+    } });
+  });
+  await page.route("**/api/home/following", (route) => route.fulfill({ json: followingEnvelope([]) }));
+  await page.goto("/");
+  await page.locator('[data-home-mode="lifecycle"]').click();
+  const lateBoardResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/home/board");
+  try {
+    await expect(page.locator('[data-follow-empty="mailbox"]')).toBeVisible();
+  } finally {
+    releaseBoard();
+  }
+  // Observe the actual late read rather than sleeping for a guessed duration.
+  await (await lateBoardResponse).finished();
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+  await expect(page.locator('[data-follow-empty="mailbox"]')).toBeVisible();
+  await expect(page.locator('[data-follow-empty="mailbox"]')).toContainText("larry.zhao@amperetime.com");
+  await expect(page.locator('[data-followed-kol="OtherOwnerOnly"]')).toHaveCount(0);
+  await expect(page.locator("[data-followed-overview-count]")).toHaveText("目前跟进了 0 位");
+});
