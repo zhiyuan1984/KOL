@@ -134,6 +134,7 @@ async function archiveSeedScoreTemplate(page: Page): Promise<void> {
   await expect(page.locator("[data-pool-jev-assess]")).toBeEnabled();
   await page.goto(`/admin/knowledge?stage=published&mode=detail&assetType=entry&assetId=${ownScoreFixture.id}`);
   const detail = page.locator("[data-knowledge-right][data-workspace-mode='detail']");
+  await expect(detail, "归档前必须完成真实知识详情加载，而非仍处于路由加载中").toBeVisible({ timeout: 20_000 });
   await expect(detail.locator(".kbw-identity")).toContainText(ownScoreFixture.title);
   await detail.getByText("版本、范围与引用记录", { exact: true }).click();
   const archive = detail.getByRole("button", { name: "停用已发布版本", exact: true });

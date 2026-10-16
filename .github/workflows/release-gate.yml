@@ -238,7 +238,7 @@ jobs:
           cd ~/kol
           [ "$(git rev-parse HEAD)" = "$EXPECTED_VERSION" ]
           node --input-type=module -e 'import fs from "node:fs"; const build=JSON.parse(fs.readFileSync("frontend/dist/release.json","utf8")); if(build.commit!==process.env.EXPECTED_VERSION) process.exit(1); console.log("Deployed full revision verified:",build.commit);'
-          curl --compressed -fsS --connect-timeout 5 --max-time 10 http://127.0.0.1:8765/api/health | node scripts/check-production-health.mjs
+          curl -H "Accept-Encoding: identity" -fsS --connect-timeout 5 --max-time 10 http://127.0.0.1:8765/api/health | node scripts/check-production-health.mjs
           for unit in lingong lingong-outbox lingong-execution-worker@1 lingong-execution-worker@2 lingong-cron-tick; do
             systemctl is-active --quiet "$unit"
           done
