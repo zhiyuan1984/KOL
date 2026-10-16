@@ -15,6 +15,11 @@ const port = process.env.E2E_PORT || "8949";
 const baseURL = process.env.E2E_BASE || `http://127.0.0.1:${port}`;
 const outputDir = process.env.PLAYWRIGHT_OUTPUT_DIR
   || path.join(frontend, "test-results-native-knowledge");
+// The in-process dispatcher must fingerprint the same uploaded originals as
+// the API child. Set the absolute root before Playwright loads test modules;
+// setting it only in webServer.env leaves workers on the repository default.
+const dataRoot = path.resolve(process.env.LINGONG_DATA || path.join(outputDir, "data"));
+process.env.LINGONG_DATA = dataRoot;
 const storageState = process.env.E2E_AUTH_STATE
   || path.join(outputDir, "native-knowledge-auth", "sriphy.json");
 process.env.E2E_AUTH_STATE = storageState;
@@ -61,7 +66,7 @@ export default defineConfig({
       E2E_MODE: "stub",
       E2E_AUTH_MODE: "enabled",
       LINGONG_PORT: port,
-      LINGONG_DATA: process.env.LINGONG_DATA || path.join(outputDir, "data"),
+      LINGONG_DATA: dataRoot,
       LINGONG_FRONTEND_DIST: process.env.LINGONG_FRONTEND_DIST || path.join(outputDir, "frontend-dist"),
       E2E_SKIP_BUILD: process.env.E2E_SKIP_BUILD || "0",
       VITE_E2E_FIXTURES: "1",
