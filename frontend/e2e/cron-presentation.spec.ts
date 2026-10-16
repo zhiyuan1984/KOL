@@ -466,12 +466,26 @@ test("列表刷新失败会保留旧状态并给出明确恢复入口", async ({
   const control = await fixture(page);
   await page.goto("/cron");
   await expect(jobRow(page, "personal-1")).toBeVisible();
+  // The shell badge reads the same endpoint once. Finish both initial reads so
+  // failNext cannot be consumed by that unrelated badge rather than this click.
+  await expect(page.locator("[data-cron-alert]")).toHaveText("4");
+  expect(listCalls(control)).toHaveLength(2);
+  const failedRead = page.waitForResponse((response) => response.request().method() === "GET"
+    && new URL(response.url()).pathname === "/api/cron/jobs" && response.status() === 503);
   control.failNextJobList();
   await page.getByRole("button", { name: "刷新定时任务列表" }).click();
+  await (await failedRead).finished();
+  expect(listCalls(control)).toHaveLength(3);
   await expect(page.getByRole("status")).toContainText("读取失败，当前列表可能是旧状态");
   await expect(jobRow(page, "personal-1")).toBeVisible();
+  const recoveredRead = page.waitForResponse((response) => response.request().method() === "GET"
+    && new URL(response.url()).pathname === "/api/cron/jobs" && response.status() === 200);
   await page.getByRole("button", { name: "重试", exact: true }).click();
+  await (await recoveredRead).finished();
   await expect(page.getByRole("status")).toHaveCount(0);
+  await expect(jobRow(page, "personal-1")).toBeVisible();
+  expect(listCalls(control)).toHaveLength(4);
+  expect(control.writes()).toBe(0);
 });
 
 test("初始读取错误不伪造 0 计数，提供重新读取后才显示数据", async ({ page }) => {
