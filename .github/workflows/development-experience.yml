@@ -15,6 +15,9 @@ on:
       - 'scripts/development-*'
       - 'scripts/deploy.sh'
       - 'scripts/*production-health*'
+      - 'scripts/test-native-knowledge-config.mjs'
+      - 'frontend/playwright.native-knowledge.config.ts'
+      - '.github/workflows/release-gate.yml'
       - '.agents/skills/**'
       - '.github/workflows/development-experience.yml'
       - 'frontend/src/admin/knowledge/**'
@@ -40,6 +43,9 @@ on:
       - 'scripts/development-*'
       - 'scripts/deploy.sh'
       - 'scripts/*production-health*'
+      - 'scripts/test-native-knowledge-config.mjs'
+      - 'frontend/playwright.native-knowledge.config.ts'
+      - '.github/workflows/release-gate.yml'
       - '.agents/skills/**'
       - '.github/workflows/development-experience.yml'
       - 'frontend/src/admin/knowledge/**'
@@ -131,6 +137,8 @@ jobs:
         run: |
           npm ci --prefix frontend --no-audit --no-fund
           npm ci --prefix backend --no-audit --no-fund
+      - name: Verify native knowledge API and worker configuration isolation
+        run: node scripts/test-native-knowledge-config.mjs
       - name: Initialize native PostgreSQL template and independent bootstrap
         working-directory: backend
         run: |
@@ -138,6 +146,7 @@ jobs:
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE kol_uiux_bootstrap OWNER postgres'
           DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/kol_uiux_template npm run db:apply:postgres-schema
           npm run db:apply:postgres-schema
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE kol_uiux_native_employee TEMPLATE kol_uiux_template OWNER postgres'
       - name: Validate knowledge component contracts and build
         working-directory: frontend
         run: |
@@ -159,11 +168,26 @@ jobs:
       - name: Verify preserved native approval and mailbox surfaces
         working-directory: frontend
         run: npx playwright test --config playwright.integrated-native.config.ts --reporter=line
+      - name: Verify normal-login native knowledge with the default data root
+        working-directory: frontend
+        env:
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/kol_uiux_native_employee
+          TEST_DB_PREFIX: kol_uiux_native
+          NODE_ENV: test
+          E2E_MODE: stub
+          E2E_AUTH_MODE: enabled
+          CODEX_MODE: stub
+        run: npx playwright test --config playwright.native-knowledge.config.ts --workers=1 --retries=0 --reporter=line
       # The private original is not in Git. This CI never certifies PPTX conversion
       # fidelity or live-model/production quality from an HTTP/model fixture.
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: knowledge-pilot-browser-evidence
-          path: frontend/test-results
+          path: |
+            frontend/test-results
+            frontend/test-results-native-knowledge
+            !frontend/test-results-native-knowledge/native-knowledge-auth
+            !frontend/test-results-native-knowledge/data
+            !frontend/test-results-native-knowledge/frontend-dist
           if-no-files-found: ignore

@@ -107,6 +107,8 @@ jobs:
       - name: Verify complete knowledge E2E partition
         working-directory: frontend
         run: node scripts/verify-native-knowledge-partition.mjs
+      - name: Native authenticated knowledge configuration isolation
+        run: node scripts/test-native-knowledge-config.mjs
       - name: Native production health positive and negative contracts
         run: node scripts/test-production-health.mjs
       - name: Prepare isolated native knowledge E2E database
