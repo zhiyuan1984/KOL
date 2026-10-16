@@ -147,19 +147,37 @@ export default function SideWorkbench({
   const composing = Boolean(draft && task?.skill_id !== "reply_analysis") || Boolean(result && isComposeResultCard(result));
   const decisionActions = !composing && result ? result.recommended_actions || result.actions || [] : [];
   const stageReview = useRef<HTMLDetailsElement>(null);
+  const [stageReviewOpen, setStageReviewOpen] = useState(false);
+  const stageReviewKey = latestStage ? `ui:stage-review:${sessionId}:${latestStage.id}` : "";
   const lastUser = [...messages].reverse().find(message => message.kind === "me");
   const lastUserIndex = messages.findIndex(message => message.id === lastUser?.id);
   const stageRequested = Boolean(latestStage && !latestStage.payload.locked && !latestStage.payload.resolved && !latestStage.payload.rejected
     && lastUserIndex > messages.findIndex(message => message.id === mailMessages.at(-1)?.id));
   useEffect(() => {
-    if (!ready || !stageRequested || !latestStage) return;
-    if (stageReview.current) stageReview.current.open = true;
+    if (!stageReviewKey || !latestStage) {
+      setStageReviewOpen(false);
+      return;
+    }
+    let saved: string | null = null;
+    try { saved = sessionStorage.getItem(stageReviewKey); } catch { /* Storage is optional. */ }
+    const open = saved === "true" || (saved === null && ready && stageRequested);
+    setStageReviewOpen(open);
+    if (saved === null && open) {
+      try { sessionStorage.setItem(stageReviewKey, "true"); } catch { /* Storage is optional. */ }
+    }
+    if (!open) return;
     const frame = requestAnimationFrame(() => {
       revealWorkspace(sessionId, "rail", latestStage.id);
       requestAnimationFrame(() => stageReview.current?.querySelector<HTMLElement>("[data-confirm-stage]")?.scrollIntoView({ block: "nearest", behavior: "auto" }));
     });
     return () => cancelAnimationFrame(frame);
-  }, [ready, stageRequested, latestStage?.id, sessionId]);
+  }, [ready, stageRequested, latestStage?.id, sessionId, stageReviewKey]);
+
+  const persistStageReviewOpen = (open: boolean) => {
+    setStageReviewOpen(open);
+    if (!stageReviewKey) return;
+    try { sessionStorage.setItem(stageReviewKey, String(open)); } catch { /* Storage is optional. */ }
+  };
 
   const [collapsed, setCollapsed] = useState(() => {
     const saved = localStorage.getItem("ui:right-collapsed");
@@ -208,13 +226,14 @@ export default function SideWorkbench({
     <KolMailWorkbench messages={mailMessages} sessionId={sessionId} officialStage={officialStage}
       nextActions={decisionActions.length ? <ResultActions compact actions={decisionActions} sessionId={sessionId} onPrefill={onPrefill} /> : null}
       onReviewStage={latestStage ? () => {
-        if (stageReview.current) stageReview.current.open = true;
+        persistStageReviewOpen(true);
         revealWorkspace(sessionId, "rail", latestStage.id);
-        stageReview.current?.querySelector("summary")?.focus({ preventScroll: true });
+        stageReview.current?.querySelector<HTMLElement>(":scope > summary")?.focus({ preventScroll: true });
         requestAnimationFrame(() => stageReview.current?.querySelector<HTMLElement>("[data-confirm-stage]")?.scrollIntoView({ block: "nearest", behavior: "auto" }));
       } : undefined} />
-    {latestStage ? <details className="mail-stage-review" ref={stageReview} data-result-message={latestStage.id}>
-      <summary>正式阶段变更 · 独立确认</summary>{renderArtifact(latestStage)}
+    {latestStage ? <details className="mail-stage-review" ref={stageReview} data-result-message={latestStage.id} open={stageReviewOpen}
+      onToggle={(event) => persistStageReviewOpen(event.currentTarget.open)}>
+      <summary data-stage-review-summary>正式阶段变更 · 独立确认</summary>{renderArtifact(latestStage)}
     </details> : null}
   </> : null;
   return (

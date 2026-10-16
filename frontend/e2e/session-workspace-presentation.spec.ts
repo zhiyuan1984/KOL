@@ -274,6 +274,9 @@ test("confirmation is visible, demotes send, uses the current version and retain
 });
 
 test("discovery confirmation uses the refreshed snapshot once and waits for remote completion", async ({ page }) => {
+  // The global reduced-motion declaration makes the visual terminal state
+  // deterministic; the assertion below still verifies that exact render.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   const state = await fixture(page, true);
   await page.clock.install();
   await page.goto("/?tab=discovery&session_id=ordinary-session");
@@ -282,10 +285,10 @@ test("discovery confirmation uses the refreshed snapshot once and waits for remo
   await expect(page.locator("[data-discovery-run-status-label]")).toContainText("待确认");
   const submit = page.locator("[data-ai-prompt-submit]");
   await expect(submit).toHaveAttribute("data-send-emphasis", "secondary");
-  // Let the primary -> secondary CSS transition settle under the fake clock.
-  // Intermediate alpha (.145/.07) is not the governed transparent end state.
-  await page.clock.runFor(500);
-  expect(await submit.evaluate(el => getComputedStyle(el).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
+  // Read the browser-rendered end state; intermediate transition alphas are
+  // not accepted as a substitute for the governed transparent secondary CTA.
+  await page.clock.runFor(20);
+  await expect.poll(async () => submit.evaluate(el => getComputedStyle(el).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
   state.revise();
   await page.clock.runFor(2100);
   await confirm.evaluate(el => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });

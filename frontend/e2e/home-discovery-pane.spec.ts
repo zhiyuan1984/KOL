@@ -657,21 +657,42 @@ test("compact discovery thresholds stay visible above the dock", async ({ page }
 
   const minBox = await followerMin.boundingBox();
   const maxBox = await followerMax.boundingBox();
-  const playsBox = await avgPlays.boundingBox();
-  const minInputBox = await followerMin.locator("input").boundingBox();
-  const playsInputBox = await avgPlays.locator("input").boundingBox();
   // 固定 Agent 中栏在本断点已是窄容器；DESIGN 不变量要求独立字段组单列，
   // 不能为迁就旧桌面双列断言而在 <480px 内容区二次分栏。
   expect(minBox && maxBox && Math.abs(minBox.y - maxBox.y) < 2).toBeTruthy();
   await expectedCount.scrollIntoViewIfNeeded();
+  const minInputBox = await followerMin.locator("input").boundingBox();
+  const maxInputBox = await followerMax.locator("input").boundingBox();
+  const playsInputBox = await avgPlays.locator("input").boundingBox();
+  const countInputBox = await expectedCount.locator("input").boundingBox();
+  const followerRangeBox = await followerRange.boundingBox();
+  const metricPairBox = await metricPair.boundingBox();
   const visiblePlaysBox = await avgPlays.boundingBox();
   const countBox = await expectedCount.boundingBox();
   const dockBox = await workspace.locator('.home-composer-dock').boundingBox();
-  expect(visiblePlaysBox && countBox && visiblePlaysBox.y < countBox.y).toBeTruthy();
+  // 指标组是否纵排由其所属中栏容器的实际可用宽度决定；不能把视觉同行误判为
+  // 裁切。无论纵排或同行，两个字段都必须按 DOM 顺序完整落在 discovery_metrics 内。
+  expect(metricPairBox && visiblePlaysBox && countBox
+    && visiblePlaysBox.x >= metricPairBox.x
+    && visiblePlaysBox.x + visiblePlaysBox.width <= metricPairBox.x + metricPairBox.width
+    && countBox.x >= metricPairBox.x
+    && countBox.x + countBox.width <= metricPairBox.x + metricPairBox.width).toBeTruthy();
+  if (visiblePlaysBox && countBox && Math.abs(visiblePlaysBox.y - countBox.y) < 2) {
+    expect(visiblePlaysBox.x + visiblePlaysBox.width <= countBox.x).toBeTruthy();
+  } else {
+    expect(visiblePlaysBox && countBox && visiblePlaysBox.y + visiblePlaysBox.height <= countBox.y).toBeTruthy();
+  }
   // 原生 Agent 卡按「标签列 + 控制列」对齐，不再强制旧卡片的共享左边线。
-  // 更强的不变量是每个可编辑阈值完整落在可滚动条件卡内，不裁切也不横向溢出。
+  // 更强的不变量是每个可编辑阈值完整落在所属条件组及可滚动条件卡内，
+  // 不裁切也不横向溢出。
   const cardBox = await card.boundingBox();
-  for (const box of [minInputBox, playsInputBox, countBox]) {
+  for (const [owner, box] of [
+    [followerRangeBox, minInputBox], [followerRangeBox, maxInputBox],
+    [metricPairBox, playsInputBox], [metricPairBox, countInputBox],
+  ]) {
+    expect(owner && box && box.x >= owner.x && box.x + box.width <= owner.x + owner.width).toBeTruthy();
+  }
+  for (const box of [minInputBox, maxInputBox, playsInputBox, countInputBox]) {
     expect(cardBox && box && box.x >= cardBox.x && box.x + box.width <= cardBox.x + cardBox.width).toBeTruthy();
   }
   // 当前原生卡以字段标签和间距分组，不沿用旧表单的重复下划线；避免在窄栏
@@ -680,7 +701,9 @@ test("compact discovery thresholds stay visible above the dock", async ({ page }
     await expect(card.locator(`[data-skill-param="${field}"]`)).toHaveCSS("border-bottom-width", "0px");
   }
   // 长表单允许在中栏滚动，但固定 dock 绝不能吞掉当前字段。
-  expect(countBox && dockBox && countBox.y + countBox.height <= dockBox.y).toBeTruthy();
+  for (const box of [visiblePlaysBox, countBox]) {
+    expect(box && dockBox && box.y + box.height <= dockBox.y).toBeTruthy();
+  }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
 });
 

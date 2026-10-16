@@ -1153,6 +1153,9 @@ async function mockLabelStore(page: Page) {
     { id: "manual_review", name: "待人工核对", count: 0 },
     { id: "follow_up", name: "待跟进", count: 0 },
   ];
+  const peerOfConversation = (conversationId: string) => conversationId === FORMAL_CONVERSATION.conversation_id
+    ? FORMAL_CONVERSATION.peer_email
+    : conversationId === ANOTHER_CONVERSATION.conversation_id ? ANOTHER_CONVERSATION.peer_email : "";
   const assignments = new Map<string, string[]>();
   let version = 0;
   const posts: Record<string, unknown>[] = [];
@@ -1160,8 +1163,8 @@ async function mockLabelStore(page: Page) {
   const snapshot = (conversationId = "") => ({
     mailbox: FORMAL_BOX.mailbox,
     labels: entries.map(label => ({ ...label, count: [...assignments.values()].filter(ids => ids.includes(label.id)).length })),
-    assignments: [...assignments].map(([conversation_id, label_ids]) => ({ conversation_id, label_ids })),
-    selected_label_ids: assignments.get(conversationId) || [], version,
+    assignments: [...assignments].map(([peer_email, label_ids]) => ({ peer_email, label_ids })),
+    selected_label_ids: assignments.get(peerOfConversation(conversationId)) || [], version,
     creates_session: false, creates_turn: false, calls_model: false,
   });
   await page.route("**/api/queries/mail.labels**", route => route.fulfill({ json: { entry: "memory", ...snapshot(new URL(route.request().url()).searchParams.get("conversation_id") || "") } }));
@@ -1176,9 +1179,12 @@ async function mockLabelStore(page: Page) {
       label = { id: `manual_${entries.length}`, name: body.name.trim(), count: 0 }; entries.push(label);
     }
     if (!label) return route.fulfill({ status: 422, json: { detail: "unknown existing label" } });
-    const assigned = new Set(assignments.get(id) || []);
+    const peerEmail = peerOfConversation(id);
+    if (!peerEmail) return route.fulfill({ status: 404, json: { detail: "unknown conversation" } });
+    const assigned = new Set(assignments.get(peerEmail) || []);
     if (body.mode === "add") assigned.add(label.id); else assigned.delete(label.id);
-    assignments.set(id, [...assigned]); version += 1;
+    if (assigned.size) assignments.set(peerEmail, [...assigned]); else assignments.delete(peerEmail);
+    version += 1;
     return route.fulfill({ json: { entry: "command", ok: true, conversation_id: id, label_ids: [...assigned], ...snapshot(id) } });
   });
   return { posts, entries, assignments, failNext: (status: number) => { nextFailure = status; } };
@@ -1355,7 +1361,8 @@ test("延迟标签读取不能把前一会话标签快照带到新对象", async
     const conversationId = new URL(route.request().url()).searchParams.get("conversation_id") || "";
     if (conversationId === "3901" && !firstHeld) { firstHeld = true; await held; }
     const labelId = conversationId === "3901" ? "previous" : "current";
-    return route.fulfill({ json: { mailbox: FORMAL_BOX.mailbox, labels: [{ id: labelId, name: labelId === "previous" ? "旧对象标签" : "当前对象标签", count: 1 }], assignments: [{ conversation_id: conversationId, label_ids: [labelId] }], selected_label_ids: [labelId], version: 1 } });
+    const peerEmail = conversationId === "3901" ? FORMAL_CONVERSATION.peer_email : ANOTHER_CONVERSATION.peer_email;
+    return route.fulfill({ json: { mailbox: FORMAL_BOX.mailbox, labels: [{ id: labelId, name: labelId === "previous" ? "旧对象标签" : "当前对象标签", count: 1 }], assignments: [{ peer_email: peerEmail, label_ids: [labelId] }], selected_label_ids: [labelId], version: 1 } });
   });
   await page.goto("/mail?c=3901");
   await expect(page.getByText("正在读取此邮箱标签…", { exact: true })).toBeVisible();
@@ -1375,7 +1382,8 @@ test("保存中切换对象，旧标签确认回执不覆盖新会话", async ({
   let posted = false;
   await page.route("**/api/actions/mail.label", async route => {
     posted = true; const body = route.request().postDataJSON(); await held;
-    return route.fulfill({ json: { ok: true, mailbox: FORMAL_BOX.mailbox, conversation_id: body.conversation_id, labels: [{ id: "private_quote", name: "报价待确认", count: 1 }], assignments: [{ conversation_id: body.conversation_id, label_ids: ["private_quote"] }], label_ids: ["private_quote"], version: 1 } });
+    const peerEmail = body.conversation_id === ANOTHER_CONVERSATION.conversation_id ? ANOTHER_CONVERSATION.peer_email : FORMAL_CONVERSATION.peer_email;
+    return route.fulfill({ json: { ok: true, mailbox: FORMAL_BOX.mailbox, conversation_id: body.conversation_id, labels: [{ id: "private_quote", name: "报价待确认", count: 1 }], assignments: [{ peer_email: peerEmail, label_ids: ["private_quote"] }], label_ids: ["private_quote"], version: 1 } });
   });
   await page.goto("/mail?c=3901"); await openLabelPicker(page); await selectExistingLabel(page, "private_quote");
   await page.locator("[data-mail-label-confirm]").click();

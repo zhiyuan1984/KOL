@@ -277,6 +277,7 @@ test("business entry freezes the read source in the same employee draft", async 
   const main = page.locator("main.review-page"); await expect(main).toContainText("来源：来源红人");
   await main.getByLabel("稿件内容").fill("申请材料"); await main.getByRole("button", { name: "提交审批", exact: true }).click();
   await page.getByRole("dialog", { name: "确认提交审批" }).getByRole("button", { name: "提交审批", exact: true }).click();
+  await expect.poll(() => f.commands.length).toBe(1);
   expect(f.commands[0].command.source).toEqual(source);
 });
 test("AI draft result shows its gaps and opens the employee draft without submitting", async ({ page }) => {

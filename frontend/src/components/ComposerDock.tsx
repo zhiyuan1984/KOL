@@ -158,6 +158,7 @@ export default function ComposerDock({
   autoFocus,
   selectFirstPlaceholder,
   autoFocusToken,
+  explicitFocusToken,
   suggestions,
   onPickSuggestion,
   onPickSkill,
@@ -209,6 +210,8 @@ export default function ComposerDock({
   autoFocus?: boolean;
   selectFirstPlaceholder?: boolean;
   autoFocusToken?: number;
+  /** A user explicitly chose a template/prefill and expects to continue typing in the editor. */
+  explicitFocusToken?: number;
   suggestions?: ComposerSuggestion[];
   onPickSuggestion?: (item: ComposerSuggestion) => void;
   onPickSkill?: (skill: SkillOption, ctx: { mention: string; rest: string; collaborationId?: string }) => void;
@@ -301,6 +304,7 @@ export default function ComposerDock({
   const draftSignatureRef = useRef("");
   draftSignatureRef.current = JSON.stringify([value,skillChips,kbChips,attachments,lockedIntent,lockedKnowledgeId]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const lastExplicitFocusTokenRef = useRef(explicitFocusToken);
   const selectionRef = useRef({ start: value.length, end: value.length });
   const fileRef = useRef<HTMLInputElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
@@ -584,6 +588,17 @@ export default function ComposerDock({
     return () => window.clearTimeout(delay);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoFocus, autoFocusToken]);
+
+  useEffect(() => {
+    // Initial focus requests are deliberately guarded above: a remote refresh
+    // must not take an employee out of an editor they already chose. A changed
+    // token, however, comes from an explicit user prefill action, so return
+    // focus from that activating control to the now-editable question.
+    if (explicitFocusToken === lastExplicitFocusTokenRef.current) return;
+    lastExplicitFocusTokenRef.current = explicitFocusToken;
+    if (explicitFocusToken == null) return;
+    inputRef.current?.focus();
+  }, [explicitFocusToken]);
 
   useEffect(() => {
     const apply = (draft: ComposerDraftStash) => {

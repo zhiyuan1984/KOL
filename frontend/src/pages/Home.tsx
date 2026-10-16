@@ -748,6 +748,9 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
   };
   const [params, setParams] = useSearchParams();
   const [draftFocus, setDraftFocus] = useState(0);
+  // This starts empty so mounting/re-mounting the dock cannot masquerade as a
+  // user click. Only published pool-template picks advance the explicit token.
+  const [poolPrefillFocusToken, setPoolPrefillFocusToken] = useState<number | undefined>(undefined);
   const [blockSubmit, setBlockSubmit] = useState(false);
   const [err, setErr] = useState("");
   const [retryingSurface, setRetryingSurface] = useState<HomeSurface | null>(null);
@@ -1366,6 +1369,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
     setAnalyzeSurface("pool");
     setAnalyzeUids(targets);
     setText(body);
+    setPoolPrefillFocusToken((current) => (current ?? 0) + 1);
     setComposerFocused(true);
     setDraftFocus((value) => value + 1);
     setQueuedNotice("");
@@ -2489,6 +2493,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
         onKnowledgeChange={applyLockedKnowledge}
         autoFocus={draftFocus > 0}
         autoFocusToken={draftFocus}
+        explicitFocusToken={poolPrefillFocusToken}
         selectFirstPlaceholder={draftFocus > 0}
         discoveryBrief={discoveryBrief}
         discoveryCatalog={discoveryCatalog}

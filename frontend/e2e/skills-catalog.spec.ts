@@ -381,11 +381,40 @@ test.describe("技能目录（/skills）· AssetBrowse 视觉、可访问性与�
     const page = await context.newPage();
     await ready(page);
     expect(await page.evaluate(() => matchMedia("(pointer: coarse)").matches), "iPhone context must expose coarse pointer").toBe(true);
-    for (const selector of ['[data-skill-stage="reach"]', ".knowledge-list-open"]) {
-      const box = await page.locator(selector).first().boundingBox();
-      expect(box, `${selector} must render a hit target`).not.toBeNull();
-      expect(box!.height, `coarse-pointer ${selector} hit target must be ≥44px`).toBeGreaterThanOrEqual(44);
-    }
+    const [visualFilterHeight, touchHitMin] = await Promise.all([
+      pageVarPx(page, "--control-h-sm"), pageVarPx(page, "--touch-hit-min"),
+    ]);
+    expect(visualFilterHeight, "knowledge filters retain their registered 24px visual control").toBe(24);
+    expect(touchHitMin, "coarse-pointer touch target threshold remains 44px").toBe(44);
+
+    const reach = page.locator('[data-skill-stage="reach"]').first();
+    const filterHit = await reach.evaluate((element) => {
+      const visual = element.getBoundingClientRect();
+      const pseudo = getComputedStyle(element, "::before");
+      const hitHeight = Number.parseFloat(pseudo.height);
+      const hitTop = visual.top + (visual.height - hitHeight) / 2;
+      const hitBottom = hitTop + hitHeight;
+      const x = visual.left + visual.width / 2;
+      const stageAt = (y: number) => document.elementFromPoint(x, y)
+        ?.closest<HTMLElement>("[data-skill-stage]")?.getAttribute("data-skill-stage") || null;
+      return {
+        visualHeight: visual.height,
+        hitHeight,
+        upperStage: stageAt(hitTop + 1),
+        lowerStage: stageAt(hitBottom - 1),
+        tapPoint: { x, y: (hitTop + visual.top) / 2 },
+      };
+    });
+    expect(filterHit.visualHeight, "coarse-pointer filter keeps the compact visual bbox").toBeCloseTo(visualFilterHeight, 0);
+    expect(filterHit.hitHeight, "coarse-pointer filter hit target must be ≥44px").toBeGreaterThanOrEqual(touchHitMin);
+    expect(filterHit.upperStage, "expanded upper hit edge must not overlap another filter").toBe("reach");
+    expect(filterHit.lowerStage, "expanded lower hit edge must not overlap another filter").toBe("reach");
+    await page.touchscreen.tap(filterHit.tapPoint.x, filterHit.tapPoint.y);
+    await expect(reach, "a touch in the transparent expanded area must activate its filter").toHaveAttribute("aria-pressed", "true");
+
+    const rowBox = await page.locator(".knowledge-list-open").first().boundingBox();
+    expect(rowBox, ".knowledge-list-open must render a hit target").not.toBeNull();
+    expect(rowBox!.height, "coarse-pointer .knowledge-list-open hit target must be ≥44px").toBeGreaterThanOrEqual(touchHitMin);
     await context.close();
   });
 

@@ -67,7 +67,7 @@ async function openStageReview(page: Page) {
   const review = page.locator('[data-workbench] .mail-stage-review');
   await expect(review).toBeAttached({ timeout: 15000 });
   if (!(await review.evaluate((element) => element instanceof HTMLDetailsElement && element.open))) {
-    await review.locator('summary').click();
+    await review.locator(':scope > summary[data-stage-review-summary]').click();
   }
   await expect(review).toHaveJSProperty('open', true);
 }
