@@ -4989,9 +4989,15 @@ test("达人画像 and 更新红人负责人 run through Starry KOL MCP", async 
   const databaseUrl = String(process.env.DATABASE_URL || "");
   expect(process.env.E2E_MODE).toBe("stub");
   expect(new URL(databaseUrl).hostname).toBe("127.0.0.1");
-  // Full-browser shards use release-isolated ephemeral databases; never point
-  // this fixture at a production or arbitrary local database.
-  expect(new URL(databaseUrl).pathname).toMatch(/^\/kol_rem_fullbrowser_\d+$/);
+  // Only the explicitly declared local test database or its numeric shards.
+  // Do not couple the safety gate to one obsolete Sandbox run's database name.
+  const testPrefix = String(process.env.TEST_DB_PREFIX || "");
+  expect(testPrefix).toMatch(/^[a-z_][a-z0-9_]+$/);
+  expect(testPrefix).toMatch(/(?:^kol_rem_|test|e2e)/);
+  const databaseName = decodeURIComponent(new URL(databaseUrl).pathname.slice(1));
+  expect(databaseName === testPrefix || (
+    databaseName.startsWith(`${testPrefix}_`) && /^\d+$/.test(databaseName.slice(testPrefix.length + 1))
+  )).toBe(true);
   const { default: pg } = await import("../../backend/node_modules/pg/lib/index.js");
   const fixtureDb = new pg.Pool({ connectionString: databaseUrl });
   try {

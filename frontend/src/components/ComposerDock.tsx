@@ -570,6 +570,10 @@ export default function ComposerDock({
     const delay = window.setTimeout(() => {
       const node = inputRef.current;
       if (!node) return;
+      // Navigation may request the initial composer focus while a remote reply
+      // refresh is still pending. Never take an employee out of an editor that
+      // they focused before this deferred request is delivered.
+      if (document.activeElement !== document.body) return;
       node.focus();
       if (!selectFirstPlaceholder) return;
       const match = node.value.match(/\[[^\]]+\]/);

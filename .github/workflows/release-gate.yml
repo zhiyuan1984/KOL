@@ -114,11 +114,11 @@ jobs:
         env:
           ADMIN_URL: postgresql://lingong:local-dev-only@127.0.0.1:5432/postgres
         run: |
-          node -e "const {Client}=require('pg');(async()=>{const c=new Client({connectionString:process.env.ADMIN_URL});await c.connect();await c.query('CREATE DATABASE lingong_e2e_native TEMPLATE lingong_template');await c.end();})().catch(e=>{console.error(e);process.exit(1)})"
+          node -e "const {Client}=require('pg');(async()=>{const c=new Client({connectionString:process.env.ADMIN_URL});await c.connect();await c.query('CREATE DATABASE lingong_e2e_native_employee TEMPLATE lingong_template');await c.end();})().catch(e=>{console.error(e);process.exit(1)})"
       - name: Complete native authenticated knowledge E2E
         working-directory: frontend
         env:
-          DATABASE_URL: postgresql://lingong:local-dev-only@127.0.0.1:5432/lingong_e2e_native
+          DATABASE_URL: postgresql://lingong:local-dev-only@127.0.0.1:5432/lingong_e2e_native_employee
           TEST_DB_PREFIX: lingong_e2e
           NODE_ENV: test
           E2E_MODE: stub

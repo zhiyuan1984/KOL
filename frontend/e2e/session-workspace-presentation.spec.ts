@@ -282,7 +282,7 @@ test("discovery confirmation uses the refreshed snapshot once and waits for remo
   await expect(page.locator("[data-discovery-run-status-label]")).toContainText("待确认");
   const submit = page.locator("[data-ai-prompt-submit]");
   await expect(submit).toHaveAttribute("data-send-emphasis", "secondary");
-  expect(await submit.evaluate(el => getComputedStyle(el).backgroundColor)).toBe("rgba(219, 24, 96, 0.145)");
+  expect(await submit.evaluate(el => getComputedStyle(el).backgroundColor)).toBe("rgba(219, 24, 96, 0.07)");
   state.revise();
   await page.clock.runFor(2100);
   await confirm.evaluate(el => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });

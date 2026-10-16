@@ -143,7 +143,7 @@ test("inbound mail card replies only; stage write stays on confirm_stage card", 
           conversation_id: "thread-xiaomei",
           subject: "Re: Collaboration Opportunity with LiTime",
           body: "Hi, I am interested and would love to collaborate.",
-          from: "xiaomei.beauty@example.com",
+          from: "xiaomei.beauty@xiaomei-beauty.cn",
           to: "brand@litime.com",
           mailbox: "brand@litime.com",
           current_stage: "INITIAL_CONTACT",
@@ -179,7 +179,7 @@ test("inbound mail card replies only; stage write stays on confirm_stage card", 
   await expect(card.locator("[data-mail-stage-select]")).toHaveCount(0);
   await expect(card.locator("[data-stage-diff]")).toHaveCount(0);
   await reply.click();
-  await expect(page.locator("[data-composer-input]")).toHaveValue(/回复会话 thread-xiaomei.*收件: xiaomei\.beauty@example\.com/);
+  await expect(page.locator("[data-composer-input]")).toHaveValue(/回复会话 thread-xiaomei.*收件: xiaomei\.beauty@xiaomei-beauty\.cn/);
   await expect(workbench).toContainText("已预填回复要求");
   await expect(workbench.getByRole("button", { name: "核对阶段变更 · R3 需确认" })).toBeVisible();
   await workbench.getByRole("button", { name: "核对阶段变更 · R3 需确认" }).click();

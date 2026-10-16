@@ -1155,14 +1155,13 @@ async function mockLabelStore(page: Page) {
   ];
   const assignments = new Map<string, string[]>();
   let version = 0;
-  const peerOf = (id: string) => id === "3902" ? "other@example.com" : id ? FORMAL_CONVERSATION.peer_email : "";
   const posts: Record<string, unknown>[] = [];
   let nextFailure = 0;
   const snapshot = (conversationId = "") => ({
     mailbox: FORMAL_BOX.mailbox,
     labels: entries.map(label => ({ ...label, count: [...assignments.values()].filter(ids => ids.includes(label.id)).length })),
-    assignments: [...assignments].map(([peer_email, label_ids]) => ({ peer_email, label_ids })),
-    selected_label_ids: assignments.get(peerOf(conversationId)) || [], version,
+    assignments: [...assignments].map(([conversation_id, label_ids]) => ({ conversation_id, label_ids })),
+    selected_label_ids: assignments.get(conversationId) || [], version,
     creates_session: false, creates_turn: false, calls_model: false,
   });
   await page.route("**/api/queries/mail.labels**", route => route.fulfill({ json: { entry: "memory", ...snapshot(new URL(route.request().url()).searchParams.get("conversation_id") || "") } }));
@@ -1177,9 +1176,9 @@ async function mockLabelStore(page: Page) {
       label = { id: `manual_${entries.length}`, name: body.name.trim(), count: 0 }; entries.push(label);
     }
     if (!label) return route.fulfill({ status: 422, json: { detail: "unknown existing label" } });
-    const assigned = new Set(assignments.get(peerOf(id)) || []);
+    const assigned = new Set(assignments.get(id) || []);
     if (body.mode === "add") assigned.add(label.id); else assigned.delete(label.id);
-    assignments.set(peerOf(id), [...assigned]); version += 1;
+    assignments.set(id, [...assigned]); version += 1;
     return route.fulfill({ json: { entry: "command", ok: true, conversation_id: id, label_ids: [...assigned], ...snapshot(id) } });
   });
   return { posts, entries, assignments, failNext: (status: number) => { nextFailure = status; } };
@@ -1312,7 +1311,7 @@ test("未确认的已有标签选择留在原对象，切换会话不串线", as
   await mockFormalMail(page); await mockTwoConversations(page); const store = await mockLabelStore(page);
   await page.goto("/mail?c=3901");
   const original = await openCurrentLabelChooser(page, "3901");
-  const originalOption = original.options.locator('[data-mail-label-option="manual_review"]');
+  const originalOption = original.editor.locator('[data-mail-label-option="manual_review"]');
   await expect(originalOption).toContainText("待人工核对");
   await originalOption.click();
   const originalConfirm = original.editor.locator("[data-mail-label-confirm]");
@@ -1322,14 +1321,14 @@ test("未确认的已有标签选择留在原对象，切换会话不串线", as
   await page.locator('[data-mail-thread-row="3902"]').click();
   const other = await openCurrentLabelChooser(page, "3902");
   await expect(other.editor.locator("[data-mail-label-confirm]")).toHaveCount(0);
-  await expect(other.options.locator('[data-mail-label-option="manual_review"]')).toHaveAttribute("aria-pressed", "false");
+  await expect(other.editor.locator('[data-mail-label-option="manual_review"]')).toHaveAttribute("aria-pressed", "false");
   await page.locator('[data-mail-correspondent="amy@example.com"]').click();
   await page.locator('[data-mail-thread-row="3901"]').click();
   const restored = await openCurrentLabelChooser(page, "3901");
   const restoredConfirm = restored.editor.locator("[data-mail-label-confirm]");
   await expect(restoredConfirm).toHaveText("确认添加");
   await expect(restoredConfirm.locator("..")).toContainText("待人工核对");
-  await expect(restored.options.locator('[data-mail-label-option="manual_review"]')).toHaveAttribute("aria-pressed", "false");
+  await expect(restored.editor.locator('[data-mail-label-option="manual_review"]')).toHaveAttribute("aria-pressed", "false");
   await expect(restored.editor.locator('[data-mail-saved-label="manual_review"]')).toHaveCount(0);
   expect(store.posts).toHaveLength(0);
 });

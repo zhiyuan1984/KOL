@@ -10,7 +10,7 @@
 .knowledge-governance .kbv-asset-strip-head > span { font-weight:500; }
 .knowledge-governance .kbv-asset-strip-head > small { font-size:inherit; }
 .knowledge-governance .kbv-asset-strip-segments { display:flex; gap:0; min-width:0; flex-wrap:wrap; border:1px solid var(--border); border-radius:var(--radius-control); overflow:hidden; }
-.knowledge-governance .kbv-asset-strip-segments .kbv-asset-seg { min-width:0; flex:1 1 0; overflow:hidden; }
+.knowledge-governance .kbv-asset-strip-segments .kbv-asset-seg { min-inline-size:max-content; flex:1 1 0; }
 @container kb-asset-stats (max-width: 48rem) {
   .knowledge-governance .kbv-asset-strip-segments .kbv-asset-seg { flex-basis:50%; }
 }

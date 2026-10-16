@@ -140,6 +140,10 @@ test.describe("知识库 v2 主页（管理端）", () => {
     await dlg.locator("input[name='title']").fill(title);
     await dlg.locator("select[name='kind']").selectOption("policy");
     await dlg.locator("select[name='brand']").selectOption("LT");
+    // Native creation requires an explicitly selected writable organization base.
+    // The seeded structured base exists even when this case runs without the PDF case.
+    await dlg.getByRole("combobox", { name: "知识库", exact: true }).selectOption({ label: "未分类 / 未分类 / 历史知识" });
+    expect(await dlg.getByRole("combobox", { name: "知识库", exact: true }).inputValue()).not.toBe("");
     await submit.click();
 
     await expect(dlg).toBeHidden();
