@@ -21,7 +21,7 @@ test("native runtime fixture normal principal has persisted Agent authority", as
   const body = await status.json();
   expect(body).toMatchObject({
     authenticated: true,
-    account: { id: "native-runtime-huang-qiyou", username: "native-runtime-huang-qiyou" },
+    account: { id: "native-runtime-authorized-person", username: "native-runtime-authorized-person" },
     permissions: { admin: false },
   });
   expect(body.permissions.demo).toBeFalsy();

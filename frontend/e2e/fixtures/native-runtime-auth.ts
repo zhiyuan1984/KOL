@@ -10,10 +10,9 @@ const skillId = "crawler_collect";
 const companyId = "company:amperetime";
 
 export const nativeRuntimePrincipal = {
-  id: "native-runtime-huang-qiyou",
-  username: "native-runtime-huang-qiyou",
-  password: "NativeRuntimeHuangQiyou!2026",
-  personRef: "person:huang_qiyou",
+  id: "native-runtime-authorized-person",
+  username: "native-runtime-authorized-person",
+  password: "NativeRuntimeAuthorizedPerson!2026",
 } as const;
 
 /** Deliberately unlinked ordinary account used only by the fixture negative control. */
@@ -28,7 +27,7 @@ export const nativeRuntimeAuth = {
   skillId,
   companyId,
   storageState: () => process.env.E2E_AUTH_STATE
-    || path.join(process.env.PLAYWRIGHT_OUTPUT_DIR || os.tmpdir(), "native-runtime-auth", "huang-qiyou.json"),
+    || path.join(process.env.PLAYWRIGHT_OUTPUT_DIR || os.tmpdir(), "native-runtime-auth", "authorized-person.json"),
 } as const;
 
 type FixtureEnvironment = {
@@ -44,6 +43,10 @@ type AuthStatus = {
 };
 
 type Principal = typeof nativeRuntimePrincipal | typeof nativeRuntimeUnboundPrincipal;
+
+type SelectedRegistryPerson = {
+  personRef: string;
+};
 
 type PgClient = {
   connect: () => Promise<void>;
@@ -132,39 +135,59 @@ async function prepareNormalAccounts(environment: FixtureEnvironment): Promise<v
 }
 
 /**
- * Links the ordinary fixture account to exactly one pre-existing registry person
- * after native login has caused the product organization bootstrap. No registry,
- * Agent, skill, or use binding is manufactured or modified here.
+ * Links the ordinary fixture account to one already-authorized registry person
+ * after native login has caused the product organization bootstrap. Selection is
+ * made only from persisted active person, membership, and Agent-binding facts;
+ * no registry, Agent, skill, membership, or use binding is manufactured here.
  */
-async function linkOnlyExistingRegistryPerson(environment: FixtureEnvironment): Promise<void> {
+async function linkOnlyExistingRegistryPerson(environment: FixtureEnvironment): Promise<SelectedRegistryPerson> {
   const client = pgClient(environment.databaseUrl);
   await client.connect();
   try {
     await assertDatabaseIdentity(client, environment);
     await client.query("BEGIN");
     try {
-      const person = await client.query<{ person_ref: string; status: string; user_id: string | null }>(
-        "SELECT person_ref,status,user_id FROM organization_people WHERE person_ref=$1 FOR UPDATE",
-        [nativeRuntimePrincipal.personRef],
+      const now = new Date().toISOString();
+      // Lock only the selected person. EXISTS avoids duplicate membership/binding
+      // rows and preserves a concurrent fixture's existing account link.
+      const person = await client.query<{ person_ref: string; user_id: string | null }>(
+        `SELECT person_ref,user_id FROM organization_people person
+         WHERE person.status='active'
+           AND (person.user_id IS NULL OR person.user_id='' OR person.user_id=$1)
+           AND EXISTS (
+             SELECT 1 FROM organization_memberships membership
+             WHERE membership.person_ref=person.person_ref AND membership.company_id=$2 AND membership.status='active'
+               AND (membership.effective_from IS NULL OR membership.effective_from <= $3)
+               AND (membership.effective_to IS NULL OR membership.effective_to > $3)
+           )
+           AND EXISTS (
+             SELECT 1 FROM agent_bindings binding
+             WHERE binding.agent_id=$4 AND binding.target_type='person' AND binding.target_id=person.person_ref
+               AND binding.company_id=$2 AND binding.status='active'
+               AND (binding.effective_from IS NULL OR binding.effective_from <= $3)
+               AND (binding.effective_to IS NULL OR binding.effective_to > $3)
+           )
+         ORDER BY person.person_ref
+         LIMIT 1
+         FOR UPDATE OF person`,
+        [nativeRuntimePrincipal.id, companyId, now, agentId],
       );
       const row = person.rows[0];
-      if (!row || row.status !== "active") throw new Error("Native runtime principal is not an active pre-existing registry person");
+      if (!row) {
+        throw new Error("Native runtime fixture requires an active pre-existing authorized person with no other account link");
+      }
       if (row.user_id && row.user_id !== nativeRuntimePrincipal.id) {
         throw new Error("Native runtime fixture refuses to replace an existing registry-person account link");
       }
-      const membership = await client.query<{ company_id: string }>(`SELECT company_id FROM organization_memberships
-        WHERE person_ref=$1 AND company_id=$2 AND status='active'`, [nativeRuntimePrincipal.personRef, companyId]);
-      if (!membership.rows.length) throw new Error("Native runtime principal lacks an active pre-existing company membership");
-      const binding = await client.query<{ agent_id: string }>(`SELECT agent_id FROM agent_bindings
-        WHERE agent_id=$1 AND target_type='person' AND target_id=$2 AND company_id=$3 AND status='active'`,
-      [agentId, nativeRuntimePrincipal.personRef, companyId]);
-      if (!binding.rows.length) throw new Error("Native runtime principal lacks the pre-existing registry Agent binding");
       const stamp = new Date().toISOString();
-      const update = await client.query(`UPDATE organization_people SET user_id=$1,user_ref=$1,updated_at=$2
+      // user_ref can be a real external identity reference; runtime qualification
+      // uses user_id, so preserve user_ref and every other registry fact.
+      const update = await client.query(`UPDATE organization_people SET user_id=$1,updated_at=$2
         WHERE person_ref=$3 AND status='active' AND (user_id IS NULL OR user_id='' OR user_id=$1)`,
-      [nativeRuntimePrincipal.id, stamp, nativeRuntimePrincipal.personRef]);
+      [nativeRuntimePrincipal.id, stamp, row.person_ref]);
       if (update.rowCount !== 1) throw new Error("Native runtime fixture could not link only its isolated user to the registry person");
       await client.query("COMMIT");
+      return { personRef: row.person_ref };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -212,7 +235,11 @@ function workspaceBody(requestId: string): Record<string, unknown> {
   };
 }
 
-async function assertNormalRuntimeAuthority(context: APIRequestContext, environment: FixtureEnvironment): Promise<void> {
+async function assertNormalRuntimeAuthority(
+  context: APIRequestContext,
+  environment: FixtureEnvironment,
+  selectedPerson: SelectedRegistryPerson,
+): Promise<void> {
   const response = await context.post("/api/home/discovery/workspace", {
     data: workspaceBody(`native-runtime-setup-${Date.now()}`),
   });
@@ -226,18 +253,20 @@ async function assertNormalRuntimeAuthority(context: APIRequestContext, environm
   await client.connect();
   try {
     await assertDatabaseIdentity(client, environment);
-    const [person, agent, skill, binding] = await Promise.all([
-      client.query<{ user_id: string; status: string }>("SELECT user_id,status FROM organization_people WHERE person_ref=$1", [nativeRuntimePrincipal.personRef]),
+    const [person, membership, agent, skill, binding] = await Promise.all([
+      client.query<{ user_id: string; status: string }>("SELECT user_id,status FROM organization_people WHERE person_ref=$1", [selectedPerson.personRef]),
+      client.query<{ status: string }>(`SELECT status FROM organization_memberships
+        WHERE person_ref=$1 AND company_id=$2 AND status='active'`, [selectedPerson.personRef, companyId]),
       client.query<{ status: string }>("SELECT status FROM managed_agents WHERE id=$1", [agentId]),
       client.query<{ enabled: boolean | number }>("SELECT enabled FROM runtime_agent_skills WHERE agent_id=$1 AND skill_id=$2", [agentId, skillId]),
       client.query<{ status: string }>(`SELECT status FROM agent_bindings
-        WHERE agent_id=$1 AND target_type='person' AND target_id=$2 AND company_id=$3`, [agentId, nativeRuntimePrincipal.personRef, companyId]),
+        WHERE agent_id=$1 AND target_type='person' AND target_id=$2 AND company_id=$3`, [agentId, selectedPerson.personRef, companyId]),
     ]);
     if (person.rows[0]?.user_id !== nativeRuntimePrincipal.id || person.rows[0]?.status !== "active") {
       throw new Error("Native runtime principal is not persistently linked to the selected active registry person");
     }
-    if (agent.rows[0]?.status !== "published" || !skill.rows[0]?.enabled || binding.rows[0]?.status !== "active") {
-      throw new Error("Native runtime authority is not backed by published Agent, enabled skill, and active pre-existing binding facts");
+    if (!membership.rows.length || agent.rows[0]?.status !== "published" || !skill.rows[0]?.enabled || binding.rows[0]?.status !== "active") {
+      throw new Error("Native runtime authority is not backed by active membership, published Agent, enabled skill, and active pre-existing binding facts");
     }
   } finally {
     await client.end();
@@ -248,7 +277,8 @@ async function assertNormalRuntimeAuthority(context: APIRequestContext, environm
  * Strict native authority setup for runtime gate tests. It never reads .env,
  * never uses a demo fallback, and never publishes/enables an Agent or creates
  * a broad Agent binding. The only organization write is the isolated account's
- * link to the existing person:huang_qiyou record after product bootstrap.
+ * user_id link to one dynamically selected existing authorized person after
+ * product bootstrap.
  */
 export default async function nativeRuntimeGlobalSetup(config: FullConfig): Promise<void> {
   const environment = requireFixtureEnvironment(config);
@@ -262,10 +292,10 @@ export default async function nativeRuntimeGlobalSetup(config: FullConfig): Prom
     // First normal login invokes the product's organization bootstrap. Only then
     // may this fixture map its isolated user to the authoritative registry person.
     await login(context, nativeRuntimePrincipal, "initial");
-    await linkOnlyExistingRegistryPerson(environment);
+    const selectedPerson = await linkOnlyExistingRegistryPerson(environment);
     await login(context, nativeRuntimePrincipal, "post-organization");
     await assertNormalIdentity(context);
-    await assertNormalRuntimeAuthority(context, environment);
+    await assertNormalRuntimeAuthority(context, environment, selectedPerson);
     await context.storageState({ path: statePath });
   } finally {
     await context.dispose();
