@@ -124,11 +124,14 @@ export async function updateBindingSyncCursorPg(input: {
     box ? [userId, box] : [userId],
   )).rows[0];
   if (!existing) return;
+  // Mail progress is not an authorization rebind. Keep updated_at owned by
+  // binding mutations; snapshot reads use it to reject identity/credential
+  // changes while pagination is in flight. synced_at is the progress clock.
   await db.query(
     `UPDATE user_starry_bindings
      SET sync_cursor_at=$1, sync_cursor_id=$2, sync_page_no=$3, synced_at=$4,
-         last_error=$5, last_tool=$6, updated_at=$7
-     WHERE user_id=$8 AND mailbox_email=$9`,
+         last_error=$5, last_tool=$6
+     WHERE user_id=$7 AND mailbox_email=$8`,
     [
       toTs(input.cursorAt) || (existing.sync_cursor_at ? String(existing.sync_cursor_at) : null),
       input.cursorId || String(existing.sync_cursor_id || "") || null,
@@ -136,7 +139,6 @@ export async function updateBindingSyncCursorPg(input: {
       toTs(input.syncedAt),
       input.error || "",
       input.tool || "pageEmailConversations",
-      nowIso(),
       userId,
       String(existing.mailbox_email || ""),
     ],
