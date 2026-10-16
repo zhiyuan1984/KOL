@@ -666,15 +666,42 @@ test("compact discovery thresholds stay visible above the dock", async ({ page }
   // 不能为迁就旧桌面双列断言而在 <480px 内容区二次分栏。
   expect(minBox && maxBox && Math.abs(minBox.y - maxBox.y) < 2).toBeTruthy();
   await expectedCount.scrollIntoViewIfNeeded();
-  const minInputBox = await followerMin.locator("input").boundingBox();
-  const maxInputBox = await followerMax.locator("input").boundingBox();
-  const playsInputBox = await avgPlays.locator("input").boundingBox();
-  const countInputBox = await expectedCount.locator("input").boundingBox();
-  const followerRangeBox = await followerRange.boundingBox();
-  const metricPairBox = await metricPair.boundingBox();
-  const visiblePlaysBox = await avgPlays.boundingBox();
-  const countBox = await expectedCount.boundingBox();
-  const dockBox = await workspace.locator('.home-composer-dock').boundingBox();
+  // Focus/scroll reconciliation can move the card between separate boundingBox
+  // round trips. Measure the actual containers and their descendants together,
+  // in one browser frame, so the strict geometry checks observe one layout.
+  const geometry = await card.evaluate((element) => {
+    const rect = (node: Element | null) => {
+      if (!node) return null;
+      const box = node.getBoundingClientRect();
+      return { x: box.x, y: box.y, width: box.width, height: box.height };
+    };
+    const field = (name: string) => element.querySelector(`[data-skill-param="${name}"]`);
+    const input = (name: string) => field(name)?.querySelector("input") ?? null;
+    return {
+      minInputBox: rect(input("min_followers")),
+      maxInputBox: rect(input("max_followers")),
+      playsInputBox: rect(input("min_avg_plays_10")),
+      countInputBox: rect(input("expect_count")),
+      followerRangeBox: rect(element.querySelector('[data-skill-param-group="followers_range"]')),
+      metricPairBox: rect(element.querySelector('[data-skill-param-group="discovery_metrics"]')),
+      visiblePlaysBox: rect(field("min_avg_plays_10")),
+      countBox: rect(field("expect_count")),
+      cardBox: rect(element),
+      dockBox: rect(element.ownerDocument.querySelector('.home-composer-dock')),
+    };
+  });
+  const {
+    minInputBox,
+    maxInputBox,
+    playsInputBox,
+    countInputBox,
+    followerRangeBox,
+    metricPairBox,
+    visiblePlaysBox,
+    countBox,
+    cardBox,
+    dockBox,
+  } = geometry;
   // 指标组是否纵排由其所属中栏容器的实际可用宽度决定；不能把视觉同行误判为
   // 裁切。无论纵排或同行，两个字段都必须按 DOM 顺序完整落在 discovery_metrics 内。
   expect(metricPairBox && visiblePlaysBox && countBox
@@ -690,7 +717,6 @@ test("compact discovery thresholds stay visible above the dock", async ({ page }
   // 原生 Agent 卡按「标签列 + 控制列」对齐，不再强制旧卡片的共享左边线。
   // 更强的不变量是每个可编辑阈值完整落在所属条件组及可滚动条件卡内，
   // 不裁切也不横向溢出。
-  const cardBox = await card.boundingBox();
   for (const [owner, box] of [
     [followerRangeBox, minInputBox], [followerRangeBox, maxInputBox],
     [metricPairBox, playsInputBox], [metricPairBox, countInputBox],

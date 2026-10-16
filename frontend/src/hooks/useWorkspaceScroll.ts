@@ -91,10 +91,25 @@ export function useWorkspaceScroll(key: string, ready: boolean, live: boolean) {
   }, [key, ready]);
   const jump = (top: boolean) => {
     if (!ref.current) return;
+    const el = ref.current;
+    const terminalTop = Math.max(0, el.scrollHeight - el.clientHeight);
+    const target = top ? 0 : terminalTop;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     restore.current = null; following.current = !top;
     jumpingToBottom.current = !top;
-    ref.current.scrollTo({ top: top ? 0 : ref.current.scrollHeight,
-      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    // With reduced motion there is no transition for a later scroll event to
+    // settle. Commit the physical terminal position before the focused keyboard
+    // control can be measured again in its former direction.
+    if (reducedMotion) {
+      el.scrollTop = target;
+      setPosition({
+        scrollable: el.scrollHeight > el.clientHeight + 1,
+        atBottom: target >= terminalTop,
+        updated: false,
+      });
+      return;
+    }
+    el.scrollTo({ top: top ? 0 : el.scrollHeight, behavior: "smooth" });
     setPosition(current => ({ ...current, updated: false }));
   };
   const reveal = (target?: HTMLElement, animate = true) => {

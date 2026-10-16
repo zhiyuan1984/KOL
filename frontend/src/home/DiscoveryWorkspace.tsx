@@ -173,6 +173,7 @@ export default function DiscoveryWorkspace({
           {flowStarted ? (
             <DiscoveryConfirmCard
               actionId={disc.startAction?.id}
+              confirmationVersion={disc.startAction?.confirmation_version}
               phase={disc.startPhase}
               error={disc.startError}
               reason={disc.startReason}

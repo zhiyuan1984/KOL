@@ -12,6 +12,8 @@ let controller: ReturnType<typeof useWorkspaceScroll>;
 let top = 0;
 let height = 1000;
 let requested: number[] = [];
+let reducedMotion = false;
+let originalMatchMedia: typeof window.matchMedia;
 
 function Harness() {
   controller = useWorkspaceScroll('scroll-regression:current-actor', true, false);
@@ -29,7 +31,13 @@ function Harness() {
 }
 
 beforeEach(async () => {
-  top = 0; height = 1000; requested = [];
+  top = 0; height = 1000; requested = []; reducedMotion = false;
+  originalMatchMedia = window.matchMedia;
+  window.matchMedia = ((query: string) => ({
+    matches: query === '(prefers-reduced-motion: reduce)' && reducedMotion,
+    media: query, onchange: null, addListener() {}, removeListener() {},
+    addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false,
+  })) as typeof window.matchMedia;
   sessionStorage.clear();
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   host = document.createElement('div'); document.body.append(host);
@@ -39,6 +47,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await act(async () => { root.unmount(); });
   host.remove();
+  window.matchMedia = originalMatchMedia;
   sessionStorage.clear();
 });
 
@@ -73,9 +82,21 @@ describe('Workspace latest jump respects explicit reading intent', () => {
     expect(top).toBe(200);
     expect(controller.position.updated).toBe(true);
   });
+  it('settles a reduced-motion latest jump at the physical tail before a scroll event runs', async () => {
+    reducedMotion = true;
+    await act(async () => { controller.jump(false); });
+    expect(requested).toEqual([]);
+    expect(top).toBe(700);
+    expect(height - top - 300).toBe(0);
+    expect(controller.position).toEqual({ scrollable: true, atBottom: true, updated: false });
+    await lateContent();
+    expect(top).toBe(1100);
+    expect(height - top - 300).toBe(0);
+  });
   it('does not follow new content after an explicit jump to the top', async () => {
+    reducedMotion = true;
     await act(async () => { controller.jump(true); top = 0; element.dispatchEvent(new Event('scroll')); });
-    expect(requested).toEqual([0]);
+    expect(requested).toEqual([]);
     await lateContent();
     expect(top).toBe(0);
     expect(controller.position.updated).toBe(true);

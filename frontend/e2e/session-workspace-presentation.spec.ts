@@ -291,6 +291,9 @@ test("discovery confirmation uses the refreshed snapshot once and waits for remo
   await expect.poll(async () => submit.evaluate(el => getComputedStyle(el).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
   state.revise();
   await page.clock.runFor(2100);
+  // A runtime-actions response alone is not a confirmation snapshot: wait until
+  // React has committed its refreshed version before submitting the R3 action.
+  await expect(confirm).toHaveAttribute("data-confirmation-version", "version-2");
   await confirm.evaluate(el => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });
   await expect(confirm).toHaveCount(0);
   expect(state.writes.filter(row => row.path === "/api/actions/runtime.confirm")).toHaveLength(1);

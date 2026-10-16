@@ -301,6 +301,10 @@ test("搜索只在 Enter/clear 提交，清除不丢失状态且不重新读取�
   const control = await fixture(page);
   await page.goto("/cron?status=paused");
   await expect(listRows(page)).toHaveCount(7);
+  // Workbench also performs its initial Cron scope read for the navigation alert badge.
+  // Establish the baseline only after that observable initial read has settled; otherwise
+  // request arrival order can misclassify the scope read as a search reload.
+  await expect(page.locator("[data-cron-alert]")).toHaveText("4");
   const before = listCalls(control).length;
   const search = page.getByRole("searchbox", { name: "搜索任务" });
   await expect(search).toHaveAttribute("aria-label", "搜索任务");

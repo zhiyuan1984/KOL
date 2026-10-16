@@ -147,21 +147,30 @@ export default function SideWorkbench({
   const composing = Boolean(draft && task?.skill_id !== "reply_analysis") || Boolean(result && isComposeResultCard(result));
   const decisionActions = !composing && result ? result.recommended_actions || result.actions || [] : [];
   const stageReview = useRef<HTMLDetailsElement>(null);
+  // Storage is an initial value for one R3 card, not an authority that can replay
+  // over the employee's explicit open/close choice when late props arrive.
+  const initializedStageReviewKeys = useRef(new Set<string>());
+  const stageReviewOpenRef = useRef(false);
+  const stageReviewOpenKeyRef = useRef("");
   const [stageReviewOpen, setStageReviewOpen] = useState(false);
+  const [initializedStageReviewKey, setInitializedStageReviewKey] = useState("");
   const stageReviewKey = latestStage ? `ui:stage-review:${sessionId}:${latestStage.id}` : "";
   const lastUser = [...messages].reverse().find(message => message.kind === "me");
   const lastUserIndex = messages.findIndex(message => message.id === lastUser?.id);
   const stageRequested = Boolean(latestStage && !latestStage.payload.locked && !latestStage.payload.resolved && !latestStage.payload.rejected
     && lastUserIndex > messages.findIndex(message => message.id === mailMessages.at(-1)?.id));
+  const stageReviewInitialized = initializedStageReviewKey === stageReviewKey;
   useEffect(() => {
-    if (!stageReviewKey || !latestStage) {
-      setStageReviewOpen(false);
-      return;
-    }
+    if (!stageReviewKey || !latestStage || !ready
+      || (stageReviewOpenKeyRef.current === stageReviewKey && initializedStageReviewKeys.current.has(stageReviewKey))) return;
     let saved: string | null = null;
     try { saved = sessionStorage.getItem(stageReviewKey); } catch { /* Storage is optional. */ }
     const open = saved === "true" || (saved === null && ready && stageRequested);
+    initializedStageReviewKeys.current.add(stageReviewKey);
+    stageReviewOpenKeyRef.current = stageReviewKey;
+    stageReviewOpenRef.current = open;
     setStageReviewOpen(open);
+    setInitializedStageReviewKey(stageReviewKey);
     if (saved === null && open) {
       try { sessionStorage.setItem(stageReviewKey, "true"); } catch { /* Storage is optional. */ }
     }
@@ -174,6 +183,12 @@ export default function SideWorkbench({
   }, [ready, stageRequested, latestStage?.id, sessionId, stageReviewKey]);
 
   const persistStageReviewOpen = (open: boolean) => {
+    if (stageReviewKey) {
+      initializedStageReviewKeys.current.add(stageReviewKey);
+      setInitializedStageReviewKey(stageReviewKey);
+    }
+    stageReviewOpenKeyRef.current = stageReviewKey;
+    stageReviewOpenRef.current = open;
     setStageReviewOpen(open);
     if (!stageReviewKey) return;
     try { sessionStorage.setItem(stageReviewKey, String(open)); } catch { /* Storage is optional. */ }
@@ -231,12 +246,14 @@ export default function SideWorkbench({
         stageReview.current?.querySelector<HTMLElement>(":scope > summary")?.focus({ preventScroll: true });
         requestAnimationFrame(() => stageReview.current?.querySelector<HTMLElement>("[data-confirm-stage]")?.scrollIntoView({ block: "nearest", behavior: "auto" }));
       } : undefined} />
-    {latestStage ? <details className="mail-stage-review" ref={stageReview} data-result-message={latestStage.id} open={stageReviewOpen}
+    {latestStage ? <details className="mail-stage-review" ref={stageReview} data-result-message={latestStage.id}
+      data-stage-review-initialized={stageReviewInitialized ? "true" : "false"} open={stageReviewInitialized && stageReviewOpen}
     >
       <summary data-stage-review-summary onClick={(event) => {
         // `open` is controlled; do not let the native toggle race the persisted UI state.
         event.preventDefault();
-        persistStageReviewOpen(!stageReviewOpen);
+        const currentOpen = stageReviewOpenKeyRef.current === stageReviewKey && stageReviewOpenRef.current;
+        persistStageReviewOpen(!currentOpen);
       }}>正式阶段变更 · 独立确认</summary>{renderArtifact(latestStage)}
     </details> : null}
   </> : null;

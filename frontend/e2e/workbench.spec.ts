@@ -66,6 +66,10 @@ async function openDraftTab(page: Page) {
 async function openStageReview(page: Page) {
   const review = page.locator('[data-workbench] .mail-stage-review');
   await expect(review).toBeAttached({ timeout: 15000 });
+  // The R3 card has one per-ID restoration pass. Observe that settled state before
+  // deciding whether the employee needs one real summary click; otherwise a late
+  // default expansion can turn this helper's single click into an unintended close.
+  await expect(review).toHaveAttribute('data-stage-review-initialized', 'true');
   if (!(await review.evaluate((element) => element instanceof HTMLDetailsElement && element.open))) {
     await review.locator(':scope > summary[data-stage-review-summary]').click();
   }
