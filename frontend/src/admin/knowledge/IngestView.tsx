@@ -33,7 +33,11 @@ export default function IngestView({ notify, fail, embedded = false }: KbFeed & 
       api.adminKnowledgeRaw(),
       api.adminKnowledgeJobs(),
     ]);
-    return { health, bases: bases.bases || [], documents: documents.documents || [], raw, jobs };
+    // The endpoint is queried with kind=unstructured, but keep the upload guard
+    // defensive: a stale/misconfigured response must never make a structured
+    // library an upload target for a source document.
+    const unstructuredBases = (bases.bases || []).filter((base) => base.kind === "unstructured");
+    return { health, bases: unstructuredBases, documents: documents.documents || [], raw, jobs };
   }, [location.search]);
   const { data, error, loading, reload } = useKbData(load);
 

@@ -49,7 +49,7 @@ export async function collectStarryKolItems(input: {
   actor?: string;
   onOperation?: (operation: { name: string; label: string; status: string }) => void;
 }): Promise<{ items: Json[]; operations: Json[] }> {
-  const extracted = extractTaskEntities(input.raw || "");
+  const extracted = (await extractTaskEntities(input.raw || ""));
   const prior = input.prior && typeof input.prior === "object" ? { ...input.prior } : {};
   const entities = input.entities && typeof input.entities === "object" ? { ...input.entities } : {};
   const subject = resolveComposeSubject({
@@ -136,11 +136,11 @@ export async function collectStarryKolItems(input: {
     }
   }
   const card = input.task === "email_compose"
-    ? attachComposeLoopCard(emailMcpResultCard(input.task, data), facts, {
+    ? attachComposeLoopCard((await emailMcpResultCard(input.task, data)), facts, {
       ...data,
       handle: String(data.handle || input.handle || ""),
     })
-    : emailMcpResultCard(input.task, data);
+    : (await emailMcpResultCard(input.task, data));
   const items: Json[] = [{
     ...card,
     type: "task_result",
@@ -328,12 +328,12 @@ export function collectStageSopItems(stageCode: string, handle = ""): Json[] {
   }];
 }
 
-export function collectDealMemoryItems(col: Json, handle: string): Json[] {
+export async function collectDealMemoryItems(col: Json, handle: string): Promise<Awaited<Json[]>> {
   const notes = String(col.notes || "").trim();
   const noteItems = notes
     ? notes.split(/[；;。\n]/).map((part) => part.trim()).filter(Boolean).slice(0, 4)
     : [];
-  const mailItems = mailMemoryLines(mailHistoryRows(String(col.id || "")));
+  const mailItems = mailMemoryLines((await mailHistoryRows(String(col.id || ""))));
   return [{
     type: "task_result",
     skill: "deal_memory",
@@ -358,12 +358,12 @@ export async function collectKolClawItems(input: {
 }): Promise<{ items: Json[]; operations: Json[] }> {
   const { data, operations } = await executeKolClawTask(
     input.task,
-    { ...extractTaskEntities(input.raw || ""), ...(input.entities || {}) },
+    { ...(await extractTaskEntities(input.raw || "")), ...(input.entities || {}) },
     input.actor || scopedUser()?.id || "demo",
     input.onOperation,
   );
   return {
-    items: [{ ...kolClawResultCard(input.task, data), type: "task_result", operations }],
+    items: [{ ...(await kolClawResultCard(input.task, data)), type: "task_result", operations }],
     operations,
   };
 }
@@ -408,21 +408,21 @@ function hasReadSkillOutput(items: Json[]): boolean {
 }
 
 /** 结果卡片标题来自技能 md 的 result_title（缺省为技能名称）。 */
-function readSkillTitle(skill: string): string {
-  return declaredResultTitle(skill) || "任务结果";
+async function readSkillTitle(skill: string): Promise<Awaited<string>> {
+  return (await declaredResultTitle(skill)) || "任务结果";
 }
 
 /** 模型产出的结果卡没给下一步动作时，补上技能 md 声明的 next_actions。 */
-function withDeclaredNextActions(skill: string, items: Json[]): Json[] {
-  return items.map((item) => {
+async function withDeclaredNextActions(skill: string, items: Json[]): Promise<Awaited<Json[]>> {
+  return (await Promise.all(items.map(async (item) => {
     if (item.type !== "task_result" || (Array.isArray(item.recommended_actions) && item.recommended_actions.length)) return item;
     const hasResults = Array.isArray(item.sections) && (item.sections as Json[]).some((section) => Array.isArray(section.items) && section.items.length > 0 || String(section.body || "").trim());
-    const labels = declaredNextActionLabels(String(item.skill || skill), { hasResults });
+    const labels = (await declaredNextActionLabels(String(item.skill || skill), { hasResults }));
     return labels?.length ? { ...item, recommended_actions: labels } : item;
-  });
+  })));
 }
 
-function surfaceReadSkillItems(skill: string, items: Json[]): Json[] {
+async function surfaceReadSkillItems(skill: string, items: Json[]): Promise<Awaited<Json[]>> {
   if (items.some((item) => item.type === "task_result")) return items;
   const texts = items.filter((item) => item.type === "text" || item.type === "note");
   const summary = texts
@@ -439,7 +439,7 @@ function surfaceReadSkillItems(skill: string, items: Json[]): Json[] {
     {
       type: "task_result",
       skill,
-      title: readSkillTitle(skill),
+      title: (await readSkillTitle(skill)),
       summary: body,
       sections: [{ title: "分析结果", body, items: [] }],
       metrics: [],
@@ -512,16 +512,16 @@ function contextComposeDraft(extra: Json): Json | null {
   return { type: "create_draft", from: route.from, to: route.to, subject };
 }
 
-function rebuildStarryCards(skill: EmailMcpTask, items: Json[], extra: Json = {}): Json[] {
+async function rebuildStarryCards(skill: EmailMcpTask, items: Json[], extra: Json = {}): Promise<Json[]> {
   const fallback = contextComposeDraft(extra);
   const siblings = fallback ? [...items, fallback] : items;
-  const rebuilt = items.map((item) => {
+  const rebuilt = (await Promise.all(items.map(async (item) => {
     if (item.type !== "task_result") return item;
     if (skill === "email_compose") {
       if (!isComposeResultItem(item) && !starryPayload(item)) return item;
       const data = composePayloadFromItem(item, siblings, composeRouteFacts({ extra }));
       return {
-        ...emailMcpResultCard(skill, data),
+        ...(await (emailMcpResultCard(skill, data))),
         type: "task_result",
         ...(Array.isArray(item.operations) ? { operations: item.operations } : {}),
       };
@@ -529,18 +529,18 @@ function rebuildStarryCards(skill: EmailMcpTask, items: Json[], extra: Json = {}
     const data = starryPayload(item);
     if (!data) return item;
     return {
-      ...emailMcpResultCard(skill, data),
+      ...(await (emailMcpResultCard(skill, data))),
       type: "task_result",
       ...(Array.isArray(item.operations) ? { operations: item.operations } : {}),
     };
-  });
+  })));
   const draft = composeDraftFromStarry(skill, rebuilt);
   const withDraft = draft ? [draft, ...rebuilt] : rebuilt;
   if (skill === "email_compose" && withDraft.some((item) => item.type === "create_draft") && !withDraft.some(isComposeResultItem)) {
     const data = composePayloadFromItem({ type: "task_result", title: "邮件草稿" }, withDraft);
     return [
       ...withDraft.filter((item) => item.type === "create_draft"),
-      { ...emailMcpResultCard(skill, data), type: "task_result" },
+      { ...(await emailMcpResultCard(skill, data)), type: "task_result" },
       ...withDraft.filter((item) => item.type !== "create_draft"),
     ];
   }
@@ -597,7 +597,7 @@ export async function completeTurnItems(
   if (isEmailMcpTask(skill) && skill === "email_compose" && (
     existing.some(isComposeResultItem) || existing.some((item) => item.type === "create_draft")
   )) {
-    return rebuildStarryCards(skill, existing, extra);
+    return (rebuildStarryCards(skill, existing, extra));
   }
   if (isEmailMcpTask(skill) && !hasUsableStarryReadResult(existing)) {
     const hostReadFallback = isStarryKolReadTask(skill);
@@ -655,7 +655,7 @@ export async function completeTurnItems(
     return items;
   }
   if (isEmailMcpTask(skill) && hasStarryResult(existing)) {
-    return rebuildStarryCards(skill, existing, extra);
+    return (rebuildStarryCards(skill, existing, extra));
   }
   if (isKolClawTask(skill) && !existing.some((item) => item.skill === skill && item.type === "task_result")) {
     if (codexMode() !== "stub") {

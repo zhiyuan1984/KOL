@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { readNativePersonMemory } from "../postgres/mail-memory-repository.js";
 import { authDisabled, scopedUser } from "../auth.js";
 import { DEMO_USER } from "../config.js";
@@ -143,7 +144,7 @@ async function readQuery<T extends Row = Row>(textSql: string, values: readonly 
     values: [...values],
     query_timeout: READ_QUERY_TIMEOUT_MS,
   };
-  return await postgresPool().query<T>(config);
+  return postgresConnection().query<T>(config);
 }
 
 function text(value: unknown): string {
@@ -500,7 +501,9 @@ export async function readMailboxPerson(rawMailbox: unknown, rawPeer: unknown): 
   const row = await readNativePersonMemory(mailbox, peer);
   const digest = row ? {
     text: String(row.digest_text || ""), source: String(row.digest_source || ""),
-    generated_at: row.generated_at ? String(row.generated_at) : undefined,
+    generated_at: row.generated_at
+      ? (row.generated_at instanceof Date ? row.generated_at.toISOString() : String(row.generated_at))
+      : undefined,
   } : null;
   return {
     mailbox,

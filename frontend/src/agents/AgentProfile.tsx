@@ -31,6 +31,7 @@ export default function AgentProfile({ expert, actor, workspace, workspaceLoadin
     setStorageError(saveAgentDraft(actor, expert.id, text) ? "" : "浏览器暂时无法保存草稿，请在离开前复制内容。");
   };
   const scope = browseLoading ? <span className="muted">正在读取…</span> : browseError ? <span className="muted">范围暂不可用</span>
+    : !browseRow ? <span className="muted">适用范围暂未返回，无法确认。</span>
     : <span className="kb-scope" data-agent-scope title="按关联的已发布知识范围展示">
       {stages.length ? <span className="chip kb-scope-chip">阶段：{stages.map(code => MAIN_STAGE_TABS.find(stage => stage.code === code)?.label || code).join(" / ")}</span> : null}
       {brands.map(brand => <span className="chip kb-scope-chip" key={brand}>{brand}</span>)}

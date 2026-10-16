@@ -9,20 +9,22 @@ import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { bundledSkillPath } from "../src/host/skill-sop.js";
 import { resolveMailTemplate } from "../src/host/knowledge.js";
-import { DEMO_ADMIN, DEMO_USER } from "../src/config.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { NATIVE_KNOWLEDGE_AGENT_ID, publishKnowledgeEntry, setupNativeKnowledgeFixture, withNativeKnowledgePrincipal, type NativeKnowledgeFixture } from "./support/knowledge-native-fixture.js";
 
 type Json = Record<string, unknown>;
 
 let tmp: string;
 let app: Hono;
+let native: NativeKnowledgeFixture;
 
 async function request(
   method: string,
   url: string,
   body?: unknown,
+  cookie = native.admin.cookie,
 ): Promise<{ status: number; json: () => Promise<Json>; text: () => Promise<string> }> {
-  const init: RequestInit = { method, headers: {} };
+  const init: RequestInit = { method, headers: { Cookie: cookie } };
   if (body instanceof FormData) {
     init.body = body;
   } else if (body !== undefined) {
@@ -38,12 +40,17 @@ async function request(
   };
 }
 
+async function asAdmin<T>(action: () => Promise<T>): Promise<T> {
+  return withNativeKnowledgePrincipal(native.admin.id, action);
+}
+
 async function ask(prompt: string, extra: Json = {}, expectStatus = 200): Promise<[string, Json]> {
   const ses = await (await request("POST", "/api/sessions", { title: prompt.slice(0, 20) })).json();
   const r = await request("POST", `/api/sessions/${ses.id}/messages`, {
     text: prompt,
     content: prompt,
     act: "ask",
+    agent_id: NATIVE_KNOWLEDGE_AGENT_ID,
     ...extra,
   });
   expect(r.status, await r.text()).toBe(expectStatus);
@@ -56,16 +63,24 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
+  native = await setupNativeKnowledgeFixture();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
+  app = (await createApp());
+  (await seedWorkbenchFixtures());
+  // First contact also verifies the actor's own mailbox. Do not borrow sriphy's
+  // mail: this native test principal owns a separate controlled fixture box.
+  await getConn().query(`INSERT INTO user_starry_bindings
+    (user_id,mailbox_email,owner_name,status,is_default,synced_at,updated_at)
+    VALUES($1,$2,$3,'connected',1,now(),now())`,
+  [native.admin.id, "wiki-admin@fixture.example", "Native knowledge fixture admin"]);
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
+  delete process.env.AUTH_MODE;
 });
 
 describe("WikiSkill knowledge", () => {
@@ -111,9 +126,7 @@ describe("WikiSkill knowledge", () => {
     expect((draft.extra as Json).knowledge_id).toBe("kb_mail_followup");
     expect((draft.extra as Json).knowledge_version).toBe(1);
     expect(String(draft.body_en)).not.toContain("secret wiki");
-    const cardMsg = getConn()
-      .prepare("SELECT payload FROM messages WHERE session_id=? AND kind='email_card' ORDER BY created_at DESC, id DESC LIMIT 1")
-      .get(sid) as { payload: string } | undefined;
+    const cardMsg = (await getConn().query("SELECT payload FROM messages WHERE session_id=$1 AND kind='email_card' ORDER BY created_at DESC, id DESC LIMIT 1",[sid])).rows[0] as { payload: string } | undefined;
     expect(cardMsg, "草稿卡消息应写入会话").toBeTruthy();
     const card = JSON.parse(String(cardMsg?.payload || "{}")) as Json;
     expect(card.draft_id).toBe(draft.id);
@@ -121,7 +134,7 @@ describe("WikiSkill knowledge", () => {
     expect(typeof card.knowledge_version).toBe("number");
     expect(String(card.knowledge_title || "")).not.toBe("");
     const sent = await confirmAndSendDraft(request, String(draft.id), {});
-    expect(sent.status).toBe(200);
+    expect(sent.status, await sent.text()).toBe(200);
     const sj = await sent.json();
     expect(sj.stage_changed).toBe(false);
     expect(sj.official_stage).toBe("INITIAL_CONTACT");
@@ -159,7 +172,9 @@ describe("WikiSkill knowledge", () => {
       status: "draft",
     })).json();
     expect(created.stage_codes).toEqual(["TESTING"]);
-    await request("POST", `/api/admin/knowledge/${created.id}/approve`, { expected_version: created.current_version });
+    const directApproval = await request("POST", `/api/admin/knowledge/${created.id}/approve`, { expected_version: created.current_version });
+    expect(directApproval.status).toBe(409);
+    await publishKnowledgeEntry(native, String(created.id), "阶段模板发布");
     const published = await (await request("GET", `/api/knowledge/${created.id}`)).json();
     expect(published.status).toBe("published");
     expect(published.stage_codes).toEqual(["TESTING"]);
@@ -178,7 +193,9 @@ describe("WikiSkill knowledge", () => {
   it("keeps evolve rejection after a skill overlay rollback and never writes SKILL.md", async () => {
     const skillFile = bundledSkillPath("email_compose");
     const before = fs.readFileSync(skillFile, "utf8");
-    expect((await request("POST", "/api/login", { username: DEMO_ADMIN.name, password: "123456789" })).status).toBe(200);
+    // The fixture's authenticated admin principal owns the evolving proposal;
+    // no demo login or global persona is permitted in this native suite.
+    expect(native.admin.id).toBe("sriphy");
     const proposed = await (await request("POST", "/api/admin/knowledge/evolve/propose", {
       kind: "skill_patch",
       skill_id: "email_compose",
@@ -199,7 +216,11 @@ describe("WikiSkill knowledge", () => {
   });
 
   it("blocks brand transfer outside the From whitelist", async () => {
-    const r = await request("POST", "/api/admin/knowledge/kb_mail_followup/transfer", { to_brand: "XX" });
+    const owned = await (await request("POST", "/api/admin/knowledge", {
+      title: "可治理品牌模板", body: "draft", kind: "mail_template", base_id: "kbase_legacy",
+      skill_id: "email_compose", subject: "Draft", body_en: "Draft", status: "draft",
+    })).json();
+    const r = await request("POST", `/api/admin/knowledge/${owned.id}/transfer`, { to_brand: "XX" });
     expect(r.status).toBe(400);
   });
 
@@ -219,17 +240,23 @@ describe("WikiSkill knowledge", () => {
   });
 
   it("refuses to physically delete knowledge cited by sent mail", async () => {
-    await request("POST", "/api/knowledge/kb_mail_followup/cite", {});
+    const owned = await (await request("POST", "/api/admin/knowledge", {
+      title: "可归档发送模板", body: "Follow up", kind: "mail_template", base_id: "kbase_legacy",
+      skill_id: "email_compose", subject: "Follow up", body_en: "Follow up", status: "draft",
+    })).json();
+    await publishKnowledgeEntry(native, String(owned.id), "发送模板发布");
+    await request("POST", `/api/knowledge/${owned.id}/cite`, {});
     const [, data] = await ask("给@小美妆日记 写阶段跟进", {
       intent: "email_compose",
       collaboration_id: "col_xiaomei",
-      knowledge_id: "kb_mail_followup",
+      knowledge_id: owned.id,
     });
     const draft = data.draft as Json;
-    expect((await confirmAndSendDraft(request, String(draft.id), {})).status).toBe(200);
-    const archived = await request("POST", "/api/admin/knowledge/kb_mail_followup/archive", {});
+    const sent = await confirmAndSendDraft(request, String(draft.id), {});
+    expect(sent.status, await sent.text()).toBe(200);
+    const archived = await request("POST", `/api/admin/knowledge/${owned.id}/archive`, {});
     expect(archived.status).toBe(200);
-    const del = await request("DELETE", "/api/admin/knowledge/kb_mail_followup");
+    const del = await request("DELETE", `/api/admin/knowledge/${owned.id}`);
     expect(del.status).toBe(403);
   });
 
@@ -255,10 +282,13 @@ describe("WikiSkill knowledge", () => {
     for (const id of ["kb_mail_kol", "kb_mail_followup", "kb_mail_quote", "kb_mail_addr", "kb_mail_nudge", "kb_mail_ship"]) {
       await request("POST", `/api/knowledge/${id}/cite`, {});
     }
-    const quote = resolveMailTemplate({ skillId: "email_compose", stageCode: "QUOTE_PENDING" });
+    const quote = await asAdmin(() => resolveMailTemplate({ skillId: "email_compose", stageCode: "QUOTE_PENDING", userId: native.admin.id, brands: ["LT"] }));
     expect(quote?.id).toBe("kb_mail_quote");
     expect(String(quote?.subject || "")).not.toMatch(/Outline check-in|family camping/);
-    expect(resolveMailTemplate({ skillId: "email_compose", stageCode: "CONTENT_PLANNING" })?.id).toBe("kb_mail_nudge");
+    const contentPlanningForLt = await asAdmin(() => resolveMailTemplate({ skillId: "email_compose", stageCode: "CONTENT_PLANNING", userId: native.admin.id, brands: ["LT"] }));
+    expect(contentPlanningForLt).toBeNull();
+    const contentPlanning = await asAdmin(() => resolveMailTemplate({ skillId: "email_compose", stageCode: "CONTENT_PLANNING", userId: native.admin.id, brands: ["RO"] }));
+    expect(contentPlanning?.id).toBe("kb_mail_nudge");
   });
 
   it("seeds four policies and six published KOL mail templates", async () => {
@@ -273,7 +303,7 @@ describe("WikiSkill knowledge", () => {
     expect(mine.filter((row) => row.id === "kb_mail_followup")[0].starter).toBe("阶段跟进 [红人或合作]");
     expect(mine.filter((row) => row.id === "kb_mail_kol")[0].starter).toBe("首封建联 [发件邮箱] [收件邮箱] [主题]");
     expect(mine.every((row) => row.status === "published")).toBe(true);
-    expect(DEMO_USER.id).toBe("sriphy");
+    expect(native.admin.id).toBe("sriphy");
   });
 
   it("hides deprecated cited templates from the composer", async () => {

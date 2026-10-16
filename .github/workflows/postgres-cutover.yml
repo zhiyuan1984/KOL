@@ -58,7 +58,10 @@ jobs:
           npm run build
 
   cutover:
-    name: Stop writes, migrate, verify, and start workers
+    # Initial embedded-database cutover is retired. Keep its historical
+    # verification job, but never reset a PostgreSQL production tree here.
+    if: ${{ false }}
+    name: Retired initial cutover (no production writes)
     needs: verify-release
     runs-on: ubuntu-latest
     timeout-minutes: 30

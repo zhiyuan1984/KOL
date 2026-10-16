@@ -11,10 +11,10 @@ export function MemorySettings({ onDirty, onReceipt }: DirtyProps & { onReceipt:
   const load = useCallback(() => api.memories() as Promise<Memory[]>, []);
   const result = useLoad(load, '无法读取记忆，请重试。');
   const [editing, setEditing] = useState<Memory | null>(null); const [query, setQuery] = useState(''); const [page, setPage] = useState(1);
-  const [form] = Form.useForm(); const [busy, setBusy] = useState(false); const [changed, setChanged] = useState(false);
+  const [editingSequence, setEditingSequence] = useState(0); const [busy, setBusy] = useState(false); const [changed, setChanged] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null); const [modal, holder] = Modal.useModal();
   const rows = (result.data || []).filter(row => !query || `${row.title || ''} ${row.body_md || ''}`.toLowerCase().includes(query.toLowerCase()));
-  const open = (value: Memory) => { setEditing(value); setChanged(false); setFeedback(null); };
+  const open = (value: Memory) => { setEditingSequence(sequence => sequence + 1); setEditing(value); setChanged(false); setFeedback(null); };
   const close = async () => {
     if (busy) return;
     if (changed && !await modal.confirm({ title: '放弃未保存的记忆？', okText: '放弃修改', cancelText: '继续编辑' })) return;
@@ -36,8 +36,8 @@ export function MemorySettings({ onDirty, onReceipt }: DirtyProps & { onReceipt:
       {rows.slice((page - 1) * 10, page * 10).map(memory => <RecordRow key={memory.id} data-memory-row={memory.id} title={<TruncatableText text={memory.title || '未命名记忆'} />} meta={memory.scope === 'team' ? '团队共享' : '仅自己'} status={memory.enabled === false ? '已停用' : '已启用'} actions={<ActionGroup><Button type="text" onClick={() => open(memory)}>{memory.editable === false ? '查看' : '编辑'}</Button>{memory.editable !== false && <Button type="text" danger disabled={busy} data-memory-delete={memory.id} onClick={() => void remove(memory)}>删除</Button>}</ActionGroup>} />)}
       {rows.length > 10 && <Pagination current={page} total={rows.length} pageSize={10} showSizeChanger={false} onChange={setPage} />}
     </LoadState>{!editing && <FeedbackLine value={feedback} />}
-    <Drawer title={editing?.id ? '记忆详情' : '新建记忆'} open={Boolean(editing)} onClose={() => void close()} className="settings-memory-drawer" width="min(100vw, var(--drawer-w-sm))" destroyOnHidden maskClosable={!changed && !busy} keyboard={!busy} afterOpenChange={visible => { if (visible) form.setFieldsValue({ title: '', body_md: '', enabled: true, ...editing }); }}>
-      <HorizontalForm form={form} disabled={busy || editing?.editable === false} onValuesChange={() => { setChanged(true); onDirty(true); setFeedback(null); }} onFinish={async values => {
+    <Drawer title={editing?.id ? '记忆详情' : '新建记忆'} open={Boolean(editing)} onClose={() => void close()} className="settings-memory-drawer" width="min(100vw, var(--drawer-w-sm))" destroyOnHidden maskClosable={!changed && !busy} keyboard={!busy}>
+      <HorizontalForm key={editingSequence} initialValues={{ title: '', body_md: '', enabled: true, ...editing }} disabled={busy || editing?.editable === false} onValuesChange={() => { setChanged(true); onDirty(true); setFeedback(null); }} onFinish={async values => {
         setBusy(true); setFeedback(null);
         try {
           const body = { title: String(values.title), body_md: String(values.body_md), scope: editing?.scope || 'private', enabled: Boolean(values.enabled) };

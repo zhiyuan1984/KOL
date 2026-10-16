@@ -32,17 +32,17 @@ const actor = () => {
   return user.id;
 };
 knowledgePublication.use("/admin/knowledge/documents/:id/*",async(c,next)=>{
-  await postgresTransaction(db=>adminDocument(db,actor(),c.req.header("X-Review-Company") || c.req.query("company"),c.req.param("id") || ""));
+  await postgresTransaction(async db=>(adminDocument(db,actor(),c.req.header("X-Review-Company") || c.req.query("company"),c.req.param("id") || "")));
   await next();
 });
 knowledgePublication.use("/admin/knowledge/:id/*",async(c,next)=>{
   const id=c.req.param("id") || "";
-  if(requiresKnowledgeEntryAuthorization(id))await postgresTransaction(db=>authorizeEntry(db,actor(),c.req.header("X-Review-Company"),id));
+  if(requiresKnowledgeEntryAuthorization(id))await postgresTransaction(async db=>(authorizeEntry(db,actor(),c.req.header("X-Review-Company"),id)));
   await next();
 });
 knowledgePublication.use("/admin/knowledge/:id",async(c,next)=>{
   const id=c.req.param("id") || "";
-  if(["PUT","DELETE"].includes(c.req.method) && !["documents","bases","domains","bindings"].includes(id))await postgresTransaction(db=>authorizeEntry(db,actor(),c.req.header("X-Review-Company"),id));
+  if(["PUT","DELETE"].includes(c.req.method) && !["documents","bases","domains","bindings"].includes(id))await postgresTransaction(async db=>(authorizeEntry(db,actor(),c.req.header("X-Review-Company"),id)));
   await next();
 });
 async function body(c: { req: { text: () => Promise<string> } }) {
@@ -57,7 +57,7 @@ async function body(c: { req: { text: () => Promise<string> } }) {
 }
 knowledgePublication.get("/admin/knowledge/publication-v2/companies", async (c) =>
   c.json(
-    await postgresTransaction((db) => postgresReviewCompanies(db, actor())),
+    await postgresTransaction(async (db) => (postgresReviewCompanies(db, actor()))),
   ),
 );
 knowledgePublication.use(

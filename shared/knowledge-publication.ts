@@ -8,7 +8,7 @@ export type KnowledgePublication = {
   version?: number;
   content?: { body: string; structured: Record<string, unknown>; title: string; kind: string };
   releaseMode?: "automatic" | "manual";
-  knowledgeScope?: { explanation: string; fingerprint: string; scope: import('./knowledge-scope').KnowledgeScope };
+  knowledgeScope?: { explanation: string; fingerprint: string; scope: import('./knowledge-scope.js').KnowledgeScope };
   canPublish?: boolean;
   title: string;
   filename: string;

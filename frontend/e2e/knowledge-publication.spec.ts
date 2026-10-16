@@ -74,6 +74,8 @@ test("缺流程保留资料并引导新建专用流程，系统字段不可改",
   await f.panel.getByText("配置知识发布流程",{exact:true}).click();
   await f.panel.getByRole("link",{name:"新建审批流程"}).click();
   await page.getByRole("button",{name:"新建流程",exact:true}).click();
+  // 当前向导先明确选择空白创建；不能把入口页当成已打开的表单。
+  await page.getByRole("button",{name:"从空白创建",exact:true}).click();
   await expect(page.getByLabel("流程名称")).toHaveValue("知识发布审批");
   await page.getByRole("button",{name:"下一步：表单设计",exact:true}).click();
   await expect(page.getByLabel("字段名称").first()).toBeDisabled();

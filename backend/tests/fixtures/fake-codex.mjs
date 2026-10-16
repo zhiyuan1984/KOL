@@ -145,6 +145,14 @@ rl.on("line", (line) => {
     if (mode === "task-collaboration-evidence") {
       const input = params.input.find(part=>part.type === "text" && part.text.startsWith("Host authorized Task collaboration evidence"));
       const evidence = JSON.parse(input.text.split("\n")[1]);
+      const evidenceDump = String(process.env.FAKE_CODEX_TASK_EVIDENCE || "").trim();
+      if (evidenceDump) {
+        try {
+          fs.writeFileSync(evidenceDump, JSON.stringify(evidence));
+        } catch {
+          /* test evidence dump is best-effort */
+        }
+      }
       const item = {type:"kol_analyze_brief",title:"依赖分析夹具",summary:`Task ${evidence.task.id} · ${evidence.version}`,
         sections:[{title:"已提供的依据",body:evidence.gates.map(gate=>`${gate.work_order_id}: ${gate.blockers.join(",")}`).join("; "),items:[]}],metrics:[],recommended_actions:[]};
       setTimeout(()=>{

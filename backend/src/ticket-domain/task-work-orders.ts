@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { createHash } from "node:crypto";
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
@@ -175,7 +176,7 @@ export async function createTaskRootPostgres(actorId: string, raw: TaskRootInput
 }
 
 async function authorizedTask(actorId: string, taskId: string, isAdmin: boolean): Promise<TaskRoot> {
-  const task = await postgresPool().query<Record<string, unknown>>(
+  const task = await postgresConnection().query<Record<string, unknown>>(
     `SELECT t.*
        FROM tickets t
       WHERE t.id=$1 AND t.task_type=$2 AND t.profile=$3
@@ -200,7 +201,7 @@ function fingerprint(value: unknown): string {
  * work orders only provide workload, blocking and next-action facts. */
 export async function taskWorkOrderAggregate(actorId: string, taskId: string, isAdmin = false): Promise<TaskWorkOrderAggregate> {
   const task = await authorizedTask(actorId, taskId, isAdmin);
-  const rows = await postgresPool().query<{
+  const rows = await postgresConnection().query<{
     id: string; template_code: string; template_version: number | string; template_title: string; status: string; priority: string;
     stage_code: string | null; title: string; objective: string; due_at: Date | string | null; automation_level: string;
     created_at: Date | string; updated_at: Date | string;
@@ -266,7 +267,7 @@ export async function taskWorkOrderAggregate(actorId: string, taskId: string, is
       confidence: row.decision_confidence == null ? null : Number(row.decision_confidence), created_at: new Date(String(row.decision_created_at)).toISOString(),
     } : null,
   }));
-  const verified = await postgresPool().query<{
+  const verified = await postgresConnection().query<{
     id: string; event_type: string; occurred_at: Date | string; summary: string; evidence_ref: string; verified_by: string; verified_at: Date | string;
   }>(
     `SELECT id,event_type,occurred_at,summary,evidence_ref,verified_by,verified_at
@@ -305,7 +306,7 @@ export async function taskWorkOrderAggregate(actorId: string, taskId: string, is
  * new AI task can be shown alongside—not masquerade as—a legacy agent run. */
 export async function listTaskWorkOrderAggregates(actorId: string, isAdmin = false, limit = 50): Promise<TaskWorkOrderList> {
   const bounded = Math.max(1, Math.min(100, Math.floor(limit)));
-  const rows = await postgresPool().query<{ id: string }>(
+  const rows = await postgresConnection().query<{ id: string }>(
     `SELECT t.id
        FROM tickets t
       WHERE t.task_type=$1 AND t.profile=$2
@@ -318,7 +319,7 @@ export async function listTaskWorkOrderAggregates(actorId: string, isAdmin = fal
       ORDER BY t.updated_at DESC,t.id DESC LIMIT $5`,
     [TASK_TYPE, TASK_PROFILE, isAdmin, actorId, bounded],
   );
-  const aggregates = await Promise.all(rows.rows.map((row) => taskWorkOrderAggregate(actorId, row.id, isAdmin)));
+  const aggregates = await Promise.all(rows.rows.map(async (row) => (taskWorkOrderAggregate(actorId, row.id, isAdmin))));
   return {
     items: aggregates.map(({ task, counts, current_blocking_work_order }) => ({ task, counts, current_blocking_work_order })),
     as_of: new Date().toISOString(),
@@ -640,7 +641,7 @@ export async function taskWorkOrderDashboard(
   const template = dashboardText(options.template, 120);
   const status = dashboardText(options.status, 80);
   const values = [TASK_TYPE, TASK_PROFILE, isAdmin, actorId, limit, offset, period, timezone, q, template, status];
-  const result = await postgresPool().query<{
+  const result = await postgresConnection().query<{
     as_of: Date | string;
     summary: unknown;
     metrics: unknown;
@@ -807,7 +808,7 @@ export async function taskWorkOrderDashboardExport(
   const period = dashboardPeriod(options.period);
   const timezone = String(options.timezone || "Asia/Shanghai").trim() || "Asia/Shanghai";
   const values = [TASK_TYPE, TASK_PROFILE, isAdmin, actorId, 100, 0, period, timezone, dashboardText(options.q), dashboardText(options.template, 120), dashboardText(options.status, 80)];
-  const result = await postgresPool().query<{
+  const result = await postgresConnection().query<{
     task_title: string; status: string; template: string | null; assignee: string | null; created_at: Date | string | null; completed_at: Date | string | null;
   }>(
     `WITH ${DASHBOARD_SCOPE_CTES}

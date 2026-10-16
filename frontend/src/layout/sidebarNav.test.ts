@@ -62,7 +62,7 @@ describe("今日 sidebar IA", () => {
 });
 
 describe("admin sidebar parity", () => {
-  it("keeps the admin navigation contract for 业务地图 / 知识库 / 去审批 / Agent 移组（ADR-2026-10-12）", () => {
+  it("keeps the admin navigation contract for 业务地图 / 知识库 / Agent / 本体域 / 主数据", () => {
     expect(ADMIN_SECTIONS).toEqual([
       "employees",
       "overview",
@@ -89,6 +89,7 @@ describe("admin sidebar parity", () => {
     // business-domains：Phase 3 本体统一页合并，侧栏入口去掉，旧地址仍为合法深链（IA §1.1）。
     expect(ADMIN_HIDDEN_SECTIONS).toEqual(["approvals", "business-domains"]);
     expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([3, 5, 1, 1, 7]);
+    expect(new Set(ADMIN_SECTIONS).size).toBe(ADMIN_SECTIONS.length);
     expect(ADMIN_NAV_GROUPS.flatMap((group) => group.rows.map((row) => row.label))).toEqual([
       "员工",
       "工作战报",
@@ -108,7 +109,7 @@ describe("admin sidebar parity", () => {
       "审计中心",
       "配置",
     ]);
-    // 资产簇内「连接器 / 知识库 / Agent / 本体」同组且顺序固定；「审批」已从菜单去掉（隐藏分节）。
+    // 本体唯一入口；业务域地图和审批仍是合法隐藏深链分节。
     const assetIds = ADMIN_NAV_GROUPS.find((group) => group.label === "资产")!.rows.map((row) => row.id);
     expect(assetIds).toEqual(["connectors", "knowledge", "agents", "ontology", "approval-types"]);
     expect(ADMIN_NAV_GROUPS.flatMap((group) => group.rows.map((row) => row.id))).not.toContain("approvals");
@@ -129,6 +130,8 @@ describe("admin sidebar parity", () => {
     expect(adminTabOf("/admin/connectors/conn_a")).toBe("connectors");
     expect(adminTabOf("/admin/lead-funnel")).toBe("lead-funnel");
     expect(adminTabOf("/admin/project-delivery")).toBe("project-delivery");
+    expect(adminTabOf("/admin/business-domains")).toBe("business-domains");
+    expect(adminTabOf("/admin/master-data")).toBe("master-data");
     expect(adminTabOf("/admin/approvals")).toBe("approvals"); // 隐藏深链分节
     expect(adminTabOf("/admin/unknown")).toBe("employees");
   });

@@ -37,17 +37,17 @@ async function bodyObject(c: { req: { json: () => Promise<unknown> } }): Promise
   return body;
 }
 
-costsRouter.get("/admin/costs/summary", (c) => {
+costsRouter.get("/admin/costs/summary", async (c) => {
   costsAdmin();
   const month = c.req.query("month") || null;
-  return c.json(costsSummary(month));
+  return c.json((await costsSummary(month)));
 });
 
-costsRouter.get("/admin/costs/events", (c) => {
+costsRouter.get("/admin/costs/events", async (c) => {
   costsAdmin();
   const rawLimit = Number(c.req.query("limit") || 50);
   const agentId = c.req.query("agent_id") || null;
-  return c.json({ events: listCostEvents(Number.isFinite(rawLimit) ? rawLimit : 50, agentId) });
+  return c.json({ events: (await listCostEvents(Number.isFinite(rawLimit) ? rawLimit : 50, agentId)) });
 });
 
 costsRouter.put("/admin/costs/budget", async (c) => {
@@ -73,7 +73,7 @@ costsRouter.put("/admin/costs/budget", async (c) => {
   if (body.enabled != null && typeof body.enabled !== "boolean") throw new HttpFail(400, "enabled must be boolean");
   const expectedVersion = parseExpectedVersion(body.expected_version);
   if (expectedVersion === undefined) throw new HttpFail(400, "expected_version is required");
-  const row = upsertBudget({
+  const row = (await upsertBudget({
     scope: String(body.scope ?? ""),
     scopeRef: String(body.scope_ref ?? ""),
     limitTokens,
@@ -82,6 +82,6 @@ costsRouter.put("/admin/costs/budget", async (c) => {
     enabled: body.enabled == null ? null : Boolean(body.enabled),
     expectedVersion,
     actor: admin.id,
-  });
+  }));
   return c.json(row);
 });

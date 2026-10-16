@@ -53,7 +53,7 @@ describe("read skill completion (real Codex, no mail draft)", () => {
       type: "task_result",
       summary: "MCP 已读完，结论如下。",
     });
-    expect(requiredSkillOutputMissing(skill, requireTaskDefinition(skill), items)).toBeNull();
+    expect(requiredSkillOutputMissing(skill, (await requireTaskDefinition(skill)), items)).toBeNull();
   });
 
   it("wraps analysis text as task_result so reply_analysis can complete", async () => {
@@ -66,7 +66,7 @@ describe("read skill completion (real Codex, no mail draft)", () => {
     expect(card?.title).toBe("回复分析");
     expect(String(card?.summary)).toContain("来信确认档期");
     expect(items.some((item) => item.type === "create_draft")).toBe(false);
-    expect(requiredSkillOutputMissing("reply_analysis", requireTaskDefinition("reply_analysis"), items)).toBeNull();
+    expect(requiredSkillOutputMissing("reply_analysis", (await requireTaskDefinition("reply_analysis")), items)).toBeNull();
   });
 
   it("does not use the mail-draft generation_unavailable message for Codex-strict non-compose skills", async () => {
@@ -98,8 +98,8 @@ describe("read skill completion (real Codex, no mail draft)", () => {
 });
 
 describe("business_approval create_approval schema", () => {
-  it("is Codex-strict so proposal output is not rejected as invalid_json_schema", () => {
-    const schema = skillOutputSchema("business_approval", requireTaskDefinition("business_approval"));
+  it("is Codex-strict so proposal output is not rejected as invalid_json_schema", async () => {
+    const schema = skillOutputSchema("business_approval", (await requireTaskDefinition("business_approval")));
     expectCodexStrictSchema(schema);
     expect((schema.properties as Json).type).toEqual({ type: "string", enum: ["review_draft", "create_approval", "task_result"] });
     expect((schema.properties as Json).amount).toEqual({ type: ["number", "null"] });
@@ -112,8 +112,8 @@ describe("business_approval create_approval schema", () => {
     });
   });
 
-  it("accepts a create_approval proposal or a needs-clarification payload as the Turn output", () => {
-    const definition = requireTaskDefinition("business_approval");
+  it("accepts a create_approval proposal or a needs-clarification payload as the Turn output", async () => {
+    const definition = (await requireTaskDefinition("business_approval"));
     expect(requiredSkillOutputMissing("business_approval", definition, [{
       type: "create_approval",
       amount: 50000,

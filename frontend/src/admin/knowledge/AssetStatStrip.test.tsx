@@ -20,4 +20,10 @@ describe('knowledge asset strip',()=>{
  it('keeps four real zero states without invented percentages',()=>{
   const html=render({stats:{...stats,status:{},pending_review:{count:0,max_wait_days:0}}});expect((html.match(/data-kb-status=/g)||[]).length).toBe(4);expect(html).not.toContain('占比');expect(html).not.toContain('最长等待');
  });
+ it('rejects malformed aggregates without turning invalid values into zero',()=>{
+  for(const status of [null,[],{draft:-1},{published:NaN},{archived:'0'}]){
+   const html=render({stats:{...stats,status} as unknown as WsStats,reload:()=>undefined});
+   expect(html).toContain('统计不完整');expect(html).toContain('重试');expect(html).not.toContain('data-kb-status=');
+  }
+ });
 });

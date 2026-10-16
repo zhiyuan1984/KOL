@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { HttpFail } from "../host/errors.js";
 import { normalizeMcpContent } from "../mcp/remote.js";
 import { postgresPool, postgresTransaction } from "../postgres/pool.js";
@@ -46,13 +47,15 @@ export function candidateView(value: Json, platform: string): Json {
 }
 
 export async function collectCrawlResults(executionJob: ClaimedExecutionJob, checkpoint: () => Promise<void>,
-  createRuntime: (context: RuntimeContext) => SkillExecution | BackgroundToolInvoker = (context) =>
-    isPlatformPrincipal(context.userId) ? backgroundToolRuntime(context) : new SkillExecution(context)): Promise<Json> {
+  createRuntime?: (context: RuntimeContext) => SkillExecution | BackgroundToolInvoker | Promise<SkillExecution | BackgroundToolInvoker>): Promise<Json> {
+if (createRuntime === undefined) createRuntime = async (context) =>
+    isPlatformPrincipal(context.userId) ? (backgroundToolRuntime(context)) : new SkillExecution(context);
+
   const id = String(pgExecutionJobPayload(executionJob).crawl_id);
-  const job = (await postgresPool().query("SELECT * FROM runtime_crawl_jobs WHERE id=$1", [id])).rows[0];
+  const job = (await postgresConnection().query("SELECT * FROM runtime_crawl_jobs WHERE id=$1", [id])).rows[0];
   if (!job || !["succeeded", "cancelled"].includes(job.state)) return { state: "not_ready" };
   if (job.result_state === "ready") return { state: "ready" };
-  const runtime = createRuntime(job.context_json);
+  const runtime = await createRuntime(job.context_json);
   try {
     await checkpoint();
     const tool = (await runtime.discover()).tools.find(t => t.connectorId === "claw" && t.remoteName === "get_creators");
@@ -92,8 +95,8 @@ export async function collectCrawlResults(executionJob: ClaimedExecutionJob, che
     }
     if (total !== null && complete && total !== candidates.length) fail("crawl_result_pagination_invalid");
     await checkpoint();
-    if (isPlatformPrincipal(job.context_json?.userId)) authorizeBackgroundCrawl(job.context_json);
-    else authorizeConnector(job.context_json, "claw");
+    if (isPlatformPrincipal(job.context_json?.userId)) (await authorizeBackgroundCrawl(job.context_json));
+    else (await authorizeConnector(job.context_json, "claw"));
     const result = { schema: "crawl_candidates/v1", task_id: job.remote_task_id, platform,
       captured_at: new Date().toISOString(), complete, total, candidates, collection_state: job.state };
     await postgresTransaction(async client => {
@@ -122,8 +125,8 @@ export async function collectCrawlResults(executionJob: ClaimedExecutionJob, che
     }
     return { state: complete ? "ready" : "partial", count: candidates.length };
   } catch (error) {
-    await postgresPool().query("UPDATE runtime_crawl_jobs SET result_state='failed',result_error=$2,updated_at=now() WHERE id=$1", [id, runtimeErrorCode(error)]);
+    await postgresConnection().query("UPDATE runtime_crawl_jobs SET result_state='failed',result_error=$2,updated_at=now() WHERE id=$1", [id, runtimeErrorCode(error)]);
     throw error;
-  } finally { runtime.close(); }
+  } finally { (await runtime.close()); }
 }
 registerExecutionHandler("crawler.results", collectCrawlResults);

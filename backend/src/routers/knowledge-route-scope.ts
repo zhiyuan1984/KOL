@@ -4,7 +4,10 @@
 const collections = new Set([
   "documents", "bases", "domains", "workspace-v1", "entries", "publication-v2",
   "bindings", "raw", "extract", "proposals", "feedback", "extract-jobs", "review",
-  "deprecate-stats", "assets", "resolve-preview", "index-health",
+  "deprecate-stats", "assets", "resolve-preview", "index-health", "search", "upload",
+  // Global governance handlers validate their own authenticated admin actor;
+  // they are collection resources, not a knowledge entry named evolve.
+  "evolve",
 ]);
 export function requiresKnowledgeEntryAuthorization(id: string): boolean {
   return !collections.has(id);

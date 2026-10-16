@@ -1,6 +1,8 @@
+import { asyncFind } from "../async-collections.js";
 import { Hono } from "hono";
 import { authDisabled, requireAdmin } from "../auth.js";
-import { audit, getConn, nowIso } from "../db.js";
+import { audit } from "../db.js";
+import { postgresQuery } from "../postgres/pool.js";
 import { HttpFail } from "../host/errors.js";
 import {
   getAgentSkills,
@@ -120,9 +122,9 @@ function declaredSkillIds(body: Record<string, unknown>): string[] | undefined {
  * 连接器本体与工具策略的启用是管理员在连接器控制台的显式动作，这里绝不代做；
  * 声明之外的工具也不挂。已启用行原样保留，所以重复调用只产生 unchanged。
  */
-function mountDeclaredTools(connectorId: string, requestedSkillIds: string[] | undefined, actor: string) {
-  const coverage = skillCoverage({ connectorId });
-  const connectorExists = Boolean(getConn().prepare("SELECT 1 FROM connectors WHERE id=?").get(connectorId));
+async function mountDeclaredTools(connectorId: string, requestedSkillIds: string[] | undefined, actor: string) {
+  const coverage = await skillCoverage({ connectorId });
+  const connectorExists = (await postgresQuery("SELECT 1 FROM connectors WHERE id=$1", [connectorId])).length > 0;
   const skillIds = requestedSkillIds
     ?? coverage.skills.filter((skill) => skill.implementation === "live").map((skill) => skill.skill_id);
   const results: DeclaredMountSkillResult[] = [];
@@ -135,16 +137,16 @@ function mountDeclaredTools(connectorId: string, requestedSkillIds: string[] | u
     let connectorCreated = false;
     if (connectorExists) {
       // 工具绑定的前置是启用的父连接器绑定（store 会拦），所以父绑定先于逐条工具处理。
-      const binding = getSkillConnectors(skillId).find((row) => row.connector_id === connectorId);
+      const binding = (await getSkillConnectors(skillId)).find((row) => row.connector_id === connectorId);
       if (!binding) {
-        setSkillConnector(skillId, connectorId, true, 0);
+        await setSkillConnector(skillId, connectorId, true, 0);
         connectorCreated = true;
       } else if (Number(binding.enabled) !== 1) {
-        setSkillConnector(skillId, connectorId, true, Number(binding.version) || 0);
+        await setSkillConnector(skillId, connectorId, true, Number(binding.version) || 0);
       }
       connectorBound = true;
     }
-    const existingTools = getSkillTools(skillId, connectorId);
+    const existingTools = await getSkillTools(skillId, connectorId);
     for (const tool of declaredTools) {
       const reason = DECLARED_MOUNT_SKIP[tool.state];
       if (reason) {
@@ -157,16 +159,16 @@ function mountDeclaredTools(connectorId: string, requestedSkillIds: string[] | u
         unchanged.push(tool.tool_name);
         continue;
       }
-      setSkillTool(skillId, connectorId, tool.tool_name, true, Number(existing?.version) || 0);
+      await setSkillTool(skillId, connectorId, tool.tool_name, true, Number(existing?.version) || 0);
       mounted.push(tool.tool_name);
     }
-    audit(actor, "runtime.skill_mount.declared", {
+    (await audit(actor, "runtime.skill_mount.declared", {
       connector_id: connectorId,
       skill_id: skillId,
       mounted,
       unchanged,
       skipped,
-    });
+    }));
     results.push({
       skill_id: skillId,
       connector_bound: connectorBound,
@@ -190,67 +192,67 @@ function mountDeclaredTools(connectorId: string, requestedSkillIds: string[] | u
   };
 }
 
-skillRuntimeRouter.get("/admin/runtime/agents/:agentId/skills", (c) => {
+skillRuntimeRouter.get("/admin/runtime/agents/:agentId/skills", async (c) => {
   runtimeAdmin();
-  return c.json(getAgentSkills(c.req.param("agentId")));
+  return c.json(await getAgentSkills(c.req.param("agentId")));
 });
 
 skillRuntimeRouter.put("/admin/runtime/agents/:agentId/skills/:skillId", async (c) => {
   const admin = runtimeAdmin();
   const body = await bodyObject(c);
   onlyFields(body, ["enabled", "expected_version"]);
-  const row = setAgentSkill(c.req.param("agentId"), c.req.param("skillId"), enabled(body), expectedVersion(body));
-  audit(admin.id, "runtime.binding.updated", {
+  const row = await setAgentSkill(c.req.param("agentId"), c.req.param("skillId"), enabled(body), expectedVersion(body));
+  (await audit(admin.id, "runtime.binding.updated", {
     action: enabled(body) ? "enabled" : "disabled",
     agent_id: row.agent_id,
     skill_id: row.skill_id,
     version: row.version,
-  });
+  }));
   return c.json(row);
 });
 
-skillRuntimeRouter.get("/admin/runtime/skills/:skillId/connectors", (c) => {
+skillRuntimeRouter.get("/admin/runtime/skills/:skillId/connectors", async (c) => {
   runtimeAdmin();
-  return c.json(getSkillConnectors(c.req.param("skillId")));
+  return c.json(await getSkillConnectors(c.req.param("skillId")));
 });
 
 skillRuntimeRouter.put("/admin/runtime/skills/:skillId/connectors/:connectorId", async (c) => {
   const admin = runtimeAdmin();
   const body = await bodyObject(c);
   onlyFields(body, ["enabled", "expected_version"]);
-  const row = setSkillConnector(c.req.param("skillId"), c.req.param("connectorId"), enabled(body), expectedVersion(body));
-  audit(admin.id, "runtime.binding.updated", {
+  const row = await setSkillConnector(c.req.param("skillId"), c.req.param("connectorId"), enabled(body), expectedVersion(body));
+  (await audit(admin.id, "runtime.binding.updated", {
     action: enabled(body) ? "enabled" : "disabled",
     skill_id: row.skill_id,
     connector_id: row.connector_id,
     version: row.version,
-  });
+  }));
   return c.json(row);
 });
 
-skillRuntimeRouter.get("/admin/runtime/skills/:skillId/tools", (c) => {
+skillRuntimeRouter.get("/admin/runtime/skills/:skillId/tools", async (c) => {
   runtimeAdmin();
-  return c.json(getSkillTools(c.req.param("skillId")));
+  return c.json(await getSkillTools(c.req.param("skillId")));
 });
 
 skillRuntimeRouter.put("/admin/runtime/skills/:skillId/tools/:connectorId/:toolName", async (c) => {
   const admin = runtimeAdmin();
   const body = await bodyObject(c);
   onlyFields(body, ["enabled", "expected_version"]);
-  const row = setSkillTool(
+  const row = await setSkillTool(
     c.req.param("skillId"), c.req.param("connectorId"), c.req.param("toolName"), enabled(body), expectedVersion(body),
   );
-  audit(admin.id, "runtime.tool_binding.updated", {
+  (await audit(admin.id, "runtime.tool_binding.updated", {
     action: row.enabled ? "enabled" : "disabled", skill_id: row.skill_id,
     connector_id: row.connector_id, tool_name: row.tool_name, version: row.version,
-  });
+  }));
   return c.json(row);
 });
 
-skillRuntimeRouter.get("/admin/runtime/skills/coverage", (c) => {
+skillRuntimeRouter.get("/admin/runtime/skills/coverage", async (c) => {
   runtimeAdmin();
   const connectorId = c.req.query("connector_id")?.trim();
-  return c.json(skillCoverage(connectorId ? { connectorId } : {}));
+  return c.json(await skillCoverage(connectorId ? { connectorId } : {}));
 });
 
 skillRuntimeRouter.post("/admin/runtime/connectors/:connectorId/mount-declared", async (c) => {
@@ -262,16 +264,16 @@ skillRuntimeRouter.post("/admin/runtime/connectors/:connectorId/mount-declared",
   const skillIds = declaredSkillIds(body);
   if (skillIds) {
     // 未定义的 id 一律先拒，避免半批写入之后才失败。
-    const unknown = skillIds.find((skillId) => !taskDefinition(skillId));
+    const unknown = (await asyncFind(skillIds,async (skillId) => !(await taskDefinition(skillId))));
     if (unknown) throw new HttpFail(400, { code: "unknown_skill", skill_id: unknown });
   }
-  return c.json(mountDeclaredTools(connectorId, skillIds, admin.id));
+  return c.json(await mountDeclaredTools(connectorId, skillIds, admin.id));
 });
 
-skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/config", (c) => {
+skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/config", async (c) => {
   runtimeAdmin();
   requireManagedRuntimeConnector(c.req.param("connectorId"));
-  const result = getConnectorConfig(c.req.param("connectorId"));
+  const result = await getConnectorConfig(c.req.param("connectorId"));
   if (!result) throw new HttpFail(404, "runtime connector config not found");
   return c.json(result);
 });
@@ -299,17 +301,15 @@ skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/config", async (c
   const version = expectedVersion(body);
   const { expected_version: _expectedVersion, ...configBody } = body;
   const config = validateConnectorConfig(configBody);
-  const row = setConnectorConfig(c.req.param("connectorId"), config, version);
+  const row = await setConnectorConfig(c.req.param("connectorId"), config, version);
   if (process.env.NODE_ENV !== "test") {
-    getConn().prepare(
-      "UPDATE connectors SET enabled=0,status='pending_verification',last_error=NULL,updated_at=? WHERE id=?",
-    ).run(nowIso(), row.connector_id);
+    await postgresQuery("UPDATE connectors SET enabled=0,status='pending_verification',last_error=NULL,updated_at=$1 WHERE id=$2", [new Date().toISOString(), String(row.connector_id)]);
   }
-  audit(admin.id, "runtime.config.updated", {
+  (await audit(admin.id, "runtime.config.updated", {
     action: "upserted",
     connector_id: row.connector_id,
     version: row.version,
-  });
+  }));
   // Return only the validated, reference-only DTO; never expose config_json.
   return c.json({ config, version: row.version });
 });
@@ -324,16 +324,16 @@ skillRuntimeRouter.post("/admin/runtime/connectors/:connectorId/import-openapi",
   return c.json(previewOpenApi(body.document));
 });
 
-skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/policies", (c) => {
+skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/policies", async (c) => {
   runtimeAdmin();
   requireManagedRuntimeConnector(c.req.param("connectorId"));
-  return c.json(getConnectorPolicies(c.req.param("connectorId")));
+  return c.json(await getConnectorPolicies(c.req.param("connectorId")));
 });
 
-skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/tools/:toolName", (c) => {
+skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/tools/:toolName", async (c) => {
   runtimeAdmin();
   requireManagedRuntimeConnector(c.req.param("connectorId"));
-  const policy = getToolPolicy(c.req.param("connectorId"), c.req.param("toolName"));
+  const policy = await getToolPolicy(c.req.param("connectorId"), c.req.param("toolName"));
   if (!policy) throw new HttpFail(404, "tool policy not found");
   return c.json(policy);
 });
@@ -347,18 +347,18 @@ skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/tools/:toolName",
   if (body.risk !== "L1" && body.risk !== "L2" && body.risk !== "L3") throw new HttpFail(400, "risk must be L1, L2, or L3");
   if (body.access !== "read" && body.access !== "write") throw new HttpFail(400, "access must be read or write");
   if (typeof body.schema_hash !== "string") throw new HttpFail(400, "schema_hash must be a string");
-  const row = setToolPolicy(c.req.param("connectorId"), c.req.param("toolName"), {
+  const row = await setToolPolicy(c.req.param("connectorId"), c.req.param("toolName"), {
     enabled: enabled(body),
     risk: body.risk,
     access: body.access,
     schema_hash: body.schema_hash,
   }, version);
   // L3 is mountable. Registration cannot confer confirmation or business approval.
-  audit(admin.id, "runtime.tool_policy.updated", {
+  (await audit(admin.id, "runtime.tool_policy.updated", {
     action: row.enabled ? "enabled" : "disabled",
     connector_id: row.connector_id,
     tool_name: row.tool_name,
     version: row.version,
-  });
+  }));
   return c.json(row);
 });

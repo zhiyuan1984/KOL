@@ -70,13 +70,20 @@ export function isSubmitter(approval: Row, user?: AppUser | null): boolean {
 export function chainIndexForViewer(approval: Row, user?: AppUser | null): number {
   const viewer = viewerOf(user);
   const chain = chainOf(approval);
+  // Canonical user nodes are authoritative.  Resolve them before legacy
+  // employee/name compatibility, and never let chain_detail's display name
+  // grant a same-name account visibility to a canonical assignment.
+  if (user?.id) {
+    const canonical = chain.indexOf(`user:${user.id}`);
+    if (canonical >= 0) return canonical;
+  }
   if (viewer.employee_id) {
     const byId = chain.indexOf(viewer.employee_id);
     if (byId >= 0) return byId;
   }
   const detail = Array.isArray(approval.chain_detail) ? approval.chain_detail as { name?: string }[] : [];
   if (viewer.name) {
-    const byName = detail.findIndex((step) => step.name === viewer.name);
+    const byName = detail.findIndex((step, index) => !chain[index]?.startsWith("user:") && step.name === viewer.name);
     if (byName >= 0) return byName;
   }
   return -1;

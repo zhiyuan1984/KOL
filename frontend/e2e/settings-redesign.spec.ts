@@ -61,7 +61,7 @@ test('cancel restores the latest saved preferences and clearing brand does not o
   await page.getByRole('button', { name: '取消修改' }).click(); await expect(page.locator('#theme').locator('..')).toContainText('浅色');
   await page.locator('#default_brand').click(); await page.getByText('每次选择', { exact: true }).first().click();
   await expect(page.locator('#default_mailbox').locator('..')).toContainText('每次选择');
-  await page.locator('#default_mailbox').click(); await expect(page.locator('.ant-select-dropdown:visible')).not.toContainText('work@litime.com');
+  await page.locator('#default_mailbox').click(); await expect(page.locator('.ant-select-dropdown:visible:not(.ant-slide-up-leave)')).not.toContainText('work@litime.com');
 });
 test('password mismatch retains input and makes no request, leaving asks before discarding', async ({ page }) => {
   const state = await mock(page); await page.goto('/settings?tab=security');

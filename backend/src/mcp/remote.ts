@@ -219,7 +219,7 @@ export class RemoteMcpClient {
 
   private async connect(): Promise<void> {
     if (this.closed) throw new Error("remote MCP client is closed");
-    if (!this.connecting) this.connecting = this.remoteCall(this.client.connect(this.transport, { timeout: this.timeoutMs }));
+    if (!this.connecting) this.connecting = (this.remoteCall((this.client.connect(this.transport, { timeout: this.timeoutMs }))));
     await this.connecting;
   }
 
@@ -232,10 +232,10 @@ export class RemoteMcpClient {
     let cursor: string | undefined;
 
     for (let page = 0; page < MAX_LIST_TOOLS_PAGES; page += 1) {
-      const result = await this.remoteCall(this.client.listTools(
+      const result = await this.remoteCall((this.client.listTools(
         cursor === undefined ? {} : { cursor },
         { timeout: this.timeoutMs },
-      ));
+      )));
       if (tools.length + result.tools.length > MAX_LIST_TOOLS_TOTAL) {
         throw new Error(`remote MCP tools/list exceeded ${MAX_LIST_TOOLS_TOTAL} tools`);
       }
@@ -257,11 +257,11 @@ export class RemoteMcpClient {
   /** Forward an MCP tool result without normalization, including isError and content blocks. */
   async callToolRaw(name: string, args: Json = {}): Promise<Record<string, unknown>> {
     await this.connect();
-    return await this.remoteCall(this.client.callTool(
+    return await this.remoteCall((this.client.callTool(
       { name, arguments: args },
       undefined,
       { timeout: this.timeoutMs },
-    )) as unknown as Record<string, unknown>;
+    ))) as unknown as Record<string, unknown>;
   }
 
   async callTool(name: string, args: Json = {}): Promise<Json> {

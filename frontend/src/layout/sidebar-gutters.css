@@ -1,13 +1,19 @@
-/* DESIGN §27.2: retain the desktop rail width and balance its content gutters.
- * The scrollbar occupies the gutter rather than reducing the nav width. */
+/* DESIGN §27.2: retain the desktop rail width while keeping its thin scrollbar
+ * at the rail edge. The nav text keeps its left inset; the scroller keeps only
+ * the compact right inset that leaves the thumb reachable. */
 @media (min-width: 861px) {
-  .workbench:not(.sidebar-collapsed) .sidebar.sidebar {
-    padding-inline: var(--workspace-pane-gutter);
-  }
   .workbench:not(.sidebar-collapsed) .sidebar .sidebar-scroll {
-    width: calc(100% + var(--inset-scrollbar-width, 0px));
-    margin-inline-end: calc(-1 * var(--inset-scrollbar-width, 0px));
-    padding-inline: 0;
-    scrollbar-gutter: stable;
+    width: auto;
+    margin-inline-end: 0;
+    /* Overlay scrollbars measure 0px, but the content inset must still retain
+     * the shared thin-scrollbar token rather than disappearing at the rail edge. */
+    padding-inline: 0 var(--scrollbar-size, 6px);
+    scrollbar-gutter: auto;
+  }
+
+  /* The scroll box reaches the rail edge so its thin thumb remains reachable;
+   * its navigation content still needs the symmetric shell reading gutter. */
+  .workbench:not(.sidebar-collapsed) .sidebar .sidebar-nav-stack {
+    margin-inline-end: calc(var(--space-4) - var(--scrollbar-size, 6px));
   }
 }

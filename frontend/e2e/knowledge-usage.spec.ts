@@ -1,11 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
+import { prepareEmployeeKnowledgeMailbox, prepareEmployeeKnowledgeSeedOwners } from "./fixtures/native-employee-seed-owner";
 
 /**
  * 员工端知识库「阶段 3」契约：服务端搜索、适用筛选、同页详情（右栏）溯源与草稿卡引用芯片。
  *
  * 只断言页面自己的 DOM 契约，不改 workbench.spec.ts 的既有基线：
  *   搜索 → [data-kb-search]（debounce 后走 GET /api/knowledge?q=）
- *   适用 → 行内 [data-kb-scope] chips 只露品牌值（阶段在右栏给中文标签），
+ *   适用 → 当前紧凑行只显示标题和类型；品牌与阶段在打开后的右栏完整给出，
  *          阶段筛选默认全部＋五个字典标签，其余下拉；值按代码过滤、展示中文标签
  *   溯源 → 右栏 [data-kb-provenance]：发布人 / 版本 / 更新时间 / 适用
  *   芯片 → 草稿与回执 [data-draft-knowledge]：模板：{标题} v{n}
@@ -22,12 +23,14 @@ async function expandKnowledgeList(page: Page): Promise<void> {
   while (await more.count()) await more.click();
 }
 
-test.beforeEach(async ({ request }) => {
-  // 种子库跨运行保留（其它用例会重建协作与隐藏知识），先回到工作台基线再断言。
-  await request.post("/api/demo/reset", { data: { workbench: true } });
-  await request.post("/api/me/persona", { data: { persona: "sriphy" } });
+test.beforeEach(async ({ page }) => {
+  // Native auth has no demo reset. Preserve seed content/lifecycle, correcting
+  // only their missing legacy owner in the explicit isolated employee fixture.
+  await prepareEmployeeKnowledgeSeedOwners(["kb_mail_kol", "kb_mail_followup", "kb_mail_ship", "kb_followup"]);
+  const request = page.request;
   for (const id of ["kb_mail_kol", "kb_mail_followup", "kb_mail_ship"]) {
-    await request.delete(`/api/knowledge/${id}/deprecate`);
+    const restored = await request.delete(`/api/knowledge/${id}/deprecate`);
+    expect(restored.ok(), `恢复本人的知识可见性失败：${restored.status()} ${await restored.text()}`).toBeTruthy();
   }
 });
 
@@ -77,16 +80,20 @@ test("行内只露品牌值；阶段中文标签在右栏；无适用范围写�
   const kb = page.locator("[data-kb-page='mine']");
   await expandKnowledgeList(page);
 
-  const mail = kb.locator('[data-knowledge="kb_mail_followup"] [data-kb-scope]');
-  await expect(mail).toBeVisible();
-  await expect(mail).toContainText("LT");
-  await expect(mail).not.toContainText("初步接触");
+  // 当前 KnowledgeBrowse 紧凑行故意只放标题与类型；范围不能悄悄丢失，必须在右栏完整可读。
+  const mail = kb.locator('[data-knowledge="kb_mail_followup"]');
+  await expect(mail).toHaveText(/^\s*阶段跟进\s*邮件模板\s*$/);
+  await expect(mail).not.toContainText(/LiTime|初步接触/);
+  await mail.click();
+  const mailRail = page.locator('[data-kb-preview="kb_mail_followup"] [data-kb-scope]');
+  await expect(mailRail).toContainText("LT");
+  await expect(mailRail).toContainText("初步接触");
 
-  const policy = kb.locator('[data-knowledge="kb_followup"] [data-kb-scope]');
-  await expect(policy).toBeVisible();
-  await expect(policy).toContainText("通用");
+  const policy = kb.locator('[data-knowledge="kb_followup"]');
+  await expect(policy).toHaveText(/^\s*跟进信模板（阶段保持）\s*口径\s*$/);
+  await expect(policy).not.toContainText(/全阶段|通用/);
 
-  await kb.locator('[data-kb-open="kb_followup"]').click();
+  await policy.click();
   const rail = page.locator('[data-kb-preview="kb_followup"] [data-kb-scope]');
   await expect(rail).toContainText("全阶段");
   await expect(rail).toContainText("通用");
@@ -100,19 +107,43 @@ test("行内只露品牌值；阶段中文标签在右栏；无适用范围写�
   await expect(kb.locator("[data-kb-filter='brand']")).toBeVisible();
 });
 
-test("草稿卡显示「模板：{标题} v{n}」引用芯片", async ({ page, request }) => {
-  await request.post("/api/knowledge/kb_mail_followup/cite", { data: {} });
-  const ses = await request.post("/api/collaborations/col_xiaomei/session")
-    .then((r) => r.json() as Promise<{ id: string }>);
+test("草稿卡显示「模板：{标题} v{n}」引用芯片", async ({ page }) => {
+  const request = page.request;
+  const cited = await request.post("/api/knowledge/kb_mail_followup/cite", { data: {} });
+  expect(cited.ok(), `启用真实邮件模板失败：${cited.status()} ${await cited.text()}`).toBeTruthy();
+  const mailbox = await prepareEmployeeKnowledgeMailbox();
+  // col_xiaomei belongs to the retired demo principal. A real normal-login
+  // session is sufficient for the original template/draft provenance contract.
+  const created = await request.post("/api/sessions", { data: { title: `知识引用芯片 ${Date.now()}` } });
+  expect(created.ok(), `创建本人的真实会话失败：${created.status()} ${await created.text()}`).toBeTruthy();
+  const ses = await created.json() as { id: string };
+  expect(ses.id).toEqual(expect.any(String));
   await page.goto(`/s/${ses.id}`);
   const input = page.locator("[data-composer-input]");
   await input.click();
-  await input.fill("/");
+  await input.fill('/');
+  await page.locator('[data-skill-option="email_compose"]').click();
+  await expect(page.locator('[data-skill-chip="email_compose"]')).toHaveCount(1);
+  // The current composer loads mail templates only for the explicit mail task,
+  // not for every generic slash query. This remains a real template selection.
+  await input.fill("写合作邮件 /");
+  await expect(page.locator("[data-knowledge-option='kb_mail_followup']")).toBeVisible();
   await page.locator("[data-knowledge-option='kb_mail_followup']").click();
   await expect(input).toHaveValue(/LiTime collab kit/);
 
+  // Chat intentionally uses its specialized mail path instead of Home's generic
+  // parameter cards. Keep the selected knowledge source and complete the real
+  // first-contact address fields in the editable request; no send is performed.
+  const body = await input.inputValue();
+  await input.fill(`写合作邮件\n发件邮箱：${mailbox}\n收件邮箱：knowledge-citation-recipient@fixture.example\n邮件主题：Following up — LiTime collab kit\n\n${body}`);
   await page.locator("[data-send]").click();
-  const card = page.locator("[data-session-stream-pane] [data-kind='email-card']").first();
+  await expect.poll(async () => {
+    const state = await request.get(`/api/sessions/${ses.id}`);
+    expect(state.ok()).toBeTruthy();
+    const result = await state.json();
+    return result.messages?.find((message: { kind: string; payload: Record<string, unknown> }) => message.kind === 'email_card')?.payload;
+  }, { timeout: 20000, message: '字段齐全后必须真正生成草稿，不能以缺字段任务结果或乐观芯片冒充' }).toMatchObject({ knowledge_id: 'kb_mail_followup', knowledge_version: 1 });
+  const card = page.locator("[data-workbench] [data-kind='email-card']").first();
   await expect(card).toBeVisible({ timeout: 20000 });
   const chip = card.locator("[data-draft-knowledge]");
   await expect(chip).toBeVisible();

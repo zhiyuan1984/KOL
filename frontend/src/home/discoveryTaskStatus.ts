@@ -16,7 +16,10 @@ export function discoveryTaskStatus({ failure, startPhase, crawlPhase, submitted
   if (startPhase === "uncertain" || crawlPhase === "uncertain") return { key: "uncertain", glyph: "⚠", label: "结果待核实", detail: "不重复提交；先核对任务状态。", live: false };
   if (startPhase === "pending") return { key: "waiting", glyph: "⚠", label: "待确认", detail: "确认前不会发起采集。", live: false };
   if (crawlPhase === "running" || startPhase === "running") return { key: "running", glyph: "▶", label: "采集中", detail: "候选到达后原位更新，不打断阅读。", live: true };
-  if (["cancelled", "rejected"].includes(startPhase) || crawlPhase === "cancelled") return { key: "stopped", glyph: "■", label: "已停止", detail: "只保留已取得的候选。", live: false };
+  // A gateway rejection occurs before the R3 confirmation starts a crawl. It is
+  // not a stopped collection and must not imply that any candidate was obtained.
+  if (startPhase === "rejected") return { key: "idle", glyph: "·", label: "未开始", detail: "服务端拒绝本次确认；未发起采集。请核对原因后重新确认范围。", live: false };
+  if (startPhase === "cancelled" || crawlPhase === "cancelled") return { key: "stopped", glyph: "■", label: "已停止", detail: "只保留已取得的候选。", live: false };
   if (crawlPhase === "partial") return { key: "partial", glyph: "⚠", label: "部分完成", detail: "保留已取得的候选；请核对未完成的范围。", live: false };
   if (crawlPhase === "succeeded" || (!crawlPhase && stage === "success")) return { key: "completed", glyph: "✓", label: "已完成", detail: "候选与来源在结果栏；入库是独立动作。", live: false };
   if (["dispatching", "starting", "succeeded"].includes(startPhase) || crawlPhase === "queued" || crawlPhase === "starting") return { key: "preparing", glyph: "▶", label: "启动中", detail: "请求已提交，正在等待采集状态。", live: true };

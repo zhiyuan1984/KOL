@@ -29,7 +29,7 @@ if (!(quality
 }
 fs.mkdirSync(root, { recursive: true });
 const actor = JSON.parse(fs.readFileSync(path.resolve(base, "../actor.json"), "utf8")).actor;
-const user = mapUser(getConn().prepare("SELECT * FROM users WHERE id=? AND active=1").get(actor) as Row);
+const user = (await mapUser((await getConn().query("SELECT * FROM users WHERE id=$1 AND active=1",[actor])).rows[0] as Row));
 const keyword = quality && acceptanceCase === "empty" ? "tcw-empty-20261004-6f13e3" : "camping";
 const limit = quality && acceptanceCase === "empty" ? 1 : 5;
 const scope = { platforms: ["youtube"], crawler_type: "search", keywords: keyword, max_notes_count: limit,
@@ -41,10 +41,10 @@ const app = new Hono(); app.route("/", operationRouter(runtimeActionOperations))
 async function confirm(id: string) {
   const action = await runtimeAction(id, actor);
   if (action.state !== "pending") throw new Error("action_not_pending_no_reconfirmation");
-  const response = await withScopedUser(user, () => app.request("/actions/runtime.confirm", {
+  const response = await withScopedUser(user, async () => (await app.request("/actions/runtime.confirm", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action_id: id, confirmation_version: action.snapshot }),
-  }));
+  })));
   if (response.status !== 202) throw new Error(`confirmation_rejected_${response.status}`);
 }
 async function pump() {
@@ -61,17 +61,17 @@ try {
       throw new Error("first_acceptance_must_be_complete_before_empty_case");
     }
   }
-  const workspace = await withScopedUser(user, () => createDiscoveryWorkspace({ request_id: quality
+  const workspace = await withScopedUser(user, async () => (await createDiscoveryWorkspace({ request_id: quality
     ? `tcw-20261004-subscriber-${acceptanceCase}-approved` : "tcw-20261004-camping-5-approved",
-    text: `仅搜索关键词 ${keyword}，搜索视频参数${limit}，关闭评论及子评论，地区与指标仅核验，不导入、不发信。`, brief }));
+    text: `仅搜索关键词 ${keyword}，搜索视频参数${limit}，关闭评论及子评论，地区与指标仅核验，不导入、不发信。`, brief })));
   save("workspace", workspace);
   const session = String(workspace.session_id);
-  const actions = () => postgresPool().query("SELECT * FROM runtime_actions WHERE session_id=$1 ORDER BY created_at", [session]);
+  const actions = async () => (await postgresPool().query("SELECT * FROM runtime_actions WHERE session_id=$1 ORDER BY created_at", [session]));
   if (phase === "propose") {
     if ((await actions()).rowCount) throw new Error("existing_actions_do_not_repeat_proposal");
-    const result = await withScopedUser(user, () => runCodex(session, "crawler_collect",
+    const result = await withScopedUser(user, async () => (await runCodex(session, "crawler_collect",
       `本次为已授权范围的真实验收。请通过挂载工具仅提出一个采集提案，精确参数 ${JSON.stringify(scope)}。不要启动其他采集，不导入不发信。程序稍后将核对参数并独立确认。`,
-      { discovery_brief: brief, skip_user_memory: true }));
+      { discovery_brief: brief, skip_user_memory: true })));
     save("proposal-harness", result);
     const proposed = (await actions()).rows;
     save("proposals", proposed.map(r => ({ id:r.id, tool:r.tool_name, state:r.state, args:r.args_json })));
@@ -114,12 +114,12 @@ try {
     const rows=(await postgresPool().query("SELECT c.* FROM runtime_crawl_jobs c JOIN runtime_actions a ON a.id=c.id WHERE a.session_id=$1",[session])).rows;
     if(rows.length!==1 || rows[0].result_state!=="ready" || !Array.isArray(rows[0].result_json?.candidates)) throw new Error("requires_real_saved_candidates");
     const before=(await actions()).rowCount;
-    const result=await withScopedUser(user,()=>runCodex(session,"crawler_collect",
+    const result=await withScopedUser(user,async ()=>(await runCodex(session,"crawler_collect",
       `请根据已保存的本任务 ${rows[0].remote_task_id} 候选及发现条件形成中文候选简报。若权威任务结果为空，明确没有候选，不编造推荐；读取错误不得称为空。列明订阅数原文与来源、条件差距、无法核验的地区/方向/最近10条均播；采集样本不等于最近10条。只分析已有快照，不重新采集、不导入、不发信。`,
-      {discovery_brief:brief,skip_user_memory:true}));
+      {discovery_brief:brief,skip_user_memory:true})));
     save("analysis-harness",result);
     if((await actions()).rowCount!==before) throw new Error("analysis_proposed_unexpected_action");
     console.log(JSON.stringify({phase,harness_status:result.status,saved_candidate_count:rows[0].result_json.candidates.length,new_actions:0}));
   }
 }catch(error){console.error(JSON.stringify({phase,error:error instanceof Error?error.message:"acceptance_failed"}));process.exitCode=1;}
-finally{await closePostgresPool();getConn().close();}
+finally{await closePostgresPool();(await closePostgresPool());}

@@ -1,115 +1,118 @@
-import { isSqliteClosedError, isSqliteForeignKeyError, nowIso, tx, type SqliteConn } from "./db.js";
+import type { PoolClient } from "pg";
 import { nid } from "./ids.js";
+import { postgresTransaction } from "./postgres/pool.js";
 import type { Row } from "./types.js";
 
-/**
- * `task_events` has two deliberately different durability contracts:
- * lifecycle facts are append-only evidence, while harness/run trace rows may
- * be updated in place by their stable `item_key`.
- */
+/** Immutable lifecycle facts and mutable run-trace rows are stored directly in
+ * PostgreSQL. Every writer makes a no-op version write on the parent ticket,
+ * so SERIALIZABLE transactions acquire a real MVCC conflict rather than
+ * retaining a stale snapshot after a lock-only read. */
 export type TaskEventClass = "lifecycle" | "run_trace" | "legacy";
 
 export function taskEventClass(eventType: string): TaskEventClass {
-  // The retired legacy endpoint wrote these codes without an acceptance
-  // command. Keep historical rows readable, but never treat them as modern
-  // lifecycle evidence.
   if (eventType === "task.completed" || eventType === "task.failed") return "legacy";
   if (eventType.startsWith("task.")) return "lifecycle";
   return "run_trace";
 }
 
-/** Shared guard: the ticket (and run, when given) must still exist. */
-function taskEventTarget(db: SqliteConn, workItemId: string, runId: string | null): boolean {
-  const item = db.prepare("SELECT id FROM tickets WHERE id=?").get(workItemId) as { id: string } | undefined;
-  if (!item) return false;
-  if (!runId) return true;
-  const run = db.prepare("SELECT id FROM task_runs WHERE id=? AND work_item_id=?").get(runId, workItemId) as
-    | { id: string }
-    | undefined;
-  return Boolean(run);
-}
-
-/**
- * Hard ceiling on one ticket's trace history. Lifecycle facts deliberately do
- * not consume this drop-on-overflow path: a formal command must never lose its
- * immutable evidence because a noisy trace has already reached the cap.
- */
 function taskEventLimit(): number {
   const n = Number(process.env.TASK_EVENT_MAX_PER_WORK_ITEM || "5000");
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 5000;
 }
 
-function taskEventCount(db: SqliteConn, workItemId: string): number {
-  const row = db.prepare("SELECT COUNT(*) AS n FROM task_events WHERE work_item_id=?").get(workItemId) as
-    | { n: number }
-    | undefined;
-  return Number(row?.n || 0);
+// The general transaction default is intentionally small. Event writers for
+// one ticket can legitimately form a longer serializable queue; retries still
+// rerun the full target/run guard and allocation in a fresh snapshot.
+const TASK_EVENT_SERIALIZATION_RETRIES = 24;
+
+function isForeignKey(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "23503");
 }
 
-/** Append one task event into a caller-owned transaction. */
-export function appendTaskEventInConn(
-  db: SqliteConn,
+async function lockTarget(client: PoolClient, workItemId: string, runId: string | null): Promise<boolean> {
+  const ticket = await client.query<{ id: string }>("SELECT id FROM tickets WHERE id=$1 FOR UPDATE", [workItemId]);
+  if (!ticket.rows[0]) return false;
+  if (runId) {
+    const run = await client.query<{ id: string }>("SELECT id FROM task_runs WHERE id=$1 AND work_item_id=$2", [runId, workItemId]);
+    if (!run.rows[0]) return false;
+  }
+  // postgresTransaction defaults to SERIALIZABLE. SELECT ... FOR UPDATE alone
+  // waits but does not advance a concurrent transaction's snapshot; its later
+  // MAX(sequence) could therefore read stale rows and collide on the unique
+  // index. This deliberately value-preserving UPDATE creates the MVCC write
+  // dependency. The wrapper retries 40001 from a competing transaction, while
+  // caller-owned transactions retain their normal rollback/retry ownership.
+  await client.query("UPDATE tickets SET data_version=data_version WHERE id=$1", [workItemId]);
+  return true;
+}
+
+async function nextSequence(client: PoolClient, workItemId: string): Promise<number> {
+  const current = await client.query<{ sequence: number | string }>(
+    "SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=$1",
+    [workItemId],
+  );
+  return Number(current.rows[0]?.sequence || 0) + 1;
+}
+
+async function traceCount(client: PoolClient, workItemId: string): Promise<number> {
+  const count = await client.query<{ n: number | string }>("SELECT COUNT(*) AS n FROM task_events WHERE work_item_id=$1", [workItemId]);
+  return Number(count.rows[0]?.n || 0);
+}
+
+/** Append a task event into the caller-owned native transaction. */
+export async function appendTaskEventIn(
+  client: PoolClient,
   workItemId: string,
   runId: string | null,
   eventType: string,
   label: string,
   status: string,
   safeSummary?: string,
-): Row | null {
-  if (!taskEventTarget(db, workItemId, runId)) return null;
+): Promise<Row | null> {
+  if (!(await lockTarget(client, workItemId, runId))) return null;
   const eventClass = taskEventClass(eventType);
-  if (eventClass !== "lifecycle" && taskEventCount(db, workItemId) >= taskEventLimit()) return null;
-  const current = db.prepare(
-    "SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=?",
-  ).get(workItemId) as { sequence: number };
-  const time = nowIso();
-  const row = {
-    id: nid("tev"),
-    work_item_id: workItemId,
-    run_id: runId,
-    sequence: Number(current.sequence) + 1,
-    event_type: eventType,
-    event_class: eventClass,
-    label: label.slice(0, 160),
-    status,
-    safe_summary: safeSummary?.slice(0, 1000) || null,
-    time,
-    created_at: time,
+  if (eventClass !== "lifecycle" && await traceCount(client, workItemId) >= taskEventLimit()) return null;
+  const now = new Date().toISOString();
+  const row: Row = {
+    id: nid("tev"), work_item_id: workItemId, run_id: runId,
+    sequence: await nextSequence(client, workItemId), event_type: eventType, event_class: eventClass,
+    label: label.slice(0, 160), status, safe_summary: safeSummary?.slice(0, 1000) || null, time: now, created_at: now,
   };
-  db.prepare(
+  await client.query(
     `INSERT INTO task_events
      (id,work_item_id,run_id,sequence,event_type,event_class,label,status,safe_summary,time,created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(
-    row.id, row.work_item_id, row.run_id, row.sequence, row.event_type, row.event_class,
-    row.label, row.status, row.safe_summary, row.time, row.created_at,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)`,
+    [row.id, row.work_item_id, row.run_id, row.sequence, row.event_type, row.event_class, row.label, row.status, row.safe_summary, now],
   );
   return row;
 }
 
-export function appendTaskEvent(
+/** Independent append with the same tenant-safe target/run guard. */
+export async function appendTaskEvent(
   workItemId: string,
   runId: string | null,
   eventType: string,
   label: string,
   status: string,
   safeSummary?: string,
-): Row | null {
+): Promise<Row | null> {
   try {
-    return tx((db) => appendTaskEventInConn(db, workItemId, runId, eventType, label, status, safeSummary));
+    return await postgresTransaction(
+      async (client) => (await appendTaskEventIn(client, workItemId, runId, eventType, label, status, safeSummary)),
+      { maxRetries: TASK_EVENT_SERIALIZATION_RETRIES },
+    );
   } catch (error) {
-    // Fire-and-forget worker follow-up can land after a test reset or after the
-    // parent ticket was removed. Never surface that as an unhandled FK error.
-    if (isSqliteForeignKeyError(error) || isSqliteClosedError(error)) return null;
+    // Follow-up traces may arrive after a task is deliberately removed. This is
+    // an expected no-op, never an unhandled PostgreSQL FK exception.
+    if (isForeignKey(error)) return null;
     throw error;
   }
 }
 
-/**
- * Live process row for harness trace. Lifecycle rows are intentionally never
- * eligible for upsert: corrections must be new lifecycle events, not rewrites.
- */
-export function upsertTaskEvent(
+/** Upsert only live run-trace evidence. Lifecycle rows are immutable and never
+ * pass through this code path. The parent ticket row lock serializes the
+ * check/update/insert sequence and keeps item_key idempotent across workers. */
+export async function upsertTaskEvent(
   workItemId: string,
   runId: string | null,
   itemKey: string,
@@ -117,72 +120,40 @@ export function upsertTaskEvent(
   label: string,
   status: string,
   safeSummary?: string,
-): Row | null {
+): Promise<Row | null> {
   const key = String(itemKey || "").trim().slice(0, 120);
   if (!key) return null;
-  if (taskEventClass(eventType) !== "run_trace") {
-    throw new Error(`task event ${eventType} is not a mutable run trace`);
-  }
+  if (taskEventClass(eventType) !== "run_trace") throw new Error(`task event ${eventType} is not a mutable run trace`);
   try {
-    return tx((db) => {
-      if (!taskEventTarget(db, workItemId, runId)) return null;
+    return await postgresTransaction(async (client) => {
+      if (!(await lockTarget(client, workItemId, runId))) return null;
       const summary = safeSummary?.slice(0, 1000) || null;
-      const existing = db.prepare(
-        "SELECT id, sequence, time, created_at, event_class FROM task_events WHERE work_item_id=? AND item_key=?",
-      ).get(workItemId, key) as { id: string; sequence: number; time: string; created_at: string; event_class?: string } | undefined;
+      const found = await client.query<Row>(
+        "SELECT id,sequence,time,created_at,event_class FROM task_events WHERE work_item_id=$1 AND item_key=$2 FOR UPDATE",
+        [workItemId, key],
+      );
+      const existing = found.rows[0];
       if (existing) {
-        if (String(existing.event_class || "run_trace") !== "run_trace") {
-          throw new Error("lifecycle task event cannot be updated through trace upsert");
-        }
-        db.prepare(
-          "UPDATE task_events SET event_type=?, label=?, status=?, safe_summary=?, run_id=COALESCE(run_id,?) WHERE id=?",
-        ).run(eventType, label.slice(0, 160), status, summary, runId, existing.id);
-        return {
-          id: existing.id,
-          work_item_id: workItemId,
-          run_id: runId,
-          sequence: existing.sequence,
-          event_type: eventType,
-          event_class: "run_trace",
-          label: label.slice(0, 160),
-          status,
-          safe_summary: summary,
-          item_key: key,
-          time: existing.time,
-          created_at: existing.created_at,
-        };
+        if (String(existing.event_class || "run_trace") !== "run_trace") throw new Error("lifecycle task event cannot be updated through trace upsert");
+        await client.query(
+          "UPDATE task_events SET event_type=$1,label=$2,status=$3,safe_summary=$4,run_id=COALESCE(run_id,$5) WHERE id=$6",
+          [eventType, label.slice(0, 160), status, summary, runId, existing.id],
+        );
+        return { ...existing, work_item_id: workItemId, run_id: runId || existing.run_id || null, event_type: eventType, event_class: "run_trace", label: label.slice(0, 160), status, safe_summary: summary, item_key: key } as Row;
       }
-      const current = db.prepare(
-        "SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=?",
-      ).get(workItemId) as { sequence: number };
-      if (taskEventCount(db, workItemId) >= taskEventLimit()) return null;
-      const time = nowIso();
-      const row = {
-        id: nid("tev"),
-        work_item_id: workItemId,
-        run_id: runId,
-        sequence: Number(current.sequence) + 1,
-        event_type: eventType,
-        event_class: "run_trace" as const,
-        label: label.slice(0, 160),
-        status,
-        safe_summary: summary,
-        item_key: key,
-        time,
-        created_at: time,
-      };
-      db.prepare(
+      if (await traceCount(client, workItemId) >= taskEventLimit()) return null;
+      const now = new Date().toISOString();
+      const row: Row = { id: nid("tev"), work_item_id: workItemId, run_id: runId, sequence: await nextSequence(client, workItemId), event_type: eventType, event_class: "run_trace", label: label.slice(0, 160), status, safe_summary: summary, item_key: key, time: now, created_at: now };
+      await client.query(
         `INSERT INTO task_events
          (id,work_item_id,run_id,sequence,event_type,event_class,label,status,safe_summary,item_key,time,created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-      ).run(
-        row.id, row.work_item_id, row.run_id, row.sequence, row.event_type, row.event_class,
-        row.label, row.status, row.safe_summary, row.item_key, row.time, row.created_at,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)`,
+        [row.id, row.work_item_id, row.run_id, row.sequence, row.event_type, row.event_class, row.label, row.status, row.safe_summary, row.item_key, now],
       );
       return row;
-    });
+    }, { maxRetries: TASK_EVENT_SERIALIZATION_RETRIES });
   } catch (error) {
-    if (isSqliteForeignKeyError(error) || isSqliteClosedError(error)) return null;
+    if (isForeignKey(error)) return null;
     throw error;
   }
 }

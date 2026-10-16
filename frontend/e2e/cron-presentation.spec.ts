@@ -301,6 +301,10 @@ test("搜索只在 Enter/clear 提交，清除不丢失状态且不重新读取�
   const control = await fixture(page);
   await page.goto("/cron?status=paused");
   await expect(listRows(page)).toHaveCount(7);
+  // Workbench also performs its initial Cron scope read for the navigation alert badge.
+  // Establish the baseline only after that observable initial read has settled; otherwise
+  // request arrival order can misclassify the scope read as a search reload.
+  await expect(page.locator("[data-cron-alert]")).toHaveText("4");
   const before = listCalls(control).length;
   const search = page.getByRole("searchbox", { name: "搜索任务" });
   await expect(search).toHaveAttribute("aria-label", "搜索任务");
@@ -462,12 +466,26 @@ test("列表刷新失败会保留旧状态并给出明确恢复入口", async ({
   const control = await fixture(page);
   await page.goto("/cron");
   await expect(jobRow(page, "personal-1")).toBeVisible();
+  // The shell badge reads the same endpoint once. Finish both initial reads so
+  // failNext cannot be consumed by that unrelated badge rather than this click.
+  await expect(page.locator("[data-cron-alert]")).toHaveText("4");
+  expect(listCalls(control)).toHaveLength(2);
+  const failedRead = page.waitForResponse((response) => response.request().method() === "GET"
+    && new URL(response.url()).pathname === "/api/cron/jobs" && response.status() === 503);
   control.failNextJobList();
   await page.getByRole("button", { name: "刷新定时任务列表" }).click();
+  await (await failedRead).finished();
+  expect(listCalls(control)).toHaveLength(3);
   await expect(page.getByRole("status")).toContainText("读取失败，当前列表可能是旧状态");
   await expect(jobRow(page, "personal-1")).toBeVisible();
+  const recoveredRead = page.waitForResponse((response) => response.request().method() === "GET"
+    && new URL(response.url()).pathname === "/api/cron/jobs" && response.status() === 200);
   await page.getByRole("button", { name: "重试", exact: true }).click();
+  await (await recoveredRead).finished();
   await expect(page.getByRole("status")).toHaveCount(0);
+  await expect(jobRow(page, "personal-1")).toBeVisible();
+  expect(listCalls(control)).toHaveLength(4);
+  expect(control.writes()).toBe(0);
 });
 
 test("初始读取错误不伪造 0 计数，提供重新读取后才显示数据", async ({ page }) => {
@@ -505,8 +523,7 @@ test("1440/1024/768/390、短高度、深色减动效与触控均无横向溢出
   await page.getByRole("tab", { name: "全部30", exact: true }).click();
   await expect(listRows(page)).toHaveCount(20);
   await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
-  const motion = await page.locator("[data-cron-page]").evaluate((node) => getComputedStyle(node.querySelector(".ant-tabs-tab")!).transitionDuration);
-  expect(motion).toBe("0s");
+  await expect(page.locator("[data-cron-page] .ant-tabs-tab").first()).toHaveCSS("transition-duration", "0s");
   await saveScreenshot(page, "cron-mobile-dark-reduced.png");
 
   const touch = await browser.newContext({ viewport: { width: 390, height: 600 }, hasTouch: true, colorScheme: "dark", reducedMotion: "reduce" });

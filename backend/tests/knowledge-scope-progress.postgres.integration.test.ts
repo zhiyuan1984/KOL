@@ -59,7 +59,19 @@ const enabled = Boolean(process.env.TEST_DATABASE_URL);
   });
   afterAll(async () => {
     await state.pool?.end();
-    if (maintenance) { await maintenance.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`); await maintenance.end(); }
+    if (maintenance) {
+      let connections = -1;
+      for (let attempt = 0; attempt < 50; attempt++) {
+        connections = Number((await maintenance.query(
+          'SELECT COUNT(*) AS count FROM pg_stat_activity WHERE datname=$1', [database],
+        )).rows[0].count);
+        if (connections === 0) break;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      expect(connections, '自有测试库连接须退出后才允许普通 DROP').toBe(0);
+      await maintenance.query(`DROP DATABASE IF EXISTS "${database}"`);
+      await maintenance.end();
+    }
     if (temp) await fs.rm(temp, { recursive: true, force: true });
   });
   it('persists only completed batches, with timestamp unchanged by read checkpoints', async () => {

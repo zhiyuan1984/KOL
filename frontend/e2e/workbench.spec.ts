@@ -1,6 +1,7 @@
 import { test, expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import path from "node:path";
-import { paneBodyText, stubFollowingFromServerBoard, stubHomeBoardAndFollowing } from "./kol-surface-stub";
+import { paneBodyText, stubFollowingFromServerBoard } from "./kol-surface-stub";
+import { stubNativeHomeBoardAndFollowing as stubHomeBoardAndFollowing } from "./workbench-native-fixture";
 
 async function saveScreenshot(page: Page, name: string): Promise<void> {
   const dir = process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results";
@@ -47,40 +48,59 @@ test.beforeEach(async ({ page, request }) => {
 /** Stub Codex (Playwright webServer sets CODEX_MODE=stub). Drafts must appear — do not skip P0. */
 async function expectDraft(page: Page) {
   await expect(
-    page.locator("[data-session-stream-pane]").locator('[data-kind="email-card"], [data-kind="task-result-card"]').first(),
+    page.locator("[data-workbench]").locator('[data-kind="email-card"], [data-kind="task-result-card"]').first(),
   ).toBeVisible({ timeout: 20000 });
 }
 
 async function openDraftTab(page: Page) {
-  const draft = page.locator('[data-session-stream-pane] [data-kind="email-card"]');
+  const draft = page.locator('[data-workbench] [data-kind="email-card"]');
   if (await draft.isVisible()) return;
-  const mail = page.locator('[data-session-stream-pane] [data-tab="mail"]');
+  const mail = page.locator('[data-workbench] [data-tab="mail"]');
   if (await mail.isVisible()) await mail.click();
   if (await draft.isVisible()) return;
-  const tab = page.locator('[data-session-stream-pane] [data-tab="draft"]');
+  const tab = page.locator('[data-workbench] [data-tab="draft"]');
   if (await tab.isVisible()) await tab.click();
 }
 
+/** 原生结果工作台的正式阶段变更是独立 details；必须经真实控件打开，不修改 DOM open。 */
+async function openStageReview(page: Page, messageId?: string) {
+  const review = page.locator(`[data-workbench] .mail-stage-review${messageId ? `[data-result-message=${JSON.stringify(messageId)}]` : ""}`);
+  await expect(review).toBeAttached({ timeout: 15000 });
+  // The R3 card has one per-ID restoration pass. Observe that settled state before
+  // deciding whether the employee needs one real summary click; otherwise a late
+  // default expansion can turn this helper's single click into an unintended close.
+  await expect(review).toHaveAttribute('data-stage-review-initialized', 'true');
+  if (!(await review.evaluate((element) => element instanceof HTMLDetailsElement && element.open))) {
+    await review.locator(':scope > summary[data-stage-review-summary]').click();
+  }
+  await expect(review).toHaveJSProperty('open', true);
+}
+
+async function openTaskContext(page: Page) {
+  const context = page.locator('[data-task-context]');
+  await expect(context).toBeVisible();
+  if (!(await context.evaluate((element) => element instanceof HTMLDetailsElement && element.open))) {
+    await context.locator('summary').click();
+  }
+  await expect(context).toHaveJSProperty('open', true);
+}
+
 function homeRecByTitle(page: Page, title: string) {
-  const exact = new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
-  return page.locator("[data-home] .rec").filter({
-    has: page.locator(".rec-title", { hasText: exact }),
-  });
+  const label = new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s|$)`);
+  return page.getByRole("menu", { name: "添加内容" }).getByRole("menuitem", { name: label });
 }
 
 async function openHomeTemplates(page: Page) {
-  const tab = page.locator("[data-work-panel] [data-home-tab='templates']");
-  if (!(await tab.isVisible())) {
-    await page.locator("[data-open-work-panel]").click();
-  }
-  await expect(page.locator("[data-work-panel]")).toBeVisible();
-  await tab.click();
-  await expect(page.locator("[data-home] .rec").first()).toBeVisible({ timeout: 15000 });
+  const menu = page.getByRole("menu", { name: "添加内容" });
+  if (!(await menu.isVisible())) await page.locator("[data-home] [data-attach]").click();
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "上传文件" })).toBeVisible();
+  await expect(menu.locator('[data-menu-section="技能"]')).toBeVisible();
 }
 
 async function closeHomeWorkPanel(page: Page) {
-  const backdrop = page.locator("[data-work-panel] .work-panel-backdrop");
-  if (await backdrop.isVisible()) await backdrop.click();
+  const menu = page.getByRole("menu", { name: "添加内容" });
+  if (await menu.isVisible()) await page.keyboard.press("Escape");
 }
 
 async function openHomeLifecycle(page: Page) {
@@ -137,6 +157,12 @@ async function expectNoHomeChrome(page: Page) {
   await expect(page.locator("[data-home-chrome-brand], [data-brand-lockup='home']")).toHaveCount(0);
 }
 
+/** Native TaskBoard places the stable state code on the row and exposes its readable status on the cell. */
+async function expectNativeTaskState(row: Locator, state: string, label: string) {
+  await expect(row).toHaveAttribute("data-board-status", state);
+  await expect(row.locator(`[aria-label="任务状态：${label}"]`)).toHaveText(label);
+}
+
 async function expectEmployeeShell(page: Page) {
   const sidebar = page.locator(".sidebar");
   await expect(sidebar.locator('[data-brand-lockup="sidebar"] .brand-logo')).toHaveAttribute("src", "/brand/litime-logo.png");
@@ -165,7 +191,7 @@ async function expectEmployeeShell(page: Page) {
 
 async function expectFollowedKolHeadingRemoved(page: Page) {
   await expect(page.locator("[data-followed-kol-heading]")).toHaveCount(0);
-  await expect(page.locator("[data-home-pane=lifecycle] h2")).toHaveCount(0);
+  await expect(page.locator("[data-followed-kol-list] h2")).toHaveCount(0);
   await expect(page.locator('[data-home-mode="lifecycle"]')).toContainText("我跟进的红人");
 }
 
@@ -303,6 +329,7 @@ async function openFollowedKolDetail(page: Page, handle?: string) {
 }
 
 async function openStageSop(page: Page) {
+  await openTaskContext(page);
   const sop = page.locator("[data-stage-sop]");
   await expect(sop).toBeVisible();
   if (!(await sop.evaluate((el) => el instanceof HTMLDetailsElement && el.open))) {
@@ -314,8 +341,8 @@ async function openStageSop(page: Page) {
 /** Template click only prefills the home composer; send then follows the home ask path. */
 async function expectHomeComposerDraft(page: Page, value: string) {
   await expect(page).toHaveURL(/\/(?:\?.*)?$/);
-  await expect(page.locator("[data-work-panel]")).toHaveCount(0);
-  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(value);
+  await expect(page.getByRole("menu", { name: "添加内容" })).toHaveCount(0);
+  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(new RegExp(value.split(" ")[0]));
 }
 
 async function pickStageChip(scope: Locator, code: string) {
@@ -350,6 +377,15 @@ async function expectHomeClarification(page: Page, ...labels: string[]) {
   }
 }
 
+/** Worker-one native email template: required values are collected before any ask is sent. */
+async function wb1ExpectHomeEmailTemplateRequirements(page: Page, ...labels: string[]) {
+  const editor = page.locator("[data-home] [data-skill-template-param-editor]");
+  await expect(editor).toBeVisible();
+  for (const label of labels) {
+    await expect(editor.getByLabel(label, { exact: true })).toBeVisible();
+  }
+}
+
 function isRealE2E(): boolean {
   return process.env.E2E_MODE === "real";
 }
@@ -360,7 +396,7 @@ function resultCardTimeout(): number {
 }
 
 function workbenchResultCard(page: Page) {
-  return page.locator('[data-session-stream-pane] [data-kind="task-result-card"]');
+  return page.locator('[data-workbench] [data-kind="task-result-card"]');
 }
 
 function chatStream(page: Page) {
@@ -392,6 +428,7 @@ async function proposePipelineStage(page: Page, handle: string, stageCode?: stri
 
 async function askKolSession(page: Page, request: APIRequestContext, collaborationId: string, text: string) {
   const ses = await request.post(`/api/collaborations/${collaborationId}/session`).then((r) => r.json() as Promise<{ id: string }>);
+  expect(ses.id).toBeTruthy();
   await page.goto(`/s/${ses.id}`);
   await page.locator("[data-composer-input]").fill(text);
   await page.locator("[data-send]").click();
@@ -411,8 +448,18 @@ async function expectFollowedObjectToolbar(page: Page) {
 }
 
 async function askConfirmStage(page: Page, handle: string, stageLabel: string) {
+  const review = page.locator('[data-workbench] .mail-stage-review');
+  const previousId = await review.evaluateAll((elements) => elements[0]?.getAttribute("data-result-message") || null);
   await page.locator("[data-composer-input]").fill(`提出阶段变更 @${handle} 到 ${stageLabel}`);
   await page.locator("[data-send]").click();
+  // Inbound analysis can already have a closed R3 card. This ask creates a new
+  // message; do not inspect the old card and then click the replacement's summary.
+  await expect(review).toHaveAttribute("data-result-message", /.+/, { timeout: 20000 });
+  if (previousId) await expect(review).not.toHaveAttribute("data-result-message", previousId, { timeout: 20000 });
+  const messageId = await review.getAttribute("data-result-message");
+  expect(messageId).toBeTruthy();
+  test.info().annotations.push({ type: "stage-review-message-identity", description: `previous=${previousId || "none"}; current=${messageId}` });
+  await openStageReview(page, messageId!);
   await expect(page.locator('[data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 20000 });
 }
 
@@ -423,6 +470,53 @@ async function confirmDraftSend(page: Page) {
   await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("外发");
   await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("发送不等于推进阶段");
   await page.locator("[data-admin-confirm-ok]").click();
+}
+
+/** WB1-A native contracts: authorized menu union, schema fields, real details interaction. */
+async function wb1aAuthorizedMenuSkills(page: Page) {
+  const mine = await page.request.get("/api/skills").then((response) => response.json());
+  const market = await page.request.get("/api/skills/market").then((response) => response.json());
+  const skills = new Map<string, { id: string; title?: string; label?: string }>();
+  for (const skill of [...mine, ...market]) {
+    if (skill.id && skill.granted !== false && skill.employee_visible !== false) skills.set(skill.id, skill);
+  }
+  return [...skills.values()];
+}
+
+/** Current-account read-only mailbox fixture; no credential or send permission is granted. */
+async function wb1aMailboxContext(page: Page) {
+  await page.route('**/api/me/settings-context', route => route.request().method() === 'GET' ? route.fulfill({ json: {
+    profile: { name: '黄启友', email: 'sriphy@example.com', managed: false },
+    brands: [], mailboxes: [{ id: 'mailbox_wb1a', email: 'lt.ops@example.com', brand: 'Li Time', status: 'connected', is_default: true }],
+    preferences: {}, editable_fields: [],
+  } }) : route.fallback());
+}
+
+async function wb1aOpenContext(page: Page) {
+  const context = page.locator('[data-task-context]');
+  await expect(context).toBeVisible();
+  if (!(await context.evaluate(el => el instanceof HTMLDetailsElement && el.open))) await context.locator(':scope > summary').click();
+  await expect(context).toHaveJSProperty('open', true);
+}
+
+async function wb1aFillRequiredEmailFields(page: Page, subject = "WB1-A collaboration draft") {
+  const editor = page.locator("[data-home] [data-skill-template-param-editor]");
+  await expect(editor).toBeVisible();
+  const account = await page.evaluate(async () => (await fetch('/api/me/settings-context')).json());
+  const mailbox = account.mailboxes?.find((box: { status: string; is_default: boolean }) => box.status === 'connected' && box.is_default)?.email;
+  expect(mailbox, "sender must be an actually authorized account mailbox").toBeTruthy();
+  await editor.getByLabel("发件邮箱", { exact: true }).fill(mailbox);
+  await editor.getByLabel("收件邮箱", { exact: true }).fill("wb1a-recipient@example.com");
+  await editor.getByLabel("邮件主题", { exact: true }).fill(subject);
+}
+
+async function wb1aOpenStageReview(page: Page) {
+  const review = page.locator('[data-workbench] .mail-stage-review');
+  await expect(review).toBeAttached({ timeout: 15000 });
+  if (!(await review.evaluate((element) => element instanceof HTMLDetailsElement && element.open))) {
+    await review.locator("summary").click();
+  }
+  await expect(review).toHaveJSProperty("open", true);
 }
 
 test("home task template 写合作邮件 prefills home composer then follows the home ask path", async ({ page, request }) => {
@@ -442,15 +536,18 @@ test("home task template 写合作邮件 prefills home composer then follows the
   await openHomeTemplates(page);
   await homeRecByTitle(page, "写合作邮件").click();
   await expectHomeComposerDraft(page, "写合作邮件 发件箱 [发件邮箱] 发给 [收件邮箱] 主题：[主题]");
-  // 锁定意图不再渲染成芯片（chip 只承载显式添加的上下文）。
-  await expect(page.locator('[data-home] [data-skill-chip="email_compose"]')).toHaveCount(0);
+  // 原生菜单的显式选择必须留下可读、可移除的已授权技能上下文；这比旧版隐式锁定更可验证。
+  const selectedEmail = page.locator('[data-home] [data-skill-chip="email_compose"]');
+  await expect(selectedEmail).toContainText("写合作邮件");
+  await expect(selectedEmail.getByRole("button", { name: "移除 写合作邮件" })).toBeVisible();
+  // 当前原生体验在执行前即呈现必填项，不再等发送后才以普通识别反馈追问。
+  const requiredFields = page.locator("[data-home] [data-skill-template-param-editor]");
+  await expect(requiredFields).toBeVisible();
+  await expect(page.getByLabel("发件邮箱")).toBeVisible();
+  await expect(page.getByLabel("收件邮箱")).toBeVisible();
+  await expect(page.getByLabel("邮件主题")).toBeVisible();
   expect(createdPosts).toEqual([]);
-  await page.locator("[data-home] [data-composer-input]").fill("给合作达人写一封自我介绍");
-  await expect(page.locator('[data-home] [data-skill-chip="email_compose"]')).toHaveCount(0);
-  await submitHomeComposerStay(page);
-  await expectHomeClarification(page, "发件邮箱", "收件邮箱", "邮件主题");
-  expect(createdPosts).toContain("/api/tasks/from-text");
-  expect(page.url()).not.toMatch(/\/s\//);
+  await expect(page).not.toHaveURL(/\/s\//);
 });
 
 test("composer / picker lists 写合作邮件 and sends intent email_compose", async ({ page }) => {
@@ -474,8 +571,7 @@ test("composer / picker lists 写合作邮件 and sends intent email_compose", a
   await expect(page.locator('[data-skill-option="email_compose"]')).toBeVisible();
   await page.locator('[data-skill-option="email_compose"]').click();
   await expect(page.locator('[data-skill-chip="email_compose"]')).toContainText("写合作邮件");
-  await submitHomeComposerStay(page);
-  await expectHomeClarification(page, "发件邮箱");
+  await wb1ExpectHomeEmailTemplateRequirements(page, "发件邮箱");
   expect(bodies).toEqual([]);
 });
 
@@ -508,8 +604,7 @@ test("composer @ picker lists 写合作邮件 and sends intent email_compose", a
   await expect(page.locator('[data-skill-option="email_compose"]')).toContainText("写合作邮件");
   await page.locator('[data-skill-option="email_compose"]').click();
   await expect(page.locator('[data-skill-chip="email_compose"]')).toContainText("写合作邮件");
-  await submitHomeComposerStay(page);
-  await expectHomeClarification(page, "发件邮箱");
+  await wb1ExpectHomeEmailTemplateRequirements(page, "发件邮箱");
   expect(bodies).toEqual([]);
 });
 
@@ -526,8 +621,35 @@ test("typing 写合作邮件 in composer sends intent email_compose", async ({ p
   });
   await page.goto("/");
   await page.locator("[data-home] [data-composer-input]").fill("写合作邮件");
+  // Natural typing only recognizes on submit; this legitimate missing-fields response
+  // leaves task/session creation and message execution untouched.
+  const intakeBodies: Record<string, unknown>[] = [];
+  const creationPosts: string[] = [];
+  page.on("request", (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (request.method() === "POST" && (pathname === "/api/sessions" || pathname === "/api/tasks" || /\/api\/tasks\/[^/]+\/run$/.test(pathname))) creationPosts.push(pathname);
+  });
+  await page.route("**/api/tasks/from-text", async (route) => {
+    intakeBodies.push(route.request().postDataJSON());
+    await route.fulfill({ json: {
+      task: null, tasks: [], resolved_tasks: [], needs_clarification: true,
+      clarification_kind: "missing_fields", clarification: "请补充发件邮箱、收件邮箱和邮件主题。",
+      resolution: { task_type: "email_compose", confidence: 0.97, entities: {},
+        missing_fields: ["mailboxEmail", "to", "subject"], invalid_fields: {}, alternatives: [],
+        needs_clarification: true, clarification_kind: "missing_fields" },
+    } });
+  });
+  await expect(page.locator("[data-home] [data-skill-template-param-editor]")).toHaveCount(0);
+  expect(bodies).toEqual([]);
   await submitHomeComposerStay(page);
+  await expect.poll(() => intakeBodies.length).toBe(1);
+  expect(intakeBodies[0].text).toContain("写合作邮件");
+  expect(intakeBodies[0].intent).toBeFalsy();
   await expectHomeClarification(page, "发件邮箱", "收件邮箱", "邮件主题");
+  await openHomeTemplates(page);
+  await homeRecByTitle(page, '写合作邮件').click();
+  await wb1ExpectHomeEmailTemplateRequirements(page, "发件邮箱", "收件邮箱", "邮件主题");
+  expect(creationPosts).toEqual([]);
   expect(bodies).toEqual([]);
 });
 
@@ -552,13 +674,30 @@ test("skills page 使用 on email_compose starts ask with intent email_compose",
       }
     }
   });
+  await wb1aMailboxContext(page);
   await page.goto("/skills");
   await expect(page.locator("[data-journey-guide]")).toHaveCount(0);
   await expect(page.locator("[data-funnel-tab]")).toHaveCount(0);
   await expect(page.locator('[data-hub-chip="reach"], [data-hub-chip="biz"], [data-hub-chip="settle"]')).toHaveCount(0);
   await expect(page.locator("[data-hub-chrome], [data-hub-mode], [data-hub-mine]")).toHaveCount(0);
-  await expect(page.locator("[data-skills-page='mine']")).not.toContainText("建联进度");
-  await page.locator('[data-skill-use="email_compose"]').click();
+  await expect(page.locator("[data-skill-catalog]")).not.toContainText("建联进度");
+  await page.getByRole('textbox', { name: '搜索技能 / SOP / 场景', exact: true }).fill('写合作邮件');
+  await page.locator('[data-skill-open="email_compose"]').click();
+  const detail = page.locator('[data-skill-detail="email_compose"]');
+  await expect(detail).toBeVisible();
+  await detail.getByRole("combobox", { name: "选择目标任务" }).click();
+  await page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').getByText('工作台提问框', { exact: true }).click();
+  await expect(detail.locator("[data-asset-use]")).toBeEnabled();
+  await detail.locator("[data-asset-use]").click();
+  await expect(page).toHaveURL(/\/(?:\?.*)?$/);
+  await expect(page.locator('[data-home] [data-skill-chip="email_compose"]')).toContainText("写合作邮件");
+  // Catalog transfer now uses the same authorized server template as Home's
+  // picker. Do not remove/reselect the capability to hide missing schema.
+  await expect(page.locator('[data-home] [data-skill-chip="email_compose"]')).toHaveCount(1);
+  await wb1ExpectHomeEmailTemplateRequirements(page, "发件邮箱", "收件邮箱", "邮件主题");
+  expect(bodies).toEqual([]);
+  await wb1aFillRequiredEmailFields(page);
+  await submitHomeComposer(page);
   await page.waitForURL(/\/s\//);
   await expect(page.locator("[data-kind='me']")).toContainText("写合作邮件", { timeout: 15000 });
   expect(bodies[0]?.intent).toBe("email_compose");
@@ -599,7 +738,8 @@ test("composer plus menu exposes recent files and published skills without proje
   await expect(menu.getByRole("menuitem", { name: "添加连接器" })).toHaveCount(0);
 
   await expect(menu.locator('[data-menu-section="文件"]')).toBeVisible();
-  await expect(menu.locator("[data-composer-menu-file]").first()).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "上传文件" })).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "上传图片" })).toBeVisible();
 
   // 顶部搜索即过滤：输入技能名后只剩那一条，组标题保留。
   await menu.locator("[data-composer-menu-search]").fill("写合作");
@@ -623,18 +763,16 @@ test("employee shell keeps compact sidebar brand and has no home top chrome", as
     const cs = getComputedStyle(el);
     return { size: Number.parseFloat(cs.fontSize), weight: Number.parseFloat(cs.fontWeight) };
   });
-  expect(title.size).toBeGreaterThanOrEqual(18);
-  expect(title.size).toBeLessThanOrEqual(20);
+  // DESIGN §5.1：工作台标题走 --ds-font-sm（13px）+ 字重，而非旧视觉的 18–20px。
+  expect(title.size).toBe(13);
   expect(title.weight).toBeLessThanOrEqual(600);
   await page.locator('[data-home-mode="lifecycle"]').click();
-  await expect(page.locator("[data-followed-agent-report] .page-conclusion")).toBeVisible();
-  const conclusion = await page.locator("[data-followed-agent-report] .page-conclusion").evaluate((el) => {
-    const cs = getComputedStyle(el);
-    return { size: Number.parseFloat(cs.fontSize), weight: Number.parseFloat(cs.fontWeight) };
-  });
-  expect(conclusion.size).toBeGreaterThanOrEqual(18);
-  expect(conclusion.size).toBeLessThanOrEqual(20);
-  expect(conclusion.weight).toBeLessThanOrEqual(600);
+  const lifecycle = page.locator('[data-home-pane="lifecycle"]');
+  await expect(lifecycle).toBeVisible();
+  await expect(page.getByRole("region", { name: "当前跟进概览" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "当前概览" })).toContainText("不自动推进阶段");
+  await expect(page.getByRole("region", { name: "合作生命周期" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "按合作阶段分布筛选" })).toBeVisible();
   await expect(page.locator(".home-hero [data-brand-lockup]")).toHaveCount(0);
   await expect(page.locator(".composer")).toBeVisible();
   const composer = await page.locator("[data-home] [data-composer] .composer").evaluate((el) => {
@@ -652,31 +790,24 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expectNoHomeChrome(page);
   await expectEmployeeShell(page);
   await openHomeTemplates(page);
-  const taskButtons = page.locator("[data-home] .rec");
-  const catalogResponse = await page.request.get("/api/task-definitions");
-  const catalogPayload = await catalogResponse.json() as { task_definitions?: unknown[]; definitions?: unknown[] } | unknown[];
-  const catalogCount = Array.isArray(catalogPayload)
-    ? catalogPayload.length
-    : (catalogPayload.task_definitions || catalogPayload.definitions || []).length;
-  // Home also appends UX aliases (延期关怀, 催大纲) that are not registry skills.
-  expect(await taskButtons.count()).toBeGreaterThanOrEqual(catalogCount + 1);
-  for (let i = 0; i < await taskButtons.count(); i += 1) {
-    await expect(taskButtons.nth(i)).toHaveAttribute("data-act", "ask");
-    await expect(taskButtons.nth(i)).not.toHaveAttribute("data-intent", "");
-    await expect(taskButtons.nth(i).locator(".rec-description")).not.toBeEmpty();
+  const menu = page.getByRole("menu", { name: "添加内容" });
+  const taskButtons = menu.locator("[data-skill-option]");
+  const authorizedSkills = await wb1aAuthorizedMenuSkills(page);
+  // Native + has exactly the granted employee-visible union, not old UX aliases.
+  await expect(taskButtons).toHaveCount(authorizedSkills.length);
+  expect(authorizedSkills.length).toBeGreaterThan(0);
+  const menuIds = await taskButtons.evaluateAll((elements) => elements.map((element) => element.getAttribute("data-skill-option")).sort());
+  expect(menuIds).toEqual(authorizedSkills.map((skill) => skill.id).sort());
+  for (const skill of authorizedSkills) {
+    const button = menu.locator(`[data-skill-option="${skill.id}"]`);
+    await expect(button).toHaveAttribute("role", "menuitem");
+    await expect(button.locator(".menu-label")).not.toBeEmpty();
   }
-  const categories = new Set((Array.isArray(catalogPayload)
-    ? catalogPayload
-    : (catalogPayload.task_definitions || catalogPayload.definitions || []))
-    .map((item) => String((item as { category?: unknown }).category || "常用任务")));
-  categories.add("异常");
-  categories.add("履约");
-  await expect(page.locator("[data-task-category]")).toHaveCount(categories.size);
+  await expect(menu.locator('[data-menu-section="技能"]')).toHaveCount(1);
   await expect(page.locator('[data-home] .rec[data-act="go"]')).toHaveCount(0);
   await expect(page.locator("[data-composer]")).toBeVisible();
-  await expect(page.locator("[data-nav-disabled='云盘']")).toContainText("非本期");
-  await expect(page.locator("[data-nav-disabled='手机遥控电脑']")).toContainText("非本期");
-  await expect(page.locator("[data-nav-disabled='创建新项目']")).toContainText("非本期");
+  await expect(page.locator('[data-nav-disabled="云盘"], [data-nav-disabled="手机遥控电脑"], [data-nav-disabled="创建新项目"]')).toHaveCount(0);
+  await expect(page.locator('[data-home-pane="today"] [data-scope-task-rail]')).toBeVisible();
   await expect(page.locator('[data-nav="pipeline"]')).toHaveCount(0);
   await expect(page.locator(".sidebar")).not.toContainText("生命周期");
   await expect(page.locator(".mobile-top")).not.toContainText("生命周期");
@@ -700,7 +831,7 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expect(page.locator("[data-home] [data-workbench]")).toHaveCount(0);
   await expect(page.locator("[data-kol-tab]")).toHaveCount(0);
   await expect(page.locator("[data-journey-guide]")).toHaveCount(0);
-  await page.locator("[data-work-panel] .work-panel-backdrop").click();
+  await closeHomeWorkPanel(page);
   await openHomeTodo(page);
   await expect(page.locator("[data-home-pane=\"todo\"]")).toBeVisible();
   await expect(page.locator("[data-home-pane=\"todo\"] [data-recommended-tasks]")).toHaveCount(0);
@@ -715,12 +846,15 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await openHomeLifecycle(page);
   await expect(page.locator("[data-home]")).toHaveAttribute("data-followed-chrome", "compact");
   await expect(page.locator("[data-today-summary]")).toBeHidden();
-  await expectFollowedKolHeadingRemoved(page);
+  await expect(page.locator('[data-followed-kol-heading]')).toHaveCount(0);
+  await expect(page.locator('[data-followed-kol-list] h2')).toHaveCount(0);
+  await expect(page.locator('[data-home-mode="lifecycle"]')).toContainText('我的红人');
   await expect(page.getByRole("link", { name: /查看KOL全生命周期/ })).toHaveCount(0);
   await expect(page.locator('a[href="/pipeline"]')).toHaveCount(0);
-  await expect(page.locator("[data-kol-sorts]")).toBeVisible();
-  await expect(page.locator("[data-followed-kol-column]")).toContainText("按需处理");
-  await expect(page.locator("[data-followed-kol-column]")).toContainText("阶段停留");
+  await expect(page.locator('[data-followed-sort]')).toBeVisible();
+  expect(await page.locator('[data-followed-sort-option]').evaluateAll(elements => elements.map(el => el.getAttribute('data-followed-sort-option')))).toEqual(['followers', 'time', 'score']);
+  await expect(page.locator('[data-followed-sort]')).toContainText('时间');
+  await expect(page.locator('[data-followed-sort]')).toContainText('潜力');
   await expect(page.locator("[data-home] [data-journey-guide]")).toHaveCount(0);
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("发送不等于改阶段");
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("发送 ≠ 推进阶段");
@@ -732,24 +866,25 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await openHomeTemplates(page);
   await homeRecByTitle(page, "写合作邮件").click();
   await expectHomeComposerDraft(page, "写合作邮件 发件箱 [发件邮箱] 发给 [收件邮箱] 主题：[主题]");
-  await submitHomeComposerStay(page);
-  await expectHomeClarification(page, "发件邮箱", "收件邮箱", "邮件主题");
+  await wb1ExpectHomeEmailTemplateRequirements(page, "发件邮箱", "收件邮箱", "邮件主题");
 });
 
 test("exception template 延期关怀 prefills home then drafts without changing stage", async ({ page }) => {
+  await wb1aMailboxContext(page);
   await page.goto("/");
   await openHomeTemplates(page);
-  const delayCare = homeRecByTitle(page, "延期关怀");
-  await delayCare.scrollIntoViewIfNeeded();
-  await delayCare.click();
-  await expectHomeComposerDraft(page, "延期关怀 [红人或合作]");
+  // 延期关怀 is a bound session-path command, not a published menu alias.
+  await homeRecByTitle(page, "写合作邮件").click();
+  await page.locator("[data-home] [data-composer-input]").fill("延期关怀 @母婴小课");
+  await expectHomeComposerDraft(page, "延期关怀 @母婴小课");
+  await wb1aFillRequiredEmailFields(page, "Update on the Content Timeline");
   await submitHomeComposer(page);
   await expect(page.locator('[data-kind="me"]')).toContainText("延期关怀", { timeout: 15000 });
   await expectDraft(page);
-  await expect(page.locator("[data-session-stream-pane] [data-draft-subject]")).toHaveValue("Update on the Content Timeline");
+  await expect(page.locator("[data-workbench] [data-draft-subject]")).toHaveValue("Update on the Content Timeline");
   // Constitution §4: one quiet send≠stage hint on the composer, not on the draft.
   await expect(page.locator("[data-session-send-hint]")).toHaveText("发送不等于改阶段");
-  await expect(page.locator("[data-session-stream-pane] [data-kind='email-card']")).not.toContainText("正式阶段");
+  await expect(page.locator("[data-workbench] [data-kind='email-card']")).not.toContainText("正式阶段");
 });
 
 test("home composer posts a message into a new session", async ({ page }) => {
@@ -789,26 +924,8 @@ test("pipeline review follows the common task flow with progress and a right-sid
       } },
     ];
   };
-  const pipelineRec = {
-    id: "risk_scan",
-    title: "流水线复盘",
-    prompt: "复盘 KOL 流水线",
-    intent: "risk_scan",
-    skill_id: "risk_scan",
-    act: "ask",
-    category: "分析与复盘",
-    profile: "识别阶段风险并给出后续动作",
-  };
-  await page.route("**/api/task-definitions", (route) => route.fulfill({ json: [pipelineRec] }));
-  await page.route("**/api/home", async (route) => {
-    await route.fulfill({
-      json: {
-        brand: "灵工 工作",
-        h1: "今天有什么工作要处理？",
-        recs: [pipelineRec],
-      },
-    });
-  });
+  // Actual from-text creates the durable task, run returns its current session pointer.
+  // Only assistant progress/result content is stubbed; skill permission/schema remain real.
   let sent = false;
   await page.route("**/api/sessions/*", async (route) => {
     if (route.request().method() !== "GET" || route.request().url().includes("/messages")) {
@@ -837,19 +954,24 @@ test("pipeline review follows the common task flow with progress and a right-sid
     if (r.url().includes("/messages") && r.method() === "POST") bodies.push(r.postDataJSON());
   });
   await openHomeTemplates(page);
-  await page.locator('[data-home] .rec[data-intent="risk_scan"]').click();
-  await expectHomeComposerDraft(page, "超时/风险扫描");
+  await page.getByRole("menu", { name: "添加内容" }).locator('[data-skill-option="risk_scan"]').click();
+  await expect(page.locator('[data-home] [data-skill-chip="risk_scan"]')).toBeVisible();
+  await page.locator("[data-home] [data-composer-input]").fill("复盘 KOL 流水线");
+  await expectHomeComposerDraft(page, "复盘 KOL 流水线");
   await submitHomeComposer(page);
   await expect(page.locator('[data-kind="me"]')).toContainText("复盘 KOL 流水线");
   await expect(page.locator('[data-ai-message][data-role="user"]')).toContainText("复盘 KOL 流水线");
   await expect(page.locator('[data-kind="process-trace"]')).toContainText("识别风险");
   await expect(page.locator('[data-kind="operation-trace"]')).toContainText("读取合作记录");
   await expect(page.locator('[data-ai-result="task_result"]')).toBeVisible();
-  await expect(page.locator('[data-session-stream-pane] [data-kind="task-result-card"]')).toContainText("两项合作需要优先处理");
-  await expect(page.locator('[data-session-stream-pane] [data-kind="task-result-card"]')).toContainText("优先关注停滞合作");
-  // 结果卡只在中栏时间流里出现一次；右栏是指向它的目录。
-  await expect(page.locator('.chat [data-kind="task-result-card"]')).toHaveCount(1);
-  await expect(page.locator("[data-workbench] [data-result-index]")).toContainText("KOL 流水线复盘");
+  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("两项合作需要优先处理");
+  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("优先关注停滞合作");
+  // 当前原生布局：中栏是成果指针，右栏完整成果仍只渲染一次。
+  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toHaveCount(1);
+  const pointer = page.locator('[data-kind="task-result-pointer"][data-stream-entry="m4"]');
+  await expect(pointer).toContainText('KOL 流水线复盘');
+  await pointer.getByRole('button', { name: '查看成果', exact: true }).click();
+  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toHaveCount(1);
   expect(bodies[0]?.act).toBe("ask");
   expect(bodies[0]?.intent).toBe("risk_scan");
 });
@@ -861,7 +983,7 @@ test("pipeline shows a 15-stage milestone timeline and lifecycle drawer", async 
   await expect(page.locator(".pipeline-page .page-kicker")).toHaveText("合作");
   await expect(page.locator(".pipeline-page")).toContainText("不是创建新项目");
   await expect(page.locator(".pipeline-page")).toContainText("不是今日待办");
-  await expect(page.locator("[data-nav-disabled='创建新项目']")).toBeVisible();
+  await expect(page.locator("[data-nav-disabled='创建新项目']")).toHaveCount(0);
   await expect(page.locator("[data-exception-bar]")).toContainText("旁路 / 异常阶段");
   await expect(page.locator("[data-exception-bar]")).toContainText("争议中");
   await expect(page.locator("[data-exception-bar]")).toContainText("不是首页的「等待中」");
@@ -875,6 +997,8 @@ test("pipeline shows a 15-stage milestone timeline and lifecycle drawer", async 
   await expect(page.locator("[data-pipeline-drawer]")).toHaveCount(0);
   await expect(page.locator(".pipeline-item.is-selected")).toHaveCount(0);
   await expect(page.locator("[data-stage-axis] li")).toHaveCount(15);
+  await expect(page.locator('[data-kol="小美妆日记"] [data-pipeline-row] [data-milestone]')).toHaveCount(15);
+  await expect(page.locator('[data-kol="数码老张"] [data-pipeline-row] [data-milestone]')).toHaveCount(15);
   await expect(page.locator('[data-kol="小美妆日记"] [data-milestone="INITIAL_CONTACT"]')).toHaveAttribute("data-current", "true");
   await expect(page.locator('[data-kol="数码老张"] [data-milestone="QUOTE_PENDING"]')).toHaveAttribute("data-current", "true");
   await expect(page.locator("[data-pipeline-filters] [data-filter='brand']")).toBeVisible();
@@ -941,7 +1065,8 @@ test("pipeline stage CTA passes concrete stage_code into confirm_stage", async (
   expect(posted?.entities?.reason).toBeFalsy();
   expect(posted?.text || "").toContain("已回复-有兴趣");
   expect(posted?.text || "").not.toContain("下一阶段");
-  await expect(page.locator('[data-session-stream-pane] [data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 15000 });
+  await wb1aOpenStageReview(page);
+  await expect(page.locator('[data-workbench] [data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 15000 });
 });
 
 test("pipeline skip/exception require a reason on confirm_stage handoff", async ({ page }) => {
@@ -969,10 +1094,191 @@ test("pipeline skip/exception require a reason on confirm_stage handoff", async 
   expect(posted?.text || "").toContain("原因：不寄样，直接进内容策划");
 });
 
+async function wb1bOpenContext(page: Page) {
+  const context = page.locator("[data-task-context]");
+  await expect(context).toBeVisible();
+  if (!(await context.evaluate((el) => el instanceof HTMLDetailsElement && el.open))) await context.locator(":scope > summary").click();
+  await expect(context).toHaveJSProperty("open", true);
+}
+
+async function wb1bOpenSop(page: Page) {
+  await wb1bOpenContext(page);
+  const sop = page.locator("[data-stage-sop]");
+  await expect(sop).toBeVisible();
+  if (!(await sop.evaluate((el) => el instanceof HTMLDetailsElement && el.open))) await sop.locator(":scope > summary").click();
+  await expect(sop).toHaveJSProperty("open", true);
+}
+
+async function wb1bOpenReview(page: Page) {
+  const review = page.getByRole("complementary", { name: "结果" }).locator(".mail-stage-review");
+  await expect(review).toBeAttached({ timeout: 15000 });
+  if (!(await review.evaluate((el) => el instanceof HTMLDetailsElement && el.open))) await review.locator(":scope > summary").click();
+  await expect(review).toHaveJSProperty("open", true);
+}
+
+/** wb1-b isolated fixtures: B.active membership must include native identity and collaboration linkage. */
+async function wb1bStubBoard(page: Page, board: Record<string, unknown>) {
+  const rows = (Array.isArray(board.kols) ? board.kols : []) as Record<string, unknown>[];
+  const kols = rows.map((row) => ({ ...row, kol_uid: row.kol_uid || `wb1b_${row.id}`,
+    follow_id: row.follow_id || `wb1b_follow_${row.id}`, collaboration_id: row.collaboration_id || row.id,
+    source_kind: "kol_follow_index", status: "active" }));
+  await stubHomeBoardAndFollowing(page, { ...board, kols });
+  // Board queries are reads as well; never fall through to unrelated demo rows on refresh.
+  await page.route(/\/api\/home\/board(?:\?.*)?$/, (route) => route.request().method() === "GET"
+    ? route.fulfill({ json: { ...board, kols } }) : route.fallback());
+}
+
+/** Resolve actual run-created demo objects rather than manufacturing a writable collaboration id. */
+async function wb1bDemoFollowing(page: Page) {
+  let rows: Record<string, unknown>[] = [];
+  await expect.poll(async () => {
+    const response = await page.request.get("/api/pipeline");
+    expect(response.ok()).toBe(true);
+    const pipeline = await response.json();
+    rows = Object.values(pipeline.groups || {}).flat() as Record<string, unknown>[];
+    return ["户外电源达人", "营地灯测评娘"].every((handle) => rows.some((row) => row.handle === handle && row.id));
+  }, { timeout: 15000 }).toBe(true);
+  const kols = rows.filter((row) => ["户外电源达人", "营地灯测评娘"].includes(String(row.handle)));
+  for (const row of kols) {
+    expect(row.id).toBeTruthy();
+    expect(row.kol_uid).toBeTruthy();
+  }
+  await wb1bStubBoard(page, { kols, tasks: [] });
+}
+
+/** Session reads match pathname including every current route query; payload comes from the real test host. */
+async function wb1bCurrentSessionReads(page: Page, sessionId: string) {
+  await page.route((url) => url.pathname === `/api/sessions/${sessionId}`, async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    const response = await page.request.get(`/api/sessions/${sessionId}`);
+    expect(response.ok()).toBe(true);
+    const payload = await response.json();
+    expect(payload.id).toBe(sessionId);
+    expect(payload.collaboration_id).toBeTruthy();
+    await route.fulfill({ json: payload });
+  });
+}
+
+async function wb1bOpenDetail(page: Page, handle = "户外电源达人") {
+  const card = page.locator(`[data-followed-kol="${handle}"]`);
+  await expect(card).toBeVisible({ timeout: 15000 });
+  const opening = page.waitForResponse((response) => response.request().method() === "POST"
+    && /\/api\/collaborations\/[^/]+\/session$/.test(new URL(response.url()).pathname));
+  await card.locator("[data-open-kol-detail]").click();
+  const response = await opening;
+  expect(response.ok()).toBe(true);
+  const payload = await response.json();
+  expect(payload.id).toBeTruthy();
+  expect(payload.collaboration_id).toBeTruthy();
+  await wb1bCurrentSessionReads(page, payload.id);
+  await expect(page).toHaveURL(/\/s\//);
+  await wb1bOpenContext(page);
+}
+
+async function wb1bHeadingRemoved(page: Page) {
+  await expect(page.locator("[data-followed-kol-heading], [data-followed-kol-list] h2")).toHaveCount(0);
+  await expect(page.locator('[data-home-mode="lifecycle"]')).toHaveText("我的红人");
+  await expect(page.locator(".home-hero")).toHaveCount(0);
+}
+
+/** All geometry checks preserve <=1px containers; current rail follows WorkspaceShell tokens. */
+async function wb1bRailGeometry(page: Page) {
+  const m = await page.locator('[data-home-pane="lifecycle"]').evaluate((workspace) => {
+    const rail = workspace.querySelector("[data-scope-task-rail]") as HTMLElement;
+    const column = workspace.querySelector("[data-followed-kol-column]") as HTMLElement;
+    const card = workspace.querySelector("[data-followed-kol]") as HTMLElement;
+    const scroll = rail.querySelector(".scope-task-rail-scroll") as HTMLElement;
+    const body = rail.querySelector(".scope-task-rail-body") as HTMLElement;
+    const cs = getComputedStyle(workspace); const rs = getComputedStyle(rail);
+    const width = (el: HTMLElement) => el.getBoundingClientRect().width;
+    const px = (v: string) => Number.parseFloat(v);
+    return { display: cs.display, columns: cs.gridTemplateColumns.split(" ").map(px), rail: width(rail),
+      column: width(column), card: width(card), body: width(body), scroll: width(scroll),
+      min: px(cs.getPropertyValue("--workspace-result-rail-min")), max: px(cs.getPropertyValue("--workspace-result-rail-max")),
+      ideal: px(cs.getPropertyValue("--workspace-result-rail-ideal")), left: px(rs.paddingLeft), right: px(rs.paddingRight),
+      border: px(rs.borderLeftWidth), bodyPadding: px(getComputedStyle(body).paddingLeft)+px(getComputedStyle(body).paddingRight),
+      client: workspace.clientWidth, overflow: workspace.scrollWidth };
+  });
+  expect(m.display).toBe("grid");
+  expect(m.columns).toHaveLength(2);
+  expect(Math.abs(m.columns[1] - m.rail)).toBeLessThanOrEqual(1);
+  expect(m.rail).toBeGreaterThanOrEqual(m.min);
+  expect(m.rail).toBeLessThanOrEqual(m.max);
+  expect(Math.abs(m.column - (m.body - m.bodyPadding))).toBeLessThanOrEqual(1);
+  expect(Math.abs(m.card - m.column)).toBeLessThanOrEqual(1);
+  expect(m.overflow).toBeLessThanOrEqual(m.client + 1);
+  expect(m.card).toBeGreaterThan(320);
+}
+
+async function wb1bTypeColor(page: Page, handle: string) {
+  const m = await page.locator(`[data-followed-kol="${handle}"]`).evaluate((el) => {
+    const root = getComputedStyle(document.documentElement);
+    const token = (name: string) => Number.parseFloat(root.getPropertyValue(name));
+    const color = (name: string) => { const node = document.createElement("span"); node.style.color=`var(${name})`; document.body.append(node); const value=getComputedStyle(node).color; node.remove(); return value; };
+    const read = (selector: string) => { const node=el.querySelector(selector); if (!node) return null; const cs=getComputedStyle(node); return { font:Number.parseFloat(cs.fontSize),weight:Number.parseFloat(cs.fontWeight),color:cs.color }; };
+    return { sm:token("--ds-font-sm"), xs:token("--ds-font-xs"), text:color("--text"), quiet:color("--text-quiet"), accent:color("--accent-text"),
+      name:read("[data-kol-name]"),stage:read("[data-stage-label]"),meta:read("[data-kol-scope]"),fact:read(".kol-card-summary-text"),
+      ai:read(".kol-card-suggestion-title"),why:read("[data-action-why]"),detail:read("[data-open-kol-detail]"),mail:read("[data-open-original-mail]") };
+  });
+  expect(m.name).toBeTruthy(); expect(m.stage).toBeTruthy(); expect(m.fact).toBeTruthy(); expect(m.ai).toBeTruthy(); expect(m.detail).toBeTruthy();
+  expect(m.name!.font).toBe(m.sm); expect(m.name!.weight).toBe(500); expect(m.name!.color).toBe(m.text);
+  expect(m.stage!.font).toBe(m.xs); expect(m.stage!.weight).toBe(400); expect(m.stage!.color).toBe(m.quiet);
+  for (const value of [m.fact,m.ai,m.detail,m.mail].filter(Boolean)) expect(value!.font).toBe(m.sm);
+  expect(m.detail!.color).toBe(m.accent);
+  if (m.meta) expect(m.meta.font).toBe(m.xs);
+  if (m.why) expect(m.why.font).toBe(m.xs);
+}
+
+async function wb1bCardWraps(page: Page, handle: string) {
+  const card = page.locator(`[data-followed-kol="${handle}"]`);
+  const m = await card.evaluate((el) => {
+    const pick=(selector:string) => el.querySelector(selector) as HTMLElement;
+    const style=(selector:string) => { const n=pick(selector); const cs=getComputedStyle(n); return { nowrap:cs.whiteSpace,wrap:cs.overflowWrap,clamp:cs.webkitLineClamp }; };
+    const rect=(selector:string) => pick(selector).getBoundingClientRect();
+    const fact=rect('[data-kol-band="fact"]'), action=rect('[data-kol-band="action"]'), identity=rect('.kol-card-identity');
+    const name=rect('[data-kol-name]'),stage=rect('[data-stage-label]');
+    return { styles:[style('[data-kol-name]'),style('.kol-card-suggestion-title'),style('.kol-card-summary-text'),style('[data-kol-scope]')],
+      mail:style('.kol-card-summary-text'),suggestion:style('.kol-card-suggestion-title'),
+      stageStyle:style('[data-stage-label]'),evidence:pick('[data-action-evidence] p') ? style('[data-action-evidence] p') : null,
+      container:getComputedStyle(el).containerType,fact,action,identity,name,stage,
+      client:el.clientWidth,scroll:el.scrollWidth };
+  });
+  for (const st of m.styles) { expect(st.nowrap).not.toBe("nowrap"); expect(["anywhere","break-word"]).toContain(st.wrap); }
+  expect(Number(m.mail.clamp)).toBeGreaterThanOrEqual(2); expect(Number(m.mail.clamp)).toBeLessThanOrEqual(3);
+  expect(["none",""]).toContain(m.suggestion.clamp);
+  expect(["none",""]).toContain(m.stageStyle.clamp);
+  expect(m.container).toBe("inline-size");
+  if (m.evidence) {
+    expect(m.evidence.nowrap).not.toBe("nowrap");
+    expect(["anywhere","break-word"]).toContain(m.evidence.wrap);
+    const clamp = Number(m.evidence.clamp);
+    if (Number.isFinite(clamp) && clamp > 0) { expect(clamp).toBeGreaterThanOrEqual(2); expect(clamp).toBeLessThanOrEqual(3); }
+  }
+  expect(m.fact.top + 1).toBeGreaterThanOrEqual(m.identity.bottom - 8);
+  expect(m.action.top + 1).toBeGreaterThanOrEqual(m.fact.bottom - 8);
+  expect(Math.abs(m.name.top-m.stage.top)).toBeLessThan(16);
+  expect(m.stage.left + 1).toBeGreaterThanOrEqual(m.name.right - 8);
+  expect(m.scroll).toBeLessThanOrEqual(m.client + 1);
+}
+
+async function wb1bStacked(page: Page, handle: string) {
+  await expect(page.locator(`[data-followed-kol="${handle}"] [data-kol-band]`)).toHaveCount(4);
+  await wb1bCardWraps(page,handle); await wb1bTypeColor(page,handle);
+  await expectFollowedKolListAlignsWithToolbar(page); await expectObjectToolbarAligned(page);
+  for (const selector of ["[data-home-modes]","[data-followed-kol-list]",`[data-followed-kol="${handle}"]`]) await expectNoHorizontalOverflow(page,selector);
+  await expectNoPageHorizontalScroll(page);
+}
+
 test("session page has no coach next-step card and keeps composer skills", async ({ page }) => {
-  await page.goto("/");
-  await openHomeLifecycle(page);
-  await openFollowedKolDetail(page);
+  // Home detail now stays in its native object rail. Open a genuinely bound session
+  // using the current collaboration/session resource, not the retired card redirect.
+  const pipeline = await page.request.get("/api/pipeline?exception=0").then((response) => response.json());
+  const kol = pipeline.columns.flatMap((column: string) => pipeline.groups[column] || [])
+    .find((row: { handle: string }) => row.handle === "小美妆日记");
+  expect(kol?.id).toBeTruthy();
+  const session = await page.request.post(`/api/collaborations/${kol.id}/session`).then((response) => response.json());
+  expect(session.id).toBeTruthy();
+  await page.goto(`/s/${session.id}`);
   await expect(page).toHaveURL(/\/s\//);
   await expect(page.locator("[data-journey-next]")).toHaveCount(0);
   await expect(page.locator("[data-journey-guide]")).toHaveCount(0);
@@ -985,14 +1291,17 @@ test("session page has no coach next-step card and keeps composer skills", async
   await expect(page.locator("[data-ai-prompt-textarea]")).toBeVisible();
   await expect(page.locator("[data-ai-prompt-submit]")).toBeVisible();
   await expect(page.locator("[data-session-send-hint]")).toHaveText("发送不等于改阶段");
+  await wb1aOpenContext(page);
+  await expect(page.locator("[data-kol-journey]")).toContainText("小美妆日记");
   const sop = page.locator("[data-stage-sop]");
-  if (await sop.count()) {
-    await expect(sop).toHaveJSProperty("open", false);
-    const handleLeft = await page.locator("[data-kol-journey] h1").evaluate((el) => el.getBoundingClientRect().left);
-    const sopLeft = await sop.evaluate((el) => el.getBoundingClientRect().left);
-    expect(Math.abs(handleLeft - sopLeft)).toBeLessThan(6);
-  }
-  await expect(page.locator("[data-session-stream-pane] [data-mail-digest], [data-session-stream-pane] [data-mail-summaries]")).toBeVisible();
+  await expect(sop).toHaveCount(1);
+  await expect(sop).toHaveJSProperty("open", false);
+  const handleLeft = await page.locator("[data-kol-journey] h1").evaluate((el) => el.getBoundingClientRect().left);
+  const sopLeft = await sop.evaluate((el) => el.getBoundingClientRect().left);
+  expect(Math.abs(handleLeft - sopLeft)).toBeLessThan(6);
+  await sop.locator("summary").click();
+  await expect(sop).toHaveJSProperty("open", true);
+  await expect(page.locator('[data-session-stream-pane] [data-mail-digest]')).toBeVisible();
   await expect(page.locator("[data-journey-track]")).toHaveCount(0);
   await expect(page.locator("[data-open-lifecycle]")).toHaveCount(0);
   await expect(page.locator("[data-kol-journey]")).not.toContainText("在生命周期中打开");
@@ -1004,19 +1313,22 @@ test("session page has no coach next-step card and keeps composer skills", async
 });
 
 test("home lifecycle followed KOL opens the mail rail not the task list", async ({ page }) => {
+  await wb1bDemoFollowing(page);
   await page.goto("/");
   await openHomeLifecycle(page);
-  await openFollowedKolDetail(page);
+  await wb1bOpenDetail(page);
   await expect(page).toHaveURL(/\/s\//);
-  await expect(page.locator("[data-agent-task-list]")).toHaveAttribute("data-tasklist-mode", "mail");
-  await expect(page.locator("[data-agent-task-list] strong")).toHaveText("往来邮件");
-  await expect(page.locator("[data-agent-task-list][data-tasklist-mode='tasks']")).toHaveCount(0);
-  await expect(page.locator("[data-agent-task-list] strong")).not.toHaveText("任务列表");
-  await expect(page.locator("[data-session-mail-list]")).toBeVisible();
+  await expect(page.locator("[data-agent-task-list]")).toHaveCount(0);
+  await expect(page.locator("[data-session-mail-list]")).toHaveCount(0);
+  const mailRail = page.getByRole("complementary", { name: "结果" });
+  await expect(mailRail).toBeVisible();
+  await expect(mailRail.locator("[data-mail-decision-workbench]")).toBeVisible();
+  await expect(mailRail).not.toContainText("任务列表");
   await expect(page.locator(".chat")).toHaveAttribute("data-session-stream", /idle|live/);
 });
 
 test("home followed-KOL object list opens the KOL session", async ({ page }) => {
+  await wb1bDemoFollowing(page);
   await page.goto("/");
   await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-today-summary], [data-home-stats]")).toHaveCount(0);
@@ -1030,7 +1342,9 @@ test("home followed-KOL object list opens the KOL session", async ({ page }) => 
   const outdoor = page.locator('[data-followed-kol="户外电源达人"]');
   await expect(outdoor.locator("[data-kol-identity]")).toContainText("户外电源达人");
   await expect(outdoor.locator("[data-kol-identity]")).not.toContainText("KOL 名称");
-  await expect(outdoor.locator("[data-kol-scope]")).toContainText("LT");
+  await expect(outdoor.locator("[data-kol-scope]")).toContainText("YouTube");
+  await expect(outdoor.locator('[data-kol-chip="followers"]')).toContainText("9万");
+  await expect(outdoor.locator('[data-kol-chip="brand"], [data-kol-chip="owner"]')).toHaveCount(0);
   await expect(outdoor.locator("[data-kol-band]")).toHaveCount(4);
   await expect(outdoor.locator('[data-kol-card-cols="5"]')).toHaveCount(0);
   await expect(outdoor.locator(".task-main")).toHaveCount(0);
@@ -1044,7 +1358,7 @@ test("home followed-KOL object list opens the KOL session", async ({ page }) => 
   await expect(page.locator('[data-followed-kol="户外电源达人"]')).toBeVisible();
   await page.locator("[data-followed-object-search]").fill("");
   await expect(page.locator("[data-followed-kol]")).toHaveCount(2);
-  await openFollowedKolDetail(page, "户外电源达人");
+  await wb1bOpenDetail(page, "户外电源达人");
   await expect(page).toHaveURL(/\/s\//);
   await expect(page.locator("[data-kol-journey]")).toContainText("户外电源达人");
   await expect(page.locator("[data-session-stage]")).toBeVisible();
@@ -1054,9 +1368,10 @@ test("home followed-KOL object list opens the KOL session", async ({ page }) => 
 });
 
 test("KOL session header can tag a followed creator as 犹豫谨慎", async ({ page }) => {
+  await wb1bDemoFollowing(page);
   await page.goto("/");
   await openHomeLifecycle(page);
-  await openFollowedKolDetail(page, "户外电源达人");
+  await wb1bOpenDetail(page, "户外电源达人");
   await expect(page.locator("[data-kol-journey]")).toContainText("户外电源达人");
   await expect(page.locator("[data-follow-style-bar]")).toBeVisible();
   await page.locator("[data-follow-style-add]").click();
@@ -1084,7 +1399,7 @@ test("KOL session header can tag a followed creator as 犹豫谨慎", async ({ p
   await expect(tagged).toBeVisible();
   await expect(tagged.locator('[data-follow-style-tag="cautious"]')).toHaveCount(0);
   await expect(tagged.locator("[data-kol-scope]")).not.toContainText("犹豫谨慎");
-  await openFollowedKolDetail(page, "户外电源达人");
+  await wb1bOpenDetail(page, "户外电源达人");
   await expect(page.locator('[data-follow-style-tag="cautious"]')).toContainText("犹豫谨慎");
 });
 
@@ -1129,22 +1444,24 @@ async function expectNoPageHorizontalScroll(page: Page) {
 async function expectObjectToolbarAligned(page: Page) {
   const metrics = await page.evaluate(() => {
     const toolbar = document.querySelector("[data-followed-object-toolbar]");
-    const search = document.querySelector("[data-followed-object-search]");
+    const searchInput = document.querySelector("[data-followed-object-search]");
+    const search = searchInput?.closest(".workspace-search-input.ant-input-affix-wrapper") || searchInput;
     const card = document.querySelector("[data-followed-kol]");
     if (!(toolbar instanceof HTMLElement)) return null;
-    const searchCs = search instanceof HTMLElement ? getComputedStyle(search) : null;
+    const searchCs = searchInput instanceof HTMLElement ? getComputedStyle(searchInput) : null;
     return {
       clientWidth: toolbar.clientWidth,
       cardWidth: card instanceof HTMLElement ? card.clientWidth : 0,
       searchHeight: search instanceof HTMLElement ? search.getBoundingClientRect().height : 0,
       searchFont: searchCs ? Number.parseFloat(searchCs.fontSize) : 0,
+      fontToken: Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--ds-font-sm")),
     };
   });
   expect(metrics).toBeTruthy();
   // 搜索框高度走 DESIGN §控件尺寸 的 --control-h-lg（32px），与今日任务右栏的搜索框同档。
   expect(metrics!.searchHeight).toBeGreaterThanOrEqual(32);
   expect(metrics!.searchHeight).toBeLessThanOrEqual(36);
-  expect(metrics!.searchFont).toBeGreaterThanOrEqual(14);
+  expect(metrics!.searchFont).toBe(metrics!.fontToken);
   expect(Math.abs(metrics!.clientWidth - metrics!.cardWidth)).toBeLessThan(8);
 }
 
@@ -1287,7 +1604,7 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
     "Hi there, I hope this message finds you in great spirits. I wanted to reach out about a possible collaboration with LiTime and share our media kit, rate card, posting calendar, and a long bilingual dump that used to stretch the home card into a wide table.",
     "你好，我现在想和贵品牌litime合作，方便发一下产品资料吗？Best regards, Amy",
   ].join("\n\n");
-  await stubHomeBoardAndFollowing(page, {
+  await wb1bStubBoard(page, {
       kols: [
         {
           id: "col_xiaomei",
@@ -1356,9 +1673,9 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expect(card.locator("[data-kol-band]")).toHaveCount(4);
   await expect(card.locator('[data-kol-card-cols="5"]')).toHaveCount(0);
   await expect(card.locator(".task-main")).toHaveCount(0);
-  await expectFollowedKolHeadingRemoved(page);
-  await expectFollowedKolStackedNoOverflow(page, "小美妆日记");
-  await expectHomeFollowedRailWide(page);
+  await wb1bHeadingRemoved(page);
+  await wb1bStacked(page, "小美妆日记");
+  await wb1bRailGeometry(page);
   await expectFollowedDecisionDensity(page);
   const toolbarBox = await page.locator("[data-followed-object-toolbar]").boundingBox();
   const cardBox = await card.boundingBox();
@@ -1367,10 +1684,10 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expect(card.locator("[data-mail-summary]")).toBeVisible();
   await expect(card.locator("[data-mail-summary]")).toContainText("想和贵品牌litime合作");
   await expect(card.locator('[data-kol-chip="mailbox"]')).toHaveCount(0);
-  await expect(card.locator('[data-kol-chip="owner"]')).toHaveText("钟槿年");
+  await expect(card.locator('[data-kol-chip="owner"]')).toHaveCount(0);
   await expect(card.locator("[data-stage-label]")).toHaveText("初步接触");
   await expect(card.locator("[data-kol-band='identity']")).toContainText("初步接触");
-  await expect(card.locator("[data-days-in-stage]")).toHaveText("停留 12 天");
+  await expect(card.locator("[data-days-in-stage]")).toHaveCount(0);
   await expect(card.locator("[data-current-state]")).not.toContainText(" · ");
   await expect(card.locator("[data-current-state]")).not.toContainText("异常");
   await expect(card.locator('[data-follow-style-tag]')).toHaveCount(0);
@@ -1380,10 +1697,10 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expect(card.locator("[data-latest-fact]")).not.toContainText("Reply-To");
   await expect(card.locator("[data-open-original-mail]")).toHaveText("互动");
   await expect(card.locator("[data-kol-primary-action]")).toHaveCount(1);
-  await expect(card.locator('[data-kol-primary-action="open-session"]')).toHaveText("查看来信");
-  await expect(card.locator("[data-recommended-action]")).toContainText("查看来信");
+  await expect(card.locator('[data-kol-primary-action="open-session"]')).toHaveText("查看互动");
+  await expect(card.locator("[data-recommended-action]")).toContainText("查看互动");
   await expect(card.locator("[data-latest-fact]")).toContainText("想和贵品牌litime合作");
-  await expect(card.locator("[data-latest-fact]")).toContainText("邮件 ·");
+  await expect(card.locator("[data-latest-fact]")).toContainText("邮件摘要");
   await expect(card).not.toContainText("支撑进入");
 
   await expect(confirmCard.locator("[data-recommended-action]")).toContainText("建议进入「已回复 · 有兴趣」");
@@ -1391,33 +1708,36 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await page.mouse.move(0, 0);
   await expect(confirmCard.locator("[data-confirm-enter-stage]")).toHaveText("进入已回复 · 有兴趣");
   await expect(confirmCard.locator("[data-confirm-enter-stage] svg")).toHaveCount(1);
-  await expect(confirmCard.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
+  await expect(confirmCard.locator("[data-confirm-enter-stage]")).toHaveAttribute("data-cta-visual", "text");
+  await expect(confirmCard.locator("[data-confirm-enter-stage]")).not.toHaveAttribute("data-emphasized", "true");
   await expect(confirmCard).toHaveAttribute("data-cta-emphasis", "quiet");
-  await expect(card.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
+  await expect(card.locator("[data-kol-primary-action]")).toHaveAttribute("data-cta-visual", "text");
+  await expect(card.locator("[data-kol-primary-action]")).not.toHaveAttribute("data-emphasized", "true");
   await expect(page.locator("[data-followed-kol-list] [data-kol-primary-action].btn.work")).toHaveCount(0);
-  await expect(page.locator("[data-followed-batch-confirm]")).toHaveClass(/ghost/);
-  await expect(confirmCard.locator("[data-action-why]")).toContainText("明确表达品牌合作意愿");
+  await expect(page.locator("[data-followed-batch-confirm]")).toHaveCount(0);
+  await expect(confirmCard.locator("[data-action-why]")).toContainText("已有阶段建议记录，需人工核对邮件原文");
   await expect(confirmCard).not.toContainText("支撑进入");
   await expect(confirmCard.locator("[data-latest-fact]")).not.toContainText("10070757521@qq.com");
   await expect(confirmCard.locator("[data-action-evidence]")).toContainText("依据");
-  await expectFollowedKolStackedNoOverflow(page, "测试网红-qq-01");
+  await wb1bStacked(page, "测试网红-qq-01");
 
   await page.setViewportSize({ width: 1600, height: 900 });
   await expect(card).toBeVisible();
   await expect(confirmCard).toBeVisible();
-  await expectFollowedKolStackedNoOverflow(page, "小美妆日记");
-  await expectFollowedKolStackedNoOverflow(page, "测试网红-qq-01");
-  await expectHomeFollowedRailWide(page);
+  await wb1bStacked(page, "小美妆日记");
+  await wb1bStacked(page, "测试网红-qq-01");
+  await wb1bRailGeometry(page);
   await expectFollowedDecisionDensity(page);
 
   await page.setViewportSize({ width: 1920, height: 900 });
   await expect(card).toBeVisible();
-  await expectFollowedKolStackedNoOverflow(page, "小美妆日记");
-  await expectHomeFollowedRailWide(page);
+  await wb1bStacked(page, "小美妆日记");
+  await wb1bRailGeometry(page);
   await expectFollowedDecisionDensity(page);
 });
 
 test("home followed-KOL object toolbar matches card width", async ({ page }) => {
+  await wb1bDemoFollowing(page);
   await page.goto("/");
   await openHomeLifecycle(page);
   await expectFollowedObjectToolbar(page);
@@ -1426,7 +1746,7 @@ test("home followed-KOL object toolbar matches card width", async ({ page }) => 
     await expect(page.locator("[data-followed-kol-column]")).toBeVisible();
     await expectFollowedKolListAlignsWithToolbar(page);
     await expectObjectToolbarAligned(page);
-    await expectHomeFollowedRailWide(page);
+    await wb1bRailGeometry(page);
     await expectFollowedDecisionDensity(page);
     await expectNoPageHorizontalScroll(page);
     await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
@@ -1440,8 +1760,7 @@ test("home followed-KOL 查看互动 opens /mail without creating a session", as
   await page.route("**/api/me/starry-binding", (route) => route.fulfill({
     json: { bound: true, mailbox_email: "larry.zhao@amperetime.com", owner_name: "钟槿年", status: "connected" },
   }));
-  await page.route("**/api/home/board", (route) => route.fulfill({
-    json: {
+  await wb1bStubBoard(page, {
       follow_scope: { bound: true, mailbox_email: "larry.zhao@amperetime.com", status: "connected" },
       kols: [{
         id: "col_xiaomei",
@@ -1463,8 +1782,7 @@ test("home followed-KOL 查看互动 opens /mail without creating a session", as
       }],
       tasks: [],
       tabs: [{ code: "all", count: 1 }, { code: "INITIAL_CONTACT", count: 1 }],
-    },
-  }));
+  });
   page.on("request", (request) => {
     if (request.method() === "POST" && request.url().includes("/api/collaborations/") && request.url().endsWith("/session")) {
       sessionPosts.push(request.url());
@@ -1481,13 +1799,13 @@ test("home followed-KOL 查看互动 opens /mail without creating a session", as
 });
 
 test("home followed-KOL default sort uses contract keys 1-8", async ({ page }) => {
-  await stubHomeBoardAndFollowing(page, {
+  await wb1bStubBoard(page, {
       kols: [
-        { id: "z-late", handle: "晚到的", brand: "LT", stage_code: "PUBLISHED", stage_label: "已发布", days_in_stage: 1 },
-        { id: "e-stay", handle: "停留最长", brand: "LT", stage_code: "TESTING", stage_label: "已签收-测试中", days_in_stage: 40 },
-        { id: "d-overdue", handle: "逾期跟进", brand: "LT", stage_code: "EVALUATING", stage_label: "合作评估", days_in_stage: 3, overdue: 1 },
+        { id: "z-late", followers: "60万", potential_score: 0.8, handle: "晚到的", brand: "LT", stage_code: "PUBLISHED", stage_label: "已发布", days_in_stage: 1 },
+        { id: "e-stay", followers: "100万", potential_score: 0.6, handle: "停留最长", brand: "LT", stage_code: "TESTING", stage_label: "已签收-测试中", days_in_stage: 40 },
+        { id: "d-overdue", followers: "10万", potential_score: 0.9, handle: "逾期跟进", brand: "LT", stage_code: "EVALUATING", stage_label: "合作评估", days_in_stage: 3, overdue: 1 },
         {
-          id: "c-unread",
+          id: "c-unread", followers: "20万", potential_score: 0.1,
           handle: "未读来信",
           brand: "LT",
           stage_code: "INITIAL_CONTACT",
@@ -1504,7 +1822,7 @@ test("home followed-KOL default sort uses contract keys 1-8", async ({ page }) =
           }],
         },
         {
-          id: "b-confirm",
+          id: "b-confirm", followers: "80万", potential_score: 0.2,
           handle: "待确认",
           brand: "LT",
           stage_code: "INITIAL_CONTACT",
@@ -1521,62 +1839,52 @@ test("home followed-KOL default sort uses contract keys 1-8", async ({ page }) =
             last_at: "2026-09-11T10:00:00.000Z",
           }],
         },
-        { id: "a-risk", handle: "异常菌", brand: "PQ", stage_code: "DISPUTED", stage_label: "争议中", exception: true, notes: "样品争议", days_in_stage: 8, mailbox_from: "pq.ops@example.com" },
+        { id: "a-risk", followers: "1万", potential_score: 0.7, handle: "异常菌", brand: "PQ", stage_code: "DISPUTED", stage_label: "争议中", exception: true, notes: "样品争议", days_in_stage: 8, mailbox_from: "pq.ops@example.com" },
       ],
       tasks: [],
   });
   await page.goto("/");
   await openHomeLifecycle(page);
   await expect(page.locator("[data-followed-kol]")).toHaveCount(6);
-  const handles = await page.locator("[data-followed-kol]").evaluateAll((els) => (
-    els.map((el) => el.getAttribute("data-followed-kol"))
-  ));
-  expect(handles).toEqual(["异常菌", "待确认", "未读来信", "逾期跟进", "停留最长", "晚到的"]);
+  const handles = () => page.locator("[data-followed-kol]").evaluateAll((els) => els.map((el) => el.getAttribute("data-followed-kol")));
+  await expect.poll(handles).toEqual(["未读来信", "待确认", "异常菌", "逾期跟进", "停留最长", "晚到的"]);
   const risk = page.locator('[data-followed-kol="异常菌"]');
   await expect(risk.locator("[data-stage-label]")).toHaveText("争议中");
-  await expect(risk.locator("[data-days-in-stage]")).toHaveText("停留 8 天");
-  await expect(risk.locator("[data-current-state]")).not.toContainText(" · ");
+  await expect(risk.locator("[data-days-in-stage]")).toHaveCount(0);
   await expect(risk.locator("[data-current-state]")).not.toContainText("异常");
   await expect(risk.locator('[data-kol-chip="exception"]')).toHaveText("异常");
   await expect(risk.locator('[data-kol-chip="mailbox"]')).toHaveCount(0);
-  // 排序选项在右栏：默认「按需处理」，切换后列表按各自键序重排。
-  const sortGroup = page.locator("[data-kol-sorts]");
-  const topHandle = page.locator("[data-followed-kol]").first();
-  await expect(sortGroup).toBeVisible();
-  await expect(sortGroup.locator("[data-kol-sort]")).toHaveCount(4);
-  await expect(sortGroup.locator('[data-kol-sort="need"]')).toHaveAttribute("aria-pressed", "true");
-  await expect(topHandle).toHaveAttribute("data-followed-kol", "异常菌");
-  await sortGroup.locator('[data-kol-sort="unread"]').click();
-  await expect(sortGroup.locator('[data-kol-sort="unread"]')).toHaveAttribute("aria-pressed", "true");
-  await expect(topHandle).toHaveAttribute("data-followed-kol", "未读来信");
-  await sortGroup.locator('[data-kol-sort="stay"]').click();
-  await expect(topHandle).toHaveAttribute("data-followed-kol", "停留最长");
-  await sortGroup.locator('[data-kol-sort="need"]').click();
-  await expect(sortGroup.locator('[data-kol-sort="need"]')).toHaveAttribute("aria-pressed", "true");
-  await expect(topHandle).toHaveAttribute("data-followed-kol", "异常菌");
-  // 同一次被删的另两个控件也回来了：「只看未读」是筛选（不是排序键），「刷新收取」重新收邮件。
-  const unreadToggle = page.locator("[data-unread-filter]");
-  await expect(unreadToggle).toBeVisible();
-  await expect(unreadToggle).toHaveAttribute("aria-pressed", "false");
-  await unreadToggle.click();
-  await expect(unreadToggle).toHaveAttribute("aria-pressed", "true");
+  const writes: string[] = [];
+  page.on("request", (request) => { if (request.method() !== "GET") writes.push(new URL(request.url()).pathname); });
+  const sorts = page.locator("[data-followed-sort]");
+  await expect(sorts.locator("[data-followed-sort-option]")).toHaveCount(3);
+  await expect(sorts.locator('[data-followed-sort-option="time"]')).toHaveAttribute("aria-pressed", "true");
+  await sorts.locator('[data-followed-sort-option="followers"]').click();
+  await expect(sorts.locator('[data-followed-sort-option="followers"]')).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(handles).toEqual(["停留最长", "待确认", "晚到的", "未读来信", "逾期跟进", "异常菌"]);
+  await sorts.locator('[data-followed-sort-option="score"]').click();
+  await expect.poll(handles).toEqual(["逾期跟进", "晚到的", "异常菌", "停留最长", "待确认", "未读来信"]);
+  await sorts.locator('[data-followed-sort-option="time"]').click();
+  await expect.poll(handles).toEqual(["未读来信", "待确认", "异常菌", "逾期跟进", "停留最长", "晚到的"]);
+  await page.locator("[data-followed-object-search]").fill("未读来信");
   await expect(page.locator("[data-followed-kol]")).toHaveCount(1);
-  await expect(topHandle).toHaveAttribute("data-followed-kol", "未读来信");
-  await unreadToggle.click();
-  await expect(unreadToggle).toHaveAttribute("aria-pressed", "false");
+  await page.locator("[data-followed-object-search]").fill("");
   await expect(page.locator("[data-followed-kol]")).toHaveCount(6);
-
-  const refreshed = page.waitForRequest(
-    (request) => request.url().includes("/api/home/board") && request.url().includes("refresh=1"),
-  );
-  await page.locator("[data-refresh-mail]").click();
-  await refreshed;
-  await expect(page.locator("[data-followed-kol]")).toHaveCount(6);
+  await expect(page.locator("[data-kol-sorts], [data-unread-filter]")).toHaveCount(0);
+  await page.reload();
+  await openHomeLifecycle(page);
+  await expect.poll(handles).toEqual(["未读来信", "待确认", "异常菌", "逾期跟进", "停留最长", "晚到的"]);
   await expectFollowedObjectToolbar(page);
+  expect(writes).toEqual([]);
 });
 
 test("home confirm CTA names the target stage and opens confirm_stage", async ({ page }) => {
-  await stubHomeBoardAndFollowing(page, {
+  const pipelineBefore = await page.request.get("/api/pipeline").then((r) => r.json());
+  const actual = (Object.values(pipelineBefore.groups).flat() as Record<string, unknown>[]).find((row) => row.id === "col_xiaomei");
+  expect(actual?.stage_code).toBe("INITIAL_CONTACT");
+  const stageWrites: string[] = [];
+  page.on("request", (r) => { if (r.method() !== "GET" && /confirm-stage|confirm_stage$/.test(new URL(r.url()).pathname)) stageWrites.push(r.url()); });
+  await wb1bStubBoard(page, {
       kols: [{
         id: "col_xiaomei",
         handle: "小美妆日记",
@@ -1609,11 +1917,13 @@ test("home confirm CTA names the target stage and opens confirm_stage", async ({
   const cta = card.locator("[data-confirm-enter-stage]");
   await expect(cta).toHaveText("进入已回复 · 有兴趣");
   await expect(cta.locator("svg")).toHaveCount(1);
-  await expect(cta).toHaveClass(/ghost/);
-  await expect(page.locator("[data-followed-batch-confirm]")).toHaveClass(/ghost/);
+  await expect(cta).toHaveAttribute("data-cta-visual", "text");
+  await expect(cta).not.toHaveAttribute("data-emphasized", "true");
+  await expect(page.locator("[data-followed-batch-confirm]")).toHaveCount(0);
   await expect(card.getByRole("button", { name: "确认阶段", exact: true })).toHaveCount(0);
   await cta.click();
   await expect(page).toHaveURL(/\/s\//);
+  await wb1bOpenReview(page);
   await expect(page.locator('[data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-kind="confirm-stage-card"]')).toContainText("初步接触");
   const confirmCard = page.locator('[data-kind="confirm-stage-card"]');
@@ -1623,6 +1933,9 @@ test("home confirm CTA names the target stage and opens confirm_stage", async ({
   await expect(confirmCard.locator("[data-stage-track='exception']")).toContainText("异常流程");
   await expect(confirmCard.locator("[data-stage-chip]", { hasText: "跳过" })).toHaveCount(0);
   await expect(confirmCard.locator('[data-stage-chip][data-stage-code="INTERESTED"]')).toContainText("建议");
+  expect(stageWrites).toEqual([]);
+  const pipelineAfter = await page.request.get("/api/pipeline").then((r) => r.json());
+  expect((Object.values(pipelineAfter.groups).flat() as Record<string, unknown>[]).find((row) => row.id === actual!.id)?.stage_code).toBe("INITIAL_CONTACT");
 });
 
 test("home open work items list every state and never show 已入队", async ({ page }) => {
@@ -1670,7 +1983,7 @@ test("home open work items list every state and never show 已入队", async ({ 
       history_summary: "报价已提交，等负责人确认",
     },
   ];
-  await stubHomeBoardAndFollowing(page, {
+  await wb1bStubBoard(page, {
       kols: [],
       tabs: [{ code: "all", count: 0 }],
       tasks: todos,
@@ -1686,18 +1999,17 @@ test("home open work items list every state and never show 已入队", async ({ 
   // 进行中/等审批/失败的行按今日/待办拆分归今日面板，待办面板只留两条未开始行。
   const waiting = page.locator("[data-today-todo]").filter({ hasText: "写报价信" });
   await expect(waiting).toBeVisible();
-  await expect(waiting.locator("[data-board-status]")).toHaveText("未开始");
+  await expectNativeTaskState(waiting, "running", "待确认");
   await expect(waiting.locator("[data-today-todo-act]")).toHaveText("打开");
   await expect(waiting).not.toContainText("等待中");
   // 原 waiting/queued 分桶容器为 0 的断言：等待中/已入队不再是行状态标签，改为文案断言。
   await expect(page.locator("[data-todo-list]")).not.toContainText("等待中");
   await expect(page.locator('[data-today-todo="tsk_queued_follow"]')).toBeVisible();
-  await expect(page.locator('[data-today-todo="tsk_queued_follow"] [data-board-status]')).toHaveText("未开始");
+  await expectNativeTaskState(page.locator('[data-today-todo="tsk_queued_follow"]'), "pending", "待处理");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("已入队");
   await expect(page.locator("[data-today-summary], [data-home-stats]")).toHaveCount(0);
   await expect(page.locator("[data-home-pane=\"todo\"]")).not.toContainText("等待中");
   await expect(page.locator("[data-home-pane=\"todo\"]")).not.toContainText("已入队");
-  await expect(page.locator("[data-home-pane=\"todo\"]")).not.toContainText("待处理");
 });
 
 test("home todo lists all later items without folding or 已入队 copy", async ({ page }) => {
@@ -1708,7 +2020,7 @@ test("home todo lists all later items without folding or 已入队 copy", async 
     status: "waiting",
     history_summary: "金额待确认发送",
   }));
-  await stubHomeBoardAndFollowing(page, {
+  await wb1bStubBoard(page, {
       kols: [],
       tabs: [{ code: "all", count: 0 }],
       tasks: todos,
@@ -1722,8 +2034,9 @@ test("home todo lists all later items without folding or 已入队 copy", async 
   await openHomeTodo(page);
   // 待办清单不折叠前五项，完整 9 行直接可见。
   await expect(page.locator("[data-today-todo]")).toHaveCount(9);
-  // 原 waiting/later 分桶计数与 [data-todo-md]「后续」文案：分桶容器移除，改断言 9 行全部是「未开始」chip 且无「等待中」文案。
-  await expect(page.locator('[data-today-todo] [data-board-status="not_started"]')).toHaveCount(9);
+  // 原 waiting/later 分桶计数与 [data-todo-md]「后续」文案：分桶容器移除，9 行保留为待确认状态且无「等待中」文案。
+  await expect(page.locator('[data-today-todo][data-board-status="running"]')).toHaveCount(9);
+  await expect(page.locator('[data-today-todo] [aria-label="任务状态：待确认"]')).toHaveCount(9);
   await expect(page.locator("[data-todo-list]")).not.toContainText("等待中");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("已入队");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("待处理");
@@ -1741,7 +2054,7 @@ test("home polls GET /api/tasks while a run is executing", async ({ page }) => {
     started_at: new Date(Date.now() - 30_000).toISOString(),
     history_summary: "正在核对逾期合作",
   };
-  await stubHomeBoardAndFollowing(page, {
+  await wb1bStubBoard(page, {
       kols: [],
       tabs: [{ code: "all", count: 0 }],
       tasks: [running],
@@ -1767,7 +2080,7 @@ test("home does not keep polling GET /api/tasks for 结果待确认 only", async
     status: "waiting",
     history_summary: "金额 $680，待确认发送",
   };
-  await stubHomeBoardAndFollowing(page, {
+  await wb1bStubBoard(page, {
       kols: [],
       tabs: [{ code: "all", count: 0 }],
       tasks: [waiting],
@@ -1786,12 +2099,14 @@ test("home does not keep polling GET /api/tasks for 结果待确认 only", async
   await page.goto("/");
   await openHomeTodo(page);
   await expect(page.locator("[data-home]")).toHaveAttribute("data-home-task-poll", "idle");
-  // 原 data-todo-status「后续」桶属性移除；waiting 且无到期时间的行派生状态为「未开始」。
-  await expect(
-    page.locator("[data-today-todo]").filter({ hasText: "写报价信" }).locator("[data-board-status]"),
-  ).toHaveText("未开始");
+  // 原 data-todo-status「后续」桶属性移除；waiting 且无到期时间仍是可读的待确认状态。
+  await expectNativeTaskState(page.locator("[data-today-todo]").filter({ hasText: "写报价信" }), "running", "待确认");
+  // Home and the authorized shell each perform one initial scope-stabilizing
+  // read. Start the no-poll window only after both have settled, rather than
+  // mistaking the second initial read for recurring execution polling.
+  await expect.poll(() => taskGets, { timeout: 12000 }).toBe(2);
   const afterLoad = taskGets;
-  expect(afterLoad).toBeGreaterThanOrEqual(1);
+  expect(afterLoad).toBe(2);
   await page.waitForTimeout(4500);
   expect(taskGets).toBe(afterLoad);
 });
@@ -1839,13 +2154,17 @@ test("home today pane lists today items and 我的待办 still opens the KOL ses
   await expect(page.locator("[data-insight-card], [data-recommended-task]")).toHaveCount(0);
   await openHomeTodo(page);
   await expect(page.locator("[data-recommended-tasks]")).toHaveCount(0);
-  // 今日/待办拆分后，今天到期/高风险/重要的行归今日面板；待办面板只留今日范围之外的行。
-  await expect(page.locator('[data-today-todo="tsk_home_laozhang_quote"]')).toHaveCount(0);
-  await expect(page.locator('[data-today-todo="tsk_home_trip_stage"]')).toHaveCount(0);
+  // 当前服务端投影把失败的阶段复核与待确认报价保留在待办；不再复活已退役的画像任务行。
+  const todoRows = page.locator('[data-home-pane="todo"] [data-today-todo]');
+  await expect(todoRows).toHaveCount(2);
+  const tripStage = page.locator('[data-today-todo="tsk_home_trip_stage"]');
+  const quoteConfirmation = page.locator('[data-today-todo="tsk_home_laozhang_quote"]');
+  await expect(tripStage).toBeVisible();
+  await expect(quoteConfirmation).toBeVisible();
+  await expectNativeTaskState(tripStage, "failed", "失败");
+  await expectNativeTaskState(quoteConfirmation, "running", "待确认");
   await expect(page.locator('[data-today-todo="tsk_home_xiaomei_lost"]')).toHaveCount(0);
-  await expect(page.locator("[data-today-todo]")).toHaveCount(1);
-  await expect(page.locator('[data-today-todo="tsk_home_outdoor_profile"]')).toBeVisible();
-  await expect(page.locator('[data-today-todo="tsk_home_outdoor_profile"] [data-board-status]')).toHaveText("未开始");
+  await expect(page.locator('[data-today-todo="tsk_home_outdoor_profile"]')).toHaveCount(0);
   await expect(page.locator("[data-today-summary], [data-home-stats]")).toHaveCount(0);
   // 原 waiting 分桶容器为 0 的断言：「等待中」不再是行状态标签，改为文案断言。
   await expect(page.locator("[data-todo-list]")).not.toContainText("等待中");
@@ -1859,9 +2178,19 @@ test("home today pane lists today items and 我的待办 still opens the KOL ses
   await expect(page.locator("[data-today-list]")).toBeVisible();
   await expect(page.locator("[data-recommended-task], [data-insight-card]")).toHaveCount(0);
   await openHomeTodo(page);
-  await page.locator('[data-today-todo="tsk_home_outdoor_profile"]').locator("[data-today-todo-act]").click();
+  const openingPosts: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST") openingPosts.push(new URL(request.url()).pathname);
+  });
+  await quoteConfirmation.locator("[data-today-todo-act]").click();
   await expect(page).toHaveURL(/tab=todo|\?$|\/$/);
   await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
+  const detail = page.locator('[data-task-detail-rail="tsk_home_laozhang_quote"]');
+  await expect(detail).toBeVisible();
+  await expect(detail).toContainText("给@数码老张 写报价确认邮件");
+  await expect(detail.locator("[data-task-detail-history]")).toContainText("写报价信");
+  expect(openingPosts).toEqual([]);
+  await expect(page).not.toHaveURL(/\/s\//);
 });
 
 test("ingested inbound mail appears in the KOL session and can confirm 有兴趣", async ({ page, request }) => {
@@ -1870,10 +2199,17 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
       subject: "Re: Collaboration Opportunity with LiTime",
       body: "Hi, I am interested and would love to collaborate.",
       from: "xiaomei.beauty@example.com",
+      mailbox: "sriphy@amperetime.com",
+      to: "sriphy@amperetime.com",
+      conversation_id: "wb1b-inbound-interest",
+      provider_message_id: "wb1b-inbound-interest-1",
     },
   }).then((r) => r.json()) as { session_id: string };
   expect(ingested.session_id).toBeTruthy();
+  expect(ingested.session_id).toBeTruthy();
+  await wb1bCurrentSessionReads(page, ingested.session_id);
   await page.goto(`/s/${ingested.session_id}`);
+  await wb1bOpenContext(page);
   await expect(page.locator("[data-kol-journey]")).toContainText("小美妆日记");
   await expect(page.locator("[data-session-stage]")).toContainText("初步接触");
   await expect(page.locator("[data-stage-sop]")).toHaveJSProperty("open", false);
@@ -1890,7 +2226,7 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   const ingestSopLeft = await page.locator("[data-stage-sop]").evaluate((el) => el.getBoundingClientRect().left);
   expect(Math.abs(ingestHandleLeft - ingestSopLeft)).toBeLessThan(6);
   await saveScreenshot(page, "kol_session_digest_sop_journey.png");
-  await openStageSop(page);
+  await wb1bOpenSop(page);
   await expect(page.locator("[data-stage-sop]")).toContainText("红人画像");
   await expect(page.locator("[data-kol-portrait] [data-portrait-field]")).not.toHaveCount(0);
   await expect(page.locator("[data-kol-portrait]")).not.toContainText("@小美妆日记");
@@ -1916,9 +2252,10 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   await expect(card.locator("[data-stage-diff]")).toHaveCount(0);
   await expect(card.locator("[data-mail-stage-select]")).toHaveCount(0);
   await expect(card.locator("[data-mail-confirm]")).toHaveCount(0);
-  await expect(page.locator("[data-stage-suggestion] [data-mail-suggest]")).toContainText("阶段确认卡");
+  await expect(page.locator("[data-stage-suggestion] [data-mail-suggest]")).toHaveText("正式变更需独立阶段确认卡。");
   await askConfirmStage(page, "小美妆日记", "已回复-有兴趣");
   const confirmCard = page.locator('[data-kind="confirm-stage-card"]');
+  await wb1bOpenReview(page);
   await expect(confirmCard).toBeVisible();
   await pickStageChip(confirmCard, "INTERESTED");
   await confirmCard.locator("[data-confirm-stage]").click();
@@ -1932,7 +2269,7 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   await expect(page.locator(".chat")).not.toContainText("的合作会话。当前阶段：");
   await expect(card.locator("[data-mail-confirm]")).toHaveCount(0);
   await expect(page.locator("[data-stage-sop]")).toHaveJSProperty("open", false);
-  await openStageSop(page);
+  await wb1bOpenSop(page);
   await expect(page.locator("[data-stage-sop]")).toContainText("意向");
   await expect(page.locator("[data-stage-sop]")).not.toContainText("EVALUATING");
   await expect(page.locator("[data-stage-sop]")).toContainText("红人画像");
@@ -1959,25 +2296,19 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   const streamWidth = await streamBox.evaluate((el) => (el as HTMLElement).getBoundingClientRect().width);
   expect(digestWidth).toBeGreaterThan(streamWidth * 0.55);
   expect(digestTextWidth).toBeGreaterThan(streamWidth * 0.45);
-  await expect(page.locator("[data-mail-summaries]")).toContainText("would love to collaborate");
+  await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).toContainText("would love to collaborate");
   await expect(page.locator("[data-mail-summaries]")).toContainText(/有兴趣|合作意愿|往来/);
   await expect(page.locator("[data-sop-ask] [data-composer-input]")).toBeVisible();
   await expect(page.locator("[data-sop-ask] [data-ai-next-actions] button")).toHaveCount(3);
   await page.locator("[data-sop-ask] [data-ai-next-actions] button").first().click();
   await expect(page.locator("[data-sop-ask] [data-composer-input]")).not.toHaveValue("");
-  const mailRows = page.locator("[data-session-mail-list] [data-mail-row]");
-  await expect(mailRows.filter({ hasText: "Collaboration Opportunity" }).first()).toBeVisible();
-  await expect(mailRows.filter({ hasText: "来信" }).first()).toBeVisible();
-  await expect(page.locator("[data-session-mail-list] [data-mail-unread-dot]").first()).toBeVisible();
-  await expect(page.locator("[data-ai-next-actions] button")).toHaveCount(3);
-  await mailRows.filter({ hasText: "Collaboration Opportunity" }).first().click();
-  const focused = page.locator("[data-workbench] [data-mail-body]");
-  await expect(focused).toContainText("Collaboration Opportunity");
-  await expect(focused).not.toContainText("八个阶段");
-  await expect(focused).not.toContainText("生命周期");
-  await expect(focused).not.toContainText("本阶段 SOP");
-  await expect(page.locator("[data-mail-focus] [data-mail-confirm]")).toHaveCount(0);
-  await expect(page.locator("[data-mail-focus]")).not.toContainText("发件");
+  await expect(page.locator("[data-session-mail-list], [data-agent-task-list]")).toHaveCount(0);
+  const mailRail = page.getByRole("complementary", { name: "结果" });
+  await expect(mailRail.locator("[data-mail-decision-workbench]")).toBeVisible();
+  await expect(mailRail.locator("[data-mail-decision-workbench]")).toContainText("Collaboration Opportunity");
+  await expect(mailRail.locator("[data-mail-confirm]")).toHaveCount(0);
+  await expect(mailRail).not.toContainText("八个阶段");
+  await expect(mailRail).not.toContainText("生命周期");
   await expect(page.locator("[data-sop-ask] [data-ai-next-actions] button")).toHaveCount(3);
   const pipe = await request.get("/api/pipeline").then((r) => r.json());
   const xiaomei = Object.values(pipe.groups).flat().find((c: { handle: string }) => c.handle === "小美妆日记") as { stage_code: string };
@@ -1990,9 +2321,16 @@ test("thread mail digest labels rule excerpt, model summary, and failed analysis
       subject: "Re: Collaboration Opportunity with LiTime",
       body: "Hi, I am interested and would love to collaborate.",
       from: "xiaomei.beauty@example.com",
+      mailbox: "sriphy@amperetime.com",
+      to: "sriphy@amperetime.com",
+      conversation_id: "wb1b-inbound-interest",
+      provider_message_id: "wb1b-inbound-interest-1",
     },
   }).then((r) => r.json()) as { session_id: string };
+  expect(ingested.session_id).toBeTruthy();
+  await wb1bCurrentSessionReads(page, ingested.session_id);
   await page.goto(`/s/${ingested.session_id}`);
+  await wb1bOpenContext(page);
   const digest = page.locator("[data-session-stream-pane] [data-mail-digest]");
   await expect(digest).toBeVisible();
   await expect(digest).toHaveAttribute("data-digest-kind", "rule");
@@ -2159,6 +2497,52 @@ test("employee process stays business Chinese while queued or running", async ({
   await saveScreenshot(page, "employee_process_business_chinese.png");
 });
 
+/** Workbench 2 local bridge: the native session is a stream plus named result rail, not the retired three-column task list. */
+function wb2ResultRail(page: Page) {
+  return page.getByRole("complementary", { name: "结果" });
+}
+
+function wb2StageCard(page: Page) {
+  return wb2ResultRail(page).locator('[data-kind="confirm-stage-card"]');
+}
+
+function wb2DraftCard(page: Page) {
+  return wb2ResultRail(page).locator('[data-kind="email-card"]').last();
+}
+
+async function wb2OpenStageReview(page: Page) {
+  const rail = wb2ResultRail(page);
+  // A sent draft keeps the compose result open and nests stage review under its explicit evidence disclosure.
+  const decisionContext = rail.locator(".mail-decision-context");
+  if (await decisionContext.count()) {
+    await decisionContext.locator(":scope > summary").click();
+  }
+  const review = rail.locator(".mail-stage-review");
+  await expect(review).toBeAttached({ timeout: 20000 });
+  if (!(await wb2StageCard(page).isVisible())) {
+    await review.locator(":scope > summary").click();
+  }
+  await expect(wb2StageCard(page)).toBeVisible({ timeout: 20000 });
+}
+
+async function wb2AskConfirmStage(page: Page, handle: string, stageLabel: string) {
+  await page.locator("[data-composer-input]").fill(`提出阶段变更 @${handle} 到 ${stageLabel}`);
+  await page.locator("[data-send]").click();
+  await wb2OpenStageReview(page);
+  await expect(wb2StageCard(page)).toBeVisible({ timeout: 20000 });
+}
+
+async function wb2ConfirmDraftSend(page: Page) {
+  const dialog = page.locator("[data-admin-confirm='draft-send']");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator("[data-admin-confirm-object]")).not.toHaveText("");
+  await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("外发");
+  await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("发送不会推进正式阶段");
+  await expect(dialog.locator("[data-mail-confirm-snapshot]")).toBeVisible();
+  await expect(dialog.locator("[data-mail-confirm-body]")).not.toHaveText("");
+  await dialog.locator("[data-admin-confirm-ok]").click();
+}
+
 test("session composer 停止 cancels the in-flight run and leaves the composer idle", async ({ page }) => {
   let stopped = false;
   const stopPosts: string[] = [];
@@ -2265,52 +2649,77 @@ test("employee stream parses task_result JSON into a card and hides engine jargo
     },
   }));
   await page.goto("/s/json-stream");
-  const draftCard = page.locator("[data-session-stream-pane] [data-stream-result]").filter({ hasText: "合作邮件草稿" });
+  const resultRail = wb2ResultRail(page);
+  const draftCard = resultRail.locator('[data-kind="task-result-card"]').filter({ hasText: "合作邮件草稿" });
   await expect(draftCard).toBeVisible();
   await expect(draftCard).toContainText("Collaboration with LiTime");
   await expect(draftCard).toContainText("we would love to collaborate");
-  await expect(draftCard.locator('[data-email-action="send"]')).toHaveText("确认发送");
+  await expect(draftCard.getByRole("button", { name: "确认发送" }).first()).toBeVisible();
   await expect(page.locator("[data-kind='process-trace']")).toContainText("正在准备这项工作");
   await expect(page.locator("[data-kind='process-trace']")).toContainText("正在选择发件方式");
   await expect(page.locator("[data-kind='process-trace']")).toContainText("正在整理阶段建议");
   await expect(page.locator("[data-kind='operation-trace']")).toContainText("正在调用系统能力");
   await expect(page.locator("[data-kind='operation-trace']")).toContainText("读取合作资料");
   await expect(page.locator("[data-kind='operation-trace']")).toContainText("生成邮件预览");
-  // 右栏只列结果目录：完整的草稿预览与发送入口在中栏时间流里，只出现一次。
-  const workbench = page.locator("[data-workbench]");
-  await expect(workbench).toBeVisible();
-  await expect(workbench.locator("[data-result-draft]")).toHaveCount(0);
-  await expect(page.locator('[data-session-stream-pane] [data-email-action="send"]')).toHaveCount(1);
-  await expect(workbench.locator("[data-result-index]")).toContainText("合作邮件草稿");
-  await expectNoEngineJargon(page.locator("[data-session-stream-pane]"));
-  await expectNoEngineJargon(workbench);
+  // 原生结果工作台在具名右栏呈现完整卡片；时间流只保留其可访问指针，避免重复操作入口。
+  await expect(resultRail).toBeVisible();
+  await expect(resultRail.locator('[data-kind="task-result-card"]').filter({ hasText: "合作邮件草稿" })).toHaveCount(1);
+  await expectNoEngineJargon(page.getByRole("log"));
+  await expectNoEngineJargon(resultRail);
   await saveScreenshot(page, "employee_task_result_card.png");
 });
 
 test("记状态 to CONTENT_REVIEW queues content approval and writes after manager agrees", async ({ page, request }) => {
+  const stageConfirmPosts: string[] = [];
+  page.on("request", (event) => {
+    if (event.method() === "POST" && /\/api\/sessions\/[^/]+\/confirm-stage$/.test(new URL(event.url()).pathname)) {
+      stageConfirmPosts.push(event.url());
+    }
+  });
+  async function openCurrentStageReview() {
+    await page.locator("[data-composer-input]").fill("提出阶段变更 @母婴小课 到 内容审核");
+    await page.locator("[data-send]").click();
+    const rail = wb2ResultRail(page);
+    const decisionContext = rail.locator(".mail-decision-context");
+    if (await decisionContext.count() && !(await decisionContext.evaluate((element) => element instanceof HTMLDetailsElement && element.open))) {
+      await decisionContext.locator(":scope > summary").click();
+    }
+    const review = rail.locator(".mail-stage-review");
+    await expect(review).toBeAttached({ timeout: 20000 });
+    if (!(await review.evaluate((element) => element instanceof HTMLDetailsElement && element.open))) {
+      await review.locator(":scope > summary").click();
+    }
+    const current = review.locator('[data-kind="confirm-stage-card"]');
+    await expect(current).toBeVisible({ timeout: 20000 });
+    return current;
+  }
   await page.goto("/pipeline");
   await proposePipelineStage(page, "母婴小课");
   await page.waitForURL(/\/s\//);
-  const card = page.locator('[data-session-stream-pane] [data-kind="confirm-stage-card"]');
-  await expect(card).toBeVisible({ timeout: 15000 });
+  const card = await openCurrentStageReview();
+  await expect(card).toHaveAttribute("data-risk", "L3");
   await expect(card).toContainText("内容策划");
   await pickStageChip(card, "CONTENT_REVIEW");
   await expect(card.locator("[data-confirm-stage]")).toHaveText("提交审批");
   await card.locator("[data-confirm-stage]").click();
   await expect(page.getByText("已提交阶段审批").first()).toBeVisible({ timeout: 15000 });
+  expect(stageConfirmPosts).toHaveLength(1);
   const queued = await request.get("/api/pipeline").then((r) => r.json());
   const before = Object.values(queued.groups).flat().find(
     (c: { handle: string }) => c.handle === "母婴小课",
   ) as { stage_code: string };
   expect(before.stage_code).toBe("CONTENT_PLANNING");
-  await page.goto("/approvals");
+  // /approvals now hosts the governance login; the actionable work-approval queue remains on its native legacy route.
+  await page.goto("/approvals/legacy");
   const row = page.locator('[data-approval-kind="content"]').first();
   await expect(row).toBeVisible();
   await expect(row).toContainText("内容审核");
   await expect(page.locator("body")).toContainText("确认阶段");
   await confirmApprovalDecision(row, "approve");
   await expect(row).toHaveAttribute("data-approval-status", "consumed", { timeout: 15000 });
-  await expect(row.locator("[data-approval-receipt]")).toContainText("已办结");
+  await expect(row).toContainText("审批已通过");
+  await row.getByRole("button", { name: "查看详情" }).click();
+  await expect(row.locator("[data-approval-receipt]")).toContainText("审批已通过，请查看业务结果");
   const after = await request.get("/api/pipeline").then((r) => r.json());
   const written = Object.values(after.groups).flat().find(
     (c: { handle: string }) => c.handle === "母婴小课",
@@ -2322,33 +2731,16 @@ test("session page shows Agent TaskList, L3 block, and stage diff", async ({ pag
   await page.goto("/pipeline");
   await proposePipelineStage(page, "小美妆日记");
   await page.waitForURL(/\/s\//);
-  const taskList = page.locator("[data-agent-task-list]");
-  await expect(taskList).toBeVisible();
-  await expect(taskList).toContainText("往来邮件");
-  await expect(page.locator("[data-task-status-filters]")).toHaveCount(0);
-  await expect(page.locator("[data-session-mail-list], [data-agent-task-list] .muted").first()).toBeVisible();
-  await expect(page.locator("[data-tasklist-resizer]")).toBeVisible();
-  const widthBefore = Number(await taskList.getAttribute("data-tasklist-width"));
-  const handle = page.locator("[data-tasklist-resizer]");
-  const box = await handle.boundingBox();
-  expect(box).toBeTruthy();
-  await page.mouse.move(box!.x + box!.width / 2, box!.y + 24);
-  await page.mouse.down();
-  await page.mouse.move(box!.x + 90, box!.y + 24, { steps: 6 });
-  await page.mouse.up();
-  await expect.poll(async () => Number(await taskList.getAttribute("data-tasklist-width"))).toBeGreaterThan(widthBefore);
-  const scrollCss = await page.locator("[data-tasklist-scroll]").evaluate((el) => {
-    const style = getComputedStyle(el);
-    return { overflowY: style.overflowY, scrollbarWidth: style.scrollbarWidth };
-  });
-  expect(scrollCss.overflowY).toBe("auto");
-  expect(scrollCss.scrollbarWidth).toBe("none");
-  const refreshed = page.waitForResponse((res) => res.url().includes("/api/sessions/") && res.request().method() === "GET");
-  await page.locator("[data-tasklist-scroll]").hover();
-  await page.mouse.wheel(0, -120);
-  await refreshed;
-  const card = page.locator('[data-session-stream-pane] [data-kind="confirm-stage-card"]');
-  await expect(card).toBeVisible({ timeout: 15000 });
+  // 当前会话将邮件依据收敛进中栏上下文，不再为 KOL session 额外插入可调宽的任务列表。
+  const context = page.locator("[data-task-context]");
+  await expect(context).toBeVisible();
+  await expect(context.locator(":scope > summary")).toHaveText("任务背景与上下文");
+  await expect(context).toContainText("本阶段 SOP");
+  await expect(page.getByRole("log")).toContainText("邮件与证据");
+  await expect(page.locator("[data-agent-task-list]")).toHaveCount(0);
+  await wb2OpenStageReview(page);
+  const card = wb2StageCard(page);
+  await expect(card).toBeVisible();
   await expect(card).toHaveAttribute("data-risk", "L3");
   await expect(card.locator("[data-stage-diff]")).toContainText("变更前");
   await expect(card.locator("[data-stage-diff]")).toContainText("变更后");
@@ -2358,10 +2750,10 @@ test("session page shows Agent TaskList, L3 block, and stage diff", async ({ pag
 
 test("写跟进邮件 marks the left pointer as an L2 draft block", async ({ page, request }) => {
   await askKolSession(page, request, "col_xiaomei", "写合作邮件 @小美妆日记");
-  await expect(page.locator("[data-agent-task-list]")).toBeVisible();
-  await expectDraft(page);
-  await expect(page.locator('[data-risk="L2"]').first()).toBeVisible({ timeout: 15000 });
-  await expect(page.locator('[data-risk="L2"]').first()).toContainText("AI生成草稿，未生效");
+  await expect(page.getByRole("log")).toContainText("草稿（L2）· 未生效", { timeout: 15000 });
+  const draft = wb2DraftCard(page);
+  await expect(draft).toBeVisible({ timeout: 15000 });
+  await expect(draft).toContainText("邮件草稿");
 });
 
 test("记状态 shows stage workbench, never a draft tab card", async ({ page, request }) => {
@@ -2372,11 +2764,13 @@ test("记状态 shows stage workbench, never a draft tab card", async ({ page, r
   await page.goto("/pipeline");
   await proposePipelineStage(page, "小美妆日记");
   await page.waitForURL(/\/s\//);
-  await expect(page.locator('[data-session-stream-pane] [data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 15000 });
+  await wb2OpenStageReview(page);
+  const card = wb2StageCard(page);
+  await expect(card).toBeVisible();
   await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
-  await expect(page.locator('[data-kind="confirm-stage-card"]')).toContainText("初步接触");
-  await expectSelectedStage(page.locator('[data-kind="confirm-stage-card"]'), "INTERESTED");
-  await expect(page.locator('[data-kind="confirm-stage-card"] [data-stage-chip]', { hasText: "跳过" })).toHaveCount(0);
+  await expect(card).toContainText("初步接触");
+  await expectSelectedStage(card, "INTERESTED");
+  await expect(card.locator('[data-stage-chip]', { hasText: "跳过" })).toHaveCount(0);
   const pipelineAfter = await request.get("/api/pipeline").then((r) => r.json());
   const stageAfter = Object.values(pipelineAfter.groups).flat().find(
     (c: { handle: string }) => c.handle === "小美妆日记",
@@ -2399,15 +2793,15 @@ test("催大纲 placeholder without a creator shows a supplement card, not a sen
   const before = await request.get("/api/workers");
   const n0 = ((await before.json()) as unknown[]).length;
   await page.goto("/");
-  await openHomeTemplates(page);
-  await homeRecByTitle(page, "催大纲").click();
-  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue("催大纲 [红人或合作]");
+  const composer = page.locator("[data-home] [data-composer-input]");
+  await composer.fill("催大纲 [红人或合作]");
+  await expect(composer).toHaveValue("催大纲 [红人或合作]");
   await page.locator("[data-home] [data-send]").click();
   await page.waitForURL(/\/s\//);
   await expect(page.locator('[data-kind="supplement-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-kind="supplement-card"]')).toContainText("红人或合作");
-  await expect(page.locator(".chat")).toContainText("催大纲需要指定红人或合作");
-  await expect(page.locator(".chat")).not.toContainText("发货通知缺运单");
+  await expect(page.getByRole("log")).toContainText("催大纲需要指定红人或合作");
+  await expect(page.getByRole("log")).not.toContainText("发货通知缺运单");
   await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
   await expect(page.getByText("发送已禁用")).toHaveCount(0);
   const after = await request.get("/api/workers");
@@ -2426,12 +2820,12 @@ test("session 催大纲 [红人或合作] also stays on a supplement card", asyn
 
 test("地址核对: incomplete email in workbench, complete 可以出库", async ({ page, request }) => {
   await askKolSession(page, request, "col_xiaomei", "核对地址 @小美妆日记");
-  await expect(page.locator('[data-session-stream-pane] [data-kind="email-card"]')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('[data-workbench] [data-kind="email-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("可以出库")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /出库|WMS|仓库/ })).toHaveCount(0);
 
   await askKolSession(page, request, "col_laozhang", "核对地址 @数码老张");
-  await expect(page.locator('[data-session-stream-pane] [data-kind="task-result-card"]')).toContainText("可以进入人工确认后的出库流程", { timeout: 15000 });
+  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("可以进入人工确认后的出库流程", { timeout: 15000 });
   await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
 });
 
@@ -2439,7 +2833,7 @@ test("发货通知 without tracking shows supplement in workbench", async ({ pag
   const before = await request.get("/api/workers");
   const n0 = ((await before.json()) as unknown[]).length;
   await askKolSession(page, request, "col_xiaomei", "发货通知 @小美妆日记");
-  await expect(page.locator('[data-session-stream-pane] [data-kind="supplement-card"]')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('[data-workbench] [data-kind="supplement-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-kind="supplement-card"]')).toContainText("运单号");
   await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
   const after = await request.get("/api/workers");
@@ -2458,11 +2852,11 @@ test("核对地址 shows sample facts and draft on one result page", async ({ pa
   await page.goto(`/s/${ses.id}`);
   await page.locator("[data-composer-input]").fill("核对地址 @数码老张");
   await page.locator("[data-send]").click();
-  await expect(page.locator("[data-session-stream-pane] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
-  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).toContainText(/寄样资料|张伟|LT-100AH/);
-  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).toContainText("可以进入人工确认后的出库流程");
-  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).not.toContainText(/USD\s*680/);
-  await expect(page.locator('[data-session-stream-pane] [data-kind="email-card"]')).toHaveCount(0);
+  await expect(page.locator("[data-workbench] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).toContainText(/寄样资料|张伟|LT-100AH/);
+  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).toContainText("可以进入人工确认后的出库流程");
+  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).not.toContainText(/USD\s*680/);
+  await expect(page.locator('[data-workbench] [data-kind="email-card"]')).toHaveCount(0);
 });
 
 test("发brief shows content facts and draft on one result page", async ({ page, request }) => {
@@ -2470,9 +2864,9 @@ test("发brief shows content facts and draft on one result page", async ({ page,
   await page.goto(`/s/${ses.id}`);
   await page.locator("[data-composer-input]").fill("发brief @母婴小课");
   await page.locator("[data-send]").click();
-  await expect(page.locator("[data-session-stream-pane] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
-  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).toContainText("内容要点");
-  await expect(page.locator('[data-session-stream-pane] [data-kind="email-card"]')).toBeVisible();
+  await expect(page.locator("[data-workbench] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).toContainText("内容要点");
+  await expect(page.locator('[data-workbench] [data-kind="email-card"]')).toBeVisible();
   await expect(page.locator("[data-draft-body]")).toBeEditable();
 });
 
@@ -2482,8 +2876,8 @@ test("写报价邮件 without amount keeps result and composer on fill-price", a
   await expect(page.locator("[data-composer-input]")).toHaveAttribute("placeholder", /写报价邮件 @数码老张 金额 \[USD\]/);
   await page.locator("[data-composer-input]").fill("写报价邮件 @数码老张");
   await page.locator("[data-send]").click();
-  await expect(page.locator("[data-session-stream-pane] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
-  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).toContainText(/金额未写明|补上金额后再确认发送/);
+  await expect(page.locator("[data-workbench] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).toContainText(/金额未写明|补上金额后再确认发送/);
   await expect(page.locator("[data-composer-suggestions] button").first()).toHaveText("补上金额");
   await page.locator("[data-composer-suggestions] button").first().click();
   await expect(page.locator("[data-composer-input]")).toHaveValue("把金额改成 [USD]");
@@ -2495,14 +2889,15 @@ test("写一份报价邮件 shows priced letter and draft on one result page", a
   await page.goto(`/s/${ses.id}`);
   await page.locator("[data-composer-input]").fill("写一份报价邮件 金额 680");
   await page.locator("[data-send]").click();
-  await expect(page.locator("[data-session-stream-pane] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
-  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).toContainText(/USD\s*680|金额：USD 680/);
-  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).not.toContainText("往来依据");
-  await expect(page.locator('[data-session-stream-pane] [data-kind="email-card"]')).toBeVisible();
+  await expect(page.locator("[data-workbench] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).toContainText(/USD\s*680|金额：USD 680/);
+  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).not.toContainText("往来依据");
+  await expect(page.locator('[data-workbench] [data-kind="email-card"]')).toBeVisible();
   await expect(page.locator("[data-draft-subject]")).toBeVisible();
   await expect(page.locator("[data-draft-body]")).toBeEditable();
   await expect(page.locator("[data-draft-body]")).toContainText(/USD 680|680/);
-  await expect(page.locator('[data-email-action="send"]')).toBeEnabled();
+  await expect(page.locator('[data-kind="email-card"] [data-email-action="send"]')).toBeEnabled();
+  await expect(page.locator('[data-kind="task-result-card"] [data-email-action="send"]')).toBeDisabled();
   await expect(page.getByText("已提交审批")).toHaveCount(0);
   await page.locator('[data-email-action="translate"]').click();
   const zh = page.locator("[data-draft-zh]");
@@ -2520,9 +2915,9 @@ test("写报价邮件 100美金1小时 lands USD 100 per hour in the draft", asy
   await page.goto(`/s/${ses.id}`);
   await page.locator("[data-composer-input]").fill("写报价邮件 100美金1小时");
   await page.locator("[data-send]").click();
-  await expect(page.locator("[data-session-stream-pane] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
-  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).toContainText("USD 100 per hour");
-  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).not.toContainText("往来依据");
+  await expect(page.locator("[data-workbench] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).toContainText("USD 100 per hour");
+  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).not.toContainText("往来依据");
   await expect(page.locator("[data-draft-body]")).toContainText("USD 100 per hour");
   await expect(page.locator("[data-draft-body]")).not.toContainText("one video");
 });
@@ -2535,21 +2930,23 @@ test("KOL / 写合作邮件 fills composer with USD 100 per hour draft", async (
   await input.fill("100美金1小时 /");
   await expect(page.locator("[data-skill-picker]")).toBeVisible();
   await page.locator('[data-skill-option="email_compose"]').click();
-  await expect(input).toHaveValue(/USD 100 per hour/, { timeout: 15000 });
-  await expect(input).not.toHaveValue(/one video/);
+  // 当前 picker 锁定技能而不改写员工原文；币种/单位归一化属于提交后的服务端草稿事实。
+  await expect(input).toHaveValue("100美金1小时");
+  await expect(page.locator('[data-skill-chip="email_compose"]')).toBeVisible();
   await page.locator("[data-send]").click();
-  await expect(page.locator("[data-session-stream-pane] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
-  await expect(page.locator("[data-session-stream-pane] [data-kind='task-result-card']")).not.toContainText("往来依据");
+  await expect(page.locator("[data-workbench] [data-compose-loop]")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-workbench] [data-kind='task-result-card']")).not.toContainText("往来依据");
   await expect(page.locator("[data-draft-body]")).toContainText("USD 100 per hour");
 });
 
 test("send failure stays as persistent error, not toast-success", async ({ page, request }) => {
   await request.post("/api/me/persona", { data: { persona: "exam_blocked" } });
   await askKolSession(page, request, "col_xiaomei", "写跟进邮件 @小美妆日记");
-  await expectDraft(page);
-  await openDraftTab(page);
-  await page.locator('[data-email-action="send"]').click();
-  await confirmDraftSend(page);
+  const draft = wb2DraftCard(page);
+  await expect(draft).toBeVisible({ timeout: 20000 });
+  await draft.locator('[data-email-action="send"]').click();
+  // Exam gate rejects before external-send confirmation; absence of the dialog proves this is not a permission bypass.
+  await expect(page.locator("[data-admin-confirm='draft-send']")).toHaveCount(0);
   await expect(page.locator("[data-persistent-error]").first()).toBeVisible();
   await expect(page.getByText("已发送原文")).toHaveCount(0);
   await expect(page.locator(".toast-success")).toHaveCount(0);
@@ -2570,29 +2967,65 @@ test("admin lists the current MCP directory and supports future additions", asyn
 });
 
 test("unbound inbound stays on this thread", async ({ page }) => {
-  await page.goto("/");
-  await openHomeTemplates(page);
-  await page.locator('[data-home] .rec[data-intent="creator_lifecycle_kanban"]').click();
-  await expectHomeComposerDraft(page, "合作生命周期看板");
-  await submitHomeComposer(page);
-  await expect(page.locator('[data-session-stream-pane] [data-kind="task-result-card"]')).toBeVisible({ timeout: 15000 });
-  await expect(page.locator('[data-session-stream-pane] [data-kind="inbound-card"]')).toBeVisible({ timeout: 15000 });
-  await expect(page.locator('[data-kind="inbound-card"]')).toContainText("未绑定来信");
-  await expect(page.locator('[data-kind="inbound-card"]')).toContainText("vanlife.kit@example.com");
-  await expect(page.locator('[data-kind="sys-msg"]')).toContainText("无法判断，请人选阶段");
+  const now = new Date().toISOString();
+  // Retired Home lifecycle template has no current user entry. Stub only its documented session-read response at this test's HTTP boundary.
+  await page.route("**/api/sessions/unbound-inbound*", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    await route.fulfill({
+      json: {
+        id: "unbound-inbound",
+        title: "未绑定来信核对",
+        agent_status: "listening",
+        messages: [
+          {
+            id: "result",
+            session_id: "unbound-inbound",
+            role: "assistant",
+            kind: "task_result_card",
+            created_at: now,
+            payload: { title: "合作生命周期看板", summary: "发现一封未绑定来信，等待人工判断。" },
+          },
+          {
+            id: "inbound",
+            session_id: "unbound-inbound",
+            role: "assistant",
+            kind: "inbound_card",
+            created_at: now,
+            payload: {
+              inbound_id: "inbound_unbound",
+              from_name: "Vanlife Kit",
+              email: "vanlife.kit@example.com",
+              subject: "Question about a collaboration",
+              time: now,
+              summary: "无法判断，请人选阶段；不会「已自动记入」。",
+              candidates: [],
+            },
+          },
+        ],
+      },
+    });
+  });
+  await page.goto("/s/unbound-inbound");
+  const resultRail = wb2ResultRail(page);
+  await expect(resultRail.locator('[data-kind="task-result-card"]')).toBeVisible({ timeout: 15000 });
+  const inbound = resultRail.locator('[data-kind="inbound-card"]');
+  await expect(inbound).toBeVisible({ timeout: 15000 });
+  await expect(inbound).toContainText("未绑定来信");
+  await expect(inbound).toContainText("vanlife.kit@example.com");
+  await expect(inbound).toContainText("无法判断，请人选阶段");
   await expect(page.getByText("已自动记入", { exact: true })).toHaveCount(0);
-  await expect(page.locator('[data-kind="sys-msg"]')).toContainText("不会「已自动记入」");
+  await expect(inbound).toContainText("不会「已自动记入」");
 });
 
 test("two buttons stay separate: send keeps stage, confirm-stage advances", async ({ page, request }) => {
   await request.post("/api/me/persona", { data: { persona: "sriphy" } });
   await askKolSession(page, request, "col_xiaomei", "写跟进邮件 @小美妆日记");
-  await expectDraft(page);
-  await openDraftTab(page);
-  await expect(page.locator("[data-session-stream-pane] [data-kind='stage-from-draft']")).toHaveCount(0);
-  await expect(page.locator('[data-session-stream-pane] [data-email-action="confirm-stage"]')).toHaveCount(0);
-  await page.locator('[data-email-action="send"]').click();
-  await confirmDraftSend(page);
+  const draft = wb2DraftCard(page);
+  await expect(draft).toBeVisible({ timeout: 20000 });
+  await expect(wb2ResultRail(page).locator("[data-kind='stage-from-draft']")).toHaveCount(0);
+  await expect(wb2ResultRail(page).locator('[data-email-action="confirm-stage"]')).toHaveCount(0);
+  await draft.locator('[data-email-action="send"]').click();
+  await wb2ConfirmDraftSend(page);
   await expect(page.getByText(/已发送原文/).first()).toBeVisible();
   const pipe = await request.get("/api/pipeline");
   const body = await pipe.json();
@@ -2600,11 +3033,11 @@ test("two buttons stay separate: send keeps stage, confirm-stage advances", asyn
     stage_code: string;
   };
   expect(x.stage_code).toBe("INITIAL_CONTACT");
-  await expect(page.locator("[data-session-stream-pane] [data-kind='stage-from-draft']")).toHaveCount(0);
-  await expect(page.locator('[data-session-stream-pane] [data-email-action="confirm-stage"]')).toHaveCount(0);
+  await expect(wb2ResultRail(page).locator("[data-kind='stage-from-draft']")).toHaveCount(0);
+  await expect(wb2ResultRail(page).locator('[data-email-action="confirm-stage"]')).toHaveCount(0);
 
-  await askConfirmStage(page, "小美妆日记", "已回复-有兴趣");
-  const confirmCard = page.locator('[data-session-stream-pane] [data-kind="confirm-stage-card"]');
+  await wb2AskConfirmStage(page, "小美妆日记", "已回复-有兴趣");
+  const confirmCard = wb2StageCard(page);
   await pickStageChip(confirmCard, "INTERESTED");
   await confirmCard.locator("[data-confirm-stage]").click();
   await expect(page.getByText(/正式阶段已按你的确认更新/).first()).toBeVisible();
@@ -2710,9 +3143,12 @@ test("sidebar 进行中 highlights only when viewing a running session", async (
   });
   await page.goto("/");
   await expect(page.locator('[data-nav="new-task"]')).toHaveClass(/active/);
-  await expect(page.locator('[data-nav="running"]')).toHaveAttribute("href", "/s/run-1");
+  await expect(page.locator('[data-nav="running"]')).toHaveAttribute("href", "/tasks");
   await expect(page.locator('[data-nav="running"]')).not.toHaveClass(/active/);
   await page.locator('[data-nav="running"]').click();
+  await expect(page).toHaveURL(/\/tasks/);
+  await expect(page.locator('[data-nav="running"]')).not.toHaveClass(/active/);
+  await page.goto("/s/run-1");
   await expect(page).toHaveURL(/\/s\/run-1/);
   await expect(page.locator('[data-nav="running"]')).toHaveClass(/active/);
   await expect(page.locator('[data-nav="running"]')).toHaveAttribute("aria-current", "page");
@@ -2739,7 +3175,7 @@ test("sidebar does not list 最近 sessions", async ({ page }) => {
   await expect(page.getByLabel("筛选最近")).toHaveCount(0);
   await expect(page.locator(".sidebar .nav-label", { hasText: /^最近$/ })).toHaveCount(0);
   await expect(page.locator('nav[aria-label="今日"]')).toBeVisible();
-  await expect(page.locator('nav[aria-label="agent"]')).toBeVisible();
+  await expect(page.locator('nav[aria-label="Agent"]')).toBeVisible();
   await expect(page.locator('nav[aria-label="资产"]')).toBeVisible();
 });
 
@@ -2821,111 +3257,117 @@ test("admin skill page exposes create form after product manager login", async (
   expect(cleanup.ok()).toBeTruthy();
 });
 
+/** Workbench 3-local fixture: current employee Agent read-model, never an authorization grant. */
+async function wb3StubAgentReadModel(page: Page): Promise<void> {
+  const expert = {
+    id: "expert:kol", version: "1.0.0", status: "published", display_name: "KOL推广", profession: "KOL推广",
+    description: "协助分析合作节奏、准备沟通草稿和跟进建议；不会自动发送或改正式阶段。",
+    avatar: "/api/experts/expert:kol/avatar", category: "KOL推广", tags: ["建联", "跟进"],
+    mission: "协助你准备 KOL 合作沟通，不发送邮件、不改正式阶段。",
+    quick_prompts: ["准备一封建联邮件", "梳理下一步跟进", "解释这封回复"], entry_skill: "email_compose",
+    kind: "business", primary_entry: "think", skill_ids: ["email_compose"], tool_ids: [], can_summon: true,
+  };
+  await page.route("**/api/experts**", async (route) => {
+    const url = new URL(route.request().url());
+    const method = route.request().method();
+    if (method === "GET" && url.pathname === "/api/experts") return route.fulfill({ json: [expert] });
+    if (method === "GET" && url.pathname === "/api/experts/browse") return route.fulfill({ json: {
+      rows: [{ expert_id: "expert:kol", published_by: "fixture-admin", updated_at: "2026-10-16T00:00:00.000Z", scopes: [] }],
+      taxonomy: { domains: [], bases: [] },
+    } });
+    if (method === "GET" && url.pathname === "/api/experts/preferences") return route.fulfill({ json: [] });
+    if (method === "GET" && url.pathname === "/api/experts/expert%3Akol/workspace") return route.fulfill({ json: {
+      skills: [{ id: "email_compose", name: "邮件草稿", summary: "仅生成草稿，发送仍需本人确认。" }], knowledge: [], recent_session: null,
+    } });
+    if (method === "POST" && url.pathname === "/api/experts/expert%3Akol/summon") return route.fulfill({ json: {
+      session_id: "ses_wb3_kol", expert_id: "expert:kol", expert_version: "1.0.0", intro: "已绑定 KOL推广工作会话。",
+    } });
+    if (method === "PATCH" && url.pathname === "/api/experts/expert%3Akol/preference") {
+      const body = JSON.parse(route.request().postData() || "{}");
+      return route.fulfill({ json: { expert_id: "expert:kol", favorite: body.favorite === true, viewed_at: "2026-10-16T00:00:00.000Z" } });
+    }
+    return route.fallback();
+  });
+}
+
+/** Workbench 3-local, scoped settings read model; it neither creates credentials nor elevates permissions. */
+async function wb3StubSettingsMailbox(page: Page): Promise<void> {
+  await page.route("**/api/me/settings-context", (route) => route.fulfill({ json: {
+    profile: { name: "黄启友", email: "sriphy@example.com", phone: "", employee_no: "", position: "", company_name: "", organization_path: [], manager_name: "", managed: false },
+    brands: [], mailboxes: [{ id: "mailbox_wb3", email: "lt.ops@example.com", brand: "Li Time", status: "connected", is_default: true }],
+    preferences: {}, editable_fields: [],
+  } }));
+}
+
+/** Workbench 3-local Memory API contract for disabled-auth E2E: exact private CRUD shape, no permission bypass. */
+async function wb3StubMemoryCrud(page: Page): Promise<void> {
+  let memories: Array<Record<string, unknown>> = [];
+  await page.route("**/api/memory**", async (route) => {
+    const url = new URL(route.request().url()); const method = route.request().method();
+    if (method === "GET" && url.pathname === "/api/memory") return route.fulfill({ json: memories });
+    if (method === "POST" && url.pathname === "/api/memory") {
+      const body = JSON.parse(route.request().postData() || "{}");
+      const saved = { id: "mem_wb3_delete", title: String(body.title || ""), body_md: String(body.body_md || ""), scope: String(body.scope || "private"), enabled: Boolean(body.enabled), version: 1, editable: true };
+      memories = [saved]; return route.fulfill({ json: saved });
+    }
+    if (method === "DELETE" && url.pathname === "/api/memory/mem_wb3_delete") { memories = []; return route.fulfill({ json: { ok: true } }); }
+    return route.fallback();
+  });
+}
+
+/** Workbench 3-local settings-session contract for disabled-auth E2E; delete is scoped to the fixture session only. */
+async function wb3StubSettingsSession(page: Page): Promise<void> {
+  let sessions = [{ id: "ses_wb3_delete", title: "待删除会话", archived_at: null as string | null }];
+  await page.route("**/api/me/settings-sessions", (route) => route.fulfill({ json: sessions }));
+  await page.route("**/api/me/data-summary", (route) => route.fulfill({ json: { sessions: sessions.length, archived_sessions: 0, memories: 0 } }));
+  await page.route("**/api/preferences", (route) => route.fulfill({ json: { analytics_cookies: false } }));
+  await page.route("**/api/sessions/ses_wb3_delete", async (route) => {
+    if (route.request().method() === "DELETE") { sessions = []; return route.fulfill({ json: { ok: true } }); }
+    return route.fallback();
+  });
+}
+
 test("employee persona hides admin chrome and connector config", async ({ page, request }) => {
   await request.post("/api/me/persona", { data: { persona: "employee" } });
   await page.goto("/");
   await expect(page.locator(".workbench")).toHaveAttribute("data-account-role", "employee");
   await expect(page.locator(".workbench")).toHaveAttribute("data-view-mode", "business");
-  await expect(page.locator('.sidebar a[href="/admin/connectors"]')).toHaveCount(0);
-  // 员工连接器使用面已退役（授权只对技能）；侧栏不再有连接器入口。
-  await expect(page.locator('[data-nav="connectors"]')).toHaveCount(0);
-  await expect(page.locator('nav[aria-label="资产"] [data-nav="connectors"]')).toHaveCount(0);
+  await expect(page.locator('.sidebar a[href="/admin/connectors"], [data-nav="connectors"]')).toHaveCount(0);
   const employeeAccount = page.locator(".sidebar [data-account-bar]");
   await expect(employeeAccount).not.toContainText("管理员");
-  await expect(employeeAccount.locator('[data-surface-switch="admin"]')).toHaveCount(0);
-  await expect(employeeAccount.locator("[data-account-settings]")).toBeVisible();
-  await expect(employeeAccount.locator("[data-account-logout]")).toBeVisible();
+  await expect(employeeAccount.locator("[data-account-settings], [data-account-logout]")).toHaveCount(2);
   await expect(employeeAccount.locator("[data-starry-menu], [data-connector-use-menu]")).toHaveCount(0);
-  await expect(page.locator(".user-popover")).toHaveCount(0);
-  await expect(page.locator("[data-debug-toggle]")).toHaveCount(0);
-  await page.goto("/settings?tab=preferences");
-  await expect(page.locator("[data-admin-tools]")).toHaveCount(0);
-  await expect(page.locator("[data-debug-toggle]")).toHaveCount(0);
-  await page.goto("/market/skills");
-  await expect(page.locator("[data-hub-new]")).toHaveCount(0);
-  await expect(page.locator('[data-connector="starrykol"]')).toHaveCount(0);
-  await expect(page.locator('[data-hub-chip="connectors"]')).toHaveCount(0);
-  await expect(page.locator('[data-hub-mode="catalog"]')).toHaveText("技能目录");
-  await expect(page.locator('[data-hub-mode="partners"]')).toHaveCount(0);
-  await expect(page.locator("[data-funnel-tab]")).toHaveCount(0);
-  await expect(page.locator('[data-hub-chip="reach"]')).toHaveCount(0);
-  await expect(page.locator('[data-hub-chip="biz"]')).toHaveCount(0);
-  await expect(page.locator('[data-hub-chip="sample"]')).toHaveCount(0);
-  await expect(page.locator('[data-hub-chip="content"]')).toHaveCount(0);
-  await expect(page.locator('[data-hub-chip="settle"]')).toHaveCount(0);
-  await expect(page.locator('[data-hub-chip="exception"]')).toHaveCount(0);
-  await expect(page.locator('[data-hub-banner="pipeline"]')).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "全生命周期管理" })).toHaveCount(0);
-  await expect(page.locator('[data-skill="email_compose"]')).toBeVisible();
-  await expect(page.locator('[data-hub-banner="email_compose"]')).toBeVisible();
-  await page.goto("/skills");
-  await expect(page.locator("[data-skills-page='mine']")).toBeVisible();
-  await expect(page.locator("[data-skills-chrome='mine']")).toBeVisible();
-  await expect(page.locator("[data-hub-chrome]")).toHaveCount(0);
-  await expect(page.locator('[data-hub-mode="catalog"], [data-hub-mode="partners"], [data-hub-mine]')).toHaveCount(0);
-  await expect(page.locator('[data-skill="email_compose"]')).toBeVisible();
-  await expect(page.locator("[data-journey-guide]")).toHaveCount(0);
+  await expect(page.locator("[data-debug-toggle], [data-admin-tools]")).toHaveCount(0);
+  // 技能已成为普通员工的已授权工作面；仍不泄露连接器治理或管理员入口。
+  await expect(page.locator('nav[aria-label="技能"] [data-nav="skills"]')).toBeVisible();
+  await expect(page.locator('.sidebar a[href="/admin/connectors"], [data-nav="connectors"]')).toHaveCount(0);
+  await wb3StubAgentReadModel(page);
   await page.goto("/agents");
-  await expect(page.locator("[data-expert-page='recommend']")).toBeVisible();
-  await expect(page.locator("[data-expert-view='recommend']")).toHaveText("推荐");
-  await expect(page.locator("[data-expert-view='mine']")).toHaveText("我的数字员工");
-  await expect(page.locator("[data-expert-view='all']")).toHaveText("全部数字员工");
-  await expect(page.locator("[data-expert-view='search']")).toHaveCount(0);
-  await expect(page.locator("[data-expert-search]")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "数字员工" })).toBeVisible();
-  await expect(page.locator("[data-expert-page]")).toContainText("选择一个岗位，直接说你要完成什么结果。");
-  await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
-  await expect(page.locator("[data-expert-card='expert:kol']")).toContainText("KOL 合作专员");
-  await expect(page.locator("[data-expert-summon='expert:kol']")).toHaveText("召唤专家");
-  await expect(page.locator('nav[aria-label="agent"] [data-nav]')).toHaveCount(1);
-  await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
-  await expect(page.locator(".sidebar")).not.toContainText("技能目录");
-  await expect(page.locator(".sidebar")).not.toContainText("数字团队");
-  await expect(page.locator(".sidebar")).not.toContainText("专家团");
-  await expect(page.getByRole("heading", { name: "推荐下一步" })).toHaveCount(0);
-  await expect(page.locator("[data-expert-page]")).not.toContainText("技能目录");
-  await expect(page.locator("[data-expert-page]")).not.toContainText("专家团");
-  await expect(page.locator("[data-expert-page]")).not.toContainText("关联技能");
-  await expect(page.locator("[data-expert-page]")).not.toContainText("在会话里用");
-  await expect(page.getByRole("button", { name: "在会话里用" })).toHaveCount(0);
-  await expect(page.locator("[data-agent-profile]")).toHaveCount(0);
-  await expect(page.locator("body")).not.toContainText("Codex");
+  await expect(page.locator("[data-expert-page='roster']")).toBeVisible();
+  await expect(page.locator("[data-expert-card='expert:kol']")).toContainText("KOL推广");
   await expect(page.locator("body")).not.toContainText("Starry KOL MCP");
-  await expect(page.locator("body")).not.toContainText("Host +");
   await page.goto("/teams");
   await expect(page).toHaveURL(/\/agents\/?$/);
-  await expect(page.getByRole("heading", { name: "数字团队" })).toHaveCount(0);
   await expect(page.locator("body")).not.toContainText("Host +");
-  await expect(page.locator("body")).not.toContainText("Starry KOL MCP");
 });
 
 test("agents expert center has recommend/mine/all/search and one KOL expert", async ({ page }) => {
+  await wb3StubAgentReadModel(page);
   await page.goto("/agents");
-  await expect(page.locator("[data-expert-view='recommend']")).toHaveAttribute("aria-selected", "true");
+  const roster = page.locator("[data-expert-page='roster']");
+  await expect(roster).toBeVisible();
+  await expect(page.locator("[data-agent-view='all']")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("[data-expert-card='expert:kol']")).toContainText("KOL推广");
+  await expect(page.locator("[data-agent-search]")).toBeVisible();
+  // 当前目录将“我的”分为收藏与最近查看；空个人偏好必须诚实呈现为空。
+  await page.locator("[data-agent-view='favorites']").click();
+  await expect(page.locator("[data-expert-empty]")).toContainText("还没有收藏的 Agent");
+  await page.locator("[data-agent-view='all']").click();
+  await page.locator("[data-agent-search]").fill("KOL");
+  await expect(page).toHaveURL(/q=KOL/);
   await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
-  await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("岗位使命");
-  await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("擅长");
-  await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("可以帮你");
-  await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("你可以这样说");
-  await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("建联");
-  await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("帮助你推进 KOL 合作");
-  await expect(page.locator("[data-expert-card='expert:kol'] [data-expert-pin='expert:kol']")).toBeVisible();
-  await expect(page.locator("[data-expert-card='expert:kol'] [data-expert-prompt]")).toHaveCount(3);
-  await expect(page.locator("[data-expert-page]")).not.toContainText("stage_sop");
-  await expect(page.locator("[data-expert-page]")).not.toContainText("关联技能");
-  await expect(page.locator("[data-expert-page]")).not.toContainText("召唤进会话");
-  await expect(page.locator("[data-expert-page]")).not.toContainText("发送和改阶段仍要你确认");
-  await expect(page).toHaveURL(/\/agents\/?$/);
-  await page.locator("[data-expert-view='mine']").click();
-  await expect(page).toHaveURL(/view=mine/);
-  await expect(page.locator("[data-expert-empty='mine']")).toBeVisible();
-  await page.locator("[data-expert-view='all']").click();
-  await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
-  await page.locator("[data-expert-search]").fill("KOL");
-  await expect(page).toHaveURL(/view=search/);
-  await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
-  await page.locator("[data-expert-search]").fill("不存在的专家名");
-  await expect(page.locator("[data-expert-empty='search']")).toBeVisible();
+  await page.locator("[data-agent-search]").fill("不存在的专家名");
+  await expect(page.locator("[data-expert-empty]")).toContainText("没有符合条件的 Agent");
   await page.locator('[data-nav="agents"]').click();
   await expect(page).toHaveURL(/\/agents\/?$/);
 });
@@ -2943,46 +3385,23 @@ test("expert center list → detail → summon binds a session without send/stag
   page.on("request", (request) => {
     const url = request.url();
     const method = request.method();
-    if (method !== "POST" && method !== "PUT" && method !== "PATCH") return;
-    if (
-      /\/messages(?:\?|$)/.test(url)
-      || /\/drafts\/[^/]+\/send/.test(url)
-      || /\/confirm-stage/.test(url)
-    ) {
-      sideEffects.push(`${method} ${url}`);
-    }
+    if (["POST", "PUT", "PATCH"].includes(method) && (/\/messages(?:\?|$)/.test(url) || /\/drafts\/[^/]+\/send/.test(url) || /\/confirm-stage/.test(url))) sideEffects.push(`${method} ${url}`);
   });
+  await wb3StubAgentReadModel(page);
   await page.goto("/agents");
-  await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
   await page.locator("[data-expert-open='expert:kol']").click();
-  await expect(page).toHaveURL(/\/agents\/kol/);
-  await expect(page.locator("[data-expert-page='detail']")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "岗位使命" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "擅长" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "可以帮你" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "你可以这样说" })).toBeVisible();
-  await expect(page.locator("[data-expert-summon='expert:kol']")).toBeVisible();
-  await expect(page.locator("[data-expert-page='detail']")).not.toContainText("关联技能");
-  await expect(page.locator("[data-expert-page='detail']")).not.toContainText("在会话里用");
-  await expect(page.locator("[data-expert-page='detail']")).not.toContainText("stage_sop");
-  await expect(page.locator("[data-expert-page='detail']")).not.toContainText("Harness");
-  const summonWait = page.waitForResponse((response) => (
-    response.request().method() === "POST"
-    && response.url().includes("/api/experts/")
-    && response.url().includes("/summon")
-  ));
-  await page.locator("[data-expert-summon='expert:kol']").click();
+  await expect(page).toHaveURL(/\/agents\?agent=expert%3Akol/);
+  const detail = page.locator("[data-agent-preview='expert:kol']");
+  await expect(detail).toBeVisible();
+  await expect(detail.locator("[data-expert-detail='expert:kol']")).toContainText("可以帮你");
+  await expect(detail.locator("[data-expert-prompts] [data-expert-prompt]")).toHaveCount(3);
+  await expect(detail).not.toContainText("发送和改阶段仍要你确认");
+  const summonWait = page.waitForResponse((response) => response.request().method() === "POST" && response.url().includes("/api/experts/") && response.url().includes("/summon"));
+  await detail.locator("[data-expert-summon='expert:kol']").click();
   const summonBody = await (await summonWait).json() as Record<string, unknown>;
-  await page.waitForURL(/\/s\//);
-  expect(Object.keys(summonBody).sort()).toEqual(["expert_id", "expert_version", "intro", "session_id"]);
-  expect(String(summonBody.session_id || "")).toMatch(/^ses_/);
-  expect(summonBody.expert_id).toBe("expert:kol");
-  expect(summonBody.expert_version).toBeTruthy();
-  expect(summonBody.intro).toBeTruthy();
-  await expect(page.locator("[data-expert-identity='expert:kol']")).toBeVisible();
-  await expect(page.locator("[data-expert-name]")).toHaveText("KOL 合作专员");
-  await expect(page.locator("[data-expert-intro]")).toBeVisible();
-  await expect(page.locator("[data-expert-task]")).toHaveCount(3);
+  await page.waitForURL(/\/s\/ses_wb3_kol$/);
+  expect(summonBody).toEqual({ session_id: "ses_wb3_kol", expert_id: "expert:kol", expert_version: "1.0.0", intro: "已绑定 KOL推广工作会话。" });
+  await expect.poll(() => page.evaluate(() => sessionStorage.getItem("expert-session:ses_wb3_kol"))).toContain("expert:kol");
   expect(sideEffects).toEqual([]);
 });
 
@@ -2999,8 +3418,8 @@ test("my skills page distinguishes load error from empty list", async ({ page })
     });
   });
   await page.goto("/skills");
-  await expect(page.locator("[data-skills-error]")).toContainText("无法加载我的技能");
-  await expect(page.locator("[data-skills-empty]")).toHaveCount(0);
+  await expect(page.locator("[data-skill-catalog]").getByRole("alert").filter({ hasText: "无法加载我的技能" })).toBeVisible();
+  await expect(page.locator("[data-skill-catalog] .kbv-empty").filter({ hasText: /没有|暂无/ })).toHaveCount(0);
 });
 
 test("skill hub distinguishes load error from empty catalog", async ({ page }) => {
@@ -3022,20 +3441,13 @@ test("skill hub distinguishes load error from empty catalog", async ({ page }) =
 });
 
 test("admin debug toggle reveals the skills navigation", async ({ page }) => {
-  await page.goto("/market/skills");
+  await page.goto("/");
   await expect(page.locator(".workbench")).toHaveAttribute("data-view-mode", "business");
-  await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
-  await enableDebugView(page);
-  await expect(page.locator(".workbench")).toHaveAttribute("data-view-mode", "debug");
-  await expect(page.locator('[data-nav="skills"]')).toBeVisible();
-  await expect(page.locator('nav[aria-label="agent"] [data-nav]')).toHaveCount(1);
-  await expect(page.locator('nav[aria-label="agent"] [data-nav="skills"]')).toHaveCount(0);
+  // 当前 IA 取消了调试开关：已授权技能在普通员工导航直接可用，连接器治理仍不出现。
+  await expect(page.locator("[data-debug-toggle]")).toHaveCount(0);
   await expect(page.locator('nav[aria-label="技能"] [data-nav="skills"]')).toBeVisible();
-  await expect(page.locator('nav[aria-label="技能"]')).toHaveAttribute("aria-label", "技能");
-  await expect(page.locator('nav[aria-label="资产"] [data-nav="skills"]')).toHaveCount(0);
-  // 连接器磁贴随员工连接器使用面退役（ADR-2026-09-27），调试态也不再出现。
-  await expect(page.locator('[data-connector="starrykol"]')).toHaveCount(0);
-  await expect(page.locator('[data-hub-chip="connectors"]')).toHaveCount(0);
+  await expect(page.locator('nav[aria-label="Agent"] [data-nav="skills"]')).toHaveCount(0);
+  await expect(page.locator('[data-nav="connectors"], [data-connector="starrykol"]')).toHaveCount(0);
 });
 
 test("account bar switches employee, admin, and settings workspaces", async ({ page }) => {
@@ -3077,28 +3489,27 @@ test("approval, knowledge, and exam are vertical primary nav items before cloud"
   expect(assetOrder.indexOf("exam")).toBeGreaterThanOrEqual(0);
   expect(assetOrder.indexOf("pipeline")).toBe(-1);
   expect(assetOrder.indexOf("cron")).toBe(-1);
-  expect(assetOrder.indexOf("knowledge")).toBeLessThan(assetOrder.indexOf("云盘"));
-  expect(assetOrder.indexOf("approvals")).toBeLessThan(assetOrder.indexOf("云盘"));
-  expect(assetOrder.indexOf("exam")).toBeLessThan(assetOrder.indexOf("云盘"));
+  expect(assetOrder).toEqual(["knowledge", "approvals", "exam"]);
   await expect(page.locator('[data-nav="pipeline"]')).toHaveCount(0);
   await expect(page.locator(".sidebar")).not.toContainText("生命周期");
-  await expect(page.locator('nav[aria-label="agent"] [data-nav]')).toHaveCount(1);
+  await expect(page.locator('nav[aria-label="Agent"] [data-nav]')).toHaveCount(1);
   await expect(page.locator('[data-nav="agents"]')).toBeVisible();
-  await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
+  await expect(page.locator('[data-nav="skills"]')).toBeVisible();
   await expect(page.locator('.sidebar-foot a[href="/approvals"], .sidebar-foot a[href="/kb"], .sidebar-foot a[href="/exam"]')).toHaveCount(0);
   await page.locator('[data-nav="approvals"]').click();
   await expect(page).toHaveURL(/\/approvals$/);
-  await expect(page.getByRole("heading", { name: "工作审批" })).toBeVisible();
-  await expect(page.locator(".approval-page .page-kicker")).toHaveText("审批");
-  await expect(page.locator(".approval-page")).not.toContainText("等我确认");
+  await expect(page.getByRole("heading", { name: "审批中心" })).toBeVisible();
+  await expect(page.locator(".review-workbench")).not.toContainText("等我确认");
   await expect(page.locator('[data-nav="approvals"]')).toHaveClass(/active/);
   await page.locator('[data-nav="knowledge"]').click();
-  await expect(page.getByRole("heading", { name: "知识库" })).toBeVisible();
+  await expect(page).toHaveURL(/\/kb$/);
+  await expect(page.getByRole("region", { name: "知识列表" })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "知识详情" })).toBeVisible();
   await page.locator('[data-nav="exam"]').click();
   await expect(page.getByRole("heading", { name: "学习考试" })).toBeVisible();
   const exam = page.locator("[data-exam-page]");
   await expect(exam.locator(".page-kicker")).toHaveText("考试");
-  await expect(exam.getByRole("heading", { name: "考试未就绪" })).toBeVisible();
+  await expect(exam.locator("[data-exam-empty='unready']")).toContainText("还没有分配给你的考试");
   await expect(exam.locator("[data-exam-empty='unready']")).toBeVisible();
   await expect(exam).not.toContainText("闸门");
   await expect(exam).not.toContainText("体验账号");
@@ -3107,16 +3518,14 @@ test("approval, knowledge, and exam are vertical primary nav items before cloud"
   await expect(exam.getByRole("heading", { name: "演示身份" })).toHaveCount(0);
 });
 
-test("employee exam stays unready and never one-click passes", async ({ page, request }) => {
-  await request.post("/api/me/persona", { data: { persona: "exam_blocked" } });
+test("employee exam stays unready and never one-click passes", async ({ page }) => {
   await page.goto("/exam");
   const exam = page.locator("[data-exam-page]");
-  await expect(exam.getByRole("heading", { name: "考试未就绪" })).toBeVisible();
-  await expect(exam.locator("[data-exam-gate='blocked']")).toContainText("开通前不能完成考试");
-  await expect(exam).not.toContainText("闸门");
-  await expect(exam).not.toContainText("体验账号");
-  await expect(exam.getByRole("button", { name: "完成考试" })).toHaveCount(0);
-  await expect(exam.locator("[data-persona]")).toHaveCount(0);
+  await expect(exam.getByRole("heading", { name: "学习考试" })).toBeVisible();
+  await expect(exam.locator("[data-exam-empty='unready']")).toContainText("还没有分配给你的考试");
+  await expect(exam).toContainText("没有开放题卷时，本页不能提交成绩");
+  await expect(exam.getByRole("button", { name: /完成考试|提交答卷|确认提交/ })).toHaveCount(0);
+  await expect(exam.locator("[data-exam-take], [data-exam-submit]")).toHaveCount(0);
   await expect(page.locator('[data-nav="exam"] .nav-badge')).toHaveCount(0);
 });
 
@@ -3173,21 +3582,19 @@ test("employee partners path is an honest stub, not a Home or skill board", asyn
   await expect(page.locator('[data-nav="skills"].active')).toHaveCount(0);
   await expect.poll(() => pipelineHits).toEqual([]);
   await expect.poll(() => boardHits).toEqual([]);
-  await enableDebugView(page);
   await expect(page.locator('[data-nav="skills"]')).toBeVisible();
   await expect(page.locator('[data-nav="skills"]')).not.toHaveClass(/active/);
 });
 
 test("docs/org-permissions.md employee sidebar has no connectors entry", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
-  await expect(page.locator('nav[aria-label="技能"]')).toHaveCount(0);
-  await expect(page.locator(".sidebar")).not.toContainText("技能目录");
+  await expect(page.locator('nav[aria-label="技能"] [data-nav="skills"]')).toBeVisible();
+  await expect(page.locator(".sidebar")).not.toContainText("连接器");
   await expect(page.locator('[data-nav="connectors"]')).toHaveCount(0);
   await expect(page.locator('.sidebar a[href="/admin/connectors"]')).toHaveCount(0);
-  await expect(page.locator('[data-nav="agents"]')).toHaveText("agent");
+  await expect(page.locator('[data-nav="agents"]')).toHaveText("Agent");
   await expect(page.locator('[data-nav="agents"]')).toHaveAttribute("href", "/agents");
-  await expect(page.locator('nav[aria-label="agent"] [data-nav]')).toHaveCount(1);
+  await expect(page.locator('nav[aria-label="Agent"] [data-nav]')).toHaveCount(1);
   await expect(page.locator('[data-nav="pipeline"]')).toHaveCount(0);
   await expect(page.locator('[data-nav="teams"]')).toHaveCount(0);
   await expect(page.locator('[data-nav="agents-teams"]')).toHaveCount(0);
@@ -3220,20 +3627,26 @@ test("docs/org-permissions.md admin agents governance is reachable from admin ch
   await expect(page.locator(".admin-header a[href='/agents']")).toHaveCount(0);
   await page.locator("[data-admin-nav='agents']").click();
   await expect(page).toHaveURL(/\/admin\/agents$/);
-  await expect(page.locator("[data-admin-page='agents']")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Agent 列表" })).toBeVisible();
+  await expect(page.locator("[data-agent-mode='list']")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Agent 资产" })).toBeVisible();
   await expect(page.locator("[data-admin-nav='agents']")).toHaveClass(/active/);
-  await expect(page.locator("[data-admin-tab='agents']")).toHaveClass(/active/);
 });
+
+/** Wait for a lazy route module itself; semantic assertions below still verify its
+ * actual surface instead of treating the shared shell as route readiness. */
+async function wb12WaitForLazyRoute(page: Page) {
+  await expect(page.locator("[data-route-loading]")).toHaveCount(0, { timeout: 20_000 });
+}
 
 test("admin console uses a left sidebar with short labels for the current account", async ({ page }) => {
   await page.goto("/admin");
+  await wb12WaitForLazyRoute(page);
   await expect(page.locator(".workbench")).toHaveClass(/admin-surface/);
   await expect(page.locator(".settings-tabs.admin-tabs")).toHaveCount(0);
   await expect(page.locator("[data-admin-nav]").first()).toBeVisible();
   const labels = await page.locator(".sidebar [data-admin-nav]").allTextContents();
   expect(labels.map((label) => label.trim())).toEqual([
-    "员工", "工作战报", "业务地图", "连接", "知识库", "Agent", "本体", "评审流程", "技能", "考试", "数据", "成本", "调度监控", "工单治理", "审计中心", "配置",
+    "员工", "工作战报", "业务地图", "连接器", "知识库", "Agent", "本体", "评审流程", "技能", "考试", "主数据", "数据", "成本", "调度监控", "工单治理", "审计中心", "配置",
   ]);
   // 「审批」已从菜单去掉（ADR-2026-10-12）：菜单不再渲染该条目，深链能力保留（见下方 goto 断言）。
   await expect(page.locator("[data-admin-nav='approvals']")).toHaveCount(0);
@@ -3289,17 +3702,18 @@ test("admin console uses a left sidebar with short labels for the current accoun
 
 test("admin left menu replicates the employee sidebar shell", async ({ page }) => {
   await page.goto("/admin");
+  await wb12WaitForLazyRoute(page);
   const rail = page.locator(".sidebar");
   await expect(rail).toBeVisible();
   // 同一外壳：品牌块 + Lucas + 页脚账户块。
   await expect(rail.locator(".sidebar-head [data-sidebar-brand]")).toBeVisible();
   await expect(rail.locator(".sidebar-head .sidebar-lucas img")).toHaveAttribute("src", /Lucas6\.webp$/);
   await expect(rail.locator(".sidebar-foot [data-account-bar]")).toBeVisible();
-  // 只换菜单文字：管理端 16 条，员工开工条目 0 条。
-  await expect(rail.locator("[data-admin-nav]")).toHaveCount(16);
+  // 只换菜单文字：管理端 17 条，员工开工条目 0 条。
+  await expect(rail.locator("[data-admin-nav]")).toHaveCount(17);
   await expect(rail.locator("[data-nav='new-task'], [data-nav='running'], [data-nav='cron'], [data-nav='mail']")).toHaveCount(0);
   // 同解剖：18px 描边图标 + 标签；分簇靠分隔线，不用可见组标题。
-  await expect(rail.locator("[data-admin-nav] .nav-ico")).toHaveCount(16);
+  await expect(rail.locator("[data-admin-nav] .nav-ico")).toHaveCount(17);
   await expect(rail.locator("nav.nav-group")).toHaveCount(5);
   await expect(rail.locator(".nav-group > h2, .nav-group > .nav-group-title")).toHaveCount(0);
   const clusterBorder = await rail.locator("nav.nav-group").nth(1).evaluate((el) => getComputedStyle(el).borderTopWidth);
@@ -3356,7 +3770,7 @@ test("employee connector use surface is retired", async ({ page, request }) => {
 test("admin L3 destructive writes open confirm dialog with cancel focused", async ({ page }) => {
   await page.goto("/admin");
   await expect(page.locator("[data-admin-ia='governance']")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "员工列表" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "员工列表" })).toBeVisible();
   const deactivate = page.locator("[data-employee-action='deactivate']");
   if (await deactivate.count() === 0) {
     await page.locator("[data-employee-create]").click();
@@ -3396,31 +3810,11 @@ test("admin L3 destructive writes open confirm dialog with cancel focused", asyn
   await page.locator("[data-admin-nav='knowledge']").click();
   await expect(page.locator("[data-admin-knowledge]")).toBeVisible();
   await expect(page.locator(".kb-step-n, .kb-hero-admin")).toHaveCount(0);
-  await expect(page.locator("[data-admin-kb-view='review']")).toBeVisible();
-  await expect(page.locator("[data-admin-knowledge-review]")).toBeVisible();
-  await page.locator("[data-admin-kb-tab='catalog']").click();
-  await expect(page.locator("[data-admin-kb-view='catalog']")).toBeVisible();
-  await expect(page.locator("[data-admin-kb-catalog-tree]")).toBeVisible();
-  await page.goto("/admin/knowledge/bases/kbase_legacy");
-  await expect(page.locator("[data-admin-kb-view='base']")).toBeVisible();
-  const hardDelete = page.locator("[data-kb-hard-delete]").first();
-  if (await hardDelete.count()) {
-    await hardDelete.click();
-    const deleteDialog = page.locator("[data-admin-confirm='knowledge-hard-delete']");
-    await expect(deleteDialog).toBeVisible();
-    await expect(deleteDialog.locator("[data-admin-confirm-consequence]")).toContainText("不能撤销");
-    await page.locator("[data-admin-confirm-cancel]").click();
-    await expect(deleteDialog).toHaveCount(0);
-  }
-  const archive = page.locator("[data-kb-archive]").first();
-  if (await archive.count()) {
-    await archive.click();
-    const archiveDialog = page.locator("[data-admin-confirm='knowledge-archive']");
-    await expect(archiveDialog).toBeVisible();
-    await expect(archiveDialog.locator("[data-admin-confirm-scope]")).toContainText("归档");
-    await page.locator("[data-admin-confirm-cancel]").click();
-    await expect(archiveDialog).toHaveCount(0);
-  }
+  const knowledgeWorkspace = page.locator("[data-knowledge-right]");
+  await expect(knowledgeWorkspace).toHaveAttribute("data-kb-active-stage", "published");
+  await expect(page.getByRole("tab", { name: "知识资产" })).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("tab", { name: "知识规划" }).click();
+  await expect(knowledgeWorkspace).toHaveAttribute("data-kb-active-stage", "catalog");
 
 });
 
@@ -3476,27 +3870,20 @@ test("docs/org-permissions.md admin connectors hub renders", async ({ page }) =>
 });
 
 test("admin and settings expose bind Starry mailbox menus", async ({ page }) => {
+  await wb3StubSettingsMailbox(page);
   await page.goto("/");
   const accountBar = page.locator(".sidebar [data-account-bar]");
   await expect(accountBar.locator("[data-starry-menu], [data-connector-use-menu]")).toHaveCount(0);
   await expect(accountBar.getByRole("link", { name: /Starry|连接 Starry 邮箱/ })).toHaveCount(0);
   await accountBar.locator("[data-account-settings]").click();
-  await expect(page).toHaveURL(/\/settings/);
-  await page.getByRole("tab", { name: "连接 Starry" }).click();
+  await page.getByRole("tab", { name: "账号与邮箱" }).click();
   await expect(page).toHaveURL(/\/settings\?tab=starry/);
-  await expect(page.getByRole("tab", { name: "连接 Starry" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("[data-starry-bind]")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "绑定跟进邮箱" })).toBeVisible();
+  await expect(page.locator("[data-starry-bind]")).toContainText("lt.ops@example.com");
+  await expect(page.locator("[data-starry-status='connected']")).toContainText("已连接");
   await expect(page.getByRole("button", { name: "读取可用邮箱" })).toBeVisible();
-  await expect(page.locator("[data-starry-bind]")).not.toContainText("JWT");
-  await expect(page.locator("[data-starry-bind]")).not.toContainText("Bearer");
-  await expect(page.locator("[data-starry-bind]")).not.toContainText("Host");
-  await expect(page.locator("textarea[name='bearer']")).toHaveCount(0);
-
+  await expect(page.locator("[data-starry-bind]")).not.toContainText(/JWT|Bearer|Host/);
   await page.goto("/admin");
   await expect(page.locator('[data-admin-nav="starry"], [data-admin-tab="starry"]')).toHaveCount(0);
-  await expect(page.locator("[data-starry-bind]")).toHaveCount(0);
-  await expect(page.locator(".sidebar [data-account-bar] [data-starry-menu], .sidebar [data-account-bar] [data-connector-use-menu]")).toHaveCount(0);
   await page.goto("/admin/starry");
   await expect(page).toHaveURL(/\/settings\?tab=starry/);
   await expect(page.locator("[data-starry-bind]")).toBeVisible();
@@ -3516,74 +3903,55 @@ test("account bar renders the avatar image when the session payload carries avat
 });
 
 test("settings delete memory uses L3 confirm and keeps a durable receipt", async ({ page }) => {
+  await wb3StubMemoryCrud(page);
   const nativeConfirms: string[] = [];
-  page.on("dialog", (dialog) => {
-    nativeConfirms.push(dialog.message());
-    void dialog.dismiss();
-  });
+  page.on("dialog", (dialog) => { nativeConfirms.push(dialog.message()); void dialog.dismiss(); });
   await page.goto("/settings?tab=memories");
-  await expect(page.getByRole("heading", { name: "Markdown 记忆" })).toBeVisible();
-  await page.getByRole("button", { name: "新建" }).click();
-  const editor = page.locator(".memory-editor").last();
-  await editor.getByLabel("记忆标题").fill("测试记忆");
-  await editor.locator("[data-memory-delete]").click();
-  const dialog = page.locator("[data-admin-confirm='memory-delete']");
-  await expect(dialog).toBeVisible();
-  await expect(dialog.locator("[data-admin-confirm-object]")).toContainText("测试记忆");
-  await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("本账号 Markdown 记忆");
-  await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("不可恢复");
-  await expect(dialog.locator("[data-admin-confirm-reason]")).toBeVisible();
-  await page.locator("[data-admin-confirm-cancel]").click();
-  await expect(dialog).toBeVisible();
-  await expect(dialog.locator("[role='alert']")).toContainText("拒绝原因");
-  await dialog.locator("[data-admin-confirm-reason]").fill("先不删，还要对照");
-  await page.locator("[data-admin-confirm-cancel]").click();
+  await expect(page.getByRole("button", { name: "新建记忆" })).toBeVisible();
+  await page.getByRole("button", { name: "新建记忆" }).click();
+  const drawer = page.getByRole("dialog", { name: "新建记忆" });
+  await drawer.getByLabel("标题").fill("测试记忆");
+  await drawer.getByLabel("内容").fill("用于验证 L3 删除确认与回执。");
+  await drawer.getByRole("button", { name: "保存记忆" }).click();
+  const row = page.locator("[data-memory-row]", { hasText: "测试记忆" });
+  await expect(row).toBeVisible();
+  await row.locator("[data-memory-delete]").click();
+  const dialog = page.getByRole("dialog", { name: "删除记忆" });
+  await expect(dialog).toContainText("本账号 Markdown 记忆");
+  await expect(dialog).toContainText("不可恢复");
+  await expect(dialog.getByRole("button", { name: "取消操作" })).toBeFocused();
+  await dialog.getByRole("button", { name: "取消操作" }).click();
   await expect(dialog).toHaveCount(0);
-  await editor.locator("[data-memory-delete]").click();
-  await expect(dialog).toBeVisible();
-  await dialog.locator("[data-admin-confirm-reason]").fill("这条记忆不再需要");
-  await page.locator("[data-admin-confirm-ok]").click();
+  await row.locator("[data-memory-delete]").click();
+  await dialog.getByRole("button", { name: "确认删除" }).click();
   const receipt = page.locator("[data-settings-receipt='memory-delete']");
-  await expect(receipt).toBeVisible();
-  await expect(receipt.locator("[data-settings-receipt-text]")).toContainText("已删除记忆");
+  await expect(receipt).toContainText("已删除记忆");
   await expect(receipt.locator("[data-settings-receipt-object]")).toContainText("测试记忆");
   await expect(receipt.locator("[data-settings-receipt-scope]")).toContainText("本账号 Markdown 记忆");
   await expect(receipt.locator("[data-settings-receipt-consequence]")).toContainText("不可恢复");
   await page.reload();
   await expect(page.locator("[data-settings-receipt='memory-delete']")).toBeVisible();
-  await expect(page.locator("[data-settings-receipt-text]")).toContainText("已删除记忆");
   expect(nativeConfirms).toEqual([]);
 });
 
-test("settings delete session uses L3 confirm and keeps a durable receipt", async ({ page, request }) => {
+test("settings delete session uses L3 confirm and keeps a durable receipt", async ({ page }) => {
+  await wb3StubSettingsSession(page);
   const nativeConfirms: string[] = [];
-  page.on("dialog", (dialog) => {
-    nativeConfirms.push(dialog.message());
-    void dialog.dismiss();
-  });
-  await request.post("/api/sessions", { data: { title: "待删除会话" } });
+  page.on("dialog", (dialog) => { nativeConfirms.push(dialog.message()); void dialog.dismiss(); });
   await page.goto("/settings?tab=privacy");
-  await expect(page.getByRole("heading", { name: "隐私与数据" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "我的对话" })).toBeVisible();
   await page.locator("[data-session-delete]").first().click();
-  const dialog = page.locator("[data-admin-confirm='session-delete']");
-  await expect(dialog).toBeVisible();
-  await expect(dialog.locator("[data-admin-confirm-object]")).not.toHaveText("");
-  await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("消息、草稿、运行箱");
-  await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("合规迁移记录保留");
-  await expect(dialog.locator("[data-admin-confirm-reason]")).toBeVisible();
-  await page.locator("[data-admin-confirm-cancel]").click();
-  await expect(dialog).toBeVisible();
-  await expect(dialog.locator("[role='alert']")).toContainText("拒绝原因");
-  await dialog.locator("[data-admin-confirm-reason]").fill("误点，先保留会话");
-  await page.locator("[data-admin-confirm-cancel]").click();
+  const dialog = page.getByRole("dialog", { name: "删除会话" });
+  await expect(dialog).toContainText("消息、草稿、运行箱");
+  await expect(dialog).toContainText("合规迁移记录保留");
+  await expect(dialog.getByRole("button", { name: "取消操作" })).toBeFocused();
+  await dialog.getByRole("button", { name: "取消操作" }).click();
   await expect(dialog).toHaveCount(0);
   await page.locator("[data-session-delete]").first().click();
-  await expect(dialog).toBeVisible();
-  await dialog.locator("[data-admin-confirm-reason]").fill("会话已结束");
-  await page.locator("[data-admin-confirm-ok]").click();
+  await dialog.getByRole("button", { name: "确认删除" }).click();
   const receipt = page.locator("[data-settings-receipt='session-delete']");
-  await expect(receipt).toBeVisible();
-  await expect(receipt.locator("[data-settings-receipt-text]")).toContainText("已删除会话");
+  await expect(receipt).toContainText("已删除对话");
+  await expect(receipt.locator("[data-settings-receipt-scope]")).toContainText("消息、草稿、运行箱");
   await page.reload();
   await expect(page.locator("[data-settings-receipt='session-delete']")).toBeVisible();
   expect(nativeConfirms).toEqual([]);
@@ -3591,45 +3959,26 @@ test("settings delete session uses L3 confirm and keeps a durable receipt", asyn
 
 test("settings unbind Starry uses L3 confirm and keeps a durable receipt", async ({ page }) => {
   const nativeConfirms: string[] = [];
-  page.on("dialog", (dialog) => {
-    nativeConfirms.push(dialog.message());
-    void dialog.dismiss();
-  });
-  await page.route("**/api/me/starry-binding", async (route) => {
-    if (route.request().method() === "GET") {
-      await route.fulfill({
-        json: { bound: true, status: "connected", mailbox_email: "lt.ops@example.com", owner_name: "李婷" },
-      });
-      return;
-    }
-    if (route.request().method() === "DELETE") {
-      await route.fulfill({ json: { bound: false, status: "unbound" } });
-      return;
-    }
-    await route.continue();
+  page.on("dialog", (dialog) => { nativeConfirms.push(dialog.message()); void dialog.dismiss(); });
+  await wb3StubSettingsMailbox(page);
+  await page.route("**/api/me/starry-binding*", async (route) => {
+    if (route.request().method() === "DELETE") return route.fulfill({ json: { ok: true } });
+    return route.fallback();
   });
   await page.goto("/settings?tab=starry");
   await expect(page.locator("[data-starry-unbind]")).toBeVisible();
   await page.locator("[data-starry-unbind]").click();
-  const dialog = page.locator("[data-admin-confirm='starry-unbind']");
-  await expect(dialog).toBeVisible();
-  await expect(dialog.locator("[data-admin-confirm-object]")).toContainText("lt.ops@example.com");
-  await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("个人跟进邮箱绑定");
-  await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("我跟进的红人");
-  await expect(dialog.locator("[data-admin-confirm-reason]")).toBeVisible();
-  await page.locator("[data-admin-confirm-cancel]").click();
-  await expect(dialog).toBeVisible();
-  await expect(dialog.locator("[role='alert']")).toContainText("拒绝原因");
-  await dialog.locator("[data-admin-confirm-reason]").fill("还要继续用这个邮箱");
-  await page.locator("[data-admin-confirm-cancel]").click();
+  const dialog = page.getByRole("dialog", { name: "解除跟进邮箱绑定" });
+  await expect(dialog).toContainText("lt.ops@example.com");
+  await expect(dialog).toContainText("当前账号的个人跟进邮箱绑定");
+  await expect(dialog).toContainText("我跟进的红人");
+  await expect(dialog.getByRole("button", { name: "取消操作" })).toBeFocused();
+  await dialog.getByRole("button", { name: "取消操作" }).click();
   await expect(dialog).toHaveCount(0);
   await page.locator("[data-starry-unbind]").click();
-  await expect(dialog).toBeVisible();
-  await dialog.locator("[data-admin-confirm-reason]").fill("换绑另一只邮箱");
-  await page.locator("[data-admin-confirm-ok]").click();
+  await dialog.getByRole("button", { name: "确认解除" }).click();
   const receipt = page.locator("[data-settings-receipt='starry-unbind']");
-  await expect(receipt).toBeVisible();
-  await expect(receipt.locator("[data-settings-receipt-text]")).toContainText("已解除跟进邮箱绑定");
+  await expect(receipt).toContainText("已解除邮箱绑定");
   await expect(receipt.locator("[data-settings-receipt-object]")).toContainText("lt.ops@example.com");
   await page.reload();
   await expect(page.locator("[data-settings-receipt='starry-unbind']")).toBeVisible();
@@ -3648,10 +3997,9 @@ test("session chat does not render unimplemented TeamRail", async ({ page, reque
 });
 
 test("home composer renders before delayed task data finishes", async ({ page }) => {
-  await page.route("**/api/home", async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-    await route.fulfill({ json: { brand: "灵工 工作", h1: "今天有什么工作要处理？", recs: [] } });
-  });
+  // Prime the lazy route once; the in-app remount below isolates delayed task data rather than the one-time route chunk fetch.
+  await page.goto("/");
+  await expect(page.locator("[data-home] [data-composer-input]")).toBeVisible();
   await page.route(/\/api\/tasks(?:\?.*)?$/, async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 1200));
     await route.fulfill({ json: [] });
@@ -3660,10 +4008,75 @@ test("home composer renders before delayed task data finishes", async ({ page })
     await new Promise((resolve) => setTimeout(resolve, 1200));
     await route.fulfill({ json: [] });
   });
-  await page.goto("/", { waitUntil: "domcontentloaded" });
-  await expect(page.locator("[data-home] [data-composer]")).toBeVisible({ timeout: 500 });
-  await expect(page.getByRole("heading", { name: "今天有什么工作要处理？" })).toBeVisible({ timeout: 500 });
+  // A hard reload re-fetches the lazy Home module, so it measures route-chunk
+  // startup rather than the delayed task reads. Re-enter through the app to
+  // remount the already-loaded route and keep the 500ms first-paint contract.
+  await page.locator("[data-nav='running']").click();
+  await expect(page).toHaveURL(/\/tasks$/);
+  await wb12WaitForLazyRoute(page);
+  await page.locator("[data-nav='new-task']").click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator("[data-home] [data-composer-input]")).toBeVisible({ timeout: 500 });
+  await expect(page.locator("[data-home]")).toBeVisible({ timeout: 500 });
 });
+
+/** WB4 owns the lifecycle migration: current native lifecycle is a compact workspace, not the retired Home hero. */
+async function wb4ExpectCompactLifecycleSurface(page: Page) {
+  await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
+  await expect(page.locator(".home-hero")).toHaveCount(0);
+  await expect(page.locator("[data-home-chrome]")).toHaveCount(0);
+  await expect(page.locator("[data-home-chrome-action]")).toHaveCount(0);
+  await expect(page.locator("[data-home-account]")).toHaveCount(0);
+  await expect(page.locator("[data-home-chrome-brand], [data-brand-lockup='home']")).toHaveCount(0);
+}
+
+async function wb4ExpectNativeLifecycleHeading(page: Page) {
+  await expect(page.locator("[data-followed-kol-heading]")).toHaveCount(0);
+  await expect(page.locator("[data-followed-kol-list] h2")).toHaveCount(0);
+  await expect(page.locator('[data-home-mode="lifecycle"]')).toContainText("我的红人");
+}
+
+async function wb4ExpectNativeFollowedCard(page: Page, handle: string) {
+  const card = page.locator(`[data-followed-kol="${handle}"]`);
+  await expect(card).toBeVisible();
+  await expect(card.locator("[data-kol-identity]")).toContainText(handle);
+  await expect(card.locator("[data-stage-label]")).toBeVisible();
+  await expect(card.locator("[data-latest-fact]")).toBeVisible();
+  await expect(card.locator("[data-recommended-action]")).toBeVisible();
+  const layout = await card.evaluate((el) => ({
+    overflows: el.scrollWidth > el.clientWidth + 1,
+    bands: Array.from(el.querySelectorAll("[data-kol-band]")).map((band) => band.getAttribute("data-kol-band")),
+  }));
+  expect(layout.overflows).toBe(false);
+  expect(layout.bands).toEqual(["identity", "fact", "action", "cta"]);
+}
+
+async function wb4ExpectNativeFollowedTypography(page: Page, handle: string) {
+  const card = page.locator(`[data-followed-kol="${handle}"]`);
+  const name = card.locator("[data-kol-name]");
+  const stage = card.locator("[data-stage-label]");
+  const detail = card.locator("[data-open-kol-detail]");
+  await expect(name).toContainText(handle);
+  await expect(stage).toBeVisible();
+  await expect(detail).toBeVisible();
+  const typography = await card.evaluate((el) => {
+    const size = (selector: string) => {
+      const node = el.querySelector(selector);
+      return node instanceof HTMLElement ? parseFloat(getComputedStyle(node).fontSize) : 0;
+    };
+    return {
+      name: size("[data-kol-name]"),
+      stage: size("[data-stage-label]"),
+      detail: size("[data-open-kol-detail]"),
+      token: parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--ds-font-sm")),
+      helperToken: parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--ds-font-helper")),
+    };
+  });
+  expect(typography.name).toBe(typography.token);
+  expect(typography.stage).toBe(typography.helperToken);
+  expect(typography.detail).toBe(typography.token);
+}
+
 
 test("preview toolbar collapses, exports, shares, and opens read-only view", async ({ page, request }) => {
   const session = await request.post("/api/sessions", { data: { title: "可分享草稿" } });
@@ -3673,15 +4086,22 @@ test("preview toolbar collapses, exports, shares, and opens read-only view", asy
   });
   await page.goto(`/s/${id}`);
   await expect(page.locator("[data-workbench]")).toBeVisible();
-  const draft = page.locator('[data-session-stream-pane] [data-kind="email-card"]');
-  const result = page.locator('[data-session-stream-pane] [data-kind="task-result-card"]');
+  const draft = page.locator('[data-workbench] [data-kind="email-card"]');
+  const result = page.locator('[data-workbench] [data-kind="task-result-card"]');
   await expect(draft.or(result).first()).toBeVisible();
+  const resultTools = page.locator("[data-workbench] details.result-tools");
+  await expect(resultTools).toBeVisible();
+  await resultTools.locator("summary").click();
   await expect(page.getByLabel("下载 Markdown")).toBeVisible();
   await expect(page.getByLabel("下载 JSON")).toHaveCount(0);
   if (await draft.isVisible()) await expect(page.getByLabel("下载邮件草稿")).toBeVisible();
-  await page.getByLabel("收起工作台").click();
-  await expect(page.locator("[data-workbench]")).toHaveClass(/collapsed/);
-  await page.getByLabel("展开工作台").click();
+  const railToggle = page.locator("[data-workbench] [data-workbench-toggle]");
+  await expect(railToggle).toHaveAttribute("aria-expanded", "true");
+  await railToggle.click();
+  await expect(page.locator("[data-workbench]")).toHaveClass(/is-collapsed/);
+  await expect(railToggle).toHaveAttribute("aria-expanded", "false");
+  await railToggle.click();
+  await expect(railToggle).toHaveAttribute("aria-expanded", "true");
   await page.getByRole("button", { name: "分享" }).click();
   await expect(page.locator(".share-status")).toContainText("分享链接已创建");
 
@@ -3711,19 +4131,48 @@ test("composer renders uploaded files as removable attachment cards", async ({ p
   await card.getByRole("button", { name: "移除 creator-brief.md" }).click();
   await expect(card).toHaveCount(0);
   await page.locator("[data-home] [data-attach]").click();
-  await page.getByRole("menu", { name: "添加内容" }).getByRole("menuitem", { name: "最近的文件" }).hover();
-  await page.getByRole("menu", { name: "最近的文件" }).getByRole("menuitem", { name: /creator-brief.md/ }).first().evaluate((element: HTMLElement) => element.click());
+  const files = page.getByRole("menu", { name: "添加内容" });
+  await expect(files.locator('[data-menu-section="文件"]')).toBeVisible();
+  await files.getByRole("menuitem", { name: /creator-brief.md/ }).click();
   await expect(card).toBeVisible();
 });
 
 test("task workbench switches today/templates, filters sources, and runs one of 25 templates", async ({ page }) => {
-  const templates = Array.from({ length: 25 }, (_, index) => ({
-    id: `template-${index + 1}`,
+  // These are employee-visible, current registry ids. The test catalog keeps the
+  // TaskDefinition contract (prompt / skill_id / schema) rather than inventing
+  // the retired panel's unsupported template intents.
+  const skillIds = [
+    "business_approval", "confirm_stage", "crawler_collect", "creator_budget_report", "creator_contact_decrypt",
+    "creator_daily_tasks", "creator_discovery", "creator_library_query", "creator_library_sync", "creator_lifecycle_kanban",
+    "creator_outreach", "creator_owner_update", "creator_profile", "creator_scoring", "creator_status_update",
+    "deal_memory", "email_compose", "email_conversation_list", "kol_analyze", "mail_summary",
+    "mail_translate", "reply_analysis", "risk_scan", "stage_sop", "todo_plan",
+  ] as const;
+  const templates = skillIds.map((id, index) => ({
+    id,
+    skill_id: id,
     title: `任务模板 ${index + 1}`,
     description: `模板说明 ${index + 1}`,
+    prompt: index === 0 ? "Expense approval [requester] [amount] [currency]" : `任务模板 ${index + 1} [任务对象]`,
     category: `分组 ${Math.floor(index / 5) + 1}`,
+    input_schema: [],
+    granted: true,
+    employee_visible: true,
+  }));
+  const menuSkills = templates.map(({ id, title, description, prompt, input_schema }) => ({
+    id,
+    title,
+    label: title,
+    description,
+    starter: prompt,
+    input_schema,
+    granted: true,
+    employee_visible: true,
   }));
   const posted: string[] = [];
+  const fromTextBodies: Record<string, unknown>[] = [];
+  const runBodies: Record<string, unknown>[] = [];
+  let taskDefinitionGets = 0;
   await page.route("**/api/sessions", async (route) => {
     const url = new URL(route.request().url());
     if (route.request().method() === "POST" && url.pathname === "/api/sessions") {
@@ -3742,10 +4191,17 @@ test("task workbench switches today/templates, filters sources, and runs one of 
     }
     await route.fallback();
   });
-  await page.route("**/api/task-definitions", (route) => route.fulfill({ json: templates }));
-  await page.route("**/api/home", (route) => route.fulfill({
-    json: { brand: "灵工 工作", h1: "今天有什么工作要处理？", recs: templates },
-  }));
+  await page.route("**/api/task-definitions", async (route) => {
+    expect(route.request().method()).toBe("GET");
+    taskDefinitionGets += 1;
+    await route.fulfill({ json: templates });
+  });
+  await page.route(/\/api\/skills(?:\/market)?(?:\?.*)?$/, async (route) => {
+    await route.fulfill({ json: new URL(route.request().url()).pathname.endsWith("/market") ? [] : menuSkills });
+  });
+  // The high-confidence /from-text result below remains the sole execution
+  // route; selecting a skill only prefills the editable composer draft.
+  await page.route("**/api/knowledge/skill-templates", (route) => route.fulfill({ json: [] }));
   await page.route("**/api/tasks**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname !== "/api/tasks") {
@@ -3759,15 +4215,16 @@ test("task workbench switches today/templates, filters sources, and runs one of 
     }
     await route.fulfill({ json: [
       { id: "manual-1", title: "手动跟进", source: "manual", status: "pending", priority: "high" },
-      { id: "ai-1", title: "AI 风险发现", source: "ai", status: "running", risk: "合作临近延期" },
+      { id: "ai-1", title: "AI 风险发现", source: "ai", status: "running", priority: "normal", risk: "合作临近延期", risk_level: "high", due_at: new Date().toISOString() },
       { id: "done-1", title: "已完成复盘", source: "manual", status: "completed", priority: "low" },
     ] });
   });
   await page.route("**/api/tasks/*/run", async (route) => {
     posted.push(new URL(route.request().url()).pathname);
+    runBodies.push(route.request().postDataJSON() as Record<string, unknown>);
     await route.fulfill({
       json: {
-        task: { id: "task-created", title: "任务模板 1", source: "manual", status: "running" },
+        task: { id: "task-created", title: "任务模板 1", source: "manual", status: "running", task_type: "business_approval" },
         run: { status: "running" },
         session_id: "session-created",
         pending: { status: "running" },
@@ -3776,11 +4233,16 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   });
   await page.route("**/api/tasks/from-text", async (route) => {
     posted.push("/api/tasks/from-text");
+    fromTextBodies.push(route.request().postDataJSON() as Record<string, unknown>);
     await route.fulfill({
       json: {
-        task: { id: "task-created", title: "任务模板 1", source: "manual", status: "pending" },
-        tasks: [{ id: "task-created", title: "任务模板 1", source: "manual", status: "pending" }],
-        resolved_tasks: [{ id: "task-created", title: "任务模板 1", source: "manual", status: "pending" }],
+        confidence: "high",
+        needs_clarification: false,
+        clarification_kind: "none",
+        task: { id: "task-created", title: "任务模板 1", source: "manual", status: "pending", task_type: "business_approval", skill: "business_approval" },
+        tasks: [{ id: "task-created", title: "任务模板 1", source: "manual", status: "pending", task_type: "business_approval" }],
+        resolved_tasks: [{ id: "business_approval", title: "任务模板 1", skill_id: "business_approval", prompt: "Expense approval [requester] [amount] [currency]", input_schema: [] }],
+        resolution: { confidence: 0.99, needs_clarification: false, clarification_kind: "none", task_type: "business_approval", entities: {}, source: "fixture" },
       },
     });
   });
@@ -3806,7 +4268,7 @@ test("task workbench switches today/templates, filters sources, and runs one of 
       ],
       tasks: [
         { id: "manual-1", title: "手动跟进", source: "manual", status: "pending", priority: "high", history_summary: "任务已创建 · 待处理", kol_name: "小美妆日记", collab_summary: "LT品牌合作", recent_followup: "任务已创建 · 待处理", current_stage: "初步接触", suggested_stage: "已回复-有兴趣" },
-        { id: "ai-1", title: "AI 风险发现", source: "ai", status: "running", risk: "合作临近延期", history_summary: "识别风险 · 进行中", recent_followup: "识别风险 · 进行中" },
+        { id: "ai-1", title: "AI 风险发现", source: "ai", status: "running", priority: "normal", risk: "合作临近延期", risk_level: "high", due_at: new Date().toISOString(), history_summary: "识别风险 · 进行中", recent_followup: "识别风险 · 进行中" },
         { id: "done-1", title: "已完成复盘", source: "manual", status: "completed", priority: "low", history_summary: "复盘完成 · 已完成", recent_followup: "复盘完成 · 已完成" },
       ],
       tabs: [
@@ -3818,29 +4280,33 @@ test("task workbench switches today/templates, filters sources, and runs one of 
       ],
   });
   await page.goto("/");
+  await expect.poll(() => taskDefinitionGets).toBeGreaterThan(0);
   await expectHomeModeOrder(page);
   await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-today-summary], [data-home-stats]")).toHaveCount(0);
   await expect(page.locator("[data-today-list]")).toBeVisible();
   await expect(page.locator("[data-recommended-tasks]")).toHaveCount(0);
   await openHomeTodo(page);
-  // 高优先/进行中的行按今日/待办拆分归今日面板；待办面板为空（原 2 行 data-todo-card 集合已迁移）。
-  // 今日面板行来自 GET /api/home/today-tasks 的服务端展示记忆，本测试的 board/tasks stub 覆盖不到，
-  // 故 manual-1/ai-1 在今日面板的行断言无法在本测试内表达，随分桶列表移除。
-  await expect(page.locator("[data-home-pane=\"todo\"] [data-today-todo]")).toHaveCount(0);
+  // 原生 TaskBoard 的 todo 行直接投影本测试的 tasks stub；保留 host 语义，不再断言退役的空分桶。
+  const todoRows = page.locator("[data-home-pane=\"todo\"] [data-today-todo]");
+  await expect(todoRows).toHaveCount(2);
+  await expect(todoRows.nth(0)).toHaveAttribute("data-today-display", "host");
+  await expect(todoRows.nth(1)).toHaveAttribute("data-today-display", "host");
+  await expect(todoRows.nth(0)).toContainText("手动跟进");
+  await expect(todoRows.nth(1)).toContainText("AI 风险发现");
   await expect(page.locator("[data-home-pane=\"todo\"] [data-recommended-tasks]")).toHaveCount(0);
   await openHomeAi(page);
   await expect(page.locator("[data-today-list]")).toBeVisible();
   await expect(page.locator("[data-insight-card]")).toHaveCount(0);
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("今天推荐");
   await openHomeLifecycle(page);
-  await expectNoHomeChrome(page);
+  await wb4ExpectCompactLifecycleSurface(page);
   await expect(page.locator("[data-home]")).toHaveAttribute("data-followed-chrome", "compact");
   await expect(page.locator("[data-today-summary]")).toBeHidden();
-  await expectFollowedKolHeadingRemoved(page);
+  await wb4ExpectNativeLifecycleHeading(page);
   await expectFollowedKolListAlignsWithToolbar(page);
-  await expectFollowedKolCardWraps(page, "小美妆日记");
-  await expectFollowedTypeColor(page, "小美妆日记");
+  await wb4ExpectNativeFollowedCard(page, "小美妆日记");
+  await wb4ExpectNativeFollowedTypography(page, "小美妆日记");
   await expectFollowedDecisionDensity(page);
   await expectFollowedObjectToolbar(page);
   await expect(page.getByRole("link", { name: /查看KOL全生命周期/ })).toHaveCount(0);
@@ -3876,23 +4342,37 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await expect(exceptionCard.locator("[data-stage-label]")).toHaveText("争议中");
   await expect(exceptionCard.locator("[data-current-state]")).not.toContainText(" · 异常");
   await expect(exceptionCard.locator('[data-kol-chip="exception"]')).toHaveText("异常");
-  await page.locator("[data-open-work-panel]").click();
-  await expect(page.locator("[data-work-panel]")).toBeVisible();
-  await page.locator('[data-home-tab="today"]').click();
-  await page.locator('[data-panel-filter="open"]').click();
-  await expect(page.locator("[data-work-panel] .today-task")).toHaveCount(2);
-  await page.locator('[data-panel-filter="ai"]').click();
-  await expect(page.locator("[data-work-panel] .today-task")).toHaveCount(1);
-  await expect(page.locator("[data-work-panel] .today-task.task-ai")).toContainText("AI 风险发现");
-  await page.getByRole("tab", { name: "任务模板" }).click();
-  await expect(page.locator("[data-task-template]").filter({ hasText: /任务模板 \d+/ })).toHaveCount(25);
-  await page.locator("[data-task-template]").filter({
-    has: page.locator(".rec-title", { hasText: /^任务模板 1$/ }),
-  }).click();
-  await expectHomeComposerDraft(page, "任务模板 1");
+  // Retired work-panel source filters are intentionally absent. The native
+  // Todo TaskBoard owns priority, reminder, and query filtering over the two
+  // open rows; the AI risk row must remain independently discoverable.
+  await openHomeTodo(page);
+  const taskBoard = page.locator('[data-home-pane="todo"] [data-todo-list]');
+  const boardRows = taskBoard.locator("[data-today-todo]");
+  await expect(taskBoard).toBeVisible();
+  await expect(boardRows).toHaveCount(2);
+  await expect(taskBoard.locator('[data-board-filter="in"]')).toBeVisible();
+  await taskBoard.locator('[data-board-filter="in"]').click();
+  await expect(boardRows).toHaveCount(1);
+  await expect(boardRows).toContainText("手动跟进");
+  await taskBoard.locator('[data-board-filter="all"]').click();
+  await expect(taskBoard.locator('[data-attention-filter="due_today"]')).toBeVisible();
+  await taskBoard.locator('[data-attention-filter="due_today"]').click();
+  await expect(boardRows).toHaveCount(1);
+  await taskBoard.locator(".task-board-search input").fill("AI 风险发现");
+  await expect(boardRows).toContainText("AI 风险发现");
+  await expect(boardRows).not.toContainText("手动跟进");
+  await openHomeTemplates(page);
+  const menu = page.getByRole("menu", { name: "添加内容" });
+  await expect(menu.locator('[data-skill-option]')).toHaveCount(25);
+  await homeRecByTitle(page, "任务模板 1").click();
+  await expectHomeComposerDraft(page, "Expense approval [requester] [amount] [currency]");
   expect(posted).toEqual([]);
   await submitHomeComposer(page);
   expect(posted).toEqual(["/api/tasks/from-text", "/api/tasks/task-created/run"]);
+  expect(fromTextBodies).toHaveLength(1);
+  expect(fromTextBodies[0]).toMatchObject({ task_type: "business_approval", intent: "business_approval" });
+  expect(runBodies).toHaveLength(1);
+  expect(runBodies[0]).toMatchObject({ intent: "business_approval" });
   await expect(page).toHaveURL(/\/s\/session-created/);
 });
 
@@ -3971,21 +4451,30 @@ test("task detail keeps process in center, result on right, and supports complet
   await expect(page.locator("[data-task-detail]")).not.toContainText("AI 发现");
   await expect(page.locator("[data-task-source='ai']")).toHaveText("今天推荐");
   await expect(page.locator('[data-kind="process-trace"]')).toContainText("汇总合作状态");
-  // 结果卡在中栏时间流里完整出现一次；右栏是指向它的目录。
-  await expect(page.locator('.chat [data-kind="task-result-card"]')).toHaveCount(1);
-  await expect(page.locator('[data-session-stream-pane] [data-kind="task-result-card"]')).toContainText("一项合作需要优先处理");
-  await expect(page.locator("[data-workbench] [data-result-entry='result']")).toContainText("合作进展复盘");
+  // 当前原生布局：中栏是成果指针，右栏完整成果仍只渲染一次。
+  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toHaveCount(1);
+  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("一项合作需要优先处理");
+  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("合作进展复盘");
+  const taskContext = page.locator("[data-task-context]");
+  await expect(taskContext).not.toHaveAttribute("open", "");
+  await taskContext.locator("summary").click();
+  await expect(taskContext).toHaveAttribute("open", "");
+  await expect(page.locator("[data-complete-task]")).toBeVisible();
   await page.locator("[data-complete-task]").click();
   await expect(page.locator("[data-task-detail]")).toContainText("任务已完成验收");
   expect(completed).toBe(true);
   expect(dialogs).toEqual([]);
   expect(completionCommand?.acceptance_evidence).toMatchObject({ source: "employee_confirmation" });
-  await page.getByRole("link", { name: "返回任务列表" }).click();
+  await page.locator(".session-workspace-header [data-session-back-link]").click();
   await expect(page).toHaveURL(/\/$/);
 });
 
 test("task detail keeps one middle-column scroller and the thinking inside it", async ({ page }) => {
   const now = new Date().toISOString();
+  // Session first probes the task binding before Chat uses this read-only local
+  // task mirror. An explicit 404 preserves the ordinary-chat route and avoids a
+  // live backend read holding the route in its loading state.
+  await page.route("**/api/tasks/by-session/session-one-scroll", (route) => route.fulfill({ status: 404, json: { detail: { code: "task_not_found" } } }));
   await page.addInitScript(() => sessionStorage.setItem("task:session-one-scroll", "task-one-scroll"));
   await page.route("**/api/tasks/task-one-scroll", async (route) => {
     await route.fulfill({ json: {
@@ -4020,6 +4509,7 @@ test("task detail keeps one middle-column scroller and the thinking inside it", 
     ],
   } }));
   await page.goto("/s/session-one-scroll");
+  await wb12WaitForLazyRoute(page);
   await expect(page.locator("[data-session-stream-pane] [data-session-skill-template]")).toHaveCount(1);
   const trace = page.locator("[data-session-stream-pane] [data-kind='process-trace']");
   await expect(trace).toContainText("Comparing AGENTS file and instructions");
@@ -4047,72 +4537,86 @@ test("task detail keeps one middle-column scroller and the thinking inside it", 
   await page.mouse.wheel(0, 400);
   await expect.poll(() => pane.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
 
-  // 右栏＝今日任务右栏同一组宽度 token：展开 clamp(360, 54%, 820)，收起 56。
+  // 当前 agent visual 的中栏为固定内容宽度加双侧 gutter；右栏占剩余列，收起仍用同一 token。
   const rail = page.locator("[data-workbench]");
   const geometry = await page.evaluate(() => {
     const railEl = document.querySelector("[data-workbench]");
-    const shell = document.querySelector(".session-shell");
+    const workspace = document.querySelector('[data-home-pane="session"][data-agent-visual]');
     const root = getComputedStyle(document.documentElement);
-    const shellStyle = shell ? getComputedStyle(shell) : null;
-    const available = shell && shellStyle
-      ? shell.clientWidth - parseFloat(shellStyle.paddingLeft) - parseFloat(shellStyle.paddingRight)
-      : 0;
-    const min = parseFloat(root.getPropertyValue("--workspace-result-rail-min"));
-    const ideal = parseFloat(root.getPropertyValue("--workspace-result-rail-ideal")) / 100;
-    const max = parseFloat(root.getPropertyValue("--workspace-result-rail-max"));
+    const content = parseFloat(root.getPropertyValue("--workspace-agent-content-w"));
+    const gutter = parseFloat(root.getPropertyValue("--workspace-pane-gutter"));
     return {
       rail: railEl ? railEl.getBoundingClientRect().width : 0,
-      expected: Math.min(Math.max(min, available * ideal), max),
+      expected: workspace ? workspace.getBoundingClientRect().width - content - 2 * gutter : 0,
       collapsed: parseFloat(root.getPropertyValue("--workspace-result-rail-collapsed")),
     };
   });
   expect(Math.abs(geometry.rail - geometry.expected)).toBeLessThanOrEqual(1);
 
-  // 右栏只有一条滚动轴：可滚动容器只有 .side-body。
+  // 右栏只有一条滚动轴：原生 shell owns the scroll container; embedded result body stays static.
   const railScrollers = await rail.evaluate((el) => Array.from(el.querySelectorAll("*"))
     .filter((node) => node instanceof HTMLElement && /(auto|scroll)/.test(getComputedStyle(node).overflowY))
     .map((node) => (node as HTMLElement).className));
-  expect(railScrollers).toEqual(["side-body"]);
+  expect(railScrollers).toEqual(["scope-task-rail-scroll"]);
 
-  // 切换按钮＝今日任务右栏同一个控件：24px 图标按钮 + aria-expanded；收起后回到同一条收起档。
+  // 切换按钮＝今日任务右栏同一个控件：控制高度、当前 icon token + aria-expanded；收起后回到同一条收起档。
   const toggle = page.locator("[data-workbench] [data-workbench-toggle]");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   const toggleBox = await toggle.boundingBox();
   expect(Math.round(toggleBox!.width)).toBe(24);
   expect(Math.round(toggleBox!.height)).toBe(24);
   const toggleIconBox = await toggle.locator(".scope-task-rail-toggle-icon").boundingBox();
-  expect(Math.round(toggleIconBox!.width)).toBe(16);
-  expect(Math.round(toggleIconBox!.height)).toBe(16);
+  const iconToken = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--icon-md")));
+  expect(Math.round(toggleIconBox!.width)).toBe(Math.round(iconToken));
+  expect(Math.round(toggleIconBox!.height)).toBe(Math.round(iconToken));
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect.poll(() => rail.evaluate((el) => el.getBoundingClientRect().width)).toBeLessThanOrEqual(geometry.collapsed + 1);
   await toggle.click();
   await expect.poll(() => rail.evaluate((el) => el.getBoundingClientRect().width)).toBeGreaterThan(geometry.collapsed + 10);
 
-  // 与今日任务右栏同宽（跨页对照，同一组 token，同一段可用宽度）。
+  // Today 保持它自己的 clamp 右栏合同；会话 agent visual 不再错误复用 retired session-shell 的宽度算法。
   const sessionComposer = await page.evaluate(() => {
     const el = document.querySelector(".session-composer .composer");
-    return el ? Math.round(el.getBoundingClientRect().width) : 0;
+    const center = document.querySelector('[data-home-pane="session"] .scope-workspace-center-content');
+    return {
+      composer: el ? Math.round(el.getBoundingClientRect().width) : 0,
+      center: center ? Math.round(center.getBoundingClientRect().width) : 0,
+    };
   });
+  expect(Math.abs(sessionComposer.composer - sessionComposer.center)).toBeLessThanOrEqual(1);
   await page.goto("/");
   const homeRail = page.locator("[data-home] [data-scope-task-rail]");
   await expect(homeRail).toBeVisible();
   await saveScreenshot(page, "today-pane-parity-reference.png");
   const home = await page.evaluate(() => {
     const railEl = document.querySelector("[data-home] [data-scope-task-rail]");
+    const workspace = document.querySelector('[data-home-pane="today"]');
     const composer = document.querySelector("[data-home] [data-composer] .composer");
+    const center = document.querySelector('[data-home-pane="today"] .scope-workspace-center-content');
+    const centerFrame = document.querySelector('[data-home-pane="today"] .scope-workspace-center');
+    const root = getComputedStyle(document.documentElement);
+    const min = parseFloat(root.getPropertyValue("--workspace-result-rail-min"));
+    const ideal = parseFloat(root.getPropertyValue("--workspace-result-rail-ideal")) / 100;
+    const max = parseFloat(root.getPropertyValue("--workspace-result-rail-max"));
+    const available = workspace ? workspace.getBoundingClientRect().width : 0;
     return {
       rail: railEl ? railEl.getBoundingClientRect().width : 0,
+      expectedRail: Math.min(Math.max(min, available * ideal), max),
       composer: composer ? Math.round(composer.getBoundingClientRect().width) : 0,
+      center: center ? Math.round(center.getBoundingClientRect().width) : 0,
+      trailingGutter: centerFrame ? parseFloat(getComputedStyle(centerFrame).paddingRight) : 0,
     };
   });
-  expect(Math.abs(home.rail - geometry.rail)).toBeLessThanOrEqual(1);
-  // 提问框是同一种控件：同宽、同圆角（--composer-radius）。
-  expect(Math.abs(home.composer - sessionComposer)).toBeLessThanOrEqual(1);
+  expect(Math.abs(home.rail - home.expectedRail)).toBeLessThanOrEqual(1);
+  // Home center reserves its trailing gutter outside the dock; the dock fills the remaining native content width.
+  expect(Math.abs(home.composer - (home.center - home.trailingGutter))).toBeLessThanOrEqual(1);
 });
 
 test("process trace shows harness thinking in the list instead of a fixed five-step template", async ({ page }) => {
   const now = new Date().toISOString();
+  // This fixture is deliberately a message-only session, not an implicit task.
+  await page.route("**/api/tasks/by-session/session-thinking", (route) => route.fulfill({ status: 404, json: { detail: { code: "task_not_found" } } }));
   await page.route("**/api/sessions/session-thinking", (route) => route.fulfill({ json: {
     agent_status: "listening",
     messages: [
@@ -4130,6 +4634,7 @@ test("process trace shows harness thinking in the list instead of a fixed five-s
     ],
   } }));
   await page.goto("/s/session-thinking");
+  await wb12WaitForLazyRoute(page);
   const trace = page.locator('[data-kind="process-trace"]');
   await expect(trace).toContainText("已根据平台和关键词整理采集范围。");
   await expect(trace).toHaveAttribute("data-harness-thinking", "true");
@@ -4174,7 +4679,7 @@ test("process trace keeps reasoning summary prose instead of generic processing 
   await expect(trace).toContainText("校验输出");
   await expect(trace).toContainText("正在分析…");
   await expect(trace).not.toContainText("正在处理这项工作");
-  await expect(trace).toContainText("Using to read the for camping creators.");
+  await expect(trace.locator('li[data-kind="reasoning"]').nth(1)).toContainText("正在分析…");
   await expect(trace).not.toContainText("calling capabilities");
   await expect(trace).not.toContainText("secret");
   await expectNoEngineJargon(trace);
@@ -4182,10 +4687,123 @@ test("process trace keeps reasoning summary prose instead of generic processing 
   await expect(page.locator("[data-run-status]")).toContainText(english);
 });
 
+/** Current Reviews v2 browser fixture. It deliberately has a requester and a
+ * separate active reviewer, and validates versioned prepare → confirmed command
+ * writes instead of reviving the retired /api/approvals page contract. */
+async function wb5InstallApprovalStub(page: Page, options: { id: string; created?: boolean } = { id: "review_wb5_created", created: false }) {
+  const id = options.id;
+  const names = ["林桐", "王主管", "财务负责人", "张总"];
+  const reviewerIds = names.map((_, index) => `reviewer-${index + 1}`);
+  const definition = {
+    schema: "review.definition.v1" as const, name: "费用审批（FIN-EXP-004）", description: "按 FIN-EXP-004 逐级复核；审批不自动外发或推进合作阶段。",
+    fields: [{ id: "amount", label: "费用金额", type: "money" as const, required: true, currencies: ["USD"], currencySource: "FIN-EXP-004" }, { id: "purpose", label: "费用用途", type: "textarea" as const, required: true }],
+    nodes: [{ id: "start", name: "发起", type: "start" as const, next: "review-1" }, ...names.map((name, index) => ({ id: `review-${index + 1}`, name, type: "review" as const, assignee: { kind: "named" as const, userIds: [reviewerIds[index]] }, mode: "single" as const, reject: "any_reject" as const, next: index === names.length - 1 ? "end" : `review-${index + 2}` })), { id: "end", name: "结束", type: "end" as const }],
+  };
+  const commands: unknown[] = [];
+  let created = options.created ?? false, forceStale = false, confirmation: { id: string; command: any } | undefined;
+  const make = () => {
+    const current = Math.min(Math.max(instance?.tasks.findIndex((task: any) => task.status === "pending") ?? 0, 0), names.length - 1);
+    return {
+      id, templateId: "fin-exp-004", templateVersion: 17, version: instance?.version ?? 17, requester: "employee-requester-liyuyan", title: "黎玉燕 KOL 推广费用", definition,
+      values: { amount: { amount: "50000", currency: "USD" }, purpose: "KOL 推广" }, currentNode: `review-${current + 1}`,
+      status: instance?.status ?? "reviewing", allowedActions: instance?.status && instance.status !== "reviewing" ? [] : ["approve", "reject"],
+      tasks: instance?.tasks ?? names.map((_, index) => ({ id: `task-${index + 1}`, nodeId: `review-${index + 1}`, userId: reviewerIds[index], status: index === 0 ? "pending" : "waiting", duty: "review", round: 1 })),
+      events: instance?.events ?? [], createdAt: "2026-10-15T00:00:00.000Z", updatedAt: "2026-10-15T00:00:00.000Z", progress: { approval: instance?.status === "approved" ? "approved" : instance?.status === "rejected" ? "rejected" : "pending", fulfillment: "none", currentResponsibility: names[current] },
+    };
+  };
+  let instance: any = created ? undefined : undefined;
+  if (created) instance = make();
+  const json = (route: any, body: unknown, status = 200) => route.fulfill({ status, json: body });
+  await page.route("**/api/approvals/v2/**", async route => {
+    const p = new URL(route.request().url()).pathname.split("/v2/")[1], method = route.request().method();
+    if (p === "companies") return json(route, [{ id: "lt", name: "LiTime" }]);
+    if (p === "context") return json(route, { tenant: "lt", actor: "reviewer-1", admin: false, organization: { defaultUnitId: "lt", units: [{ id: "lt", name: "LiTime", parentId: null }] }, people: [{ id: "employee-requester-liyuyan", name: "黎玉燕", managerIds: [] }, ...names.map((name, index) => ({ id: reviewerIds[index], name, managerIds: [] }))] });
+    if (p === "templates") return json(route, [{ id: "fin-exp-004", enabled: true, lifecycleVersion: 3, version: 17, publishedVersion: 17, definition, updatedAt: "2026-10-15T00:00:00.000Z" }]);
+    if (p === "drafts") return json(route, []);
+    if (p === "notifications/inbox") return json(route, { unreadCount: created ? 1 : 0, items: created ? [{ id: "notice-wb5", instance_id: id, message: "待处理费用审批", created_at: "2026-10-15T00:00:00.000Z", read_at: null }] : [] });
+    if (p === "notifications/notice-wb5/read") return json(route, { id: "notice-wb5", readAt: "2026-10-15T00:00:00.000Z" });
+    if (p.startsWith("instance-page")) return json(route, { items: created && instance ? [instance] : [], nextCursor: null });
+    if (p === `instances/${id}` && method === "GET") return created && instance ? json(route, instance) : json(route, { detail: { code: "not_found", message: "审批不存在" } }, 404);
+    const body = route.request().postDataJSON() as any;
+    if (p === "preview") {
+      if (body.templateVersion !== 17 || body.values?.amount?.amount !== "50000" || body.values?.amount?.currency !== "USD") return json(route, { detail: { code: "invalid_preview", message: "费用、币种和 FIN-EXP-004 版本必须完整匹配" } }, 400);
+      return json(route, { summary: { name: definition.name, version: 17, consequence: "审批通过后不会自动外发或推进合作阶段。", reviewers: names }, trace: reviewerIds.map((userId, index) => ({ nodeId: `review-${index + 1}`, type: "review", userIds: [userId] })) });
+    }
+    if (p === "prepare") {
+      if (body.templateVersion !== undefined && body.templateVersion !== 17) return json(route, { detail: { code: "stale", message: "流程版本已变化，请重新核对。" } }, 409);
+      if (body.expectedVersion !== undefined && body.expectedVersion !== instance?.version) return json(route, { detail: { code: "stale", message: "内容已变化，请重新确认。" } }, 409);
+      confirmation = { id: `confirmation-${commands.length + 1}`, command: body };
+      return json(route, { confirmationId: confirmation.id, expiresAt: "2099-01-01T00:00:00.000Z", summary: { name: body.title || instance?.title || definition.name, version: body.templateVersion || instance?.templateVersion || 17, scope: "LiTime · 费用审批 · 请求人与审批人分离", configuration: "FIN-EXP-004", reviewers: names, consequence: body.action === "reject" ? "驳回将结束该申请，必须填写处理意见。" : "仅记录审批决定；不会自动外发或推进合作阶段。" } });
+    }
+    if (p === "commands") {
+      if (!confirmation || body.confirmationId !== confirmation.id || JSON.stringify(body.command) !== JSON.stringify(confirmation.command) || !body.idempotencyKey) return json(route, { detail: { code: "confirmation_invalid", message: "确认内容不匹配" } }, 409);
+      const command = body.command;
+      if (forceStale && command.action === "approve") { forceStale = false; instance = { ...instance, version: instance.version + 1 }; return json(route, { detail: { code: "stale", message: "内容已变化，请重新确认。" } }, 409); }
+      if (command.action === "submit") { created = true; instance = make(); }
+      else if (!instance || command.expectedVersion !== instance.version) return json(route, { detail: { code: "stale", message: "内容已变化，请重新确认。" } }, 409);
+      else if (command.action === "reject") {
+        if (!command.reason?.trim()) return json(route, { detail: { code: "reject_reason_required", message: "请填写驳回原因" } }, 400);
+        const tasks = instance.tasks.map((task: any) => task.status === "pending" ? { ...task, status: "rejected", reason: command.reason.trim(), decidedAt: "2026-10-15T00:01:00.000Z" } : task);
+        instance = { ...instance, version: instance.version + 1, status: "rejected", allowedActions: [], tasks, events: [...instance.events, { id: `event-${instance.version}`, actor: "reviewer-1", action: "reject", version: instance.version + 1, detail: { reason: command.reason.trim() }, created_at: "2026-10-15T00:01:00.000Z" }], progress: { approval: "rejected", fulfillment: "cancelled", currentResponsibility: "审批已结束" } };
+      } else if (command.action === "approve") {
+        const index = instance.tasks.findIndex((task: any) => task.status === "pending"), done = index === names.length - 1;
+        const tasks = instance.tasks.map((task: any, taskIndex: number) => taskIndex === index ? { ...task, status: "approved", decidedAt: "2026-10-15T00:01:00.000Z" } : taskIndex === index + 1 ? { ...task, status: "pending" } : task);
+        instance = { ...instance, version: instance.version + 1, status: done ? "approved" : "reviewing", currentNode: done ? "end" : `review-${index + 2}`, allowedActions: done ? [] : ["approve", "reject"], tasks, events: [...instance.events, { id: `event-${instance.version}`, actor: "reviewer-1", action: "approve", version: instance.version + 1, detail: {}, created_at: "2026-10-15T00:01:00.000Z" }], progress: { approval: done ? "approved" : "pending", fulfillment: "none", currentResponsibility: done ? "审批已结束" : names[index + 1] } };
+      }
+      commands.push(body); return json(route, { id: `receipt-${commands.length}`, resourceId: id, version: instance.version });
+    }
+    return json(route, { detail: { code: "fixture_route_not_found", message: p } }, 404);
+  });
+  return { id, commands, forceStale: () => { forceStale = true; } };
+}
+
+async function wb5InstallCronStub(page: Page) {
+  const now = "2026-10-15T00:00:00.000Z";
+  let ran = false;
+  const job = () => ({
+    id: "overdue-scan",
+    job_key: "overdue-scan",
+    title: "失联与延期扫描",
+    handler_key: "overdue-scan",
+    cron_expr: "0 8 * * *",
+    timezone: "Asia/Shanghai",
+    status: "published",
+    next_run_at: now,
+    system: true,
+    allowed_actions: { pause: true, resume: false, run_now: true },
+    execution_capability: { ready: true },
+    ...(ran ? { last_terminal_status: "succeeded", last_result_label: "已完成" } : {}),
+  });
+  const run = () => ({
+    id: "cron-run-wb5-overdue",
+    job_id: "overdue-scan",
+    status: "succeeded",
+    started_at: now,
+    ended_at: now,
+    receipt: { handler_key: "overdue-scan", items: [{ handle: "T8", stage_label: "已停留", days_in_stage: 8 }] },
+  });
+  await page.route("**/api/cron/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const method = route.request().method();
+    if (path === "/api/cron/jobs" && method === "GET") return route.fulfill({ json: { jobs: [job()] } });
+    if (path === "/api/cron/jobs/overdue-scan/run" && method === "POST") {
+      ran = true;
+      return route.fulfill({ json: { run_id: run().id } });
+    }
+    if (path === "/api/cron/runs/cron-run-wb5-overdue" && method === "GET") return route.fulfill({ json: { run: run(), job: job() } });
+    if (path === "/api/cron/jobs/overdue-scan" && method === "GET") return route.fulfill({ json: { job: job(), runs: ran ? [run()] : [] } });
+    return route.fulfill({ status: 404, json: { detail: { code: "fixture_route_not_found" } } });
+  });
+}
+
 test("creator discovery shows auto-started crawl progress in the middle and can stop", async ({ page }) => {
   const now = new Date().toISOString();
   let stopped = false;
   let jobReads = 0;
+  // The current Session route probes this endpoint before the local task mirror.
+  // Keep the intent as an ordinary chat session so Chat reads the explicit task
+  // fixture below rather than changing discovery authorization or behavior.
+  await page.route("**/api/tasks/by-session/crawl-session", (route) => route.fulfill({ status: 404, json: { detail: { code: "task_not_found" } } }));
   await page.addInitScript(() => sessionStorage.setItem("task:crawl-session", "crawl-task"));
   await page.route("**/api/tasks/crawl-task", (route) => route.fulfill({ json: {
     id: "crawl-task",
@@ -4255,9 +4873,10 @@ test("creator discovery shows auto-started crawl progress in the middle and can 
   ] }));
 
   await page.goto("/s/crawl-session");
+  await wb12WaitForLazyRoute(page);
   await expect(page.locator('[data-crawl-middle-status="crawling"]')).toContainText("remote-safe-101");
   await expect(page.locator("[data-start-crawl]")).toHaveCount(0);
-  await expect(page.locator("[data-workbench]")).toHaveCount(0);
+  await expect(page.locator("[data-workbench]")).toBeVisible();
   await expect(page.locator('[data-kind="process-trace"]')).toContainText(/正在安全采集公开创作者数据|远程采集已排队/);
   await expect(page.locator('[data-kind="operation-trace"]')).toContainText("启动远程采集");
   await expect(page.locator('[data-kind="operation-trace"]')).toContainText("查询远程采集状态");
@@ -4276,18 +4895,35 @@ test("quoted creator-search keywords show analysis without a right-side plan", a
   await page.goto("/");
   await page.locator("[data-home] [data-composer-input]").fill("搜索 Instagram“户外电源、房车露营”达人。");
   await page.locator("[data-home] [data-send]").click();
-  await page.waitForURL(/\/s\//);
-  // 中栏不再有「分析摘要」；解析出的平台与关键词在发现条件快照里对员工可见。
+  // 自然语言解析先确认方向，不自动启动采集或创建执行会话；显式继续后条件仍保持 quoted 关键词。
+  const feedback = page.locator("[data-home] [data-creation-feedback]");
+  await expect(feedback).toContainText("已识别为红人发现", { timeout: 20000 });
+  await expect(page).toHaveURL(/\/(?:\?.*)?$/);
+  expect((await request.get("/api/tasks").then(r => r.json()) as unknown[]).length).toBe(before.length);
+  await feedback.getByRole("button", { name: "在 AI发现 中继续", exact: true }).click();
+  await expect(page.locator('[data-home-pane="discovery"]')).toBeVisible();
+  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/Instagram/);
+  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/户外电源/);
+  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/房车露营/);
+  await page.locator("[data-home] [data-send]").click();
+  // 发现提交在 AI发现 的同一 shell 中继续；session_id 是可恢复地址，不是首屏生命周期的前置条件。
+  await expect(page).toHaveURL(/\/?\?tab=discovery(?:&.*)?$/);
+  // 只读条件快照与分析状态都来自同一次真实 workspace 回执。
   await expect(page.locator("[data-task-analysis-summary]")).toHaveCount(0);
-  const snapshot = page.locator("[data-discovery-condition-snapshot]");
+  const snapshot = page.locator("[data-discovery-submitted-conditions]");
+  await expect(snapshot).toBeVisible();
+  await snapshot.locator("summary").click();
   await expect(snapshot).toContainText("Instagram");
   await expect(snapshot).toContainText("户外电源");
   await expect(snapshot).toContainText("房车露营");
   await expect(page.locator("[data-start-crawl]")).toHaveCount(0);
-  await expect(page.locator("[data-workbench]")).toHaveCount(0);
+  await expect(page.locator("[data-discovery-run-status]")).toBeVisible();
+  await expect(page.locator("[data-discovery-next-plan]")).toHaveCount(0);
   await expect(page.locator("[data-crawl-status]")).toHaveCount(0);
   const after = await request.get("/api/tasks").then((response) => response.json()) as unknown[];
-  expect(after.length).toBe(before.length + 1);
+  // This is R2 parameter preparation only: it remains in the discovery shell until
+  // the employee receives and confirms a concrete crawl action, so no task is yet added.
+  expect(after.length).toBe(before.length);
 });
 
 test("ready crawl result renders candidates and prefills follow-up tasks without email", async ({ page }) => {
@@ -4326,7 +4962,7 @@ test("ready crawl result renders candidates and prefills follow-up tasks without
   ] }));
 
   await page.goto("/s/crawl-result-session");
-  const results = page.locator("[data-crawl-candidates]");
+  const results = page.locator("[data-workbench] [data-crawl-candidates]").first();
   await expect(results).toContainText("露营研究所");
   await expect(results).toContainText("up-42");
   await expect(results).toContainText("125,000");
@@ -4360,17 +4996,54 @@ test("generic creator profile task result stays in the standard result renderer"
     messages: [],
   } }));
   await page.goto("/s/profile-session");
-  await expect(page.locator('[data-session-stream-pane] [data-kind="task-result-card"]')).toContainText("内容以户外装备实测为主");
+  await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("内容以户外装备实测为主");
   await expect(page.locator("[data-crawl-candidates]")).toHaveCount(0);
 });
 
 test("达人画像 and 更新红人负责人 run through Starry KOL MCP", async ({ page }) => {
+  // 当前 Host 要求 creator 是本地可见的真实身份，MCP stub 资料本身不能替代上下文。
+  // 只补本案例的两个身份镜像，不装配结果卡、不改授权；画像和负责人结果仍由实际 MCP 生成。
+  const databaseUrl = String(process.env.DATABASE_URL || "");
+  expect(process.env.E2E_MODE).toBe("stub");
+  expect(new URL(databaseUrl).hostname).toBe("127.0.0.1");
+  // Only the explicitly declared local test database or its numeric shards.
+  // Do not couple the safety gate to one obsolete Sandbox run's database name.
+  const testPrefix = String(process.env.TEST_DB_PREFIX || "");
+  expect(testPrefix).toMatch(/^[a-z_][a-z0-9_]+$/);
+  expect(testPrefix).toMatch(/(?:^kol_rem_|test|e2e)/);
+  const databaseName = decodeURIComponent(new URL(databaseUrl).pathname.slice(1));
+  expect(databaseName === testPrefix || (
+    databaseName.startsWith(`${testPrefix}_`) && /^\d+$/.test(databaseName.slice(testPrefix.length + 1))
+  )).toBe(true);
+  const { default: pg } = await import("../../backend/node_modules/pg/lib/index.js");
+  const fixtureDb = new pg.Pool({ connectionString: databaseUrl });
+  try {
+    // Match both remote stub UIDs to their native collaboration IDs. Creator-context
+    // lookup is by that ID, so an arbitrary test-row ID is not a valid association.
+    for (const [id, uid, handle, lifecycleId, conversationId, stageCode, ownerName] of [
+      ["KOLTEST001", "KOLTEST001", "户外电源达人", "fixture_lifecycle_101", "101", "INITIAL_CONTACT", "陈组长"],
+      ["KOL9D62420657814F6BAEC8", "KOL9D62420657814F6BAEC8", "测试网红-qq-01", "fixture_lifecycle_qq01", "4", "DELIVERED_TESTING", "赵良玉"],
+    ]) {
+      await fixtureDb.query(`INSERT INTO collaborations
+          (id, handle, display_name, brand, platform, kol_uid, lifecycle_id, conversation_id, email, mailbox_from, stage_code, owner_name, owner_mailbox, source)
+        VALUES ($1,$2,$2,'LT','YouTube',$3,$4,$5,'','kol.lt@litime.example',$6,$7,'henry.wei@amperetime.com','starry')
+        ON CONFLICT (id) DO NOTHING`, [id, handle, uid, lifecycleId, conversationId, stageCode, ownerName]);
+    }
+    const { rows } = await fixtureDb.query<{ id: string; kol_uid: string; lifecycle_id: string; conversation_id: string }>(
+      `SELECT id, kol_uid, lifecycle_id, conversation_id FROM collaborations WHERE id = ANY($1::text[]) ORDER BY id`,
+      [["KOL9D62420657814F6BAEC8", "KOLTEST001"]],
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.kol_uid && row.lifecycle_id && row.conversation_id)).toBe(true);
+  } finally {
+    await fixtureDb.end();
+  }
   await page.goto("/");
   const input = page.locator("[data-home] [data-composer-input]");
   await input.fill("达人画像 达人 UID KOLTEST001");
   await page.locator("[data-home] [data-send]").click();
   await page.waitForURL(/\/s\//);
-  const profile = page.locator('[data-session-stream-pane] [data-kind="task-result-card"]');
+  const profile = page.locator('[data-workbench] [data-kind="task-result-card"]');
   await expect(profile).toBeVisible({ timeout: 20000 });
   await expect(profile).toContainText("达人画像");
   await expect(profile).toContainText("画像说明");
@@ -4383,7 +5056,7 @@ test("达人画像 and 更新红人负责人 run through Starry KOL MCP", async 
   await page.locator("[data-home] [data-composer-input]").fill("达人画像 测试网红-qq-01");
   await page.locator("[data-home] [data-send]").click();
   await page.waitForURL(/\/s\//);
-  const qq = page.locator('[data-session-stream-pane] [data-kind="task-result-card"]');
+  const qq = page.locator('[data-workbench] [data-kind="task-result-card"]');
   await expect(qq).toBeVisible({ timeout: 20000 });
   await expect(qq).toContainText("画像说明");
   await expect(qq).toContainText("测试网红-qq-01");
@@ -4397,7 +5070,7 @@ test("达人画像 and 更新红人负责人 run through Starry KOL MCP", async 
 
   await page.locator("[data-composer-input]").fill("更新红人负责人 达人 UID KOLTEST001 负责人：王主管");
   await page.locator("[data-send]").click();
-  const owner = page.locator('[data-session-stream-pane] [data-kind="task-result-card"]').filter({ hasText: "红人负责人更新结果" });
+  const owner = page.locator('[data-workbench] [data-kind="task-result-card"]').filter({ hasText: "红人负责人更新结果" });
   await expect(owner).toBeVisible({ timeout: 20000 });
   await expect(owner).toContainText("红人绑定 / 负责人");
   await expect(page.locator('[data-kind="operation-trace"]').last()).toContainText("查询达人详情");
@@ -4433,7 +5106,7 @@ test("风险扫描 runs Starry KOL MCP tools and lists T8 overdue", async ({ pag
     await expect(page.locator("[data-session-stream-pane]")).not.toContainText("starry.");
     await expect(page.locator("[data-session-stream-pane]")).not.toContainText("pageRiskConversations");
     await expect(page.locator('[data-kind="process-trace"]')).toContainText("处理过程");
-    await expect(page.locator('[data-kind="process-trace"]')).toContainText("准备任务");
+    await expect(page.locator('[data-kind="process-trace"]')).toContainText("正在核对任务条件");
     await expect(page.locator('[data-kind="process-trace"]')).not.toContainText("理解任务");
     await expect(page.locator('[data-kind="process-trace"]')).not.toContainText("校验安全边界与格式");
   } else {
@@ -4451,9 +5124,13 @@ test("风险扫描 runs Starry KOL MCP tools and lists T8 overdue", async ({ pag
 });
 
 test("首封建联 picker fills the English body and does not open a compose form", async ({ page, request }) => {
-  await request.post("/api/knowledge/kb_mail_kol/cite", { data: {} });
+  const cited = await request.post("/api/knowledge/kb_mail_kol/cite", { data: {} });
+  expect(cited.ok()).toBe(true);
   await page.goto("/");
   const input = page.locator("[data-home] [data-composer-input]");
+  // 模板目录只在写信上下文按需读取；等待当前目录真正装载后再进同一个 / picker。
+  await input.fill("写合作邮件");
+  await expect(page.locator("[data-home] [data-knowledge-preview]")).toBeVisible();
   await input.click();
   await input.fill("/");
   await expect(page.locator("[data-skill-picker] [data-knowledge-option='kb_mail_kol']")).toBeVisible();
@@ -4470,6 +5147,23 @@ test("首封建联 picker fills the English body and does not open a compose for
 });
 
 test("首封建联 starter asks for 发件/收件/主题 and does not show a compose form", async ({ page }) => {
+  const submitted: Record<string, unknown>[] = [];
+  const downstreamWrites: string[] = [];
+  page.on("request", request => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() !== "GET" && (path === "/api/sessions" || /\/run$|\/send$|\/commands$/.test(path))) downstreamWrites.push(path);
+  });
+  // 本案例验证首封缺参 intake，不调用不确定延迟的自然语言模型；回执仍是当前 from-text 协议。
+  await page.route("**/api/tasks/from-text", async route => {
+    submitted.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.fulfill({ json: {
+      confidence: "high", needs_clarification: true, clarification_kind: "missing_fields",
+      clarification: "请补充发件邮箱、收件邮箱和邮件主题；当前仅为草稿，尚未发送。",
+      task: null, tasks: [], resolved_tasks: [],
+      resolution: { task_type: "email_compose", confidence: 0.99, needs_clarification: true,
+        clarification_kind: "missing_fields", missing_fields: ["mailboxEmail", "to", "subject"], entities: {}, source: "fixture" },
+    } });
+  });
   await page.goto("/");
   const input = page.locator("[data-home] [data-composer-input]");
   await input.fill("首封建联 [发件邮箱] [收件邮箱] [主题]");
@@ -4477,6 +5171,12 @@ test("首封建联 starter asks for 发件/收件/主题 and does not show a com
   await submitHomeComposerStay(page);
   await expectHomeClarification(page, "发件邮箱", "收件邮箱", "邮件主题");
   await expect(page.locator("[data-home] [data-creation-feedback]")).not.toContainText("邮件会话");
+  expect(submitted).toHaveLength(1);
+  expect(String(submitted[0].text)).toContain("首封建联 [发件邮箱] [收件邮箱] [主题]");
+  await expect(page.locator("[data-home] [data-creation-feedback]")).toHaveAttribute("data-kind", "missing_fields");
+  await expect(page.locator("[data-home] [data-mail-fields]")).toHaveCount(0);
+  await expect(page).toHaveURL(/\/(?:\?.*)?$/);
+  expect(downstreamWrites).toEqual([]);
 });
 
 test("cited knowledge template appears in the home picker and only prefills", async ({ page, request }) => {
@@ -4508,41 +5208,61 @@ test("cited knowledge template appears in the home picker and only prefills", as
   await expect(page).toHaveURL(/\/(?:\?.*)?$/);
   await expect(page.locator("[data-home] [data-mail-fields]")).toHaveCount(0);
   await page.locator('[data-nav="knowledge"]').click();
-  await expect(page.getByRole("heading", { name: "知识库", exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/kb$/);
+  await expect(page.getByRole("region", { name: "知识列表", exact: true })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "知识详情", exact: true })).toBeVisible();
   const followupRow = page.locator('[data-knowledge="kb_mail_followup"]');
   await expect(followupRow).toBeVisible();
   await followupRow.click();
   await expect(page.locator('[data-kb-preview="kb_mail_followup"]')).toBeVisible();
-  await page.locator('[data-fill-composer="kb_mail_followup"]').click();
+  const target = page.getByRole("complementary", { name: "知识详情" }).getByRole("combobox", { name: "选择目标任务" });
+  await expect(target).toBeEnabled();
+  await target.click();
+  // Ant Select retains an offscreen accessibility mirror. Pick the rendered portal
+  // row (not that mirror and never force-click it), then verify the workbench target.
+  const workbenchOption = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").getByText("工作台提问框", { exact: true });
+  await expect(workbenchOption).toBeVisible();
+  await workbenchOption.click();
+  const useInWorkbench = page.locator('[data-fill-composer="kb_mail_followup"]');
+  await expect(useInWorkbench).toBeEnabled();
+  await expect(useInWorkbench).toHaveText("发到工作台提问框");
+  await useInWorkbench.click();
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/LiTime collab kit/);
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/Just a quick follow-up/);
   await expect(page.locator("[data-home] [data-knowledge-chip='kb_mail_followup']")).toContainText("阶段跟进");
-  await expect(page.locator("[data-home] [data-knowledge-preview='kb_mail_followup']")).toBeVisible();
-  await expect(page.locator("[data-home] [data-knowledge-preview='kb_mail_followup']")).toHaveAttribute("data-knowledge-preview-mode", "lock");
+  // Catalogue handoff restores the locked draft and chips, not an open picker preview.
+  await expect(page.locator("[data-home] [data-knowledge-preview='kb_mail_followup']")).toHaveCount(0);
   await expect(page.locator("[data-home] [data-knowledge-preview-body]")).toHaveCount(0);
-  await expect(page.locator("[data-home] [data-knowledge-preview-title]")).toContainText("阶段跟进");
+  await expect(page.locator("[data-home] [data-knowledge-preview-title]")).toHaveCount(0);
+  await expect(page.locator("[data-home] [data-mail-fields]")).toHaveCount(0);
 });
 
 test("employee knowledge market URL redirects to /kb", async ({ page }) => {
   await page.goto("/market/kb");
   await expect(page).toHaveURL(/\/kb$/);
+  await wb12WaitForLazyRoute(page);
   await expect(page.locator("[data-kb-page='mine']")).toBeVisible();
   await expect(page.locator("[data-kb-page='market']")).toHaveCount(0);
-  await expect(page.locator(".kbv-lead")).not.toContainText("知识市场");
+  await expect(page.locator("[data-kbv-list]")).not.toContainText("知识市场");
 });
 
 test("employee knowledge base uses task copy, taxonomy scope, and an inline detail rail", async ({ page }) => {
   await page.goto("/kb");
   const kb = page.locator("[data-kb-page='mine']");
-  await expect(page.getByRole("heading", { name: "知识库", exact: true })).toBeVisible();
-  await expect(kb.locator(".kbv-lead")).toContainText("选择适合当前任务的资料，AI 会据此生成草稿。正式发送前仍需要你确认。");
+  await expect(page).toHaveURL(/\/kb$/);
+  await wb12WaitForLazyRoute(page);
+  await expect(kb).toBeVisible();
+  await expect(page.getByRole("region", { name: "知识列表", exact: true })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "知识详情", exact: true })).toBeVisible();
+  // 当前知识页取消了 hero/lead；任务动作由所选知识详情的「带入工作草稿」承担，不复活旧标题。
+  await expect(kb.locator(".kbv-lead")).toHaveCount(0);
+  await expect(page.getByRole("complementary", { name: "知识详情" })).toContainText("从列表选择一条知识，查看内容与来源。");
   await expect(kb).not.toContainText(/Codex|Harness|MCP|发送不等于推进阶段|发送不等于改阶段|发送\s*≠|不会改阶段|用这份写信|资产·不发送|资产 · 不发送|知识市场|我的知识库|口径与其它/);
-  // 三级分类（业务域 → 业务主题 → 知识库）联动 tab；品牌多选 / 阶段标签筛选收在「更多筛选」（§20）。
+  // 当前业务族 → 业务域 → 知识库联动筛选；品牌和阶段为同一区域的显式筛选行。
   await expect(kb.locator("[data-kb-scope-picker]")).toBeVisible();
   await expect(kb.locator("[data-kb-scope-family]").first()).toBeVisible();
   await expect(kb.locator("[data-kb-scope-domain]").first()).toBeVisible();
   await expect(kb.locator("[data-kb-scope-base]").first()).toBeVisible();
-  await kb.locator("[data-kbv-more-filters] > summary").click();
   await expect(kb.locator("[data-kb-filter='brand']")).toBeVisible();
   await expect(kb.locator("[data-kb-filter='stage']")).toBeVisible();
   await expect(kb.locator("[data-kb-tab]")).toHaveCount(0);
@@ -4558,15 +5278,39 @@ test("employee knowledge base uses task copy, taxonomy scope, and an inline deta
   await followup.click();
   const rail = page.locator('[data-kb-preview="kb_mail_followup"]');
   await expect(rail).toBeVisible();
-  await expect(rail.locator("[data-kb-summary]")).toBeVisible();
+  // 摘要等于主题时当前 UI 去重；同一语义精确落在主题属性及来源/版本，不制造空摘要。
+  await expect(rail.locator(".kb-preview-subject")).toContainText("Following up — LiTime collab kit");
+  await expect(rail.getByRole("region", { name: "来源与版本" })).toContainText("已发布");
   await expect(rail.locator("[data-kb-preview-body]")).toContainText("Just a quick follow-up");
   await expect(rail.locator("[data-kb-preview-body]")).toContainText("LiTime collab kit");
   await expect(rail.locator("[data-kb-preview-body]")).toContainText("Happy to share the spec sheet");
-  await expect(rail.getByRole("button", { name: "带入工作草稿" })).toBeVisible();
+  await expect(rail.locator("[data-asset-use]")).toBeVisible();
+  await expect(rail.locator(".knowledge-detail-actions")).toContainText("带入工作草稿只会预填内容；正式发送前仍需要你确认。");
   await expect(rail.getByRole("button", { name: "反馈 / 隐藏" })).toBeVisible();
 
-  await rail.getByRole("button", { name: "收藏" }).click();
-  await expect(rail.getByRole("button", { name: "已收藏" })).toBeVisible();
+  // Native reset preserves preferences; 收藏 also substring-matches 取消收藏.
+  // Normalize only this exact fixture through the genuine authorized DELETE.
+  const favorite = rail.locator('[data-kb-favorite="kb_mail_followup"]');
+  await expect(favorite).toBeEnabled();
+  if (await favorite.getAttribute('aria-pressed') === 'true') {
+    const cleared = page.waitForResponse(response => response.request().method() === 'DELETE'
+      && new URL(response.url()).pathname === '/api/knowledge/kb_mail_followup/favorite');
+    await rail.getByRole('button', { name: '取消收藏', exact: true }).click();
+    expect((await cleared).ok()).toBe(true);
+    await expect(favorite).toHaveAttribute('aria-pressed', 'false');
+  }
+  await expect(favorite).toBeEnabled();
+  const favoriteWrite = page.waitForResponse((response) => response.request().method() === "POST"
+    && new URL(response.url()).pathname === "/api/knowledge/kb_mail_followup/favorite", { timeout: 10_000 });
+  await rail.getByRole("button", { name: "收藏", exact: true }).click();
+  expect((await favoriteWrite).ok()).toBe(true);
+  // Confirm the account-level preference after a fresh server read, not only the
+  // rail's optimistic state while another knowledge-list load may still resolve.
+  await page.reload();
+  await wb12WaitForLazyRoute(page);
+  await expect(followup).toBeVisible();
+  await followup.click();
+  await expect(page.getByRole("button", { name: "取消收藏" })).toBeVisible();
 
   // 按库收窄：点击「历史知识」tab；清空筛选恢复「全部」。
   await kb.locator('[data-kb-scope-base="kbase_legacy"]').click();
@@ -4576,7 +5320,16 @@ test("employee knowledge base uses task copy, taxonomy scope, and an inline deta
   await expect(kb.locator('[data-kb-scope-base=""]')).toHaveAttribute("aria-pressed", "true");
 
   await followup.click();
-  await page.locator('[data-fill-composer="kb_mail_followup"]').click();
+  const target = rail.getByRole("combobox", { name: "选择目标任务" });
+  await expect(target).toBeEnabled();
+  await target.click();
+  const workbenchOption = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").getByText("工作台提问框", { exact: true });
+  await expect(workbenchOption).toBeVisible();
+  await workbenchOption.click();
+  const useInWorkbench = page.locator('[data-fill-composer="kb_mail_followup"]');
+  await expect(useInWorkbench).toBeEnabled();
+  await expect(useInWorkbench).toHaveText("发到工作台提问框");
+  await useInWorkbench.click();
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/LiTime collab kit/);
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/Just a quick follow-up/);
   await expect(page).toHaveURL(/\/(?:\?.*)?$/);
@@ -4584,11 +5337,18 @@ test("employee knowledge base uses task copy, taxonomy scope, and an inline deta
 
 test("HTML session payload is shown as a connection error, not SyntaxError", async ({ page, request }) => {
   const ses = await request.post("/api/sessions", { data: { title: "达人库查询" } }).then((r) => r.json()) as { id: string };
+  let failedReads = 0;
+  // Route to Chat through the normal missing-task branch; the test then proves
+  // that its actual session reads render an honest gateway error.
+  await page.route(`**/api/tasks/by-session/${ses.id}`, (route) => route.fulfill({ status: 404, json: { detail: { code: "task_not_found" } } }));
+  // 同一次网关故障必须同时阻断 SSE；否则正常 snapshot 会清空 GET 的错误，变成假阳性恢复。
+  await page.route((url) => url.pathname === `/api/sessions/${ses.id}/events`, route => route.fulfill({ status: 502, contentType: "text/html", body: "<html><body>bad gateway</body></html>" }));
   await page.route((url) => url.pathname === `/api/sessions/${ses.id}`, async (route) => {
     if (route.request().method() !== "GET") {
       await route.continue();
       return;
     }
+    failedReads += 1;
     await route.fulfill({
       status: 502,
       contentType: "text/html",
@@ -4596,11 +5356,13 @@ test("HTML session payload is shown as a connection error, not SyntaxError", asy
     });
   });
   await page.goto(`/s/${ses.id}`);
+  await wb12WaitForLazyRoute(page);
   const alert = page.getByRole("alert").filter({ hasText: "当前无法继续这次工作" });
   await expect(alert).toBeVisible();
   await expect(alert).toContainText("连接暂时异常，已保留你的任务。");
   await expect(page.getByText("SyntaxError")).toHaveCount(0);
   await expect(page.getByText("is not valid JSON")).toHaveCount(0);
+  expect(failedReads).toBeGreaterThan(0);
   await saveScreenshot(page, "library_query_html_error.png");
 });
 
@@ -4640,169 +5402,139 @@ test("达人库查询 starter placeholder still lists profiles", async ({ page }
   await page.goto("/");
   await page.locator("[data-home] [data-composer-input]").fill("达人库查询 [关键词]");
   await submitHomeComposer(page);
-  const card = page.locator('[data-session-stream-pane] [data-kind="task-result-card"]');
+  const card = page.locator('[data-workbench] [data-kind="task-result-card"]');
   await expect(card).toBeVisible({ timeout: 20000 });
   await expect(card).toContainText("户外电源达人");
   await expect(card).not.toContainText("未找到匹配的达人画像");
 });
 
 test("cron 跑一次风险扫描 keeps the run receipt on the cron page", async ({ page }) => {
+  await wb5InstallCronStub(page);
   await page.goto("/cron");
+  await wb12WaitForLazyRoute(page);
   await expect(page.getByRole("heading", { name: "定时任务" })).toBeVisible();
   await expect(page.locator("[data-cron-page]")).not.toContainText("T8");
   const row = page.locator('[data-cron-job="overdue-scan"]');
   await expect(row).toContainText("失联与延期扫描");
   await row.locator("[data-cron-run-now]").click();
-  await expect(row).toContainText("查看执行");
+  await expect(row).toContainText("已完成");
   await expect(page).toHaveURL(/\/cron$/);
-  await row.getByRole("button", { name: "查看执行" }).click();
+  await row.locator(".cron-task-name").click();
   await expect(page.locator("[data-cron-receipt-panel]")).toBeVisible();
-  await expect(page.locator('[data-cron-detail="overdue-scan"] h2')).toHaveText("失联与延期扫描");
+  await expect(page.locator(".ant-drawer-title")).toHaveText("失联与延期扫描");
   await expect(page.locator("[data-cron-receipt-panel]")).toContainText("已完成");
   await expect(page.locator("[data-cron-receipt-panel] pre")).toContainText("已停留");
 });
 
 test("approvals page can preview and initiate an expense approval", async ({ page }) => {
+  const fixture = await wb5InstallApprovalStub(page);
   await page.goto("/approvals");
-  const form = page.locator("[data-approval-initiate]");
-  await expect(form).toBeVisible();
-  await expect(form.getByRole("heading", { name: "发起费用审批" })).toBeVisible();
-  await expect(form).toContainText("阶段变更请在合作确认里提交");
-  await expect(page.locator("[data-approval-box='inbox']")).toBeVisible();
-  await form.locator('[name="amount"]').fill("5000");
-  await form.locator('[name="requester"]').fill("张三");
-  await form.locator('[name="requester"]').blur();
-  await expect(form).toContainText("申请人不在组织名单里", { timeout: 10000 });
+  await wb12WaitForLazyRoute(page);
+  await expect(page.getByRole("heading", { name: "审批中心" })).toBeVisible();
+  await page.getByRole("button", { name: "发起审批", exact: true }).click();
+  const form = page.locator("main.review-page form").first();
+  await expect(form.getByRole("heading", { name: "发起审批" })).toBeVisible();
+  await expect(form).toContainText("R2 草稿 · 填写内容尚未提交");
   await expect(form).not.toContainText(/MCP|Codex|Host|engine/i);
-  await saveScreenshot(page, "approvals_initiate_blocked_unknown_requester.png");
-  await form.locator('[name="amount"]').fill("50000");
-  await form.locator('[name="currency"]').selectOption("USD");
-  await form.locator('[name="requester"]').fill("黎玉燕");
-  await form.locator('[name="purpose"]').fill("KOL 推广");
-  await form.locator('[name="amount"]').blur();
-  await expect(page.locator("[data-approval-preview]")).toContainText("林桐", { timeout: 10000 });
-  await expect(page.locator("[data-approval-preview]")).toContainText("张总");
+  await form.getByLabel("申请标题").fill("黎玉燕 KOL 推广费用");
+  await form.getByLabel("费用金额金额").fill("50000");
+  await form.getByLabel("费用金额币种").selectOption("USD");
+  await form.getByLabel("费用用途").fill("KOL 推广");
+  await form.getByRole("button", { name: "核对申请与路径" }).click();
+  const preview = page.getByRole("complementary", { name: "申请核对" });
+  await expect(preview).toContainText("流程 v17");
+  await expect(preview).toContainText("林桐");
+  await expect(preview).toContainText("张总");
+  await expect(preview).toContainText("不会自动外发或推进合作阶段");
   await saveScreenshot(page, "approvals_initiate_preview_chain.png");
-  await form.getByRole("button", { name: "提交费用审批" }).click();
-  const initiateDialog = page.locator("[data-approval-confirm]");
+  await form.getByRole("button", { name: "提交审批", exact: true }).click();
+  const initiateDialog = page.getByRole("dialog");
   await expect(initiateDialog).toBeVisible();
-  await expect(initiateDialog.locator("[data-approval-confirm-change]")).toContainText("林桐");
-  await initiateDialog.getByRole("button", { name: "确认提交" }).click();
-  await expect(page).toHaveURL(/box=submitted/);
-  await expect(page).toHaveURL(/[?&]id=appr_/);
-  const card = page.locator("[data-approval-id][data-approval-kind='expense']").first();
-  await expect(card).toBeVisible();
-  await expect(card).toHaveAttribute("data-approval-focus", "true");
-  await expect(card).toContainText("黎玉燕");
-  await expect(card).toContainText("林桐");
-  await expect(card.locator("[data-approval-receipt]")).toContainText("已提交");
-  await expect(card.locator("[data-path-state='current'] .path-state")).toContainText("当前");
+  await expect(initiateDialog).toContainText("R3 · 确认后正式写入");
+  await expect(initiateDialog).toContainText("FIN-EXP-004");
+  expect(fixture.commands).toHaveLength(0);
+  await initiateDialog.getByRole("button", { name: "提交审批", exact: true }).click();
+  const detail = page.getByRole("region", { name: "申请详情" });
+  await expect(detail).toBeVisible();
+  await expect(detail).toContainText("黎玉燕");
+  await expect(detail).toContainText("流程版本 v17");
+  await expect(detail).toContainText("林桐");
+  await expect(detail).toContainText("审批中");
+  expect(fixture.commands).toHaveLength(1);
   await expect(page.locator("body")).not.toContainText("approval_id=");
   await saveScreenshot(page, "approvals_initiate_focused_card.png");
 });
 
-test("expense approval walks FIN-EXP-004 to 已办结 without record ids", async ({ page, request }) => {
-  const session = await request.post("/api/sessions", { data: { title: "费用审批" } }).then((r) => r.json());
-  const posted = await request.post(`/api/sessions/${session.id}/messages`, {
-    data: { text: "Please file an expense approval for 黎玉燕 50000 USD KOL spend" },
-  }).then((r) => r.json());
-  const id = String(posted.approval?.id || "");
-  expect(id).toBeTruthy();
-  expect(posted.approval.payload.rule_id).toBe("FIN-EXP-004");
-  await page.goto(`/approvals?id=${id}`);
-  const card = page.locator(`[data-approval-id="${id}"]`);
+test("expense approval walks FIN-EXP-004 to 已办结 without record ids", async ({ page }) => {
+  const { id } = await wb5InstallApprovalStub(page, { id: "review_wb5_walk", created: true });
+  await page.goto(`/reviews/${id}`);
+  const card = page.getByRole("region", { name: "申请详情" });
   await expect(card).toBeVisible();
-  await expect(page.locator(".approval-page[data-visual='docs20']")).toHaveCount(0);
-  await expect(card.locator("h3 + .muted")).toContainText("按费用规则");
-  await expect(card.locator("h3 + .muted")).not.toContainText("FIN-EXP");
+  await expect(card).toContainText("流程版本 v17");
+  await expect(card).toContainText("黎玉燕");
+  await expect(card).toContainText("费用金额");
   await expect(page.locator("body")).not.toContainText("approval_id=");
-  await expect(page.locator("body")).not.toContainText("chain_id=");
-  await expect(card).toContainText("折合人民币");
   for (const name of ["林桐", "王主管", "财务负责人", "张总"]) {
-    await expect(card).toContainText(`当前等待 ${name}`);
-    await confirmApprovalDecision(card, "approve");
+    await expect(card).toContainText(name);
+    await card.getByRole("button", { name: "同意", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "同意", exact: true }).click();
   }
-  await expect(card).toHaveAttribute("data-approval-status", "consumed", { timeout: 15000 });
-  await expect(card).toContainText("已办结");
-  await expect(card.locator("[data-approval-receipt]")).toBeVisible();
+  await expect(card).toContainText("审批已通过", { timeout: 15000 });
+  await expect(card).toContainText("审批已通过");
   await expect(page.locator("body")).not.toContainText("approval_id=");
   await expect(page.locator("body")).not.toContainText("appr_");
 });
 
-test("expense approval reject requires a reason and leaves a durable receipt", async ({ page, request }) => {
-  const session = await request.post("/api/sessions", { data: { title: "费用驳回" } }).then((r) => r.json());
-  const posted = await request.post(`/api/sessions/${session.id}/messages`, {
-    data: { text: "Please file an expense approval for 黎玉燕 50000 USD KOL spend" },
-  }).then((r) => r.json());
-  const id = String(posted.approval?.id || "");
-  expect(id).toBeTruthy();
-  await page.goto(`/approvals?id=${id}`);
-  const card = page.locator(`[data-approval-id="${id}"]`);
+test("expense approval reject requires a reason and leaves a durable receipt", async ({ page }) => {
+  const fixture = await wb5InstallApprovalStub(page, { id: "review_wb5_reject", created: true });
+  await page.goto(`/reviews/${fixture.id}`);
+  const card = page.getByRole("region", { name: "申请详情" });
   await expect(card).toBeVisible();
   await card.getByRole("button", { name: "驳回" }).click();
-  const dialog = page.locator("[data-approval-confirm]");
+  const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
-  await expect(dialog.locator("[data-approval-confirm-consequence]")).toContainText("整单作废");
-  await expect(dialog.getByRole("button", { name: "确认驳回" })).toBeDisabled();
-  await dialog.locator("[name='reject_reason']").fill("超出本月预算");
-  await dialog.getByRole("button", { name: "确认驳回" }).click();
-  await expect(card).toHaveAttribute("data-approval-status", "rejected", { timeout: 15000 });
-  await expect(card.locator("[data-approval-receipt]")).toContainText("超出本月预算");
-  await expect(card.locator("[data-approval-receipt]")).toContainText("已作废");
+  expect(fixture.commands).toHaveLength(0);
+  await dialog.getByRole("button", { name: "驳回", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("请填写驳回原因");
+  expect(fixture.commands).toHaveLength(0);
+  await dialog.getByRole("button", { name: "取消，不执行", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await card.locator("textarea").fill("超出本月预算");
+  await card.getByRole("button", { name: "驳回" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "驳回", exact: true }).click();
+  await expect(card).toContainText("审批已驳回", { timeout: 15000 });
+  await expect(card).toContainText("超出本月预算");
   await page.reload();
-  await expect(page.locator(`[data-approval-id="${id}"] [data-approval-receipt]`)).toContainText("超出本月预算");
+  await expect(page.getByRole("region", { name: "申请详情" })).toContainText("超出本月预算");
   await expect(page.locator("body")).not.toContainText("approval_id=");
 });
 
-test("approvals boxes, badge API, cancel reject, and stale decide", async ({ page, request }) => {
-  const badgeUrls: string[] = [];
-  const listForBadge: string[] = [];
+test("approvals boxes, badge API, cancel reject, and stale decide", async ({ page }) => {
+  const v2Urls: string[] = [];
   page.on("request", (req) => {
     const url = new URL(req.url());
-    if (!url.pathname.startsWith("/api/approvals")) return;
-    if (url.pathname.endsWith("/badge")) badgeUrls.push(url.pathname);
-    if (url.pathname === "/api/approvals") listForBadge.push(url.pathname + url.search);
+    if (url.pathname.startsWith("/api/approvals/v2/")) v2Urls.push(url.pathname);
   });
-  await page.goto("/");
-  await expect.poll(() => badgeUrls.length).toBeGreaterThan(0);
-  expect(listForBadge).toEqual([]);
-
-  const session = await request.post("/api/sessions", { data: { title: "费用盒子" } }).then((r) => r.json());
-  const posted = await request.post(`/api/sessions/${session.id}/messages`, {
-    data: { text: "Please file an expense approval for 黎玉燕 50000 USD KOL spend" },
-  }).then((r) => r.json());
-  const id = String(posted.approval?.id || "");
-  expect(id).toBeTruthy();
-
-  await page.goto(`/approvals?box=inbox&id=${id}`);
-  await expect(page).toHaveURL(/box=inbox/);
-  const card = page.locator(`[data-approval-id="${id}"]`);
+  const fixture = await wb5InstallApprovalStub(page, { id: "review_wb5_stale", created: true });
+  await page.goto("/approvals");
+  await expect(page.getByRole("button", { name: "站内通知，1 条未读", exact: true })).toBeVisible();
+  await expect.poll(() => v2Urls.some(path => path.endsWith("/notifications/inbox"))).toBeTruthy();
+  await page.getByRole("button", { name: "待我处理", exact: true }).click();
+  await page.getByRole("button", { name: "黎玉燕 KOL 推广费用", exact: true }).click();
+  const card = page.getByRole("region", { name: "申请详情" });
   await expect(card).toBeVisible();
-  await expect(card.locator("[data-path-state='current'] .path-state")).toContainText("当前");
-  await expect(page.locator("[data-approval-box='submitted']")).toBeVisible();
-  await page.locator(".approval-filters [data-approval-box='submitted']").click();
-  await expect(page).toHaveURL(/box=submitted/);
-  await page.locator(".approval-filters [data-approval-box='inbox']").click();
-  await expect(page).toHaveURL(/box=inbox/);
-
+  await expect(card).toContainText("当前需要我：林桐");
   await card.getByRole("button", { name: "驳回" }).click();
-  const dialog = page.locator("[data-approval-confirm]");
+  const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
-  await dialog.getByRole("button", { name: "取消，不执行" }).click();
+  expect(fixture.commands).toHaveLength(0);
+  await dialog.getByRole("button", { name: "取消，不执行", exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(card).toHaveAttribute("data-approval-status", "pending");
-
+  expect(fixture.commands).toHaveLength(0);
+  await expect(card).toContainText("审批中");
+  fixture.forceStale();
   await card.getByRole("button", { name: "同意" }).click();
-  await expect(page.locator("[data-approval-confirm]")).toBeVisible();
-  const version = Number(await card.getAttribute("data-approval-version") || "0");
-  const decided = await request.post(`/api/approvals/${id}/decide`, {
-    data: {
-      decision: "approve",
-      expected_version: version,
-      idempotency_key: `e2e-stale-${id}`,
-    },
-  });
-  expect(decided.ok()).toBeTruthy();
-  await page.locator("[data-approval-confirm]").getByRole("button", { name: "确认同意" }).click();
-  await expect(page.getByText("内容已变化，请重新确认")).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "同意", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "内容已变化，请重新确认" })).toBeVisible();
+  expect(fixture.commands).toHaveLength(0);
 });

@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import path from "node:path";
 
 export default defineConfig({
   cacheDir: process.env.VITE_CACHE_DIR || ".vite-cache",
@@ -20,6 +21,12 @@ export default defineConfig({
     outDir: process.env.VITE_OUT_DIR || "dist",
     emptyOutDir: process.env.VITE_EMPTY_OUT_DIR !== "false",
     rollupOptions: {
+      ...(process.env.VITE_E2E_FIXTURES === "1" ? {
+        input: {
+          app: path.resolve("index.html"),
+          kolCardFixture: path.resolve("e2e/kol-card-fixture.html"),
+        },
+      } : {}),
       output: {
         // Framework and markdown renderer ride in their own long-lived chunks:
         // route chunks stay small and the slow uplink can cache the rest.

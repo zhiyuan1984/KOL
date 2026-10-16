@@ -29,7 +29,7 @@ test("stopped task shows one progress block, a unified status and a retry entry"
     json: [
       { id: "e1", type: "task.created", title: "今日 KOL 任务", status: "pending", summary: "任务已创建", created_at: now },
       { id: "e2", type: "run.started", title: "任务开始处理", status: "running", summary: "creator_daily_tasks", created_at: now },
-      { id: "e3", type: "run.stopped", title: "已停止生成", status: "cancelled", summary: "已保留已产生内容；可重新执行。", created_at: now },
+      { id: "e3", type: "run.stopped", title: "已停止生成", status: "stopped", summary: "已保留已产生内容；可重新执行。", created_at: now },
     ],
   }));
   await page.route("**/api/tasks/tsk_stopped", (route) => route.fulfill({
@@ -42,16 +42,29 @@ test("stopped task shows one progress block, a unified status and a retry entry"
       task_type: "creator_daily_tasks",
     },
   }));
+  const rerunPosts: string[] = [];
+  page.on("request", request => {
+    if (request.method() === "POST" && new URL(request.url()).pathname === "/api/sessions/task-stopped") rerunPosts.push(request.url());
+  });
   await page.goto("/s/task-stopped");
   const trace = page.locator('[data-kind="process-trace"]');
   await expect(trace).toHaveCount(1);
   await expect(trace).toContainText("任务进度");
   await expect(trace).toContainText("任务已创建");
   await expect(trace).toContainText("已停止生成");
-  // 停止是执行结束：右栏状态退场，「已停止生成」作为里程碑留在中栏时间流里。
-  await expect(page.locator("[data-run-status]")).toHaveCount(0);
-  await expect(page.locator("[data-rerun-task]")).toBeVisible();
+  // Stop is distinct from cancellation, with an explicit text and shape channel.
+  const status = page.locator("[data-run-status='stopped']");
+  await expect(status).toHaveCount(1);
+  await expect(status.locator(".status-shape")).toBeVisible();
+  await expect(status).toContainText("已停止");
+  const rerun = page.locator("[data-rerun-task]");
+  await expect(rerun).toBeVisible();
+  await rerun.click();
+  await expect(page.locator("[data-composer-input]")).toHaveValue("今日 KOL 任务");
+  // Retry only restores an editable request; explicit send is still required.
+  expect(rerunPosts).toEqual([]);
   const workbench = page.locator("[data-workbench]");
   await expect(workbench).not.toContainText("本轮结果 · 结果");
-  await expect(workbench).toContainText("还没有结果");
+  await expect(workbench).not.toContainText("结果已生成");
+  await expect(workbench).toContainText("系统不会自动重试");
 });

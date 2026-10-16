@@ -16,22 +16,34 @@ import {
 } from "../tasks/registry.js";
 import { HttpFail } from "./errors.js";
 
-let ensured: unknown = null;
+let ensured: { db: ReturnType<typeof getConn>; verification: Promise<void> } | null = null;
 
-function ensureTable(): void {
+/**
+ * This is intentionally read-only.  `skill_presentation_overlays` belongs to
+ * the formal PostgreSQL schema/migration; host request handling must never make
+ * schema changes.  The zero-row projection validates both the relation and its
+ * required columns before any read or write is attempted.
+ */
+async function ensureTable(): Promise<void> {
   const db = getConn();
-  if (ensured === db) return;
-  db.exec(`CREATE TABLE IF NOT EXISTS skill_presentation_overlays (
-    skill_id TEXT PRIMARY KEY,
-    payload TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  )`);
-  ensured = db;
+  if (ensured?.db === db) return ensured.verification;
+  const verification = (db.query(
+    "SELECT skill_id,payload,updated_at FROM skill_presentation_overlays WHERE FALSE",
+    [],
+  ).then(() => undefined));
+  ensured = { db, verification };
+  try {
+    await verification;
+  } catch (error) {
+    if (ensured?.verification === verification) ensured = null;
+    const detail = error instanceof Error ? `: ${error.message}` : "";
+    throw new Error(`required PostgreSQL schema skill_presentation_overlays is unavailable; apply the formal migration${detail}`);
+  }
 }
 
-export function readPresentationOverlays(): ReadonlyMap<string, PresentationOverlay> {
-  ensureTable();
-  const rows = getConn().prepare("SELECT skill_id,payload FROM skill_presentation_overlays").all() as { skill_id: string; payload: string }[];
+export async function readPresentationOverlays(): Promise<Awaited<ReadonlyMap<string, PresentationOverlay>>> {
+  await ensureTable();
+  const rows = (await getConn().query("SELECT skill_id,payload FROM skill_presentation_overlays",[])).rows as { skill_id: string; payload: string }[];
   const out = new Map<string, PresentationOverlay>();
   for (const row of rows) {
     try { out.set(String(row.skill_id), JSON.parse(row.payload) as PresentationOverlay); } catch { /* malformed rows are ignored, never half-applied */ }
@@ -82,14 +94,17 @@ export function normalizePresentationPatch(skillId: string, patch: Record<string
   return out;
 }
 
-export function savePresentationOverlay(skillId: string, overlay: PresentationOverlay): void {
-  ensureTable();
-  const current = readPresentationOverlays().get(skillId) || {};
-  const next = { ...current, ...overlay };
-  getConn().prepare(
-    `INSERT INTO skill_presentation_overlays (skill_id,payload,updated_at) VALUES (?,?,?)
-     ON CONFLICT(skill_id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at`,
-  ).run(skillId, JSON.stringify(next), nowIso());
+export async function savePresentationOverlay(skillId: string, overlay: PresentationOverlay): Promise<void> {
+  await ensureTable();
+  // Row-locking UPSERT merges the patch inside PostgreSQL. Independent updates
+  // cannot both read an old document and then discard each other's fields.
+  await getConn().query(
+    `INSERT INTO skill_presentation_overlays (skill_id,payload,updated_at) VALUES ($1,$2,$3)
+     ON CONFLICT(skill_id) DO UPDATE SET
+       payload=(skill_presentation_overlays.payload::jsonb || excluded.payload::jsonb)::text,
+       updated_at=excluded.updated_at`,
+    [skillId, JSON.stringify(overlay), nowIso()],
+  );
   clearTaskRegistryCache();
 }
 

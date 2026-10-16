@@ -243,14 +243,18 @@ test("today pane shows today-scheduled work items including unpromoted source=ai
   ];
   const writes: string[] = [];
   await mockTodayBrief(page);
+  const todayRows = todos.filter((row) => !["tsk_queued", "tsk_open", "tsk_ai_open"].includes(row.id));
+  // The rendered 今日任务 rail reads this result-memory endpoint. Keep the
+  // board fixture below only as the negative recommendation lure.
+  await page.route(/\/api\/home\/today-tasks(?:\?.*)?$/, (route) => route.fulfill({ json: { items: todayRows } }));
   await page.route("**/api/workbench/tasks**", (route) => {
     const view = new URL(route.request().url()).searchParams.get("view");
-    const items = view === "today" ? todos.filter((row) => !["tsk_queued", "tsk_open", "tsk_ai_open"].includes(row.id)) : todos;
+    const items = view === "today" ? todayRows : todos;
     return route.fulfill({ json: { items, page: { next_cursor: null } } });
   });
   await page.route("**/api/tickets?**", (route) => route.fulfill({ json: { items: [], page: { next_cursor: null } } }));
   await page.route("**/api/home/board", (route) => route.fulfill({
-    json: { kols: [], tabs: [], tasks: todos, workbench: { today: todos.filter((row) => !["tsk_queued", "tsk_open", "tsk_ai_open"].includes(row.id)), todo: todos, recommendations: [{ id: "rec-1", title: "诱饵", reason: "不要出现", source: "ai" }] } },
+    json: { kols: [], tabs: [], tasks: todos, workbench: { today: todayRows, todo: todos, recommendations: [{ id: "rec-1", title: "诱饵", reason: "不要出现", source: "ai" }] } },
   }));
   await page.route("**/api/tasks**", async (route) => {
     const url = new URL(route.request().url());
@@ -291,16 +295,16 @@ test("today pane shows today-scheduled work items including unpromoted source=ai
   // 今日行集合：高优先 ∪ 今天起始/到期 ∪ 逾期 ∪ 进行中 ∪ 审批 ∪ 高风险 —— 共 7 行，完整列表直接可见。
   await expect(page.locator("[data-today-list]")).toHaveAttribute("data-list-total", "7");
   await expect(page.locator("[data-today-todo]")).toHaveCount(7);
-  // 状态文案是展示状态（后端 display_status_label 优先，缺省按日期/状态推导）：
-  // 失败 / 延期 / 临期 / 进行中 —— 不再是旧分桶词（高风险/已逾期/今天到期）。
+  // 任务状态与截止事实分列：失败 / 逾期 / 今天到期 / 进行中，不能再用旧分桶词覆盖它们。
   await expect(page.locator('[data-today-todo="tsk_high"]')).toContainText("失败");
   await expect(page.locator('[data-today-todo="tsk_high"] [data-risk-level]')).toHaveText("R3");
   await expect(page.locator('[data-today-todo="tsk_ai_failed"]')).toContainText("失败");
-  await expect(page.locator('[data-today-todo="tsk_overdue"]')).toContainText("延期");
-  await expect(page.locator('[data-today-todo="tsk_ai_overdue"]')).toContainText("延期");
-  await expect(page.locator('[data-today-todo="tsk_due"]')).toContainText("临期");
+  await expect(page.locator('[data-today-todo="tsk_overdue"]')).toContainText("逾期");
+  await expect(page.locator('[data-today-todo="tsk_ai_overdue"]')).toContainText("逾期");
+  await expect(page.locator('[data-today-todo="tsk_due"]')).toContainText("今天到期");
   await expect(page.locator('[data-today-todo="tsk_run"]')).toContainText("进行中");
-  await expect(page.locator('[data-today-todo="tsk_approval"]')).toContainText("审批中");
+  await expect(page.locator('[data-today-todo="tsk_approval"]')).toHaveAttribute("data-board-status", "approval");
+  await expect(page.locator('[data-today-todo="tsk_approval"]')).toContainText("等审批");
   await expect(page.locator('[data-today-todo="tsk_queued"], [data-today-todo="tsk_open"], [data-today-todo="tsk_ai_open"]')).toHaveCount(0);
   await expect(page.locator('[data-today-todo="tsk_high"] [data-today-todo-act]')).toHaveText("处理");
   await expect(page.locator('[data-today-todo="tsk_approval"] [data-today-todo-act]')).toHaveText("去审批");

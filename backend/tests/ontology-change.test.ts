@@ -127,7 +127,7 @@ describe.skipIf(!isolatedPostgres)("ontology release gate (isolated PostgreSQL)"
     else process.env.DATABASE_URL = oldDatabaseUrl;
   });
 
-  it("records the authorized first baseline without claiming CEO approval, then rejects reuse until one matching consumed approval exists", async () => {
+  it("records the authorized first baseline without claiming CEO approval, then warns until one matching consumed approval exists", async () => {
     const bootstrap = runGate("--base", "HEAD", "--record");
     expect(bootstrap.status, bootstrap.stderr).toBe(0);
     expect(bootstrap.body).toMatchObject({ status: "pass", mode: "bootstrap_install", receipt: { bootstrap: true, approval_not_claimed: true, ledger_recorded: true } });
@@ -137,11 +137,11 @@ describe.skipIf(!isolatedPostgres)("ontology release gate (isolated PostgreSQL)"
 
     const eventCatalog = path.join(worktree, "config/event-catalog.yaml");
     fs.appendFileSync(eventCatalog, "\n");
-    const blocked = runGate("--base", "HEAD");
-    expect(blocked.status, blocked.stderr).toBe(1);
-    expect(blocked.body.code).toBe("ontology_change_approval_required");
-    const firstBlocked = (blocked.body.blocked_scopes as Array<Record<string, string>>)[0];
-    expect(firstBlocked.scope).toBe("events");
+    const unapproved = runGate("--base", "HEAD");
+    expect(unapproved.status, unapproved.stderr).toBe(0);
+    expect(unapproved.body).toMatchObject({ status: "pass", receipt: { bootstrap: false, approval_not_claimed: true } });
+    const firstUnapproved = (unapproved.body.unapproved_scopes as Array<Record<string, string>>)[0];
+    expect(firstUnapproved.scope).toBe("events");
 
     const now = "2032-01-01T00:00:00.000Z";
     await postgresPool().query(
@@ -150,7 +150,7 @@ describe.skipIf(!isolatedPostgres)("ontology release gate (isolated PostgreSQL)"
        VALUES ($1,'','LT',0,'consumed','[]',0,0,'ontology-gate-test',0,$2,$3,$2,'ontology_change',$4,'gate test','test',1,$3)`,
       [
         `appr_${randomUUID()}`, `card_${randomUUID()}`, now,
-        JSON.stringify({ scope: "events", base_version: firstBlocked.required_base_version, target_digest: firstBlocked.target_digest }),
+        JSON.stringify({ scope: "events", base_version: firstUnapproved.required_base_version, target_digest: firstUnapproved.target_digest }),
       ],
     );
     const approved = runGate("--base", "HEAD");
@@ -159,9 +159,9 @@ describe.skipIf(!isolatedPostgres)("ontology release gate (isolated PostgreSQL)"
 
     fs.appendFileSync(eventCatalog, " ");
     const changedAgain = runGate("--base", "HEAD");
-    expect(changedAgain.status, changedAgain.stderr).toBe(1);
-    expect(changedAgain.body.code).toBe("ontology_change_approval_required");
-    const secondBlocked = (changedAgain.body.blocked_scopes as Array<Record<string, string>>)[0];
-    expect(secondBlocked.target_digest).not.toBe(firstBlocked.target_digest);
+    expect(changedAgain.status, changedAgain.stderr).toBe(0);
+    expect(changedAgain.body).toMatchObject({ status: "pass", receipt: { bootstrap: false, approval_not_claimed: true } });
+    const secondUnapproved = (changedAgain.body.unapproved_scopes as Array<Record<string, string>>)[0];
+    expect(secondUnapproved.target_digest).not.toBe(firstUnapproved.target_digest);
   });
 });

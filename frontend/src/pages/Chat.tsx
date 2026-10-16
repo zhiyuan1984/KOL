@@ -453,6 +453,10 @@ export default function Chat() {
   const discoveryWorkspace = discoveryWorkspaceOf(task);
   const discoveryEntry = discoveryWorkspace !== null || (location.state as { discoverySession?: string } | null)?.discoverySession === id;
   const [runtimeActions, setRuntimeActions] = useState<RuntimeActionView[]>([]);
+  const discoveryResultsRevealedSession = useRef<string | null>(null);
+  const hasDiscoveryResults = discoveryWorkspace !== null && runtimeActions.some((action) => (
+    action.operation === "start_crawl" && Boolean(action.crawl?.result_json?.candidates?.length)
+  ));
   const discoveryProgress = runtimeActions.find(action => action.operation === "start_crawl" && action.skill_id === "crawler_collect"
     && (!task?.worker_id || action.run_id === task.worker_id))?.progress;
   const discoveryExecutionResult = discoveryProgress?.replace_result ? discoveryProgress.result : undefined;
@@ -537,6 +541,7 @@ export default function Chat() {
     // The persisted task snapshot remains the default after refresh; an
     // explicit skill switch belongs only to the currently open session.
     setRuntimeActions([]);
+    discoveryResultsRevealedSession.current = null;
     setSelectedTemplateSkillId(null);
     setSelectedSkillTemplate(null);
     paramTemplateKey.current = null;
@@ -544,6 +549,18 @@ export default function Chat() {
     setSkillParamErrors({});
     setSkillParamTouched(new Set());
   }, [id]);
+
+  useEffect(() => {
+    if (!id || !hasDiscoveryResults || discoveryResultsRevealedSession.current === id) return;
+    // A saved discovery session may inherit a collapsed generic result rail.
+    // Reveal its persisted candidate evidence once, without changing any
+    // selection, confirmation, receipt, or later user-controlled collapse.
+    const frame = requestAnimationFrame(() => {
+      revealWorkspace(id, "rail");
+      discoveryResultsRevealedSession.current = id;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [id, hasDiscoveryResults]);
 
   useEffect(() => {
     if (!task) return;
@@ -1265,6 +1282,22 @@ export default function Chat() {
   };
 
   const taskView = sessionRunView(task, agentStatus, messages, runtimeActions, crawlJob);
+  const stoppedTaskPrompt = taskView.canRerun
+    ? String([...messages].reverse().find((message) => message.kind === "me")?.payload?.text || task?.title || "").trim()
+    : "";
+  const prepareStoppedTaskRerun = () => {
+    if (!stoppedTaskPrompt || pending || status === "running") return;
+    // A stopped run has no server-side automatic retry command. Reuse the
+    // original request as an editable draft only; a new explicit send remains
+    // subject to the current authorization, confirmation and version gates.
+    setText(stoppedTaskPrompt);
+    setLockedIntent(null);
+    setLockedLabel(null);
+    setLockedKnowledgeId(null);
+    setEntryIntent("free");
+    setFocusDraft(true);
+    setSubmitErr("");
+  };
   return (
     <div className="session-workspace">
       <WorkspaceShell pane="session" className={`conversation-workspace${pendingRuntimeActionId ? " is-awaiting-runtime-confirm" : ""}`}
@@ -1517,7 +1550,10 @@ export default function Chat() {
             </section>
             <WorkOrderSuggestions key={taskWorkspace.task.task.task_id} taskId={taskWorkspace.task.task.task_id} onChanged={()=>taskWorkspace.refresh()} />
           </> : discoveryWorkspace ? <DiscoveryRuntimeResults actions={runtimeActions} brief={discoveryWorkspace.brief}
-            onRefresh={reload} /> : undefined}
+            onRefresh={reload} /> : stoppedTaskPrompt ? <section aria-label="停止任务的重新执行">
+              <p>该任务已停止。可将原始请求放回输入框，核对后再明确发送；系统不会自动重试。</p>
+              <button type="button" className="btn ghost sm" data-rerun-task onClick={prepareStoppedTaskRerun}>重新执行</button>
+            </section> : undefined}
           focusedMail={focusedMail}
         />
       ) : null}

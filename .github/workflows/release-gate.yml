@@ -104,6 +104,29 @@ jobs:
       - name: Frontend build
         working-directory: frontend
         run: npm run build
+      - name: Verify complete knowledge E2E partition
+        working-directory: frontend
+        run: node scripts/verify-native-knowledge-partition.mjs
+      - name: Native production health positive and negative contracts
+        run: node scripts/test-production-health.mjs
+      - name: Prepare isolated native knowledge E2E database
+        working-directory: backend
+        env:
+          ADMIN_URL: postgresql://lingong:local-dev-only@127.0.0.1:5432/postgres
+        run: |
+          node -e "const {Client}=require('pg');(async()=>{const c=new Client({connectionString:process.env.ADMIN_URL});await c.connect();await c.query('CREATE DATABASE lingong_e2e_native_employee TEMPLATE lingong_template');await c.end();})().catch(e=>{console.error(e);process.exit(1)})"
+      - name: Complete native authenticated knowledge E2E
+        working-directory: frontend
+        env:
+          DATABASE_URL: postgresql://lingong:local-dev-only@127.0.0.1:5432/lingong_e2e_native_employee
+          TEST_DB_PREFIX: lingong_e2e
+          NODE_ENV: test
+          E2E_MODE: stub
+          E2E_AUTH_MODE: enabled
+          E2E_PORT: '8949'
+        run: |
+          npx playwright install --with-deps chromium
+          npx playwright test --config=playwright.native-knowledge.config.ts --workers=1 --retries=0
       # E2E 在预发服务器上以 stub + PostgreSQL 运行（复用 ~/kol-e2e 与 lingong_e2e 测试库），
       # 不在 CI 内起 SQLite 实例；spec 集与 npm run test:e2e:release 保持一致。
       - name: E2E on staging server (PostgreSQL)
@@ -175,12 +198,18 @@ jobs:
           cd ~/kol
           # Other scoped releases may have changes on this host. A deployment
           # must never discard those files while updating the verified revision.
-          if [ -n "$(git status --porcelain)" ]; then
+          # Untracked diagnostic files are retained; merge itself refuses any
+          # untracked-file collision instead of deleting those local artifacts.
+          if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
             echo "Production checkout has local changes; preserve and reconcile them before deployment." >&2
             exit 1
           fi
           git fetch github "$DEPLOY_REVISION"
-          git reset --hard "$DEPLOY_REVISION"
+          if ! git merge-base --is-ancestor HEAD "$DEPLOY_REVISION"; then
+            echo "Production history is not included in the verified revision; reconcile it before deployment." >&2
+            exit 1
+          fi
+          git merge --ff-only "$DEPLOY_REVISION"
           if [ -d data/kol ]; then
             node backend/scripts/validate-kol-data.mjs
           else
@@ -200,20 +229,17 @@ jobs:
         env:
           EXPECTED_VERSION: ${{ github.sha }}
         run: |
-          # Match the API's git --short result; Git may extend abbreviations
-          # beyond seven characters when repository objects share a prefix.
-          expected="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+          # Native production retires /api/version. Verify both running readiness
+          # and the build manifest bound to the full verified source revision.
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
             "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            "cd ~/kol && git rev-parse --short '${EXPECTED_VERSION}'")"
-          for attempt in $(seq 1 36); do
-            response="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 10 "http://${DEPLOY_HOST}/api/version" || true)"
-            actual="$(printf '%s' "$response" | jq -r '.version // empty' 2>/dev/null || true)"
-            if [ "$actual" = "$expected" ]; then
-              echo "Deployed revision verified: $actual"
-              exit 0
-            fi
-            echo "Attempt ${attempt}/36: waiting for ${expected}; observed ${actual:-unavailable}."
-            sleep 5
+            "EXPECTED_VERSION='${EXPECTED_VERSION}' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd ~/kol
+          [ "$(git rev-parse HEAD)" = "$EXPECTED_VERSION" ]
+          node --input-type=module -e 'import fs from "node:fs"; const build=JSON.parse(fs.readFileSync("frontend/dist/release.json","utf8")); if(build.commit!==process.env.EXPECTED_VERSION) process.exit(1); console.log("Deployed full revision verified:",build.commit);'
+          curl -H "Accept-Encoding: identity" -fsS --connect-timeout 5 --max-time 10 http://127.0.0.1:8765/api/health | node scripts/check-production-health.mjs
+          for unit in lingong lingong-outbox lingong-execution-worker@1 lingong-execution-worker@2 lingong-cron-tick; do
+            systemctl is-active --quiet "$unit"
           done
-          echo "::error::Production did not report the expected revision ${expected}."
-          exit 1
+          REMOTE

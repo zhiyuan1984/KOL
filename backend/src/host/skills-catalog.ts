@@ -53,21 +53,25 @@ export const SOP_POLICY = {
   edit_path: "/admin",
 } as const;
 
-function marketFlags(): Map<string, boolean> {
-  try {
-    const rows = getConn().prepare("SELECT id, in_market FROM skill_flags").all() as { id: string; in_market: number }[];
-    return new Map(rows.map((row) => [String(row.id), Number(row.in_market) === 1]));
-  } catch {
-    return new Map();
-  }
+async function marketFlags(): Promise<Map<string, boolean>> {
+  const rows = (await getConn().query("SELECT id, in_market FROM skill_flags",[])).rows as { id: string; in_market: number | boolean }[];
+  return new Map(rows.map((row) => [String(row.id), Number(row.in_market) === 1]));
 }
 
-let catalogCache: { definitions: ReturnType<typeof taskDefinitions>; entries: SkillEntry[] } | null = null;
+let catalogCache: { definitions: Awaited<ReturnType<typeof taskDefinitions>>; entries: readonly SkillEntry[] } | null = null;
+let catalogCacheGeneration = 0;
 
-export function skillCatalog(root?: string): SkillEntry[] {
-  const definitions = taskDefinitions(root);
+/**
+ * The public catalog is loaded asynchronously because both task presentation and
+ * market state live in PostgreSQL.  Database failures propagate: returning a
+ * fabricated empty/default catalog would incorrectly hide disabled/revoked
+ * state and makes permission checks susceptible to Promise truthiness.
+ */
+export async function skillCatalog(root?: string): Promise<readonly SkillEntry[]> {
+  const definitions = await taskDefinitions(root);
   if (catalogCache?.definitions === definitions) return catalogCache.entries;
-  const flags = marketFlags();
+  const generation = catalogCacheGeneration;
+  const flags = await marketFlags();
   const entries = definitions.map((definition) => ({
     id: definition.id,
     label: definition.title,
@@ -84,12 +88,16 @@ export function skillCatalog(root?: string): SkillEntry[] {
     employee_agent: definition.employee_agent,
     employee_example: definition.employee_example ? [...definition.employee_example] : undefined,
   }));
-  catalogCache = { definitions, entries };
-  return entries;
+  const snapshot = Object.freeze(entries.map((entry) => Object.freeze(entry)));
+  // Do not repopulate cache with a market-state read that started before disable,
+  // revocation, publish, or deletion invalidated this catalog.
+  if (generation === catalogCacheGeneration) catalogCache = { definitions, entries: snapshot };
+  return snapshot;
 }
 
 /** Invalidate after publishing, deleting, or changing market visibility. */
 export function clearSkillCatalogCache(): void {
+  catalogCacheGeneration += 1;
   catalogCache = null;
 }
 
@@ -138,8 +146,8 @@ export function employeeDocFromText(text: string): string {
 }
 
 /** `GET /skills/:id` 的员工说明书正文；技能不存在或没写这一节时是空字符串。 */
-export function skillEmployeeDoc(id: string): string {
-  const definition = taskDefinition(id);
+export async function skillEmployeeDoc(id: string): Promise<string> {
+  const definition = await taskDefinition(id);
   if (!definition) return "";
   try {
     return employeeDocFromText(fs.readFileSync(definition.path, "utf8"));
@@ -148,35 +156,17 @@ export function skillEmployeeDoc(id: string): string {
   }
 }
 
-/** Live catalog. Array methods always read the current bundled + published skills. */
-export const SKILL_CATALOG: SkillEntry[] = new Proxy([] as SkillEntry[], {
-  get(_target, prop) {
-    const list = skillCatalog();
-    const value = Reflect.get(list, prop, list);
-    return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(list) : value;
-  },
-  getOwnPropertyDescriptor(_target, prop) {
-    return Reflect.getOwnPropertyDescriptor(skillCatalog(), prop);
-  },
-  ownKeys() {
-    return Reflect.ownKeys(skillCatalog());
-  },
-  has(_target, prop) {
-    return Reflect.has(skillCatalog(), prop);
-  },
-});
+/** Asynchronous route lookup for the PostgreSQL-backed catalog. */
+export async function skillRoute(id: string): Promise<{ type: string; skill: string; needs: true } | undefined> {
+  const entry = (await skillCatalog()).find((row) => row.id === id);
+  return entry ? { type: entry.id, skill: entry.id, needs: true as const } : undefined;
+}
 
-export const SKILL_ROUTE: Record<string, { type: string; skill: string; needs: true }> = new Proxy(
-  {} as Record<string, { type: string; skill: string; needs: true }>,
-  {
-    get(_target, prop) {
-      if (typeof prop !== "string") return undefined;
-      const entry = skillCatalog().find((row) => row.id === prop);
-      return entry ? { type: entry.id, skill: entry.id, needs: true as const } : undefined;
-    },
-  },
-);
-
+/**
+ * Pure helpers intentionally require an already-loaded catalog snapshot.  They
+ * perform no I/O and cannot therefore consume a pending Promise as if it were
+ * an array, object, or permission truth value.
+ */
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -185,49 +175,49 @@ function namesFor(entry: SkillEntry): string[] {
   return [entry.label, ...entry.aliases];
 }
 
-export function mentionNamesLongestFirst(): { name: string; id: string }[] {
+export function mentionNamesLongestFirst(entries: readonly SkillEntry[]): { name: string; id: string }[] {
   const rows: { name: string; id: string }[] = [];
-  for (const s of SKILL_CATALOG) {
+  for (const s of entries) {
     for (const name of namesFor(s)) rows.push({ name, id: s.id });
   }
   rows.sort((a, b) => b.name.length - a.name.length);
   return rows;
 }
 
-export function matchSkillId(text: string): string | null {
+export function matchSkillId(text: string, entries: readonly SkillEntry[]): string | null {
   const t = text || "";
-  for (const { name, id } of mentionNamesLongestFirst()) {
+  for (const { name, id } of mentionNamesLongestFirst(entries)) {
     if (t.includes(`/${name}`) || t.includes(`@${name}`) || t.includes(name)) return id;
   }
-  for (const s of SKILL_CATALOG) {
+  for (const s of entries) {
     if (new RegExp(`(^|\\s)[/@]${escapeRe(s.id)}(?=$|\\s)`, "i").test(t)) return s.id;
   }
   return null;
 }
 
-export function stripSkillMentions(text: string): string {
+export function stripSkillMentions(text: string, entries: readonly SkillEntry[]): string {
   let out = text || "";
-  for (const { name } of mentionNamesLongestFirst()) {
+  for (const { name } of mentionNamesLongestFirst(entries)) {
     out = out.replace(new RegExp(`[/@]?${escapeRe(name)}`, "g"), " ");
   }
-  for (const s of SKILL_CATALOG) {
+  for (const s of entries) {
     out = out.replace(new RegExp(`[/@]${escapeRe(s.id)}\\b`, "gi"), " ");
   }
   return out.replace(/\s+/g, " ").trim();
 }
 
-export function isSkillHandleToken(token: string): boolean {
+export function isSkillHandleToken(token: string, entries: readonly SkillEntry[]): boolean {
   const t = (token || "").replace(/^[/@]+/, "").trim();
   if (!t) return true;
-  if (SKILL_CATALOG.some((s) => s.id.toLowerCase() === t.toLowerCase())) return true;
-  if (mentionNamesLongestFirst().some((n) => n.name === t || n.name.startsWith(`${t} `))) return true;
+  if (entries.some((s) => s.id.toLowerCase() === t.toLowerCase())) return true;
+  if (mentionNamesLongestFirst(entries).some((n) => n.name === t || n.name.startsWith(`${t} `))) return true;
   return false;
 }
 
-export function catalogPublic(): {
+export async function catalogPublic(): Promise<Awaited<{
   id: string; title: string; label: string; aliases: string[]; in_market: boolean; category: string; profile: string; funnel: FunnelId; summary: string; source: "bundled" | "published";
-}[] {
-  return skillCatalog().map((s) => ({
+}[]>> {
+  return (await skillCatalog()).map((s) => ({
     id: s.id,
     title: s.label,
     label: s.label,

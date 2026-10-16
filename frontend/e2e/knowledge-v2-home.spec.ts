@@ -1,4 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
+import { prepareNativeKnowledgeAdmin } from "./fixtures/native-knowledge-admin";
+import { prepareEmployeeKnowledgeSeedOwners } from "./fixtures/native-employee-seed-owner";
 
 /**
  * 知识库 IA v2 主页契约（P1 骨架，2026-10-02；中栏 chips 改版 2026-10-03）：
@@ -27,8 +29,17 @@ async function filledCtaCount(page: Page, scope: string): Promise<number> {
 }
 
 test.describe("知识库 v2 主页（管理端）", () => {
+  // 管理分类、草稿与归档正例使用隔离测试库中的真实 users 角色；不放宽服务端 403。
+  test.beforeAll(async () => {
+    await prepareNativeKnowledgeAdmin();
+    await prepareEmployeeKnowledgeSeedOwners(["kb_mail_kol", "kb_mail_followup", "kb_mail_ship", "kb_followup"]);
+  });
+
   test("主页骨架：中栏筛选、右栏五条浏览与下方详情", async ({ page }) => {
-    await page.goto("/admin/knowledge");
+    // The original four kind chips cover all + the three structured entry
+    // kinds. Current uploads add a separate document axis; retain the original
+    // exact entry-kind count without depending on prior PDF fixture history.
+    await page.goto("/admin/knowledge?asset=entry");
     await expect(page.locator('[data-admin-kb-v2="home"]')).toBeVisible();
     await expect(page.locator("[data-kbv-top]")).toHaveCount(0);
     await expect(page.locator("[data-kbv-filter-pane]")).toBeVisible();
@@ -40,46 +51,55 @@ test.describe("知识库 v2 主页（管理端）", () => {
     await expect(page.locator("[data-kb-filter='brand'] [data-kb-filter-value=''] [data-kb-facet-count]")).toHaveText(/\d+/);
     await expect(page.locator("[data-kb-filter='taxonomy'] [data-kb-scope-base]").first()).toBeVisible();
     await expect(page.locator("[data-kb-filter='brand'] [data-kb-filter-value='']")).toHaveAttribute("aria-pressed", "true");
+    // Complete native fixture contains all + mail/policy/question-template;
+    // zero-count glossary remains absent rather than invented for the UI.
     await expect(page.locator("[data-kb-filter='kind'] [data-kb-kind]")).toHaveCount(4);
     await expect(page.locator("[data-kb-kind='question_template']")).toContainText("问题模板");
     await expect(page.locator("[data-kb-kind='glossary']")).toHaveCount(0);
-    // 状态＝「全部」＋有计数的状态（种子数据：已发布 / 已停用）。
-    await expect(page.locator("[data-kbv-view]")).toHaveCount(3);
+    // 生命周期状态由服务端 facet 驱动，五个当前状态都必须可筛选。
+    expect(await page.locator("[data-kbv-view]").count()).toBeGreaterThanOrEqual(5);
     await expect(page.locator("[data-kbv-view='published']")).toBeVisible();
-    await expect(page.locator("[data-kbv-view='draft']")).toHaveCount(0);
-    await expect(page.locator("[data-kbv-record]")).toHaveCount(5);
+    await expect(page.locator("[data-kbv-view='draft']")).toBeVisible();
+    const visibleCount = await page.locator('[data-kbv-record]').count();
+    const totalCount = Number((await page.locator('[data-kbv-count]').innerText()).match(/\d+/)?.[0]);
+    expect(visibleCount).toBeGreaterThanOrEqual(5);
+    expect(visibleCount).toBeLessThanOrEqual(totalCount);
+    // Current native viewport can hold more than the original P1 five rows.
+    // A single page must nevertheless expose every counted record, not just a
+    // lower-bound assertion that would conceal missing assets.
+    if (/第\s*1\s*\/\s*1\s*页/.test(await page.locator('[data-kbv-page]').innerText())) expect(visibleCount).toBe(totalCount);
     await expect(page.locator("[data-kbv-record]").first()).toBeVisible();
 
-    // 阶段属于高级筛选，默认折叠；展开后多选 chips 与「全部」仍生效。
+    // 原高级筛选迁为默认显示的可增删阶段项；多选与「全部」仍须保持同一筛选语义。
     const stageRow = page.locator("[data-kb-filter='stage']");
-    await expect(stageRow.locator('[data-kb-stage-toggle="INITIAL_CONTACT"]')).toBeHidden();
-    await stageRow.locator("summary").click();
-    await expect(stageRow.locator('[data-kb-stage-toggle="INITIAL_CONTACT"]')).toBeVisible();
-    await expect(stageRow.locator('[data-kb-stage-toggle="SETTLING"]')).toHaveCount(0);
-    await stageRow.locator("[data-kb-stage-more]").click();
-    await expect(stageRow.locator('[data-kb-stage-toggle="SETTLING"]')).toBeVisible();
-    await stageRow.locator('[data-kb-stage-toggle="INITIAL_CONTACT"]').click();
-    await stageRow.locator('[data-kb-stage-toggle="INTERESTED"]').click();
-    await expect(stageRow.locator('[data-kb-stage-toggle="INITIAL_CONTACT"]')).toHaveAttribute("aria-pressed", "true");
-    await expect(stageRow.locator('[data-kb-stage-toggle="INTERESTED"]')).toHaveAttribute("aria-pressed", "true");
-    await expect(stageRow.locator('[data-kb-stage-toggle=""]')).toHaveAttribute("aria-pressed", "false");
-    await stageRow.locator('[data-kb-stage-toggle=""]').click();
-    await expect(stageRow.locator('[data-kb-stage-toggle="INITIAL_CONTACT"]')).toHaveAttribute("aria-pressed", "false");
-    await expect(stageRow.locator('[data-kb-stage-toggle=""]')).toHaveAttribute("aria-pressed", "true");
+    await expect(stageRow.locator('[data-kb-filter-value="INITIAL_CONTACT"]')).toBeVisible();
+    await expect(stageRow.locator('[data-kb-filter-value=""]')).toHaveAttribute("aria-pressed", "true");
+    await stageRow.locator('[data-kb-filter-value="INITIAL_CONTACT"]').click();
+    await stageRow.locator('[data-kb-filter-value="INTERESTED"]').click();
+    await expect(stageRow.locator('[data-kb-filter-value="INITIAL_CONTACT"]')).toHaveAttribute("aria-pressed", "true");
+    await expect(stageRow.locator('[data-kb-filter-value="INTERESTED"]')).toHaveAttribute("aria-pressed", "true");
+    await expect(stageRow.locator('[data-kb-filter-value=""]')).toHaveAttribute("aria-pressed", "false");
+    await stageRow.locator('[data-kb-filter-value=""]').click();
+    await expect(stageRow.locator('[data-kb-filter-value="INITIAL_CONTACT"]')).toHaveAttribute("aria-pressed", "false");
+    await expect(stageRow.locator('[data-kb-filter-value=""]')).toHaveAttribute("aria-pressed", "true");
+    await stageRow.getByRole("button", { name: "添加阶段" }).click();
+    await expect(page.getByRole("group", { name: "可添加阶段" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("group", { name: "可添加阶段" })).toBeHidden();
 
     await page.locator("[data-kbv-record]").first().click();
-    await expect(page.locator("[data-kbv-detail]")).toContainText("正文");
-    await expect(page.locator("[data-kbv-detail]")).toContainText("属性与范围");
-    await expect(page.locator("[data-kbv-detail]")).toContainText("来源与版本");
+    const detail = page.locator("[data-knowledge-right][data-workspace-mode='detail']");
+    await expect(detail).toContainText("基础信息");
+    await expect(detail).toContainText("知识内容");
+    await expect(detail).toContainText("来源与记录");
 
-    // 翻页后，原选中项不在当前页时自动选中新页第一条。
-    await page.locator("[data-kbv-next]").click();
-    await expect(page.locator("[data-kbv-page]")).toHaveText(/第 2 \/ \d+ 页/);
+    // 翻页控件如实反映服务端页数；当前页项目仍保持选中，不把不可用的下一页伪装成可用。
+    await expect(page.locator("[data-kbv-page]")).toHaveText(/第 \d+ \/ \d+ 页/);
     await expect(page.locator("[data-kbv-record]").first()).toHaveAttribute("aria-current", "true");
   });
 
-  test("诚实边界：上传弹窗三级 tab＋阶段标签、新建开弹窗、页面无工程话术", async ({ page }) => {
-    await page.goto("/admin/knowledge");
+  test("诚实边界：上传三级分类、新建进入草稿态、页面无工程话术", async ({ page }) => {
+    await page.goto("/admin/knowledge?stage=create");
     const home = page.locator('[data-admin-kb-v2="home"]');
     await expect(home).toBeVisible();
     await expect(home).not.toContainText(/P2 接入|P3 接入|迁移中|旧版/);
@@ -91,37 +111,46 @@ test.describe("知识库 v2 主页（管理端）", () => {
     await expect(upload.locator("[data-kb-scope-picker]")).toBeVisible();
     await expect(upload).not.toContainText("上传服务暂不可用");
     await expect(page.locator("[data-kbv-upload-submit]")).toBeDisabled();
-    await expect(upload).not.toContainText(/P2 接入|P3 接入|迁移中|旧版/);
-    await page.keyboard.press("Escape");
+    const formatWarning = "旧版 PPT 请先另存为 PPTX";
+    await expect(upload).toContainText(formatWarning);
+    // Exactly the real legacy file-format instruction is meaningful user copy;
+    // every other occurrence of the original prohibited engineering words fails.
+    expect((await upload.innerText()).replace(formatWarning, "")).not.toMatch(/P2 接入|P3 接入|迁移中|旧版/);
+    await page.getByRole("button", { name: "取消", exact: true }).click();
     await expect(upload).toBeHidden();
 
-    // 新建知识 → 打开新建弹窗（真实写草稿入口；写入流程由下一个用例覆盖）。
+    // 新建知识进入原生编辑态（真实写草稿入口；写入流程由下一个用例覆盖）。
     await page.locator("[data-kbv-new]").click();
-    const create = page.locator("[data-kbv-create-dialog]");
+    const create = page.locator("form.kbw-editor");
     await expect(create).toBeVisible();
-    await expect(page.locator("[data-kbv-create-submit]")).toBeDisabled();
-    await page.keyboard.press("Escape");
+    await expect(page.locator("[data-knowledge-right][data-workspace-mode='create']")).toBeVisible();
+    await expect(create.locator("input[name='title']")).toBeVisible();
+    await page.getByRole("button", { name: "取消编辑", exact: true }).click();
     await expect(create).toBeHidden();
   });
 
-  test("新建知识弹窗：创建草稿、留回执并自清理", async ({ page }) => {
-    await page.goto("/admin/knowledge");
+  test("新建知识：创建草稿、留回执并自清理", async ({ page }) => {
+    await page.goto("/admin/knowledge?stage=create");
     await page.locator("[data-kbv-new]").click();
-    const dlg = page.locator("[data-kbv-create-dialog]");
+    const dlg = page.locator("form.kbw-editor");
     await expect(dlg).toBeVisible();
-    const submit = page.locator("[data-kbv-create-submit]");
-    await expect(submit).toBeDisabled();
+    const submit = page.getByRole("button", { name: "保存", exact: true });
 
     const title = `E2E 中栏草稿 ${Date.now()}`;
-    await dlg.locator("[data-kbv-create-title]").fill(title);
-    await dlg.locator('[data-kb-create-kind="policy"]').click();
-    await dlg.locator('[data-kb-create-brand="LT"]').click();
-    await expect(submit).toBeEnabled();
+    await dlg.locator("input[name='title']").fill(title);
+    await dlg.locator("select[name='kind']").selectOption("policy");
+    await dlg.locator("select[name='brand']").selectOption("LT");
+    // Native creation requires an explicitly selected writable organization base.
+    // The seeded structured base exists even when this case runs without the PDF case.
+    await dlg.getByRole("combobox", { name: "知识库", exact: true }).selectOption({ label: "未分类 / 未分类 / 历史知识" });
+    expect(await dlg.getByRole("combobox", { name: "知识库", exact: true }).inputValue()).not.toBe("");
     await submit.click();
 
     await expect(dlg).toBeHidden();
-    await expect(page.locator("[data-admin-receipt]")).toContainText("已创建草稿");
-    await expect(page.locator("[data-admin-receipt]")).toContainText(title);
+    await expect(page.locator("[data-admin-receipt]")).toContainText("草稿已保存");
+    // Current receipt is the lifecycle result; resource identity is in the
+    // simultaneously selected native detail, and is independently checked below.
+    await expect(page.locator("[data-knowledge-right][data-workspace-mode='detail'] .kbw-identity")).toContainText(title);
 
     // 自清理：把本用例创建的草稿从 data-e2e 删掉（硬删仅限草稿）。
     const response = await page.request.get("/api/admin/knowledge?limit=500");
@@ -136,10 +165,12 @@ test.describe("知识库 v2 主页（管理端）", () => {
 
   test("子视图直达与回链（无旧版导航痕迹）", async ({ page }) => {
     await page.goto("/admin/knowledge/ingest");
-    await expect(page.locator('[data-admin-kb-view="ingest"]')).toBeVisible();
-    await expect(page.locator("[data-admin-kb-home-link]")).toBeVisible();
-    await expect(page.locator("[data-admin-kb-tab]")).toHaveCount(0);
-    await page.locator("[data-admin-kb-home-link]").click();
+    await expect(page.locator("[data-knowledge-right][data-kb-active-stage='processing']")).toBeVisible();
+    await expect(page.locator("[data-knowledge-middle] [role='tab']")).toHaveCount(0);
+    // Processing is now a native right-rail stage, not an old child page with
+    // its own back button. The current governance tab returns to the assets.
+    await page.locator("[data-knowledge-right]").getByRole("tab", { name: "知识资产", exact: true }).click();
+    await expect(page.locator("[data-knowledge-right][data-kb-active-stage='published']")).toBeVisible();
     await expect(page.locator('[data-admin-kb-v2="home"]')).toBeVisible();
   });
 
@@ -177,8 +208,9 @@ test.describe("知识库 v2 主页（员工端）", () => {
     const first = page.locator("[data-knowledge]").first();
     const id = await first.getAttribute("data-knowledge");
     expect(id).toBeTruthy();
-    const favorite = page.locator(`[data-kb-row-favorite='${id}']`);
-    await first.hover();
+    await first.click();
+    const favorite = page.locator(`[data-kb-favorite='${id}']`);
+    await expect(favorite).toBeVisible();
     const wasFavorite = await favorite.getAttribute("aria-pressed") === "true";
     if (wasFavorite) await favorite.click();
     await expect(favorite).toHaveAttribute("aria-pressed", "false");

@@ -32,20 +32,20 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "todo.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
+  (await resetConn());
   resetStarryHomeLibrarySync();
   resetFollowedMailSync();
-  seedAll();
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
+  app = (await createApp());
+  (await seedWorkbenchFixtures());
 });
 
-afterEach(() => {
+afterEach(async () => {
   setStarryKolClientFactory();
   resetStarryHomeLibrarySync();
   resetFollowedMailSync();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -109,10 +109,10 @@ describe("GET /api/tasks?view=open", () => {
       },
       async close() { /* noop */ },
     }));
-    const before = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const before = (await getConn().query("SELECT COUNT(*) AS c FROM sessions",[])).rows[0] as { c: number };
     const listed = await request("GET", "/api/tasks?view=todo");
     expect(listed.status).toBe(200);
-    const after = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const after = (await getConn().query("SELECT COUNT(*) AS c FROM sessions",[])).rows[0] as { c: number };
     expect(after.c).toBe(before.c);
     expect(calls).toEqual([]);
   });
@@ -159,11 +159,11 @@ describe("GET /api/home/board local-first", () => {
   });
 
   it("refresh=1 still returns local-first and does not insert sessions", async () => {
-    const before = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const before = (await getConn().query("SELECT COUNT(*) AS c FROM sessions",[])).rows[0] as { c: number };
     const board = await request("GET", "/api/home/board?refresh=1");
     expect(board.status).toBe(200);
     expect(board.body.sync).toMatchObject({ deferred: true, refresh: true });
-    const after = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const after = (await getConn().query("SELECT COUNT(*) AS c FROM sessions",[])).rows[0] as { c: number };
     expect(after.c).toBe(before.c);
   });
 });

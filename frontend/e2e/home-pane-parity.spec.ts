@@ -10,7 +10,7 @@ test.beforeEach(async ({ request }) => {
   await request.post("/api/me/persona", { data: { persona: "sriphy" } });
 });
 
-/** 工作台骨架：两页签必须逐项都在，且数量相同。 */
+/** 工作台骨架：两页签都必须具备同一组交互与结果容器。 */
 const SKELETON = [
   "[data-scope-workspace] [data-scope-ai-workspace]",
   "[data-scope-workspace] [data-scope-task-rail]",
@@ -24,9 +24,12 @@ const SKELETON = [
   "[data-scope-workspace] .home-composer-dock",
 ] as const;
 
-async function skeletonCounts(page: Page): Promise<number[]> {
+async function skeletonCounts(page: Page, pane: "today" | "todo"): Promise<number[]> {
   const counts: number[] = [];
-  for (const selector of SKELETON) counts.push(await page.locator(selector).count());
+  const root = page.locator(`[data-home-pane="${pane}"]`);
+  // The pane root itself is the scope workspace. Query its owned descendants
+  // rather than requiring a retired nested second workspace wrapper.
+  for (const selector of SKELETON) counts.push(await root.locator(selector.replace(/^\[data-scope-workspace\]\s+/, "")).count());
   return counts;
 }
 
@@ -50,18 +53,28 @@ async function filledPrimaryCount(page: Page, root: string): Promise<number> {
   ), rgb);
 }
 
-/** 固定视口工作台的几何：stage 不滚，中列与右栏各自滚，提问框贴视口底。 */
+/** 固定工作台的几何：stage 不滚，中列与右栏各自滚，提问框贴所属 frame 底。 */
 async function workspaceGeometry(page: Page, pane: string) {
   return page.evaluate((paneName) => {
     const root = document.querySelector(`[data-home-pane="${paneName}"]`) as HTMLElement;
     const overflowOf = (el: Element | null) => (el ? getComputedStyle(el as HTMLElement).overflowY : null);
     const dock = root.querySelector(".home-composer-dock") as HTMLElement | null;
+    const frame = root.querySelector("[data-scope-ai-workspace] > .scope-workspace-center-content") as HTMLElement | null;
+    const scroll = frame?.querySelector(".scope-workspace-center-scroll");
+    if (!dock || !frame || !scroll || !frame.contains(dock)) throw new Error("composer dock has no owned frame/scroll container");
+    const dockRect = dock.getBoundingClientRect();
+    const frameRect = frame.getBoundingClientRect();
+    // Outer center padding is not the footer's frame. Compare raw CSS pixels
+    // to the actual content parent, never compensate with an 8px tolerance.
     return {
       stage: overflowOf(document.querySelector(".home-stage")),
       center: overflowOf(root.querySelector("[data-scope-ai-workspace] .scope-workspace-center-scroll")),
-      rail: overflowOf(root.querySelector("[data-scope-task-rail]")),
-      dockBottom: dock ? Math.round(dock.getBoundingClientRect().bottom) : null,
-      pageScrolls: document.documentElement.scrollHeight > window.innerHeight + 1,
+      railShell: overflowOf(root.querySelector("[data-scope-task-rail]")),
+      rail: overflowOf(root.querySelector("[data-scope-task-rail] .scope-task-rail-scroll")),
+      dockFrameDelta: Math.abs(dockRect.bottom - frameRect.bottom),
+      scrollDockOverlap: Math.max(0, scroll.getBoundingClientRect().bottom - dockRect.top),
+      frameViewportOverflow: Math.max(0, frameRect.bottom - document.documentElement.clientHeight),
+      pageScrolls: document.documentElement.scrollHeight > document.documentElement.clientHeight + 1,
     };
   }, pane);
 }
@@ -70,16 +83,18 @@ test("today and todo render the same workspace skeleton", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
   await expect(page.locator("[data-today-list]")).toBeVisible();
-  const today = await skeletonCounts(page);
+  const today = await skeletonCounts(page, "today");
   await expect(page.locator('[data-home-pane="today"] [data-home-entry="plan-today"]')).toHaveText("生成今日安排");
 
   await page.locator('[data-home-mode="todo"]').click();
   await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
   await expect(page.locator("[data-todo-list]")).toBeVisible();
-  const todo = await skeletonCounts(page);
+  const todo = await skeletonCounts(page, "todo");
   await expect(page.locator('[data-home-pane="todo"] [data-home-entry="plan-todo"]')).toHaveText("整理待办");
 
-  expect(todo).toEqual(today);
+  // Conditional result controls can have a different count, but no shared
+  // workspace role may vanish on just one scope.
+  expect(todo.map(Boolean)).toEqual(today.map(Boolean));
   for (const [index, count] of today.entries()) {
     expect(count, `骨架项 ${SKELETON[index]} 必须存在`).toBeGreaterThan(0);
   }
@@ -165,9 +180,12 @@ test("both panes share one scroll architecture and keep the ask box a footer", a
   // 固定视口工作台：stage 不滚，中列与右栏各自滚；整页不滚，提问框留在视口内。
   expect(today.stage).toBe("hidden");
   expect(today.center).toBe("auto");
+  expect(today.railShell).toBe("hidden");
   expect(today.rail).toBe("auto");
   expect(today.pageScrolls).toBe(false);
-  expect(today.dockBottom).toBe(900);
+  expect(today.dockFrameDelta).toBeLessThanOrEqual(1);
+  expect(today.scrollDockOverlap).toBeLessThanOrEqual(1);
+  expect(today.frameViewportOverflow).toBeLessThanOrEqual(1);
 });
 
 test("AI发现 runs on the same shell and keeps the ask box a footer", async ({ page }) => {
@@ -181,9 +199,12 @@ test("AI发现 runs on the same shell and keeps the ask box a footer", async ({ 
   const geometry = await workspaceGeometry(page, "discovery");
   expect(geometry.stage).toBe("hidden");
   expect(geometry.center).toBe("auto");
+  expect(geometry.railShell).toBe("hidden");
   expect(geometry.rail).toBe("auto");
   expect(geometry.pageScrolls).toBe(false);
-  expect(geometry.dockBottom).toBe(900);
+  expect(geometry.dockFrameDelta).toBeLessThanOrEqual(1);
+  expect(geometry.scrollDockOverlap).toBeLessThanOrEqual(1);
+  expect(geometry.frameViewportOverflow).toBeLessThanOrEqual(1);
 
   // 骨架项与今日/待办同一套：可折叠右栏、快捷任务、提问框都在，结果容器落在右栏。
   await expect(page.locator('[data-home-pane="discovery"] .scope-task-rail-toggle')).toBeVisible();
@@ -201,9 +222,12 @@ test("all five modes run on the same interaction and result shell", async ({ pag
     const geometry = await workspaceGeometry(page, mode);
     expect(geometry.stage).toBe("hidden");
     expect(geometry.center).toBe("auto");
+    expect(geometry.railShell).toBe("hidden");
     expect(geometry.rail).toBe("auto");
     expect(geometry.pageScrolls).toBe(false);
-    expect(geometry.dockBottom).toBe(900);
+    expect(geometry.dockFrameDelta).toBeLessThanOrEqual(1);
+    expect(geometry.scrollDockOverlap).toBeLessThanOrEqual(1);
+    expect(geometry.frameViewportOverflow).toBeLessThanOrEqual(1);
   }
   // 对象面的结果内容必须落在右栏之内，而不是第二套页面（互动区在无数据时可以不渲染）。
   await page.goto("/?tab=pool");
@@ -232,8 +256,19 @@ test("workspace stacks at 1000px and keeps the dock on short viewports", async (
   await page.setViewportSize({ width: 1000, height: 900 });
   await page.goto("/?tab=pool");
   await expect(page.locator('[data-home-pane="pool"] [data-scope-task-rail]')).toBeVisible({ timeout: 30000 });
-  const display = await page.locator('[data-home-pane="pool"].scope-workspace').evaluate((el) => getComputedStyle(el).display);
-  expect(display).toBe("block");
+  const stacked = await page.locator('[data-home-pane="pool"].scope-workspace').evaluate((el) => {
+    const center = el.querySelector<HTMLElement>("[data-scope-ai-workspace]")!;
+    const rail = el.querySelector<HTMLElement>("[data-scope-task-rail]")!;
+    return {
+      display: getComputedStyle(el).display,
+      columns: getComputedStyle(el).gridTemplateColumns,
+      centerBottom: center.getBoundingClientRect().bottom,
+      railTop: rail.getBoundingClientRect().top,
+    };
+  });
+  expect(stacked.display).toBe("grid");
+  expect(stacked.columns.split(" ")).toHaveLength(1);
+  expect(stacked.railTop).toBeGreaterThanOrEqual(stacked.centerBottom - 1);
   expect(await horizontalOverflow(page, "html")).toBeLessThanOrEqual(1);
   await expect(page.locator('[data-home-pane="pool"] .scope-task-rail-toggle')).toBeVisible();
 
@@ -242,7 +277,9 @@ test("workspace stacks at 1000px and keeps the dock on short viewports", async (
   await expect(page.locator('[data-home-pane="lifecycle"] [data-scope-task-rail]')).toBeVisible({ timeout: 30000 });
   const geometry = await workspaceGeometry(page, "lifecycle");
   expect(geometry.pageScrolls).toBe(false);
-  expect(geometry.dockBottom).toBe(520);
+  expect(geometry.dockFrameDelta).toBeLessThanOrEqual(1);
+  expect(geometry.scrollDockOverlap).toBeLessThanOrEqual(1);
+  expect(geometry.frameViewportOverflow).toBeLessThanOrEqual(1);
 });
 
 test("rail toggle is keyboard operable", async ({ page }) => {
@@ -268,8 +305,12 @@ test("return-to-bottom uses the compact latest icon control", async ({ page }) =
     const tail = document.createElement("div");
     tail.dataset.testScrollTail = "true";
     tail.style.height = "1600px";
+    tail.style.minHeight = "1600px";
+    tail.style.flexShrink = "0";
     tail.setAttribute("aria-hidden", "true");
-    element.appendChild(tail);
+    const content = element.querySelector('.scope-workspace-center-scroll-content');
+    if (!content) throw new Error('必须在真实受观测内容容器构造只读长内容');
+    content.appendChild(tail);
     element.scrollTop = 0;
     element.dispatchEvent(new Event("scroll", { bubbles: true }));
   });
@@ -278,8 +319,8 @@ test("return-to-bottom uses the compact latest icon control", async ({ page }) =
   const send = page.locator('[data-home-pane="discovery"] [data-ai-prompt-submit]');
   await expect(jump).toBeVisible();
   await expect(send).toBeVisible();
-  await expect(jump).toHaveAttribute("aria-label", /滚到(底部|顶部)/);
-  await expect(jump).toHaveAttribute("data-tooltip", /滚到(底部|顶部)/);
+  await expect(jump).toHaveAttribute("aria-label", "回到最新");
+  await expect(jump).toHaveAttribute("data-tooltip", "回到最新");
   await expect(jump.locator("svg")).toHaveCount(1);
   const jumpBox = await jump.evaluate((element) => ({
     width: getComputedStyle(element).width,
@@ -288,7 +329,7 @@ test("return-to-bottom uses the compact latest icon control", async ({ page }) =
   }));
   expect(jumpBox.width).toBe("32px");
   expect(jumpBox.height).toBe("32px");
-  expect(jumpBox.tooltip).toMatch(/滚到(底部|顶部)/);
+  expect(jumpBox.tooltip).toMatch(/回到最新/);
   expect(await send.evaluate((element) => ({
     width: getComputedStyle(element).width,
     height: getComputedStyle(element).height,

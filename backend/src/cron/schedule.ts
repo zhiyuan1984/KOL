@@ -135,7 +135,7 @@ export function humanFrequency(expr: string, timeZone: string): string {
     const parts = String(expr || "").trim().split(/\s+/);
     if (parts.length !== 5) return expr;
     const tz = timeZone || "Asia/Shanghai";
-    const tzLabel = tz === "Asia/Shanghai" ? "上海时间" : tz;
+    const tzLabel = tz === "Asia/Shanghai" ? "北京时间" : tz;
     if (parts[0] !== "*" && parts[1] !== "*" && parts[2] === "*" && parts[3] === "*" && parts[4] === "*") {
       const minute = parts[0].padStart(2, "0");
       const hour = parts[1].padStart(2, "0");

@@ -21,14 +21,27 @@ function scopeMatches(scope: EmployeeAgentScope, filters: AgentBrowseFilters, sk
 const emptyScope: EmployeeAgentScope = { family_id: null, domain_id: null, base_id: null, brand: null, stage_codes: [] };
 const scopesOf = (row?: EmployeeAgentBrowseRow) => row?.scopes.length ? row.scopes : [emptyScope];
 
+function hasScopeFilter(filters: AgentBrowseFilters, skip?: Axis): boolean {
+  return (skip !== "family" && Boolean(filters.familyId))
+    || (skip !== "domain" && Boolean(filters.domainId))
+    || (skip !== "base" && Boolean(filters.baseId))
+    || (skip !== "brand" && filters.brands.length > 0)
+    || (skip !== "stage" && filters.stages.length > 0);
+}
+
 export function filterAgentRows(experts: readonly Expert[], browse: ReadonlyMap<string, EmployeeAgentBrowseRow>,
   preferences: ReadonlyMap<string, EmployeeAgentPreference>, filters: AgentBrowseFilters, skip?: Axis): Expert[] {
   return experts.filter(expert => {
     if (skip !== "kind" && filters.kind && expert.kind !== filters.kind) return false;
     if (skip !== "view" && filters.view === "favorites" && !preferences.get(expert.id)?.favorite) return false;
     if (skip !== "view" && filters.view === "recent" && !preferences.get(expert.id)?.viewed_at) return false;
+    // The roster remains the source of authorization. A missing browse row is
+    // unknown applicability, not a synthetic "unassociated knowledge" scope.
+    if (!hasScopeFilter(filters, skip)) return true;
+    const browseRow = browse.get(expert.id);
+    if (!browseRow) return false;
     // All chosen scope dimensions must match the SAME associated reference.
-    return scopesOf(browse.get(expert.id)).some(scope => scopeMatches(scope, filters, skip));
+    return scopesOf(browseRow).some(scope => scopeMatches(scope, filters, skip));
   });
 }
 
@@ -44,10 +57,14 @@ export function agentBrowseFacets(experts: readonly Expert[], browse: ReadonlyMa
     else if (axis === "family" || axis === "domain" || axis === "base") { const selected = filters[`${axis}Id`]; if (selected) keys.add(selected); }
     if (axis === "kind") experts.forEach(row => keys.add(row.kind));
     else if (axis === "view") ["all", "favorites", "recent"].forEach(value => keys.add(value));
-    else for (const expert of experts) for (const scope of scopesOf(browse.get(expert.id))) {
-      if (axis === "brand") { if (scope.brand && scope.brand !== "*") keys.add(scope.brand); }
-      else if (axis === "stage") scope.stage_codes.forEach(code => keys.add(code));
-      else keys.add(scope[`${axis}_id`] || NO_SCOPE);
+    else for (const expert of experts) {
+      const browseRow = browse.get(expert.id);
+      if (!browseRow) continue;
+      for (const scope of scopesOf(browseRow)) {
+        if (axis === "brand") { if (scope.brand && scope.brand !== "*") keys.add(scope.brand); }
+        else if (axis === "stage") scope.stage_codes.forEach(code => keys.add(code));
+        else keys.add(scope[`${axis}_id`] || NO_SCOPE);
+      }
     }
     const values = Object.fromEntries([...keys].map(value => {
       const proposed: AgentBrowseFilters = { ...filters };

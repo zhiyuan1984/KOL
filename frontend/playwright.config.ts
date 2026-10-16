@@ -6,10 +6,28 @@ const port = process.env.E2E_PORT || "8876";
 const baseURL = process.env.E2E_BASE || `http://127.0.0.1:${port}`;
 const channel = process.env.PW_CHANNEL;
 const executablePath = process.env.PW_EXECUTABLE_PATH;
+// Only the explicit native-auth partition command moves real-authority cases
+// out of the legacy disabled-auth collection. Ordinary default E2E remains
+// byte-for-byte the same coverage mode and still includes the original cases.
+const nativeKnowledgePartition = process.env.E2E_NATIVE_AUTH_PARTITION === "1";
 
 export default defineConfig({
   testDir: "./e2e",
-  testIgnore: ["**/runtime-actions.spec.ts", "**/discovery-accessibility.spec.ts"],
+  testIgnore: [
+    "**/runtime-actions.spec.ts",
+    "**/discovery-accessibility.spec.ts",
+    ...(nativeKnowledgePartition ? [
+      "**/knowledge-documents.spec.ts",
+      "**/knowledge-usage.spec.ts",
+      "**/knowledge-v2-home.spec.ts",
+      "**/knowledge-question-template-flow.spec.ts",
+      "**/product-knowledge.spec.ts",
+    ] : []),
+  ],
+  // The two tagged normal-login cases need the isolated principal prepared by
+  // playwright.native-knowledge.config.ts. Keep the anonymous 401 assertion
+  // in this disabled-auth partition as its negative control.
+  ...(nativeKnowledgePartition ? { grepInvert: /@native-knowledge-enabled-auth/ } : {}),
   fullyParallel: false,
   // Stub gate runs the full 72-case file on one worker. A single leftover
   // library-sync race should not fail the release gate; real mode stays strict.

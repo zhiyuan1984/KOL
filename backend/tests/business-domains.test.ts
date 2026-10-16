@@ -14,15 +14,15 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "om.db");
   process.env.LINGONG_DATA = tmp;
   process.env.AUTH_MODE = "disabled";
-  resetConn();
-  seedAll();
+  await resetConn();
+  await seedAll();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = await createApp();
 });
 
-afterEach(() => {
+afterEach(async () => {
   process.env.AUTH_MODE = "disabled";
-  resetConn();
+  await resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 

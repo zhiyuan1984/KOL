@@ -203,25 +203,13 @@ export function expertAvatarPath(id: string): string {
  * Open a bound work session for a published expert whose primary entry is think.
  * Persists expert_id + expert_version. Does not send mail, write stage, or run LIVE.
  */
-export function summonExpert(id: string): Json {
+export async function summonExpert(id: string): Promise<Awaited<Json>> {
   const manifest = assertExpertSummonable(id);
   const sid = nid("ses");
   const now = nowIso();
-  tx((db) => {
-    db.prepare(
-      "INSERT INTO sessions (id, title, created_at, updated_at, kind, disabled, owner_user_id, expert_id, expert_version) VALUES (?,?,?,?,?,?,?,?,?)",
-    ).run(
-      sid,
-      manifest.display_name,
-      now,
-      now,
-      "work",
-      0,
-      scopedUser()?.id || null,
-      manifest.id,
-      manifest.version,
-    );
-  });
+  (await tx(async (db) => {
+    (await db.query("INSERT INTO sessions (id, title, created_at, updated_at, kind, disabled, owner_user_id, expert_id, expert_version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",[sid,manifest.display_name,now,now,"work",0,scopedUser()?.id || null,manifest.id,manifest.version]));
+  }));
   return {
     session_id: sid,
     expert_id: manifest.id,

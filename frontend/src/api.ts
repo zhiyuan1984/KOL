@@ -8,6 +8,40 @@ export type HomePoolPage = {
   next_offset: number | null;
 };
 export type HomePoolOptions = { query?: string; filter?: string; sort?: string; offset?: number; limit?: number };
+
+/** 已有正式审批账本的服务端投影；权限和允许动作均由服务端给出。 */
+export type LegacyApprovalProjection = {
+  id: string;
+  kind?: string;
+  kind_label?: string;
+  action_id?: string;
+  title?: string;
+  status: string;
+  business_status?: string;
+  business_status_label?: string;
+  can_decide?: boolean;
+  allowed_actions?: string[];
+  version?: number;
+  version_code?: string;
+  current_index?: number;
+  current_node?: string;
+  submitted_by?: string;
+  requester_name?: string;
+  object_label?: string;
+  consequence_label?: string;
+  waiting_duration_label?: string;
+  chain?: string[];
+  chain_detail?: { name: string; role: string }[];
+  path?: { name: string; role: string; state?: string; state_label?: string }[];
+  payload?: Record<string, unknown>;
+  created_at?: string;
+  createdAt?: string;
+  updated_at?: string;
+};
+
+/** `mine`/`processed`/`all` 是旧审批账本的四 tab 兼容盒子。 */
+export type ApprovalQueueBox = "inbox" | "submitted" | "done" | "mine" | "processed" | "all";
+
 export type CandidateAssessment = {
   state: "unscored" | "scoring" | "scored" | "failed";
   execution_state?: "queued" | "scoring" | "scored" | "failed";
@@ -2723,8 +2757,8 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ persona }),
     }).then((r) => r.json()),
-  sessions: (includeArchived = false) =>
-    request<SessionRow[]>(`/api/sessions${includeArchived ? "?include_archived=1" : ""}`),
+  sessions: (includeArchived = false, signal?: AbortSignal) =>
+    request<SessionRow[]>(`/api/sessions${includeArchived ? "?include_archived=1" : ""}`, { signal }),
   session: (id: string, opts?: { sync?: boolean; force?: boolean }) =>
     request<{
       messages: Message[];
@@ -2883,8 +2917,8 @@ export const api = {
       body: JSON.stringify(body),
     }),
   pipeline: (exception = 0) => fetch(`/api/pipeline?exception=${exception}`).then((r) => r.json()),
-  approvals: (box?: "inbox" | "submitted" | "done") =>
-    request<Record<string, unknown>[]>(box ? `/api/approvals?box=${encodeURIComponent(box)}` : "/api/approvals"),
+  approvals: (box?: ApprovalQueueBox) =>
+    request<LegacyApprovalProjection[]>(box ? `/api/approvals?box=${encodeURIComponent(box)}` : "/api/approvals"),
   approvalBadge: () => request<{ count: number }>("/api/approvals/badge"),
   approval: (id: string) => request<Record<string, unknown>>(`/api/approvals/${encodeURIComponent(id)}`),
   wecomCards: () => request<Array<{ approval_id: string; body: string; status: string; assignee: string }>>("/api/wecom/cards"),

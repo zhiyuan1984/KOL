@@ -57,7 +57,7 @@ kol.get("/kol/leads", async (c) => {
     mine: c.req.query("mine") === "1" || c.req.query("mine") === "true",
     search: c.req.query("search"),
     limit: parseLimit(c.req.query("limit")), offset: parseOffset(c.req.query("offset")),
-  }, { leaderMemberIds: leaderMemberUserIds(scopedUser()) });
+  }, { leaderMemberIds: (await leaderMemberUserIds(scopedUser())) });
   return c.json({ ...page, ...meta() });
 });
 
@@ -70,13 +70,13 @@ kol.get("/kol/leads/automation-status", async (c) => {
 /** 本体落地：线索对象事件时间线（对象详情页统一入口）。 */
 kol.get("/kol/leads/:id/events", async (c) => {
   const { id, isAdmin } = actor();
-  return c.json({ ...(await kolLeadEvents(id, isAdmin, c.req.param("id"), parseLimit(c.req.query("limit"), 50), { leaderMemberIds: leaderMemberUserIds(scopedUser()) })), ...meta() });
+  return c.json({ ...(await kolLeadEvents(id, isAdmin, c.req.param("id"), parseLimit(c.req.query("limit"), 50), { leaderMemberIds: (await leaderMemberUserIds(scopedUser())) })), ...meta() });
 });
 
 kol.get("/kol/leads/:id", async (c) => {
   const { id, isAdmin } = actor();
   return c.json({
-    ...(await kolLeadDetail(id, isAdmin, c.req.param("id"), { leaderMemberIds: leaderMemberUserIds(scopedUser()) })),
+    ...(await kolLeadDetail(id, isAdmin, c.req.param("id"), { leaderMemberIds: (await leaderMemberUserIds(scopedUser())) })),
     ...meta(),
   });
 });

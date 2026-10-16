@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useMemo, useState } from "react";
+import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import FollowedKolWorkCard from "../src/components/FollowedKolWorkCard";
@@ -6,6 +6,7 @@ import { TaskTheme } from "../src/tasks/TaskTheme";
 import { projectFollowedKolCard, type FollowedKolRecord } from "../src/followedKolCard";
 import PoolPane from "../src/home/PoolPane";
 import type { PoolKol } from "../src/home/kolContract";
+import type { PoolClaimReceipts } from "../src/home/poolView";
 import DiscoveryRuntimeCandidate, { type Candidate } from "../src/home/DiscoveryRuntimeCandidate";
 import DiscoveryLeadRow from "../src/home/DiscoveryLeadRow";
 import { asHomeCandidate } from "../src/home/discoveryHome";
@@ -124,9 +125,12 @@ function FollowedFixture() {
 
 function PoolFixture() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [claimTarget, setClaimTarget] = useState<PoolKol | null>(null);
-  const [claimBusy, setClaimBusy] = useState(false);
+  const [claimReceipts, setClaimReceipts] = useState<PoolClaimReceipts>({});
   const [confirmCalls, setConfirmCalls] = useState(0);
+  // PoolPane's current click is the L3 confirmation. The local fixture has no
+  // API transport: it records the current receipt contract and rejects a
+  // duplicate click before React has painted the retained receipt.
+  const claimCommitted = useRef(false);
   return <>
     <output data-fixture-pool-confirm>{confirmCalls}</output>
     <PoolPane
@@ -143,11 +147,22 @@ function PoolFixture() {
       onToggleSort={() => undefined}
       onToggleSelect={(id, checked) => setSelectedIds(ids => checked ? [...new Set([...ids, id])] : ids.filter(value => value !== id))}
       onToggleSelectAll={(ids, checked) => setSelectedIds(checked ? ids : [])}
-      claimBusyId={claimBusy ? poolCard.kol_uid : null}
-      claimTarget={claimTarget}
-      onClaim={setClaimTarget}
-      onConfirmClaim={() => { setConfirmCalls(value => value + 1); setClaimBusy(true); }}
-      onCancelClaim={() => setClaimTarget(null)}
+      claimBusyId={null}
+      claimReceipts={claimReceipts}
+      onClaim={(card) => {
+        if (claimCommitted.current) return;
+        claimCommitted.current = true;
+        setConfirmCalls(value => value + 1);
+        const receipt = { kolUid: card.kol_uid, followId: "fixture-follow", created: true, card };
+        setClaimReceipts({ [card.kol_uid]: receipt });
+      }}
+      onReleaseClaim={(kolUid) => {
+        claimCommitted.current = false;
+        setClaimReceipts((current) => {
+          const { [kolUid]: _released, ...remaining } = current;
+          return remaining;
+        });
+      }}
     />
   </>;
 }

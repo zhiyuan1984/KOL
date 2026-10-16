@@ -1204,6 +1204,9 @@
 .mail-page.mail-gmail .mail-reading-pane > .mi-aibar.mail-ai-composer,
 .mail-page.mail-gmail .mi-aibar.mail-ai-composer {
   flex: 0 0 auto;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
   margin: 0;
   padding: var(--space-2) var(--space-3);
   overflow: visible;
@@ -1476,7 +1479,25 @@
     padding: var(--space-1) !important;
   }
 
+  /* Keep focusable topbar controls inside the viewport. Hidden overflow alone
+     permits focus-induced scrollLeft, which shifts the entire reader off-screen. */
+  .mail-page.mail-gmail .mi-topbar {
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    padding-inline: var(--space-1);
+    min-width: 0;
+  }
+
+  .mail-page.mail-gmail .mi-topbar .mi-searchwrap {
+    flex: 1 1 100%;
+    max-width: none;
+    order: 1;
+  }
+
   .mail-page.mail-gmail .mi-grid {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
     border-color: transparent;
   }
 

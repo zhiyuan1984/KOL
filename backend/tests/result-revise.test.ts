@@ -30,30 +30,30 @@ function last(skill = "email_compose"): LastUnsentResult {
 }
 
 describe("result revise classification", () => {
-  it("treats a field tweak as a supplement of the unsent result", () => {
-    expect(isResultRevision("把金额改成 720", last())).toBe(true);
-    expect(isResultRevision("主题：Updated quote", last())).toBe(true);
-    expect(isResultRevision("语气更正式一点", last())).toBe(true);
+  it("treats a field tweak as a supplement of the unsent result", async () => {
+    expect((await isResultRevision("把金额改成 720", last()))).toBe(true);
+    expect((await isResultRevision("主题：Updated quote", last()))).toBe(true);
+    expect((await isResultRevision("语气更正式一点", last()))).toBe(true);
   });
 
-  it("treats chips, another letter, send, and skill aliases as a new task", () => {
+  it("treats chips, another letter, send, and skill aliases as a new task", async () => {
     const row = last();
-    expect(isResultRevision("把金额改成 720", row, { lockedIntent: "email_compose" })).toBe(false);
-    expect(isResultRevision("再写一封", row)).toBe(false);
-    expect(isResultRevision("确认发送", row)).toBe(false);
-    expect(isResultRevision("写跟进 @数码老张", row)).toBe(false);
-    expect(isResultRevision("记状态 @数码老张", row)).toBe(false);
-    expect(isResultRevision("重写一封", row)).toBe(false);
-    expect(isResultRevision("把金额改成 720", row, { boundTask: true })).toBe(false);
-    expect(isResultRevision("把金额改成 720 @小美妆日记", row)).toBe(false);
-    expect(isResultRevision("把金额改成 720", null)).toBe(false);
+    expect((await isResultRevision("把金额改成 720", row, { lockedIntent: "email_compose" }))).toBe(false);
+    expect((await isResultRevision("再写一封", row))).toBe(false);
+    expect((await isResultRevision("确认发送", row))).toBe(false);
+    expect((await isResultRevision("写跟进 @数码老张", row))).toBe(false);
+    expect((await isResultRevision("记状态 @数码老张", row))).toBe(false);
+    expect((await isResultRevision("重写一封", row))).toBe(false);
+    expect((await isResultRevision("把金额改成 720", row, { boundTask: true }))).toBe(false);
+    expect((await isResultRevision("把金额改成 720 @小美妆日记", row))).toBe(false);
+    expect((await isResultRevision("把金额改成 720", null))).toBe(false);
   });
 });
 
 describe("result revise merge", () => {
-  it("only overwrites named fields and can patch the amount in the body", () => {
+  it("only overwrites named fields and can patch the amount in the body", async () => {
     const snap = last().snapshot;
-    const fields = stubReviseFields("把金额改成 720", snap);
+    const fields = (await stubReviseFields("把金额改成 720", snap));
     expect(fields.amount_usd).toBe(720);
     const { next, changed } = mergeReviseFields(snap, fields);
     expect(changed).toContain("amount_usd");
@@ -65,14 +65,14 @@ describe("result revise merge", () => {
     expect(String(next.body)).not.toContain("680");
   });
 
-  it("inserts a missing price into an outreach draft instead of leaving the body unchanged", () => {
-    const fields = stubReviseFields("报价邮件草稿金额未写明，请在草稿里补上价格5000美金1小时", {
+  it("inserts a missing price into an outreach draft instead of leaving the body unchanged", async () => {
+    const fields = (await stubReviseFields("报价邮件草稿金额未写明，请在草稿里补上价格5000美金1小时", {
       skill: "email_compose",
       handle: "数码老张",
       body: "I hope you’re having a wonderful day! I wanted to reach out about our partnership.\n\nBest,\nLiTime Creator Desk\n",
       body_zh_internal: "建联热情问候。",
       amount_usd: null,
-    });
+    }));
     expect(fields.amount_usd).toBe(5000);
     expect(String(fields.body)).toMatch(/USD 5000/);
     expect(String(fields.body)).toMatch(/USD 5000 per hour/);

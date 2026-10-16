@@ -6,6 +6,14 @@ async function openMode(page: Page, mode: "today" | "todo" | "discovery" | "pool
   await expect(page.locator(`[data-home-pane="${mode}"]`)).toBeVisible();
 }
 
+/** Current task-board authority: scoped result memory plus paged workbench facts. */
+async function stubEmptyTaskScopes(page: Page) {
+  await page.route(/\/api\/home\/(?:today|todo)-tasks(?:\?.*)?$/, (route) => route.fulfill({ json: { items: [] } }));
+  await page.route(/\/api\/workbench\/tasks(?:\?.*)?$/, (route) => route.fulfill({
+    json: { items: [], page: { next_cursor: null } },
+  }));
+}
+
 test.beforeEach(async ({ page, request }) => {
   await request.post("/api/demo/reset", { data: { workbench: true } });
   await request.post("/api/me/persona", { data: { persona: "sriphy" } });
@@ -13,6 +21,8 @@ test.beforeEach(async ({ page, request }) => {
 });
 
 test("home five-mode tab order and pane visibility", async ({ page }) => {
+  // Do not inherit the demo/reset task mix: this is the accepted empty-scope fact.
+  await stubEmptyTaskScopes(page);
   await page.goto("/");
   await expect(page.locator("[data-home-mode]")).toHaveCount(5);
   expect(await page.locator("[data-home-mode]").evaluateAll((els) => (
@@ -92,7 +102,10 @@ test("home five-mode tab order and pane visibility", async ({ page }) => {
 
   await openMode(page, "todo");
   await expect(page.locator("[data-today-summary], [data-home-stats]")).toHaveCount(0);
-  await expect(page.locator('[data-scope-task-rail] [data-attention-filter="due_today"]')).toBeVisible();
+  // DESIGN §8.3: zero-value filters do not render (KPI is the explicit exception).
+  // This native empty board has no due-today fact, so it must not fabricate a reminder.
+  await expect(page.locator('[data-scope-task-rail] [data-attention-filter="due_today"]')).toHaveCount(0);
+  await expect(page.locator('[data-home-pane="todo"] [data-today-list-empty="none"]')).toContainText("没有待办任务");
   await expect(page.locator("[data-home]")).not.toHaveAttribute("data-followed-chrome", "compact");
 });
 
@@ -116,13 +129,19 @@ async function stubHomeTodos(page: Page, todos: Array<Record<string, unknown>>) 
     },
   };
   await stubHomeBoardAndFollowing(page, payload);
+  // The displayed todo rows are owned by the scope result-memory endpoint,
+  // not by the retired board projection.
+  await page.route(/\/api\/home\/todo-tasks(?:\?.*)?$/, (route) => route.fulfill({ json: { items: todos } }));
+  await page.route(/\/api\/workbench\/tasks(?:\?.*)?$/, (route) => route.fulfill({
+    json: { items: todos, page: { next_cursor: null } },
+  }));
   await page.route(/\/api\/tasks(?:\?.*)?$/, (route) => route.fulfill({ json: todos }));
 }
 
 async function todoRowLayout(card: ReturnType<Page["locator"]>) {
   return card.evaluate((el) => {
     const title = el.querySelector(".task-board-title") as HTMLElement | null;
-    const status = el.querySelector(".task-board-chip[data-board-status]") as HTMLElement | null;
+    const status = el.querySelector(".task-board-cell-status .task-board-row-state") as HTMLElement | null;
     const act = el.querySelector("[data-today-todo-act]") as HTMLElement | null;
     const pane = el.closest("[data-todo-list]") as HTMLElement | null;
     if (!title || !status || !act) {
@@ -138,6 +157,8 @@ async function todoRowLayout(card: ReturnType<Page["locator"]>) {
       titleRight: titleBox.right,
       titleTop: titleBox.top,
       statusLeft: statusBox.left,
+      statusRight: statusBox.right,
+      rowRight: el.getBoundingClientRect().right,
       statusTop: statusBox.top,
       actLeft: actBox.left,
       actTop: actBox.top,
@@ -179,7 +200,7 @@ test("home todo rows live in the task rail without横向滚动", async ({ page }
   const follow = page.locator("[data-today-todo]").filter({ hasText: "跟进 Outdoor Gear Lab 样品签收" });
   await expect(follow).toBeVisible();
   await expect(follow.locator("[data-today-todo-act]")).toBeVisible();
-  await expect(follow.locator("[data-board-status]")).toHaveText("未开始");
+  await expect(follow.locator(".task-board-cell-status .task-board-row-state")).toHaveText("待处理");
   await expect(follow.locator("[data-today-todo-act]")).toHaveText("打开");
 
   // 待办任务表现在住在与今日任务同一个工作台右栏里：仍是「标题在左、动作在右」的行，
@@ -188,7 +209,11 @@ test("home todo rows live in the task rail without横向滚动", async ({ page }
   expect(wide.paneMaxWidth).toMatch(/^(none|100%)$/);
   expect(wide.actLeft).toBeGreaterThan(wide.titleRight - 8);
   expect(Math.abs(wide.actTop - wide.titleTop)).toBeLessThan(48);
-  expect(wide.statusLeft).toBeLessThan(wide.titleRight);
+  // Current table has separate title/status/action columns, not a status
+  // overlaid on the title. Keep all facts in the owned row within 1px.
+  expect(wide.statusLeft).toBeGreaterThanOrEqual(wide.titleRight - 1);
+  expect(wide.statusRight).toBeLessThanOrEqual(wide.actLeft + 1);
+  expect(wide.statusRight).toBeLessThanOrEqual(wide.rowRight + 1);
   // 工作台列宽契约（DESIGN「Home Agent 工作台几何」）：右栏 clamp(360px, 54%, 820px)，
   // 右栏可以宽于中栏；行在右栏内不横向滚动。用 border-box 宽度之和，clientWidth
   // 会把右栏 1px 边框和百分比小数舍掉，算式对不上。
@@ -197,7 +222,7 @@ test("home todo rows live in the task rail without横向滚动", async ({ page }
   expect(railWidth).toBeGreaterThanOrEqual(360);
   expect(railWidth).toBeLessThanOrEqual(820);
   expect(centerWidth).toBeGreaterThan(0);
-  expect(Math.abs(railWidth - Math.min(Math.max(0.54 * (railWidth + centerWidth), 360), 820))).toBeLessThanOrEqual(2);
+  expect(Math.abs(railWidth - Math.min(Math.max(0.54 * (railWidth + centerWidth), 360), 820))).toBeLessThanOrEqual(1);
   await expectNoPageHorizontalScroll(page);
 
   await page.setViewportSize({ width: 720, height: 900 });
@@ -216,6 +241,9 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
       stage_code: "INITIAL_CONTACT",
       stage_label: "初步接触",
       days_in_stage: 12,
+      days_since_interaction: 12,
+      last_interaction_at: "2026-09-12T10:00:00.000Z",
+      countdown: true,
       mailbox_from: "larry.zhao@amperetime.com",
       suggested_stage: "已回复-有兴趣",
       suggested_stage_code: "INTERESTED",
@@ -240,23 +268,35 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
   await expect(card).toBeVisible();
   await expect(card.locator("[data-kol-band]")).toHaveCount(4);
   await expect(card.locator("[data-kol-band='identity'] [data-stage-label]")).toHaveText("初步接触");
-  await expect(card.locator("[data-days-in-stage]")).toHaveText("停留 12 天");
+  // The compact list now exposes the service-authoritative 14-day contact
+  // clock; stage dwell remains available in the object detail rather than
+  // duplicating a stale lifecycle fact in the right rail.
+  await expect(card.locator('[data-kol-chip="countdown"]')).toContainText("剩 2 天");
+  await expect(card.locator('[data-kol-chip="countdown"]')).toHaveAttribute("title", /14 天无有效互动/);
   await expect(card.locator('[data-kol-chip="mailbox"]')).toHaveCount(0);
   await expect(card.locator("[data-latest-fact]")).toContainText("我对这次合作有兴趣");
-  await expect(card.locator("[data-latest-fact]")).toContainText("邮件 ·");
+  await expect(card.locator("[data-latest-fact]")).toHaveAttribute("data-fact-kind", "inbound");
+  await expect(card.locator("[data-latest-fact]")).toContainText("最近互动 · 邮件摘要");
   await expect(card.locator("[data-latest-fact]")).not.toContainText("From:");
   await expect(card.locator("[data-latest-fact]")).not.toContainText("Reply-To");
   await expect(card.locator("[data-recommended-action]")).toContainText("建议进入「已回复 · 有兴趣」");
-  await expect(card.locator("[data-action-why]")).toContainText("明确表达品牌合作意愿");
+  // A saved stage target is not a new inference from a mail snippet.
+  await expect(card.locator("[data-action-why]")).toHaveText("· 已有阶段建议记录，需人工核对邮件原文。");
   await expect(card).not.toContainText("支撑进入");
   await expect(card).not.toContainText("support_transition");
   await expect(card.locator("[data-action-evidence]")).toContainText("依据");
   await expect(card.locator("[data-confirm-enter-stage]")).toHaveText("进入已回复 · 有兴趣");
   await expect(card.locator("[data-confirm-enter-stage] svg")).toHaveCount(1);
-  await expect(card.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
+  await expect(card.locator("[data-confirm-enter-stage]")).toHaveAttribute("data-cta-visual", "text");
+  await expect(card.locator("[data-confirm-enter-stage]")).toHaveClass(/ant-btn-text/);
   await expect(page.locator("[data-followed-batch-confirm]")).toHaveCount(0);
   await expect(card.locator("[data-open-kol-detail]")).toHaveText("详情");
-  await expect(card.locator("[data-open-kol-detail]")).not.toHaveClass(/btn/);
+  await expect(card.locator("[data-open-kol-detail]")).not.toHaveClass(/(?:^|\s)btn(?:\s|$)/);
+  await expect(card.locator("[data-open-kol-detail]")).toHaveClass(/ant-btn-text/);
+  await expect(card.locator("[data-open-kol-detail]")).toHaveClass(/ant-btn-variant-text/);
+  await expect(card.locator("[data-open-kol-detail]")).toHaveAttribute("type", "button");
+  await page.mouse.move(0, 0);
+  await expect(card.locator("[data-open-kol-detail]")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(card.locator("[data-open-original-mail]")).toHaveText("互动");
   await expect(card.getByRole("button", { name: "确认阶段", exact: true })).toHaveCount(0);
 
@@ -304,7 +344,13 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
         h: Math.round(box.height),
       };
     };
+    const accentProbe = document.createElement("i");
+    accentProbe.style.color = "var(--accent-text)";
+    el.appendChild(accentProbe);
+    const accentColor = getComputedStyle(accentProbe).color;
+    accentProbe.remove();
     return {
+      accentColor,
       name: read(el.querySelector("[data-kol-name]")),
       stage: read(el.querySelector("[data-stage-label]")),
       avatar: read(el.querySelector("[data-kol-avatar]")),
@@ -316,23 +362,23 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
       mail: read(el.querySelector("[data-open-original-mail]")),
     };
   });
-  // 三级字号阶梯（docs/DESIGN.md §字号阶梯用途）：一级/二级 = --ds-font-body(14)，
-  // 三级 = --ds-font-sm(13)。列表行内容不再借分区标题档 --ds-font-section。
-  expect(type.name!.size).toBe(14);
-  expect(type.name!.weight).toBeGreaterThanOrEqual(600);
+  // 三级字号阶梯：对象行主体使用 --ds-font-sm(13)，辅助说明使用
+  // --ds-font-xs(12)；它们不借用分区标题档。
+  expect(type.name!.size).toBe(13);
+  expect(type.name!.weight).toBeGreaterThanOrEqual(500);
   expect(["rgb(26, 26, 26)", "rgb(0, 0, 0)"]).toContain(type.name!.color);
   if (type.stage) {
-    expect(type.stage.size).toBe(13);
+    expect(type.stage.size).toBe(12);
     expect(type.stage.weight).toBeLessThan(type.name!.weight);
   }
-  // 头像 = 图标砖：--kol-avatar-size，不再是大圆形。
-  expect([type.avatar!.w, type.avatar!.h]).toEqual([28, 28]);
+  // 头像 = --control-h-sm 图标砖，不再是大圆形。
+  expect([type.avatar!.w, type.avatar!.h]).toEqual([24, 24]);
   if (type.kicker) expect(type.kicker.size).toBe(13);
-  if (type.fact) expect(type.fact.size).toBe(14);
-  if (type.ai) expect(type.ai.size).toBe(14);
-  if (type.why) expect(type.why.size).toBe(13);
+  if (type.fact) expect(type.fact.size).toBe(13);
+  if (type.ai) expect(type.ai.size).toBe(13);
+  if (type.why) expect(type.why.size).toBe(12);
   expect(type.detail!.size).toBe(13);
-  expect(["rgb(107, 107, 107)", "rgb(102, 102, 102)"]).toContain(type.detail!.color);
+  expect(type.detail!.color).toBe(type.accentColor);
   if (type.mail) expect(type.mail.size).toBe(13);
   if (wide.columnWidth > 1000) {
     expect(wide.cardWidth).toBeLessThan(wide.columnWidth - 24);
@@ -349,18 +395,9 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
 
 async function countFilledFollowedWorkCtas(page: Page): Promise<number> {
   return page.locator("[data-followed-kol-list] [data-kol-primary-action]").evaluateAll((els) => {
-    // 实底 = 用 --primary 填满（docs/DESIGN.md §颜色）。颜色从 token 现算，
-    // 旧断言写死的 rgb(199, 59, 122) 早在 --primary 迁移时就过期了。
-    const probe = document.createElement("span");
-    probe.style.color = getComputedStyle(document.documentElement).getPropertyValue("--primary").trim();
-    document.body.appendChild(probe);
-    const filled = getComputedStyle(probe).color;
-    probe.remove();
-    return els.filter((el) => (
-      el.classList.contains("work")
-      || el.getAttribute("data-cta-visual") === "filled"
-      || getComputedStyle(el).backgroundColor === filled
-    )).length;
+    // AntD owns the concrete text-button classes. The component's semantic
+    // emphasis attribute is the stable signal for the sole promoted work CTA.
+    return els.filter((el) => el.getAttribute("data-emphasized") === "true").length;
   });
 }
 
@@ -432,34 +469,35 @@ test("home followed list keeps one strong work CTA", async ({ page }) => {
   await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveText("进入已回复 · 有兴趣");
   await expect(draft.locator("[data-kol-primary-action]")).toHaveText("准备回复");
   await expect(list.locator("[data-open-kol-detail]")).toHaveCount(3);
-  await expect(list.locator("[data-open-kol-detail].btn.work")).toHaveCount(0);
+  await expect(list.locator("[data-open-kol-detail][data-emphasized='true']")).toHaveCount(0);
 
   await page.mouse.move(0, 0);
-  await expect(list.locator("[data-kol-primary-action].btn.work")).toHaveCount(0);
-  await expect(stageA.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
-  await expect(stageB.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
-  await expect(draft.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
+  await expect(list.locator("[data-kol-primary-action][data-emphasized='true']")).toHaveCount(0);
+  await expect(stageA.locator("[data-kol-primary-action]")).toHaveAttribute("data-cta-visual", "text");
+  await expect(stageA.locator("[data-kol-primary-action]")).not.toHaveAttribute("data-emphasized", "true");
+  await expect(stageB.locator("[data-kol-primary-action]")).not.toHaveAttribute("data-emphasized", "true");
+  await expect(draft.locator("[data-kol-primary-action]")).not.toHaveAttribute("data-emphasized", "true");
   await expect(page.locator("[data-followed-batch-confirm]")).toHaveCount(0);
   expect(await countFilledFollowedWorkCtas(page)).toBe(0);
 
   await stageA.hover();
   await expect(stageA).toHaveAttribute("data-cta-emphasis", "strong");
-  await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveClass(/work/);
-  await expect(stageB.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
-  await expect(draft.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
+  await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveAttribute("data-emphasized", "true");
+  await expect(stageB.locator("[data-confirm-enter-stage]")).not.toHaveAttribute("data-emphasized", "true");
+  await expect(draft.locator("[data-kol-primary-action]")).not.toHaveAttribute("data-emphasized", "true");
   expect(await countFilledFollowedWorkCtas(page)).toBe(1);
 
   await stageB.locator("[data-confirm-enter-stage]").focus();
   await expect(stageB).toHaveAttribute("data-cta-emphasis", "strong");
-  await expect(stageB.locator("[data-confirm-enter-stage]")).toHaveClass(/work/);
-  await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
+  await expect(stageB.locator("[data-confirm-enter-stage]")).toHaveAttribute("data-emphasized", "true");
+  await expect(stageA.locator("[data-confirm-enter-stage]")).not.toHaveAttribute("data-emphasized", "true");
   expect(await countFilledFollowedWorkCtas(page)).toBe(1);
 
   await draft.hover();
-  await expect(draft.locator("[data-kol-primary-action]")).toHaveClass(/work/);
-  await expect(draft.locator("[data-cta-role='draft']")).toHaveAttribute("data-cta-visual", "filled");
-  await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
-  await expect(stageB.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
+  await expect(draft.locator("[data-kol-primary-action]")).toHaveAttribute("data-emphasized", "true");
+  await expect(draft.locator("[data-cta-role='draft']")).toHaveAttribute("data-cta-visual", "text");
+  await expect(stageA.locator("[data-confirm-enter-stage]")).not.toHaveAttribute("data-emphasized", "true");
+  await expect(stageB.locator("[data-confirm-enter-stage]")).not.toHaveAttribute("data-emphasized", "true");
   expect(await countFilledFollowedWorkCtas(page)).toBe(1);
 
   await page.mouse.move(0, 0);
@@ -467,14 +505,14 @@ test("home followed list keeps one strong work CTA", async ({ page }) => {
   await stageB.locator("[data-followed-select]").check();
   await expect(stageA).toHaveAttribute("data-selected", "true");
   await expect(stageB).toHaveAttribute("data-selected", "true");
-  await expect(page.locator("[data-followed-selected-count]")).toHaveText("已选 2 / 8");
+  await expect(page.locator("[data-followed-selected-count]")).toHaveText("已选 2");
   await expect(page.locator("[data-followed-batch-confirm]")).toHaveClass(/work/);
   await expect(page.locator("[data-followed-batch-confirm]")).toHaveText("确认进入已回复 · 有兴趣（2）");
-  await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
-  await expect(stageB.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
-  await expect(draft.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
+  await expect(stageA.locator("[data-confirm-enter-stage]")).not.toHaveAttribute("data-emphasized", "true");
+  await expect(stageB.locator("[data-confirm-enter-stage]")).not.toHaveAttribute("data-emphasized", "true");
+  await expect(draft.locator("[data-kol-primary-action]")).not.toHaveAttribute("data-emphasized", "true");
   expect(await countFilledFollowedWorkCtas(page)).toBe(0);
-  await expect(page.locator("[data-home-pane='lifecycle'] .btn.work")).toHaveCount(1);
+  await expect(page.locator("[data-home-pane='lifecycle'] [data-followed-batch-confirm]")).toHaveCount(1);
   expect(await list.locator("[data-followed-kol]").count()).toBeGreaterThan(1);
 });
 
@@ -546,27 +584,27 @@ test("home followed multi-select shows one filled top CTA", async ({ page }) => 
   await expect(list.locator("[data-followed-kol]")).toHaveCount(3);
   await expect(list.locator("[data-followed-select]")).toHaveCount(3);
   await page.mouse.move(0, 0);
-  await expect(list.locator("[data-kol-primary-action].btn.ghost")).toHaveCount(3);
-  await expect(list.locator("[data-kol-primary-action].btn.work")).toHaveCount(0);
+  await expect(list.locator("[data-kol-primary-action][data-cta-visual='text']")).toHaveCount(3);
+  await expect(list.locator("[data-kol-primary-action][data-emphasized='true']")).toHaveCount(0);
   await expect(topCta).toHaveCount(0);
   expect(await countFilledFollowedWorkCtas(page)).toBe(0);
 
   await stageA.locator("[data-followed-select]").check();
   await expect(topCta).toHaveClass(/work/);
   await expect(topCta).toHaveText("进入已回复 · 有兴趣 →");
-  await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
-  await expect(stageB.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
-  await expect(draft.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
-  await expect(page.locator("[data-home-pane='lifecycle'] .btn.work")).toHaveCount(1);
+  await expect(stageA.locator("[data-confirm-enter-stage]")).not.toHaveAttribute("data-emphasized", "true");
+  await expect(stageB.locator("[data-confirm-enter-stage]")).not.toHaveAttribute("data-emphasized", "true");
+  await expect(draft.locator("[data-kol-primary-action]")).not.toHaveAttribute("data-emphasized", "true");
+  await expect(page.locator("[data-home-pane='lifecycle'] [data-followed-batch-confirm]")).toHaveCount(1);
 
   await stageB.locator("[data-followed-select]").check();
-  await expect(page.locator("[data-followed-selected-count]")).toHaveText("已选 2 / 8");
+  await expect(page.locator("[data-followed-selected-count]")).toHaveText("已选 2");
   await expect(topCta).toHaveClass(/work/);
   await expect(topCta).toHaveText("确认进入已回复 · 有兴趣（2）");
-  await expect(list.locator("[data-kol-primary-action].btn.work")).toHaveCount(0);
-  await expect(page.locator("[data-home-pane='lifecycle'] .btn.work")).toHaveCount(1);
+  await expect(list.locator("[data-kol-primary-action][data-emphasized='true']")).toHaveCount(0);
+  await expect(page.locator("[data-home-pane='lifecycle'] [data-followed-batch-confirm]")).toHaveCount(1);
   await stageA.hover();
-  await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
+  await expect(stageA.locator("[data-confirm-enter-stage]")).not.toHaveAttribute("data-emphasized", "true");
 
   await topCta.click();
   const dialog = page.locator("[data-followed-batch-confirm-dialog]");
@@ -579,7 +617,7 @@ test("home followed multi-select shows one filled top CTA", async ({ page }) => 
   await dialog.locator("[data-followed-batch-confirm-no]").click();
   await expect(dialog).toHaveCount(0);
   await expect(topCta).toHaveClass(/work/);
-  await expect(list.locator("[data-kol-primary-action].btn.work")).toHaveCount(0);
+  await expect(list.locator("[data-kol-primary-action][data-emphasized='true']")).toHaveCount(0);
 });
 
 test("today pane has no recommend convert and no 待办 copy", async ({ page }) => {
@@ -737,7 +775,7 @@ test("suggested public-pool action opens the right rail on new KOLs", async ({ p
 
   await page.locator("[data-followed-public-pool-new]").click();
   await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
-  await expect(page.locator('[data-pool-filter="new"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('[data-home-pane="pool"] [data-pool-toolbar] [data-pool-filter="new"]')).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator('[data-pool-kol="uid_new_pool"]')).toBeVisible();
 });
 

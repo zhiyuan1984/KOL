@@ -174,13 +174,9 @@ function digestFromThreadRow(row: {
   };
 }
 
-export function readThreadDigest(collaborationId: string): ThreadDigest | null {
+export async function readThreadDigest(collaborationId: string): Promise<Awaited<ThreadDigest | null>> {
   if (!collaborationId) return null;
-  const thread = getConn().prepare(
-    `SELECT digest_text, digest_source, digest_mail_count, digest_fingerprint, digest_error, digest_failed_at
-     FROM kol_mail_threads WHERE collaboration_id=? AND IFNULL(digest_text,'') != ''
-     ORDER BY updated_at DESC LIMIT 1`,
-  ).get(collaborationId) as {
+  const thread = (await getConn().query("SELECT digest_text, digest_source, digest_mail_count, digest_fingerprint, digest_error, digest_failed_at\n     FROM kol_mail_threads WHERE collaboration_id=$1 AND COALESCE(digest_text,'') != ''\n     ORDER BY updated_at DESC LIMIT 1",[collaborationId])).rows[0] as {
     digest_text?: string;
     digest_source?: string;
     digest_mail_count?: number;
@@ -190,7 +186,7 @@ export function readThreadDigest(collaborationId: string): ThreadDigest | null {
   } | undefined;
   const fromThread = digestFromThreadRow(thread);
   if (fromThread) return fromThread;
-  const row = getConn().prepare("SELECT value FROM app_state WHERE key=?").get(digestStateKey(collaborationId)) as { value: string } | undefined;
+  const row = (await getConn().query("SELECT value FROM app_state WHERE key=$1",[digestStateKey(collaborationId)])).rows[0] as { value: string } | undefined;
   if (!row?.value) return null;
   try {
     const parsed = JSON.parse(row.value) as ThreadDigest;
@@ -212,23 +208,20 @@ export function readThreadDigest(collaborationId: string): ThreadDigest | null {
   }
 }
 
-function writeThreadDigest(collaborationId: string, digest: ThreadDigest): void {
-  tx((db) => {
-    db.prepare("INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)").run(
-      digestStateKey(collaborationId),
-      JSON.stringify(digest),
-    );
-  });
-  const threads = getConn().prepare("SELECT id FROM kol_mail_threads WHERE collaboration_id=?").all(collaborationId) as { id: string }[];
+async function writeThreadDigest(collaborationId: string, digest: ThreadDigest): Promise<Awaited<void>> {
+  (await tx(async (db) => {
+    (await db.query("INSERT INTO app_state (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",[digestStateKey(collaborationId),JSON.stringify(digest)]));
+  }));
+  const threads = (await getConn().query("SELECT id FROM kol_mail_threads WHERE collaboration_id=$1",[collaborationId])).rows as { id: string }[];
   for (const thread of threads) {
-    persistThreadDigest(thread.id, {
+    (await persistThreadDigest(thread.id, {
       text: digest.text,
       source: digest.source,
       fingerprint: digest.fingerprint,
       error: digest.error,
       failed_at: digest.failed_at,
       mail_count: digest.mail_count,
-    });
+    }));
   }
 }
 
@@ -320,16 +313,12 @@ function mailHistoryKey(row: Json): string {
   ].join("|");
 }
 
-export function mailHistoryRows(collaborationId: string): Json[] {
+export async function mailHistoryRows(collaborationId: string): Promise<Awaited<Json[]>> {
   if (!collaborationId) return [];
-  const session = getConn().prepare(
-    "SELECT id FROM sessions WHERE collaboration_id=? AND deleted_at IS NULL AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 1",
-  ).get(collaborationId) as { id: string } | undefined;
+  const session = (await getConn().query("SELECT id FROM sessions WHERE collaboration_id=$1 AND deleted_at IS NULL AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 1",[collaborationId])).rows[0] as { id: string } | undefined;
   const fromCards: Json[] = [];
   if (session?.id) {
-    const cards = getConn().prepare(
-      "SELECT id, payload, created_at FROM messages WHERE session_id=? AND kind='kol_mail_card'",
-    ).all(session.id) as { id: string; payload: string; created_at: string }[];
+    const cards = (await getConn().query("SELECT id, payload, created_at FROM messages WHERE session_id=$1 AND kind='kol_mail_card'",[session.id])).rows as { id: string; payload: string; created_at: string }[];
     for (const card of cards) {
       const payload = parsePayload(card.payload);
       const inbound = String(payload.direction || "inbound") !== "outbound";
@@ -353,7 +342,7 @@ export function mailHistoryRows(collaborationId: string): Json[] {
   }
   const source = fromCards.length
     ? fromCards
-    : itemsForCollaboration(collaborationId).map((item) => {
+    : (await itemsForCollaboration(collaborationId)).map((item) => {
       const body = String(item.body_text || item.body || item.snippet || "").trim();
       const row = {
         id: String(item.id || ""),
@@ -382,8 +371,8 @@ export function mailHistoryRows(collaborationId: string): Json[] {
     .sort((left, right) => mailOccurredMs(right.occurred_at) - mailOccurredMs(left.occurred_at));
 }
 
-function writeCardSummary(cardId: string, summary: string, source: string): void {
-  const row = getConn().prepare("SELECT payload FROM messages WHERE id=?").get(cardId) as { payload: string } | undefined;
+async function writeCardSummary(cardId: string, summary: string, source: string): Promise<Awaited<void>> {
+  const row = (await getConn().query("SELECT payload FROM messages WHERE id=$1",[cardId])).rows[0] as { payload: string } | undefined;
   if (!row) return;
   const payload = parsePayload(row.payload);
   if (String(payload.summary_zh || payload.summary || "").trim() === summary
@@ -391,16 +380,16 @@ function writeCardSummary(cardId: string, summary: string, source: string): void
   payload.summary_zh = summary;
   payload.summary = summary;
   payload.summary_source = source;
-  tx((db) => {
-    db.prepare("UPDATE messages SET payload=? WHERE id=?").run(JSON.stringify(payload), cardId);
-  });
+  (await tx(async (db) => {
+    (await db.query("UPDATE messages SET payload=$1 WHERE id=$2",[JSON.stringify(payload),cardId]));
+  }));
 }
 
-function persistCard(row: Json, summary: string, source: string): void {
+async function persistCard(row: Json, summary: string, source: string): Promise<Awaited<void>> {
   row.summary = summary;
   row.summary_zh = summary;
   row.summary_source = source;
-  if (row.id && String(row.id).startsWith("msg")) writeCardSummary(String(row.id), summary, source);
+  if (row.id && String(row.id).startsWith("msg")) (await writeCardSummary(String(row.id), summary, source));
 }
 
 function listedMailBodies(rows: Json[]): string {
@@ -648,6 +637,10 @@ export async function summarizeWithCodexAppServer(rows: Json[]): Promise<string[
 }
 
 async function summarizeWithLuna(rows: Json[]): Promise<string[] | null> {
+  if (!intentLlmFetchOverridden() && !String(process.env.OPENAI_BASE_URL || "").trim()) {
+    noteFailure("luna", "endpoint_unconfigured");
+    return null;
+  }
   const key = intentLlmApiKey();
   if (!key) return null;
   const base = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
@@ -714,6 +707,10 @@ async function summarizeWithCodex(rows: Json[]): Promise<RemoteBatch | null> {
 }
 
 async function digestWithLuna(rows: Json[], collaborationId = ""): Promise<RemoteDigestAttempt> {
+  if (!intentLlmFetchOverridden() && !String(process.env.OPENAI_BASE_URL || "").trim()) {
+    noteFailure("luna digest", "endpoint_unconfigured", collaborationId);
+    return { error: "endpoint_unconfigured" };
+  }
   const key = intentLlmApiKey();
   if (!key) {
     noteFailure("luna digest", "no-key", collaborationId);
@@ -844,8 +841,8 @@ export async function ensureCodexThreadDigest(
   rows?: Json[],
   opts?: { retryFailed?: boolean },
 ): Promise<ThreadDigest> {
-  const listed = rows?.length ? rows : mailHistoryRows(collaborationId);
-  const stored = readThreadDigest(collaborationId);
+  const listed = rows?.length ? rows : (await mailHistoryRows(collaborationId));
+  const stored = (await readThreadDigest(collaborationId));
   if (!needsRemoteThreadDigest(listed, stored, opts)) {
     return threadDigestOf(listed, stored);
   }
@@ -871,7 +868,7 @@ export async function ensureCodexThreadDigest(
   if (digest.source === "analysis_failed") {
     noteFailure("analysis_failed", digest.error || "unavailable", collaborationId);
   }
-  writeThreadDigest(collaborationId, digest);
+  (await writeThreadDigest(collaborationId, digest));
   return digest;
 }
 
@@ -880,7 +877,7 @@ export async function ensureCodexMailSummaries(
   rows?: Json[],
   opts?: { retryFailed?: boolean },
 ): Promise<Json[]> {
-  const listed = rows?.length ? rows : mailHistoryRows(collaborationId);
+  const listed = rows?.length ? rows : (await mailHistoryRows(collaborationId));
   const digest = await ensureCodexThreadDigest(collaborationId, listed, opts);
   return listed.map((row) => ({
     ...row,

@@ -515,6 +515,8 @@ summary:focus-visible,
 /* Filled primary controls: invert outline on --primary pink + outer --focus-ring halo. */
 .btn.work:focus-visible,
 .btn.send:not(.send-arrow):focus-visible,
+.settings-v2 .settings-primary:focus-visible,
+.settings-memory-drawer .settings-primary:focus-visible,
 .stage-chip.is-selected:focus-visible,
 .follow-style-chip.is-on:focus-visible,
 .suggested-actions button.is-on:focus-visible,
@@ -10291,7 +10293,7 @@ body {
 .sidebar-scroll {
   scrollbar-width: thin;
   scrollbar-color: #c7c7c7 transparent;
-  scrollbar-gutter: auto;
+  scrollbar-gutter: auto !important;
 }
 .sidebar::-webkit-scrollbar,
 .sidebar-scroll::-webkit-scrollbar {

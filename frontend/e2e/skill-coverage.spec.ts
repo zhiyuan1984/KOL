@@ -37,17 +37,35 @@ const COVERAGE = {
   ],
 };
 
-/** SkillLifecycleV2 的列表行不显示 id：用列表搜索定位技能，再点行选中并进入「工具与知识」。 */
+const ADMIN_SKILLS = {
+  skills: [
+    {
+      id: "creator_profile", label: "达人画像", title: "达人画像", description: "读取已授权达人信息", category: "达人",
+      source: "bundled", lifecycle: { stage: "published", stage_label: "发布上线", origin: "official", owner: null, business_stage: "reach", tags: [], current_version: 2, release: { kind: "versioned", version: 2 }, dependencies: { unregistered: [], unmounted: [] }, test_summary: { total: 0, pass_rate: null, failing: 0, last_run_at: null } },
+    },
+    {
+      id: "creator_library_query", label: "达人库查询", title: "达人库查询", description: "按条件查询达人库", category: "达人",
+      source: "bundled", lifecycle: { stage: "draft", stage_label: "草稿", origin: "official", owner: null, business_stage: "reach", tags: [], current_version: null, release: { kind: "none" }, dependencies: { unregistered: [], unmounted: [] }, test_summary: { total: 0, pass_rate: null, failing: 0, last_run_at: null } },
+    },
+  ],
+};
+
+async function installAdminSkillsFixture(page: Page) {
+  await page.route("**/api/admin/skills", route => route.fulfill({ json: ADMIN_SKILLS }));
+}
+
+/** SkillLifecycleV2 的列表行不显示 id：用列表搜索定位技能，再点行选中并进入现行「工具」标签。 */
 async function openSkillDependencies(page: Page, skillId: string) {
   await page.getByLabel("搜索技能").fill(skillId);
   const row = page.locator(".skill-v2-row").first();
   await expect(row).toBeVisible();
   await row.click();
-  await page.getByRole("button", { name: "工具与知识" }).click();
+  await page.getByRole("button", { name: "工具", exact: true }).click();
   return page.locator(`[data-skill-declared-dependencies='${skillId}']`);
 }
 
 test("技能页呈现实现度读数与工具依赖，并按阶段筛选", async ({ page }) => {
+  await installAdminSkillsFixture(page);
   await page.route("**/api/admin/runtime/skills/coverage*", (route) => route.fulfill({ json: COVERAGE }));
   await page.goto("/admin/skills");
   const root = page.locator("[data-admin-page='skills']");
@@ -61,7 +79,7 @@ test("技能页呈现实现度读数与工具依赖，并按阶段筛选", async
 
   // 实现度读数（声明 / 已挂载 / 待挂载）在详情「工具与知识」内呈现。
   await row.click();
-  await page.getByRole("button", { name: "工具与知识" }).click();
+  await page.getByRole("button", { name: "工具", exact: true }).click();
   const declared = page.locator("[data-skill-declared-dependencies='creator_profile']");
   await expect(declared).toBeVisible();
   await expect(declared).toContainText("声明 2 个 · 已挂载 1 个 · 待挂载 1 个");
@@ -82,6 +100,7 @@ test("技能页呈现实现度读数与工具依赖，并按阶段筛选", async
 });
 
 test("技能详情按 SKILL.md 声明列出工具依赖，并给出按定义挂载入口", async ({ page }) => {
+  await installAdminSkillsFixture(page);
   await page.route("**/api/admin/runtime/skills/coverage*", (route) => route.fulfill({ json: COVERAGE }));
   await page.goto("/admin/skills");
 
@@ -97,6 +116,7 @@ test("技能详情按 SKILL.md 声明列出工具依赖，并给出按定义挂�
 });
 
 test("技能声明了目录里没有的连接器时如实说明，不提供挂载", async ({ page }) => {
+  await installAdminSkillsFixture(page);
   await page.route("**/api/admin/runtime/skills/coverage*", (route) => route.fulfill({
     json: {
       summary: { skills: 1, live: 1, defined: 0, declared_tools: 1, mounted_tools: 0, pending_tools: 1 },
@@ -121,6 +141,7 @@ test("技能声明了目录里没有的连接器时如实说明，不提供挂�
 });
 
 test("扫描读不到时只有工具依赖降级，技能列表照常可用", async ({ page }) => {
+  await installAdminSkillsFixture(page);
   await page.route("**/api/admin/runtime/skills/coverage*", (route) => route.fulfill({
     status: 403, json: { detail: { code: "runtime_auth_required" } },
   }));
@@ -131,7 +152,7 @@ test("扫描读不到时只有工具依赖降级，技能列表照常可用", as
   const row = page.locator(".skill-v2-row", { hasText: "达人画像" });
   await expect(row).toBeVisible();
   await row.click();
-  await page.getByRole("button", { name: "工具与知识" }).click();
+  await page.getByRole("button", { name: "工具", exact: true }).click();
   const degraded = page.locator("[data-skill-declared-dependencies='unavailable']");
   await expect(degraded).toBeVisible();
   await expect(degraded).toContainText("这次没有读到扫描结果");

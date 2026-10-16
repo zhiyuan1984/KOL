@@ -144,6 +144,13 @@ test('admin shared filters show real counts, aligned 13px rows and a compact glo
   await expect(page.locator('[data-kb-status="archived"]')).toContainText('已下架');
   const strip = page.locator('.kbv-asset-strip-segments');
   expect((await strip.boundingBox())!.height).toBeLessThan(100);
+  const stripLayout = await strip.locator('.kbv-asset-seg').evaluateAll(nodes => ({
+    rows: new Set(nodes.map(node => Math.round(node.getBoundingClientRect().top))).size,
+    textFits: nodes.every(node => [...node.querySelectorAll<HTMLElement>('.kbv-asset-seg-label, .kbv-asset-seg-sub')]
+      .every(text => text.scrollWidth <= text.clientWidth + 1 && text.scrollHeight <= text.clientHeight + 1)),
+  }));
+  expect(stripLayout.rows).toBeLessThanOrEqual(2);
+  expect(stripLayout.textFits).toBe(true);
   await page.locator('[data-kbv-view="pending"]').click();
   await expect(page.locator('[data-kbv-record]')).toHaveCount(6);
   await expect(page.locator('[data-kbv-filter-note-clear]')).toHaveText('清除此条件');

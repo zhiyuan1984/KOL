@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { assertFullRowLayout } from "./fixtures/knowledge-fullrow-layout";
 
 // HTTP fixtures verify the UI contract, not real Codex or external actions.
-async function surface(page: Page, options: { failure?: boolean; browseFailure?: boolean; preferenceFailure?: boolean; summonFailure?: boolean; recentSession?: boolean; long?: boolean } = {}) {
+async function surface(page: Page, options: { failure?: boolean; browseFailure?: boolean; browseMissingIdentity?: boolean; preferenceFailure?: boolean; summonFailure?: boolean; recentSession?: boolean; long?: boolean } = {}) {
   const writes: string[] = [], errors: string[] = [];
   const account = { id: "employee-agent-fixture", name: "员工", available_modes: ["employee"] };
   const rows = [
@@ -20,14 +20,16 @@ async function surface(page: Page, options: { failure?: boolean; browseFailure?:
   };
   const browseRows = rows.map((row, i) => ({ expert_id: row.id, published_by: "组织发布", updated_at: "2026-10-13T00:00:00Z",
     scopes: [{ family_id: i < 3 ? "growth" : "products", domain_id: i < 3 ? "promotion" : "product-domain", base_id: i < 3 ? "coop" : "product-base",
-      brand: i % 2 ? "RO" : "LT", stage_codes: [i % 2 ? "INTERESTED" : "INITIAL_CONTACT"] }] }));
+      brand: i % 2 ? "RO" : "LT", stage_codes: [i % 2 ? "INTERESTED" : "INITIAL_CONTACT"] }] }))
+    .filter(row => !options.browseMissingIdentity || row.expert_id !== "agent_fixture_8");
   const preferences = new Map<string, { expert_id: string; favorite: boolean; viewed_at: string | null }>();
   page.on("pageerror", error => errors.push(error.message));
   await page.route("**/api/**", async route => {
     const req = route.request(), url = new URL(req.url()), path = decodeURIComponent(url.pathname);
     if (req.method() !== "GET") writes.push(`${req.method()} ${path}`);
     let json: unknown = [];
-    if (path === "/api/auth/status") json = { authenticated: true, account };
+    if (path === "/api/health") json = { runtime_mode: "legacy" };
+    else if (path === "/api/auth/status") json = { authenticated: true, account };
     else if (path === "/api/me") json = account;
     else if (path === "/api/preferences") json = { theme: "light" };
     else if (path === "/api/cron/jobs") json = { jobs: [] };
@@ -179,6 +181,18 @@ test("scope read failure does not fabricate facet counts or empty applicability"
   state.options.browseFailure = false;
   await page.locator("[data-agent-browse-retry]").click();
   await expect(page.locator("[data-agent-count]")).toHaveText("12 位 Agent");
+  expect(state.errors).toEqual([]);
+});
+
+test("an authorized roster row remains visible when its optional applicability projection is absent", async ({ page }) => {
+  const state = await surface(page, { browseMissingIdentity: true });
+  await page.locator("[data-kb-load-more]").click();
+  await page.locator("[data-kb-load-more]").click();
+  await expect(page.locator('[data-expert-open="agent_fixture_8"]')).toBeVisible();
+  await page.locator('[data-expert-open="agent_fixture_8"]').click();
+  await expect(page.locator("[data-agent-detail]")).toContainText("适用范围暂未返回，无法确认");
+  await expect(page.locator("[data-agent-scope]")).toHaveCount(0);
+  await expect(page.locator('[data-kb-scope-family="__none__"]')).toHaveCount(0);
   expect(state.errors).toEqual([]);
 });
 

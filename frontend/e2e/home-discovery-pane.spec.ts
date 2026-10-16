@@ -15,6 +15,12 @@ const BANNED_BATCH_PATH = /\/api\/home\/discovery\/batches/;
 
 const DISCOVERY_TASK_ID = "tsk_disc_e2e";
 const DISCOVERY_SESSION_ID = "ses_disc_e2e";
+
+/** The current semantic middle column; do not couple this spec to retired scope markers. */
+function discoveryCenter(page: Page) {
+  return page.locator('[data-home-pane="discovery"] > .scope-workspace-center');
+}
+
 /** 提交响应里的首轮 pending 回合：由本页接管运行（POST /api/sessions/:id/messages）。 */
 const DISCOVERY_PENDING = {
   text: "【发现任务】\n平台：YouTube\n地区：全球英文",
@@ -28,7 +34,7 @@ const DISCOVERY_PENDING = {
 async function openDiscovery(page: Page, { expectCard = true } = {}) {
   await page.goto("/?tab=discovery");
   // 中栏/右栏由工作台骨架撑起（结果容器在右栏，零高时不能当可见性锚点）。
-  await expect(page.locator('[data-home-pane="discovery"] [data-scope-ai-workspace]')).toBeVisible();
+  await expect(discoveryCenter(page)).toBeVisible();
   // 条件卡是中栏事件流的第三个事件，提交后原位转只读，不再消失。
   if (expectCard) await expect(page.locator("[data-discovery-search-card]")).toBeVisible();
 }
@@ -62,15 +68,45 @@ function runningCrawl(remoteTaskId = "rt_1") {
       task_id: remoteTaskId,
       complete: true,
       captured_at: "2026-10-06T09:00:00.000Z",
-      candidates: [{
-        id: "cand_rt",
-        name: "Runtime 候选",
-        platform: "youtube",
-        source_url: null,
-        followers: 12000,
-        avg_views_10: null,
-        region: null,
-      }],
+      candidates: nativeRuntimeCandidates(),
+    },
+  };
+}
+
+/** Native session projection: candidates carry the immutable snapshot required by the R3 gateway. */
+function nativeRuntimeCandidates(snapshotSuffix = "v1") {
+  return stubCandidates().map((candidate) => ({
+    id: candidate.id,
+    name: candidate.nickname || candidate.handle || candidate.id,
+    platform: candidate.platform,
+    source_url: candidate.source_url || null,
+    followers: candidate.followers || null,
+    avg_views_10: candidate.avg_views_10 || null,
+    region: null,
+    snapshot_version: `snapshot-${candidate.id}-${snapshotSuffix}`,
+    in_pool: Boolean(candidate.already_in_pool),
+    followers_evidence: {
+      // A zero/missing fixture metric cannot claim the evidence source that
+      // would make it a verified numeric fact; the UI must keep it unverified.
+      state: candidate.followers ? "source_recorded" : "not_recorded",
+      raw_text: candidate.followers ? `${candidate.followers} followers` : null,
+      source_field: "fixture",
+      captured_at: "2026-10-06T09:00:00.000Z",
+      parser_version: "e2e-native-fixture",
+    },
+  }));
+}
+
+function completedCrawl(snapshotSuffix = "v1", remoteTaskId = "rt_1") {
+  return {
+    ...runningCrawl(remoteTaskId),
+    state: "succeeded",
+    result_state: "ready",
+    result_json: {
+      task_id: remoteTaskId,
+      complete: true,
+      captured_at: "2026-10-06T09:00:00.000Z",
+      candidates: nativeRuntimeCandidates(snapshotSuffix),
     },
   };
 }
@@ -92,7 +128,10 @@ async function openDiscoveryWithRun(page: Page, taskId = DISCOVERY_TASK_ID, sess
   await page.route(`**/api/tasks/${taskId}`, (route) => route.fulfill({ json: { task: resumeTask(taskId, sessionId) } }));
   await page.route(`**/api/tasks/${taskId}/events`, (route) => route.fulfill({ json: { events: [] } }));
   await page.goto(`/?tab=discovery&resume=${taskId}`);
-  await expect(page.locator("[data-discovery-search-card]")).toBeVisible();
+  // A terminal native receipt may collapse the read-only form to its submitted
+  // condition summary. The event itself, rather than the expandable editor, is
+  // the stable deep-link completion fact.
+  await expect(page.locator('[data-discovery-event="conditions"]')).toBeVisible();
 }
 
 /** ?resume= 现场的最小形态：tickets.input.discovery_workspace（brief + 提交正文 + 身份）。 */
@@ -264,12 +303,12 @@ test("condition card renders in-page and pre-fills the editable ask box", async 
   await expect(card.locator('[data-discovery-keyword-chip="camping"]')).toBeVisible();
   await expect(card.locator('[data-discovery-keyword-chip="portable power station"]')).toBeVisible();
   await expect(card.locator("[data-discovery-clear-keywords]")).toBeVisible();
-  // 选中/未选中不锁死具体色值（token 会演进）：断言两者可以区分，选中态另有 ✓ 形状信号。
-  const selectedBorder = await card.locator('[data-skill-param="platforms"] [data-discovery-chip="youtube"]')
-    .evaluate((el) => getComputedStyle(el).borderTopColor);
-  const idleBorder = await card.locator('[data-skill-param="platforms"] [data-discovery-chip="instagram"]')
-    .evaluate((el) => getComputedStyle(el).borderTopColor);
-  expect(selectedBorder).not.toBe(idleBorder);
+  // 选中态不锁死会演进的色值：原生卡以 aria-pressed、字重和 ✓ 形状共同表达，
+  // 让读屏/键盘与视觉用户得到同一结论，而不是只比较两个透明边框。
+  await expect(card.locator('[data-skill-param="platforms"] [data-discovery-chip="youtube"]'))
+    .toContainText("✓");
+  await expect(card.locator('[data-skill-param="platforms"] [data-discovery-chip="instagram"]'))
+    .not.toContainText("✓");
   // 上限留空即不限：语义由 placeholder 承载（不再有独立说明行）。
   await expect(card.locator('[data-skill-param="max_followers"] input')).toHaveAttribute("placeholder", "不限");
   await expect(card.locator('[data-skill-param="min_followers"] input'))
@@ -416,14 +455,17 @@ test("the middle column keeps ①–③ before submit and appends ④–⑥ afte
   }
 
   await page.locator("[data-home] [data-ai-prompt-submit]").click();
-  await expect(flow).toHaveCount(6);
-  expect(await kinds()).toEqual(["skill", "guidance", "conditions", "params", "confirm", "run"]);
+  // 现行原生 Agent 只在 Host 确认后才创建⑥。提交只追加可核对参数和 R3
+  // 确认卡；把准备记录伪装成采集执行会违反等待诚实与确认闸门。
+  await expect(flow).toHaveCount(5);
+  expect(await kinds()).toEqual(["skill", "guidance", "conditions", "params", "confirm"]);
   // 事件块自带的序号与 DOM 顺序一致。
   expect(await flow.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-discovery-event-index"))))
-    .toEqual(["1", "2", "3", "4", "5", "6"]);
+    .toEqual(["1", "2", "3", "4", "5"]);
   // 提交后不跳转：这次协作仍在本页。
   await expect(page).not.toHaveURL(/\/s\//);
-  // ④ 参数还没有提案 = 等待态；⑤ 待服务端提出动作，确认按钮此刻不存在。
+  // ④ 参数还没有提案 = 等待态；⑤ 待服务端提出动作，确认按钮此刻不存在；⑥
+  // 在确认前必须不存在，不能把准备记录画成已执行的采集。
   await expect(page.locator('[data-discovery-event="params"]')).toHaveAttribute("data-discovery-event-state", "waiting");
   await expect(page.locator("[data-discovery-params-waiting]")).toBeVisible();
   await expect(page.locator("[data-discovery-params-status]")).toHaveText("整理中");
@@ -431,6 +473,7 @@ test("the middle column keeps ①–③ before submit and appends ④–⑥ afte
   await expect(page.locator("[data-discovery-start-detail]")).toContainText("整理本次采集范围");
   await expect(page.locator("[data-discovery-start-confirm]")).toHaveCount(0);
   await expect(page.locator("[data-discovery-start-cancel]")).toHaveCount(0);
+  await expect(page.locator('[data-discovery-event="run"]')).toHaveCount(0);
 });
 
 test("a terminal discovery error stops the process trail before later success events", async ({ page }) => {
@@ -480,7 +523,7 @@ test("a terminal discovery error stops the process trail before later success ev
   await expect(trail.locator("[data-discovery-run-steps]")).not.toContainText("已排出候选");
 });
 
-test("a failed run keeps one business status block and folds the engine detail", async ({ page }) => {
+test("a resumed task without a selected current run does not fabricate historical failure or expose engine detail", async ({ page }) => {
   const failedRun = {
     id: "drun_capacity_failed",
     run_id: "drun_capacity_failed",
@@ -513,27 +556,25 @@ test("a failed run keeps one business status block and folds the engine detail",
   }));
 
   await page.goto("/?tab=discovery&resume=tsk_capacity_failed");
-  const summary = page.locator("[data-discovery-ai-summary]");
-  await expect(summary).toContainText("需要处理");
-  await expect(summary).toContainText("检索没有完成");
-  await expect(summary).toContainText("原始 32 · 入围 17");
-  await expect(summary).toContainText("检索没有完成，可稍后重试。");
-  await expect(summary.locator("[data-discovery-retry]")).toHaveText("重试");
-  await expect(summary.locator("[data-discovery-error-detail]")).toBeHidden();
+  // ?resume= 只恢复当前任务身份，不会自行认领任意历史 run；否则可能把另一轮的
+  // 引擎错误、数据范围和确认版本带入本轮。当前任务没有选中的 runtime action 时，
+  // 原生流只显示可核对的①–⑤，且绝不泄露远端模型错误正文。
+  const flow = page.locator("[data-discovery-flow] [data-discovery-event]");
+  await expect(flow).toHaveCount(5);
+  await expect(page.locator("[data-discovery-ai-summary]")).toHaveCount(0);
+  await expect(page.locator('[data-discovery-event="run"]')).toHaveCount(0);
+  await expect(page.locator("[data-discovery-flow]")).not.toContainText("Selected model is at capacity");
+  await expect(page.locator('[data-discovery-event="params"]')).toHaveAttribute("data-discovery-event-state", "waiting");
+  await expect(page.locator('[data-discovery-event="confirm"]')).toHaveAttribute("data-discovery-event-state", "waiting_proposal");
   await expect(page.getByText(/历史发现/)).toHaveCount(0);
-
-  await summary.locator("[data-discovery-error-details-toggle]").click();
-  await expect(summary.locator("[data-discovery-error-detail]"))
-    .toContainText("生成服务结束状态：failed；Selected model is at capacity.");
 });
 
 test("a discovery task resumes its linked run instead of a chat session", async ({ page }) => {
-  await mockExistingRun(page);
-  await stubRuntimeActions(page, () => []);
+  await stubRuntimeActions(page, () => [runtimeAction("succeeded", completedCrawl())]);
   await openDiscoveryWithRun(page);
-  // 打开的是这次运行的结果面：条件卡原位只读、右栏是这批候选，而不是聊天会话。
+  // 打开的是这次运行的原生会话结果面：条件卡原位只读、右栏是这批候选，而不是聊天会话。
   await expect(page.locator("[data-discovery-edit-conditions]")).toBeVisible();
-  await expect(page.locator('[data-discovery-candidate="TheSolarLab"]')).toBeVisible();
+  await expect(page.locator('[data-discovery-candidate="cand_solar"]')).toBeVisible();
   await expect(page.locator("[data-discovery-panel]")).not.toContainText("历史发现");
 });
 
@@ -550,26 +591,34 @@ test("condition chips rewrite the ask-box body and the card footer keeps a cente
   await expect(card.locator("[data-discovery-card-submit]")).toHaveText("提交条件，核对参数");
 });
 
-test("idle discovery keeps the task-rail width and full brief above the dock", async ({ page }) => {
+test("idle discovery keeps a fixed native Agent center and full brief above the dock", async ({ page }) => {
   await page.setViewportSize({ width: 1966, height: 900 });
   await stubNoRuns(page);
   await openDiscovery(page);
   const workspace = page.locator('[data-home-pane="discovery"]');
   await expect(workspace).toHaveClass(/is-result-idle/);
   const rail = workspace.locator('[data-scope-task-rail]');
-  const center = workspace.locator('[data-scope-ai-workspace]');
-  expect(Math.round((await rail.boundingBox())!.width)).toBe(820);
+  const center = discoveryCenter(page);
+  // DESIGN §27.2：AI发现使用固定 Agent 中栏，右栏吃剩余空间；820 上限仅属于
+  // 其他 Home 模式，不能把当前原生会话视觉回退为旧的通用结果栏。
+  const initialCenterWidth = Math.round((await center.boundingBox())!.width);
   const discoveryRailWidth = Math.round((await rail.boundingBox())!.width);
-  // 双栏按结果可读性分配：右栏拿到 DESIGN 记录的 820 上限，中栏吃掉剩下的宽度，
-  // 两列合起来正好是工作台宽度（右栏可以宽于中栏）。
-  const centerWidth = await center.evaluate((element) => element.clientWidth);
-  expect(centerWidth).toBeGreaterThan(0);
+  expect(initialCenterWidth).toBeGreaterThan(0);
+  expect(discoveryRailWidth).toBeGreaterThan(820);
   const workspaceWidth = await workspace.evaluate((element) => element.clientWidth);
-  expect(Math.abs(centerWidth + discoveryRailWidth - workspaceWidth)).toBeLessThanOrEqual(4);
+  expect(Math.abs(initialCenterWidth + discoveryRailWidth - workspaceWidth)).toBeLessThanOrEqual(4);
+  await page.setViewportSize({ width: 1766, height: 900 });
+  expect(Math.round((await center.boundingBox())!.width)).toBe(initialCenterWidth);
+  expect(Math.round((await rail.boundingBox())!.width)).toBeLessThan(discoveryRailWidth);
   const card = workspace.locator('[data-discovery-search-card]');
-  const followerMin = card.locator('[data-skill-param="min_followers"]');
-  const followerMax = card.locator('[data-skill-param="max_followers"]');
-  expect(Math.abs((await followerMin.boundingBox())!.y - (await followerMax.boundingBox())!.y)).toBeLessThan(2);
+  // Read the sibling geometry in one browser frame. A pending focus/scroll
+  // can move the whole card between two separate boundingBox round trips;
+  // that is not a difference between the siblings' actual layout.
+  await expect.poll(() => card.evaluate(element => {
+    const min = element.querySelector('[data-skill-param="min_followers"]');
+    const max = element.querySelector('[data-skill-param="max_followers"]');
+    return min && max ? Math.abs(min.getBoundingClientRect().y - max.getBoundingClientRect().y) : Infinity;
+  })).toBeLessThan(2);
   const finalField = card.locator('[data-skill-param="expect_count"]');
   await finalField.scrollIntoViewIfNeeded();
   const finalBox = await finalField.boundingBox();
@@ -578,7 +627,8 @@ test("idle discovery keeps the task-rail width and full brief above the dock", a
   await page.locator('[data-home-mode="today"]').click();
   const todayRail = page.locator('[data-home-pane="today"] [data-scope-task-rail]');
   await expect(todayRail).toBeVisible();
-  expect(Math.round((await todayRail.boundingBox())!.width)).toBe(discoveryRailWidth);
+  // 通用 Home 保留其自己的结果栏约束；不可拿它覆盖 AI发现的固定 Agent 中栏。
+  expect(Math.round((await todayRail.boundingBox())!.width)).toBeLessThan(discoveryRailWidth);
   for (const width of [1024, 720, 480]) {
     await page.setViewportSize({ width, height: 900 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
@@ -612,23 +662,79 @@ test("compact discovery thresholds stay visible above the dock", async ({ page }
 
   const minBox = await followerMin.boundingBox();
   const maxBox = await followerMax.boundingBox();
-  const playsBox = await avgPlays.boundingBox();
-  const countBox = await expectedCount.boundingBox();
-  const keywordBox = await card.locator("[data-discovery-keywords]").boundingBox();
-  const minInputBox = await followerMin.locator("input").boundingBox();
-  const playsInputBox = await avgPlays.locator("input").boundingBox();
-  const dockBox = await workspace.locator('.home-composer-dock').boundingBox();
+  // 固定 Agent 中栏在本断点已是窄容器；DESIGN 不变量要求独立字段组单列，
+  // 不能为迁就旧桌面双列断言而在 <480px 内容区二次分栏。
   expect(minBox && maxBox && Math.abs(minBox.y - maxBox.y) < 2).toBeTruthy();
-  expect(playsBox && countBox && Math.abs(playsBox.y - countBox.y) < 2).toBeTruthy();
-  // All primary controls share the same left baseline; compact numeric fields
-  // no longer stretch to the width of the keyword field.
-  expect(keywordBox && minInputBox && Math.abs(keywordBox.x - minInputBox.x) < 2).toBeTruthy();
-  expect(keywordBox && playsInputBox && Math.abs(keywordBox.x - playsInputBox.x) < 2).toBeTruthy();
-  expect(keywordBox && minInputBox && minInputBox.width < keywordBox.width).toBeTruthy();
-  for (const field of ["platforms", "region", "directions", "keywords"]) {
-    await expect(card.locator(`[data-skill-param="${field}"]`)).toHaveCSS("border-bottom-width", "1px");
+  await expectedCount.scrollIntoViewIfNeeded();
+  // Focus/scroll reconciliation can move the card between separate boundingBox
+  // round trips. Measure the actual containers and their descendants together,
+  // in one browser frame, so the strict geometry checks observe one layout.
+  const geometry = await card.evaluate((element) => {
+    const rect = (node: Element | null) => {
+      if (!node) return null;
+      const box = node.getBoundingClientRect();
+      return { x: box.x, y: box.y, width: box.width, height: box.height };
+    };
+    const field = (name: string) => element.querySelector(`[data-skill-param="${name}"]`);
+    const input = (name: string) => field(name)?.querySelector("input") ?? null;
+    return {
+      minInputBox: rect(input("min_followers")),
+      maxInputBox: rect(input("max_followers")),
+      playsInputBox: rect(input("min_avg_plays_10")),
+      countInputBox: rect(input("expect_count")),
+      followerRangeBox: rect(element.querySelector('[data-skill-param-group="followers_range"]')),
+      metricPairBox: rect(element.querySelector('[data-skill-param-group="discovery_metrics"]')),
+      visiblePlaysBox: rect(field("min_avg_plays_10")),
+      countBox: rect(field("expect_count")),
+      cardBox: rect(element),
+      dockBox: rect(element.ownerDocument.querySelector('.home-composer-dock')),
+    };
+  });
+  const {
+    minInputBox,
+    maxInputBox,
+    playsInputBox,
+    countInputBox,
+    followerRangeBox,
+    metricPairBox,
+    visiblePlaysBox,
+    countBox,
+    cardBox,
+    dockBox,
+  } = geometry;
+  // 指标组是否纵排由其所属中栏容器的实际可用宽度决定；不能把视觉同行误判为
+  // 裁切。无论纵排或同行，两个字段都必须按 DOM 顺序完整落在 discovery_metrics 内。
+  expect(metricPairBox && visiblePlaysBox && countBox
+    && visiblePlaysBox.x >= metricPairBox.x
+    && visiblePlaysBox.x + visiblePlaysBox.width <= metricPairBox.x + metricPairBox.width
+    && countBox.x >= metricPairBox.x
+    && countBox.x + countBox.width <= metricPairBox.x + metricPairBox.width).toBeTruthy();
+  if (visiblePlaysBox && countBox && Math.abs(visiblePlaysBox.y - countBox.y) < 2) {
+    expect(visiblePlaysBox.x + visiblePlaysBox.width <= countBox.x).toBeTruthy();
+  } else {
+    expect(visiblePlaysBox && countBox && visiblePlaysBox.y + visiblePlaysBox.height <= countBox.y).toBeTruthy();
   }
-  expect(countBox && dockBox && countBox.y + countBox.height <= dockBox.y).toBeTruthy();
+  // 原生 Agent 卡按「标签列 + 控制列」对齐，不再强制旧卡片的共享左边线。
+  // 更强的不变量是每个可编辑阈值完整落在所属条件组及可滚动条件卡内，
+  // 不裁切也不横向溢出。
+  for (const [owner, box] of [
+    [followerRangeBox, minInputBox], [followerRangeBox, maxInputBox],
+    [metricPairBox, playsInputBox], [metricPairBox, countInputBox],
+  ]) {
+    expect(owner && box && box.x >= owner.x && box.x + box.width <= owner.x + owner.width).toBeTruthy();
+  }
+  for (const box of [minInputBox, maxInputBox, playsInputBox, countInputBox]) {
+    expect(cardBox && box && box.x >= cardBox.x && box.x + box.width <= cardBox.x + cardBox.width).toBeTruthy();
+  }
+  // 当前原生卡以字段标签和间距分组，不沿用旧表单的重复下划线；避免在窄栏
+  // 形成双重边界并压缩触控/文本空间。
+  for (const field of ["platforms", "region", "directions", "keywords"]) {
+    await expect(card.locator(`[data-skill-param="${field}"]`)).toHaveCSS("border-bottom-width", "0px");
+  }
+  // 长表单允许在中栏滚动，但固定 dock 绝不能吞掉当前字段。
+  for (const box of [visiblePlaysBox, countBox]) {
+    expect(box && dockBox && box.y + box.height <= dockBox.y).toBeTruthy();
+  }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
 });
 
@@ -950,7 +1056,11 @@ test("submit posts the workspace endpoint, streams the run trail, and ingests to
     },
   });
   await stubRuntimeActions(page, () => [
-    runtimeAction(crawlState, crawlState === "running" ? runningCrawl("rt_disc_e2e") : null),
+    // A terminal action retains its task-scoped receipt and immutable candidate
+    // snapshot. Completion changes its state; it must not erase the result.
+    runtimeAction(crawlState, crawlState === "running"
+      ? runningCrawl("rt_disc_e2e")
+      : completedCrawl("v1", "rt_disc_e2e")),
   ]);
   await page.route("**/api/tasks/tsk_disc_e2e/events", (route) => {
     eventTick += 1;
@@ -971,17 +1081,12 @@ test("submit posts the workspace endpoint, streams the run trail, and ingests to
         ];
     void route.fulfill({ json: { events } });
   });
-  await page.route("**/api/home/discovery/ingest", async (route) => {
+  await page.route("**/api/home/discovery/runtime/act_disc_e2e/candidates/cand_solar/ingest", async (route) => {
     ingestBodies.push(route.request().postDataJSON());
     await route.fulfill({
       json: {
-        status: "completed",
-        run_id: "drun_e2e",
-        items: [
-          { candidate_id: "cand_solar", status: "imported" },
-        ],
-        counts: { selected: 1, imported: 1, already_imported: 0, failed: 0 },
-        claimed: false,
+        ok: true,
+        starry_imported: true,
       },
     });
   });
@@ -1006,7 +1111,11 @@ test("submit posts the workspace endpoint, streams the run trail, and ingests to
     text: expect.stringContaining("【发现任务】"),
     brief: expect.objectContaining({
       platforms: ["youtube"],
-      keywords: ["camping", "portable power station"],
+      keywords: expect.arrayContaining(["camping", "portable power station"]),
+      directions: ["portable_power"],
+      region: "global_en",
+      min_followers: 10_000,
+      max_followers: null,
       min_avg_plays_10: 5000,
       expect_count: 30,
     }),
@@ -1020,59 +1129,63 @@ test("submit posts the workspace endpoint, streams the run trail, and ingests to
   await expect(trail).toContainText("采集结束去重后 28 条");
   await expect(trail).toContainText("已排出候选");
 
-  // 候选仍来自既有的 run 路径：右栏结果区原位更新。
-  const solar = page.locator('[data-discovery-candidate="TheSolarLab"]');
-  await expect(solar.locator("[data-discovery-candidate-identity]")).toContainText("Solar Lab");
-  await expect(solar.locator("[data-discovery-candidate-identity]")).toContainText("YouTube");
-  await expect(solar.locator("[data-discovery-candidate-meta]")).toContainText("粉丝 153k");
-  await expect(solar.locator("[data-discovery-source]")).toHaveText("看来源");
-  await expect(solar.locator("[data-discovery-ignore]")).toHaveText("忽略");
+  // 候选由同一受控动作的持久回执原位投影；统一 KOL 卡用稳定 ID、
+  // layout role 与可访问控件取代退役的 Discovery 专有装饰属性。
+  const solar = page.locator('[data-kol-unified="discovery"][data-discovery-candidate="cand_solar"]');
+  await expect(solar.locator('[data-kol-layout="identity"]')).toContainText("Solar Lab");
+  await expect(solar.locator('[data-kol-layout="meta"]')).toContainText("YouTube");
+  await expect(solar.locator('[data-kol-layout="meta"]')).toContainText("粉丝 153,000");
+  await expect(solar.getByRole("link", { name: /主页/ })).toHaveAttribute("href", "https://youtube.com/@TheSolarLab");
+  await expect(solar.getByRole("button", { name: "忽略" })).toBeVisible();
 
-  const missing = page.locator('[data-discovery-candidate="NoStats"]');
-  await expect(missing).toContainText("粉丝 无");
-  await expect(missing).toContainText("均播 无");
-  await expect(missing).toContainText("匹配：暂无足够内容证据");
-  await expect(missing.locator("[data-discovery-source-missing]")).toHaveText("看来源 · 来源链接缺失");
-  await expect(missing.locator("[data-discovery-in-library]")).toHaveText("已在库");
+  const missing = page.locator('[data-kol-unified="discovery"][data-discovery-candidate="cand_zero"]');
+  await expect(missing).toContainText("粉丝 无法核验");
+  await expect(missing).toContainText("近10条均播 无法核验");
+  await expect(missing).toContainText("粉丝缺少可核验来源");
+  await expect(missing).toContainText("主页未提供");
+  await expect(missing).toContainText("已加入公海");
 
   await expect(page.locator("[data-discovery-panel]")).not.toContainText(BANNED_FOLLOW);
   await expect(page.locator("[data-discovery-panel]")).not.toContainText("发送邮件");
   await expect(page.locator("[data-coach-next], [data-next-step-card]")).toHaveCount(0);
-  await expect(page.locator("[data-discovery-next-plan]")).toContainText("核对线索后选择入库对象");
-  // 右栏顶部的当前任务状态跟着采集回执走（远端已结束）。
-  await expect(page.locator('[data-scope-task-rail] [data-discovery-run-status="completed"]')).toBeVisible();
-  await expect(page.locator('[data-scope-task-rail] [data-discovery-run-status-label]')).toContainText("已完成");
+  // 下一步计划是当前权威中栏的只读协作信息：全页只有一份，既不进入结果栏，
+  // 也不进入固定 composer dock。
+  const nextPlan = discoveryCenter(page).locator("[data-discovery-next-plan]");
+  await expect(page.locator("[data-discovery-next-plan]")).toHaveCount(1);
+  await expect(nextPlan).toContainText("核对线索后选择入库对象");
+  await expect(page.locator("[data-scope-task-rail] [data-discovery-next-plan]")).toHaveCount(0);
+  await expect(page.locator('[data-home-pane="discovery"] .home-composer-dock [data-discovery-next-plan]')).toHaveCount(0);
+  // 最终结果到达后，右栏不重复显示阶段标题；中栏 ⑥ 是完成事实，
+  // 右栏仍必须保留同一任务的远程回执与结果读取状态，不能靠候选推断完成。
+  await expect(trail.locator("[data-discovery-run-title]")).toHaveText("已完成");
+  await expect(trail.locator("[data-discovery-remote-line]")).toContainText("远端：已完成 · 候选 2 条");
+  await expect(page.locator('[data-scope-task-rail] [data-discovery-remote-receipt]')).toContainText("采集完成");
+  await expect(page.locator('[data-scope-task-rail] [data-discovery-results-summary]')).toContainText("结果读取完成");
   await expect(page.locator('[data-discovery-params-executed]')).toContainText("YouTube");
-  await expect(page.locator("[data-discovery-ingest]")).toBeDisabled();
-  await page.locator('[data-discovery-result-filter="existing"]').click();
-  await expect(page.locator('[data-discovery-candidate="NoStats"]')).toBeVisible();
-  await expect(page.locator('[data-discovery-select="cand_zero"]')).toBeDisabled();
-  await page.locator('[data-discovery-result-filter="all"]').click();
-  await solar.locator('[data-lead-expand]').click();
-  await expect(solar.locator('[data-lead-detail]')).toBeVisible();
+  // Native batch ingress is unavailable without an eligible selection; an
+  // already-in-pool candidate remains visible but its checkbox is unavailable.
+  await expect(page.getByRole("button", { name: "加入公海（0）", exact: true })).toBeDisabled();
+  await expect(missing.getByRole("checkbox", { name: "选择 NoStats" })).toBeDisabled();
+  await solar.locator("summary").click();
+  await expect(solar).toContainText("资料取得时间");
   // 结果筛选与查看详情都是纯前端交互，不得再次启动发现任务。
   expect(submitPosts).toEqual(["/api/home/discovery/workspace"]);
 
-  await page.locator('[data-discovery-select="cand_solar"]').check();
-  await expect(page.locator("[data-discovery-select-all]")).toBeVisible();
-  await page.locator("[data-discovery-select-all]").check();
-  const ingest = page.locator("[data-discovery-ingest]");
-  await expect(ingest).toHaveText("入库公海（1）");
-  await expect(page.locator("[data-discovery-panel] .btn.work")).toHaveCount(1);
+  await solar.getByRole("checkbox", { name: "选择 Solar Lab" }).check();
+  const ingest = page.getByRole("button", { name: "加入公海（1）", exact: true });
+  await expect(ingest).toBeEnabled();
   await ingest.click();
-  const confirm = page.locator("[data-discovery-ingest-confirm]");
+  const confirm = page.getByRole("dialog");
   await expect(confirm).toBeVisible();
-  await expect(confirm).toContainText("写入 Starry 并进入公海");
-  await expect(confirm).toContainText("不会建联");
-  await expect(confirm).toContainText("不会发信");
-  await confirm.locator("[data-discovery-ingest-yes]").click();
-  await expect(page.locator("[data-discovery-toast]")).toHaveText("去公海看这批");
-  await expect(page.locator("[data-discovery-pool-link]")).toHaveAttribute("href", "/?tab=pool");
-  await expect(page.locator('[data-home-mode="lifecycle"]')).toHaveAttribute("aria-selected", "false");
+  await expect(confirm).toContainText("R3");
+  await expect(confirm).toContainText("公开资料加入公海");
+  await expect(confirm).toContainText("不领取跟进");
+  await expect(confirm).toContainText("不发信");
+  await expect(confirm).toContainText("不改变阶段");
+  await confirm.getByRole("button", { name: "确认入库公海", exact: true }).click();
+  await expect(page.locator(".discovery-batch-receipt")).toContainText("本次已确认加入公海 1 位；0 位未完成。");
   expect(ingestBodies).toEqual([{
-    run_id: "drun_e2e",
-    candidate_ids: ["cand_solar"],
-    expected_brief_version: 1,
+    snapshot_version: "snapshot-cand_solar-v1",
     confirmed: true,
   }]);
   expect(followPosts).toEqual([]);
@@ -1108,32 +1221,26 @@ test("after submit the condition card stays read-only in place and 修改条件 
   await expect(page.locator("[data-discovery-edit-conditions]")).toHaveCount(0);
   await page.locator("[data-home] [data-ai-prompt-submit]").click();
 
-  // 提交后卡片原位转只读（数值保留），不再消失；中栏保留 ④⑤⑥。
-  await expect(card).toBeVisible();
-  await expect(card).toHaveAttribute("data-param-mode", "ready");
-  await expect(card.locator('[data-discovery-keyword-static="camping"]')).toBeVisible();
+  // 提交后原生 Agent 把编辑卡收束为只读的提交条件摘要；值、修改入口和确认闸门
+  // 原位保留，但不以一张隐藏的旧编辑表单重复渲染。
+  await expect(card).toBeHidden();
   await expect(page.locator('[data-discovery-event="conditions"]')).toHaveAttribute("data-discovery-event-state", "readonly");
   await expect(page.locator("[data-discovery-edit-conditions]")).toHaveText("修改条件");
   const flow = page.locator("[data-discovery-flow] [data-discovery-event]");
-  await expect(flow).toHaveCount(6);
-  for (const index of ["4", "5", "6"]) {
+  await expect(flow).toHaveCount(5);
+  for (const index of ["4", "5"]) {
     await expect(page.locator(`[data-discovery-event-index="${index}"]`)).toBeVisible();
   }
-  // ⑥ 步骤与时间来自 /api/tasks/:id/events；未确认前不得声称正在采集。
-  const trail = page.locator('[data-discovery-event="run"]');
-  await expect(trail).toContainText("排队");
-  await expect(trail).toContainText("等待确认");
-  await expect(trail).toContainText("还没有开始采集");
-  // 步骤标签可能来自真实事件（例如 crawl.started 就叫「正在采集」），所以看状态位而不是整块文本。
-  await expect(trail.locator("[data-discovery-run-title]")).toHaveText("等待确认");
-  await expect(trail.locator("[data-discovery-run-status]")).toHaveText("待确认");
-  await expect(trail.locator("[data-discovery-run-stop]")).toHaveCount(0);
-  await expect(trail.locator("[data-discovery-step-time]").first()).toHaveText(/^\d{2}:\d{2}:\d{2}$/);
+  // 未确认前⑥根本不出现，准备事件不能被画成采集执行或提供停止入口。
+  await expect(page.locator('[data-discovery-event="run"]')).toHaveCount(0);
   // 结果容器只在右栏；下一步计划属于中栏的人机交互。
   await expect(page.locator("[data-scope-task-rail] [data-discovery-panel]")).toHaveCount(1);
-  await expect(page.locator("[data-scope-ai-workspace] [data-discovery-panel]")).toHaveCount(0);
-  await expect(page.locator("[data-scope-ai-workspace] [data-discovery-next-plan]")).toHaveCount(1);
+  await expect(discoveryCenter(page).locator("[data-discovery-panel]")).toHaveCount(0);
+  // 待确认时不能提前显示下一步计划；terminal read-only plan placement is covered
+  // above. In either state it must never be duplicated into the rail or dock.
+  await expect(page.locator("[data-discovery-next-plan]")).toHaveCount(0);
   await expect(page.locator("[data-scope-task-rail] [data-discovery-next-plan]")).toHaveCount(0);
+  await expect(page.locator('[data-home-pane="discovery"] .home-composer-dock [data-discovery-next-plan]')).toHaveCount(0);
 
   // 恢复入口在条件卡块头上：点「修改条件」原位回到编辑，不会自动重跑。
   // 先做一次命中检测（trial），避免流内新事件导致的布局移动把这次点击点空。
@@ -1142,6 +1249,7 @@ test("after submit the condition card stays read-only in place and 修改条件 
   await edit.click({ trial: true });
   await edit.click();
   await expect(page.locator('[data-discovery-event="conditions"]')).toHaveAttribute("data-discovery-event-state", "edit", { timeout: 10000 });
+  await expect(card).toBeVisible();
   await expect(card).toHaveAttribute("data-param-mode", "edit");
   expect(submitPosts).toEqual(["/api/home/discovery/workspace"]);
 });
@@ -1258,8 +1366,9 @@ test("修改条件让本次核对失效，并取消未确认的提案", async ({
     if (!(await confirm.count())) return "absent";
     return (await confirm.first().isDisabled()) ? "disabled" : "enabled";
   }).not.toBe("enabled");
-  // 中栏仍是同一条事件流（⑥ 不清空、也不跳转）。
-  await expect(page.locator("[data-discovery-flow] [data-discovery-event]")).toHaveCount(6);
+  // 中栏仍是同一条真实的提交/核对流（⑥ 尚未获确认，因此不得凭准备记录生成）。
+  await expect(page.locator("[data-discovery-flow] [data-discovery-event]")).toHaveCount(5);
+  await expect(page.locator('[data-discovery-event="run"]')).toHaveCount(0);
 
   // 未确认的旧提案被取消：只发一次 cancel，且没有任何 start-crawl / stop / retry 写动作。
   await expect.poll(() => posts.filter((path) => path === "/api/actions/runtime.cancel"))
@@ -1267,134 +1376,95 @@ test("修改条件让本次核对失效，并取消未确认的提案", async ({
   expect(posts.filter((path) => CANCEL_STOP_WRITE.test(path) && path !== "/api/actions/runtime.cancel")).toEqual([]);
 });
 
-async function mockExistingRun(page: Page) {
-  await page.route("**/api/home/discovery/runs**", (route) => {
-    const path = new URL(route.request().url()).pathname;
-    if (path.endsWith("/candidates")) {
-      void route.fulfill({ json: { run_id: "drun_e2e", candidates: stubCandidates() } });
-      return;
-    }
-    if (/\/runs\/[^/]+$/.test(path)) {
-      void route.fulfill({ json: { run: stubRun() } });
-      return;
-    }
-    void route.fulfill({ json: { runs: [stubRun()] } });
-  });
-}
-
-test("ingest 404 stays an empty-state and does not claim", async ({ page }) => {
+test("native ingest 404 retains the R3 confirmation and does not claim", async ({ page }) => {
   const claimPosts: string[] = [];
   page.on("request", (item) => {
     const path = new URL(item.url()).pathname;
     if (item.method() === "POST" && path.includes("/claim")) claimPosts.push(path);
   });
-  await mockExistingRun(page);
-  await page.route("**/api/home/discovery/ingest", (route) => route.fulfill({
+  await stubRuntimeActions(page, () => [runtimeAction("succeeded", completedCrawl())]);
+  await page.route("**/api/home/discovery/runtime/act_disc_e2e/candidates/cand_solar/ingest", (route) => route.fulfill({
     status: 404,
     contentType: "application/json",
     body: JSON.stringify({ detail: "not found" }),
   }));
   await openDiscoveryWithRun(page);
-  await page.locator('[data-discovery-select="cand_solar"]').check();
-  await page.locator("[data-discovery-select-all]").check();
-  await page.locator("[data-discovery-ingest]").click();
-  await page.locator("[data-discovery-ingest-yes]").click();
-  await expect(page.locator("[data-discovery-empty='ingest-missing']")).toBeVisible();
-  await expect(page.locator("[data-discovery-empty='ingest-missing']")).toContainText("入库接口尚未提供");
-  await expect(page.locator("[data-discovery-toast]")).toHaveCount(0);
+  const candidate = page.locator('[data-discovery-candidate="cand_solar"]');
+  await candidate.getByRole("checkbox", { name: "选择 Solar Lab" }).check();
+  await page.getByRole("button", { name: "加入公海（1）", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "确认入库公海", exact: true }).click();
+  // No receipt means this R3 decision remains open rather than inventing an empty/pool success.
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("alert")).toContainText(/404|not found/i);
+  await expect(page.locator(".discovery-batch-receipt")).toContainText("本次已确认加入公海 0 位；1 位未完成。");
   expect(claimPosts).toEqual([]);
 });
 
-test("ingest 422 keeps L3 open; 409 voids the old confirm", async ({ page }) => {
-  let ingestStatus = 422;
+test("native ingest refusal keeps R3 open and a changed snapshot voids its confirmation", async ({ page }) => {
+  let snapshot = "v1";
   const bodies: unknown[] = [];
-  await mockExistingRun(page);
-  await page.route("**/api/home/discovery/ingest", async (route) => {
+  await stubRuntimeActions(page, () => [runtimeAction("succeeded", completedCrawl(snapshot))]);
+  await page.route("**/api/home/discovery/runtime/act_disc_e2e/candidates/cand_solar/ingest", async (route) => {
     bodies.push(route.request().postDataJSON());
-    if (ingestStatus === 422) {
-      await route.fulfill({
-        status: 422,
-        contentType: "application/json",
-        body: JSON.stringify({ status: "needs_confirmation", confirmed: false, claimed: false }),
-      });
-      return;
-    }
     await route.fulfill({
-      status: 409,
+      status: 422,
       contentType: "application/json",
-      body: JSON.stringify({
-        detail: { code: "brief_version_mismatch", message: "发现 Brief 已变化，原确认作废。", brief_version: 2 },
-      }),
+      body: JSON.stringify({ detail: "gateway refused this receipt" }),
     });
   });
   await openDiscoveryWithRun(page);
-  await page.locator('[data-discovery-select="cand_solar"]').check();
-  await page.locator("[data-discovery-select-all]").check();
-  await page.locator("[data-discovery-ingest]").click();
-  await page.locator("[data-discovery-ingest-yes]").click();
-  await expect(page.locator("[data-discovery-ingest-confirm]")).toBeVisible();
-  await expect(page.locator("[data-discovery-ingest-error]")).toContainText("需要确认后才能入库公海");
+  await page.locator('[data-discovery-candidate="cand_solar"]').getByRole("checkbox", { name: "选择 Solar Lab" }).check();
+  await page.getByRole("button", { name: "加入公海（1）", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "确认入库公海", exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("alert")).toContainText(/422|gateway refused/i);
   expect(bodies[0]).toMatchObject({
-    run_id: "drun_e2e",
-    expected_brief_version: 1,
+    snapshot_version: "snapshot-cand_solar-v1",
     confirmed: true,
   });
 
-  ingestStatus = 409;
-  await page.locator("[data-discovery-ingest-yes]").click();
-  await expect(page.locator("[data-discovery-ingest-confirm]")).toHaveCount(0);
-  await expect(page.locator("[data-discovery-brief-mismatch]")).toContainText("原确认作废");
-  await expect(page.locator("[data-discovery-toast]")).toHaveCount(0);
+  snapshot = "v2";
+  await page.evaluate(() => window.dispatchEvent(new Event("discovery:candidates-refresh")));
+  await expect(dialog.getByRole("alert")).toContainText("候选资料或归属已变化");
+  await expect(dialog.getByRole("button", { name: "确认入库公海", exact: true })).toBeDisabled();
+  expect(bodies).toHaveLength(1);
 });
 
-test("L3 cancel after 422 posts cancel:true and does not claim", async ({ page }) => {
+test("native R3 cancel writes nothing, including after an unconfirmed receipt", async ({ page }) => {
   const bodies: Array<Record<string, unknown>> = [];
   const claimPosts: string[] = [];
   page.on("request", (item) => {
     const path = new URL(item.url()).pathname;
     if (item.method() === "POST" && path.includes("/claim")) claimPosts.push(path);
   });
-  await mockExistingRun(page);
-  await page.route("**/api/home/discovery/ingest", async (route) => {
-    const body = route.request().postDataJSON() as Record<string, unknown>;
-    bodies.push(body);
-    if (body.cancel === true) {
-      await route.fulfill({
-        json: { status: "cancelled", cancelled: true, claimed: false, items: [] },
-      });
-      return;
-    }
+  await stubRuntimeActions(page, () => [runtimeAction("succeeded", completedCrawl())]);
+  await page.route("**/api/home/discovery/runtime/act_disc_e2e/candidates/cand_solar/ingest", async (route) => {
+    bodies.push(route.request().postDataJSON() as Record<string, unknown>);
     await route.fulfill({
       status: 422,
       contentType: "application/json",
-      body: JSON.stringify({ status: "needs_confirmation", confirmed: false, claimed: false }),
+      body: JSON.stringify({ detail: "gateway receipt pending" }),
     });
   });
   await openDiscoveryWithRun(page);
-  await page.locator('[data-discovery-select="cand_solar"]').check();
-  await page.locator("[data-discovery-select-all]").check();
-  await page.locator("[data-discovery-ingest]").click();
-  await page.locator("[data-discovery-ingest-no]").click();
+  await page.locator('[data-discovery-candidate="cand_solar"]').getByRole("checkbox", { name: "选择 Solar Lab" }).check();
+  await page.getByRole("button", { name: "加入公海（1）", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "取消", exact: true }).click();
   expect(bodies).toEqual([]);
 
-  await page.locator("[data-discovery-ingest]").click();
-  await page.locator("[data-discovery-ingest-yes]").click();
-  await expect(page.locator("[data-discovery-ingest-error]")).toContainText("需要确认后才能入库公海");
-  await page.locator("[data-discovery-ingest-no]").click();
-  await expect.poll(() => bodies.length).toBe(2);
+  await page.getByRole("button", { name: "加入公海（1）", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "确认入库公海", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toContainText(/422|gateway receipt pending/i);
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect.poll(() => bodies.length).toBe(1);
   expect(bodies[0]).toMatchObject({
-    run_id: "drun_e2e",
-    expected_brief_version: 1,
+    snapshot_version: "snapshot-cand_solar-v1",
     confirmed: true,
   });
-  expect(bodies[1]).toMatchObject({
-    run_id: "drun_e2e",
-    expected_brief_version: 1,
-    cancel: true,
-  });
-  expect(bodies[1].confirmed).toBeUndefined();
-  await expect(page.locator("[data-discovery-ingest-confirm]")).toHaveCount(0);
-  await expect(page.locator("[data-discovery-toast]")).toHaveCount(0);
   expect(claimPosts).toEqual([]);
 });
 
@@ -1442,6 +1512,7 @@ function rejectedBusyAction() {
   return {
     ...runtimeAction("rejected"),
     error_code: "runtime_probe_crawl_busy",
+    can_retry: true,
     execution: { id: "exec_disc_e2e", status: "failed", error_code: "runtime_probe_crawl_busy" },
     progress: {
       state: "rejected",
@@ -1463,16 +1534,12 @@ test("the preparation trail never claims a collection before the employee confir
   await openDiscovery(page);
   await page.locator("[data-home] [data-ai-prompt-submit]").click();
 
-  const trail = page.locator('[data-discovery-event="run"]');
-  // 提交与准备阶段的记录如实转写（图 1 里那条 19:33:49「正在采集」就是这个事件）。
-  await expect(trail).toContainText("任务开始处理");
-  await expect(trail).toContainText("加载任务规则");
-  await expect(trail.locator("[data-discovery-run-title]")).toHaveText("等待确认");
-  await expect(trail.locator("[data-discovery-run-status]")).toHaveText("待确认");
-  await expect(trail).not.toContainText("正在采集");
-  await expect(trail).not.toContainText("进行中");
-  await expect(trail.locator("[data-discovery-run-stop]")).toHaveCount(0);
-  await expect(trail.locator('[data-discovery-step="collecting"]')).toHaveCount(0);
+  // 准备阶段记录不再伪装成⑥：确认前只显示 R3 待确认，且无停止/采集事件。
+  const flow = page.locator("[data-discovery-flow]");
+  await expect(page.locator('[data-discovery-event="confirm"]')).toHaveAttribute("data-discovery-event-state", "pending");
+  await expect(page.locator('[data-discovery-event="run"]')).toHaveCount(0);
+  await expect(flow).not.toContainText("正在采集");
+  await expect(flow).not.toContainText("进行中");
 });
 
 test("a confirm the server refused reads 未开始 in ⑥ instead of 进行中", async ({ page }) => {
@@ -1484,19 +1551,23 @@ test("a confirm the server refused reads 未开始 in ⑥ instead of 进行中",
   await openDiscovery(page);
   await page.locator("[data-home] [data-ai-prompt-submit]").click();
 
-  // ⑤ 给出服务端结论与原因，不是光秃秃的「执行失败」。
+  // ⑤给出服务端结论与原因；服务端明确是「未执行」时不得把它改写成执行失败。
   const confirm = page.locator('[data-discovery-event="confirm"]');
-  await expect(confirm).toContainText("执行失败");
-  await expect(confirm.locator("[data-discovery-start-reason]")).toContainText("本次启动未执行");
+  await expect(confirm).toContainText("未执行");
   await expect(confirm.locator("[data-discovery-start-retry]")).toBeEnabled();
+  await expect(confirm.locator("[data-discovery-execution-progress]")).toContainText("本次启动未执行");
+  // 网关在确认前拒绝：权威结果栏必须写「未开始」，不能借用「已停止」暗示
+  // 曾经启动过采集。
+  const resultStatus = page.locator('[data-scope-task-rail] [data-discovery-run-status]');
+  await expect(resultStatus).toContainText("未开始");
+  await expect(resultStatus).not.toContainText("已停止");
 
-  // ⑥ 与 ⑤ 必须一致：采集从未启动，就不能写「正在采集 / 进行中」，也不能给停止入口。
-  const trail = page.locator('[data-discovery-event="run"]');
-  await expect(trail.locator("[data-discovery-run-title]")).toHaveText("尚未开始");
-  await expect(trail.locator("[data-discovery-run-status]")).toHaveText("未开始");
-  await expect(trail).not.toContainText("进行中");
-  await expect(trail).not.toContainText("已结束");
-  await expect(trail.locator("[data-discovery-run-stop]")).toHaveCount(0);
+  // 确认曾抵达网关但服务端拒绝开始：⑥保留可核对的执行记录，却只能是「未开始」。
+  const run = page.locator('[data-discovery-event="run"]');
+  await expect(run).toHaveCount(1);
+  await expect(run.locator("[data-discovery-run-status]")).toContainText("未开始");
+  await expect(run.locator("[data-discovery-run-status]")).not.toContainText("进行中");
+  await expect(run.locator("[data-discovery-run-status]")).not.toContainText("已结束");
 });
 
 test("the newest proposal wins, so 核对后重试 shows a fresh 待确认 card", async ({ page }) => {

@@ -5,6 +5,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 export function useWorkspaceScroll(key: string, ready: boolean, live: boolean) {
   const ref = useRef<HTMLDivElement | null>(null);
   const following = useRef(false);
+  const jumpingToBottom = useRef(false);
   const restore = useRef<number | null>(null);
   const [position, setPosition] = useState({ scrollable: false, atBottom: false, updated: false });
   const liveRef = useRef(live);
@@ -15,6 +16,7 @@ export function useWorkspaceScroll(key: string, ready: boolean, live: boolean) {
     try { saved = sessionStorage.getItem(key); } catch { /* Storage is optional. */ }
     restore.current = saved !== null && Number.isFinite(Number(saved)) ? Math.max(0, Number(saved)) : 0;
     following.current = false;
+    jumpingToBottom.current = false;
     ref.current.scrollTop = Math.min(restore.current, Math.max(0, ref.current.scrollHeight - ref.current.clientHeight));
   }, [key, ready]);
   useEffect(() => {
@@ -55,11 +57,16 @@ export function useWorkspaceScroll(key: string, ready: boolean, live: boolean) {
       previousClientHeight = el.clientHeight;
       measure(changed);
     };
-    const intent = () => { restore.current = null; following.current = false; };
+    const intent = () => { restore.current = null; following.current = false; jumpingToBottom.current = false; };
     let previousTop = el.scrollTop;
     const onScroll = () => {
       if (restore.current === null) {
-        following.current = el.scrollTop >= previousTop && el.scrollHeight - el.scrollTop - el.clientHeight <= threshold();
+        const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= threshold();
+        // Smooth scrolling emits intermediate positions before reaching the tail.
+        // Those are not a user's choice to stop following; late content must still
+        // settle at the new tail. Explicit wheel/touch/pointer/key intent cancels it.
+        following.current = jumpingToBottom.current || (el.scrollTop >= previousTop && atBottom);
+        if (atBottom) jumpingToBottom.current = false;
         save();
       }
       previousTop = el.scrollTop;
@@ -84,15 +91,32 @@ export function useWorkspaceScroll(key: string, ready: boolean, live: boolean) {
   }, [key, ready]);
   const jump = (top: boolean) => {
     if (!ref.current) return;
+    const el = ref.current;
+    const terminalTop = Math.max(0, el.scrollHeight - el.clientHeight);
+    const target = top ? 0 : terminalTop;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     restore.current = null; following.current = !top;
-    ref.current.scrollTo({ top: top ? 0 : ref.current.scrollHeight,
-      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    jumpingToBottom.current = !top;
+    // With reduced motion there is no transition for a later scroll event to
+    // settle. Commit the physical terminal position before the focused keyboard
+    // control can be measured again in its former direction.
+    if (reducedMotion) {
+      el.scrollTop = target;
+      setPosition({
+        scrollable: el.scrollHeight > el.clientHeight + 1,
+        atBottom: target >= terminalTop,
+        updated: false,
+      });
+      return;
+    }
+    el.scrollTo({ top: top ? 0 : el.scrollHeight, behavior: "smooth" });
     setPosition(current => ({ ...current, updated: false }));
   };
   const reveal = (target?: HTMLElement, animate = true) => {
     const el = ref.current;
     if (!el) return;
     restore.current = null; following.current = false;
+    jumpingToBottom.current = false;
     const head = el.querySelector<HTMLElement>(".task-result-head,[data-discovery-run-status]");
     const offset = target ? target.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - (head?.offsetHeight || 0) : 0;
     el.scrollTo({ top: Math.max(0, offset), behavior: !animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });

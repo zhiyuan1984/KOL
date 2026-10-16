@@ -1,17 +1,17 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { Pool } from "pg";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { knowledgeReviewDefinition, type ReviewDefinition, type ReviewInstance } from "../../shared/review.js";
-import { reviewSchema } from "../src/approval/review-schema.js";
 import {
   closePostgresPool,
   postgresPool,
   postgresTransaction,
 } from "../src/postgres/pool.js";
+import { freshTestDatabase } from "./support/pg.js";
 import { postgresReviewContext } from "../src/approval/review-postgres-access.js";
+import { PostgresReviewService } from "../src/approval/review-postgres-service.js";
 import { reviewResolver } from "../src/approval/review-resolver.js";
 import { decideReview } from "../src/approval/review-engine.js";
 import {
@@ -23,6 +23,7 @@ import {
   preparePublicationRecovery,
   recoverPublication,
 } from "../src/knowledge-publication/service.js";
+import { knowledgeReviewTrial } from "../src/knowledge/publication.js";
 import { saveEntry, reviseEntry, entryDetail, workspaceData,removeEntryDraft } from "../src/knowledge/workspace.js";
 import { executionHandler } from "../src/execution-jobs/handlers.js";
 import "../src/knowledge-publication/worker.js";
@@ -34,13 +35,11 @@ import {saveScope,runtimeKnowledgeManifest} from '../src/knowledge/scopes.js';
 import {scopeHash} from '../src/knowledge/scope-contract.js';
 import type {KnowledgeScope} from '../../shared/knowledge-scope.js';
 
-const configured = Boolean(process.env.TEST_POSTGRES_URL);
-describe.skipIf(!configured)(
+describe(
   "Knowledge publication: native PostgreSQL approval events and material gate",
   () => {
-    let maintenance: Pool, files: string, docId: string, source: string;
-    const database = `knowledge_test_${randomUUID().replaceAll("-", "")}`;
-    const oldUrl = process.env.DATABASE_URL;
+    let files: string, docId: string, source: string;
+    const oldEngineMode = process.env.KNOWLEDGE_ENGINE_MODE;
     const stamp = "2026-10-05T01:00:00.000Z";
     const definition: ReviewDefinition = {
       schema: "review.definition.v1",
@@ -69,49 +68,13 @@ describe.skipIf(!configured)(
       releaseNote: "更新规格与适用范围",
     });
     beforeAll(async () => {
-      maintenance = new Pool({
-        connectionString: process.env.TEST_POSTGRES_URL,
-      });
-      await maintenance.query(`CREATE DATABASE "${database}"`);
-      const url = new URL(process.env.TEST_POSTGRES_URL!);
-      url.pathname = `/${database}`;
-      process.env.DATABASE_URL = url.toString();
+      process.env.KNOWLEDGE_ENGINE_MODE = "stub";
+      await freshTestDatabase();
       files = await fs.mkdtemp(
         path.join(os.tmpdir(), "knowledge-publication-test-"),
       );
-      let baseline = await fs.readFile(
-        new URL("../migrations/pg-baseline.sql", import.meta.url),
-        "utf8",
-      );
-      baseline = baseline
-        .split(/\r?\n/)
-        .filter((line) => !line.startsWith("\\") && !line.startsWith("SET transaction_timeout"))
-        .map((line) =>
-          line.includes("set_config('search_path'")
-            ? "SELECT pg_catalog.set_config('search_path', 'public', false);"
-            : line,
-        )
-        .join("\n");
-      await postgresPool().query(baseline);
-      for (const statement of reviewSchema)
-        await postgresPool().query(statement);
-      await postgresPool().query(
-        "ALTER TABLE approval_role_bindings ADD COLUMN valid_from TEXT, ADD COLUMN valid_to TEXT",
-      );
-      await postgresPool().query(await fs.readFile(new URL("../migrations/024_knowledge_publication.sql", import.meta.url),"utf8"));
-      await postgresPool().query(
-        await fs.readFile(
-          new URL(
-            "../migrations/025_knowledge_publication_applications.sql",
-            import.meta.url,
-          ),
-          "utf8",
-        ),
-      );
-      await postgresPool().query(await fs.readFile(new URL("../migrations/026_knowledge_workspace.sql",import.meta.url),"utf8"));
-      await postgresPool().query(await fs.readFile(new URL('../migrations/027_knowledge_scope.sql',import.meta.url),'utf8'));
-      await postgresPool().query(await fs.readFile(new URL('../migrations/043_20261015_knowledge_scope_async.sql',import.meta.url),'utf8'));
-      await postgresPool().query("INSERT INTO knowledge_domains(id,code,name,level,created_at,updated_at) VALUES('domain','domain','产品规格','domain',$1,$1)",[stamp]);
+      await postgresPool().query("INSERT INTO knowledge_domains(id,code,name,level,created_at,updated_at) VALUES('family','family','产品','family',$1,$1)",[stamp]);
+      await postgresPool().query("INSERT INTO knowledge_domains(id,code,name,level,parent_id,created_at,updated_at) VALUES('domain','domain','产品规格','domain','family',$1,$1)",[stamp]);
       await postgresPool().query("INSERT INTO knowledge_bases(id,code,name,domain_id,kind,status,created_at,updated_at) VALUES('specs','specs','产品规格','domain','unstructured','active',$1,$1)",[stamp]);
       for (const id of ["admin", "reviewer", "reviewer-two", "outsider"]) {
         await postgresPool().query(
@@ -153,13 +116,8 @@ describe.skipIf(!configured)(
     }, 60000);
     afterAll(async () => {
       await closePostgresPool();
-      process.env.DATABASE_URL = oldUrl;
-      if (maintenance) {
-        await maintenance.query(
-          `DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`,
-        );
-        await maintenance.end();
-      }
+      if (oldEngineMode === undefined) delete process.env.KNOWLEDGE_ENGINE_MODE;
+      else process.env.KNOWLEDGE_ENGINE_MODE = oldEngineMode;
       if (files) {
         const target=path.resolve(files);
         if(!target.startsWith(path.resolve(os.tmpdir())+path.sep)||!path.basename(target).startsWith("knowledge-publication-test-")) throw new Error("Test cleanup target escaped its temporary scope");
@@ -175,6 +133,7 @@ describe.skipIf(!configured)(
       await fs.writeFile(path.join(library,`${docId}.tree.json`),JSON.stringify({status:"completed",retrieval_ready:true}));
       await fs.writeFile(path.join(library,"docs",docId,"pages.json"),JSON.stringify([{page:1,text:"product"}]));
       await fs.writeFile(path.join(library,"docs",docId,"tree.json"),"{}");
+      await fs.writeFile(path.join(library,".stub-index.json"),JSON.stringify([{doc_id:docId,name:path.basename(source),pages:1,path:source}]));
       await postgresPool().query(
         "UPDATE users SET active=1 WHERE id IN ('admin','reviewer')",
       );
@@ -254,6 +213,58 @@ describe.skipIf(!configured)(
     async function seedScope(state='candidate'){
       const scope=candidate();await postgresPool().query('INSERT INTO knowledge_document_scopes(document_id,tenant,state,scope,explanation,fingerprint,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7)',[docId,'company',state,scope,'规格与条件',scopeHash(scope),stamp]);
     }
+    it("runs approval trial through native PostgreSQL scope checks and records the review read audit", async () => {
+      const { receipt } = await submit();
+      const ctx = await postgresTransaction(async (db) => (postgresReviewContext(db, "admin", "company")));
+      // This is the persisted material shape consumed by the legacy /knowledge
+      // approval route: a frozen source fingerprint plus the existing review
+      // participant. The test leaves V2 publication behavior intact.
+      const requestId = randomUUID();
+      const sourceHash = createHash("sha256").update(await fs.readFile(source)).digest("hex");
+      const snapshot = {
+        document_id: docId, base_id: "specs", title: "储能规格书", updated_at: stamp,
+        artifacts: JSON.stringify({ index: { doc_id: docId, library: path.join(files, docId) } }), source_path: source,
+        files: [{ path: source, hash: sourceHash }], pages: 1, engine_version: "stub", root_id: docId,
+        document_version: 1, expected_active_id: null,
+      };
+      await postgresPool().query(
+        "INSERT INTO knowledge_publication_requests(id,tenant,document_id,actor,template_id,template_version,binding_version,snapshot,review_values,expires_at,instance_id,created_at) VALUES($1,'company',$2,'admin','knowledge-release',1,1,$3,$4,$5,$6,$7)",
+        [requestId, docId, JSON.stringify(snapshot), JSON.stringify({}), new Date(Date.now() + 60_000).toISOString(), receipt.instanceId, stamp],
+      );
+      const result = await knowledgeReviewTrial(receipt.instanceId, "适用条件是什么？", ctx);
+      expect(result.answer).toContain("适用条件是什么？");
+      expect(result.citations).toMatchObject([{ document_id: docId, engine_doc_id: docId, page: 1 }]);
+      expect((await postgresPool().query("SELECT COUNT(*)::int AS n FROM audit_events WHERE actor='admin' AND event_type='knowledge.review.trial' AND payload::jsonb->>'instance_id'=$1", [receipt.instanceId])).rows[0].n).toBe(1);
+      await fs.writeFile(source, "%PDF-1.7 changed after review preparation");
+      await expect(knowledgeReviewTrial(receipt.instanceId, "再次试算", ctx)).rejects.toMatchObject({ status: 409 });
+    });
+
+    it("shows an actual knowledge submission in the assigned reviewer's paginated inbox", async () => {
+      const { receipt } = await submit();
+      const projection = await postgresTransaction(async db => {
+        const reviewer = new PostgresReviewService(db, await postgresReviewContext(db, "reviewer", "company"));
+        const requester = new PostgresReviewService(db, await postgresReviewContext(db, "admin", "company"));
+        const unassigned = new PostgresReviewService(db, await postgresReviewContext(db, "reviewer-two", "company"));
+        const outsider = new PostgresReviewService(db, await postgresReviewContext(db, "outsider", "other"));
+        return {
+          todo: await reviewer.instancePage({ filter: "todo", q: "储能规格书" }),
+          mine: await requester.instancePage({ filter: "mine", q: "储能规格书" }),
+          notices: await reviewer.notificationInbox(),
+          unassigned: await unassigned.instancePage({ filter: "todo" }),
+          outsider: await outsider.instancePage({ filter: "all" }),
+        };
+      });
+      const item = projection.todo.items.find(i => i.id === receipt.instanceId);
+      expect(item?.allowedActions).toContain("approve");
+      expect(item?.allowedActions).toContain("reject");
+      expect(projection.mine.items.some(i => i.id === receipt.instanceId)).toBe(true);
+      expect(projection.notices.items.some(n => n.instance_id === receipt.instanceId && !n.read_at)).toBe(true);
+      expect(projection.unassigned.items).toEqual([]);
+      expect(projection.outsider.items).toEqual([]);
+      expect((await postgresPool().query("SELECT action FROM review_events WHERE resource_id=$1", [receipt.instanceId])).rows.map(r => r.action)).toEqual(["knowledge.submit"]);
+      expect((await postgresPool().query("SELECT status FROM knowledge_publication_applications WHERE instance_id=$1", [receipt.instanceId])).rows[0].status).toBe("waiting");
+    });
+
     it('freezes checked scope and activates document plus scope in the same automatic publication',async()=>{
       await seedScope();await expect(preparePublication('admin','company',docId,command())).rejects.toMatchObject({status:409});
       const checked=await saveScope('admin','company',docId,{expectedRevision:1,checked:true,scope:candidate()});
@@ -612,7 +623,7 @@ describe.skipIf(!configured)(
       const app = new Hono(); app.route("/api", knowledgePublication);
       app.onError((error, c) => c.json({ detail: error.message }, error instanceof HttpFail ? error.status as 403 | 409 : 500));
       const url = `/api/approvals/v2/instances/${receipt.instanceId}/knowledge-source?company=company`;
-      const request = (user: string) => withScopedUser({ id: user } as AppUser, () => app.request(url));
+      const request = async (user: string) => (await withScopedUser({ id: user } as AppUser, async () => (app.request(url))));
       const result = await request("reviewer"); expect(result.status).toBe(200);
       expect(result.headers.get("Content-Type")).toBe("application/pdf"); expect(await result.text()).toBe("%PDF frozen slide preview");
       expect((await request("outsider")).status).toBe(403);
@@ -628,7 +639,7 @@ describe.skipIf(!configured)(
           error instanceof HttpFail ? (error.status as 401 | 403 | 409) : 500,
         ),
       );
-      const request = (
+      const request = async (
         userId: string | undefined,
         url: string,
         body?: unknown,
@@ -643,10 +654,10 @@ describe.skipIf(!configured)(
               body: JSON.stringify(body),
             }
           : undefined;
-        if (!userId) return app.request(url, options);
-        return withScopedUser({ id: userId } as AppUser, () =>
-          app.request(url, options),
-        );
+        if (!userId) return (await app.request(url, options));
+        return (await withScopedUser({ id: userId } as AppUser, async () =>
+          (app.request(url, options)),
+        ));
       };
       expect(
         (
@@ -664,7 +675,7 @@ describe.skipIf(!configured)(
       expect(await authorized.text()).toContain("isolated original");
     expect((await request("outsider", sourceUrl)).status).toBe(403);
     expect((await request("reviewer-two", sourceUrl)).status).toBe(403);
-    const invalid=await withScopedUser({id:"admin"} as AppUser,()=>app.request(`/api/admin/knowledge/documents/${docId}/publication-v2/prepare`,{method:"POST",headers:{"Content-Type":"application/json"},body:"[invalid"}));
+    const invalid=await withScopedUser({id:"admin"} as AppUser,async ()=>(app.request(`/api/admin/knowledge/documents/${docId}/publication-v2/prepare`,{method:"POST",headers:{"Content-Type":"application/json"},body:"[invalid"})));
     expect(invalid.status).toBe(400);
       await fs.writeFile(source, "%PDF changed");
       expect((await request("reviewer", sourceUrl)).status).toBe(409);

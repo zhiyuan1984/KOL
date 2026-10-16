@@ -1,304 +1,119 @@
 /**
- * 组织树、人员外部引用、成员关系、品牌/区域范围关系与 Agent 使用绑定。
+ * 组织树、人员外部引用、成员关系、范围关系与 Agent 资格。
  *
- * 法条：`docs/CONSTITUTION.md` CONST-05、`docs/DECISIONS.md` ADR-2026-10-03 与（之二）；
- * 实施细则见 `docs/org-permissions.md`（含「组织系统未接入前必须用外部引用表」）。
- * 声明来源是 `config/org-registry.yaml`：一次性回填（app_state 门控）之后，
- * 运行时权威在本文件的表里，registry 只作声明、来源凭证与待补字段登记。
+ * PostgreSQL 是唯一运行时权威：本模块只使用 postgres/pool 的异步查询及
+ * PoolClient 事务；配置 registry 仅用作一次性、可显式重放的声明数据源。
  */
 import fs from "node:fs";
-import {createHash} from "node:crypto";
+import { createHash } from "node:crypto";
+import type { PoolClient } from "pg";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
-import { getConn, nowIso, type SqliteConn } from "../db.js";
 import { HttpFail } from "../host/errors.js";
-import { agentIsPublished } from "./managed-agents.js";
+import {
+  pgAvatarUrlForUser,
+  pgBumpOrgVersion,
+  pgCreateAgentBinding,
+  pgCreateAgentBindingInTransaction,
+  pgCurrentOrgVersion,
+  pgListAgentBindings,
+  pgListAgentBindingsInTransaction,
+  pgListOrganizationMemberships,
+  pgListOrganizationPeople,
+  pgListOrganizationUnits,
+  pgListScopeMemberships,
+  pgLockAgentBindings,
+  pgLockOrganization,
+  pgOrganizationCoverageSource,
+  pgOrganizationCoverageSourceInTransaction,
+  pgPersonRefForUser,
+  pgRevokeAgentBinding,
+  pgSyncOrganizationMembership,
+  pgSyncOrganizationMembershipInTransaction,
+  type AgentBindingInput,
+} from "../postgres/organization-repository.js";
+import { pgUserCanUseAgent, pgUserCanUseSkill, pgVisibleSkillIdsForUser } from "../postgres/auth-pg.js";
+import { currentTransactionClient, postgresQuery, postgresTransaction } from "../postgres/pool.js";
 import { isPlatformAgent } from "./platform-principal.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const SEED_KEY = "org_registry_v1";
-const initialized = new WeakSet<object>();
+const USER_PERSON_PREFIX = "person:user:";
+let initializedFor: string | null = null;
+let initialization: Promise<void> | null = null;
 
 type RegistryPerson = {
-  person_ref?: string;
-  display_name?: string;
-  role?: string | null;
-  title?: string | null;
-  org_unit?: string | null;
-  user_ref?: string | null;
-  account_username?: string | null;
-  avatar?: string | null;
-  starry_open_id?: string | null;
-  email?: string | null;
-  employee_no?: string | null;
-  brand_scope?: string[];
-  region_scope?: string[];
-  source?: string;
+  person_ref?: string; display_name?: string; role?: string | null; title?: string | null;
+  org_unit?: string | null; user_ref?: string | null; account_username?: string | null;
+  avatar?: string | null; starry_open_id?: string | null; email?: string | null;
+  employee_no?: string | null; brand_scope?: string[]; region_scope?: string[]; source?: string;
 };
-
 type RegistryUnit = {
-  id?: string;
-  display_name?: string;
-  type?: string;
-  parent?: string | null;
-  head?: string | null;
-  head_person_ref?: string | null;
-  brand_scope?: string[];
+  id?: string; display_name?: string; type?: string; parent?: string | null; head?: string | null;
+  head_person_ref?: string | null; brand_scope?: string[];
 };
-
 type RegistryBinding = {
-  agent_id?: string;
-  target_type?: "organization_unit" | "person";
-  target_id?: string;
-  reason?: string | null;
-  source?: string | null;
+  agent_id?: string; target_type?: "organization_unit" | "person"; target_id?: string;
+  reason?: string | null; source?: string | null;
 };
-
 type OrgRegistry = {
-  revision?: string;
-  companies?: { id?: string; display_name?: string }[];
-  organization_units?: RegistryUnit[];
-  confirmed_people?: RegistryPerson[];
-  agent_bindings?: RegistryBinding[];
+  revision?: string; companies?: { id?: string; display_name?: string }[];
+  organization_units?: RegistryUnit[]; confirmed_people?: RegistryPerson[]; agent_bindings?: RegistryBinding[];
 };
 
 export type OrganizationUnitRow = {
-  id: string;
-  company_id: string;
-  display_name: string;
-  type: string;
-  parent_id: string | null;
-  level: number;
-  head_person_ref: string | null;
-  head_display_name: string | null;
-  status: string;
-  org_version: number;
-  source: string | null;
+  id: string; company_id: string; display_name: string; type: string; parent_id: string | null;
+  level: number; head_person_ref: string | null; head_display_name: string | null; status: string;
+  org_version: number; source: string | null;
 };
-
 export type OrganizationPersonRow = {
-  person_ref: string;
-  display_name: string;
-  user_ref: string | null;
-  user_id: string | null;
-  starry_open_id: string | null;
-  email: string | null;
-  employee_no: string | null;
-  avatar_url: string | null;
-  status: string;
-  source: string | null;
+  person_ref: string; display_name: string; user_ref: string | null; user_id: string | null;
+  starry_open_id: string | null; email: string | null; employee_no: string | null;
+  avatar_url: string | null; status: string; source: string | null;
 };
-
 export type OrganizationMembershipRow = {
-  id: string;
-  person_ref: string;
-  company_id: string;
-  org_unit_id: string;
-  relation: string;
-  position: string | null;
-  status: string;
-  effective_from: string | null;
-  effective_to: string | null;
-  source: string | null;
+  id: string; person_ref: string; company_id: string; org_unit_id: string; relation: string;
+  position: string | null; status: string; effective_from: string | null; effective_to: string | null; source: string | null;
 };
-
 export type ScopeMembershipRow = {
-  id: string;
-  subject_type: string;
-  subject_id: string;
-  company_id: string;
-  brand_id: string | null;
-  region_id: string | null;
-  status: string;
-  effective_from: string | null;
-  effective_to: string | null;
-  source: string | null;
+  id: string; subject_type: string; subject_id: string; company_id: string; brand_id: string | null;
+  region_id: string | null; status: string; effective_from: string | null; effective_to: string | null; source: string | null;
 };
-
 export type AgentBindingRow = {
-  id: string;
-  agent_id: string;
-  target_type: "organization_unit" | "person";
-  target_id: string;
-  company_id: string;
-  status: string;
-  binding_version: number;
-  org_version: number;
-  created_by: string | null;
-  reason: string | null;
-  effective_from: string | null;
-  effective_to: string | null;
-  source: string | null;
+  id: string; agent_id: string; target_type: "organization_unit" | "person"; target_id: string;
+  company_id: string; status: string; binding_version: number; org_version: number; created_by: string | null;
+  reason: string | null; effective_from: string | null; effective_to: string | null; source: string | null;
 };
-
-/** 覆盖项：说明某人为什么获得资格，供管理端区分「直接覆盖」与「负责人继承」。 */
 export type EffectiveUserSource = {
   via: "binding_target" | "unit_head" | "unit_member" | "ancestor_head";
-  via_unit_id: string;
-  via_unit_display_name: string | null;
-  binding_id: string;
-  binding_target_type: "organization_unit" | "person";
-  binding_target_id: string;
-  binding_target_display_name: string | null;
+  via_unit_id: string; via_unit_display_name: string | null; binding_id: string;
+  binding_target_type: "organization_unit" | "person"; binding_target_id: string; binding_target_display_name: string | null;
 };
-
 export type EffectiveUser = {
-  person_ref: string;
-  user_id: string | null;
-  display_name: string | null;
-  via: "binding_target" | "unit_head" | "unit_member" | "ancestor_head";
-  via_unit_id: string;
-  via_unit_display_name: string | null;
-  binding_id: string;
-  /** Every binding that covers this person (one entry per binding); `via` above is the strongest one. */
-  sources: EffectiveUserSource[];
+  person_ref: string; user_id: string | null; display_name: string | null;
+  via: EffectiveUserSource["via"]; via_unit_id: string; via_unit_display_name: string | null;
+  binding_id: string; sources: EffectiveUserSource[];
 };
-
 export type EffectiveAgentUsers = {
-  agent_id: string;
-  org_version: number;
-  users: EffectiveUser[];
-  person_refs: string[];
-  user_ids: string[];
+  agent_id: string; org_version: number; users: EffectiveUser[]; person_refs: string[]; user_ids: string[];
+};
+export type OrganizationCoverageSource = {
+  units: OrganizationUnitRow[]; people: OrganizationPersonRow[]; memberships: OrganizationMembershipRow[];
+  versions: Array<{ company_id: string; version: number }>;
 };
 
-export function ensureOrganizationTree(): void {
-  const db = getConn();
-  if (initialized.has(db)) return;
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS organization_units (
-      id TEXT PRIMARY KEY,
-      company_id TEXT NOT NULL,
-      display_name TEXT NOT NULL,
-      type TEXT NOT NULL,
-      parent_id TEXT,
-      level INTEGER NOT NULL CHECK (level >= 1),
-      head_person_ref TEXT,
-      head_display_name TEXT,
-      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
-      org_version INTEGER NOT NULL DEFAULT 1 CHECK (org_version >= 1),
-      source TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE INDEX IF NOT EXISTS organization_units_parent_idx
-      ON organization_units(company_id, parent_id, level);
-
-    CREATE TABLE IF NOT EXISTS organization_people (
-      person_ref TEXT PRIMARY KEY,
-      display_name TEXT NOT NULL,
-      user_ref TEXT,
-      user_id TEXT,
-      starry_open_id TEXT,
-      email TEXT,
-      employee_no TEXT,
-      avatar_url TEXT,
-      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'left')),
-      source TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS organization_memberships (
-      id TEXT PRIMARY KEY,
-      person_ref TEXT NOT NULL,
-      company_id TEXT NOT NULL,
-      org_unit_id TEXT NOT NULL,
-      relation TEXT NOT NULL DEFAULT 'primary' CHECK (relation IN ('primary', 'collaborative')),
-      position TEXT,
-      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'ended')),
-      effective_from TEXT,
-      effective_to TEXT,
-      source TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE UNIQUE INDEX IF NOT EXISTS organization_memberships_active_uniq
-      ON organization_memberships(person_ref, org_unit_id, relation) WHERE status = 'active';
-
-    CREATE TABLE IF NOT EXISTS scope_memberships (
-      id TEXT PRIMARY KEY,
-      subject_type TEXT NOT NULL CHECK (subject_type IN ('person', 'organization_unit')),
-      subject_id TEXT NOT NULL,
-      company_id TEXT NOT NULL,
-      brand_id TEXT,
-      region_id TEXT,
-      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'ended')),
-      effective_from TEXT,
-      effective_to TEXT,
-      source TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE INDEX IF NOT EXISTS scope_memberships_subject_idx
-      ON scope_memberships(subject_type, subject_id, status);
-
-    CREATE TABLE IF NOT EXISTS agent_bindings (
-      id TEXT PRIMARY KEY,
-      agent_id TEXT NOT NULL,
-      target_type TEXT NOT NULL CHECK (target_type IN ('organization_unit', 'person')),
-      target_id TEXT NOT NULL,
-      company_id TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked')),
-      binding_version INTEGER NOT NULL DEFAULT 1 CHECK (binding_version >= 1),
-      org_version INTEGER NOT NULL CHECK (org_version >= 1),
-      created_by TEXT,
-      reason TEXT,
-      effective_from TEXT,
-      effective_to TEXT,
-      source TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE UNIQUE INDEX IF NOT EXISTS agent_bindings_active_uniq
-      ON agent_bindings(agent_id, target_type, target_id) WHERE status = 'active';
-
-    CREATE TABLE IF NOT EXISTS org_versions (
-      company_id TEXT NOT NULL,
-      version INTEGER NOT NULL CHECK (version >= 1),
-      effective_at TEXT NOT NULL,
-      note TEXT,
-      source TEXT,
-      created_at TEXT NOT NULL,
-      PRIMARY KEY (company_id, version)
-    );
-  `);
-  // 已存在的库补列。必须用 conn.pragma()：Postgres 侧把它翻译成 information_schema，
-  // 而 prepare().all() 在 PG 上不翻译 PRAGMA（PG 引擎不跑 initSchema/migrateSchema）。
-  const personColumns = new Set(
-    ((db.pragma("table_info(organization_people)") as { name?: string }[]) || []).map((row) => String(row.name)),
-  );
-  for (const [column, ddl] of [
-    ["starry_open_id", "TEXT"],
-    ["email", "TEXT"],
-    ["employee_no", "TEXT"],
-    ["avatar_url", "TEXT"],
-  ] as const) {
-    if (!personColumns.has(column)) db.exec(`ALTER TABLE organization_people ADD COLUMN ${column} ${ddl}`);
-  }
-  // 先登记再回填：seed → reseed → ensure 的重入必须立刻短路，否则会无限递归。
-  initialized.add(db);
-  seedOnce(db);
-}
-
+function nowIso(): string { return new Date().toISOString(); }
 function readRegistry(): OrgRegistry {
   const text = fs.readFileSync(path.join(repoRoot, "config", "org-registry.yaml"), "utf8").replace(/^\uFEFF/, "");
   const parsed = parseYaml(text) as OrgRegistry | null;
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("org registry root must be a mapping");
   return parsed;
 }
-
-/** Company names are registry metadata, not a grant of membership or authority. */
+/** Company names are presentation metadata, never an authorization grant. */
 export function organizationCompanyName(id: string): string {
-  return readRegistry().companies?.find(company => company.id === id)?.display_name || id;
+  return readRegistry().companies?.find((company) => company.id === id)?.display_name || id;
 }
-
-/** 深度：直属公司为一级，其余按 parent 链加一。 */
 function unitLevels(units: RegistryUnit[]): Map<string, number> {
   const byId = new Map(units.map((unit) => [String(unit.id), unit]));
   const levels = new Map<string, number>();
@@ -316,741 +131,535 @@ function unitLevels(units: RegistryUnit[]): Map<string, number> {
   return levels;
 }
 
-function seedOnce(db: SqliteConn): void {
-  if (db.prepare("SELECT 1 FROM app_state WHERE key = ?").get(SEED_KEY)) return;
-  reseedOrganizationTreeFromRegistry();
-  db.prepare("INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)").run(SEED_KEY, nowIso());
-}
-
-/**
- * 把 `config/org-registry.yaml` 的组织事实写进表里：幂等，按 canonical id 覆盖。
- * 启动只跑一次（app_state 门控）；之后组织事实由管理端维护，需要重放时显式调用本函数。
- */
-export function reseedOrganizationTreeFromRegistry(): void {
-  const db = getConn();
-  const registry = readRegistry();
+async function upsertRegistry(client: PoolClient, registry: OrgRegistry): Promise<void> {
   const company = String((registry.companies || [])[0]?.id || "");
   if (!company) throw new Error("org registry has no company");
   const units = (registry.organization_units || []).filter((unit) => typeof unit?.id === "string");
   const levels = unitLevels(units);
   const stamp = nowIso();
   const source = registry.revision || "config/org-registry.yaml";
-
+  await pgLockOrganization(client, company);
   for (const unit of units) {
     const id = String(unit.id);
-    upsert(
-      db,
-      "organization_units",
-      "id",
-      id,
-      {
-        company_id: company,
-        display_name: unit.display_name || id,
-        type: unit.type || "department",
-        parent_id: unit.parent && unit.parent !== company ? String(unit.parent) : null,
-        level: levels.get(id) || 1,
-        head_person_ref: unit.head_person_ref || null,
-        head_display_name: unit.head || null,
-        source,
-      },
-      stamp,
-    );
+    await client.query(`INSERT INTO organization_units
+      (id,company_id,display_name,type,parent_id,level,head_person_ref,head_display_name,status,org_version,source,created_at,updated_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,'active',1,$9,$10,$10)
+      ON CONFLICT(id) DO UPDATE SET company_id=EXCLUDED.company_id,display_name=EXCLUDED.display_name,type=EXCLUDED.type,
+        parent_id=EXCLUDED.parent_id,level=EXCLUDED.level,head_person_ref=EXCLUDED.head_person_ref,
+        head_display_name=EXCLUDED.head_display_name,source=EXCLUDED.source,updated_at=EXCLUDED.updated_at`,
+    [id, company, unit.display_name || id, unit.type || "department", unit.parent && unit.parent !== company ? String(unit.parent) : null,
+      levels.get(id) || 1, unit.head_person_ref || null, unit.head || null, source, stamp]);
     for (const brandId of (unit.brand_scope || []).map(String)) {
-      upsert(
-        db,
-        "scope_memberships",
-        "id",
-        `scope:org_unit:${id}:brand:${brandId}:region:*`,
-        {
-          subject_type: "organization_unit",
-          subject_id: id,
-          company_id: company,
-          brand_id: brandId,
-          region_id: null,
-          source,
-        },
-        stamp,
-      );
+      const scopeId = `scope:org_unit:${id}:brand:${brandId}:region:*`;
+      await client.query(`INSERT INTO scope_memberships
+        (id,subject_type,subject_id,company_id,brand_id,region_id,status,effective_from,effective_to,source,created_at,updated_at)
+        VALUES($1,'organization_unit',$2,$3,$4,NULL,'active',NULL,NULL,$5,$6,$6)
+        ON CONFLICT(id) DO UPDATE SET company_id=EXCLUDED.company_id,brand_id=EXCLUDED.brand_id,status='active',
+          effective_to=NULL,source=EXCLUDED.source,updated_at=EXCLUDED.updated_at`, [scopeId, id, company, brandId, source, stamp]);
     }
   }
-
   for (const person of registry.confirmed_people || []) {
     const personRef = person.person_ref;
     if (!personRef) throw new Error(`confirmed person without person_ref: ${person.display_name || "unknown"}`);
-    const account = person.account_username
-      ? (db.prepare("SELECT id FROM users WHERE username = ?").get(person.account_username) as { id?: string } | undefined)
-      : undefined;
-    const linked = db.prepare("SELECT user_id,email FROM organization_people WHERE person_ref = ?")
-      .get(personRef) as { user_id?: string | null; email?: string | null } | undefined;
-    const linkedUser = linked?.user_id
-      ? db.prepare("SELECT id FROM users WHERE id = ?").get(linked.user_id) as { id?: string } | undefined
-      : undefined;
-    upsert(
-      db,
-      "organization_people",
-      "person_ref",
-      personRef,
-      {
-        display_name: person.display_name || personRef,
-        user_ref: person.user_ref || null,
-        user_id: account?.id || linkedUser?.id || null,
-        starry_open_id: person.starry_open_id || null,
-        email: person.email || linked?.email || null,
-        employee_no: person.employee_no || null,
-        avatar_url: person.avatar ? `/avatars/${person.avatar}` : null,
-        source: person.source || source,
-      },
-      stamp,
-    );
+    const account = person.account_username ? (await client.query<{ id: string }>("SELECT id FROM users WHERE username=$1", [person.account_username])).rows[0] : undefined;
+    const linked = (await client.query<{ user_id: string | null; email: string | null }>(
+      "SELECT user_id,email FROM organization_people WHERE person_ref=$1 FOR UPDATE", [personRef],
+    )).rows[0];
+    const linkedUser = linked?.user_id ? (await client.query<{ id: string }>("SELECT id FROM users WHERE id=$1", [linked.user_id])).rows[0] : undefined;
+    await client.query(`INSERT INTO organization_people
+      (person_ref,display_name,user_ref,user_id,starry_open_id,email,employee_no,avatar_url,status,source,created_at,updated_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,'active',$9,$10,$10)
+      ON CONFLICT(person_ref) DO UPDATE SET display_name=EXCLUDED.display_name,user_ref=EXCLUDED.user_ref,
+        user_id=EXCLUDED.user_id,starry_open_id=EXCLUDED.starry_open_id,email=EXCLUDED.email,employee_no=EXCLUDED.employee_no,
+        avatar_url=EXCLUDED.avatar_url,status='active',source=EXCLUDED.source,updated_at=EXCLUDED.updated_at`,
+    [personRef, person.display_name || personRef, person.user_ref || null, account?.id || linkedUser?.id || null,
+      person.starry_open_id || null, person.email || linked?.email || null, person.employee_no || null,
+      person.avatar ? `/avatars/${person.avatar}` : null, person.source || source, stamp]);
     const orgUnit = person.org_unit ? String(person.org_unit) : null;
     if (orgUnit) {
-      upsert(
-        db,
-        "organization_memberships",
-        "id",
-        `member:${personRef}:${orgUnit}:primary`,
-        {
-          person_ref: personRef,
-          company_id: company,
-          org_unit_id: orgUnit,
-          relation: "primary",
-          position: person.title || null,
-          source: person.source || source,
-        },
-        stamp,
-      );
+      const membershipId = `member:${personRef}:${orgUnit}:primary`;
+      await client.query(`INSERT INTO organization_memberships
+        (id,person_ref,company_id,org_unit_id,relation,position,status,effective_from,effective_to,source,created_at,updated_at)
+        VALUES($1,$2,$3,$4,'primary',$5,'active',NULL,NULL,$6,$7,$7)
+        ON CONFLICT(id) DO UPDATE SET company_id=EXCLUDED.company_id,org_unit_id=EXCLUDED.org_unit_id,position=EXCLUDED.position,
+          status='active',effective_to=NULL,source=EXCLUDED.source,updated_at=EXCLUDED.updated_at`,
+      [membershipId, personRef, company, orgUnit, person.title || null, person.source || source, stamp]);
     }
-    const brands = (person.brand_scope || []).map(String);
-    const regions = (person.region_scope || []).map(String);
-    for (const brandId of brands) {
-      for (const regionId of regions) {
-        upsert(
-          db,
-          "scope_memberships",
-          "id",
-          `scope:person:${personRef}:brand:${brandId}:region:${regionId}`,
-          {
-            subject_type: "person",
-            subject_id: personRef,
-            company_id: company,
-            brand_id: brandId,
-            region_id: regionId,
-            source: person.source || source,
-          },
-          stamp,
-        );
-      }
+    for (const brandId of (person.brand_scope || []).map(String)) for (const regionId of (person.region_scope || []).map(String)) {
+      const scopeId = `scope:person:${personRef}:brand:${brandId}:region:${regionId}`;
+      await client.query(`INSERT INTO scope_memberships
+        (id,subject_type,subject_id,company_id,brand_id,region_id,status,effective_from,effective_to,source,created_at,updated_at)
+        VALUES($1,'person',$2,$3,$4,$5,'active',NULL,NULL,$6,$7,$7)
+        ON CONFLICT(id) DO UPDATE SET company_id=EXCLUDED.company_id,brand_id=EXCLUDED.brand_id,region_id=EXCLUDED.region_id,
+          status='active',effective_to=NULL,source=EXCLUDED.source,updated_at=EXCLUDED.updated_at`,
+      [scopeId, personRef, company, brandId, regionId, person.source || source, stamp]);
     }
   }
-
-  if (!currentOrgVersion(company)) {
-    db.prepare("INSERT INTO org_versions (company_id, version, effective_at, note, source, created_at) VALUES (?, 1, ?, ?, ?, ?)").run(
-      company,
-      stamp,
-      "组织事实首次落库：三级组织单元、人员外部引用、成员关系与范围关系",
-      source,
-      stamp,
-    );
+  if (await pgCurrentOrgVersion(company, client) === 0) {
+    await client.query("INSERT INTO org_versions(company_id,version,effective_at,note,source,created_at) VALUES($1,1,$2,$3,$4,$2)",
+      [company, stamp, "组织事实首次落库：三级组织单元、人员外部引用、成员关系与范围关系", source]);
   }
-
-  // 组织版本就位后再落声明式绑定点，绑定行才能带上有效的 org_version。
   for (const declared of registry.agent_bindings || []) {
     if (!declared?.agent_id || !declared.target_type || !declared.target_id) continue;
-    createAgentBinding({
-      agent_id: String(declared.agent_id),
-      target_type: declared.target_type,
-      target_id: String(declared.target_id),
-      company_id: company,
-      reason: declared.reason || null,
-      source: declared.source || source,
-    });
+    await pgCreateAgentBindingInTransaction(client, {
+      agent_id: String(declared.agent_id), target_type: declared.target_type, target_id: String(declared.target_id), company_id: company,
+      reason: declared.reason || null, source: declared.source || source,
+    }, stamp);
   }
 }
 
-function upsert(
-  db: SqliteConn,
-  table: string,
-  keyColumn: string,
-  id: string,
-  values: Record<string, unknown>,
-  stamp: string,
-): void {
-  const columns = Object.keys(values);
-  const existing = db.prepare(`SELECT 1 FROM ${table} WHERE ${keyColumn} = ?`).get(id);
-  if (existing) {
-    const assignments = columns.map((column) => `${column} = ?`).join(", ");
-    db.prepare(`UPDATE ${table} SET ${assignments}, updated_at = ? WHERE ${keyColumn} = ?`).run(
-      ...columns.map((column) => values[column] as never),
-      stamp,
-      id,
-    );
-    return;
-  }
-  const placeholders = columns.map(() => "?").join(", ");
-  db.prepare(
-    `INSERT INTO ${table} (${keyColumn}, ${columns.join(", ")}, created_at, updated_at) VALUES (?, ${placeholders}, ?, ?)`,
-  ).run(id, ...columns.map((column) => values[column] as never), stamp, stamp);
+/** Seed declaration data once without runtime DDL. The lock prevents duplicate concurrent initialization. */
+export async function ensureOrganizationTree(): Promise<void> {
+  const database = String(process.env.DATABASE_URL || "");
+  if (initializedFor === database) return;
+  const initialize = () => postgresTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [SEED_KEY]);
+    const existing = (await client.query("SELECT 1 FROM app_state WHERE key=$1 FOR UPDATE", [SEED_KEY])).rows[0];
+    if (!existing) {
+      await upsertRegistry(client, readRegistry());
+      await client.query("INSERT INTO app_state(key,value) VALUES($1,$2)", [SEED_KEY, nowIso()]);
+    }
+  }, { isolation: "SERIALIZABLE" });
+  if (currentTransactionClient()) { await initialize(); return; }
+  if (!initialization) initialization = initialize().then(() => { initializedFor = database; })
+    .finally(() => { initialization = null; });
+  await initialization;
+}
+
+/** Explicit administrative re-import. This is idempotent and uses the migrated schema; it never issues DDL. */
+export async function reseedOrganizationTreeFromRegistry(): Promise<void> {
+  await postgresTransaction(async (client) => (upsertRegistry(client, readRegistry())), { isolation: "SERIALIZABLE" });
+}
+
+export async function listOrganizationUnits(companyId?: string): Promise<OrganizationUnitRow[]> {
+  await ensureOrganizationTree();
+  return pgListOrganizationUnits(companyId);
+}
+export async function listOrganizationPeople(): Promise<OrganizationPersonRow[]> {
+  await ensureOrganizationTree();
+  return pgListOrganizationPeople();
+}
+export async function avatarUrlForUser(userId: string | null | undefined): Promise<string | null> {
+  if (!userId) return null;
+  await ensureOrganizationTree();
+  return pgAvatarUrlForUser(userId);
+}
+export async function listOrganizationMemberships(companyId?: string): Promise<OrganizationMembershipRow[]> {
+  await ensureOrganizationTree();
+  return pgListOrganizationMemberships(companyId);
+}
+export async function listScopeMemberships(subjectType?: string, subjectId?: string): Promise<ScopeMembershipRow[]> {
+  await ensureOrganizationTree();
+  return pgListScopeMemberships(subjectType, subjectId);
+}
+export async function listAgentBindings(agentId?: string): Promise<AgentBindingRow[]> {
+  await ensureOrganizationTree();
+  return pgListAgentBindings(agentId);
+}
+export async function createAgentBinding(input: AgentBindingInput): Promise<AgentBindingRow> {
+  if (isPlatformAgent(input.agent_id)) throw new HttpFail(409, { code: "platform_agent_not_bindable", message: "平台系统智能体不对应人员，不能绑定组织或人员。" });
+  await ensureOrganizationTree();
+  return pgCreateAgentBinding(input);
+}
+export async function revokeAgentBinding(bindingId: string, input?: { reason?: string | null }): Promise<boolean> {
+  await ensureOrganizationTree();
+  return pgRevokeAgentBinding(bindingId, input?.reason || "revoked");
+}
+export async function currentOrgVersion(companyId: string): Promise<number> {
+  await ensureOrganizationTree();
+  return pgCurrentOrgVersion(companyId);
+}
+/** Fact versions are incremented in one native transaction under a company advisory lock. */
+export async function bumpOrgVersion(companyId: string, note: string, source = "admin"): Promise<number> {
+  await ensureOrganizationTree();
+  return postgresTransaction(async (client) => (pgBumpOrgVersion(client, companyId, note, source, nowIso())), { isolation: "SERIALIZABLE" });
 }
 
 function ascendants(units: OrganizationUnitRow[], unitId: string): OrganizationUnitRow[] {
   const byId = new Map(units.map((unit) => [unit.id, unit]));
   const chain: OrganizationUnitRow[] = [];
   const seen = new Set<string>();
-  let current: string | null = byId.get(unitId)?.parent_id ?? null;
-  while (current && !seen.has(current)) {
-    seen.add(current);
-    const unit = byId.get(current);
-    if (!unit) break;
-    chain.push(unit);
-    current = unit.parent_id;
-  }
+  let current = byId.get(unitId)?.parent_id ?? null;
+  while (current && !seen.has(current)) { seen.add(current); const unit = byId.get(current); if (!unit) break; chain.push(unit); current = unit.parent_id; }
   return chain;
 }
-
 function descendants(units: OrganizationUnitRow[], unitId: string): OrganizationUnitRow[] {
-  const out: OrganizationUnitRow[] = [];
-  let frontier = [unitId];
-  const seen = new Set(frontier);
-  while (frontier.length) {
-    const children = units.filter((unit) => unit.parent_id && frontier.includes(unit.parent_id));
-    frontier = [];
-    for (const child of children) {
-      if (seen.has(child.id)) continue;
-      seen.add(child.id);
-      out.push(child);
-      frontier.push(child.id);
-    }
-  }
+  const out: OrganizationUnitRow[] = []; let frontier = [unitId]; const seen = new Set(frontier);
+  while (frontier.length) { const children = units.filter((unit) => unit.parent_id && frontier.includes(unit.parent_id)); frontier = [];
+    for (const child of children) if (!seen.has(child.id)) { seen.add(child.id); out.push(child); frontier.push(child.id); } }
   return out;
 }
+export type SimulatedPerson = { person: OrganizationPersonRow; membership: OrganizationMembershipRow | null };
 
-export function listOrganizationUnits(companyId?: string): OrganizationUnitRow[] {
-  ensureOrganizationTree();
-  const rows = companyId
-    ? getConn().prepare("SELECT * FROM organization_units WHERE company_id = ? ORDER BY level, display_name").all(companyId)
-    : getConn().prepare("SELECT * FROM organization_units ORDER BY level, display_name").all();
-  return rows as unknown as OrganizationUnitRow[];
-}
-
-export function listOrganizationPeople(): OrganizationPersonRow[] {
-  ensureOrganizationTree();
-  return getConn().prepare("SELECT * FROM organization_people ORDER BY display_name").all() as unknown as OrganizationPersonRow[];
-}
-
-/** 个人头像公开 URL；未关联账号或该人员没有头像时返回 null。 */
-export function avatarUrlForUser(userId: string | null | undefined): string | null {
-  if (!userId) return null;
-  ensureOrganizationTree();
-  const row = getConn().prepare("SELECT avatar_url FROM organization_people WHERE user_id = ?").get(userId) as
-    | { avatar_url?: string | null }
-    | undefined;
-  return row?.avatar_url || null;
-}
-
-export function listOrganizationMemberships(companyId?: string): OrganizationMembershipRow[] {
-  ensureOrganizationTree();
-  const rows = companyId
-    ? getConn().prepare("SELECT * FROM organization_memberships WHERE status = 'active' AND company_id = ?").all(companyId)
-    : getConn().prepare("SELECT * FROM organization_memberships WHERE status = 'active'").all();
-  return rows as unknown as OrganizationMembershipRow[];
-}
-
-export function listScopeMemberships(subjectType?: string, subjectId?: string): ScopeMembershipRow[] {
-  ensureOrganizationTree();
-  const db = getConn();
-  if (subjectType && subjectId) {
-    return db
-      .prepare("SELECT * FROM scope_memberships WHERE status = 'active' AND subject_type = ? AND subject_id = ?")
-      .all(subjectType, subjectId) as unknown as ScopeMembershipRow[];
-  }
-  return db.prepare("SELECT * FROM scope_memberships WHERE status = 'active'").all() as unknown as ScopeMembershipRow[];
-}
-
-export function listAgentBindings(agentId?: string): AgentBindingRow[] {
-  ensureOrganizationTree();
-  const db = getConn();
-  const rows = agentId
-    ? db.prepare("SELECT * FROM agent_bindings WHERE status = 'active' AND agent_id = ? ORDER BY target_type, target_id").all(agentId)
-    : db.prepare("SELECT * FROM agent_bindings WHERE status = 'active' ORDER BY agent_id, target_type, target_id").all();
-  return rows as unknown as AgentBindingRow[];
-}
-
-export function createAgentBinding(input: {
-  agent_id: string;
-  target_type: "organization_unit" | "person";
-  target_id: string;
-  company_id: string;
-  created_by?: string | null;
-  reason?: string | null;
-  effective_from?: string | null;
-  source?: string | null;
-}): AgentBindingRow {
-  if (isPlatformAgent(input.agent_id)) {
-    throw new HttpFail(409, { code: "platform_agent_not_bindable", message: "平台系统智能体不对应人员，不能绑定组织或人员。" });
-  }
-  ensureOrganizationTree();
-  const db = getConn();
-  const target = input.target_id;
-  if (input.target_type === "organization_unit") {
-    const unit = db.prepare("SELECT company_id FROM organization_units WHERE id = ?").get(target) as { company_id: string } | undefined;
-    if (!unit) throw new Error(`unknown organization unit: ${target}`);
-    if (unit.company_id !== input.company_id) throw new Error("binding target is outside the company");
-  } else if (!db.prepare("SELECT 1 FROM organization_people WHERE person_ref = ?").get(target)) {
-    throw new Error(`unknown person: ${target}`);
-  }
-  const id = `binding:${input.agent_id}:${input.target_type}:${target}`;
-  const existing = db.prepare("SELECT * FROM agent_bindings WHERE id = ? AND status = 'active'").get(id) as AgentBindingRow | undefined;
-  if (existing) return existing;
-  const stamp = nowIso();
-  const revoked = db.prepare("SELECT id FROM agent_bindings WHERE id = ? AND status = 'revoked'").get(id);
-  if (revoked) {
-    db.prepare(`UPDATE agent_bindings SET status='active',binding_version=binding_version+1,org_version=?,
-      created_by=?,reason=?,effective_from=?,effective_to=NULL,source=?,updated_at=? WHERE id=?`).run(
-      currentOrgVersion(input.company_id), input.created_by || null, input.reason || null,
-      input.effective_from || stamp, input.source || "admin", stamp, id,
-    );
-    return db.prepare("SELECT * FROM agent_bindings WHERE id = ?").get(id) as AgentBindingRow;
-  }
-  db.prepare(
-    `INSERT INTO agent_bindings
-       (id, agent_id, target_type, target_id, company_id, status, binding_version, org_version, created_by, reason, effective_from, effective_to, source, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 'active', 1, ?, ?, ?, ?, NULL, ?, ?, ?)`,
-  ).run(
-    id,
-    input.agent_id,
-    input.target_type,
-    target,
-    input.company_id,
-    currentOrgVersion(input.company_id),
-    input.created_by || null,
-    input.reason || null,
-    input.effective_from || stamp,
-    input.source || "admin",
-    stamp,
-    stamp,
-  );
-  return db.prepare("SELECT * FROM agent_bindings WHERE id = ?").get(id) as unknown as AgentBindingRow;
-}
-
-export function revokeAgentBinding(bindingId: string, input?: { reason?: string | null }): boolean {
-  ensureOrganizationTree();
-  const db = getConn();
-  const row = db.prepare("SELECT 1 FROM agent_bindings WHERE id = ? AND status = 'active'").get(bindingId);
-  if (!row) return false;
-  db.prepare("UPDATE agent_bindings SET status = 'revoked', binding_version=binding_version+1, reason = ?, effective_to=?, updated_at = ? WHERE id = ?").run(
-    input?.reason || "revoked",
-    nowIso(),
-    nowIso(),
-    bindingId,
-  );
-  return true;
-}
-
-export function currentOrgVersion(companyId: string): number {
-  ensureOrganizationTree();
-  const row = getConn()
-    .prepare("SELECT MAX(version) AS version FROM org_versions WHERE company_id = ?")
-    .get(companyId) as { version?: number } | undefined;
-  return row?.version || 0;
-}
-
-/** 组织事实变化后调用：版本加一，旧授权按新版本复核（CONST-05）。 */
-export function bumpOrgVersion(companyId: string, note: string, source?: string): number {
-  ensureOrganizationTree();
-  const db = getConn();
-  const next = currentOrgVersion(companyId) + 1;
-  const stamp = nowIso();
-  db.prepare("INSERT INTO org_versions (company_id, version, effective_at, note, source, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(
-    companyId,
-    next,
-    stamp,
-    note,
-    source || "admin",
-    stamp,
-  );
-  return next;
-}
-
-/**
- * 已发布 Agent 的有效人员集合入口（CONST-05）；计算内核见 computeEffectiveAgentUsers。
- * 绑定目标为组织单元（任意层级）或人员；覆盖与继承规则由内核实现，跨公司、旁支一律不放行。
- */
-export function effectiveAgentUsers(agentId: string): EffectiveAgentUsers {
-  return computeEffectiveAgentUsers(agentId, listAgentBindings(agentId));
-}
-
-export type SimulatedPerson = {
-  person: OrganizationPersonRow;
-  membership: OrganizationMembershipRow | null;
-};
-
-/**
- * 覆盖计算内核（CONST-05）：绑定组织单元 → 该单元负责人、该单元及其全部下级成员、逐级上级负责人；
- * 绑定人员 → 本人及其所属各级上级负责人。
- * `simulatePerson` 仅供预览路径（previewAgentBinding）：person 尚未同步组织关系时按 users.site 模拟，不写库。
- */
-export type OrganizationCoverageSource = {
-  units: OrganizationUnitRow[]; people: OrganizationPersonRow[]; memberships: OrganizationMembershipRow[];
-  versions: Array<{ company_id: string; version: number }>;
-};
-export function computeEffectiveAgentUsers(
-  agentId: string,
-  bindings: AgentBindingRow[],
+/** Pure coverage kernel; storage callers provide an effective (time-filtered) source. */
+function computeCoverage(
+  agentId: string, bindings: AgentBindingRow[], source: OrganizationCoverageSource,
   simulatePerson?: (personRef: string, companyId: string) => SimulatedPerson | null,
-  source?: OrganizationCoverageSource,
 ): EffectiveAgentUsers {
-  if (!source) ensureOrganizationTree();
-  // 绑定列表由调用方给出：实时集合来自 listAgentBindings；预览传入含虚拟绑定的列表。
   const byRef = new Map<string, EffectiveUser>();
   const rank: Record<EffectiveUser["via"], number> = { binding_target: 0, unit_head: 1, unit_member: 2, ancestor_head: 3 };
   let orgVersion = 0;
-  const seenCompany = new Set<string>();
-
   for (const companyId of new Set(bindings.map((binding) => binding.company_id))) {
-    const units = source ? source.units.filter(unit => unit.company_id === companyId) : listOrganizationUnits(companyId);
+    const units = source.units.filter((unit) => unit.company_id === companyId && unit.status === "active");
     const byId = new Map(units.map((unit) => [unit.id, unit]));
-    const memberships = source ? source.memberships.filter(row => row.company_id === companyId) : listOrganizationMemberships(companyId);
-    const people = new Map((source?.people || listOrganizationPeople()).map((person) => [person.person_ref, person]));
-    if (!seenCompany.has(companyId)) {
-      seenCompany.add(companyId);
-      orgVersion = Math.max(orgVersion, source ? Number(source.versions.find(row => row.company_id === companyId)?.version || 0) : currentOrgVersion(companyId));
-    }
-
+    const memberships = source.memberships.filter((row) => row.company_id === companyId && row.status === "active");
+    const people = new Map(source.people.map((person) => [person.person_ref, person]));
+    orgVersion = Math.max(orgVersion, Number(source.versions.find((row) => row.company_id === companyId)?.version || 0));
     const add = (personRef: string, via: EffectiveUser["via"], unitId: string, binding: AgentBindingRow): void => {
-      const unit = byId.get(unitId);
-      const person = people.get(personRef);
-      const source: EffectiveUserSource = {
-        via,
-        via_unit_id: unitId,
-        via_unit_display_name: unit ? unit.display_name : null,
-        binding_id: binding.id,
-        binding_target_type: binding.target_type,
-        binding_target_id: binding.target_id,
-        binding_target_display_name: binding.target_type === "person"
-          ? people.get(binding.target_id)?.display_name || null
-          : byId.get(binding.target_id)?.display_name || null,
-      };
-      const existing = byRef.get(personRef);
-      const sources = existing?.sources || [];
-      const sameBinding = sources.findIndex((row) => row.binding_id === binding.id);
-      if (sameBinding < 0) sources.push(source);
-      else if (rank[via] < rank[sources[sameBinding].via]) sources[sameBinding] = source;
+      const unit = byId.get(unitId); const person = people.get(personRef);
+      // Revoked/left organization facts must never keep an authorization alive.
+      if (person && person.status !== "active") return;
+      const item: EffectiveUserSource = { via, via_unit_id: unitId, via_unit_display_name: unit?.display_name || null,
+        binding_id: binding.id, binding_target_type: binding.target_type, binding_target_id: binding.target_id,
+        binding_target_display_name: binding.target_type === "person" ? people.get(binding.target_id)?.display_name || null : byId.get(binding.target_id)?.display_name || null };
+      const existing = byRef.get(personRef); const sources = existing?.sources || []; const same = sources.findIndex((row) => row.binding_id === binding.id);
+      if (same < 0) sources.push(item); else if (rank[via] < rank[sources[same].via]) sources[same] = item;
       if (existing && rank[via] >= rank[existing.via]) return;
-      byRef.set(personRef, {
-        person_ref: personRef,
-        user_id: person?.user_id || null,
-        display_name: person?.display_name || null,
-        via,
-        via_unit_id: unitId,
-        via_unit_display_name: source.via_unit_display_name,
-        binding_id: binding.id,
-        sources,
-      });
+      byRef.set(personRef, { person_ref: personRef, user_id: person?.user_id || null, display_name: person?.display_name || null,
+        via, via_unit_id: unitId, via_unit_display_name: item.via_unit_display_name, binding_id: binding.id, sources });
     };
-
     for (const binding of bindings.filter((row) => row.company_id === companyId)) {
       if (binding.target_type === "person") {
-        // 预览模拟：该 person 尚无权威成员关系时，按 users.site 等价 syncUserOrganization 的规则参与计算。
-        const simulated = memberships.some((row) => row.person_ref === binding.target_id)
-          ? null
-          : simulatePerson?.(binding.target_id, companyId) || null;
+        const simulated = memberships.some((row) => row.person_ref === binding.target_id) ? null : simulatePerson?.(binding.target_id, companyId) || null;
         if (simulated && !people.has(simulated.person.person_ref)) people.set(simulated.person.person_ref, simulated.person);
-        const membership = memberships.find((row) => row.person_ref === binding.target_id)
-          || (simulated?.membership && simulated.membership.company_id === companyId ? simulated.membership : undefined);
-        // 绑定人员覆盖本人；本人所属单元及其各级上级单元的负责人一并覆盖（CONST-05「各级上级负责人」）。
+        const membership = memberships.find((row) => row.person_ref === binding.target_id) || (simulated?.membership?.company_id === companyId ? simulated.membership : undefined);
         add(binding.target_id, "binding_target", membership?.org_unit_id || "", binding);
-        if (membership) {
-          const own = byId.get(membership.org_unit_id);
-          if (own?.head_person_ref) add(own.head_person_ref, "unit_head", own.id, binding);
-          for (const unit of ascendants(units, membership.org_unit_id)) {
-            if (unit.head_person_ref) add(unit.head_person_ref, "ancestor_head", unit.id, binding);
-          }
-        }
+        if (membership) { const own = byId.get(membership.org_unit_id); if (own?.head_person_ref) add(own.head_person_ref, "unit_head", own.id, binding);
+          for (const unit of ascendants(units, membership.org_unit_id)) if (unit.head_person_ref) add(unit.head_person_ref, "ancestor_head", unit.id, binding); }
         continue;
       }
-      const unitId = binding.target_id;
-      const unit = byId.get(unitId);
-      if (!unit) continue;
+      const unit = byId.get(binding.target_id); if (!unit) continue;
       if (unit.head_person_ref) add(unit.head_person_ref, "unit_head", unit.id, binding);
-      for (const scopeUnit of [unit, ...descendants(units, unitId)]) {
-        for (const membership of memberships.filter((row) => row.org_unit_id === scopeUnit.id)) {
-          add(membership.person_ref, "unit_member", scopeUnit.id, binding);
-        }
-        if (scopeUnit.id !== unit.id && scopeUnit.head_person_ref) {
-          add(scopeUnit.head_person_ref, "unit_head", scopeUnit.id, binding);
-        }
+      for (const scoped of [unit, ...descendants(units, unit.id)]) {
+        for (const membership of memberships.filter((row) => row.org_unit_id === scoped.id)) add(membership.person_ref, "unit_member", scoped.id, binding);
+        if (scoped.id !== unit.id && scoped.head_person_ref) add(scoped.head_person_ref, "unit_head", scoped.id, binding);
       }
-      for (const ancestor of ascendants(units, unitId)) {
-        if (ancestor.head_person_ref) add(ancestor.head_person_ref, "ancestor_head", ancestor.id, binding);
-      }
+      for (const ancestor of ascendants(units, unit.id)) if (ancestor.head_person_ref) add(ancestor.head_person_ref, "ancestor_head", ancestor.id, binding);
     }
   }
-
   const users = [...byRef.values()];
-  return {
-    agent_id: agentId,
-    org_version: orgVersion,
-    users,
-    person_refs: users.map((user) => user.person_ref),
-    user_ids: users.map((user) => user.user_id).filter((id): id is string => Boolean(id)),
-  };
+  return { agent_id: agentId, org_version: orgVersion, users, person_refs: users.map((user) => user.person_ref), user_ids: users.map((user) => user.user_id).filter((id): id is string => Boolean(id)) };
+}
+export async function computeEffectiveAgentUsers(
+  agentId: string, bindings: AgentBindingRow[], simulatePerson?: (personRef: string, companyId: string) => Promise<SimulatedPerson | null>, source?: OrganizationCoverageSource,
+): Promise<EffectiveAgentUsers> {
+  // An explicit source is already the caller's transaction-consistent snapshot.
+  // Do not perform bootstrap writes (or strengthen isolation) inside that read.
+  if (!source) await ensureOrganizationTree();
+  const facts = source || await pgOrganizationCoverageSource();
+  if (!simulatePerson) return computeCoverage(agentId, bindings, facts);
+  // Preview only has at most a bounded number of person targets; resolve before pure computation.
+  const resolved = new Map<string, SimulatedPerson | null>();
+  for (const binding of bindings.filter((binding) => binding.target_type === "person" && !facts.memberships.some((row) => row.person_ref === binding.target_id))) {
+    if (!resolved.has(binding.target_id)) resolved.set(binding.target_id, await simulatePerson(binding.target_id, binding.company_id));
+  }
+  return computeCoverage(agentId, bindings, facts, (personRef) => resolved.get(personRef) || null);
+}
+export async function effectiveAgentUsers(agentId: string): Promise<EffectiveAgentUsers> {
+  await ensureOrganizationTree();
+  const [bindings, source] = await Promise.all([(await pgListAgentBindings(agentId)), (await pgOrganizationCoverageSource())]);
+  return computeCoverage(agentId, bindings, source);
 }
 
 export type AgentBindingPreview = {
-  agent_id: string;
-  preview_signature: string;
-  org_version: number;
-  before: { person_refs: string[]; user_ids: string[] };
-  after: { person_refs: string[]; user_ids: string[] };
-  added: EffectiveUser[];
-  removed: EffectiveUser[];
+  agent_id: string; preview_signature: string; org_version: number;
+  before: { person_refs: string[]; user_ids: string[] }; after: { person_refs: string[]; user_ids: string[] };
+  added: EffectiveUser[]; removed: EffectiveUser[];
 };
-
 export type AgentBindingChange =
   | { add: { target_type: "organization_unit" | "person"; target_id: string; company_id: string } }
   | { add_many: Array<{ target_type: "organization_unit" | "person"; target_id: string; company_id: string }> }
   | { remove: string };
 
-const USER_PERSON_PREFIX = "person:user:";
-
-/** 账号外部引用：已同步的 person_ref，否则按 syncUserOrganization 的约定由 user_id 推导；不写库。 */
-export function personRefForUser(userId: string): string | null {
-  const db = getConn();
-  const row = db.prepare("SELECT person_ref FROM organization_people WHERE user_id=?").get(userId) as
-    { person_ref: string } | undefined;
-  if (row?.person_ref) return row.person_ref;
-  return db.prepare("SELECT 1 FROM users WHERE id=?").get(userId) ? `${USER_PERSON_PREFIX}${userId}` : null;
-}
-
-/**
- * 预览模拟（等价 syncUserOrganization 的规则，不写库）：person 尚无权威成员关系时按 users.site
- * 映射到同公司 active 单元；site 为空或不属该公司则仅覆盖本人，不虚构上级负责人。
- */
-function simulatePersonFromSite(personRef: string, companyId: string): SimulatedPerson | null {
-  const db = getConn();
-  const row = db.prepare("SELECT * FROM organization_people WHERE person_ref=?").get(personRef) as OrganizationPersonRow | undefined;
+async function simulatePersonFromSite(personRef: string, companyId: string, client?: PoolClient): Promise<SimulatedPerson | null> {
+  const people = client
+    ? (await client.query<OrganizationPersonRow>("SELECT * FROM organization_people WHERE person_ref=$1", [personRef])).rows
+    : await postgresQuery<OrganizationPersonRow>("SELECT * FROM organization_people WHERE person_ref=$1", [personRef]);
+  const row = people[0];
   const userId = row?.user_id || (personRef.startsWith(USER_PERSON_PREFIX) ? personRef.slice(USER_PERSON_PREFIX.length) : "");
   if (!userId) return null;
-  const user = db.prepare("SELECT id,name,site,active FROM users WHERE id=?").get(userId) as
-    { id: string; name: string; site: string | null; active: number } | undefined;
+  const users = client
+    ? (await client.query<{ id: string; name: string; site: string | null; active: number }>("SELECT id,name,site,active FROM users WHERE id=$1", [userId])).rows
+    : await postgresQuery<{ id: string; name: string; site: string | null; active: number }>("SELECT id,name,site,active FROM users WHERE id=$1", [userId]);
+  const user = users[0];
   if (!user) return null;
-  const person: OrganizationPersonRow = row ? { ...row, user_id: userId } : {
-    person_ref: personRef,
-    display_name: user.name,
-    user_ref: userId,
-    user_id: userId,
-    starry_open_id: null,
-    email: null,
-    employee_no: null,
-    avatar_url: null,
-    status: Number(user.active) === 1 ? "active" : "left",
-    source: "preview",
-  };
-  const site = String(user.site || "").trim();
-  const unit = site
-    ? db.prepare("SELECT * FROM organization_units WHERE id=? AND status='active'").get(site) as OrganizationUnitRow | undefined
-    : undefined;
+  const person = row ? { ...row, user_id: userId } : { person_ref: personRef, display_name: user.name, user_ref: userId, user_id: userId,
+    starry_open_id: null, email: null, employee_no: null, avatar_url: null, status: Number(user.active) === 1 ? "active" : "left", source: "preview" };
+  const units = user.site
+    ? (client
+      ? (await client.query<OrganizationUnitRow>("SELECT * FROM organization_units WHERE id=$1 AND status='active'", [user.site])).rows
+      : await postgresQuery<OrganizationUnitRow>("SELECT * FROM organization_units WHERE id=$1 AND status='active'", [user.site]))
+    : [];
+  const unit = units[0];
   if (!unit || unit.company_id !== companyId) return { person, membership: null };
-  return {
-    person,
-    membership: {
-      id: `preview:${personRef}:${unit.id}`,
-      person_ref: personRef,
-      company_id: unit.company_id,
-      org_unit_id: unit.id,
-      relation: "primary",
-      position: null,
-      status: "active",
-      effective_from: null,
-      effective_to: null,
-      source: "preview",
-    },
-  };
+  return { person, membership: { id: `preview:${personRef}:${unit.id}`, person_ref: personRef, company_id: unit.company_id, org_unit_id: unit.id,
+    relation: "primary", position: null, status: "active", effective_from: null, effective_to: null, source: "preview" } };
 }
 
-/** 变更影响预览（CONST-05）：add 以虚拟绑定、remove 剔除现有绑定，走同一覆盖内核；不落库、不写 users/site。 */
-export function previewAgentBinding(agentId: string, change: AgentBindingChange): AgentBindingPreview {
-  ensureOrganizationTree();
-  const db = getConn();
-  const current = listAgentBindings(agentId);
-  const before = computeEffectiveAgentUsers(agentId, current);
+async function previewAgentBindingFromBasis(
+  agentId: string,
+  change: AgentBindingChange,
+  current: AgentBindingRow[],
+  source: OrganizationCoverageSource,
+  personExists: (personRef: string) => Promise<boolean>,
+  simulatePerson: (personRef: string, companyId: string) => Promise<SimulatedPerson | null>,
+): Promise<AgentBindingPreview> {
+  const before = computeCoverage(agentId, current, source);
   let bindings = current;
-  let simulatePerson: ((personRef: string, companyId: string) => SimulatedPerson | null) | undefined;
+  let needsSimulation = false;
   if ("remove" in change) {
     if (!current.some((row) => row.id === change.remove)) throw new Error(`unknown binding: ${change.remove}`);
     bindings = current.filter((row) => row.id !== change.remove);
   } else {
-    const targets = "add_many" in change ? change.add_many : [change.add];
-    const seen = new Set<string>();
-    const virtual: AgentBindingRow[] = [];
+    const targets = "add_many" in change ? change.add_many : [change.add]; const seen = new Set<string>(); const virtual: AgentBindingRow[] = [];
     for (const target of targets) {
-      const key = `${target.target_type}:${target.target_id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
+      const key = `${target.target_type}:${target.target_id}`; if (seen.has(key)) continue; seen.add(key);
       if (target.target_type === "organization_unit") {
-        const unit = db.prepare("SELECT id,company_id,status FROM organization_units WHERE id=?").get(target.target_id) as
-          { id: string; company_id: string; status: string } | undefined;
-        if (!unit || unit.status !== "active") throw new Error(`unknown organization unit: ${target.target_id}`);
+        const unit = source.units.find((unit) => unit.id === target.target_id && unit.status === "active");
+        if (!unit) throw new Error(`unknown organization unit: ${target.target_id}`);
         if (unit.company_id !== target.company_id) throw new Error("binding target is outside the company");
       } else {
-        const known = db.prepare("SELECT 1 FROM organization_people WHERE person_ref=?").get(target.target_id)
-          || (target.target_id.startsWith(USER_PERSON_PREFIX)
-            ? db.prepare("SELECT 1 FROM users WHERE id=?").get(target.target_id.slice(USER_PERSON_PREFIX.length))
-            : undefined);
+        const known = source.people.some((person) => person.person_ref === target.target_id && person.status === "active")
+          || (target.target_id.startsWith(USER_PERSON_PREFIX) && await personExists(target.target_id.slice(USER_PERSON_PREFIX.length)));
         if (!known) throw new Error(`unknown person: ${target.target_id}`);
+        needsSimulation = true;
       }
-      const duplicate = current.some((row) => row.target_type === target.target_type && row.target_id === target.target_id);
-      if (!duplicate) virtual.push({
-        id: `preview:${key}`, agent_id: agentId, target_type: target.target_type, target_id: target.target_id,
-        company_id: target.company_id, status: "active", binding_version: 0,
-        org_version: currentOrgVersion(target.company_id), created_by: null, reason: null,
-        effective_from: null, effective_to: null, source: "preview",
+      if (!current.some((row) => row.target_type === target.target_type && row.target_id === target.target_id)) virtual.push({
+        id: `preview:${key}`, agent_id: agentId, target_type: target.target_type, target_id: target.target_id, company_id: target.company_id,
+        status: "active", binding_version: 0, org_version: Number(source.versions.find((row) => row.company_id === target.company_id)?.version || 0),
+        created_by: null, reason: null, effective_from: null, effective_to: null, source: "preview",
       });
-      if (target.target_type === "person") simulatePerson = simulatePersonFromSite;
     }
     bindings = [...current, ...virtual];
   }
-  const after = computeEffectiveAgentUsers(agentId, bindings, simulatePerson);
-  const beforeRefs = new Set(before.person_refs);
-  const afterRefs = new Set(after.person_refs);
-  const versions=[...new Set([...current,...bindings].map(row=>row.company_id))].sort().map(company_id=>({company_id,version:currentOrgVersion(company_id)}));
-  return {
-    agent_id: agentId,
-    org_version: Math.max(before.org_version,after.org_version),
-    preview_signature: createHash('sha256').update(JSON.stringify({current,change,versions,before,after})).digest('hex'),
-    before: { person_refs: before.person_refs, user_ids: before.user_ids },
-    after: { person_refs: after.person_refs, user_ids: after.user_ids },
-    added: after.users.filter((user) => !beforeRefs.has(user.person_ref)),
-    removed: before.users.filter((user) => !afterRefs.has(user.person_ref)),
-  };
+  const after = needsSimulation ? await computeEffectiveAgentUsers(agentId, bindings, simulatePerson, source) : computeCoverage(agentId, bindings, source);
+  const beforeRefs = new Set(before.person_refs); const afterRefs = new Set(after.person_refs);
+  const versions = [...new Set(bindings.map((row) => row.company_id))].sort().map((company_id) => ({ company_id, version: Number(source.versions.find((row) => row.company_id === company_id)?.version || 0) }));
+  return { agent_id: agentId, org_version: Math.max(before.org_version, after.org_version),
+    preview_signature: createHash("sha256").update(JSON.stringify({ current, change, versions, before, after })).digest("hex"),
+    before: { person_refs: before.person_refs, user_ids: before.user_ids }, after: { person_refs: after.person_refs, user_ids: after.user_ids },
+    added: after.users.filter((user) => !beforeRefs.has(user.person_ref)), removed: before.users.filter((user) => !afterRefs.has(user.person_ref)) };
 }
 
-export function canUseAgent(userId: string | null | undefined, agentId: string): boolean {
-  if (!userId) return false;
-  if (!agentIsPublished(agentId)) return false;
-  const account = getConn().prepare("SELECT active FROM users WHERE id=?").get(userId) as { active?: number } | undefined;
-  if (!account || Number(account.active) !== 1) return false;
-  return effectiveAgentUsers(agentId).user_ids.includes(userId);
+export async function previewAgentBinding(agentId: string, change: AgentBindingChange): Promise<AgentBindingPreview> {
+  await ensureOrganizationTree();
+  const [current, source] = await Promise.all([(await pgListAgentBindings(agentId)), (await pgOrganizationCoverageSource())]);
+  return previewAgentBindingFromBasis(
+    agentId, change, current, source,
+    async (userId) => (await postgresQuery("SELECT 1 FROM users WHERE id=$1", [userId])).length > 0,
+    async (personRef, companyId) => (simulatePersonFromSite(personRef, companyId)),
+  );
 }
 
-/** 管理员维护账号的组织归属时同步权威成员关系；不按姓名推断身份。 */
-export function syncUserOrganization(userId: string, unitId: string | null | undefined): string {
-  ensureOrganizationTree();
-  const db = getConn();
-  const user = db.prepare("SELECT id,name,username,email FROM users WHERE id=?").get(userId) as { id: string; name: string; username: string; email: string | null } | undefined;
-  if (!user) throw new Error("unknown user");
-  const target = unitId ? db.prepare("SELECT id,company_id,status FROM organization_units WHERE id=?").get(unitId) as
-    { id: string; company_id: string; status: string } | undefined : undefined;
-  if (unitId && (!target || target.status !== "active")) throw new Error("unknown active organization unit");
-  const personRef = personRefForUser(userId) ?? `${USER_PERSON_PREFIX}${userId}`;
-  const stamp = nowIso();
-  db.prepare(`INSERT INTO organization_people
-    (person_ref,display_name,user_ref,user_id,email,status,source,created_at,updated_at)
-    VALUES (?,?,?,?,?,'active','admin',?,?)
-    ON CONFLICT (person_ref) DO UPDATE SET display_name=excluded.display_name,user_id=excluded.user_id,
-      email=excluded.email,status='active',updated_at=excluded.updated_at`).run(
-      personRef, user.name, userId, userId, user.email || (user.username.includes("@") ? user.username : ""), stamp, stamp,
-    );
-  const old = db.prepare("SELECT id,company_id,org_unit_id FROM organization_memberships WHERE person_ref=? AND relation='primary' AND status='active'")
-    .all(personRef) as Array<{ id: string; company_id: string; org_unit_id: string }>;
-  for (const row of old) {
-    if (row.org_unit_id === unitId) continue;
-    db.prepare("UPDATE organization_memberships SET status='ended',effective_to=?,updated_at=? WHERE id=?")
-      .run(stamp, stamp, row.id);
-    bumpOrgVersion(row.company_id, `员工 ${userId} 离开 ${row.org_unit_id}`, "admin");
-  }
-  if (target && !old.some((row) => row.org_unit_id === target.id)) {
-    const id = `member:${personRef}:${target.id}:primary`;
-    db.prepare(`INSERT INTO organization_memberships
-      (id,person_ref,company_id,org_unit_id,relation,status,effective_from,effective_to,source,created_at,updated_at)
-      VALUES (?,?,?,?,'primary','active',?,NULL,'admin',?,?)
-      ON CONFLICT (id) DO UPDATE SET status='active',effective_from=excluded.effective_from,
-        effective_to=NULL,updated_at=excluded.updated_at`).run(id, personRef, target.company_id, target.id, stamp, stamp, stamp);
-    bumpOrgVersion(target.company_id, `员工 ${userId} 加入 ${target.id}`, "admin");
-  }
-  return personRef;
-}
-
-/** 人员可见技能：属于某个本人有资格使用的 Agent 且已启用的技能。 */
-export function canUseSkill(userId: string | null | undefined, skillId: string): boolean {
-  if (!userId) return false;
-  ensureOrganizationTree();
-  const rows = getConn()
-    .prepare("SELECT agent_id FROM runtime_agent_skills WHERE skill_id = ? AND enabled = 1")
-    .all(skillId) as { agent_id: string }[];
-  return rows.some((row) => canUseAgent(userId, row.agent_id));
-}
-
-export function visibleSkillIdsForUser(userId: string | null | undefined): string[] {
-  if (!userId) return [];
-  ensureOrganizationTree();
-  const agents = getConn().prepare("SELECT DISTINCT agent_id FROM runtime_agent_skills WHERE enabled = 1").all() as { agent_id: string }[];
-  const usable = agents.filter((row) => canUseAgent(userId, row.agent_id)).map((row) => row.agent_id);
-  if (!usable.length) return [];
-  const placeholders = usable.map(() => "?").join(", ");
-  const rows = getConn()
-    .prepare(`SELECT DISTINCT skill_id FROM runtime_agent_skills WHERE enabled = 1 AND agent_id IN (${placeholders})`)
-    .all(...usable) as { skill_id: string }[];
-  return rows.map((row) => row.skill_id);
-}
-
-export type LeaderScope = {
-  /** 是否为组长：其 person_ref 是任一 active 组织单元的 head（department_head 即组长，不限层级）。 */
-  isLeader: boolean;
-  /** 组长直管单元（含所有下级单元）id；非组长为空。 */
-  unitIds: string[];
-  /** 上述单元内成员映射到的 user id（含组长本人）；非组长为空。 */
-  memberUserIds: string[];
+/** Request shape accepted by the administrative bulk preview/apply endpoints. */
+export type BulkAgentBindingTarget = {
+  target_type?: "organization_unit" | "person";
+  target_id?: string;
+  user_id?: string;
+};
+type ResolvedBulkAgentBindingTarget = {
+  target_type: "organization_unit" | "person";
+  target_id: string;
+  company_id: string;
+  sync_user_id?: string;
+  sync_user_site?: string | null;
 };
 
 /**
- * 组长数据范围（2026-10-08 用户规则）：组长 = 任一层级组织单元的 head；
- * 范围 = 本单元 + 全部下级单元；组长的上级（父单元 head）范围更大（父子树为超集）。
+ * Resolve an administrative target using the transaction client.  The server,
+ * never the caller, derives its company from authoritative organization facts.
  */
-export function leaderScopeForUser(userId: string | null | undefined): LeaderScope {
+async function resolveBulkBindingTargetsInTransaction(client: PoolClient, rows: BulkAgentBindingTarget[]): Promise<ResolvedBulkAgentBindingTarget[]> {
+  if (!rows.length || rows.length > 200) throw new HttpFail(400, "请选择 1 至 200 个绑定目标");
+  const configuredCompanies = (await client.query<{ company_id: string }>(
+    "SELECT DISTINCT company_id FROM organization_units WHERE status='active' ORDER BY company_id",
+  )).rows.map((row) => row.company_id);
+  const resolved: ResolvedBulkAgentBindingTarget[] = [];
+  for (const row of rows) {
+    if (row.target_type !== "organization_unit" && row.target_type !== "person") throw new HttpFail(400, "绑定类型无效");
+    const targetType = row.target_type;
+    let targetId = String(row.target_id || "").trim();
+    let syncUserId: string | undefined;
+    let syncUserSite: string | null | undefined;
+    if (targetType === "person" && row.user_id) {
+      const userId = String(row.user_id).trim();
+      const user = (await client.query<{ id: string; site: string | null; active: number }>(
+        "SELECT id,site,active FROM users WHERE id=$1 FOR KEY SHARE", [userId],
+      )).rows[0];
+      if (!user || Number(user.active) !== 1) throw new HttpFail(404, "员工不存在或已停用");
+      const linked = (await client.query<{ person_ref: string }>(
+        "SELECT person_ref FROM organization_people WHERE user_id=$1 FOR KEY SHARE", [user.id],
+      )).rows[0];
+      targetId = linked?.person_ref || `${USER_PERSON_PREFIX}${user.id}`;
+      syncUserId = user.id;
+      syncUserSite = user.site;
+    }
+    if (!targetId) throw new HttpFail(400, targetType === "organization_unit" ? "请选择有效的组织单元" : "请选择已确认的人员");
+    if (targetType === "organization_unit") {
+      const unit = (await client.query<{ company_id: string; status: string }>(
+        "SELECT company_id,status FROM organization_units WHERE id=$1 FOR KEY SHARE", [targetId],
+      )).rows[0];
+      if (!unit || unit.status !== "active") throw new HttpFail(400, "请选择有效的组织单元");
+      resolved.push({ target_type: targetType, target_id: targetId, company_id: unit.company_id });
+      continue;
+    }
+    if (!syncUserId) {
+      const person = (await client.query<{ status: string }>(
+        "SELECT status FROM organization_people WHERE person_ref=$1 FOR KEY SHARE", [targetId],
+      )).rows[0];
+      if (!person || person.status !== "active") throw new HttpFail(400, "请选择已确认的人员");
+    }
+    const membership = (await client.query<{ company_id: string }>(
+      `SELECT company_id FROM organization_memberships
+       WHERE person_ref=$1 AND status='active' AND (effective_from IS NULL OR effective_from <= $2)
+         AND (effective_to IS NULL OR effective_to > $2) ORDER BY company_id LIMIT 1 FOR KEY SHARE`,
+      [targetId, nowIso()],
+    )).rows[0];
+    let companyId = membership?.company_id;
+    if (!companyId && syncUserSite) {
+      const unit = (await client.query<{ company_id: string; status: string }>(
+        "SELECT company_id,status FROM organization_units WHERE id=$1 FOR KEY SHARE", [syncUserSite],
+      )).rows[0];
+      if (unit?.status === "active") companyId = unit.company_id;
+    }
+    if (!companyId && configuredCompanies.length !== 1) throw new HttpFail(409, "人员公司归属未确认");
+    if (!companyId) companyId = configuredCompanies[0];
+    if (!companyId) throw new HttpFail(409, "组织公司未配置");
+    resolved.push({ target_type: targetType, target_id: targetId, company_id: companyId, sync_user_id: syncUserId, sync_user_site: syncUserSite });
+  }
+  return [...new Map(resolved.map((target) => [`${target.target_type}:${target.target_id}`, target])).values()];
+}
+
+async function previewBulkFromTransaction(
+  client: PoolClient,
+  agentId: string,
+  targets: ResolvedBulkAgentBindingTarget[],
+  current?: AgentBindingRow[],
+  source?: OrganizationCoverageSource,
+): Promise<AgentBindingPreview> {
+  const bindings = current || await pgListAgentBindingsInTransaction(client, agentId);
+  const coverage = source || await pgOrganizationCoverageSourceInTransaction(client);
+  const change: AgentBindingChange = { add_many: targets.map(({ target_type, target_id, company_id }) => ({ target_type, target_id, company_id })) };
+  return previewAgentBindingFromBasis(
+    agentId, change, bindings, coverage,
+    async (userId) => Number((await client.query("SELECT 1 FROM users WHERE id=$1", [userId])).rowCount || 0) > 0,
+    async (personRef, companyId) => (simulatePersonFromSite(personRef, companyId, client)),
+  );
+}
+
+/** Native PostgreSQL preview. Apply recomputes this exact shape under locks before writing. */
+export async function previewBulkAgentBindings(agentId: string, rows: BulkAgentBindingTarget[]): Promise<AgentBindingPreview> {
+  await ensureOrganizationTree();
+  return postgresTransaction(async (client) => {
+    const targets = await resolveBulkBindingTargetsInTransaction(client, rows);
+    return previewBulkFromTransaction(client, agentId, targets);
+  }, { isolation: "REPEATABLE READ" });
+}
+
+export type ApplyBulkAgentBindingsInput = {
+  agent_id: string;
+  targets: BulkAgentBindingTarget[];
+  expected_org_version: number;
+  preview_signature: string;
+  created_by: string;
+  reason?: string | null;
+};
+export type AppliedBulkAgentBindings = { preview: AgentBindingPreview; bindings: AgentBindingRow[] };
+
+/** Authorization is checked again from the authoritative user row within apply's transaction. */
+async function assertBindingAdministratorInTransaction(client: PoolClient, actorId: string): Promise<void> {
+  const actor = (await client.query<{ active: number; roles: string }>(
+    "SELECT active,roles FROM users WHERE id=$1 FOR KEY SHARE", [actorId],
+  )).rows[0];
+  let roles: unknown = [];
+  try { roles = JSON.parse(String(actor?.roles || "[]")); } catch { /* fail closed below */ }
+  if (!actor || Number(actor.active) !== 1 || !Array.isArray(roles) || !roles.map(String).includes("admin")) {
+    throw new HttpFail(403, "admin required");
+  }
+}
+
+/**
+ * Recompute and verify preview evidence on the same locked basis, then write
+ * every target on this PoolClient.  No target may start its own transaction.
+ */
+export async function applyBulkAgentBindings(input: ApplyBulkAgentBindingsInput): Promise<AppliedBulkAgentBindings> {
+  if (!Number.isInteger(input.expected_org_version) || input.expected_org_version < 0 || !input.preview_signature) {
+    throw new HttpFail(400, "org_version 和 preview_signature 必填");
+  }
+  await ensureOrganizationTree();
+  return postgresTransaction(async (client) => {
+    await assertBindingAdministratorInTransaction(client, input.created_by);
+    await pgLockAgentBindings(client, input.agent_id);
+    const targets = await resolveBulkBindingTargetsInTransaction(client, input.targets);
+    const current = await pgListAgentBindingsInTransaction(client, input.agent_id);
+    const companies = [...new Set([...current, ...targets].map((row) => row.company_id))].sort();
+    for (const companyId of companies) await pgLockOrganization(client, companyId);
+    const source = await pgOrganizationCoverageSourceInTransaction(client);
+    const preview = await previewBulkFromTransaction(client, input.agent_id, targets, current, source);
+    if (preview.org_version !== input.expected_org_version) throw new HttpFail(409, "组织版本已变化，请重新预览绑定影响");
+    if (preview.preview_signature !== input.preview_signature) throw new HttpFail(409, "覆盖依据已变化，请重新预览绑定影响");
+
+    const stamp = nowIso();
+    for (const target of targets) {
+      if (!target.sync_user_id) continue;
+      const personRef = await pgSyncOrganizationMembershipInTransaction(client, target.sync_user_id, target.sync_user_site || null, stamp);
+      if (personRef !== target.target_id) throw new Error("organization person reference changed while applying binding");
+    }
+    const bindings: AgentBindingRow[] = [];
+    for (const target of targets) {
+      bindings.push(await pgCreateAgentBindingInTransaction(client, {
+        agent_id: input.agent_id,
+        target_type: target.target_type,
+        target_id: target.target_id,
+        company_id: target.company_id,
+        created_by: input.created_by,
+        reason: input.reason || "管理侧批量绑定",
+        source: "admin",
+      }, stamp));
+    }
+    return { preview, bindings };
+  }, { isolation: "SERIALIZABLE" });
+}
+
+export async function canUseAgent(userId: string | null | undefined, agentId: string): Promise<boolean> {
+  if (!userId) return false;
+  await ensureOrganizationTree();
+  return pgUserCanUseAgent(userId, agentId, nowIso());
+}
+/** Account organization projection is changed and versioned atomically in the repository transaction. */
+export async function syncUserOrganization(userId: string, unitId: string | null | undefined): Promise<string> {
+  await ensureOrganizationTree();
+  await pgSyncOrganizationMembership(userId, unitId || null, nowIso());
+  return ((await pgPersonRefForUser(userId))) || `${USER_PERSON_PREFIX}${userId}`;
+}
+export async function canUseSkill(userId: string | null | undefined, skillId: string): Promise<boolean> {
+  if (!userId) return false;
+  await ensureOrganizationTree();
+  return pgUserCanUseSkill(userId, skillId, nowIso());
+}
+export async function visibleSkillIdsForUser(userId: string | null | undefined): Promise<string[]> {
+  if (!userId) return [];
+  await ensureOrganizationTree();
+  return pgVisibleSkillIdsForUser(userId, nowIso());
+}
+export type LeaderScope = { isLeader: boolean; unitIds: string[]; memberUserIds: string[] };
+export async function leaderScopeForUser(userId: string | null | undefined): Promise<LeaderScope> {
   const empty: LeaderScope = { isLeader: false, unitIds: [], memberUserIds: [] };
   if (!userId) return empty;
-  ensureOrganizationTree();
-  const db = getConn();
-  const personRef = personRefForUser(userId);
-  if (!personRef) return empty;
-  const headed = db.prepare(
-    "SELECT id FROM organization_units WHERE head_person_ref = ? AND status = 'active'",
-  ).all(personRef) as { id: string }[];
+  await ensureOrganizationTree();
+  const personRef = await pgPersonRefForUser(userId); if (!personRef) return empty;
+  const [units, memberships] = await Promise.all([(await pgListOrganizationUnits()), (await pgListOrganizationMemberships())]);
+  const headed = units.filter((unit) => unit.status === "active" && unit.head_person_ref === personRef).map((unit) => unit.id);
   if (!headed.length) return empty;
-  // BFS 收下级单元（含自身）。
-  const allUnits = db.prepare(
-    "SELECT id, parent_id FROM organization_units WHERE status = 'active'",
-  ).all() as { id: string; parent_id: string | null }[];
   const children = new Map<string, string[]>();
-  for (const unit of allUnits) {
-    if (!unit.parent_id) continue;
-    const list = children.get(unit.parent_id) ?? [];
-    list.push(unit.id);
-    children.set(unit.parent_id, list);
-  }
-  const unitIds = new Set<string>();
-  const queue = headed.map((row) => row.id);
-  while (queue.length) {
-    const current = queue.shift()!;
-    if (unitIds.has(current)) continue;
-    unitIds.add(current);
-    queue.push(...(children.get(current) ?? []));
-  }
-  const unitList = [...unitIds];
-  const placeholders = unitList.map(() => "?").join(", ");
-  const memberRefs = db.prepare(
-    `SELECT DISTINCT person_ref FROM organization_memberships WHERE status = 'active' AND org_unit_id IN (${placeholders})`,
-  ).all(...unitList) as { person_ref: string }[];
-  const refList = memberRefs.map((row) => row.person_ref);
-  let memberUserIds: string[] = [];
-  if (refList.length) {
-    const refPlaceholders = refList.map(() => "?").join(", ");
-    const people = db.prepare(
-      `SELECT user_id FROM organization_people WHERE person_ref IN (${refPlaceholders}) AND user_id IS NOT NULL AND user_id <> ''`,
-    ).all(...refList) as { user_id: string }[];
-    memberUserIds = people.map((row) => row.user_id);
-  }
+  for (const unit of units.filter((unit) => unit.status === "active" && unit.parent_id)) { const list = children.get(unit.parent_id!) || []; list.push(unit.id); children.set(unit.parent_id!, list); }
+  const unitIds = new Set<string>(); const queue = [...headed];
+  while (queue.length) { const current = queue.shift()!; if (unitIds.has(current)) continue; unitIds.add(current); queue.push(...(children.get(current) || [])); }
+  const memberRefs = [...new Set(memberships.filter((row) => unitIds.has(row.org_unit_id)).map((row) => row.person_ref))];
+  const people = memberRefs.length ? await postgresQuery<{ user_id: string | null }>("SELECT user_id FROM organization_people WHERE person_ref=ANY($1::text[]) AND user_id IS NOT NULL AND user_id<>'' AND status='active'", [memberRefs]) : [];
+  const memberUserIds = people.map((row) => row.user_id).filter((id): id is string => Boolean(id));
   if (!memberUserIds.includes(userId)) memberUserIds.push(userId);
-  return { isLeader: true, unitIds: unitList, memberUserIds };
+  return { isLeader: true, unitIds: [...unitIds], memberUserIds };
 }
+
+export { pgPersonRefForUser as personRefForUser };

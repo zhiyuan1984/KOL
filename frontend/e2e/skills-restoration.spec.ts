@@ -61,6 +61,15 @@ const SKILLS: Json[] = [
   skill("exception_scan", "异常扫描", "exception"),
   skill("internal_pipeline", "内部流水线", "reach", { employee_visible: false }),
 ];
+const PERSONAL = [
+  { skill_id: "creator_discovery", favorite: false, viewed_at: null, use_count: 2, used_at: "2026-10-16T08:00:00Z" },
+  { skill_id: "intent_follow", favorite: false, viewed_at: null, use_count: 0, used_at: null },
+  { skill_id: "biz_quote", favorite: false, viewed_at: null, use_count: 0, used_at: null },
+  { skill_id: "sample_ship", favorite: false, viewed_at: null, use_count: 9, used_at: "2026-10-16T09:00:00Z" },
+  { skill_id: "settle_record", favorite: false, viewed_at: null, use_count: 0, used_at: null },
+  { skill_id: "content_publish", favorite: false, viewed_at: null, use_count: 0, used_at: null },
+  { skill_id: "exception_scan", favorite: false, viewed_at: null, use_count: 1, used_at: "2026-10-16T10:00:00Z" },
+];
 
 async function installFixture(page: Page): Promise<FixtureControl> {
   const calls: Array<{ method: string; path: string }> = [];
@@ -103,6 +112,15 @@ async function installFixture(page: Page): Promise<FixtureControl> {
     if (path === "/api/skills" && method === "GET") {
       return route.fulfill({ json: SKILLS });
     }
+    if (path === "/api/skills/personal" && method === "GET") {
+      return route.fulfill({ json: { items: PERSONAL } });
+    }
+    const skillView = /^\/api\/skills\/([^/]+)\/view$/.exec(path);
+    if (skillView && method === "POST") {
+      const record = PERSONAL.find((item) => item.skill_id === decodeURIComponent(skillView[1]));
+      if (record) record.viewed_at = new Date().toISOString();
+      return route.fulfill({ json: { id: decodeURIComponent(skillView[1]) } });
+    }
     const agentsMatch = /^\/api\/skills\/([^/]+)\/agents$/.exec(path);
     if (agentsMatch && method === "GET") {
       return route.fulfill({ json: { agents: [{ id: "agent-fixture", name: "员工数字员工" }] } });
@@ -130,53 +148,63 @@ async function installFixture(page: Page): Promise<FixtureControl> {
   return { calls, writePaths };
 }
 
-function scope(page: Page, kind: "mode" | "stage") {
-  return page.locator(`.skill-tabs-list[data-kind="${kind}"]`);
+const MODE_LABEL: Record<string, string> = { all: "全部", favorites: "收藏", viewed: "最近查看", frequent: "常用", recent: "最近使用", recommend: "推荐" };
+const STAGE_LABEL: Record<string, string> = { all: "全部场景", reach: "建联", intent: "意向", biz: "报价", sample: "寄样", settle: "成交", content: "内容发布", exception: "异常" };
+
+async function chooseMode(page: Page, mode: "all" | "favorites" | "viewed" | "frequent" | "recent" | "recommend") {
+  if (["all", "favorites", "viewed"].includes(mode)) {
+    await page.locator(`[data-skill-view="${mode}"]`).click();
+    return;
+  }
+  await page.getByRole("combobox", { name: "更多技能视图" }).click();
+  await page.getByText(MODE_LABEL[mode], { exact: true }).click();
 }
 
 async function ready(page: Page, path = "/skills?mode=all&stage=all") {
   await page.goto(path);
   await page.locator("[data-skill-catalog]").waitFor();
-  await page.locator(".skill-row").first().waitFor();
+  await page.locator(".knowledge-list-row").first().waitFor();
 }
 
 async function visibleIds(page: Page) {
-  return page.locator(".skill-row").evaluateAll((rows) => rows.map((row) => row.getAttribute("data-skill-id")));
+  return page.locator(".knowledge-list-row[data-skill-id]").evaluateAll((rows) => rows.map((row) => row.getAttribute("data-skill-id")));
 }
 
 async function expectFilters(page: Page, mode: string, stage: string) {
-  await expect(scope(page, "mode").getByRole("button", { name: mode })).toHaveAttribute("aria-pressed", "true");
-  await expect(scope(page, "stage").getByRole("button", { name: stage })).toHaveAttribute("aria-pressed", "true");
+  if (["all", "favorites", "viewed"].includes(mode)) {
+    await expect(page.locator(`[data-skill-view="${mode}"]`)).toHaveAttribute("aria-pressed", "true");
+  } else {
+    await expect(page.locator(".asset-view-more")).toContainText(MODE_LABEL[mode]);
+  }
+  await expect(page.locator(`[data-skill-stage="${stage}"]`)).toHaveAttribute("aria-pressed", "true");
 }
 
 test("员工筛选可独立组合使用范围和业务场景，biz/sample 按接口 funnel 分开", async ({ page }) => {
   await installFixture(page);
   await ready(page, "/skills?mode=frequent&stage=sample");
 
-  expect(await scope(page, "mode").getByRole("button").allTextContents())
-    .toEqual(["全部", "常用", "最近使用", "推荐"]);
-  expect(await scope(page, "stage").getByRole("button").allTextContents())
-    .toEqual(["全部场景", "建联", "意向", "报价", "寄样", "成交", "内容发布", "异常"]);
-  await expectFilters(page, "常用", "寄样");
+  await expectFilters(page, "frequent", "sample");
   expect(await visibleIds(page)).toEqual(["sample_ship"]);
 
   // Changing only the usage scope must retain the selected business scene.
   await page.getByRole("textbox", { name: "搜索技能 / SOP / 场景" }).fill("寄样");
-  await scope(page, "mode").getByRole("button", { name: "最近使用" }).click();
-  await expect(page).toHaveURL(/\/skills\?mode=recent&stage=sample$/);
-  await expectFilters(page, "最近使用", "寄样");
+  await chooseMode(page, "recent");
+  await expect.poll(() => new URL(page.url()).searchParams.get("mode")).toBe("recent");
+  expect(new URL(page.url()).searchParams.get("stage")).toBe("sample");
+  expect(new URL(page.url()).searchParams.get("q")).toBe("寄样");
+  await expectFilters(page, "recent", "sample");
   await expect(page.getByRole("textbox", { name: "搜索技能 / SOP / 场景" })).toHaveValue("寄样");
   expect(await visibleIds(page)).toEqual(["sample_ship"]);
 
   // Changing only the scene retains the selected usage scope.
   await page.getByRole("textbox", { name: "搜索技能 / SOP / 场景" }).fill("");
-  await scope(page, "stage").getByRole("button", { name: "异常" }).click();
+  await page.locator('[data-skill-stage="exception"]').click();
   await expect(page).toHaveURL(/\/skills\?mode=recent&stage=exception$/);
-  await expectFilters(page, "最近使用", "异常");
+  await expectFilters(page, "recent", "exception");
   expect(await visibleIds(page)).toEqual(["exception_scan"]);
 
   await page.goto("/skills?mode=all&stage=biz");
-  await expectFilters(page, "全部", "报价");
+  await expectFilters(page, "all", "biz");
   expect(await visibleIds(page)).toEqual(["biz_quote"]);
   await expect(page.locator('[data-skill-id="sample_ship"]')).toHaveCount(0);
 });
@@ -185,14 +213,14 @@ test("旧 tab 深链与新 mode+stage 深链均恢复正确的两维状态", asy
   await installFixture(page);
 
   await ready(page, "/skills?tab=frequent");
-  await expectFilters(page, "常用", "全部场景");
+  await expectFilters(page, "frequent", "all");
 
   await page.goto("/skills?tab=sample");
-  await expectFilters(page, "全部", "寄样");
+  await expectFilters(page, "all", "sample");
   expect(await visibleIds(page)).toEqual(["sample_ship"]);
 
   await page.goto("/skills?mode=recommend&stage=reach");
-  await expectFilters(page, "推荐", "建联");
+  await expectFilters(page, "recommend", "reach");
   expect(await visibleIds(page)).toEqual(["creator_discovery"]);
 });
 
@@ -200,35 +228,34 @@ test("筛选写入 URL、浏览器返回恢复组合，所有查看全部链接�
   await installFixture(page);
   await ready(page);
 
-  await scope(page, "mode").getByRole("button", { name: "常用" }).click();
+  await chooseMode(page, "frequent");
   await expect(page).toHaveURL(/\/skills\?mode=frequent&stage=all$/);
-  await scope(page, "stage").getByRole("button", { name: "寄样" }).click();
+  await page.locator('[data-skill-stage="sample"]').click();
   await expect(page).toHaveURL(/\/skills\?mode=frequent&stage=sample$/);
 
   await page.goBack();
   await expect(page).toHaveURL(/\/skills\?mode=frequent&stage=all$/);
-  await expectFilters(page, "常用", "全部场景");
-
-  const viewAllHrefs = await page.locator(".skill-group-more").evaluateAll((links) =>
-    links.map((link) => (link as HTMLAnchorElement).getAttribute("href") || ""),
-  );
-  expect(viewAllHrefs.length).toBeGreaterThan(0);
-  for (const href of viewAllHrefs) {
-    const params = new URL(href, "http://fixture.local").searchParams;
-    expect(params.get("mode"), href).toBe("frequent");
-    expect(params.get("stage"), href).toMatch(/^(reach|sample|exception)$/);
-  }
+  await expectFilters(page, "frequent", "all");
+  // Retired group-level “查看全部” links no longer exist.  The current stage
+  // controls are the real equivalent navigation and must preserve mode.
+  await page.locator('[data-skill-stage="sample"]').click();
+  await expect(page).toHaveURL(/\/skills\?mode=frequent&stage=sample$/);
+  await expectFilters(page, "frequent", "sample");
 });
 
 test("员工填入技能只写入提问框草稿，不请求任何执行或写入 API", async ({ page }) => {
   const fixture = await installFixture(page);
   await ready(page);
 
-  await page.locator('[data-skill-id="sample_ship"] .skill-row-name').click();
-  await page.getByRole("button", { name: "填入输入框" }).click();
+  await page.locator('[data-skill-open="sample_ship"]').click();
+  await page.getByRole("combobox", { name: "选择目标任务" }).click();
+  await page.getByText("工作台提问框", { exact: true }).click();
+  await page.locator("[data-asset-use]").click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/寄样确认/);
 
+  // Current UI records a personal view separately; handoff itself remains
+  // local draft state and must not create a run, task, session or business write.
   expect(fixture.writePaths).toEqual([]);
-  expect(fixture.calls.filter((call) => call.method !== "GET")).toEqual([]);
+  expect(fixture.calls.filter((call) => call.method !== "GET").map((call) => `${call.method} ${call.path}`)).toEqual(["POST /api/skills/sample_ship/view"]);
 });

@@ -1,3 +1,4 @@
+import { asyncFlatMap } from "../async-collections.js";
 /**
  * Task intent via a bounded Jev Choice on OpenRouter, then GPT-5.6 Luna
  * (Responses API) or Codex app-server when Jev is unavailable or uncertain.
@@ -117,10 +118,10 @@ export function intentLlmApiKey(): string {
   return envApiKey() || inspectLocalCodexAuth().apiKey;
 }
 
-function catalogLines(): string {
+async function catalogLines(): Promise<Awaited<string>> {
   const routes = currentAgentRoutes();
   if (routes) return routes.map(route => `- agent_id=${route.agent_id}: ${route.agent_name} — ${route.description}; task_type=${route.task_type}: ${route.title} — ${route.summary}`).join("\n");
-  return taskDefinitions()
+  return (await taskDefinitions())
     .map((definition) => {
       const aliases = definition.aliases.length ? ` aliases=${definition.aliases.join("/")}` : "";
       const inputs = definition.input_schema?.length
@@ -131,7 +132,7 @@ function catalogLines(): string {
     .join("\n");
 }
 
-export function intentSystemPrompt(): string {
+export async function intentSystemPrompt(): Promise<Awaited<string>> {
   return [
     "You route workbench questions to a qualified Agent and its assembled skill. Return JSON only.",
     ...(currentSelectedAgentId() ? [`Conversation Agent is already selected: ${currentSelectedAgentId()}. Interpret short questions in its responsibility context. The user need not repeat the Agent or skill name. If the question is outside that responsibility, ask for clarification; do not switch Agents.`] : []),
@@ -148,15 +149,15 @@ export function intentSystemPrompt(): string {
     "One utterance with from+to+subject is one email_compose task. Do not split.",
     "JSON keys: agent_id (when listed), task_type, confidence, entities, missing_fields, clarification_kind, alternatives, reason_zh.",
     "Catalog:",
-    catalogLines(),
+    (await catalogLines()),
   ].join("\n");
 }
 
-function jevIntentCriteria(): Record<string, string> {
+async function jevIntentCriteria(): Promise<Awaited<Record<string, string>>> {
   const routes = currentAgentRoutes();
   if (routes) return { ...Object.fromEntries(routes.map(route => [routeChoice(route), `${route.agent_name}：${route.description}；${route.title}：${route.summary}`])),
     [JEV_CLARIFICATION_CHOICE]: "没有可靠匹配的智能体与技能，或无法确定问题归属。" };
-  const criteria = Object.fromEntries(taskDefinitions().map((definition) => {
+  const criteria = Object.fromEntries((await taskDefinitions()).map((definition) => {
     const aliases = definition.aliases.length ? `；常见说法：${definition.aliases.join("、")}` : "";
     const inputs = definition.input_schema?.length
       ? `；可能需要的输入：${definition.input_schema.map((field) => field.label).join("、")}`
@@ -204,14 +205,14 @@ export async function classifyIntentWithJev(text: string, timeoutSec = taskRecog
         task_type: {
           type: "choice",
           instructions: "根据 user_text 选择唯一最匹配的目录选项，结合智能体职责和技能说明判断问题归属；无法确定时选择 clarification。",
-          criteria: jevIntentCriteria(),
+          criteria: (await jevIntentCriteria()),
         },
       },
     });
     const answer = response.answers.task_type;
     const routes = currentAgentRoutes();
     const route = routes?.find(candidate => routeChoice(candidate) === answer.choice);
-    const taskType = routes ? route?.task_type || null : answer.choice === JEV_CLARIFICATION_CHOICE || !taskDefinitions().some((definition) => definition.id === answer.choice)
+    const taskType = routes ? route?.task_type || null : answer.choice === JEV_CLARIFICATION_CHOICE || !(await taskDefinitions()).some((definition) => definition.id === answer.choice)
       ? null
       : answer.choice;
     return {
@@ -259,7 +260,9 @@ function asClarificationKind(value: unknown, fallback: ClarificationKind): Clari
     : fallback;
 }
 
-export function parseIntentVerdict(raw: string, catalogIds = taskDefinitions().map((row) => row.id)): IntentVerdict {
+export async function parseIntentVerdict(raw: string, catalogIds?: string[]): Promise<Awaited<IntentVerdict>> {
+if (catalogIds === undefined) catalogIds = (await taskDefinitions()).map((row) => row.id);
+
   const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(raw);
   const blob = fence?.[1] || raw;
   const start = blob.indexOf("{");
@@ -294,18 +297,17 @@ export function parseIntentVerdict(raw: string, catalogIds = taskDefinitions().m
     ? { ...(parsed.entities as Record<string, unknown>) }
     : {};
   const missing = asStringArray(parsed.missing_fields);
-  const alternatives = (Array.isArray(parsed.alternatives) ? parsed.alternatives : [])
-    .flatMap((row) => {
+  const alternatives = (await asyncFlatMap((Array.isArray(parsed.alternatives) ? parsed.alternatives : []), async (row) => {
       if (!row || typeof row !== "object") return [];
       const item = row as Record<string, unknown>;
       const id = String(item.task_type || item.id || "");
       if (!catalogIds.includes(id)) return [];
       return [{
         task_type: id,
-        title: String(item.title || taskDefinitions().find((definition) => definition.id === id)?.title || id),
+        title: String(item.title || (await taskDefinitions()).find((definition) => definition.id === id)?.title || id),
         confidence: Number(item.confidence) || 0.4,
       }];
-    });
+    }));
   const kind = !taskType
     ? "direction"
     : asClarificationKind(parsed.clarification_kind, missing.length ? "missing_fields" : "none");
@@ -321,8 +323,8 @@ export function parseIntentVerdict(raw: string, catalogIds = taskDefinitions().m
   };
 }
 
-export function stubClassifyIntent(text: string): IntentVerdict {
-  const rules = stubResolveTaskIntent({ text });
+export async function stubClassifyIntent(text: string): Promise<Awaited<IntentVerdict>> {
+  const rules = (await stubResolveTaskIntent({ text }));
   if (rules.task_type && rules.confidence >= 0.75) {
     return {
       task_type: rules.task_type,
@@ -345,8 +347,8 @@ export function stubClassifyIntent(text: string): IntentVerdict {
   };
 }
 
-export function normalizeIntentVerdict(value: Partial<IntentVerdict> & { task_type?: string | null; confidence?: number }): IntentVerdict {
-  const catalogIds = taskDefinitions().map((row) => row.id);
+export async function normalizeIntentVerdict(value: Partial<IntentVerdict> & { task_type?: string | null; confidence?: number }): Promise<Awaited<IntentVerdict>> {
+  const catalogIds = (await taskDefinitions()).map((row) => row.id);
   const rawType = value.task_type == null || value.task_type === "" ? null : String(value.task_type);
   const taskType = rawType && catalogIds.includes(rawType) ? rawType : null;
   const missing = asStringArray(value.missing_fields);
@@ -463,7 +465,7 @@ function parseCodexTexts(rpc: CodexAppServer, completed: { turn?: { output?: unk
 }
 
 export async function classifyWithCodexAppServer(text: string, timeoutSec = taskRecognizeTimeout()): Promise<IntentVerdict> {
-  const ids = [...new Set(currentAgentRoutes()?.map(route => route.task_type) ?? taskDefinitions().map((definition) => definition.id))];
+  const ids = [...new Set(currentAgentRoutes()?.map(route => route.task_type) ?? (await taskDefinitions()).map((definition) => definition.id))];
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-recognize-"));
   const rpc = new CodexAppServer(Math.max(1, timeoutSec));
   try {
@@ -480,7 +482,7 @@ export async function classifyWithCodexAppServer(text: string, timeoutSec = task
     if (!threadId) throw new CodexUnavailable("thread/start 未返回 thread.id。", "升级 Codex CLI 后重试。");
     await rpc.request("turn/start", {
       threadId,
-      input: [{ type: "text", text: `${intentSystemPrompt()}\nUser: ${text}` }],
+      input: [{ type: "text", text: `${(await intentSystemPrompt())}\nUser: ${text}` }],
       cwd,
       approvalPolicy: "never",
       sandboxPolicy: { type: "readOnly", networkAccess: false },
@@ -489,7 +491,7 @@ export async function classifyWithCodexAppServer(text: string, timeoutSec = task
       outputSchema: intentOutputSchema(ids),
     });
     const completed = await rpc.waitTurn();
-    const verdict = parseIntentVerdict(parseCodexTexts(rpc, completed as { turn?: { output?: unknown } }).join("\n"), ids);
+    const verdict = await parseIntentVerdict(parseCodexTexts(rpc, completed as { turn?: { output?: unknown } }).join("\n"), ids);
     if (!verdict.task_type && !verdict.clarification_kind) {
       return { ...verdict, clarification_kind: "direction" };
     }
@@ -515,7 +517,7 @@ export async function classifyIntentWithLuna(text: string, timeoutSec = taskReco
     throw new IntentLlmUnavailable("识别服务未就绪：未配置模型密钥。", "把 OPENAI_API_KEY 写入 .env 后重试。");
   }
   const base = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-  const ids = [...new Set(currentAgentRoutes()?.map(route => route.task_type) ?? taskDefinitions().map((definition) => definition.id))];
+  const ids = [...new Set(currentAgentRoutes()?.map(route => route.task_type) ?? (await taskDefinitions()).map((definition) => definition.id))];
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.max(1, timeoutSec) * 1000);
   try {
@@ -528,7 +530,7 @@ export async function classifyIntentWithLuna(text: string, timeoutSec = taskReco
       },
       body: JSON.stringify({
         model: intentLlmModel(),
-        instructions: intentSystemPrompt(),
+        instructions: (await intentSystemPrompt()),
         input: text,
         store: false,
         reasoning: { effort: "low" },
@@ -546,7 +548,7 @@ export async function classifyIntentWithLuna(text: string, timeoutSec = taskReco
     if (!response.ok) {
       throw new IntentLlmUnavailable(`识别服务未就绪（${response.status}）。`, "稍后点「再试一次」。");
     }
-    return parseIntentVerdict(extractRemoteIntentText(await response.json()), ids);
+    return await parseIntentVerdict(extractRemoteIntentText(await response.json()), ids);
   } catch (error) {
     if (error instanceof IntentLlmUnavailable) throw error;
     throw new IntentLlmUnavailable("识别服务未就绪，请再试一次。", "检查网络或 OPENAI_API_KEY 后重试。");
@@ -780,5 +782,5 @@ export async function extractTaskFieldUpdates(text: string): Promise<TaskFieldUp
       }
     }
   }
-  return extractTaskFieldUpdatesWithCodex(text, remaining());
+  return await extractTaskFieldUpdatesWithCodex(text, remaining());
 }

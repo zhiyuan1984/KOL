@@ -24,6 +24,7 @@ export default function DiscoveryConfirmCard({
   onStop,
   busy,
   actionId,
+  confirmationVersion,
   progress,
   crawlState,
   onDequeue,
@@ -47,6 +48,8 @@ export default function DiscoveryConfirmCard({
   onStop?: () => void;
   busy?: boolean;
   actionId?: string;
+  /** 当前已渲染的服务端确认快照；只用于可观测性，不参与业务判定。 */
+  confirmationVersion?: string;
   progress?: RuntimeActionView["progress"];
   crawlState?: string | null;
   onDequeue?: () => void;
@@ -145,6 +148,7 @@ export default function DiscoveryConfirmCard({
             type="button"
             className="btn work sm"
             data-discovery-start-confirm
+            data-confirmation-version={confirmationVersion}
             disabled={Boolean(blockedReason) || Boolean(busy)}
             onClick={onConfirm}
           >

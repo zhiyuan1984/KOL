@@ -33,13 +33,13 @@ beforeEach(async () => {
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-organization-units-"));
   Object.assign(process.env, { LINGONG_DB: path.join(tmp, "db.sqlite"), LINGONG_DATA: tmp, AUTH_MODE: "disabled", NODE_ENV: "test" });
-  resetConn();
+  (await resetConn());
   app = testApp();
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
   for (const key of ["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "NODE_ENV"]) delete process.env[key];
 });

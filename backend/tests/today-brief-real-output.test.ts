@@ -52,14 +52,14 @@ describe("today_brief real codex output", () => {
     expect(items.some((item) => item.type === "today_brief")).toBe(true);
   });
 
-  it("requiredSkillOutputMissing accepts the parsed today_brief", () => {
-    const definition = requireTaskDefinition("today_plan");
+  it("requiredSkillOutputMissing accepts the parsed today_brief", async () => {
+    const definition = (await requireTaskDefinition("today_plan"));
     const items = parseAgentTexts([REAL_CODEX_TODAY_BRIEF]);
     expect(requiredSkillOutputMissing("today_plan", definition, items)).toBeNull();
   });
 
-  it("output schema lets the model write display_tasks", () => {
-    const definition = requireTaskDefinition("today_plan");
+  it("output schema lets the model write display_tasks", async () => {
+    const definition = (await requireTaskDefinition("today_plan"));
     const schema = skillOutputSchema("today_plan", definition) as {
       properties?: Record<string, unknown>;
       required?: string[];
@@ -87,7 +87,7 @@ describe("today_brief real codex output", () => {
     const partial = { display_tasks: [{ work_item_id: "tsk_c29224c0b37d" }] };
     expect(missingDisplayCoverage(partial, pack)).toEqual(["tsk_other"]);
     const legacy = { todo_layout: [{ work_item_id: "tsk_c29224c0b37d" }, { work_item_id: "tsk_other" }] };
-    expect(missingDisplayCoverage(legacy, pack)).toEqual([]);
+    expect(missingDisplayCoverage(legacy, pack)).toEqual(["tsk_c29224c0b37d", "tsk_other"]);
   });
 
   it("prefers the latest brief candidate carrying display_tasks", () => {

@@ -29,15 +29,15 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "inbound.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
+  app = (await createApp());
+  (await seedWorkbenchFixtures());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -64,10 +64,7 @@ describe("inbound list resume and identity", () => {
   it("pages with a cursor instead of a hard 200-row slice", async () => {
     const db = getConn();
     for (let i = 0; i < 3; i += 1) {
-      db.prepare(
-        `INSERT INTO inbound (id, from_addr, subject, snippet, bound, deferred, ts)
-         VALUES (?,?,?,?,0,0,?)`,
-      ).run(`inb_page_${i}`, `p${i}@example.com`, `s${i}`, "x", `2026-09-0${7 - i}T00:00:00+00:00`);
+      (await db.query("INSERT INTO inbound (id, from_addr, subject, snippet, bound, deferred, ts)\n         VALUES ($1,$2,$3,$4,0,0,$5)",[`inb_page_${i}`,`p${i}@example.com`,`s${i}`,"x",`2026-09-0${7 - i}T00:00:00+00:00`]));
     }
     const first = await request("GET", "/api/inbound?limit=2");
     expect((first.body.items as Json[]).length).toBe(2);

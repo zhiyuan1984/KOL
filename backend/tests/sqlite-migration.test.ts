@@ -1,48 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { migrationFingerprint, type MigrationFingerprintColumn } from "../src/postgres/sqlite-migration.js";
+import { databaseEngine, getConn, resetConn } from "../src/db.js";
+import { postgresPool, requiredPostgresUrl } from "../src/postgres/pool.js";
 
-const COLUMNS: MigrationFingerprintColumn[] = [
-  { name: "id", type: "TEXT" },
-  { name: "followers", type: "INTEGER" },
-  { name: "score", type: "REAL" },
-  { name: "payload", type: "TEXT" },
-];
-
-describe("SQLite to PostgreSQL migration fingerprint", () => {
-  it("normalizes lossless pg integer and float reader representations", () => {
-    const sqliteRows = [{
-      id: "creator_1",
-      followers: 9_007_199_254_740_992n,
-      score: "0.7500",
-      payload: '{"platform":"youtube"}',
-    }];
-    const postgresRows = [{
-      id: "creator_1",
-      followers: "9007199254740992",
-      score: 0.75,
-      payload: '{"platform":"youtube"}',
-    }];
-
-    expect(migrationFingerprint(sqliteRows, COLUMNS)).toBe(migrationFingerprint(postgresRows, COLUMNS));
+describe("PostgreSQL-native migration contract", () => {
+  it("rejects SQLite configuration instead of silently selecting a compatibility path", () => {
+    const previous = process.env.DATABASE_URL;
+    try {
+      process.env.DATABASE_URL = "file:./legacy.sqlite";
+      expect(() => requiredPostgresUrl()).toThrow(/DATABASE_URL|PostgreSQL/i);
+    } finally {
+      if (previous === undefined) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = previous;
+    }
   });
-
-  it("still rejects changed text payloads", () => {
-    const source = [{ id: "creator_1", followers: 12, score: 0.75, payload: '{"handle":"source"}' }];
-    const target = [{ id: "creator_1", followers: "12", score: "0.75", payload: '{"handle":"changed"}' }];
-
-    expect(migrationFingerprint(source, COLUMNS)).not.toBe(migrationFingerprint(target, COLUMNS));
-  });
-
-  it("ignores source and target text collation order differences", () => {
-    const source = [
-      { id: "creator_中文", followers: 12, score: 0.75, payload: "{}" },
-      { id: "creator_Z", followers: 13, score: 0.8, payload: "{}" },
-    ];
-    const target = [
-      { id: "creator_Z", followers: "13", score: "0.8", payload: "{}" },
-      { id: "creator_中文", followers: "12", score: "0.75", payload: "{}" },
-    ];
-
-    expect(migrationFingerprint(source, COLUMNS)).toBe(migrationFingerprint(target, COLUMNS));
+  it("uses the isolated PostgreSQL test database and exposes native async queries", async () => {
+    expect(databaseEngine()).toBe("postgres");
+    expect(process.env.TEST_DATABASE_URL || process.env.DATABASE_URL).toMatch(/^postgres(?:ql)?:\/\//);
+    const result = await getConn().query("SELECT current_database() AS database_name, current_setting('server_version') AS server_version");
+    expect(result.rows[0]?.database_name).toBeTruthy();
+    expect(result.rows[0]?.server_version).toBeTruthy();
+    expect(typeof postgresPool().query).toBe("function");
+    await resetConn();
   });
 });

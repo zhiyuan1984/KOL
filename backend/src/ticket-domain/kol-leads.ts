@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { randomUUID } from "node:crypto";
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
@@ -218,14 +219,14 @@ export async function requireLead(
 ): Promise<KolLeadRow> {
   // 读：组长可看本单元及下级单元成员的线索；写路径（改/转/归档）不传 scope，仍只限本人或管理员。
   const leaderIds = opts?.leaderMemberIds?.filter(Boolean) ?? [];
-  const rows = await postgresPool().query<Record<string, unknown>>(
+  const rows = await postgresConnection().query<Record<string, unknown>>(
     `SELECT * FROM kol_leads WHERE id=$1 AND ($2::boolean OR owner_principal_id=$3 OR owner_principal_id = ANY($4::text[]))`,
     [leadId, isAdmin, actorId, leaderIds]);
   if (!rows.rows[0]) throw new HttpFail(404, { code: "kol_lead_not_found" });
   return mapLead(rows.rows[0]!);
 }
 export async function requireCoop(actorId: string, isAdmin: boolean, coopId: string): Promise<KolCooperationRow> {
-  const rows = await postgresPool().query<Record<string, unknown>>(
+  const rows = await postgresConnection().query<Record<string, unknown>>(
     `SELECT c.* FROM kol_cooperations c WHERE c.id=$1 AND ($2::boolean OR c.owner_principal_id=$3)`,
     [coopId, isAdmin, actorId]);
   if (!rows.rows[0]) throw new HttpFail(404, { code: "kol_cooperation_not_found" });
@@ -263,7 +264,7 @@ function normalizeLockIdentity(platform: string, platformCreatorId: string): { p
 export async function upsertPoolBrandLock(platform: string, platformCreatorId: string, brand: string, leadId: string): Promise<void> {
   const identity = normalizeLockIdentity(platform, platformCreatorId);
   if (!identity.platform || !identity.platform_creator_id || !brand) return;
-  await postgresPool().query(
+  await postgresConnection().query(
     `INSERT INTO kol_pool_brand_locks (id, platform, platform_creator_id, brand, lead_id)
      VALUES ($1,$2,$3,$4,$5)
      ON CONFLICT (platform, platform_creator_id, brand) DO NOTHING`,
@@ -276,7 +277,7 @@ export async function upsertPoolBrandLock(platform: string, platformCreatorId: s
  * 避免同 KOL 多条同品牌线索互相踩掉。
  */
 export async function releasePoolBrandLock(leadId: string): Promise<void> {
-  await postgresPool().query(
+  await postgresConnection().query(
     `DELETE FROM kol_pool_brand_locks l
      WHERE l.lead_id = $1
        AND NOT EXISTS (
@@ -306,7 +307,7 @@ export async function createKolLead(
   const brand = resolveLeadBrand(raw.brand, opts?.actorBrands);
   const platformCreatorId = text(raw.platform_creator_id, "platform_creator_id", 200) || null;
 
-  const dup = await postgresPool().query(`SELECT id FROM kol_leads WHERE platform=$1 AND account_handle=$2`, [platform, accountHandle]);
+  const dup = await postgresConnection().query(`SELECT id FROM kol_leads WHERE platform=$1 AND account_handle=$2`, [platform, accountHandle]);
   if (dup.rows[0]) throw new HttpFail(409, { code: "kol_lead_exists", lead_id: dup.rows[0].id });
 
   const leadId = nid("lead");
@@ -318,7 +319,7 @@ export async function createKolLead(
     idempotency_key: `kol:lead:task:${leadId}`,
   });
   const now = new Date().toISOString();
-  await postgresPool().query(
+  await postgresConnection().query(
     `INSERT INTO kol_leads
        (id, platform, account_handle, account_url, display_name, follower_count, category, brand,
         platform_creator_id, source, source_ref, contact_json, lead_stage, owner_principal_id, followup_task_id, created_at, updated_at)
@@ -376,14 +377,14 @@ export async function listKolLeads(actorId: string, isAdmin: boolean, q: {
     params.push(`%${String(q.search).slice(0, 60)}%`); i++;
   }
   where.push(`l.is_archived=FALSE`);
-  const rows = await postgresPool().query<Record<string, unknown>>(
+  const rows = await postgresConnection().query<Record<string, unknown>>(
     `SELECT l.*,
             (SELECT count(*) FROM work_orders wo WHERE wo.task_id=l.followup_task_id AND ${OPEN_WO}) AS open_work_order_count,
             (SELECT wo.status FROM work_orders wo WHERE wo.task_id=l.followup_task_id ORDER BY wo.updated_at DESC LIMIT 1) AS latest_work_order_status
        FROM kol_leads l WHERE ${where.join(" AND ")}
        ORDER BY l.updated_at DESC LIMIT $${i++} OFFSET $${i++}`,
     [...params, q.limit, q.offset]);
-  const total = await postgresPool().query<{ n: string }>(
+  const total = await postgresConnection().query<{ n: string }>(
     `SELECT count(*)::text AS n FROM kol_leads l WHERE ${where.join(" AND ")}`, params);
   return { leads: rows.rows.map(mapLead), total: Number(total.rows[0]!.n) };
 }
@@ -427,7 +428,7 @@ export async function kolLeadEvents(
   const lead = await requireLead(actorId, isAdmin, leadId, opts);
   const events: KolLeadTimelineEvent[] = [];
   if (lead.followup_task_id) {
-    const verified = await postgresPool().query<{
+    const verified = await postgresConnection().query<{
       event_type: string; summary: string; occurred_at: string; source_system: string | null; created_at: string;
     }>(`SELECT event_type, summary, occurred_at, source_system, created_at
         FROM work_order_verified_events WHERE task_id=$1
@@ -440,7 +441,7 @@ export async function kolLeadEvents(
       });
     }
   }
-  const unified = await postgresPool().query<{
+  const unified = await postgresConnection().query<{
     event_type: string; occurred_at: string; source: string | null; payload: unknown;
   }>(`SELECT event_type, occurred_at, source, payload
       FROM business_events
@@ -464,10 +465,10 @@ export async function kolLeadAutomationStatus(): Promise<{
   configured: boolean;
   template: { code: string; version: number | string; title: string; status: string; automation_level: string | null } | null;
 }> {
-  const exists = await postgresPool().query<{ ok: string | null }>(
+  const exists = await postgresConnection().query<{ ok: string | null }>(
     `SELECT to_regclass('public.work_order_templates') AS ok`);
   if (!exists.rows[0]?.ok) return { configured: false, template: null };
-  const rows = await postgresPool().query<{
+  const rows = await postgresConnection().query<{
     template_code: string; version: number | string; title: string; status: string; automation_level: string | null;
   }>(`SELECT template_code, version, COALESCE(title, template_code) AS title, status, automation_level
       FROM work_order_templates
@@ -583,7 +584,7 @@ export async function convertKolLead(actorId: string, isAdmin: boolean, leadId: 
   if (!isAdmin && owner !== actorId) throw new HttpFail(403, { code: "kol_owner_forbidden" });
   const fromWorkOrderId = text(raw.work_order_id, "work_order_id", 200) || null;
   if (fromWorkOrderId && lead.followup_task_id) {
-    const wo = await postgresPool().query(
+    const wo = await postgresConnection().query(
       `SELECT id FROM work_orders WHERE id=$1 AND task_id=$2`, [fromWorkOrderId, lead.followup_task_id]);
     if (!wo.rows[0]) throw new HttpFail(422, { code: "kol_convert_work_order_mismatch" });
   }
@@ -595,7 +596,7 @@ export async function convertKolLead(actorId: string, isAdmin: boolean, leadId: 
     idempotency_key: `kol:coop:task:${coopId}`,
   });
   const now = new Date().toISOString();
-  await postgresPool().query(
+  await postgresConnection().query(
     `INSERT INTO kol_cooperations
        (id, lead_id, converted_from_work_order_id, title, brand, coop_type, coop_stage,
         budget_amount, currency, deliverable_plan_json, settlement_terms,
@@ -653,7 +654,7 @@ export async function createKolCooperation(actorId: string, isAdmin: boolean, ra
     idempotency_key: `kol:coop:task:${coopId}`,
   });
   const now = new Date().toISOString();
-  await postgresPool().query(
+  await postgresConnection().query(
     `INSERT INTO kol_cooperations
        (id, lead_id, title, brand, coop_type, coop_stage,
         budget_amount, currency, deliverable_plan_json, settlement_terms,
@@ -686,7 +687,7 @@ export async function listKolCooperations(actorId: string, isAdmin: boolean, q: 
     params.push(`%${String(q.search).slice(0, 60)}%`); i++;
   }
   where.push(`c.archived_at IS NULL`);
-  const rows = await postgresPool().query<Record<string, unknown>>(
+  const rows = await postgresConnection().query<Record<string, unknown>>(
     `SELECT c.*, l.display_name AS lead_display_name, l.platform AS lead_platform, l.account_handle AS lead_account_handle,
             (SELECT count(*) FROM work_orders wo WHERE wo.task_id=c.project_task_id AND ${OPEN_WO}) AS open_work_order_count,
             (SELECT count(*) FROM work_orders wo WHERE wo.task_id=c.project_task_id AND wo.status IN ('needs_review','waiting_approval')) AS blocked_work_order_count
@@ -694,7 +695,7 @@ export async function listKolCooperations(actorId: string, isAdmin: boolean, q: 
       WHERE ${where.join(" AND ")}
       ORDER BY c.updated_at DESC LIMIT $${i++} OFFSET $${i++}`,
     [...params, q.limit, q.offset]);
-  const total = await postgresPool().query<{ n: string }>(
+  const total = await postgresConnection().query<{ n: string }>(
     `SELECT count(*)::text AS n FROM kol_cooperations c WHERE ${where.join(" AND ")}`, params);
   return { cooperations: rows.rows.map(mapCoop), total: Number(total.rows[0]!.n) };
 }
@@ -722,7 +723,7 @@ export async function updateKolCooperation(actorId: string, isAdmin: boolean, co
     if (action === "archive") {
       // 归档 = 结算完成后的结果（BIZ-08：COMPLETED 不是产品节点，不增加主阶段）
       if (coop.project_task_id) {
-        const gate = await postgresPool().query<{ n: string }>(
+        const gate = await postgresConnection().query<{ n: string }>(
           `SELECT count(*)::text AS n FROM work_orders
             WHERE task_id=$1 AND template_code = ANY($2) AND ${OPEN_WO}`,
           [coop.project_task_id, ARCHIVE_GATE_TEMPLATES]);
@@ -765,6 +766,6 @@ export async function updateKolCooperation(actorId: string, isAdmin: boolean, co
   }
   if (!sets.length) throw new HttpFail(422, { code: "nothing_to_update" });
   sets.push(`data_version=data_version+1`, `updated_at=now()`);
-  await postgresPool().query(`UPDATE kol_cooperations SET ${sets.join(", ")} WHERE id=$${i}`, [...params, coopId]);
+  await postgresConnection().query(`UPDATE kol_cooperations SET ${sets.join(", ")} WHERE id=$${i}`, [...params, coopId]);
   return kolCooperationDetail(actorId, isAdmin, coopId);
 }

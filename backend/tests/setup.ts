@@ -1,10 +1,17 @@
 import fs from "node:fs";
 import { afterAll } from "vitest";
 import { dropTestDatabases } from "./support/pg.js";
+import { closePostgresPool } from "../src/postgres/pool.js";
 
 // PostgreSQL 测试库的清理：每个用例从模板库拷出来的新库在本文件结束后统一 DROP。
 afterAll(async () => {
-  await dropTestDatabases();
+  try {
+    await dropTestDatabases();
+  } finally {
+    // A suite that did not call freshTestDatabase still owns a native pool.
+    // Closing it here prevents the runner from inheriting a leaking connection.
+    await closePostgresPool();
+  }
 }, 120_000); // PostgreSQL checkpoint waits on Windows; test/hook execution limits remain unchanged.
 
 // Windows keeps SQLite/WAL and worker files open briefly after a test closes a

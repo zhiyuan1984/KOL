@@ -11,18 +11,21 @@ import { resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { freshTestDatabase } from "./support/pg.js";
+import { publishKnowledgeEntry, setupNativeKnowledgeFixture, type NativeKnowledgeFixture } from "./support/knowledge-native-fixture.js";
 
 type Json = Record<string, unknown>;
 
 let tmp: string;
 let app: Hono;
+let native: NativeKnowledgeFixture;
 
 async function request(
   method: string,
   url: string,
   body?: unknown,
+  cookie = native.admin.cookie,
 ): Promise<{ status: number; json: () => Promise<Json>; text: () => Promise<string> }> {
-  const init: RequestInit = { method, headers: {} };
+  const init: RequestInit = { method, headers: { Cookie: cookie } };
   if (body !== undefined) {
     (init.headers as Record<string, string>)["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
@@ -42,16 +45,18 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "q.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
+  native = await setupNativeKnowledgeFixture();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
-  seedWorkbenchFixtures();
+  app = (await createApp());
+  (await seedWorkbenchFixtures());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
+  delete process.env.AUTH_MODE;
 });
 
 describe("public pool question templates", () => {
@@ -82,10 +87,12 @@ describe("public pool question templates", () => {
     const before = await (await request("GET", "/api/knowledge/question-templates")).json() as unknown as Json[];
     expect(before.map((row) => row.knowledge_id)).not.toContain(created.id);
 
-    const approved = await (await request("POST", `/api/admin/knowledge/${created.id}/approve`, {
+    const retired = await request("POST", `/api/admin/knowledge/${created.id}/approve`, {
       expected_version: created.current_version,
-    })).json();
-    expect(approved.status).toBe("published");
+    });
+    expect(retired.status).toBe(409);
+    const receipt = await publishKnowledgeEntry(native, String(created.id), "公海评分模板发布");
+    expect(receipt.status).toBe("published");
 
     const after = await (await request("GET", "/api/knowledge/question-templates")).json() as unknown as Json[];
     const scoreRows = after.filter((row) => row.slot === "score");
@@ -103,8 +110,9 @@ describe("public pool question templates", () => {
       kind: "question_template",
       base_id: "kbase_legacy",
       tags: "pool-question:not-a-slot",
-      status: "published",
+      status: "draft",
     })).json();
+    await publishKnowledgeEntry(native, String(bogus.id), "无槽位模板仍需合法发布");
     const again = await (await request("GET", "/api/knowledge/question-templates")).json() as unknown as Json[];
     expect(again.map((row) => row.knowledge_id)).not.toContain(bogus.id);
   });

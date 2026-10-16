@@ -246,6 +246,7 @@ export default function Mail() {
   const cacheGenRef = useRef(0);
   const appliedFocusRef = useRef("");
   const appliedPeerRef = useRef("");
+  const openedOriginalRef = useRef("");
   const intakeCancelled = useRef(false);
   const [cacheEpoch, setCacheEpoch] = useState(0);
 
@@ -488,7 +489,22 @@ export default function Mail() {
   // 会话详情一到就自动选中最新一封，让右栏不再停留在“选择左侧邮件”。
   // 这同时覆盖深链和用户从中栏展开会话两条路径；用户手动选择邮件后不覆盖。
   useEffect(() => {
-    if (messageId || !selectedConversation) return;
+    if (!selectedConversation) {
+      openedOriginalRef.current = "";
+      return;
+    }
+    // A direct ?c=&m= link already names its mail, so the auto-select branch
+    // below does not run. Open once per actor/mailbox/selection, not on every
+    // thread refresh: a later manual collapse must remain the user's choice.
+    if (messageId) {
+      const scope = `${account?.id || ""}\0${selectedConversation.mailbox || workspace?.box.mailbox || boxParam}\0${selectedConversation.conversation_id}\0${messageId}`;
+      if (openedOriginalRef.current !== scope) {
+        openedOriginalRef.current = scope;
+        setFold("original", true);
+      }
+      return;
+    }
+    openedOriginalRef.current = "";
     const newest = timelineOf(threads[selectedConversation.conversation_id]?.messages || [])[0];
     if (!newest) return;
     const next = new URLSearchParams(params);
@@ -496,7 +512,7 @@ export default function Mail() {
     next.set("m", newest.id);
     setParams(next, { replace: true });
     setFold("original", true);
-  }, [messageId, selectedConversation, threads, params, setParams]);
+  }, [messageId, selectedConversation, threads, params, setParams, account?.id, workspace?.box.mailbox, boxParam]);
   useEffect(() => {
     if (!peerParam || focusId || !conversations.length || appliedPeerRef.current === peerParam) return;
     appliedPeerRef.current = peerParam;
@@ -1358,7 +1374,7 @@ export default function Mail() {
                   通讯接口尚未开通，正在用已缓存的跟进往来只读展示。打开会话不会创建 Agent 会话。
                 </p>
               ) : null}
-              <div className="mail-sync-record" data-mail-box>
+              <div className="mail-sync-record ui-record-row" data-mail-box>
                 <span className="muted" data-mi-sync>{syncing ? "正在收取…" : box?.synced_at ? `同步 ${formatMailTime(box.synced_at)}` : "尚未收取"}</span>
                 <ActionGroup className="mail-sync-actions">
                   <button type="button" className="mail-list-sync" data-mail-sync data-mail-entry="sync-mailbox-mail" disabled={syncing} onClick={() => void sync()}>

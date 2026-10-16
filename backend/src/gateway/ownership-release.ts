@@ -4,7 +4,7 @@
  * Missing last_effective_mail_at → skip. Never writes stage,
  * never sends mail, never calls creator_owner_update / confirm_stage.
  */
-import { audit, getConn, nowIso, type SqliteConn } from "../db.js";
+import { audit, getConn, nowIso, type DatabaseConnection } from "../db.js";
 import {
   applyFollowRelease,
   followClock,
@@ -25,10 +25,8 @@ function text(value: unknown): string {
 }
 
 /** @deprecated B.last_effective_mail_at is authoritative. Kept for mail-thread diagnostics. */
-export function lastCorrespondenceAt(db: SqliteConn, collaborationId: string): string | null {
-  const follow = db.prepare(
-    "SELECT last_effective_mail_at FROM kol_follow_index WHERE collaboration_id=? AND status='active' LIMIT 1",
-  ).get(collaborationId) as { last_effective_mail_at?: string | null } | undefined;
+export async function lastCorrespondenceAt(db: DatabaseConnection, collaborationId: string): Promise<Awaited<string | null>> {
+  const follow = (await db.query("SELECT last_effective_mail_at FROM kol_follow_index WHERE collaboration_id=$1 AND status='active' LIMIT 1",[collaborationId])).rows[0] as { last_effective_mail_at?: string | null } | undefined;
   if (follow?.last_effective_mail_at) return text(follow.last_effective_mail_at) || null;
   return null;
 }
@@ -99,21 +97,19 @@ export function evaluateOwnershipRelease(
   };
 }
 
-export function releaseFollowOwnershipIfEligible(input: {
-  db: SqliteConn;
+export async function releaseFollowOwnershipIfEligible(input: {
+  db: DatabaseConnection;
   collaborationId?: string;
   followId?: string;
   expectedOwner: string;
   expectedLastAt: string;
   actor: string;
   nowMs?: number;
-}): OwnershipReleaseDecision {
+}): Promise<Awaited<OwnershipReleaseDecision>> {
   const db = input.db;
   const current = input.followId
-    ? db.prepare("SELECT * FROM kol_follow_index WHERE id=?").get(input.followId) as Row | undefined
-    : db.prepare(
-      "SELECT * FROM kol_follow_index WHERE collaboration_id=? AND status='active' LIMIT 1",
-    ).get(input.collaborationId) as Row | undefined;
+    ? (await db.query("SELECT * FROM kol_follow_index WHERE id=$1",[input.followId])).rows[0] as Row | undefined
+    : (await db.query("SELECT * FROM kol_follow_index WHERE collaboration_id=$1 AND status='active' LIMIT 1",[input.collaborationId])).rows[0] as Row | undefined;
   if (!current) {
     return {
       action: "skip",
@@ -147,20 +143,20 @@ export function releaseFollowOwnershipIfEligible(input: {
   }
   const decision = evaluateOwnershipRelease(current, lastAt, input.nowMs ?? Date.now());
   if (decision.action !== "release") return decision;
-  applyFollowRelease(db, current, input.actor, "ownership-release");
-  audit(input.actor, "cron.ownership_release", {
+  (await applyFollowRelease(db, current, input.actor, "ownership-release"));
+  (await audit(input.actor, "cron.ownership_release", {
     follow_id: current.id,
     collaboration_id: current.collaboration_id,
     owner_before: input.expectedOwner,
     last_at: lastAt,
     policy: OWNERSHIP_RELEASE_POLICY,
     stage_unchanged: true,
-  });
+  }));
   return decision;
 }
 
-export function listOwnedCollaborations(db: SqliteConn = getConn()): Row[] {
-  return listActiveFollows(db);
+export async function listOwnedCollaborations(db: DatabaseConnection = getConn()): Promise<Awaited<Row[]>> {
+  return (await listActiveFollows(db));
 }
 
 export function ownershipReceiptMeta(): Json {

@@ -3,7 +3,7 @@ import { useAccount } from "./AuthGate";
 import CompactButton from "./CompactButton";
 import { readWorkspaceDraft, saveWorkspaceDraft, takeDraft, scopeEquals, draftScopeKey, type ComposerDraftScope, type DraftBroadcast } from "../composer/draft";
 import { fieldLabel } from "../labels";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api, type ComposeInput, type KnowledgeRow, type SkillTemplate } from "../api";
 import ChipRail from "../composer/ChipRail";
 import { mergeSubjectIntoText } from "../composer/addresses";
@@ -60,6 +60,9 @@ import { NO_REQUIRED_INPUTS_COPY, templateForSkill } from "../skillTemplate";
 
 export type ComposerVariant = "compact" | "workspace";
 export type ComposerPlacement = "hero" | "dock";
+
+/** A workspace's pending human confirmation owns the primary action. */
+export const WorkspaceSubmitEmphasisContext = createContext<"primary" | "secondary">("primary");
 
 export type AttachmentRef = { id?: string; name: string; path: string; size?: number; type?: string };
 type ProjectOption = { id: string; label: string; handle?: string; description?: string };
@@ -155,6 +158,7 @@ export default function ComposerDock({
   autoFocus,
   selectFirstPlaceholder,
   autoFocusToken,
+  explicitFocusToken,
   suggestions,
   onPickSuggestion,
   onPickSkill,
@@ -183,7 +187,7 @@ export default function ComposerDock({
   onSkillRemoved,
   initialDraft,
   submitLabel = "发送",
-  submitEmphasis = "primary",
+  submitEmphasis,
   draftToken,
   onDraftChange,
   draftScope,
@@ -206,6 +210,8 @@ export default function ComposerDock({
   autoFocus?: boolean;
   selectFirstPlaceholder?: boolean;
   autoFocusToken?: number;
+  /** A user explicitly chose a template/prefill and expects to continue typing in the editor. */
+  explicitFocusToken?: number;
   suggestions?: ComposerSuggestion[];
   onPickSuggestion?: (item: ComposerSuggestion) => void;
   onPickSkill?: (skill: SkillOption, ctx: { mention: string; rest: string; collaborationId?: string }) => void;
@@ -248,6 +254,8 @@ export default function ComposerDock({
   suggestionsMode?: "inline" | "menu";
   retainAttachmentsOnSubmit?: boolean;
 }) {
+  const workspaceSubmitEmphasis = useContext(WorkspaceSubmitEmphasisContext);
+  const effectiveSubmitEmphasis = submitEmphasis ?? workspaceSubmitEmphasis;
   const [skills, setSkills] = useState<SkillOption[]>([]);
   const [skillTemplates, setSkillTemplates] = useState<SkillTemplate[]>([]);
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
@@ -296,6 +304,7 @@ export default function ComposerDock({
   const draftSignatureRef = useRef("");
   draftSignatureRef.current = JSON.stringify([value,skillChips,kbChips,attachments,lockedIntent,lockedKnowledgeId]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const lastExplicitFocusTokenRef = useRef(explicitFocusToken);
   const selectionRef = useRef({ start: value.length, end: value.length });
   const fileRef = useRef<HTMLInputElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
@@ -565,6 +574,10 @@ export default function ComposerDock({
     const delay = window.setTimeout(() => {
       const node = inputRef.current;
       if (!node) return;
+      // Navigation may request the initial composer focus while a remote reply
+      // refresh is still pending. Never take an employee out of an editor that
+      // they focused before this deferred request is delivered.
+      if (document.activeElement !== document.body) return;
       node.focus();
       if (!selectFirstPlaceholder) return;
       const match = node.value.match(/\[[^\]]+\]/);
@@ -575,6 +588,17 @@ export default function ComposerDock({
     return () => window.clearTimeout(delay);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoFocus, autoFocusToken]);
+
+  useEffect(() => {
+    // Initial focus requests are deliberately guarded above: a remote refresh
+    // must not take an employee out of an editor they already chose. A changed
+    // token, however, comes from an explicit user prefill action, so return
+    // focus from that activating control to the now-editable question.
+    if (explicitFocusToken === lastExplicitFocusTokenRef.current) return;
+    lastExplicitFocusTokenRef.current = explicitFocusToken;
+    if (explicitFocusToken == null) return;
+    inputRef.current?.focus();
+  }, [explicitFocusToken]);
 
   useEffect(() => {
     const apply = (draft: ComposerDraftStash) => {
@@ -842,9 +866,13 @@ export default function ComposerDock({
     pushRecentSkill(s.id);
     // The + menu used to add only an internal chip, leaving the editor blank.
     // Keep the skill visible as an actionable, editable starter just like the
-    // skill catalog does; preserve any text the user has already entered.
+    // skill catalog does; preserve any text the user has already entered. Mail
+    // preparation is different: its receiver/template/context must come from
+    // the server, and its generic starter contains fake address/subject slots.
+    // Do not turn that command hint into a draft before the employee selects a
+    // deterministic template. A real typed remainder remains authoritative.
     const template = selectSkillTemplate(s);
-    const nextText = rest.trim() || starterPrompt({ id: s.id, title: s.title, ui_template: template, starter: s.starter });
+    const nextText = rest.trim() || (s.id === "email_compose" ? "" : starterPrompt({ id: s.id, title: s.title, ui_template: template, starter: s.starter }));
     if (nextText !== value) onChange(nextText);
     setSkillChips((current) => {
       if (current.some((chip) => chip.id === s.id)) return current;
@@ -1627,7 +1655,7 @@ export default function ComposerDock({
                 type="submit"
                 data-send
                 data-ai-prompt-submit
-                data-send-emphasis={submitEmphasis}
+                data-send-emphasis={effectiveSubmitEmphasis}
                 data-send-state={sendState}
                 disabled={sendDisabled}
                 aria-label={submitLabel}

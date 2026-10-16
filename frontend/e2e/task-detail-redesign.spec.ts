@@ -14,6 +14,29 @@ const event = { id: "event-fixture", event_type: "lead.created", summary: "线�
 const agentTask = { id: "agent-fixture", title: "MAX 资料分析", status: "completed", description: "核对资料", updated_at: "2026-10-09T02:08:00Z", created_at: "2026-10-09T02:08:00Z", runs: [] };
 
 type Options = { blocked?: boolean; revoke?: boolean; relatedRevoked?: boolean; error?: boolean; theme?: string; many?: boolean };
+
+async function gotoBusinessTask(page: Page, url: string, expectedStatus = 200) {
+  const detailRead = page.waitForResponse(response => {
+    const requestUrl = new URL(response.url());
+    return response.request().method() === "GET"
+      && requestUrl.pathname === "/api/task-work-orders/detail-fixture"
+      && response.status() === expectedStatus;
+  });
+  await page.goto(url);
+  await detailRead;
+}
+
+async function gotoTaskCenter(page: Page, url: string) {
+  const dashboardRead = page.waitForResponse(response => {
+    const requestUrl = new URL(response.url());
+    return response.request().method() === "GET"
+      && requestUrl.pathname === "/api/task-work-orders/dashboard"
+      && response.ok();
+  });
+  await page.goto(url);
+  await dashboardRead;
+}
+
 async function fixture(page: Page, options: Options = {}) {
   let writes = 0, rootRevoked = false;
   const order = { work_order_id: "order-fixture", title: "核对内容版本", status: "waiting_approval", template_code: "fixture-template", template_title: "内容确认", template_version: 1, stage_code: "DRAFT", objective: "核对内容和证据", priority: "normal", due_at: null, automation_level: "A3", primary_assignee: null, latest_decision: null, creation_mode: "manual", assignment_origin: "unassigned", routing_policy_code: null };
@@ -55,7 +78,7 @@ async function fixture(page: Page, options: Options = {}) {
   return { writes: () => writes };
 }
 async function openFromRow(page: Page) {
-  await page.goto("/tasks?period=today&status=all");
+  await gotoTaskCenter(page, "/tasks?period=today&status=all");
   await page.getByRole("row").filter({ hasText: task.title }).getByRole("button", { name: "详情", exact: true }).click();
   await expect(page.getByRole("dialog").filter({ hasText: task.title })).toBeVisible();
 }
@@ -84,7 +107,7 @@ test("compact zero-order detail shows a readable event and returns to the origin
 
 test("deep-link close removes only detail parameter; refresh does not reopen", async ({ page }) => {
   await fixture(page);
-  await page.goto("/tasks?period=today&businessTask=detail-fixture&status=all");
+  await gotoBusinessTask(page, "/tasks?period=today&businessTask=detail-fixture&status=all");
   await page.getByRole("dialog").getByRole("button", { name: "返回任务明细" }).click();
   await expect(page).toHaveURL(/\/tasks\?period=today&status=all$/);
   await page.reload();
@@ -94,7 +117,7 @@ test("deep-link close removes only detail parameter; refresh does not reopen", a
 
 test("browser back and ESC close the business detail without resetting search", async ({ page }) => {
   await fixture(page);
-  await page.goto("/tasks?period=today&status=all");
+  await gotoTaskCenter(page, "/tasks?period=today&status=all");
   const search = page.getByRole("textbox", { name: "搜索任务名称、内容、技能或模板" });
   await search.fill("MAX");
   await page.getByRole("row").filter({ hasText: task.title }).getByRole("button", { name: "详情", exact: true }).click();
@@ -111,7 +134,7 @@ test("browser back and ESC close the business detail without resetting search", 
 
 test("Agent detail returns to the list with search and period intact; direct route has a safe fallback", async ({ page }) => {
   await fixture(page);
-  await page.goto("/tasks?period=today&status=all");
+  await gotoTaskCenter(page, "/tasks?period=today&status=all");
   await page.getByRole("textbox", { name: "搜索任务名称、内容、技能或模板" }).fill("MAX");
   await page.getByRole("row").filter({ hasText: agentTask.title }).getByRole("button", { name: "详情", exact: true }).click();
   await expect(page).toHaveURL(/\/tasks\/agent-fixture$/);
@@ -154,7 +177,7 @@ test("blocked work order and scoped approval remain visible; errors are not a ze
 
 test("revoked permission clears all detail data", async ({ page }) => {
   await fixture(page, { revoke: true });
-  await page.goto("/tasks?businessTask=detail-fixture");
+  await gotoBusinessTask(page, "/tasks?businessTask=detail-fixture", 403);
   await expect(page.getByRole("alert")).toContainText("已清除缓存内容");
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
@@ -162,7 +185,7 @@ test("revoked permission clears all detail data", async ({ page }) => {
 for (const width of [375, 768]) test(`detail at ${width}px has single-column fields and no overflowing drawer`, async ({ page }) => {
   await page.setViewportSize({ width, height: 700 });
   await fixture(page);
-  await page.goto("/tasks?businessTask=detail-fixture");
+  await gotoBusinessTask(page, "/tasks?businessTask=detail-fixture");
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByText("线索已建档", { exact: true })).toBeVisible();
   const bounds = await dialog.evaluate(el => ({ width: el.getBoundingClientRect().width, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
@@ -180,7 +203,7 @@ test("loaded cursor range, expansion and scroll are restored from independent Ag
     const second = url.searchParams.has("cursor");
     return route.fulfill({ json: { items: second ? [...Array.from({ length: 14 }, (_, i) => ({ ...agentTask, id: `tail-before-${i}`, title: `MAX 后续 ${i}`, updated_at: "2026-10-09T02:09:00Z" })), agentTask, ...Array.from({ length: 5 }, (_, i) => ({ ...agentTask, id: `tail-after-${i}`, title: `MAX 尾部 ${i}`, updated_at: "2026-10-09T02:07:00Z" }))] : Array.from({ length: 60 }, (_, i) => ({ ...agentTask, id: `many-${i}`, title: `MAX 分析 ${i}`, updated_at: "2026-10-09T02:10:00Z" })), page: { total: 80, next_cursor: second ? null : "fixture-page-2" } } });
   });
-  await page.goto("/tasks?period=today&status=all");
+  await gotoTaskCenter(page, "/tasks?period=today&status=all");
   await page.getByRole("button", { name: "加载更多结果", exact: true }).click();
   await page.locator(".ant-pagination-item-4").click();
   const targetRow = page.getByRole("row").filter({ hasText: agentTask.title });
@@ -199,7 +222,7 @@ test("loaded cursor range, expansion and scroll are restored from independent Ag
 for (const size of [{ width: 1280, height: 600 }, { width: 1024, height: 600 }]) test(`fixed submit footer remains reachable at ${size.width}×${size.height}`, async ({ page }) => {
   await page.setViewportSize(size);
   await fixture(page);
-  await page.goto("/tasks?businessTask=detail-fixture");
+  await gotoBusinessTask(page, "/tasks?businessTask=detail-fixture");
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("button", { name: "登记事件", exact: true }).click();
   await expect(dialog.getByRole("button", { name: "提交已核验事件" })).toBeVisible();
@@ -213,7 +236,7 @@ for (const size of [{ width: 1280, height: 600 }, { width: 1024, height: 600 }])
 test("dark theme and reduced motion preserve legibility and focus trapping", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "dark" });
   await fixture(page, { theme: "dark" });
-  await page.goto("/tasks?businessTask=detail-fixture");
+  await gotoBusinessTask(page, "/tasks?businessTask=detail-fixture");
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByText("线索已建档", { exact: true })).toBeVisible();
   const typography = await dialog.locator(".task-detail-ant-heading strong").evaluate(el => ({ size: getComputedStyle(el).fontSize, weight: getComputedStyle(el).fontWeight, color: getComputedStyle(el).color }));
@@ -227,7 +250,7 @@ test("dark theme and reduced motion preserve legibility and focus trapping", asy
 
 test("200 percent zoom keeps return and footer inside the viewport", async ({ page }) => {
   await fixture(page);
-  await page.goto("/tasks?businessTask=detail-fixture");
+  await gotoBusinessTask(page, "/tasks?businessTask=detail-fixture");
   await page.evaluate(() => { document.documentElement.style.zoom = "2"; });
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("button", { name: "返回任务明细" })).toBeVisible();
@@ -238,7 +261,7 @@ test("200 percent zoom keeps return and footer inside the viewport", async ({ pa
 
 test("read failures remain visible with a retry instead of disappearing as an empty module", async ({ page }) => {
   await fixture(page, { error: true });
-  await page.goto("/tasks?businessTask=detail-fixture");
+  await gotoBusinessTask(page, "/tasks?businessTask=detail-fixture");
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("alert")).toBeVisible();
   await expect(dialog.getByRole("button", { name: "重新读取" })).toBeVisible();
@@ -249,7 +272,7 @@ test.describe("touch hit targets", () => {
   test.use({ hasTouch: true, viewport: { width: 860, height: 700 } });
   test("drawer action hit targets are 44px without inflating the painted button", async ({ page }) => {
     await fixture(page);
-    await page.goto("/tasks?businessTask=detail-fixture");
+    await gotoBusinessTask(page, "/tasks?businessTask=detail-fixture");
     const dialog = page.getByRole("dialog");
     const target = dialog.getByRole("button", { name: "返回任务明细" });
     await expect(target).toBeVisible();
@@ -272,7 +295,7 @@ test("suggestion adoption still requires explicit confirmation and displays its 
     adopted = true;
     return route.fulfill({ json: { attempt: { id: "adoption-receipt", status: "created" }, work_order: { id: "order-fixture" }, replayed: false } });
   });
-  await page.goto("/tasks?businessTask=detail-fixture");
+  await gotoBusinessTask(page, "/tasks?businessTask=detail-fixture");
   const region = page.getByRole("region", { name: "工单建议", exact: true });
   await region.getByRole("button", { name: "采纳建单建议" }).click();
   expect(posts).toBe(0);
@@ -289,7 +312,7 @@ test("unknown event-write result does not auto-retry and manual retry reuses the
     payloads.push(route.request().postDataJSON());
     return payloads.length === 1 ? route.fulfill({ status: 503, json: { error: "unconfirmed_result" } }) : route.fulfill({ json: { event: { id: "same-event", replayed: true }, decision: { outcome: "skip", status: "recorded", confidence: null }, execution_job: { id: "same-job", status: "queued" }, execution_mode: "async" } });
   });
-  await page.goto("/tasks?businessTask=detail-fixture");
+  await gotoBusinessTask(page, "/tasks?businessTask=detail-fixture");
   const drawer = page.getByRole("dialog");
   await drawer.getByRole("button", { name: "登记事件", exact: true }).click();
   await drawer.getByRole("textbox", { name: /已核验事实摘要/ }).fill("已核验测试事实");
@@ -308,7 +331,7 @@ test("unknown event-write result does not auto-retry and manual retry reuses the
 
 test("a restricted related module cannot close an independently authorized root task", async ({ page }) => {
   await fixture(page, { relatedRevoked: true });
-  await page.goto("/tasks?businessTask=detail-fixture");
+  await gotoBusinessTask(page, "/tasks?businessTask=detail-fixture");
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("审批与工单依赖当前不可访问");
   await expect(dialog.getByText("线索已建档", { exact: true })).toBeVisible();

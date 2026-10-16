@@ -1,3 +1,4 @@
+import { postgresConnection } from "../postgres/pool.js";
 import { postgresPool } from "../postgres/pool.js";
 import { emitKolEventAndDecide } from "./kol-leads.js";
 
@@ -47,7 +48,7 @@ function todayKey(): string {
 }
 
 async function alreadyEmitted(idempotencyKey: string): Promise<boolean> {
-  const rows = await postgresPool().query(
+  const rows = await postgresConnection().query(
     `SELECT 1 FROM work_order_verified_events WHERE idempotency_key=$1`, [idempotencyKey]);
   return Boolean(rows.rows[0]);
 }
@@ -58,7 +59,7 @@ export async function sweepKolDeadlines(): Promise<{ emitted: DeadlineSweepItem[
   const emitted: DeadlineSweepItem[] = [];
   let scanned = 0;
 
-  const woRows = await postgresPool().query<{
+  const woRows = await postgresConnection().query<{
     id: string; task_id: string; template_code: string; title: string; due_at: string; owner_user_id: string;
   }>(
     `SELECT wo.id, wo.task_id, wo.template_code, wo.title, wo.due_at, t.owner_user_id
@@ -83,7 +84,7 @@ export async function sweepKolDeadlines(): Promise<{ emitted: DeadlineSweepItem[
     emitted.push({ kind: "work_order", ref_id: wo.id, task_id: wo.task_id, event_type: eventType, idempotency_key: idem, replayed: false });
   }
 
-  const coopRows = await postgresPool().query<{
+  const coopRows = await postgresConnection().query<{
     id: string; project_task_id: string; title: string; owner_user_id: string;
   }>(
     `SELECT c.id, c.project_task_id, c.title, t.owner_user_id

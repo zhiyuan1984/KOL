@@ -15,12 +15,7 @@ const apply = process.argv.includes("--apply");
 
 type Row = { id: string; body_text: string | null; translation_zh: string | null };
 
-const rows = getConn()
-  .prepare(
-    `SELECT id, body_text, translation_zh FROM kol_mail_items
-     WHERE IFNULL(translation_zh,'') <> '' AND translation_zh LIKE '{%'`,
-  )
-  .all() as Row[];
+const rows = (await getConn().query("SELECT id, body_text, translation_zh FROM kol_mail_items\n     WHERE COALESCE(translation_zh,'') <> '' AND translation_zh LIKE '{%'",[])).rows as Row[];
 
 let repaired = 0;
 let reset = 0;
@@ -33,8 +28,7 @@ for (const row of rows) {
     repaired += 1;
     if (samples.length < 3) samples.push(`  fixed  ${stored.slice(0, 46)} -> ${next.replace(/\s+/g, " ").slice(0, 46)}`);
     if (apply) {
-      getConn().prepare("UPDATE kol_mail_items SET translation_zh=?, translation_source=? WHERE id=?")
-        .run(next, "repaired_json_envelope", row.id);
+      (await getConn().query("UPDATE kol_mail_items SET translation_zh=$1, translation_source=$2 WHERE id=$3",[next,"repaired_json_envelope",row.id]));
     }
     continue;
   }
@@ -42,8 +36,7 @@ for (const row of rows) {
     reset += 1;
     if (samples.length < 3) samples.push(`  reset  ${stored.slice(0, 46)} -> (translate again)`);
     if (apply) {
-      getConn().prepare("UPDATE kol_mail_items SET translation_zh=NULL, translation_source='pending' WHERE id=?")
-        .run(row.id);
+      (await getConn().query("UPDATE kol_mail_items SET translation_zh=NULL, translation_source='pending' WHERE id=$1",[row.id]));
     }
   }
 }

@@ -13,6 +13,8 @@ const mode = String(process.env.E2E_MODE || process.env.CODEX_MODE || "stub").to
 if (mode !== "stub" && mode !== "real") throw new Error(`Unsupported E2E_MODE: ${mode}`);
 const authMode = process.env.E2E_AUTH_MODE || (mode === "real" ? "enabled" : "disabled");
 fs.mkdirSync(data, { recursive: true });
+const frontendOutput = path.resolve(root, process.env.LINGONG_FRONTEND_DIST || process.env.VITE_OUT_DIR
+  || (process.env.E2E_SKIP_BUILD === "1" ? path.join(root, "frontend", "dist") : path.join(data, "frontend-dist")));
 
 const startBackend = () => {
   const server = spawn(process.execPath, [
@@ -25,8 +27,12 @@ const startBackend = () => {
       NODE_OPTIONS: `${process.env.NODE_OPTIONS || ""} --require ${path.join(root, "scripts", "tsx-windows-shim.cjs")}`.trim(),
       CODEX_MODE: mode,
       AUTH_MODE: authMode,
+      // Demo writes still require an explicit TEST_DB_PREFIX matching the
+      // actual database. Test mode alone never authorizes an arbitrary reset.
+      NODE_ENV: mode === "stub" ? "test" : process.env.NODE_ENV,
       LINGONG_PORT: port,
       LINGONG_DATA: data,
+      LINGONG_FRONTEND_DIST: frontendOutput,
       // 知识非结构化层：stub gate 走 Node 夹具，不依赖 Python/PageIndex（设计 2026-10-02 §7.6）。
       KNOWLEDGE_ENGINE_MODE: process.env.KNOWLEDGE_ENGINE_MODE || (mode === "stub" ? "stub" : "real"),
       // Deterministic test key so connector credential writes are exercisable in E2E.
@@ -49,7 +55,12 @@ if (process.env.E2E_SKIP_BUILD === "1") {
   const buildArgs = process.platform === "win32" ? ["/d", "/s", "/c", "npm run build"] : ["run", "build"];
   const build = spawn(buildCommand, buildArgs, {
     cwd: path.join(root, "frontend"),
-    env: process.env,
+    env: {
+      ...process.env,
+      VITE_OUT_DIR: frontendOutput,
+      VITE_CACHE_DIR: process.env.VITE_CACHE_DIR || path.join(data, "vite-cache"),
+      VITE_E2E_FIXTURES: process.env.VITE_E2E_FIXTURES || "1",
+    },
     stdio: "inherit",
     windowsHide: true,
   });

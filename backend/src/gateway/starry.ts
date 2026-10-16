@@ -7,18 +7,18 @@ import { starry } from "../adapters/clients.js";
 import { audit } from "../db.js";
 import type { Json, StageTransitionInput } from "../types.js";
 
-export function confirmStarryStage(
+export async function confirmStarryStage(
   lifecycleId: string,
   stageCode: string,
   actor = "host",
   transition?: StageTransitionInput,
-): Json {
-  const result = starry.confirmStage(lifecycleId, stageCode, actor, transition);
-  audit("gateway", "gateway.confirm_stage", {
+): Promise<Awaited<Json>> {
+  const result = (await starry.confirmStage(lifecycleId, stageCode, actor, transition));
+  (await audit("gateway", "gateway.confirm_stage", {
     lifecycle_id: lifecycleId,
     stage_code: stageCode,
     actor,
     transition_id: result.transition_id,
-  });
+  }));
   return result;
 }

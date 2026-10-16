@@ -32,18 +32,18 @@ beforeEach(async () => {
   process.env.LINGONG_DATA = tmp;
   process.env.NODE_ENV = "test";
   resetEventCatalogCache();
-  resetConn();
+  (await resetConn());
   getConn();
 });
 
-afterEach(() => {
+afterEach(async () => {
   resetEventCatalogCache();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-function eventCount(): number {
-  return Number((getConn().prepare("SELECT COUNT(*) AS n FROM business_events").get() as { n: number }).n);
+async function eventCount(): Promise<Awaited<number>> {
+  return Number(((await getConn().query("SELECT COUNT(*) AS n FROM business_events",[])).rows[0] as { n: number }).n);
 }
 
 describe("business events ledger", () => {
@@ -69,7 +69,7 @@ describe("business events ledger", () => {
     }
   });
 
-  it("appends idempotent, immutable facts and rejects unknown types in strict mode", () => {
+  it("appends idempotent, immutable facts and rejects unknown types in strict mode", async () => {
     const input = {
       eventType: "email.received",
       objectType: "email",
@@ -78,46 +78,37 @@ describe("business events ledger", () => {
       actorType: "external" as const,
       idempotencyKey: "email.received:test-1",
     };
-    expect(appendBusinessEvent(input, { strict: true }).inserted).toBe(true);
-    expect(appendBusinessEvent(input, { strict: true }).inserted).toBe(false);
-    expect(eventCount()).toBe(1);
-    expect(() =>
-      appendBusinessEvent({ ...input, eventType: "nope.not_registered", idempotencyKey: "x" }, { strict: true }),
-    ).toThrow(/not_registered/);
-    expect(() => getConn().prepare("UPDATE business_events SET payload='{}'").run()).toThrow(/immutable/);
-    expect(() => getConn().prepare("DELETE FROM business_events").run()).toThrow(/immutable/);
+    expect((await appendBusinessEvent(input, { strict: true })).inserted).toBe(true);
+    expect((await appendBusinessEvent(input, { strict: true })).inserted).toBe(false);
+    expect((await eventCount())).toBe(1);
+    (await expect((async () =>
+      (appendBusinessEvent({ ...input, eventType: "nope.not_registered", idempotencyKey: "x" }, { strict: true })))()).rejects.toThrow(/not_registered/));
+    (await expect((async () => (getConn().query("UPDATE business_events SET payload='{}'",[])))()).rejects.toThrow(/immutable/));
+    (await expect((async () => (getConn().query("DELETE FROM business_events",[])))()).rejects.toThrow(/immutable/));
   });
 
-  it("lists events with filters and clamps limit", () => {
+  it("lists events with filters and clamps limit", async () => {
     const base = {
       source: "host",
       actorType: "system" as const,
       occurredAt: "2026-10-01T00:00:00.000Z",
       receivedAt: "2026-10-01T00:00:01.000Z",
     };
-    appendBusinessEvent({ ...base, eventType: "email.received", objectType: "email", objectId: "e1", idempotencyKey: "k1" });
-    appendBusinessEvent({ ...base, eventType: "stage.advanced", objectType: "collaboration", objectId: "c1", idempotencyKey: "k2" });
-    expect(listBusinessEvents({ objectType: "email" })).toHaveLength(1);
-    expect(listBusinessEvents({ eventType: "stage.advanced" })).toHaveLength(1);
-    expect(listBusinessEvents({ limit: 1 })).toHaveLength(1);
-    expect(() => listBusinessEvents({ limit: 0 })).not.toThrow();
+    (await appendBusinessEvent({ ...base, eventType: "email.received", objectType: "email", objectId: "e1", idempotencyKey: "k1" }));
+    (await appendBusinessEvent({ ...base, eventType: "stage.advanced", objectType: "collaboration", objectId: "c1", idempotencyKey: "k2" }));
+    expect(await listBusinessEvents({ objectType: "email" })).toHaveLength(1);
+    expect(await listBusinessEvents({ eventType: "stage.advanced" })).toHaveLength(1);
+    expect(await listBusinessEvents({ limit: 1 })).toHaveLength(1);
+    await expect(listBusinessEvents({ limit: 0 })).resolves.toEqual(expect.any(Array));
   });
 
-  it("records confirm_stage transitions into the ledger (stage wiring)", () => {
+  it("records confirm_stage transitions into the ledger (stage wiring)", async () => {
     const now = new Date().toISOString();
-    getConn().prepare(
-      `INSERT INTO collaborations
-       (id,handle,display_name,brand,platform,followers,email,mailbox_from,lifecycle_id,conversation_id,
-        stage_code,days_in_stage,notes,overdue,kol_uid,stage_version)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run(
-      "col_events", "KOL_EVENTS", "事件测试合作", "LT", "YouTube", "1", "kol@example.com", "from@example.com",
-      "lc_events", "conv_events", "INITIAL_CONTACT", 0, "", 0, "KOL_EVENTS", 0,
-    );
-    const result = confirmStage("lc_events", { stage_code: "INTERESTED", actor: "host", reason: "测试前进" }) as unknown as {
+    (await getConn().query("INSERT INTO collaborations\n       (id,handle,display_name,brand,platform,followers,email,mailbox_from,lifecycle_id,conversation_id,\n        stage_code,days_in_stage,notes,overdue,kol_uid,stage_version)\n       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",["col_events","KOL_EVENTS","事件测试合作","LT","YouTube","1","kol@example.com","from@example.com","lc_events","conv_events","INITIAL_CONTACT",0,"",0,"KOL_EVENTS",0]));
+    const result = (await confirmStage("lc_events", { stage_code: "INTERESTED", actor: "host", reason: "测试前进" })) as unknown as {
       transition_id: string;
     };
-    const rows = listBusinessEvents({ eventType: "stage.advanced" });
+    const rows = await listBusinessEvents({ eventType: "stage.advanced" });
     expect(rows).toHaveLength(1);
     expect(rows[0].object_type).toBe("collaboration");
     expect(rows[0].object_id).toBe("col_events");
@@ -125,55 +116,55 @@ describe("business events ledger", () => {
     expect((rows[0].payload as Json).from_stage).toBe("INITIAL_CONTACT");
     expect((rows[0].payload as Json).to_stage).toBe("INTERESTED");
     // 重放同一转移不得落第二条事实（幂等键去重）。
-    const replay = appendBusinessEvent({
+    const replay = (await appendBusinessEvent({
       eventType: "stage.advanced",
       objectType: "collaboration",
       objectId: "col_events",
       source: "starry",
       actorType: "human",
       idempotencyKey: `stage_transition:${result.transition_id}`,
-    });
+    }));
     expect(replay.inserted).toBe(false);
-    expect(eventCount()).toBe(1);
+    expect((await eventCount())).toBe(1);
   });
 
   it("keeps the ledger empty-safe across demo resets", async () => {
     const { seedAll, resetDemoRuntimeState } = await import("../src/seed.js");
-    seedAll();
-    appendBusinessEvent({
+    (await seedAll());
+    (await appendBusinessEvent({
       eventType: "email.received",
       objectType: "email",
       objectId: "reset-x",
       source: "test",
       actorType: "external",
       idempotencyKey: "reset-1",
-    });
-    expect(eventCount()).toBe(1);
-    resetDemoRuntimeState();
-    expect(eventCount()).toBe(0);
-    appendBusinessEvent({
+    }));
+    expect((await eventCount())).toBe(1);
+    (await resetDemoRuntimeState());
+    expect((await eventCount())).toBe(0);
+    (await appendBusinessEvent({
       eventType: "email.received",
       objectType: "email",
       objectId: "reset-y",
       source: "test",
       actorType: "external",
       idempotencyKey: "reset-2",
-    });
-    expect(eventCount()).toBe(1);
-    expect(() => getConn().prepare("DELETE FROM business_events").run()).toThrow(/immutable/);
+    }));
+    expect((await eventCount())).toBe(1);
+    (await expect((async () => (getConn().query("DELETE FROM business_events",[])))()).rejects.toThrow(/immutable/));
   });
 
   it("serves GET /api/events", async () => {
     const { createApp } = await import("../src/app.js");
-    app = createApp();
-    appendBusinessEvent({
+    app = (await createApp());
+    (await appendBusinessEvent({
       eventType: "email.received",
       objectType: "email",
       objectId: "kmi_api",
       source: "starry",
       actorType: "external",
       idempotencyKey: "email.received:api-1",
-    });
+    }));
     const response = await request("GET", "/api/events?event_type=email.received");
     expect(response.status, JSON.stringify(response.body)).toBe(200);
     const events = response.body.events as Json[];

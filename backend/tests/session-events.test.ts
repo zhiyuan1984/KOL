@@ -33,14 +33,14 @@ describe("session live events", () => {
     process.env.LINGONG_DB = path.join(tmp, "t.db");
     process.env.LINGONG_DATA = tmp;
     process.env.CODEX_MODE = "stub";
-    resetConn();
-    seedAll();
+    (await resetConn());
+    (await seedAll());
     const { createApp } = await import("../src/app.js");
-    app = createApp();
+    app = (await createApp());
   });
 
-  afterEach(() => {
-    resetConn();
+  afterEach(async () => {
+    (await resetConn());
   });
 
   it("publishes upserts to subscribers", () => {
@@ -58,9 +58,7 @@ describe("session live events", () => {
     const created = await request("POST", "/api/sessions", { title: "流式会话" });
     const sid = String((created.json as { id?: string }).id || "");
     expect(sid).toBeTruthy();
-    getConn().prepare(
-      "INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES (?,?,?,?,?,?)",
-    ).run("msg_hist", sid, "me", "me", JSON.stringify({ text: "先记一条会话记录" }), new Date().toISOString());
+    (await getConn().query("INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES ($1,$2,$3,$4,$5,$6)",["msg_hist",sid,"me","me",JSON.stringify({ text: "先记一条会话记录" }),new Date().toISOString()]));
     const res = await app.request(`/api/sessions/${sid}/events`);
     expect(res.status).toBe(200);
     expect(String(res.headers.get("content-type") || "")).toContain("text/event-stream");
@@ -78,9 +76,7 @@ describe("session live events", () => {
         }
       });
     });
-    getConn().prepare(
-      "INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES (?,?,?,?,?,?)",
-    ).run("msg_live", sid, "assistant", "assistant", JSON.stringify({ text: "增量" }), new Date().toISOString());
+    (await getConn().query("INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES ($1,$2,$3,$4,$5,$6)",["msg_live",sid,"assistant","assistant",JSON.stringify({ text: "增量" }),new Date().toISOString()]));
     publishSession(sid, {
       type: "upsert",
       message: { id: "msg_live", kind: "assistant", payload: { text: "增量" } },

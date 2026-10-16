@@ -131,14 +131,18 @@ function AgentDirectory() {
   }, [actor, routeExpertId, generation]);
 
   const prefById = useMemo(() => new Map(preferences.map(row => [row.expert_id, row])), [preferences]);
-  const browseById = useMemo(() => new Map((browse?.rows || []).map(row => [row.expert_id, row])), [browse]);
-  const searched = useMemo(() => filterExperts(browse ? experts.filter(row => browseById.has(row.id)) : experts, query), [experts, query, browse, browseById]);
+  // `/experts` is the authorization-filtered roster. Browse rows describe optional
+  // published-knowledge applicability and must never grant or remove Agent access.
+  const rosterIds = useMemo(() => new Set(experts.map(row => row.id)), [experts]);
+  const browseById = useMemo(() => new Map((browse?.rows || [])
+    .filter(row => rosterIds.has(row.expert_id)).map(row => [row.expert_id, row])), [browse, rosterIds]);
+  const searched = useMemo(() => filterExperts(experts, query), [experts, query]);
   const filters = { familyId, domainId, baseId, brands, stages, kind, view };
   const facets = agentBrowseFacets(searched, browseById, prefById, filters);
   const filtered = filterAgentRows(searched, browseById, prefById, filters);
   if (view === "recent") filtered.sort((a, b) => String(prefById.get(b.id)?.viewed_at || "").localeCompare(String(prefById.get(a.id)?.viewed_at || "")));
   const visible = filtered.slice(0, limit);
-  const selected = routeExpertId ? (browse && !browseById.has(routeExpertId) ? null : detail) : filtered.find(row => row.id === selectedId) || null;
+  const selected = routeExpertId ? detail : filtered.find(row => row.id === selectedId) || null;
   const consoleOpen = Boolean(routeExpertId && selected && !expertCanSummon(selected));
   const favorite = Boolean(selected && prefById.get(selected.id)?.favorite);
   const countsReady = !loading && !loadError && !browseLoading && !browseError && (view === "all" || (!preferencesLoading && !preferenceError));

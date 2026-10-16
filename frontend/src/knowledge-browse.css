@@ -99,6 +99,7 @@
   .knowledge-browse .kbv-scope-rows { row-gap: var(--space-5); }
   .knowledge-browse .knowledge-filter-bar .knowledge-filter-row { gap: var(--space-5); padding-block: var(--space-3); }
   .knowledge-browse .knowledge-filter-bar .kbv-scope-name { padding-top: 0; }
+  #root .asset-browse.knowledge-browse :is(.knowledge-filter-option, .knowledge-filter-action) { height: var(--control-h-sm); min-height: var(--control-h-sm); }
   .knowledge-browse :is(.knowledge-filter-option, .knowledge-filter-action) { position: relative; }
   .knowledge-browse :is(.knowledge-filter-option, .knowledge-filter-action)::before { content: ""; position: absolute; top: 50%; left: 50%; width: max(100%, var(--touch-hit-min)); height: var(--touch-hit-min); transform: translate(-50%, -50%); }
   .knowledge-browse .knowledge-stage-chip .knowledge-stage-remove { width: var(--touch-hit-min); }

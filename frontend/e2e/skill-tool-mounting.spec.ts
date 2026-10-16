@@ -6,15 +6,20 @@ const AUTH_ENABLED = process.env.E2E_AUTH_MODE === "enabled";
 
 /** 无鉴权模式下把治理读数固定为确定性桩：本用例只关心渲染与挂载门禁。 */
 async function stubGovernanceReads(page: Page) {
+  await page.route("**/api/admin/skills", route => route.fulfill({ json: { skills: [{
+    id: "creator_profile", label: "达人画像", title: "达人画像", description: "读取已授权达人信息", source: "bundled",
+    lifecycle: { stage: "published", stage_label: "发布上线", origin: "official", owner: null, business_stage: "reach", tags: [], current_version: 1, release: { kind: "versioned", version: 1 }, dependencies: { unregistered: [], unmounted: [] }, test_summary: { total: 0, pass_rate: null, failing: 0, last_run_at: null } },
+  }] } }));
+  await page.route("**/api/admin/connectors", route => route.fulfill({ json: [{ id: "claw", label: "Claw", enabled: false }] }));
   await page.route("**/api/admin/runtime/skills/*/connectors", (route) => route.fulfill({ json: [] }));
   await page.route("**/api/admin/runtime/skills/*/tools", (route) => route.fulfill({ json: [] }));
-  await page.route("**/api/admin/runtime/connectors/*/policies", (route) => route.fulfill({ json: [] }));
+  await page.route("**/api/admin/runtime/connectors/*/policies", (route) => route.fulfill({ json: [{ connector_id: "claw", tool_name: "list_tasks", enabled: true, risk: "L1", access: "read", version: 1 }] }));
 }
 
-/** 工具挂载在技能详情的「工具与知识」页：SkillLifecycleV2 列表行不再直接渲染它。 */
+/** 工具挂载在技能详情的现行「工具」标签：SkillLifecycleV2 列表行不直接渲染它。 */
 async function openFirstSkillDependencies(page: Page) {
   await page.locator(".skill-v2-row").first().click();
-  await page.getByRole("button", { name: "工具与知识" }).click();
+  await page.getByRole("button", { name: "工具", exact: true }).click();
   return page.locator("[data-skill-tool-bindings]").first();
 }
 

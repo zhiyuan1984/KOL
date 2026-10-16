@@ -22,6 +22,12 @@ const DOT: Record<string, string> = {
   archived: "var(--text-muted)",
 };
 
+/** A successfully returned GROUP BY map omits zero groups; malformed values are unknown. */
+function aggregateCount(value: unknown): number | null {
+  if (value === undefined) return 0;
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
 /**
  * 知识资产状态条（中栏顶部，列表之上）：
  * - 连续紧凑分布条（DESIGN §9.2）：状态点＋标签、真实数字、占比/最长等待。
@@ -30,17 +36,23 @@ const DOT: Record<string, string> = {
  */
 export default function AssetStatStrip({ stats, loading, error, reload, view, onView }: Props) {
   const segments = useMemo(() => {
-    const s = stats?.status || {};
+    const s = stats?.status;
+    if (!s || typeof s !== "object" || Array.isArray(s)) return null;
+    const draft = aggregateCount(s.draft);
+    const pending = aggregateCount(s.pending_review);
+    const published = aggregateCount(s.published);
+    const archived = aggregateCount(s.archived);
+    if (draft === null || pending === null || published === null || archived === null) return null;
     return kbStatusSegments({
-      draft: s.draft || 0,
-      pending: s.pending_review || 0,
-      published: s.published || 0,
-      archived: s.archived || 0,
-      total: (s.draft || 0) + (s.pending_review || 0) + (s.published || 0) + (s.archived || 0),
+      draft,
+      pending,
+      published,
+      archived,
+      total: draft + pending + published + archived,
     });
   }, [stats]);
-  const total = segments.reduce((sum, segment) => sum + segment.value, 0);
-  const pendingWait = stats?.pending_review?.max_wait_days ?? 0;
+  const total = segments?.reduce((sum, segment) => sum + segment.value, 0) ?? 0;
+  const pendingWait = aggregateCount(stats?.pending_review?.max_wait_days) ?? 0;
 
   return (
     <section className="kbv-asset-strip" data-kbv-asset-strip aria-label="按知识资产状态筛选" aria-busy={loading || undefined}>
@@ -51,6 +63,8 @@ export default function AssetStatStrip({ stats, loading, error, reload, view, on
         <p role="alert">资产分布读取失败：{error} <button type="button" className="kbv-text-action" onClick={reload}>重试</button></p>
       ) : !stats ? (
         <p className="muted" role="status">正在加载资产分布…</p>
+      ) : !segments ? (
+        <p role="alert">资产分布统计不完整，暂不显示为零。<button type="button" className="kbv-text-action" onClick={reload}>重试</button></p>
       ) : (
         <div className="kbv-asset-strip-segments">{segments.map((segment) => {
           const active = view === segment.view;

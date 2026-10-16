@@ -22,9 +22,23 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
     let response = await context.post("/api/auth/login", {
       data: { username, email: username, password },
     });
-    // Demo/stub mode intentionally disables the real session endpoint. The
-    // legacy internal login still establishes the product-manager persona.
+    // An auth-enabled E2E server runs against an empty, isolated PostgreSQL
+    // clone. Seed the native administrator only when its own status endpoint
+    // explicitly says setup is required; the setup response creates the same
+    // HttpOnly session that subsequent browser requests must present.
     if (!response.ok()) {
+      const status = await context.get("/api/auth/status");
+      const auth = status.ok() ? await status.json() as { setup_required?: boolean } : {};
+      if (auth.setup_required) {
+        response = await context.post("/api/auth/setup", {
+          data: { username, email: username, password },
+        });
+      }
+    }
+    // Stub mode intentionally disables the native session endpoint. Only in
+    // that mode may the legacy internal persona endpoint provide the fixture
+    // identity; auth-enabled runs must keep the PostgreSQL session above.
+    if (!response.ok() && process.env.E2E_AUTH_MODE !== "enabled") {
       response = await context.post("/api/login", {
         data: { username, password },
       });

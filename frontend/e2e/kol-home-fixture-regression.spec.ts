@@ -8,29 +8,46 @@ const followed = ["阶段甲", "阶段乙"].map((handle, i) => ({
   last_interaction_at: new Date().toISOString(), days_since_interaction: 2, followers: "76万",
   mail_threads: [{ conversation_id: `thread-${i}`, last_direction: "inbound", subject: "Re: 合作", last_snippet: "我对这次合作有兴趣", last_at: new Date().toISOString(), unread_count: 0 }],
 }));
+const boardOnly = followed.map((row, i) => ({ ...row, id: `board-${i}`, kol_uid: `board-${i}`, handle: `仅看板-${i}` }));
 const pool = [{ kol_uid: "pool-a", handle: "City Prepping", platform: "youtube", avatar_url: avatar,
   followers: 1270000, avg_plays: 1010000, region: "United States", direction: "户外", potential_score: 18, potential_confidence: 0.62,
   ingested_at: "2026-09-23T00:00:00Z" }];
-async function fixture(page: Page) {
-  const writes: Array<{ method: string; path: string; body: Record<string, unknown> | null }> = [], errors: string[] = [];
+async function fixture(page: Page, { followingStatus = 200 }: { followingStatus?: number } = {}) {
+  const writes: Array<{ method: string; path: string; body: Record<string, unknown> | null }> = [], reads: string[] = [], errors: string[] = [];
   let claimed = false;
   page.on("pageerror", e => errors.push(e.message));
   await page.route("**/api/**", async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const body = request.postDataJSON?.() as Record<string, unknown> | null;
+    if (request.method() === "GET") reads.push(path);
     if (request.method() !== "GET") writes.push({ method: request.method(), path, body });
     let json: unknown = [];
     if (path === "/api/auth/status") json = { authenticated: true, account: { id: "employee", name: "员工", available_modes: ["employee"] } };
+    // Auth status and /me must agree on the verified account scope. Otherwise
+    // each read changes the privacy cache key and leaves the list loading.
     else if (path === "/api/me") json = { id: "employee", name: "员工", available_modes: ["employee"] };
     else if (path === "/api/preferences") json = { theme: "light" };
-    else if (path === "/api/home/following") json = { entry: "memory", kind: "memory", kols: claimed ? [...followed, {
-      id: "follow-pool-a", follow_id: "follow-pool-a", kol_uid: "pool-a", handle: "City Prepping", platform: "youtube", status: "active",
-      stage_code: "INITIAL_CONTACT", stage_label: "初步接触", last_interaction_at: null, countdown: false,
-      source_kind: "local_follow",
-    }] : followed, authority: "kol_follow_index+verified_starry_binding", completeness: "complete",
-      follow_scope: { required: false, bound: false }, creates_session: false, calls_model: false };
-    else if (path === "/api/home/board") json = { kols: followed, follow_scope: { required: false, bound: false }, workbench: {} };
+    else if (path === "/api/home/following") {
+      if (followingStatus === 409) {
+        await route.fulfill({
+          status: 409,
+          contentType: "application/json",
+          body: JSON.stringify({ detail: { code: "following_scope_conflict", message: "当前跟进范围已变化，请重新核对。" } }),
+        });
+        return;
+      }
+      json = { entry: "memory", kind: "memory", items: claimed ? [...followed, {
+        id: "follow-pool-a", follow_id: "follow-pool-a", kol_uid: "pool-a", handle: "City Prepping", platform: "youtube", status: "active",
+        stage_code: "INITIAL_CONTACT", stage_label: "初步接触", last_interaction_at: null, countdown: false,
+        source_kind: "local_follow",
+      }] : followed,
+        // The service's canonical authority joins its local follow index with a
+        // separately explicit verified Starry binding; complete means no board fallback.
+        authority: "kol_follow_index+verified_starry_binding", completeness: "complete",
+        follow_scope: { required: false, bound: false }, creates_session: false, calls_model: false };
+    }
+    else if (path === "/api/home/board") json = { kols: boardOnly, follow_scope: { required: false, bound: false }, workbench: {} };
     else if (path === "/api/home/pool") json = { entry: "memory", kind: "memory", items: pool, kols: pool, creates_session: false, calls_model: false };
     else if (path === "/api/kols/pool-a/claim" && request.method() === "POST") {
       claimed = true;
@@ -42,7 +59,7 @@ async function fixture(page: Page) {
     if (path.endsWith("/events")) return route.fulfill({ contentType: "text/event-stream", body: "" });
     await route.fulfill({ json });
   });
-  return { writes, errors };
+  return { writes, reads, errors };
 }
 
 test("real Home routes use shared KOL geometry and selection never writes", async ({ page }, info) => {
@@ -99,6 +116,21 @@ test("real followed cards preserve keyboard emphasis and scroll hover does not s
   await expect(a).toHaveAttribute("data-cta-emphasis", "strong");
   await expect(b).toHaveAttribute("data-cta-emphasis", "quiet");
   await expect(a.locator("[data-confirm-enter-stage]")).toHaveClass(/work/);
+  expect(f.writes).toEqual([]);
+  expect(f.errors).toEqual([]);
+});
+
+test("following 409 stays a denied read and never falls back to board data", async ({ page }) => {
+  const f = await fixture(page, { followingStatus: 409 });
+  await page.goto("/?tab=lifecycle");
+
+  await expect(page.getByText("跟进列表读取失败")).toBeVisible({ timeout: 20000 });
+  await expect(page.locator("[data-follow-down-reason]")).toHaveAttribute("title", "当前跟进范围已变化，请重新核对。");
+  expect(f.reads).toContain("/api/home/following");
+  await expect(page.locator('[data-kol-unified="followed"], [data-followed-kol]')).toHaveCount(0);
+  await expect(page.getByText("仅看板-0")).toHaveCount(0);
+  // A rejected read must not synthesize an authorized follow list or trigger a
+  // recovery write; only a new server-authorized read can recover this state.
   expect(f.writes).toEqual([]);
   expect(f.errors).toEqual([]);
 });

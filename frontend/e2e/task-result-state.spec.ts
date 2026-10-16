@@ -8,7 +8,7 @@ import { test, expect } from "@playwright/test";
 for (const [agent, ready, label, tone, glyph] of [
   ["listening", true, "", "", ""],
   ["listening", false, "", "", ""],
-  ["waiting_approval", true, "待确认 · 需要你确认后才会执行", "confirm", "⚠"],
+  ["waiting_approval", true, "待你确认", "confirm", "⚠"],
 ] as const) {
   test(`task result state ${label || (ready ? "result ready" : "awaiting review")} keeps results in the stream and an index on the right`, async ({ page }) => {
     const sid = "result-state-session";
@@ -47,19 +47,24 @@ for (const [agent, ready, label, tone, glyph] of [
     await expect(page.locator(".session-center [data-run-status]")).toHaveCount(0);
     await expect(page.locator("[data-task-analysis-summary]")).toHaveCount(0);
     // 中栏三段式：页头与输入框固定在滚动区之外，只有消息流在滚（DESIGN §10.1）。
-    await expect(page.locator(".session-center > header.task-detail-header")).toHaveCount(1);
-    await expect(page.locator("[data-session-stream-pane] .task-detail-header")).toHaveCount(0);
+    await expect(page.locator(".session-center .session-workspace-header")).toHaveCount(1);
+    await expect(page.locator("[data-session-stream-pane] .session-workspace-header")).toHaveCount(0);
     await expect(page.locator("[data-session-stream-pane] .session-composer")).toHaveCount(0);
     const trace = page.locator('[data-kind="operation-trace"]');
     await expect(trace).toContainText("系统能力调用记录");
     await expect(trace).toContainText("失败");
     await expect(trace).toContainText("已中断");
     await expect(trace).not.toContainText("正在处理这项工作");
-    // 结果卡在中栏时间流里完整出现；右栏只列目录，点击定位到那张卡。
+    // Current native sessions keep a concise pointer in the stream and the full
+    // result in the rail; the pointer must still give an explicit reveal action.
     const card = page.locator('[data-session-stream-pane] [data-stream-entry="result"]');
-    await expect(card).toContainText("未检索到可引用的产品资料");
-    await expect(workbench.locator('[data-result-entry="result"]')).toContainText("产品咨询");
-    await workbench.locator('[data-result-entry="result"]').click();
-    await expect(card).toBeInViewport();
+    await expect(card).toHaveAttribute("data-kind", "task-result-pointer");
+    await expect(card).toContainText("产品规格资料仍为草稿，尚未提交审批。");
+    const reveal = card.getByRole("button", { name: "查看成果" });
+    await expect(reveal).toBeVisible();
+    await reveal.click();
+    const fullResult = workbench.locator('[data-result-message="result"] [data-kind="task-result-card"]');
+    await expect(fullResult).toContainText("未检索到可引用的产品资料");
+    await expect(fullResult).toBeInViewport();
   });
 }

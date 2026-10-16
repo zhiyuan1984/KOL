@@ -1,10 +1,28 @@
-import { assertConnectorCredentialStorage } from "../connectors/catalog.js";
-import { asRow, asRows, getConn, nowIso, txImmediate } from "../db.js";
+import { assertConnectorCredentialStorage, ensureManagedConnectorCatalog } from "../connectors/catalog.js";
 import { runtimeAgentBindingManifest } from "../contract-scope.js";
 import { HttpFail } from "../host/errors.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
 import type { Row } from "../types.js";
+import {
+  RuntimeVersionConflict,
+  pgRuntimeBootstrap,
+  pgRuntimeConnectorExists,
+  pgRuntimeConnectorInUseBySkill,
+  pgRuntimeGetAgentSkills,
+  pgRuntimeGetConnectorConfig,
+  pgRuntimeGetConnectorPolicies,
+  pgRuntimeGetSkillConnectors,
+  pgRuntimeGetSkillTool,
+  pgRuntimeGetSkillTools,
+  pgRuntimeGetToolPolicy,
+  pgRuntimeListSkillConnectorBindings,
+  pgRuntimeListSkillToolBindings,
+  pgRuntimeSetAgentSkills,
+  pgRuntimeVersionedUpsert,
+  type RuntimeVersionedTable,
+} from "../postgres/runtime-governance-repository.js";
 import { PLATFORM_SYNC_AGENT, PLATFORM_SYNC_SKILLS } from "./platform-principal.js";
+import { currentTransactionClient, requiredPostgresUrl } from "../postgres/pool.js";
 
 export type HttpTool = {
   name: string;
@@ -17,25 +35,15 @@ export type HttpTool = {
   output_path?: string;
 };
 
-/**
- * Connector configuration is deliberately reference-only.  No header or bearer
- * values are accepted here; environment variable and credential-vault ids are
- * resolved only immediately before an outbound request.
- */
+/** Connector configuration only contains references; credential values are resolved at request time. */
 export type ConnectorConfig = {
-  /** Omitted means MCP for compatibility with existing persisted configurations. */
   protocol?: "mcp" | "http";
-  /**
-   * MCP wire transport. Only the MCP protocol has a transport choice; omitted
-   * means streamable-http so existing persisted configurations keep working.
-   */
   transport?: "streamable-http" | "sse";
   url?: string;
   url_env?: string;
   headers_env?: Record<string, string>;
   bearer_env?: string;
   credential_provider?: string;
-  /** Generic account selector consumed only by a registered credential provider. */
   credential_account_id?: string;
   allow_unauthenticated?: boolean;
   timeout_ms?: number;
@@ -44,7 +52,6 @@ export type ConnectorConfig = {
   http_tools?: HttpTool[];
 };
 
-const initializedConnections = new WeakSet<object>();
 const MAX_IDENTIFIER_LENGTH = 160;
 const MAX_TOOL_NAME_LENGTH = 320;
 const MAX_URL_LENGTH = 2048;
@@ -63,200 +70,71 @@ const RESERVED_HEADERS = new Set([
 const PLATFORM_PLANNER_AGENT = "agent:workspace-planner";
 const PLATFORM_PLANNER_SKILLS = ["today_plan", "todo_plan", "today_analyze"] as const;
 
-/**
- * One deliberate production migration for the platform-owned, read-only work
- * planner. It never changes an existing admin decision: an already present
- * Agent→Skill row, including a disabled row, wins over this bootstrap.
- */
-function bootstrapWorkspacePlanner(db: ReturnType<typeof getConn>): void {
-  const migration = "runtime.workspace-planner.v1";
-  if (db.prepare("SELECT 1 FROM runtime_bootstrap_migrations WHERE id=?").get(migration)) return;
-  const definitions = new Map(taskDefinitions().map((definition) => [definition.id, definition]));
+let schemaReady: Promise<void> | null = null;
+let schemaReadyDatabase: string | null = null;
+
+async function bootstrapWorkspacePlanner(): Promise<void> {
+  const definitions = new Map((await taskDefinitions()).map((definition) => [definition.id, definition]));
   for (const skillId of PLATFORM_PLANNER_SKILLS) {
     const definition = definitions.get(skillId);
     if (!definition || definition.runtime_agent_id !== PLATFORM_PLANNER_AGENT || definition.runtime_access !== "authenticated") {
       throw new Error(`invalid workspace planner declaration: ${skillId}`);
     }
   }
-  const now = nowIso();
-  txImmediate((tx) => {
-    for (const skillId of PLATFORM_PLANNER_SKILLS) {
-      tx.prepare(
-        `INSERT INTO runtime_agent_skills (agent_id,skill_id,enabled,version,updated_at)
-         SELECT ?,?,?,?,? WHERE NOT EXISTS (
-           SELECT 1 FROM runtime_agent_skills WHERE agent_id=? AND skill_id=?
-         )`,
-      ).run(PLATFORM_PLANNER_AGENT, skillId, 1, 1, now, PLATFORM_PLANNER_AGENT, skillId);
-      // These bundled platform skills are shipped as a reviewed release. Do not
-      // revive a deliberately disabled / testing lifecycle state on a later boot.
-      tx.prepare(
-        `INSERT INTO skill_lifecycle (skill_id,stage,updated_at)
-         SELECT ?,?,? WHERE NOT EXISTS (SELECT 1 FROM skill_lifecycle WHERE skill_id=?)`,
-      ).run(skillId, "published", now, skillId);
-      tx.prepare(
-        "UPDATE skill_lifecycle SET stage='published',updated_at=? WHERE skill_id=? AND stage='draft'",
-      ).run(now, skillId);
-    }
-    tx.prepare("INSERT INTO runtime_bootstrap_migrations (id,applied_at) VALUES (?,?)").run(migration, now);
-    tx.prepare("INSERT INTO audit_events (ts,actor,event_type,payload) VALUES (?,?,?,?)").run(
-      now,
-      "system:runtime-bootstrap",
-      "runtime.workspace_planner.migrated",
-      JSON.stringify({ agent_id: PLATFORM_PLANNER_AGENT, skills: PLATFORM_PLANNER_SKILLS, migration }),
-    );
+  await pgRuntimeBootstrap({
+    migration: "runtime.workspace-planner.v1", agentId: PLATFORM_PLANNER_AGENT, skills: PLATFORM_PLANNER_SKILLS,
+    publishSkills: PLATFORM_PLANNER_SKILLS, auditType: "runtime.workspace_planner.migrated",
+    auditPayload: JSON.stringify({ agent_id: PLATFORM_PLANNER_AGENT, skills: PLATFORM_PLANNER_SKILLS, migration: "runtime.workspace-planner.v1" }),
   });
 }
 
-/**
- * 平台系统智能体的出厂装配（一次性迁移）：只装只读技能。已有行（含停用）一律保留，不复活。
- * 技能本身的生命周期、连接器与工具挂载仍由管理端决定；没挂好时后台同步如实失败。
- */
-function bootstrapPlatformSync(db: ReturnType<typeof getConn>): void {
-  const migration = "runtime.platform-sync.v1";
-  if (db.prepare("SELECT 1 FROM runtime_bootstrap_migrations WHERE id=?").get(migration)) return;
-  const definitions = new Map(taskDefinitions().map((definition) => [definition.id, definition]));
-  const now = nowIso();
-  txImmediate((tx) => {
-    for (const skillId of PLATFORM_SYNC_SKILLS) {
-      const definition = definitions.get(skillId);
-      if (!definition || definition.side_effects !== "none") throw new Error(`invalid platform sync skill: ${skillId}`);
-      tx.prepare(
-        `INSERT INTO runtime_agent_skills (agent_id,skill_id,enabled,version,updated_at)
-         SELECT ?,?,?,?,? WHERE NOT EXISTS (
-           SELECT 1 FROM runtime_agent_skills WHERE agent_id=? AND skill_id=?
-         )`,
-      ).run(PLATFORM_SYNC_AGENT, skillId, 1, 1, now, PLATFORM_SYNC_AGENT, skillId);
-    }
-    tx.prepare("INSERT INTO runtime_bootstrap_migrations (id,applied_at) VALUES (?,?)").run(migration, now);
-    tx.prepare("INSERT INTO audit_events (ts,actor,event_type,payload) VALUES (?,?,?,?)").run(
-      now, "system:runtime-bootstrap", "runtime.platform_sync.migrated",
-      JSON.stringify({ agent_id: PLATFORM_SYNC_AGENT, skills: PLATFORM_SYNC_SKILLS, migration }),
-    );
+async function bootstrapPlatformSync(): Promise<void> {
+  const definitions = new Map((await taskDefinitions()).map((definition) => [definition.id, definition]));
+  for (const skillId of PLATFORM_SYNC_SKILLS) {
+    const definition = definitions.get(skillId);
+    if (!definition || definition.side_effects !== "none") throw new Error(`invalid platform sync skill: ${skillId}`);
+  }
+  await pgRuntimeBootstrap({
+    migration: "runtime.platform-sync.v1", agentId: PLATFORM_SYNC_AGENT, skills: PLATFORM_SYNC_SKILLS,
+    auditType: "runtime.platform_sync.migrated",
+    auditPayload: JSON.stringify({ agent_id: PLATFORM_SYNC_AGENT, skills: PLATFORM_SYNC_SKILLS, migration: "runtime.platform-sync.v1" }),
   });
 }
 
-/**
- * One-way bootstrap for a reviewed business Agent manifest.
- *
- * The Agent manifest is the sole source for executable Agent → Skill bindings.
- * An Expert manifest describes an employee-facing entry point and deliberately
- * has no effect here. Missing rows are inserted only; an existing disabled
- * binding, lifecycle state, policy or tool grant is always preserved.
- */
-function bootstrapAgentManifestBindings(db: ReturnType<typeof getConn>, agentId: string): void {
+async function bootstrapAgentManifestBindings(agentId: string): Promise<void> {
   const manifest = runtimeAgentBindingManifest(agentId);
-  const migration = `runtime.agent-manifest-bindings.${manifest.id}.${manifest.version}`;
-  if (db.prepare("SELECT 1 FROM runtime_bootstrap_migrations WHERE id=?").get(migration)) return;
   if (manifest.status !== "production") throw new Error(`runtime agent manifest is not production: ${manifest.id}`);
-
-  const definitions = new Map(taskDefinitions().map((definition) => [definition.id, definition]));
-  const now = nowIso();
-  txImmediate((tx) => {
-    for (const skillId of manifest.skills) {
-      const definition = definitions.get(skillId);
-      if (!definition || definition.runtime_agent_id !== manifest.id) {
-        throw new Error(`invalid agent skill declaration: ${manifest.id} → ${skillId}`);
-      }
-      tx.prepare(
-        `INSERT INTO runtime_agent_skills (agent_id,skill_id,enabled,version,updated_at)
-         SELECT ?,?,?,?,? WHERE NOT EXISTS (
-           SELECT 1 FROM runtime_agent_skills WHERE agent_id=? AND skill_id=?
-         )`,
-      ).run(manifest.id, skillId, 1, 1, now, manifest.id, skillId);
-      // A bundled skill declared in this reviewed Agent release must be usable
-      // on first boot. A deliberate testing/disabled state is never revived.
-      tx.prepare(
-        `INSERT INTO skill_lifecycle (skill_id,stage,updated_at)
-         SELECT ?,?,? WHERE NOT EXISTS (SELECT 1 FROM skill_lifecycle WHERE skill_id=?)`,
-      ).run(skillId, "published", now, skillId);
-      tx.prepare(
-        "UPDATE skill_lifecycle SET stage='published',updated_at=? WHERE skill_id=? AND stage='draft'",
-      ).run(now, skillId);
-
-    }
-    tx.prepare("INSERT INTO runtime_bootstrap_migrations (id,applied_at) VALUES (?,?)").run(migration, now);
-    tx.prepare("INSERT INTO audit_events (ts,actor,event_type,payload) VALUES (?,?,?,?)").run(
-      now,
-      "system:runtime-bootstrap",
-      "runtime.agent_manifest.migrated",
-      JSON.stringify({ agent_id: manifest.id, agent_version: manifest.version, skills: manifest.skills, connectors: manifest.connectors, migration }),
-    );
+  const definitions = new Map((await taskDefinitions()).map((definition) => [definition.id, definition]));
+  for (const skillId of manifest.skills) {
+    const definition = definitions.get(skillId);
+    if (!definition || definition.runtime_agent_id !== manifest.id) throw new Error(`invalid agent skill declaration: ${manifest.id} → ${skillId}`);
+  }
+  const migration = `runtime.agent-manifest-bindings.${manifest.id}.${manifest.version}`;
+  await pgRuntimeBootstrap({
+    migration, agentId: manifest.id, skills: manifest.skills, publishSkills: manifest.skills,
+    auditType: "runtime.agent_manifest.migrated",
+    auditPayload: JSON.stringify({ agent_id: manifest.id, agent_version: manifest.version, skills: manifest.skills, connectors: manifest.connectors, migration }),
   });
 }
 
-/**
- * Lazily creates only runtime-governance tables. A WeakSet deliberately keys
- * by connection instance so an isolated test reset receives the schema again.
- */
-export function ensureRuntimeSchema(): void {
-  const db = getConn();
-  if (initializedConnections.has(db)) return;
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS runtime_agent_skills (
-      agent_id TEXT NOT NULL,
-      skill_id TEXT NOT NULL,
-      enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
-      version INTEGER NOT NULL CHECK (version >= 0),
-      updated_at TEXT NOT NULL,
-      PRIMARY KEY (agent_id, skill_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS runtime_skill_connectors (
-      skill_id TEXT NOT NULL,
-      connector_id TEXT NOT NULL,
-      enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
-      version INTEGER NOT NULL CHECK (version >= 0),
-      updated_at TEXT NOT NULL,
-      PRIMARY KEY (skill_id, connector_id),
-      FOREIGN KEY (connector_id) REFERENCES connectors(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS runtime_skill_tools (
-      skill_id TEXT NOT NULL,
-      connector_id TEXT NOT NULL,
-      tool_name TEXT NOT NULL,
-      enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
-      version INTEGER NOT NULL CHECK (version >= 0),
-      updated_at TEXT NOT NULL,
-      PRIMARY KEY (skill_id, connector_id, tool_name),
-      FOREIGN KEY (connector_id) REFERENCES connectors(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS runtime_connector_config (
-      connector_id TEXT PRIMARY KEY,
-      config_json TEXT NOT NULL,
-      version INTEGER NOT NULL CHECK (version >= 0),
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (connector_id) REFERENCES connectors(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS runtime_tool_policies (
-      connector_id TEXT NOT NULL,
-      tool_name TEXT NOT NULL,
-      enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
-      risk TEXT NOT NULL CHECK (risk IN ('L1', 'L2', 'L3')),
-      access TEXT NOT NULL CHECK (access IN ('read', 'write')),
-      schema_hash TEXT NOT NULL CHECK (
-        length(schema_hash) = 64
-        AND schema_hash NOT GLOB '*[^0123456789abcdef]*'
-      ),
-      version INTEGER NOT NULL CHECK (version >= 0),
-      updated_at TEXT NOT NULL,
-      PRIMARY KEY (connector_id, tool_name),
-      FOREIGN KEY (connector_id) REFERENCES connectors(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS runtime_bootstrap_migrations (
-      id TEXT PRIMARY KEY,
-      applied_at TEXT NOT NULL
-    );
-  `);
-
-  bootstrapWorkspacePlanner(db);
-  bootstrapAgentManifestBindings(db, "agent:kol");
-  bootstrapPlatformSync(db);
-  initializedConnections.add(db);
+/** Schema ownership belongs to formal PostgreSQL migrations; this function only performs reviewed one-way bootstrap rows. */
+export async function ensureRuntimeSchema(): Promise<void> {
+  const database = requiredPostgresUrl();
+  if (schemaReady && schemaReadyDatabase === database) return schemaReady;
+  const initialize = async () => {
+    await ensureManagedConnectorCatalog();
+    await bootstrapWorkspacePlanner();
+    await bootstrapAgentManifestBindings("agent:kol");
+    await bootstrapPlatformSync();
+  };
+  if (currentTransactionClient()) { await initialize(); return; }
+  const current = initialize();
+  schemaReady = current;
+  schemaReadyDatabase = database;
+  try { await current; } catch (error) {
+    if (schemaReady === current) { schemaReady = null; schemaReadyDatabase = null; }
+    throw error;
+  }
 }
 
 function invalid(message: string): never {
@@ -300,15 +178,8 @@ function assertReferenceId(value: unknown, name: string): string {
   return value;
 }
 
-export function assertRuntimeConnectorExists(connectorId: string): void {
-  ensureRuntimeSchema();
-  if (!getConn().prepare("SELECT 1 FROM connectors WHERE id=?").get(connectorId)) {
-    throw new HttpFail(404, "connector not found");
-  }
-}
-
-function assertTaskDefinition(skillId: string): void {
-  if (!taskDefinition(skillId)) throw new HttpFail(404, "skill not found");
+async function assertTaskDefinition(skillId: string): Promise<Awaited<void>> {
+  if (!(await taskDefinition(skillId))) throw new HttpFail(404, "skill not found");
 }
 
 function assertKnownKeys(value: Record<string, unknown>, allowed: readonly string[], name: string): void {
@@ -507,112 +378,97 @@ export function validateConnectorConfig(value: unknown): ConnectorConfig {
   return config;
 }
 
-function mustRow(value: unknown): Row {
-  if (!value) throw new HttpFail(500, "runtime governance write failed");
-  return asRow(value);
+
+function nowIso(): string { return new Date().toISOString(); }
+
+function runtimeConflict(message = "runtime governance version conflict"): never {
+  throw new HttpFail(409, message);
 }
 
-type VersionedTable = "runtime_agent_skills" | "runtime_skill_connectors" | "runtime_skill_tools" | "runtime_connector_config" | "runtime_tool_policies";
-function versionedUpsert(
-  table: VersionedTable,
-  keyColumns: readonly string[],
+function versionConflict(error: unknown, message?: string): never | void {
+  if (error instanceof RuntimeVersionConflict) runtimeConflict(message);
+}
+
+async function requireConnector(connectorId: string): Promise<void> {
+  if (!await pgRuntimeConnectorExists(connectorId)) throw new HttpFail(404, "connector not found");
+}
+
+export async function assertRuntimeConnectorExists(connectorId: string): Promise<void> {
+  await ensureRuntimeSchema();
+  await requireConnector(connectorId);
+}
+
+async function assertAgentAssemblyMutable(client: { query: Function }, agentId: string): Promise<void> {
+  const row = (await client.query("SELECT workspace_managed FROM managed_agents WHERE id=$1 FOR UPDATE", [agentId])).rows[0] as Row | undefined;
+  if (row?.workspace_managed) throw new HttpFail(409, "此 Agent 的装配需保存修订草稿并确认发布");
+}
+
+async function versionedUpsert(
+  table: RuntimeVersionedTable,
   keyValues: readonly unknown[],
   createColumns: readonly string[],
   createValues: readonly unknown[],
-  updateAssignments: readonly string[],
+  updateColumns: readonly string[],
   expectedVersion: number,
-): Row {
+  check?: (client: { query: Function }) => Promise<void>,
+): Promise<Row> {
   const expected = assertExpectedVersion(expectedVersion);
-  ensureRuntimeSchema();
-  return txImmediate((db) => {
-    if (table === "runtime_agent_skills") assertAgentAssemblyMutable(String(keyValues[0]), true);
-    const where = keyColumns.map((column) => `${column}=?`).join(" AND ");
-    const existing = db.prepare(`SELECT version FROM ${table} WHERE ${where}`).get(...keyValues) as Row | undefined;
-    if (!existing) {
-      if (expected !== 0) conflict("runtime governance version conflict");
-      db.prepare(`INSERT INTO ${table} (${createColumns.join(",")}) VALUES (${createColumns.map(() => "?").join(",")})`).run(...createValues);
-    } else {
-      const actual = Number(existing.version);
-      if (actual !== expected) conflict("runtime governance version conflict");
-      const result = db.prepare(`UPDATE ${table} SET ${updateAssignments.join(",")}, version=?, updated_at=? WHERE ${where} AND version=?`).run(
-        ...createValues.slice(keyColumns.length, keyColumns.length + updateAssignments.length), actual + 1, nowIso(), ...keyValues, actual,
-      );
-      if (!result.changes) conflict("runtime governance version conflict");
-    }
-    return mustRow(db.prepare(`SELECT * FROM ${table} WHERE ${where}`).get(...keyValues));
-  });
+  try {
+    return await pgRuntimeVersionedUpsert({ table, keys: keyValues, createColumns, createValues, updateColumns, expectedVersion: expected,
+      check: check as never });
+  } catch (error) { versionConflict(error); throw error; }
 }
 
-export function getAgentSkills(agentId: string): Row[] {
+export async function getAgentSkills(agentId: string): Promise<Row[]> {
   const id = assertIdentifier(agentId, "agent_id");
-  ensureRuntimeSchema();
-  return asRows(getConn().prepare("SELECT * FROM runtime_agent_skills WHERE agent_id=? ORDER BY skill_id").all(id));
+  await ensureRuntimeSchema();
+  return pgRuntimeGetAgentSkills(id);
 }
 
-export function getSkillConnectors(skillId: string): Row[] {
+export async function getSkillConnectors(skillId: string): Promise<Row[]> {
   const id = assertIdentifier(skillId, "skill_id");
-  assertTaskDefinition(id);
-  ensureRuntimeSchema();
-  return asRows(getConn().prepare("SELECT * FROM runtime_skill_connectors WHERE skill_id=? ORDER BY connector_id").all(id));
+  (await assertTaskDefinition(id));
+  await ensureRuntimeSchema();
+  return pgRuntimeGetSkillConnectors(id);
 }
 
-export function getSkillTools(skillId: string, connectorId?: string): Row[] {
+export async function getSkillTools(skillId: string, connectorId?: string): Promise<Row[]> {
   const skill = assertIdentifier(skillId, "skill_id");
-  assertTaskDefinition(skill);
-  ensureRuntimeSchema();
-  if (connectorId === undefined) return asRows(getConn().prepare(
-    "SELECT * FROM runtime_skill_tools WHERE skill_id=? ORDER BY connector_id,tool_name",
-  ).all(skill));
-  const connector = assertIdentifier(connectorId, "connector_id");
-  return asRows(getConn().prepare(
-    "SELECT * FROM runtime_skill_tools WHERE skill_id=? AND connector_id=? ORDER BY tool_name",
-  ).all(skill, connector));
+  (await assertTaskDefinition(skill));
+  const connector = connectorId === undefined ? undefined : assertIdentifier(connectorId, "connector_id");
+  await ensureRuntimeSchema();
+  return pgRuntimeGetSkillTools(skill, connector);
 }
 
-export function getSkillTool(skillId: string, connectorId: string, toolName: string): Row | undefined {
+export async function getSkillTool(skillId: string, connectorId: string, toolName: string): Promise<Row | undefined> {
   const skill = assertIdentifier(skillId, "skill_id");
   const connector = assertIdentifier(connectorId, "connector_id");
   const tool = assertIdentifier(toolName, "tool_name", MAX_TOOL_NAME_LENGTH);
-  assertTaskDefinition(skill);
-  ensureRuntimeSchema();
-  const row = getConn().prepare(
-    "SELECT * FROM runtime_skill_tools WHERE skill_id=? AND connector_id=? AND tool_name=?",
-  ).get(skill, connector, tool);
-  return row ? asRow(row) : undefined;
+  (await assertTaskDefinition(skill));
+  await ensureRuntimeSchema();
+  return pgRuntimeGetSkillTool(skill, connector, tool);
 }
 
-/** 只读全表行，供技能覆盖读模型一次聚合，避免按技能逐条查询。 */
-export function listSkillConnectorBindings(): Row[] {
-  ensureRuntimeSchema();
-  return asRows(getConn().prepare("SELECT * FROM runtime_skill_connectors ORDER BY skill_id,connector_id").all());
+export async function listSkillConnectorBindings(): Promise<Row[]> {
+  await ensureRuntimeSchema();
+  return pgRuntimeListSkillConnectorBindings();
 }
 
-export function listSkillToolBindings(): Row[] {
-  ensureRuntimeSchema();
-  return asRows(getConn().prepare("SELECT * FROM runtime_skill_tools ORDER BY skill_id,connector_id,tool_name").all());
+export async function listSkillToolBindings(): Promise<Row[]> {
+  await ensureRuntimeSchema();
+  return pgRuntimeListSkillToolBindings();
 }
 
-/**
- * Enable gate for connectors: a connector is "in use" when an enabled
- * Skill→Connector binding mounts at least one enabled Skill→Tool binding of
- * that connector. Per-person connector authorization is retired
- * (DECISIONS.md ADR-2026-09-27「对外只暴露技能」).
- */
-export function connectorInUseBySkill(connectorId: string): boolean {
+export async function connectorInUseBySkill(connectorId: string): Promise<boolean> {
   const connector = assertIdentifier(connectorId, "connector_id");
-  ensureRuntimeSchema();
-  const row = getConn().prepare(
-    `SELECT 1 FROM runtime_skill_tools t
-       JOIN runtime_skill_connectors c ON c.skill_id=t.skill_id AND c.connector_id=t.connector_id
-      WHERE t.connector_id=? AND t.enabled=1 AND c.enabled=1 LIMIT 1`,
-  ).get(connector);
-  return Boolean(row);
+  await ensureRuntimeSchema();
+  return pgRuntimeConnectorInUseBySkill(connector);
 }
 
-export function getConnectorConfig(id: string): { config: ConnectorConfig; version: number } | undefined {
+export async function getConnectorConfig(id: string): Promise<{ config: ConnectorConfig; version: number } | undefined> {
   const connectorId = assertIdentifier(id, "connector_id");
-  assertRuntimeConnectorExists(connectorId);
-  const row = getConn().prepare("SELECT config_json,version FROM runtime_connector_config WHERE connector_id=?").get(connectorId) as Row | undefined;
+  await assertRuntimeConnectorExists(connectorId);
+  const row = await pgRuntimeGetConnectorConfig(connectorId);
   if (!row) return undefined;
   let decoded: unknown;
   try { decoded = JSON.parse(String(row.config_json)); } catch { throw new HttpFail(500, "stored runtime connector config is invalid"); }
@@ -621,125 +477,98 @@ export function getConnectorConfig(id: string): { config: ConnectorConfig; versi
   return { config, version: Number(row.version) };
 }
 
-export function getToolPolicy(id: string, name: string): Row | undefined {
+export async function getToolPolicy(id: string, name: string): Promise<Row | undefined> {
   const connectorId = assertIdentifier(id, "connector_id");
   const toolName = assertIdentifier(name, "tool_name", MAX_TOOL_NAME_LENGTH);
-  assertRuntimeConnectorExists(connectorId);
-  ensureRuntimeSchema();
-  const row = getConn().prepare("SELECT * FROM runtime_tool_policies WHERE connector_id=? AND tool_name=?").get(connectorId, toolName);
-  return row ? asRow(row) : undefined;
+  await assertRuntimeConnectorExists(connectorId);
+  return pgRuntimeGetToolPolicy(connectorId, toolName);
 }
 
-export function getConnectorPolicies(id: string): Row[] {
+export async function getConnectorPolicies(id: string): Promise<Row[]> {
   const connectorId = assertIdentifier(id, "connector_id");
-  assertRuntimeConnectorExists(connectorId);
-  ensureRuntimeSchema();
-  return asRows(getConn().prepare(
-    "SELECT * FROM runtime_tool_policies WHERE connector_id=? ORDER BY tool_name",
-  ).all(connectorId));
+  await assertRuntimeConnectorExists(connectorId);
+  return pgRuntimeGetConnectorPolicies(connectorId);
 }
 
-function assertAgentAssemblyMutable(agentId: string, lock=false): void {
-  const row = getConn().prepare(`SELECT * FROM managed_agents WHERE id=?${lock ? " FOR UPDATE" : ""}`).get(agentId) as Row | undefined;
-  if (row?.workspace_managed) throw new HttpFail(409, "此 Agent 的装配需保存修订草稿并确认发布");
-}
-
-export function setAgentSkill(agentId: string, skillId: string, enabled: boolean, expectedVersion: number): Row {
+export async function setAgentSkill(agentId: string, skillId: string, enabled: boolean, expectedVersion: number): Promise<Row> {
   const agent = assertIdentifier(agentId, "agent_id");
-  assertAgentAssemblyMutable(agent);
   const skill = assertIdentifier(skillId, "skill_id");
-  assertTaskDefinition(skill);
+  (await assertTaskDefinition(skill));
   const active = assertBoolean(enabled, "enabled");
-  const now = nowIso();
-  return versionedUpsert("runtime_agent_skills", ["agent_id", "skill_id"], [agent, skill],
-    ["agent_id", "skill_id", "enabled", "version", "updated_at"], [agent, skill, active ? 1 : 0, 1, now], ["enabled=?"], expectedVersion);
+  await ensureRuntimeSchema();
+  return (versionedUpsert("runtime_agent_skills", [agent, skill], ["agent_id", "skill_id", "enabled", "version", "updated_at"],
+    [agent, skill, active ? 1 : 0, 1, nowIso()], ["enabled"], expectedVersion,
+    async (client) => (await assertAgentAssemblyMutable(client, agent))));
 }
 
-export function setAgentSkills(agentId: string, selections: Array<{ skill_id: string; enabled: boolean; expected_version: number }>): Row[] {
+export async function setAgentSkills(agentId: string, selections: Array<{ skill_id: string; enabled: boolean; expected_version: number }>): Promise<Row[]> {
   const agent = assertIdentifier(agentId, "agent_id");
-  assertAgentAssemblyMutable(agent);
-  const normalized = selections.map((selection) => {
+  const normalized = (await Promise.all(selections.map(async (selection) => {
     const skill = assertIdentifier(selection.skill_id, "skill_id");
-    assertTaskDefinition(skill);
+    (await assertTaskDefinition(skill));
     if (typeof selection.enabled !== "boolean" || !Number.isInteger(selection.expected_version) || selection.expected_version < 0) {
       throw new HttpFail(400, "每项技能都必须包含 enabled 和有效的 expected_version");
     }
     return { skill, enabled: selection.enabled ? 1 : 0, expectedVersion: selection.expected_version };
-  });
+  })));
   if (new Set(normalized.map((item) => item.skill)).size !== normalized.length) throw new HttpFail(400, "技能列表不能包含重复项");
-  // Initialize/validate the table before entering the all-or-nothing transaction.
-  getAgentSkills(agent);
-  const now = nowIso();
-  txImmediate((db) => {
-    assertAgentAssemblyMutable(agent, true);
-    for (const item of normalized) {
-      const existing = db.prepare("SELECT version FROM runtime_agent_skills WHERE agent_id=? AND skill_id=?").get(agent, item.skill) as { version?: number } | undefined;
-      const actual = Number(existing?.version || 0);
-      if (actual !== item.expectedVersion) throw new HttpFail(409, "技能配置版本已变化，请刷新后重试");
-    }
-    for (const item of normalized) {
-      if (item.expectedVersion === 0) {
-        db.prepare("INSERT INTO runtime_agent_skills (agent_id,skill_id,enabled,version,updated_at) VALUES (?,?,?,?,?)")
-          .run(agent, item.skill, item.enabled, 1, now);
-      } else {
-        const result = db.prepare("UPDATE runtime_agent_skills SET enabled=?,version=version+1,updated_at=? WHERE agent_id=? AND skill_id=? AND version=?")
-          .run(item.enabled, now, agent, item.skill, item.expectedVersion);
-        if (!result.changes) throw new HttpFail(409, "技能配置版本已变化，请刷新后重试");
-      }
-    }
-  });
-  return getAgentSkills(agent);
+  await ensureRuntimeSchema();
+  try { return await pgRuntimeSetAgentSkills({ agentId: agent, selections: normalized, now: nowIso() }); }
+  catch (error) {
+    if (error instanceof RuntimeVersionConflict) runtimeConflict("技能配置版本已变化，请刷新后重试");
+    if (error instanceof Error && error.message === "runtime_agent_workspace_managed") throw new HttpFail(409, "此 Agent 的装配需保存修订草稿并确认发布");
+    throw error;
+  }
 }
 
-export function setSkillConnector(skillId: string, connectorId: string, enabled: boolean, expectedVersion: number): Row {
+export async function setSkillConnector(skillId: string, connectorId: string, enabled: boolean, expectedVersion: number): Promise<Row> {
   const skill = assertIdentifier(skillId, "skill_id");
   const connector = assertIdentifier(connectorId, "connector_id");
-  assertTaskDefinition(skill);
-  assertRuntimeConnectorExists(connector);
+  (await assertTaskDefinition(skill));
   const active = assertBoolean(enabled, "enabled");
-  const now = nowIso();
-  return versionedUpsert("runtime_skill_connectors", ["skill_id", "connector_id"], [skill, connector],
-    ["skill_id", "connector_id", "enabled", "version", "updated_at"], [skill, connector, active ? 1 : 0, 1, now], ["enabled=?"], expectedVersion);
+  await ensureRuntimeSchema();
+  return (versionedUpsert("runtime_skill_connectors", [skill, connector], ["skill_id", "connector_id", "enabled", "version", "updated_at"],
+    [skill, connector, active ? 1 : 0, 1, nowIso()], ["enabled"], expectedVersion,
+    async (client) => { if (!(await client.query("SELECT 1 FROM connectors WHERE id=$1", [connector])).rows[0]) throw new HttpFail(404, "connector not found"); }));
 }
 
-/** An explicit tool row is required in addition to the existing Skill→Connector binding. */
-export function setSkillTool(skillId: string, connectorId: string, toolName: string, enabled: boolean, expectedVersion: number): Row {
+/** A tool mount needs both an enabled parent binding and an existing policy, checked in the same transaction. */
+export async function setSkillTool(skillId: string, connectorId: string, toolName: string, enabled: boolean, expectedVersion: number): Promise<Row> {
   const skill = assertIdentifier(skillId, "skill_id");
   const connector = assertIdentifier(connectorId, "connector_id");
   const tool = assertIdentifier(toolName, "tool_name", MAX_TOOL_NAME_LENGTH);
-  assertTaskDefinition(skill);
-  assertRuntimeConnectorExists(connector);
-  const parent = getSkillConnectors(skill).find((row) => row.connector_id === connector);
-  if (!parent?.enabled) throw new HttpFail(409, "enabled skill connector binding is required before binding a tool");
-  // A policy row is the reviewed catalog identity. It may be disabled while the
-  // administrator prepares bindings, but a fabricated tool name cannot be mounted.
-  if (!getToolPolicy(connector, tool)) throw new HttpFail(409, "tool policy is required before binding a tool");
+  (await assertTaskDefinition(skill));
   const active = assertBoolean(enabled, "enabled");
-  const now = nowIso();
-  return versionedUpsert("runtime_skill_tools", ["skill_id", "connector_id", "tool_name"], [skill, connector, tool],
-    ["skill_id", "connector_id", "tool_name", "enabled", "version", "updated_at"], [skill, connector, tool, active ? 1 : 0, 1, now],
-    ["enabled=?"], expectedVersion);
+  await ensureRuntimeSchema();
+  return (versionedUpsert("runtime_skill_tools", [skill, connector, tool], ["skill_id", "connector_id", "tool_name", "enabled", "version", "updated_at"],
+    [skill, connector, tool, active ? 1 : 0, 1, nowIso()], ["enabled"], expectedVersion,
+    async (client) => {
+      if (!(await client.query("SELECT 1 FROM connectors WHERE id=$1", [connector])).rows[0]) throw new HttpFail(404, "connector not found");
+      const parent = (await client.query("SELECT enabled FROM runtime_skill_connectors WHERE skill_id=$1 AND connector_id=$2 FOR SHARE", [skill, connector])).rows[0] as Row | undefined;
+      if (!parent || Number(parent.enabled) !== 1) throw new HttpFail(409, "enabled skill connector binding is required before binding a tool");
+      const policy = (await client.query("SELECT 1 FROM runtime_tool_policies WHERE connector_id=$1 AND tool_name=$2 FOR SHARE", [connector, tool])).rows[0];
+      if (!policy) throw new HttpFail(409, "tool policy is required before binding a tool");
+    }));
 }
 
-export function setConnectorConfig(id: string, config: ConnectorConfig, expectedVersion: number): Row {
+export async function setConnectorConfig(id: string, config: ConnectorConfig, expectedVersion: number): Promise<Row> {
   const connectorId = assertIdentifier(id, "connector_id");
-  assertRuntimeConnectorExists(connectorId);
   const validated = validateConnectorConfig(config);
   assertConnectorCredentialStorage(connectorId, validated);
-  const now = nowIso();
-  return versionedUpsert("runtime_connector_config", ["connector_id"], [connectorId],
-    ["connector_id", "config_json", "version", "updated_at"], [connectorId, JSON.stringify(validated), 1, now], ["config_json=?"], expectedVersion);
+  await ensureRuntimeSchema();
+  return (versionedUpsert("runtime_connector_config", [connectorId], ["connector_id", "config_json", "version", "updated_at"],
+    [connectorId, JSON.stringify(validated), 1, nowIso()], ["config_json"], expectedVersion,
+    async (client) => { if (!(await client.query("SELECT 1 FROM connectors WHERE id=$1", [connectorId])).rows[0]) throw new HttpFail(404, "connector not found"); }));
 }
 
-export function setToolPolicy(
+export async function setToolPolicy(
   id: string,
   name: string,
   value: { enabled: boolean; risk: "L1" | "L2" | "L3"; access: "read" | "write"; schema_hash: string },
   expectedVersion: number,
-): Row {
+): Promise<Row> {
   const connectorId = assertIdentifier(id, "connector_id");
   const toolName = assertIdentifier(name, "tool_name", MAX_TOOL_NAME_LENGTH);
-  assertRuntimeConnectorExists(connectorId);
   if (!isPlainObject(value)) invalid("tool policy must be an object");
   assertKnownKeys(value, ["enabled", "risk", "access", "schema_hash"], "tool policy");
   const enabled = assertBoolean(value.enabled, "enabled");
@@ -747,9 +576,8 @@ export function setToolPolicy(
   if (value.access !== "read" && value.access !== "write") invalid("access must be read or write");
   if (typeof value.schema_hash !== "string" || !SCHEMA_HASH.test(value.schema_hash)) invalid("schema_hash must be exactly 64 hexadecimal characters");
   const schemaHash = value.schema_hash.toLowerCase();
-  const now = nowIso();
-  return versionedUpsert("runtime_tool_policies", ["connector_id", "tool_name"], [connectorId, toolName],
-    ["connector_id", "tool_name", "enabled", "risk", "access", "schema_hash", "version", "updated_at"],
-    [connectorId, toolName, enabled ? 1 : 0, value.risk, value.access, schemaHash, 1, now],
-    ["enabled=?", "risk=?", "access=?", "schema_hash=?"], expectedVersion);
+  await ensureRuntimeSchema();
+  return (versionedUpsert("runtime_tool_policies", [connectorId, toolName], ["connector_id", "tool_name", "enabled", "risk", "access", "schema_hash", "version", "updated_at"],
+    [connectorId, toolName, enabled ? 1 : 0, value.risk, value.access, schemaHash, 1, nowIso()], ["enabled", "risk", "access", "schema_hash"], expectedVersion,
+    async (client) => { if (!(await client.query("SELECT 1 FROM connectors WHERE id=$1", [connectorId])).rows[0]) throw new HttpFail(404, "connector not found"); }));
 }

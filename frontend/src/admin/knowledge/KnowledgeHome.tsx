@@ -132,7 +132,7 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
   const { data: summary, error: summaryError, loading: summaryLoading, reload: reloadSummary } = useKbData(loadSummary);
   const reload = useCallback(() => { reloadList(); reloadSummary(); }, [reloadList, reloadSummary]);
 
-  const rows = data?.rows || [];
+  const rows = useMemo(() => data?.rows || [], [data?.rows]);
   const total = data?.total ?? 0;
   const pageCount = data?.page_count || 1;
   const bases = data?.bases || [];
@@ -145,7 +145,8 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
   useEffect(()=>{if(data && data.page!==page)setPage(data.page);},[data]); // eslint-disable-line react-hooks/exhaustive-deps
   const [dirty,setDirty]=useState(false),dirtyRef=useRef(false);
   const onDirty=useCallback((value:boolean)=>{dirtyRef.current=value;setDirty(value);},[]);
-  const blocker=useBlocker(()=>dirtyRef.current),asking=useRef(false);
+  const shouldBlock=useCallback(()=>dirtyRef.current,[]);
+  const blocker=useBlocker(shouldBlock),asking=useRef(false);
   useEffect(()=>{
     if(blocker.state!=="blocked"){asking.current=false;return;}
     if(asking.current)return;asking.current=true;
@@ -311,7 +312,10 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
   useEffect(()=>{const current=JSON.stringify({query,kind,view,scope,brands,stages,assetTypeFilter,expiring});if(lastFilters.current!==current){setPage(1);lastFilters.current=current;}},[query,kind,view,scope,brands,stages,assetTypeFilter,expiring]);
   // 批量续期 / 归档（C）：勾选行 → 服务端批量接口。
   const [selection,setSelection]=useState<string[]>([]);
-  useEffect(()=>{setSelection((current)=>current.filter((id)=>rows.some((row)=>row.id===id)));},[rows]);
+  useEffect(()=>{setSelection((current)=>{
+    const next=current.filter((id)=>rows.some((row)=>row.id===id));
+    return next.length===current.length ? current : next;
+  });},[rows]);
   const toggleSelect=useCallback((id:string)=>{
     setSelection((current)=>current.includes(id)?current.filter((x)=>x!==id):[...current,id]);
   },[]);

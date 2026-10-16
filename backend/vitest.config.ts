@@ -1,7 +1,11 @@
 import { defineConfig } from "vitest/config";
+import { fileURLToPath } from "node:url";
 
 export default defineConfig({
   cacheDir: process.env.VITE_CACHE_DIR || ".vite-cache",
+  // The declared suite includes frontend/shared sources outside backend. Node
+  // tests resolve these directly, while jsdom also uses Vite's filesystem gate.
+  server: { fs: { allow: [fileURLToPath(new URL("../", import.meta.url))] } },
   test: {
     environment: "node",
     include: [

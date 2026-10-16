@@ -1,6 +1,6 @@
 import { forwardRef } from "react";
 import { Input, type InputProps, type InputRef } from "antd";
-import { SearchOutlined } from "@ant-design/icons";
+import { CloseCircleFilled, SearchOutlined } from "@ant-design/icons";
 import { TaskTheme } from "../tasks/TaskTheme";
 import "./workspace-search-input.css";
 
@@ -25,7 +25,7 @@ const WorkspaceSearchInput = forwardRef<InputRef, WorkspaceSearchInputProps>(fun
         classNames={className ? { input: className } : undefined}
         type="text"
         prefix={<SearchOutlined aria-hidden="true" />}
-        allowClear
+        allowClear={{ clearIcon: <CloseCircleFilled role="img" aria-label="清除搜索" /> }}
       />
     </TaskTheme>
   );

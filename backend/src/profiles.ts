@@ -83,8 +83,8 @@ const DOMAIN_PROFILE: Record<string, ProfileId> = {
   "Settlement-Growth": "settlement-growth",
 };
 
-export function profileFor(skill: string, stageCode?: string | null): CodexProfile {
-  const bySkill = taskDefinition(skill)?.profile;
+export async function profileFor(skill: string, stageCode?: string | null): Promise<Awaited<CodexProfile>> {
+  const bySkill = (await taskDefinition(skill))?.profile;
   if (bySkill) return PROFILE_BY_ID[bySkill];
   const stage = stageCode ? BY_CODE[normalizeStage(stageCode)] : undefined;
   const byDomain = stage?.domain ? DOMAIN_PROFILE[stage.domain] : undefined;

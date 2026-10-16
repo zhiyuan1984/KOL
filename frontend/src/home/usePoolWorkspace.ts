@@ -74,6 +74,8 @@ type PoolOwnershipStatus =
 
 export function usePoolWorkspace(options: {
   active: boolean;
+  /** AuthGate-derived actor/authorization scope supplied by Home. */
+  readScopeKey?: string;
   selectedIds: string[];
   /** 共享 board 管线：带首入缓存与 force 刷新，错误按 surface 路由。 */
   loadBoard: (surface: HomeSurface, force?: boolean) => Promise<boolean>;
@@ -85,6 +87,7 @@ export function usePoolWorkspace(options: {
   onClaimUndone: (kolUid: string) => Promise<void>;
 }) {
   const { loadBoard, boardKols, onClaimed, onClaimUndone } = options;
+  const scopeKey = options.readScopeKey || "actor:unverified";
 
   const [cards, setCards] = useState<PoolKol[]>([]);
   /** A committed claim remains visible only as a keyed release receipt. */
@@ -120,6 +123,14 @@ export function usePoolWorkspace(options: {
   const [offset, updateOffset] = useState(0);
   const [page, setPage] = useState<HomePoolPage | null>(null);
   const requestVersion = useRef(0);
+  const readScopeRef = useRef(scopeKey);
+  const scopeVersion = useRef(0);
+  // Update during render so an old promise that settles before effect cleanup
+  // still cannot write its prior actor's private rows.
+  if (readScopeRef.current !== scopeKey) {
+    readScopeRef.current = scopeKey;
+    scopeVersion.current += 1;
+  }
   /** Receipt visibility is scoped to one query/filter/page snapshot. */
   const receiptScopeVersion = useRef(0);
   const readGeneration = useRef(0);
@@ -163,11 +174,13 @@ export function usePoolWorkspace(options: {
 
   const loadSurface = useCallback(async (force = false) => {
     announcePoolReadStarted();
+    const requestScope = scopeKey;
+    const requestScopeVersion = scopeVersion.current;
     if (force) readGeneration.current += 1;
     const version = ++requestVersion.current;
     const params = { ...readOptions.current };
-    const loaded = await sharedRead(`home:pool:${readGeneration.current}:${JSON.stringify(params)}`, () => loadHomePool({ kols: boardKols() }, params));
-    if (version !== requestVersion.current) return loaded.source;
+    const loaded = await sharedRead(`home:${requestScope}:pool:${readGeneration.current}:${JSON.stringify(params)}`, () => loadHomePool({ kols: boardKols() }, params));
+    if (requestScope !== readScopeRef.current || requestScopeVersion !== scopeVersion.current || version !== requestVersion.current) return loaded.source;
     setPoolLoaded(true);
     if (loaded.down) {
       setError(loaded.error || "公海读取失败");
@@ -193,7 +206,7 @@ export function usePoolWorkspace(options: {
       }
     }
     return loaded.source;
-  }, [boardKols]);
+  }, [boardKols, scopeKey]);
 
   const ensureLoaded = useCallback(async () => {
     // 公海读取（记忆读）是权威：公海页不再拉整个 board（库条数随这次读返回）。
@@ -208,6 +221,23 @@ export function usePoolWorkspace(options: {
   ensureLoadedRef.current = ensureLoaded;
   const previousQuery = useRef(query);
   useEffect(() => {
+    requestVersion.current += 1;
+    receiptScopeVersion.current += 1;
+    selectedCards.current.clear();
+    setPoolLoaded(false);
+    setCards([]);
+    setPage(null);
+    setPoolLibraryCount(null);
+    applyClaimReceipt({ type: "scope-reset" });
+    setError("");
+    setClaimTarget(null);
+    setClaimBusyId(null);
+    claimBusyRef.current = null;
+    setClaimError(null);
+    setClaimErrorId(null);
+    ownershipCheckRequired.current.clear();
+  }, [scopeKey]);
+  useEffect(() => {
     const searchChanged = previousQuery.current !== query;
     previousQuery.current = query;
     if (!options.active) {
@@ -219,7 +249,7 @@ export function usePoolWorkspace(options: {
     const timer = searchChanged ? window.setTimeout(() => { void ensureLoadedRef.current(); }, 250) : null;
     if (!searchChanged) void ensureLoadedRef.current();
     return () => { if (timer != null) window.clearTimeout(timer); requestVersion.current += 1; };
-  }, [options.active, query, filter, sort, offset]);
+  }, [options.active, query, filter, sort, offset, scopeKey]);
 
   const syncLibrary = useCallback(async () => {
     if (syncBusy) return;

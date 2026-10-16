@@ -20,8 +20,8 @@ function iconsDir(): string {
   return path.join(dataDir(), "connector-icons");
 }
 
-function requireConnectorIconRow(connectorId: string): { icon_ref: string | null } {
-  const row = getConn().prepare("SELECT icon_ref FROM connectors WHERE id = ?").get(connectorId) as
+async function requireConnectorIconRow(connectorId: string): Promise<Awaited<{ icon_ref: string | null }>> {
+  const row = (await getConn().query("SELECT icon_ref FROM connectors WHERE id = $1",[connectorId])).rows[0] as
     | { icon_ref: string | null }
     | undefined;
   if (!row) throw new HttpFail(404, { code: "managed_connector_not_found", connector_id: connectorId });
@@ -75,7 +75,7 @@ export function hasBundledIcon(connectorId: string): boolean {
 connectorIconsRouter.post("/admin/connectors/:connectorId/icon", async (c) => {
   const admin = requireAdmin();
   const connectorId = requireManagedConnector(c.req.param("connectorId"));
-  const current = requireConnectorIconRow(connectorId);
+  const current = (await requireConnectorIconRow(connectorId));
   const form = await c.req.parseBody();
   const upload = form.icon;
   if (!upload || typeof upload === "string" || Array.isArray(upload) || typeof upload.arrayBuffer !== "function") {
@@ -90,18 +90,16 @@ connectorIconsRouter.post("/admin/connectors/:connectorId/icon", async (c) => {
   fs.mkdirSync(dir, { recursive: true });
   const fileName = `${connectorId}-${crypto.randomBytes(8).toString("hex")}.${ext}`;
   fs.writeFileSync(path.join(dir, fileName), buf);
-  getConn()
-    .prepare("UPDATE connectors SET icon_ref = ?, updated_at = ? WHERE id = ?")
-    .run(fileName, nowIso(), connectorId);
+  (await getConn().query("UPDATE connectors SET icon_ref = $1, updated_at = $2 WHERE id = $3",[fileName,nowIso(),connectorId]));
   removeStoredIcon(current.icon_ref, fileName);
-  audit(admin.id, "admin.connector.icon.updated", { connector_id: connectorId });
+  (await audit(admin.id, "admin.connector.icon.updated", { connector_id: connectorId }));
   return c.json({ id: connectorId, icon_url: `/api/admin/connectors/${connectorId}/icon` }, 201);
 });
 
-connectorIconsRouter.get("/admin/connectors/:connectorId/icon", (c) => {
+connectorIconsRouter.get("/admin/connectors/:connectorId/icon", async (c) => {
   requireAdmin();
   const connectorId = requireManagedConnector(c.req.param("connectorId"));
-  const row = requireConnectorIconRow(connectorId);
+  const row = (await requireConnectorIconRow(connectorId));
   const file = storedIconFile(row.icon_ref) ?? bundledIconFile(connectorId);
   if (!file) throw new HttpFail(404, { code: "connector_icon_not_found" });
   c.header("Content-Type", CONTENT_TYPES[path.extname(file).toLowerCase()] || "application/octet-stream");

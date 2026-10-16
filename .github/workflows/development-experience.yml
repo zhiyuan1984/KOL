@@ -13,6 +13,8 @@ on:
       - 'config/development-skill-registry.yaml'
       - 'schemas/development-task.schema.json'
       - 'scripts/development-*'
+      - 'scripts/deploy.sh'
+      - 'scripts/*production-health*'
       - '.agents/skills/**'
       - '.github/workflows/development-experience.yml'
       - 'frontend/src/admin/knowledge/**'
@@ -36,6 +38,8 @@ on:
       - 'config/development-skill-registry.yaml'
       - 'schemas/development-task.schema.json'
       - 'scripts/development-*'
+      - 'scripts/deploy.sh'
+      - 'scripts/*production-health*'
       - '.agents/skills/**'
       - '.github/workflows/development-experience.yml'
       - 'frontend/src/admin/knowledge/**'
@@ -72,6 +76,7 @@ jobs:
         run: |
           node scripts/test-development-execution.mjs
           node scripts/test-development-entry.mjs
+          node scripts/test-production-health.mjs
       # These two calls load the repository's actual skill packages and their
       # declared templates/dependencies. They validate discovery assets only;
       # they are not a release gate and cannot certify feature delivery.
@@ -114,6 +119,9 @@ jobs:
           --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/kol_uiux_test
+      TEST_DB_TEMPLATE: kol_uiux_template
+      TEST_DB_PREFIX: kol_uiux_ci
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/kol_uiux_bootstrap
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -123,11 +131,19 @@ jobs:
         run: |
           npm ci --prefix frontend --no-audit --no-fund
           npm ci --prefix backend --no-audit --no-fund
+      - name: Initialize native PostgreSQL template and independent bootstrap
+        working-directory: backend
+        run: |
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE kol_uiux_template OWNER postgres'
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE kol_uiux_bootstrap OWNER postgres'
+          DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/kol_uiux_template npm run db:apply:postgres-schema
+          npm run db:apply:postgres-schema
       - name: Validate knowledge component contracts and build
         working-directory: frontend
         run: |
           npm run typecheck
           npm run test:knowledge
+          npx vitest run --config vitest.integrated-native.config.ts
           npm run build
       - name: Validate durable handoff and real PostgreSQL progress
         working-directory: backend
@@ -140,6 +156,9 @@ jobs:
       - name: Verify knowledge processing browser workflow
         working-directory: frontend
         run: npx playwright test --config playwright.knowledge-pilot.config.ts --reporter=line
+      - name: Verify preserved native approval and mailbox surfaces
+        working-directory: frontend
+        run: npx playwright test --config playwright.integrated-native.config.ts --reporter=line
       # The private original is not in Git. This CI never certifies PPTX conversion
       # fidelity or live-model/production quality from an HTTP/model fixture.
       - uses: actions/upload-artifact@v4

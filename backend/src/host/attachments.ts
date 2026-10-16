@@ -11,7 +11,7 @@ export function uploadsDir(): string {
   return path.join(dataDir(), "uploads");
 }
 
-export function sanitizeAttachments(raw: unknown): AttachmentRef[] {
+export async function sanitizeAttachments(raw: unknown): Promise<Awaited<AttachmentRef[]>> {
   if (!Array.isArray(raw) || !raw.length) return [];
   const root = path.resolve(uploadsDir());
   const out: AttachmentRef[] = [];
@@ -27,9 +27,7 @@ export function sanitizeAttachments(raw: unknown): AttachmentRef[] {
     if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
       throw new HttpFail(400, "attachment missing on disk");
     }
-    const upload = getConn().prepare(
-      "SELECT id,owner_user_id,size_bytes,mime_type FROM user_uploads WHERE path=?",
-    ).get(resolved) as {
+    const upload = (await getConn().query("SELECT id,owner_user_id,size_bytes,mime_type FROM user_uploads WHERE path=$1",[resolved])).rows[0] as {
       id: string;
       owner_user_id?: string | null;
       size_bytes: number;
@@ -42,7 +40,7 @@ export function sanitizeAttachments(raw: unknown): AttachmentRef[] {
       }
     }
     if (upload) {
-      getConn().prepare("UPDATE user_uploads SET last_used_at=? WHERE id=?").run(nowIso(), upload.id);
+      (await getConn().query("UPDATE user_uploads SET last_used_at=$1 WHERE id=$2",[nowIso(),upload.id]));
     }
     out.push({
       id: upload?.id,

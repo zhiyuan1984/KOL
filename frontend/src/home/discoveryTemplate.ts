@@ -4,6 +4,8 @@
  * Platforms are overseas only. Chips and Composer body stay in sync.
  */
 
+import { DISCOVERY_DEFAULT_DIRECTIONS, DISCOVERY_DEFAULT_KEYWORDS } from "../../../shared/discovery-defaults.js";
+
 export const DISCOVERY_INTENT = "creator_discovery";
 export const DISCOVERY_LOCK_LABEL = "发现任务";
 export const DISCOVERY_BODY_PREFIX = "【发现任务】";
@@ -106,14 +108,9 @@ export function defaultDiscoveryBrief(): DiscoveryBrief {
 }
 
 /** 默认方向：户外能源（可在卡片上改选）。 */
-export const DEFAULT_DISCOVERY_DIRECTIONS: DiscoveryDirectionCode[] = ["portable_power"];
+export const DEFAULT_DISCOVERY_DIRECTIONS: DiscoveryDirectionCode[] = [...DISCOVERY_DEFAULT_DIRECTIONS];
 /** 默认关键词标签：前 10 个户外词，可删除、可用「＋」弹窗增补。 */
-export const DEFAULT_DISCOVERY_KEYWORDS: string[] = [
-  "camping", "outdoor camping", "camping gear",
-  "van life", "RV travel", "RV living",
-  "portable power station", "solar generator", "energy storage",
-  "road trip",
-];
+export const DEFAULT_DISCOVERY_KEYWORDS: string[] = [...DISCOVERY_DEFAULT_KEYWORDS];
 
 export function fallbackDiscoveryTemplate(): DiscoveryTemplate {
   const defaults = defaultDiscoveryBrief();

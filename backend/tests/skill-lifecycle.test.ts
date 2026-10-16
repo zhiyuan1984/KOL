@@ -1,33 +1,44 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Hono } from "hono";
-import { resetConn } from "../src/db.js";
+import { getConn, nowIso, resetConn } from "../src/db.js";
+import { hashPassword } from "../src/auth.js";
 import { seedAll } from "../src/seed.js";
 import { clearTaskRegistryCache, taskDefinition } from "../src/tasks/registry.js";
 import { ensureRuntimeSchema, setSkillConnector, setSkillTool, setToolPolicy } from "../src/runtime/store.js";
 import { dataDir, DEMO_ADMIN } from "../src/config.js";
 import { freshTestDatabase } from "./support/pg.js";
 
+// Native auth is real. Only the unrelated external mail collector is isolated.
+vi.mock("../src/starrykol/mail-sync.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/starrykol/mail-sync.js")>();
+  return { ...actual, startFollowedMailSync: vi.fn(async () => undefined) };
+});
+
 type Json = Record<string, unknown>;
 
 let tmp: string;
 let app: Hono;
+let cookieJar = "";
 
 async function request(method: string, url: string, body?: unknown) {
   const response = await app.request(url, {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(cookieJar ? { Cookie: cookieJar } : {}) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
+  const setCookie = response.headers.get("set-cookie");
+  if (setCookie) cookieJar = setCookie.split(";")[0];
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) as Json : {} };
 }
 
 async function loginPm() {
-  const auth = await request("POST", "/api/login", { username: DEMO_ADMIN.name, password: "123456789" });
+  const auth = await request("POST", "/api/auth/login", { username: "lifecycle.native.admin", password: "owned-lifecycle-test-password" });
   expect(auth.status, JSON.stringify(auth.body)).toBe(200);
+  expect(cookieJar.startsWith("lingong_session=") && cookieJar.length > "lingong_session=".length).toBe(true);
 }
 
 const NEW_SKILL = {
@@ -42,20 +53,32 @@ const NEW_SKILL = {
 };
 
 beforeEach(async () => {
+  cookieJar = "";
+  process.env.AUTH_MODE = "enabled";
   await freshTestDatabase();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-skill-life-"));
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
+  // This account exists only in freshTestDatabase's owned clone, never in production.
+  const authStamp = nowIso();
+  await getConn().query(
+    "INSERT INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+    ["owned_lifecycle_admin", "lifecycle.native.admin", "隔离生命周期测试管理员",
+      await hashPassword("owned-lifecycle-test-password"), JSON.stringify(["admin", "product_manager"]), "[]", "", 1, authStamp, authStamp],
+  );
+  await getConn().query("INSERT INTO directory_users (id,handle,name,role) VALUES ($1,$2,$3,$4)",
+    ["owned_lifecycle_admin", "lifecycle.native.admin", "隔离生命周期测试管理员", "product_manager"]);
   clearTaskRegistryCache();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 
-afterEach(() => {
-  resetConn();
+afterEach(async () => {
+  process.env.AUTH_MODE = "disabled";
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -150,7 +173,7 @@ describe("skill lifecycle", () => {
 
   it("reports a live bundled skill without snapshots as the bundled baseline, not unpublished", async () => {
     await loginPm();
-    ensureRuntimeSchema();
+    (await ensureRuntimeSchema());
     const list = await request("GET", "/api/admin/skills");
     expect(list.status).toBe(200);
     const lifecycle = (list.body.skills as Json[]).find((s) => s.id === "creator_library_all")?.lifecycle as Json;
@@ -164,22 +187,22 @@ describe("skill lifecycle", () => {
 
   it("bundled skills take presentation overrides through draft → publish, never runtime contract fields", async () => {
     await loginPm();
-    ensureRuntimeSchema();
+    (await ensureRuntimeSchema());
     const id = "creator_library_all";
-    const before = taskDefinition(id)!;
+    const before = (await taskDefinition(id))!;
     expect(before.icon).toBe("database");
     expect(before.badge).toBe("达人库");
     expect((await request("PUT", `/api/admin/skills/${id}/draft`, { icon: "Not A Key" })).status).toBe(400);
     expect((await request("PUT", `/api/admin/skills/${id}/draft`, { mcp: ["starrykol.pageKolProfiles"] })).status).toBe(400);
     const saved = await request("PUT", `/api/admin/skills/${id}/draft`, { icon: "search", badge: "红人库", aliases: ["全部红人"] });
     expect(saved.status, JSON.stringify(saved.body)).toBe(200);
-    expect(taskDefinition(id)!.icon).toBe("database");
+    expect((await taskDefinition(id))!.icon).toBe("database");
     const owner = await request("PATCH", `/api/admin/skills/${id}/lifecycle`, { owner: "测试负责人" });
     expect(owner.status, JSON.stringify(owner.body)).toBe(200);
     expect((await request("POST", `/api/admin/skills/${id}/stage`, { stage: "testing", reason: "改展示" })).status).toBe(200);
     const published = await request("POST", `/api/admin/skills/${id}/stage`, { stage: "published", reason: "发布展示" });
     expect(published.status, JSON.stringify(published.body)).toBe(200);
-    const after = taskDefinition(id)!;
+    const after = (await taskDefinition(id))!;
     expect(after).toMatchObject({ icon: "search", badge: "红人库", aliases: ["全部红人"] });
     expect(after.mcp).toEqual(before.mcp);
     const list = await request("GET", "/api/admin/skills");
@@ -188,7 +211,7 @@ describe("skill lifecycle", () => {
 
   it("declared tools are checked against the registered catalog at testing/publish time, not a code allowlist", async () => {
     await loginPm();
-    ensureRuntimeSchema();
+    (await ensureRuntimeSchema());
     const id = "catalog_probe";
     const created = await request("POST", "/api/admin/skills", { ...NEW_SKILL, id, mcp: ["starrykol.brandNewRemoteTool"] });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
@@ -204,13 +227,13 @@ describe("skill lifecycle", () => {
       expect(unregistered.status).toBe(409);
       expect(JSON.stringify(unregistered.body)).toContain("skill_tools_unregistered");
 
-      setToolPolicy("starrykol", "brandNewRemoteTool", { enabled: true, risk: "L1", access: "read", schema_hash: "a".repeat(64) }, 0);
+      (await setToolPolicy("starrykol", "brandNewRemoteTool", { enabled: true, risk: "L1", access: "read", schema_hash: "a".repeat(64) }, 0));
       const unmounted = await request("POST", `/api/admin/skills/${id}/stage`, { stage: "testing" });
       expect(unmounted.status).toBe(409);
       expect(JSON.stringify(unmounted.body)).toContain("skill_tools_unmounted");
 
-      setSkillConnector(id, "starrykol", true, 0);
-      setSkillTool(id, "starrykol", "brandNewRemoteTool", true, 0);
+      (await setSkillConnector(id, "starrykol", true, 0));
+      (await setSkillTool(id, "starrykol", "brandNewRemoteTool", true, 0));
       const ready = await request("POST", `/api/admin/skills/${id}/stage`, { stage: "testing" });
       expect(ready.status, JSON.stringify(ready.body)).toBe(200);
     } finally {

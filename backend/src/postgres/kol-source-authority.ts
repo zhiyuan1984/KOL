@@ -1,3 +1,4 @@
+import { postgresConnection } from "./pool.js";
 import { postgresPool, postgresTransaction } from './pool.js';
 import { normalizeEmail } from '../host/identity.js';
 import { isPlaceholderMailbox, firstString } from '../starrykol/mail-fields.js';
@@ -45,7 +46,7 @@ export async function verifyExistingStarryBindings(userId: string, mailboxes: Js
     const mailbox=normalizeEmail(firstString(row.mailboxEmail,row.mailbox_email));
     const owner=firstString(row.ownerOpenId,row.owner_open_id,row.ownerUserId,row.owner_user_id);
     if (!mailbox || isPlaceholderMailbox(mailbox) || !owner) continue;
-    const result=await postgresPool().query(`UPDATE user_starry_bindings SET owner_open_id=$1,owner_verified_at=$2
+    const result=await postgresConnection().query(`UPDATE user_starry_bindings SET owner_open_id=$1,owner_verified_at=$2
       WHERE user_id=$3 AND lower(trim(mailbox_email))=$4 AND status='connected'
       AND (COALESCE(mailbox_id,'')='' OR mailbox_id=$5)`,
       [owner,new Date().toISOString(),userId,mailbox,firstString(row.id,row.mailboxId)]);

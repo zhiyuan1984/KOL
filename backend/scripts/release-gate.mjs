@@ -8,7 +8,8 @@ const root = path.resolve(backend, "..");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const internal = process.argv.includes("--internal") || process.env.RELEASE_GATE_PROFILE === "internal";
 const defaultStepTimeoutMs = Number(process.env.RELEASE_GATE_STEP_TIMEOUT_MS || 300_000);
-const e2eTimeoutMs = Number(process.env.RELEASE_GATE_E2E_TIMEOUT_MS || 1_200_000);
+const backendTimeoutMs = Number(process.env.RELEASE_GATE_BACKEND_TIMEOUT_MS || 5_400_000);
+const e2eTimeoutMs = Number(process.env.RELEASE_GATE_E2E_TIMEOUT_MS || 5_400_000);
 
 function allocatePort(preferred) {
   if (preferred) return String(preferred);
@@ -38,14 +39,21 @@ const e2ePort = allocatePort(process.env.RELEASE_GATE_E2E_PORT);
 const stubE2eEnv = {
   E2E_MODE: "stub",
   E2E_AUTH_MODE: "disabled",
+  E2E_NATIVE_AUTH_PARTITION: "1",
   CODEX_MODE: "stub",
+  NODE_ENV: "test",
+  DATABASE_URL: process.env.RELEASE_GATE_E2E_DATABASE_URL || process.env.DATABASE_URL || "",
+  TEST_DB_PREFIX: process.env.RELEASE_GATE_E2E_TEST_DB_PREFIX || process.env.TEST_DB_PREFIX || "",
   E2E_PORT: e2ePort,
   E2E_BASE: `http://127.0.0.1:${e2ePort}`,
   LINGONG_PORT: e2ePort,
-  E2E_SKIP_BUILD: "1",
+  LINGONG_DATA: process.env.RELEASE_GATE_E2E_DATA || path.join(root, "data-e2e-release"),
+  LINGONG_FRONTEND_DIST: path.join(root, "artifacts", "release-e2e-dist"),
+  E2E_SKIP_BUILD: "0",
+  VITE_E2E_FIXTURES: "1",
   MEDIACRAWLER_AUTO_START: "",
-  PW_CHANNEL: "",
-  PW_EXECUTABLE_PATH: "",
+  PW_CHANNEL: process.env.PW_CHANNEL || "",
+  PW_EXECUTABLE_PATH: process.env.PW_EXECUTABLE_PATH || "",
   PW_HEADLESS: "1",
 };
 
@@ -57,12 +65,14 @@ const steps = [
   { id: "registry", cwd: backend, command: process.execPath, args: ["scripts/validate-registry.mjs", "--require-all"] },
   { id: "contracts-pilot", cwd: backend, command: process.execPath, args: ["scripts/validate-contracts.mjs"] },
   { id: "design-tokens", cwd: backend, command: process.execPath, args: ["scripts/check-design-tokens.mjs"] },
+  { id: "native-health-contract", cwd: root, command: process.execPath, args: ["scripts/test-production-health.mjs"] },
+  { id: "knowledge-e2e-partition", cwd: path.join(root, "frontend"), command: process.execPath, args: ["scripts/verify-native-knowledge-partition.mjs"] },
   ...(internal ? [] : [
     { id: "contracts-production", cwd: backend, command: process.execPath, args: ["scripts/validate-contracts.mjs", "--production"] },
     { id: "tb-binding", cwd: backend, command: process.execPath, args: ["scripts/validate-tb-binding.mjs"] },
   ]),
   { id: "backend-typecheck", cwd: backend, command: npm, args: ["run", "typecheck"] },
-  { id: "backend-full-tests", cwd: backend, command: npm, args: ["test"] },
+  { id: "backend-full-tests", cwd: backend, command: npm, args: ["test"], timeout: backendTimeoutMs },
   { id: "kol-evals", cwd: backend, command: npm, args: ["run", "eval:kol"] },
   { id: "redaction-scan", cwd: backend, command: npm, args: ["run", "scan:redaction"] },
   { id: "rollback-rehearsal", cwd: backend, command: npm, args: ["run", "rehearse:rollback"] },
@@ -75,6 +85,25 @@ const steps = [
     args: ["run", "test:e2e"],
     timeout: e2eTimeoutMs,
     env: stubE2eEnv,
+  },
+  {
+    id: "frontend-e2e-native-knowledge",
+    cwd: path.join(root, "frontend"),
+    command: process.execPath,
+    args: ["node_modules/@playwright/test/cli.js", "test", "--config=playwright.native-knowledge.config.ts", "--workers=1", "--retries=0"],
+    timeout: e2eTimeoutMs,
+    env: {
+      ...stubE2eEnv,
+      E2E_AUTH_MODE: "enabled",
+      DATABASE_URL: process.env.RELEASE_GATE_NATIVE_E2E_DATABASE_URL || "",
+      TEST_DB_PREFIX: process.env.RELEASE_GATE_NATIVE_E2E_TEST_DB_PREFIX || "",
+      CODEX_BIN: path.join(backend, "tests", "support", "source-evidence-codex-fixture.mjs"),
+      KNOWLEDGE_ENGINE_MODE: "stub",
+      KNOWLEDGE_NORMALIZE_MODE: "stub",
+      LINGONG_DATA: path.join(root, "data-e2e-release-native"),
+      LINGONG_FRONTEND_DIST: path.join(root, "artifacts", "release-e2e-native-dist"),
+      PLAYWRIGHT_OUTPUT_DIR: path.join(root, "artifacts", "release-e2e-native-results"),
+    },
   },
 ];
 
@@ -97,9 +126,8 @@ for (const step of steps) {
     maxBuffer: 32 * 1024 * 1024,
     // A browser runner or remote test must never leave the release gate
     // hanging forever. Its timeout is reported as a failed gate item.
-    // Stub Playwright is ~72 cases / ~1 min when isolated; 5 min was enough
-    // on a warm machine and not enough when a rebuild + inherited real mode
-    // stacked on the same spawnSync. frontend-e2e uses a longer default.
+    // Complete native PG and browser collections now contain hundreds of
+    // suites/cases; only those two steps have explicitly larger bounded budgets.
     timeout: Number(step.timeout || defaultStepTimeoutMs),
   });
   results.push({

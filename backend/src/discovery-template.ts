@@ -6,6 +6,7 @@ import { allowedFromMailboxes, normalizeBrandCode } from "./host/pep.js";
 import { currentUser } from "./host/persona.js";
 import { getConn } from "./db.js";
 import type { Json } from "./types.js";
+import { DISCOVERY_DEFAULT_DIRECTIONS, DISCOVERY_DEFAULT_KEYWORDS } from "../../shared/discovery-defaults.js";
 
 export const DISCOVERY_PLATFORMS = ["youtube", "instagram", "facebook"] as const;
 export const DOMESTIC_PLATFORM_CODES = ["xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu"] as const;
@@ -96,14 +97,14 @@ export function isDiscoveryRegion(code: string): code is DiscoveryRegion {
   return (DISCOVERY_REGION_CODES as readonly string[]).includes(code);
 }
 
-export function employeeAuthorizedBrands(): string[] {
-  return allowedFromMailboxes(currentUser(), null).map((row) => row.brand);
+export async function employeeAuthorizedBrands(): Promise<Awaited<string[]>> {
+  return (await allowedFromMailboxes((await currentUser()), null)).map((row) => row.brand);
 }
 
-export function employeeDefaultBrand(): string | null {
-  const brands = employeeAuthorizedBrands();
-  const user = currentUser();
-  const row = user.id ? getConn().prepare("SELECT preferences FROM user_preferences WHERE user_id=?").get(user.id) as { preferences?: string } | undefined : undefined;
+export async function employeeDefaultBrand(): Promise<Awaited<string | null>> {
+  const brands = (await employeeAuthorizedBrands());
+  const user = (await currentUser());
+  const row = user.id ? (await getConn().query("SELECT preferences FROM user_preferences WHERE user_id=$1",[user.id])).rows[0] as { preferences?: string } | undefined : undefined;
   if (row) {
     try {
       const preferences = JSON.parse(String(row.preferences || "{}")) as Record<string, unknown>;
@@ -121,9 +122,9 @@ export function employeeDefaultRegion(): DiscoveryRegion {
   return "global_en";
 }
 
-export function discoveryTemplate(): Json {
-  const brands = employeeAuthorizedBrands();
-  const defaultBrand = employeeDefaultBrand();
+export async function discoveryTemplate(): Promise<Awaited<Json>> {
+  const brands = (await employeeAuthorizedBrands());
+  const defaultBrand = (await employeeDefaultBrand());
   const defaultRegion = employeeDefaultRegion();
   return {
     entry: "memory",
@@ -154,8 +155,8 @@ export function discoveryTemplate(): Json {
       brand: defaultBrand,
       region: defaultRegion,
       platforms: ["youtube"],
-      directions: [],
-      keywords: ["camping", "portable power station"],
+      directions: [...DISCOVERY_DEFAULT_DIRECTIONS],
+      keywords: [...DISCOVERY_DEFAULT_KEYWORDS],
       thresholds: { ...DEFAULT_DISCOVERY_THRESHOLDS },
     },
     employee: {

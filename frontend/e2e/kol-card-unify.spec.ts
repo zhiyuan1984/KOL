@@ -18,7 +18,11 @@ async function interceptAllApi(page: Page) {
     calls.push({ method: request.method(), path });
     // The fixture itself makes no reads. Explicit candidate commands receive a
     // narrow fake receipt only so the real component can finish its UI state.
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, starry_imported: true }) });
+    const isAsyncCommand = request.method() === "POST" && /\/(follow|ignore)$/.test(path);
+    await route.fulfill({ status: isAsyncCommand ? 202 : 200, contentType: "application/json",
+      body: JSON.stringify(isAsyncCommand
+        ? { accepted: true, status: "pending", work_item_id: "fixture-command", run_id: "fixture-run" }
+        : { ok: true, starry_imported: true }) });
   });
   return calls;
 }
@@ -64,13 +68,14 @@ test.describe("KOL card unification · isolated real-component fixture", () => {
       const action = pick<HTMLElement>(".kol-card-action");
       const identity = pick<HTMLElement>("[data-kol-layout=identity]");
       const meta = pick<HTMLElement>("[data-kol-layout=meta]");
+      const kind = card.closest<HTMLElement>("[data-fixture-card]")?.dataset.fixtureCard;
       const style = getComputedStyle(card);
       const nameStyle = getComputedStyle(name || card);
       const actionStyle = getComputedStyle(action || card);
       const imageStyle = image ? getComputedStyle(image) : null;
       const metaStyle = getComputedStyle(meta || card);
       return {
-        missing, card: rect(card), avatar: rect(avatar || card), image: image ? rect(image) : null,
+        kind, missing, card: rect(card), avatar: rect(avatar || card), image: image ? rect(image) : null,
         checkbox: rect(checkbox || card), icon: rect(icon || card), name: rect(name || card), action: rect(action || card),
         identity: rect(identity || card), meta: rect(meta || card), paddingLeft: style.paddingLeft, rowGap: style.rowGap,
         nameFont: nameStyle.fontSize, nameWeight: nameStyle.fontWeight,
@@ -95,7 +100,9 @@ test.describe("KOL card unification · isolated real-component fixture", () => {
       expect(Number(sample.nameWeight)).toBe(500);
       expect(sample.actionHeight).toBe("24px");
       expect(sample.actionFont).toBe("13px");
-      expect(sample.metaFont).toBe("12px");
+      // Public-pool facts deliberately use the one 13px scan tier; the other
+      // two object entrances retain their helper-meta tier.
+      expect(sample.metaFont).toBe(sample.kind === "pool" ? "13px" : "12px");
       expect(sample.paddingLeft).toBe("8px");
       expect(sample.rowGap).toBe("4px");
       expect(sample.imageFit).toBe("cover");
@@ -287,21 +294,17 @@ test.describe("KOL card unification · isolated real-component fixture", () => {
     expect(calls[0]).toMatchObject({ method: "POST", path: "/api/home/discovery/runtime/fixture-action/candidates/fixture-kol/ignore" });
   });
 
-  test("pool claim remains a local callback fixture: cancel writes nothing and confirm callback is once-only", async ({ page }) => {
+  test("pool claim remains a local L3 callback fixture: one direct confirmation is once-only and zero-write", async ({ page }) => {
     const calls = await interceptAllApi(page);
     await openFixture(page, { container: 360, theme: "light" });
     const pool = card(page, "pool");
-    await pool.getByRole("button", { name: "领取跟进", exact: true }).click();
-    await expect(pool.locator("[data-claim-follow-confirm]")).toBeVisible();
-    await pool.getByRole("button", { name: "取消", exact: true }).click();
-    await expect(pool.locator("[data-claim-follow-confirm]")).toHaveCount(0);
-    expect(calls).toEqual([]);
-
-    await pool.getByRole("button", { name: "领取跟进", exact: true }).click();
-    const confirm = pool.getByRole("button", { name: "确认领取 " + "@北美露营与离网电源超长创作者名称用于换行与截断核验" });
-    await confirm.click();
+    const claim = pool.getByRole("button", { name: "领取跟进", exact: true });
+    await expect(claim).toBeVisible();
+    await expect(claim).toHaveText("领取跟进");
+    await claim.evaluate(el => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });
     await expect(page.locator("[data-fixture-pool-confirm]")).toHaveText("1");
-    await expect(confirm).toBeDisabled();
+    await expect(pool.locator("[data-pool-claim]")).toHaveCount(0);
+    await expect(pool.locator("[data-pool-release]")).toHaveText("放回公海");
     expect(calls).toEqual([]);
   });
 

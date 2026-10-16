@@ -1,5 +1,6 @@
+import { useId } from "react";
 import { AttachmentInput } from "./ReviewAttachments";
-import type { ReviewField, ReviewMoney } from "../../../shared/review";
+import type { ReviewField, ReviewIssue, ReviewMoney } from "../../../shared/review";
 export function ReviewForm({
   fields,
   values,
@@ -7,6 +8,7 @@ export function ReviewForm({
   disabled = false,
   onUploadBusy,
   preview = false,
+  issues = [],
 }: {
   fields: ReviewField[];
   values: Record<string, unknown>;
@@ -15,18 +17,28 @@ export function ReviewForm({
   onUploadBusy?: (busy: boolean) => void;
   /** Authoring previews must never upload or read formal attachments. */
   preview?: boolean;
+  /** Server-owned validation. Optional to preserve other review surfaces. */
+  issues?: ReviewIssue[];
 }) {
+  const prefix = useId();
+  const fieldIssues = (id: string) => issues.filter(issue => issue.path === id || issue.path.startsWith(`${id}.`));
+  const fieldProps = (id: string) => ({
+    name: id,
+    "aria-invalid": fieldIssues(id).length ? true as const : undefined,
+    "aria-describedby": fieldIssues(id).length ? `${prefix}-${id}-error` : undefined,
+  });
   const set = (id: string, value: unknown) =>
     onChange({ ...values, [id]: value });
   return (
     <div className="review-form review-dynamic-fields">
       {fields.map((f) => (
-        <label key={f.id} data-review-field={f.id} className={["textarea", "attachment"].includes(f.type) ? "review-field-long" : undefined}>
+        <label key={f.id} data-review-field={f.id} tabIndex={fieldIssues(f.id).length ? -1 : undefined} className={["textarea", "attachment"].includes(f.type) ? "review-field-long" : undefined}>
           {f.label}
           {f.required ? " *" : ""}
           {f.type === "money" ? (
             <span className="review-money-input">
               <input
+                {...fieldProps(f.id)}
                 aria-label={`${f.label}金额`}
                 required={f.required}
                 disabled={disabled}
@@ -47,6 +59,7 @@ export function ReviewForm({
                 }}
               />
               <select
+                {...fieldProps(f.id)}
                 aria-label={`${f.label}币种`}
                 required={f.required}
                 disabled={disabled}
@@ -84,6 +97,7 @@ export function ReviewForm({
             />
           ) : f.type === "textarea" ? (
             <textarea
+              {...fieldProps(f.id)}
               required={f.required}
               disabled={disabled}
               value={String(values[f.id] ?? "")}
@@ -91,6 +105,7 @@ export function ReviewForm({
             />
           ) : f.type === "select" || f.type === "multiselect" ? (
             <select
+              {...fieldProps(f.id)}
               required={f.required}
               disabled={disabled}
               multiple={f.type === "multiselect"}
@@ -119,6 +134,7 @@ export function ReviewForm({
             </select>
           ) : (
             <input
+              {...fieldProps(f.id)}
               required={f.required}
               disabled={disabled}
               type={
@@ -153,6 +169,9 @@ export function ReviewForm({
           {f.type === "money" && (
             <small>规则来源：{f.currencySource}；不自动换汇。</small>
           )}
+          {fieldIssues(f.id).length > 0 && <small id={`${prefix}-${f.id}-error`} className="error">
+            {fieldIssues(f.id).map(issue => issue.message).join("；")}
+          </small>}
         </label>
       ))}
     </div>

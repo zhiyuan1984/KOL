@@ -18,6 +18,7 @@ import { freshTestDatabase } from "./support/pg.js";
 let tmp = "";
 let app: Hono;
 const calls: Array<{ name: string; args: Json }> = [];
+const nativeCreatorId = "col_kolclaw_creator";
 
 function mockClient() {
   return {
@@ -61,15 +62,19 @@ beforeEach(async () => {
   process.env.CODEX_MODE = "stub";
   calls.length = 0;
   setKolClawClientFactory(mockClient);
-  resetConn();
-  seedAll();
+  (await resetConn());
+  (await seedAll());
+  await getConn().query(
+    "INSERT INTO collaborations(id,handle,display_name,brand,email,mailbox_from,lifecycle_id,conversation_id,stage_code,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+    [nativeCreatorId, "kolclaw_creator", "户外电源达人", "LT", "kolclaw@example.test", "kol.lt@example.test", "lc_kolclaw", "conv_kolclaw", "INITIAL_CONTACT", "native test fixture"],
+  );
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = (await createApp());
 });
 
-afterEach(() => {
+afterEach(async () => {
   setKolClawClientFactory();
-  resetConn();
+  (await resetConn());
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -140,7 +145,11 @@ describe("KOL Claw task run path", () => {
       creator_budget_report: "KOL预算 项目ID 1",
     };
     for (const taskType of KOLCLAW_TASKS) {
-      const created = await request("POST", "/api/tasks/from-text", { text: prompts[taskType] });
+      const created = await request("POST", "/api/tasks/from-text", {
+        text: prompts[taskType],
+        task_type: taskType,
+        ...(taskType === "creator_scoring" ? { input: { creator_id: nativeCreatorId } } : {}),
+      });
       expect(created.status, `${taskType}: create`).toBe(201);
       const task = created.body.task as Json;
       expect(task.task_type).toBe(taskType);
@@ -158,5 +167,23 @@ describe("KOL Claw task run path", () => {
       const detail = await request("GET", `/api/tasks/${task.id}`);
       expect((detail.body.artifacts as Json[]).some((artifact) => artifact.artifact_type === "task_result_card")).toBe(true);
     }
+  });
+
+  it("does not mark a creator-context gap as completed when no worker or result card was produced", async () => {
+    const created = await request("POST", "/api/tasks/from-text", { text: "达人评分", task_type: "creator_scoring" });
+    expect(created.status).toBe(201);
+    const task = created.body.task as Json;
+    const queued = await request("POST", `/api/tasks/${task.id}/run`, {});
+    expect(queued.status).toBe(202);
+    const executed = await request("POST", `/api/sessions/${queued.body.session_id}/messages`, queued.body.pending_message);
+    expect(executed.status).toBe(200);
+    const messages = executed.body.messages as Json[];
+    expect(messages.some((message) => message.kind === "supplement_card")).toBe(true);
+    expect(messages.some((message) => message.kind === "task_result_card")).toBe(false);
+    expect(executed.body.worker).toBeNull();
+    const detail = await request("GET", `/api/tasks/${task.id}`);
+    expect(detail.body.status).toBe("needs_clarification");
+    expect((detail.body.runs as Json[]).at(-1)).toMatchObject({ status: "failed", error: { code: "needs_context" } });
+    expect((detail.body.artifacts as Json[]).some((artifact) => artifact.artifact_type === "task_result_card")).toBe(false);
   });
 });

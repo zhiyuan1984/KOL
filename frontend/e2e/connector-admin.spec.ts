@@ -547,11 +547,15 @@ test("已验证未启用的连接器重开向导直接落在启用步，并可�
   const panel = page.locator("[data-connector-panel='connector-config']");
   await expect(panel.locator("[data-connector-wizard-step='enable']")).toBeVisible();
   await expect(panel.locator("[data-connector-wizard-step='save']")).toHaveCount(0);
-  // 最近一次测试的时间与工具数来自服务端记录，不是「时间由服务端记录」的占位。
-  await expect(panel.locator("[data-connector-wizard-test-result]")).toContainText("2026-09-29T02:00:00.000Z");
+  // 最近一次测试时间来自服务端记录；当前原生向导按本地可读格式呈现，不能退回旧ISO DOM。
+  await expect(panel.locator("[data-connector-wizard-test-result]")).toContainText("2026-09-29 02:00:00");
   await expect(panel.locator("[data-connector-wizard-test-result]")).toContainText("4 个工具");
-  await expect(panel.locator("[data-connector-wizard-mount-summary]")).toContainText("可一键挂载 1 个");
-  await expect(panel.locator("[data-connector-wizard-mount-summary]")).toContainText("另有 1 个要逐项决定");
+  // 原生启用页用事实卡和可执行入口取代旧摘要；仍须清楚展示挂载缺口、已上线声明与可用动作。
+  await expect(panel.locator(".enable-progress")).toContainText("已挂 0/2 个");
+  const enableFacts = panel.locator(".enable-facts-item");
+  await expect(enableFacts.nth(4)).toContainText("技能声明1 个已上线技能声明了它的工具");
+  await expect(enableFacts.nth(5)).toContainText("启用条件至少一个技能把它的工具挂到可用状态");
+  await expect(panel.locator("[data-connector-wizard-mount-declared]")).toBeEnabled();
   await expect(panel.locator("[data-connector-wizard-status]")).toHaveCount(1);
   await expect(panel.locator("[data-connector-wizard-test-result]")).toHaveCount(1);
   await expect(panel.locator(".enable-progress")).toContainText("已挂 0/2 个");
@@ -567,7 +571,9 @@ test("已验证未启用的连接器重开向导直接落在启用步，并可�
         stepsOverflow: steps.scrollWidth - steps.clientWidth,
       };
     });
-    expect(layout.columns).toBe(1);
+    // Current native facts grid is two columns from the 720px container tier;
+    // at phone width it becomes a single readable column without horizontal loss.
+    expect(layout.columns).toBe(viewport.width <= 440 ? 1 : 2);
     expect(layout.factsOverflow).toBeLessThanOrEqual(1);
     expect(layout.stepsOverflow).toBeLessThanOrEqual(1);
     await expect(panel.locator("[data-connector-wizard-enable]")).toBeInViewport();
