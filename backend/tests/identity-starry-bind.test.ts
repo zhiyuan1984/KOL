@@ -173,7 +173,8 @@ describe("admin identity and Starry mailbox bind", () => {
     // mailbox re-certification is still mutating that binding in the background.
     await waitForBackgroundSync();
     const following = await call("GET", "/api/home/following");
-    expect(following.json, JSON.stringify(following.json)).toMatchObject({authority:"kol_follow_index+verified_starry_binding",completeness:"complete"});
+    const sourceFailures = await getConn().query("SELECT payload FROM audit_events WHERE event_type=$1", ["starrykol.following_authorization_failed"]);
+    expect(following.json, JSON.stringify({ response: following.json, audit: sourceFailures.rows })).toMatchObject({authority:"kol_follow_index+verified_starry_binding",completeness:"complete"});
 
     expect(kols.some((row) => row.handle === "户外电源达人")).toBe(false);
 
