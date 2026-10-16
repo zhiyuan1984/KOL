@@ -399,17 +399,44 @@ test("authoring failed autosave keeps content and does not check; recovered crea
   await main.getByRole("button", { name: "从空白创建", exact: true }).click();
   await main.getByLabel("流程名称").fill("保留草稿");
   const keys: string[] = []; let fail = true;
+  let releaseFirstSave!: () => void;
+  const firstSaveGate = new Promise<void>(resolve => { releaseFirstSave = resolve; });
+  const next = main.getByRole("button", { name: "下一步：表单设计", exact: true });
+  const isCreateResponse = (response: import("@playwright/test").Response) =>
+    new URL(response.url()).pathname === "/api/admin/approval-types/v2/templates"
+      && response.request().method() === "POST";
   await page.route("**/api/admin/approval-types/v2/templates", async route => {
     if (route.request().method() === "GET") return route.fallback();
     keys.push(route.request().postDataJSON().creationKey);
+    // Exercise a real pending save; recovery must not change its fault before
+    // the first response and the rendered failure state have both completed.
+    if (keys.length === 1) await firstSaveGate;
     if (fail) return route.fulfill({ status: 503, json: { detail: "保存失败" } });
     return route.fallback();
   });
-  await main.getByRole("button", { name: "下一步：表单设计", exact: true }).click();
+  const failedSave = page.waitForResponse(response => isCreateResponse(response) && response.status() === 503);
+  await next.click();
+  await expect.poll(() => keys.length).toBe(1);
+  await expect(next).toBeDisabled();
   await expect(main.getByLabel("流程名称")).toHaveValue("保留草稿");
   expect(f.requests.filter(r => r.path === "validate")).toHaveLength(0);
-  fail = false; await main.getByRole("button", { name: "下一步：表单设计", exact: true }).click();
-  await expect(main.getByRole("heading", { name: /表单字段/ })).toBeVisible(); expect(keys[0]).toBe(keys[1]);
+  expect(f.commands).toHaveLength(0);
+  releaseFirstSave();
+  await failedSave;
+  await expect(main.getByRole("alert")).toContainText("保存失败");
+  await expect(main.locator(".review-save-status")).toHaveText("保存失败，内容已保留");
+  await expect(next).toBeEnabled();
+  await expect(main.getByLabel("流程名称")).toHaveValue("保留草稿");
+  expect(f.requests.filter(r => r.path === "validate")).toHaveLength(0);
+  expect(f.commands).toHaveLength(0);
+  fail = false;
+  const recoveredSave = page.waitForResponse(response => isCreateResponse(response) && response.status() === 200);
+  await next.click();
+  await recoveredSave;
+  await expect(main.getByRole("heading", { name: /表单字段/ })).toBeVisible();
+  expect(keys).toHaveLength(2); expect(keys[0]).toBe(keys[1]);
+  expect(f.requests.filter(r => r.path === "validate")).toHaveLength(1);
+  expect(f.commands).toHaveLength(0);
 });
 
 test("authoring edit and undo expire checks, re-entry checks automatically, and trial inputs do not expire configuration", async ({ page }) => {
