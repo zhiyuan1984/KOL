@@ -137,11 +137,11 @@ test("shows saved candidate evidence without an extra analysis action and distin
   const results = page.locator("[data-discovery-results]");
   await results.getByText("资料与筛选依据", { exact: true }).click();
   await expect(results).toContainText("本次采样 10 条，样本均播 123；未证明覆盖最近10条。");
-  await expect(results.locator(".pool-row-metrics")).toContainText(/近10条均播\s*无法核验/);
-  await expect(results.locator(".pool-row-metrics")).toContainText(/粉丝\s*4/);
+  await expect(results.locator('[data-kol-layout="meta"]')).toContainText(/近10条均播\s*无法核验/);
+  await expect(results.locator('[data-kol-layout="meta"]')).toContainText(/粉丝\s*4/);
   await expect(results).toContainText("粉丝缺少可核验来源");
   await expect(results).not.toContainText("粉丝不符合当前条件");
-  await expect(results.getByRole("link", { name: "主页 ↗", exact: true })).toHaveAttribute("href", "https://www.youtube.com/channel/fixture");
+  await expect(results.getByRole("link", { name: "主页", exact: true })).toHaveAttribute("href", "https://www.youtube.com/channel/fixture");
   await page.screenshot({ path: testInfo.outputPath("discovery-candidates.png"), fullPage: true });
   await expect(results.getByRole("button", { name: "让线索智能体分析候选" })).toHaveCount(0);
   expect(submitted).toBeNull();

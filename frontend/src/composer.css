@@ -975,6 +975,14 @@
   .btn.send.send-arrow::after {
     content: "";
     position: absolute;
-    inset: calc((var(--composer-side-btn-size) - var(--touch-hit-min)) / 2);
+    /* One centered target, shared with runtime controls. An inset plus their
+       inherited translate shifts it twice; explicit size also includes the
+       visual button's border without reducing the target to 42px. */
+    inset: auto;
+    top: 50%;
+    left: 50%;
+    width: var(--touch-hit-min);
+    height: var(--touch-hit-min);
+    transform: translate(-50%, -50%);
   }
 }
