@@ -15,7 +15,6 @@ import AdminWorkReport from "./AdminWorkReport";
 import AdminBusinessMap from "./AdminBusinessMap";
 import AdminAudit from "./AdminAudit";
 import AdminOntology from "./AdminOntology";
-import AdminBusinessDomains from "./AdminBusinessDomains";
 import { ConnectorDetail } from "../admin/connector/ConnectorDetail";
 import { ConnectorHub } from "../admin/connector/ConnectorHub";
 import type { DirectoryEmployee } from "../admin/employees/EmployeeDirectory";
@@ -131,7 +130,8 @@ export default function AdminConsole() {
         {tab === "audit" && <AdminAudit />}
         {tab === "knowledge" && <AdminKnowledge />}
         {tab === "ontology" && <AdminOntology />}
-        {tab === "business-domains" && <AdminBusinessDomains />}
+        {/* 旧地址 /admin/business-domains 仍渲染同一统一页（深链保留，见 adminNav ADMIN_HIDDEN_SECTIONS）。 */}
+        {tab === "business-domains" && <AdminOntology />}
         {tab === "kol" && <LegacyAdmin />}
       </div>
     </div>

@@ -1,8 +1,11 @@
 import { Hono } from "hono";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { requireAdmin } from "../auth.js";
+import { audit } from "../db.js";
+import { postgresPool } from "../postgres/pool.js";
 
 /**
  * 本体六构件业务域地图（2026-10-12）。
@@ -220,11 +223,105 @@ function buildActionsForDomain(
   return actions;
 }
 
-businessDomainsRouter.get("/admin/business-domains", (c) => {
+businessDomainsRouter.get("/admin/business-domains", async (c) => {
   requireAdmin();
   const now = Date.now();
   if (!cache || now - cache.at > CACHE_TTL_MS) {
     cache = { at: now, data: buildMap() };
   }
-  return c.json(cache.data);
+  // 确认状态每次现查 PG（不进 60s 缓存），确认后立刻可见。
+  // PG 不可用时只降级确认状态，页面仍返回（不学 following tab 的 500）。
+  const { confirmations, unavailable } = await loadLatestConfirmations();
+  const map = cache.data as { domains: Array<Record<string, unknown>> };
+  const domains = map.domains.map((d) => {
+    const digest = domainViewDigest(d);
+    const latest = confirmations[String(d.code)];
+    return {
+      ...d,
+      confirmation: latest
+        ? {
+            confirmed_by: latest.confirmed_by,
+            confirmed_by_name: latest.confirmed_by_name,
+            confirmed_at: latest.created_at,
+            map_digest: latest.map_digest,
+            note: latest.note,
+            // 确认绑定展示内容的 digest；注册表变了即过期，需重新确认。
+            current: latest.map_digest === digest,
+          }
+        : null,
+    };
+  });
+  return c.json({ ...map, domains, confirmation_unavailable: unavailable });
+});
+
+/** 域地图展示内容的指纹：确认绑定它，内容一变确认即过期。 */
+export function domainViewDigest(view: unknown): string {
+  return `sha256:${createHash("sha256").update(JSON.stringify(view)).digest("hex")}`;
+}
+
+type ConfirmationRow = {
+  domain_code: string;
+  confirmed_by: string;
+  confirmed_by_name: string;
+  map_digest: string;
+  note: string;
+  created_at: string;
+};
+
+/** 每个域最新一条确认。失败只降级（返回空 + unavailable），不让页面 500。 */
+async function loadLatestConfirmations(): Promise<{ confirmations: Record<string, ConfirmationRow>; unavailable: boolean }> {
+  try {
+    const rows = await postgresPool().query<ConfirmationRow>(
+      `SELECT DISTINCT ON (domain_code) domain_code, confirmed_by, confirmed_by_name, map_digest, note,
+              to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at
+         FROM domain_confirmations ORDER BY domain_code, created_at DESC`,
+    );
+    const confirmations: Record<string, ConfirmationRow> = {};
+    for (const row of rows.rows) confirmations[row.domain_code] = row;
+    return { confirmations, unavailable: false };
+  } catch (error) {
+    console.error("[business-domains] confirmation lookup degraded", error);
+    return { confirmations: {}, unavailable: true };
+  }
+}
+
+/**
+ * 域确认（轻量标记，不是审批）：确认“当前展示的域地图内容正确”。
+ * 只追加一条确认记录，不改注册表、不绕过审批（变更仍走 ontology_change）。
+ */
+businessDomainsRouter.post("/admin/business-domains/:code/confirm", async (c) => {
+  const admin = requireAdmin();
+  const code = c.req.param("code");
+  const body = (await c.req.json().catch(() => ({}))) as { note?: string };
+  const note = String(body.note || "").trim().slice(0, 500);
+  const map = buildMap();
+  const view = map.domains.find((d) => d.code === code);
+  if (!view) {
+    return c.json({ code: "domain_not_found", message: `未找到域：${code}` }, 404);
+  }
+  const digest = domainViewDigest(view);
+  const id = `dc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  try {
+    await postgresPool().query(
+      `INSERT INTO domain_confirmations (id, domain_code, confirmed_by, confirmed_by_name, map_digest, note)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [id, code, admin.id, admin.name || admin.handle, digest, note],
+    );
+  } catch (error) {
+    console.error("[business-domains] confirmation insert failed", error);
+    return c.json({ code: "confirmation_store_unavailable", message: "确认记录写入失败（确认表不可用，可能是迁移 044 未执行）；未记录确认。" }, 503);
+  }
+  audit("host", "domain.confirmation.created", {
+    domain_code: code, confirmed_by: admin.id, map_digest: digest,
+  });
+  return c.json({
+    domain_code: code,
+    confirmation: {
+      confirmed_by: admin.id,
+      confirmed_by_name: admin.name || admin.handle,
+      map_digest: digest,
+      note,
+      current: true,
+    },
+  }, 201);
 });

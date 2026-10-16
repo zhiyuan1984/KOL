@@ -72,7 +72,6 @@ describe("admin sidebar parity", () => {
       "knowledge",
       "agents",
       "ontology",
-      "business-domains",
       "approval-types",
       "skills",
       "exams",
@@ -84,9 +83,13 @@ describe("admin sidebar parity", () => {
       "audit",
       "kol",
       "approvals",
+      "business-domains",
     ]);
-    expect(ADMIN_HIDDEN_SECTIONS).toEqual(["approvals"]);
-    expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([3, 6, 1, 1, 7]);
+    // master-data：PR #238 已随主数据导入上线、侧栏有入口，测试此前未同步（此前为红）。
+    // business-domains：Phase 3 本体统一页合并，侧栏入口去掉，旧地址仍为合法深链（IA §1.1）。
+    expect(ADMIN_HIDDEN_SECTIONS).toEqual(["approvals", "business-domains"]);
+    expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([3, 5, 1, 1, 7]);
+    expect(new Set(ADMIN_SECTIONS).size).toBe(ADMIN_SECTIONS.length);
     expect(ADMIN_NAV_GROUPS.flatMap((group) => group.rows.map((row) => row.label))).toEqual([
       "员工",
       "工作战报",
@@ -95,7 +98,6 @@ describe("admin sidebar parity", () => {
       "知识库",
       "Agent",
       "本体",
-      "业务域地图",
       "评审流程",
       "技能",
       "考试",
@@ -107,9 +109,9 @@ describe("admin sidebar parity", () => {
       "审计中心",
       "配置",
     ]);
-    // 资产簇内「连接器 / 知识库 / Agent / 本体 / 业务域地图」同组且顺序固定；「审批」已从菜单去掉（隐藏分节）。
+    // 本体唯一入口；业务域地图和审批仍是合法隐藏深链分节。
     const assetIds = ADMIN_NAV_GROUPS.find((group) => group.label === "资产")!.rows.map((row) => row.id);
-    expect(assetIds).toEqual(["connectors", "knowledge", "agents", "ontology", "business-domains", "approval-types"]);
+    expect(assetIds).toEqual(["connectors", "knowledge", "agents", "ontology", "approval-types"]);
     expect(ADMIN_NAV_GROUPS.flatMap((group) => group.rows.map((row) => row.id))).not.toContain("approvals");
     // 「业务地图」一行映射两个看板路由（侧栏高亮与面板分节共用）。
     const businessMap = ADMIN_NAV_GROUPS.flatMap((group) => group.rows).find((row) => row.id === "business-map");

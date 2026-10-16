@@ -80,12 +80,6 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         icon: "M6 5h4v4H6z M14 5h4v4h-4z M10 15h4v4h-4z M10 9v3 M8 9l3 5 M16 9l-3 5",
       },
       {
-        id: "business-domains",
-        label: "业务域地图",
-        href: "/admin/business-domains",
-        icon: "M9 20l-5.5-2.5v-13L9 7l6-2.5L20.5 7v13L15 17.5 9 20z M9 7v13 M15 4.5v13",
-      },
-      {
         id: "approval-types",
         label: "评审流程",
         href: "/admin/approval-types",
@@ -172,8 +166,10 @@ export function adminSectionOf(pathname: string): string {
   return section || "employees";
 }
 
-/** 已从侧栏去掉、但仍保留为合法深链分节的条目（菜单文字与分簇变动不改 href / 面板 / 权限闸门；ADR-2026-10-12）。 */
-export const ADMIN_HIDDEN_SECTIONS: string[] = ["approvals"];
+/** 已从侧栏去掉、但仍保留为合法深链分节的条目（菜单文字与分簇变动不改 href / 面板 / 权限闸门；ADR-2026-10-12）。
+ * business-domains：Phase 3 本体统一页合并，原“业务域地图”入口并入“本体”；
+ * 旧地址仍渲染同一统一页（默认域地图段），无强制跳转，见 IA §1.1。 */
+export const ADMIN_HIDDEN_SECTIONS: string[] = ["approvals", "business-domains"];
 
 /** 侧栏条目与面板的合法分节集合（顺序即侧栏顺序；含隐藏深链分节）。 */
 export const ADMIN_SECTIONS: string[] = [
