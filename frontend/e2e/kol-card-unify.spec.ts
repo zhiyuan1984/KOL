@@ -18,7 +18,11 @@ async function interceptAllApi(page: Page) {
     calls.push({ method: request.method(), path });
     // The fixture itself makes no reads. Explicit candidate commands receive a
     // narrow fake receipt only so the real component can finish its UI state.
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, starry_imported: true }) });
+    const isAsyncCommand = request.method() === "POST" && /\/(follow|ignore)$/.test(path);
+    await route.fulfill({ status: isAsyncCommand ? 202 : 200, contentType: "application/json",
+      body: JSON.stringify(isAsyncCommand
+        ? { accepted: true, status: "pending", work_item_id: "fixture-command", run_id: "fixture-run" }
+        : { ok: true, starry_imported: true }) });
   });
   return calls;
 }
@@ -295,7 +299,9 @@ test.describe("KOL card unification · isolated real-component fixture", () => {
     await openFixture(page, { container: 360, theme: "light" });
     const pool = card(page, "pool");
     const claim = pool.getByRole("button", { name: "领取跟进", exact: true });
-    await claim.click();
+    await expect(claim).toBeVisible();
+    await expect(claim).toHaveText("领取跟进");
+    await claim.evaluate(el => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });
     await expect(page.locator("[data-fixture-pool-confirm]")).toHaveText("1");
     await expect(pool.locator("[data-pool-claim]")).toHaveCount(0);
     await expect(pool.locator("[data-pool-release]")).toHaveText("放回公海");

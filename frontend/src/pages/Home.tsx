@@ -1376,6 +1376,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
     const selected = selectedPoolCards.map((card) => card.kol_uid);
     if (!selected.length || poolAgentBusy) return;
     if (kind === "score") {
+      if (!prefillPoolQuestion(kind, selected)) return;
       const criteria = discoveryBrief || lastDiscoverySubmit?.brief || null;
       poolAgent.setScoreConfirm({
         scope: structuredClone(selectedPoolCards), criteria: criteria ? structuredClone(criteria) : null,

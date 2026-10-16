@@ -153,7 +153,8 @@ function PoolFixture() {
         if (claimCommitted.current) return;
         claimCommitted.current = true;
         setConfirmCalls(value => value + 1);
-        setClaimReceipts({ [card.kol_uid]: { kolUid: card.kol_uid, followId: "fixture-follow", card } });
+        const receipt = { kolUid: card.kol_uid, followId: "fixture-follow", created: true, card };
+        setClaimReceipts({ [card.kol_uid]: receipt });
       }}
       onReleaseClaim={(kolUid) => {
         claimCommitted.current = false;

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { homePoolReadonlyPayload, stubHomeFollowing } from "./kol-surface-stub";
 
 const LIVE_SIDE_EFFECT = /\/(send|confirm-stage|start-crawl|crawl-job|actions\/start-crawl)(?:\?|$)/;
 
@@ -80,6 +81,9 @@ const FOLLOW_REFUSED = {
   cron_eligible: false,
   last_interaction_at: null,
   public_stage: "已拒绝",
+  stage_code: "REJECTED",
+  stage_label: "已拒绝",
+  source_kind: "kol_follow_index",
 };
 
 const FOLLOW_NEAR = {
@@ -97,6 +101,8 @@ const FOLLOW_NEAR = {
   cron_eligible: true,
   last_interaction_at: "2026-09-05T00:00:00Z",
   public_stage: "跟进中",
+  stage_code: "INITIAL_CONTACT",
+  stage_label: "初步接触",
 };
 
 async function stubKol172(page: Page) {
@@ -110,37 +116,17 @@ async function stubKol172(page: Page) {
   await page.route(/\/api\/home\/pool(?:\?.*)?$/, async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     await route.fulfill({
-      json: {
-        entry: "memory",
-        kind: "memory",
-        creates_session: false,
-        calls_model: false,
-        index: "公海",
-        items: poolClaimed ? [POOL_CONTACTED_ITEM, POOL_UNOWNED_ITEM] : [POOL_ITEM, POOL_CONTACTED_ITEM, POOL_UNOWNED_ITEM],
-        kols: poolClaimed ? [POOL_CONTACTED_ITEM, POOL_UNOWNED_ITEM] : [POOL_ITEM, POOL_CONTACTED_ITEM, POOL_UNOWNED_ITEM],
-      },
+      json: homePoolReadonlyPayload(
+        poolClaimed ? [POOL_UNOWNED_ITEM] : [POOL_UNOWNED_ITEM, POOL_ITEM],
+        new URL(route.request().url()).searchParams,
+      ),
     });
   });
   await page.route("**/api/knowledge/question-templates", async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     await route.fulfill({ json: QUESTION_TEMPLATES });
   });
-  await page.route("**/api/home/following", async (route) => {
-    if (route.request().method() !== "GET") return route.fallback();
-    await route.fulfill({
-      json: {
-        entry: "memory",
-        kind: "memory",
-        creates_session: false,
-        calls_model: false,
-        index: "我的跟进",
-        employee_id: "u_sriphy",
-        authority: "kol_follow_index+verified_starry_binding",
-        completeness: "complete",
-        kols: [FOLLOW_REFUSED, FOLLOW_NEAR],
-      },
-    });
-  });
+  await stubHomeFollowing(page, [FOLLOW_REFUSED, FOLLOW_NEAR]);
   await page.route("**/api/home/kol-analyze/enqueue", async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
     const body = route.request().postDataJSON() as { kol_uids?: string[]; people?: string[] };
@@ -180,6 +166,8 @@ async function stubKol172(page: Page) {
         ok: true,
         reused: false,
         created: true,
+        follow_id: "kfi_claimed",
+        kol_uid: POOL_ITEM.kol_uid,
         follow: { ...FOLLOW_NEAR, follow_id: "kfi_claimed", kol_uid: POOL_ITEM.kol_uid, countdown: false },
       },
     });
@@ -293,7 +281,8 @@ test("public pool restores the central interaction and uses a structured right r
   await expect(rail.locator("[data-pool-toolbar]")).toBeVisible();
   await expect(rail.locator("[data-pool-filter='new']")).toHaveText("未首次建联1");
   await expect(rail.locator("[data-pool-filter-count='new']")).toHaveText("1");
-  await expect(rail.locator("[data-pool-filter='overdue']")).toHaveText("14天未联系");
+  await expect(rail.locator("[data-pool-filter='overdue']")).toHaveText("14天未联系1");
+  await expect(rail.locator("[data-pool-filter='overdue'] [data-pool-filter-count='overdue']")).toHaveText("1");
   await expect(rail.locator("[data-pool-sort='ingested']")).toBeVisible();
   await expect(rail.locator("[data-pool-sort='followers']")).toBeVisible();
   await expect(rail.locator("[data-pool-sort='score']")).toBeVisible();
@@ -330,16 +319,26 @@ test("public pool restores the central interaction and uses a structured right r
   expect((await row.boundingBox())?.width).toBeLessThanOrEqual((railBox?.width || Number.POSITIVE_INFINITY) + 1);
   await expect(workspace.locator("[data-pool-overview]")).not.toContainText("公开对象池");
   await expect(workspace.locator("[data-pool-reason]")).toHaveCount(0);
-  await expect(row.locator(".pool-profile-link")).toHaveText("主页");
-  const searchBox = await workspace.locator("[data-pool-search]").boundingBox();
-  // 宽度是缩短版（~96px）的 2 倍；高度必须仍是控件档 28px。
+  await expect(row.locator("a.kol-card-link")).toHaveText("主页");
+  const searchControl = workspace.locator(".workspace-search-input.ant-input-affix-wrapper").filter({ has: page.locator("[data-pool-search]") });
+  const searchBox = await searchControl.boundingBox();
+  // Current AntD search uses its affix wrapper as the visual/control box;
+  // the inner input excludes icon/padding and is not the control width.
   expect(searchBox?.width).toBeGreaterThanOrEqual(176);
   // 评分是 KOL 记忆里的事实：有评分「评分 N」、无评分「未评分」；卡片上没有评分动作入口。
   const scoredRow = page.locator("[data-pool-kol='uid_outdoor']");
-  await expect(scoredRow.locator(".pool-row-meta .pool-profile-link + [data-pool-score='missing']")).toHaveCount(1);
+  await expect(scoredRow.locator("[data-pool-metrics] [data-pool-score='missing']")).toHaveCount(1);
   await expect(page.locator("[data-pool-score-kol]")).toHaveCount(0);
-  expect((await workspace.locator("[data-pool-search]").boundingBox())?.height).toBe(28);
-  expect((await workspace.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").boundingBox())?.height).toBe(28);
+  const searchTokens = await searchControl.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return { height: node.getBoundingClientRect().height, token: Number.parseFloat(style.getPropertyValue("--control-h-lg")), font: style.fontSize };
+  });
+  expect(searchTokens.token).toBe(32);
+  expect(searchTokens.height).toBe(searchTokens.token);
+  expect(searchTokens.font).toBe("13px");
+  const claim = workspace.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]");
+  expect((await claim.boundingBox())?.height).toBe(24);
+  await expect(claim).toHaveCSS("font-size", "13px");
 });
 
 test("scoring confirm bar states which criteria the score will use", async ({ page }) => {
@@ -789,11 +788,15 @@ test("follow cards stay object cards and brief prefers 拒信", async ({ page })
   await expect(page.locator('button[data-followed-situation="refused"]')).toContainText("核对已拒绝的 1 位对象");
   await expect(page.locator('[data-followed-stage-group="connect"]')).toBeVisible();
   await expect(page.locator("[data-kol-work-card]").first()).toBeVisible();
-  // Refused has no mail fact and therefore no clock; the separate near row
-  // keeps the server-authoritative 14-day countdown rather than hiding it.
+  // The current compact card explicitly renders the no-mail state, not an
+  // invented countdown. The separate near row retains the real 14-day clock.
   const refused = page.locator('[data-followed-kol="小美妆日记"]');
   const near = page.locator('[data-followed-kol="旅行充电站"]');
-  await expect(refused.locator("[data-kol-chip='countdown']")).toHaveCount(0);
+  await expect(refused.locator("[data-kol-chip='countdown']")).toHaveText("尚未有效往来");
+  await expect(refused.locator("[data-kol-chip='countdown']")).not.toHaveAttribute("title", /14 天|上次互动/);
+  await expect(refused).not.toContainText(/剩 \d+ 天|已过 \d+ 天/);
+  await expect(refused.locator("[data-stage-label]")).toHaveText("已拒绝");
+  await expect(refused.locator("[data-kol-chip='countdown']").filter({ hasText: /剩 \d+ 天|已过 \d+ 天|上次互动/ })).toHaveCount(0);
   await expect(near.locator("[data-kol-chip='countdown']")).toHaveText("剩 2 天");
   await expect(near.locator("[data-kol-chip='countdown']")).toHaveAttribute("title", /14 天无有效互动/);
   await expect(page.locator("[data-discovery-candidate]")).toHaveCount(0);
@@ -829,7 +832,7 @@ test("claim is L3 and posts confirm to /api/kols/:kolUid/claim", async ({ page }
   expect((await compactRow.locator("[data-kol-avatar='source']").boundingBox())?.width).toBe(24);
   await expect(compactRow).not.toContainText("公开资料");
   await expect(compactRow.locator("[data-pool-reason]")).toHaveCount(0);
-  await expect(compactRow.locator("[data-kol-card-link]")).toHaveText("主页");
+  await expect(compactRow.locator("a.kol-card-link")).toHaveText("主页");
   await expect(compactRow).not.toContainText("领取后进入我的跟进");
   // 明确领取未建联的有主行：无主行排在前面，不能靠「第一张卡」取对象。
   await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").click();

@@ -20,6 +20,8 @@ import { isWriteSkill } from "../composer/catalog";
 import { skillFillText } from "../composer/skillFill";
 import { RECOMMENDED_SKILL_IDS as RECOMMENDED_IDS } from "../composer/recommended";
 import { type SkillRow } from "./SkillHub";
+import { projectSkillTemplates } from '../composer/skillTemplateProjection';
+import { definitionList } from '../home/homeModel';
 
 // 分组配置
 // hint 只写组名说不出来的增量信息：`评估达人质量与合作可能性` 这类与组名同义的提示删掉
@@ -347,6 +349,7 @@ export function SkillCatalog() {
   const [skills, setSkills] = useState<SkillRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [templateError, setTemplateError] = useState('');
   const [q, setQ] = useState(() => new URLSearchParams(location.search).get("q") ?? memory.q ?? "");
   const [mode, setMode] = useState<SkillMode>(() => urlHasFilters ? catalogFilters(location.search).mode : memory.mode || "all");
   const [businessStage, setBusinessStage] = useState<BusinessStage>(() => urlHasFilters ? catalogFilters(location.search).stage : memory.stage || "all");
@@ -362,8 +365,14 @@ export function SkillCatalog() {
   const { listRef, toolbarRef, limit, more } = useBrowseRows(JSON.stringify([mode,businessStage,q]),memory.limit,!loading);
   useEffect(() => {
     let alive = true;
-    setLoading(true); setPersonalLoaded(false);
-    void api.skills().then(rows => { if (!Array.isArray(rows)) throw new Error("技能目录返回格式异常"); if (alive) { setSkills(rows as SkillRow[]); setErr(""); } })
+    setLoading(true); setPersonalLoaded(false); setTemplateError('');
+    void Promise.all([api.skills(), api.taskDefinitions().then(definitionList).catch(() => {
+      if (alive) setTemplateError('参数模板暂未读取，请重试；带入后仍须核对完整参数。');
+      return [];
+    })]).then(([rows, definitions]) => {
+      if (!Array.isArray(rows)) throw new Error('技能目录返回格式异常');
+      if (alive) { setSkills(projectSkillTemplates(rows as SkillRow[], definitions)); setErr(''); }
+    })
       .catch(e => { if (alive) setErr(e instanceof Error ? e.message : "无法加载技能目录"); }).finally(() => { if (alive) setLoading(false); });
     void api.skillPersonal().then(result => { if (!Array.isArray(result.items)) throw new Error("个人记录返回格式异常"); if (alive) { setPersonal(result.items); setPersonalError(""); } })
       .catch(e => { if (alive) setPersonalError(e instanceof Error ? e.message : "个人收藏与使用记录读取失败"); }).finally(() => { if (alive) setPersonalLoaded(true); });
@@ -467,6 +476,7 @@ export function SkillCatalog() {
         </div>
         {personalError ? <p className="asset-personal-error" role="alert">个人记录暂不可用：{personalError} <CompactButton onClick={() => setReloadKey(value => value + 1)}>重试</CompactButton></p> : null}
         {err ? <p className="error" role="alert">{err} <CompactButton onClick={() => setReloadKey(value => value + 1)}>重试</CompactButton></p> : null}
+        {templateError ? <p className='asset-personal-error' role='alert'>{templateError} <CompactButton onClick={() => setReloadKey(value => value + 1)}>重试</CompactButton></p> : null}
         <div className="kbv-records">{rows.map(skill => <BrowseListRow key={skill.id} title={skill.title} kind={skill.badge || "技能"} selected={selected?.id === skill.id}
           onOpen={() => select(skill)} recordAttributes={{"data-skill-id":skill.id}} openAttributes={{"data-skill-open":skill.id}} />)}</div>
         {rows.length ? <ListLoadFooter remaining={filtered.length - rows.length} onMore={more} /> : null}

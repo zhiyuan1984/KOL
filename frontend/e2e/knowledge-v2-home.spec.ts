@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { prepareNativeKnowledgeAdmin } from "./fixtures/native-knowledge-admin";
+import { prepareEmployeeKnowledgeSeedOwners } from "./fixtures/native-employee-seed-owner";
 
 /**
  * 知识库 IA v2 主页契约（P1 骨架，2026-10-02；中栏 chips 改版 2026-10-03）：
@@ -29,10 +30,16 @@ async function filledCtaCount(page: Page, scope: string): Promise<number> {
 
 test.describe("知识库 v2 主页（管理端）", () => {
   // 管理分类、草稿与归档正例使用隔离测试库中的真实 users 角色；不放宽服务端 403。
-  test.beforeAll(async () => { await prepareNativeKnowledgeAdmin(); });
+  test.beforeAll(async () => {
+    await prepareNativeKnowledgeAdmin();
+    await prepareEmployeeKnowledgeSeedOwners(["kb_mail_kol", "kb_mail_followup", "kb_mail_ship", "kb_followup"]);
+  });
 
   test("主页骨架：中栏筛选、右栏五条浏览与下方详情", async ({ page }) => {
-    await page.goto("/admin/knowledge");
+    // The original four kind chips cover all + the three structured entry
+    // kinds. Current uploads add a separate document axis; retain the original
+    // exact entry-kind count without depending on prior PDF fixture history.
+    await page.goto("/admin/knowledge?asset=entry");
     await expect(page.locator('[data-admin-kb-v2="home"]')).toBeVisible();
     await expect(page.locator("[data-kbv-top]")).toHaveCount(0);
     await expect(page.locator("[data-kbv-filter-pane]")).toBeVisible();
@@ -44,6 +51,8 @@ test.describe("知识库 v2 主页（管理端）", () => {
     await expect(page.locator("[data-kb-filter='brand'] [data-kb-filter-value=''] [data-kb-facet-count]")).toHaveText(/\d+/);
     await expect(page.locator("[data-kb-filter='taxonomy'] [data-kb-scope-base]").first()).toBeVisible();
     await expect(page.locator("[data-kb-filter='brand'] [data-kb-filter-value='']")).toHaveAttribute("aria-pressed", "true");
+    // Complete native fixture contains all + mail/policy/question-template;
+    // zero-count glossary remains absent rather than invented for the UI.
     await expect(page.locator("[data-kb-filter='kind'] [data-kb-kind]")).toHaveCount(4);
     await expect(page.locator("[data-kb-kind='question_template']")).toContainText("问题模板");
     await expect(page.locator("[data-kb-kind='glossary']")).toHaveCount(0);
@@ -51,7 +60,14 @@ test.describe("知识库 v2 主页（管理端）", () => {
     expect(await page.locator("[data-kbv-view]").count()).toBeGreaterThanOrEqual(5);
     await expect(page.locator("[data-kbv-view='published']")).toBeVisible();
     await expect(page.locator("[data-kbv-view='draft']")).toBeVisible();
-    expect(await page.locator("[data-kbv-record]").count()).toBeGreaterThanOrEqual(5);
+    const visibleCount = await page.locator('[data-kbv-record]').count();
+    const totalCount = Number((await page.locator('[data-kbv-count]').innerText()).match(/\d+/)?.[0]);
+    expect(visibleCount).toBeGreaterThanOrEqual(5);
+    expect(visibleCount).toBeLessThanOrEqual(totalCount);
+    // Current native viewport can hold more than the original P1 five rows.
+    // A single page must nevertheless expose every counted record, not just a
+    // lower-bound assertion that would conceal missing assets.
+    if (/第\s*1\s*\/\s*1\s*页/.test(await page.locator('[data-kbv-page]').innerText())) expect(visibleCount).toBe(totalCount);
     await expect(page.locator("[data-kbv-record]").first()).toBeVisible();
 
     // 原高级筛选迁为默认显示的可增删阶段项；多选与「全部」仍须保持同一筛选语义。
@@ -95,8 +111,12 @@ test.describe("知识库 v2 主页（管理端）", () => {
     await expect(upload.locator("[data-kb-scope-picker]")).toBeVisible();
     await expect(upload).not.toContainText("上传服务暂不可用");
     await expect(page.locator("[data-kbv-upload-submit]")).toBeDisabled();
-    await expect(upload).not.toContainText(/P2 接入|P3 接入|迁移中|旧版/);
-    await upload.getByRole("button", { name: "关闭" }).click();
+    const formatWarning = "旧版 PPT 请先另存为 PPTX";
+    await expect(upload).toContainText(formatWarning);
+    // Exactly the real legacy file-format instruction is meaningful user copy;
+    // every other occurrence of the original prohibited engineering words fails.
+    expect((await upload.innerText()).replace(formatWarning, "")).not.toMatch(/P2 接入|P3 接入|迁移中|旧版/);
+    await page.getByRole("button", { name: "取消", exact: true }).click();
     await expect(upload).toBeHidden();
 
     // 新建知识进入原生编辑态（真实写草稿入口；写入流程由下一个用例覆盖）。
@@ -124,7 +144,9 @@ test.describe("知识库 v2 主页（管理端）", () => {
 
     await expect(dlg).toBeHidden();
     await expect(page.locator("[data-admin-receipt]")).toContainText("草稿已保存");
-    await expect(page.locator("[data-admin-receipt]")).toContainText(title);
+    // Current receipt is the lifecycle result; resource identity is in the
+    // simultaneously selected native detail, and is independently checked below.
+    await expect(page.locator("[data-knowledge-right][data-workspace-mode='detail'] .kbw-identity")).toContainText(title);
 
     // 自清理：把本用例创建的草稿从 data-e2e 删掉（硬删仅限草稿）。
     const response = await page.request.get("/api/admin/knowledge?limit=500");
@@ -141,7 +163,10 @@ test.describe("知识库 v2 主页（管理端）", () => {
     await page.goto("/admin/knowledge/ingest");
     await expect(page.locator("[data-knowledge-right][data-kb-active-stage='processing']")).toBeVisible();
     await expect(page.locator("[data-knowledge-middle] [role='tab']")).toHaveCount(0);
-    await page.getByRole("button", { name: "查看知识列表", exact: true }).click();
+    // Processing is now a native right-rail stage, not an old child page with
+    // its own back button. The current governance tab returns to the assets.
+    await page.locator("[data-knowledge-right]").getByRole("tab", { name: "知识资产", exact: true }).click();
+    await expect(page.locator("[data-knowledge-right][data-kb-active-stage='published']")).toBeVisible();
     await expect(page.locator('[data-admin-kb-v2="home"]')).toBeVisible();
   });
 

@@ -43,20 +43,36 @@ export async function stubHomeFollowing(page: Page, kols: Array<Record<string, u
   });
 }
 
+/** Independent read-only server snapshot: global total and query/filter matched are distinct. */
+export function homePoolReadonlyPayload(items: Array<Record<string, unknown>>, params = new URLSearchParams()) {
+  const query = (params.get("query") || "").trim().toLowerCase();
+  const filter = params.get("filter") || "all";
+  const offset = Number(params.get("offset") || 0);
+  const limit = Number(params.get("limit") || 50);
+  const isNew = (row: Record<string, unknown>) => !row.has_conversation && !row.last_conversation_id;
+  const queried = items.filter((row) => !query || [row.handle, row.display_name, row.platform, row.region, row.direction]
+    .join(" ").toLowerCase().includes(query));
+  const matched = queried.filter((row) => filter === "all" || (filter === "new" ? isNew(row) : !isNew(row)));
+  const sort = params.get("sort") || "default";
+  const metric = (row: Record<string, unknown>) => Number(String(row.followers || "0").replace(/,/g, ""));
+  const ordered = [...matched];
+  if (sort.startsWith("followers-")) ordered.sort((a, b) => (metric(a) - metric(b)) * (sort.endsWith("asc") ? 1 : -1));
+  const newCount = queried.filter(isNew).length;
+  const overdueCount = queried.length - newCount;
+  return {
+    entry: "memory", kind: "memory", creates_session: false, calls_model: false, index: "公海",
+    library: { ok: true, count: items.length },
+    items: ordered.slice(offset, offset + limit),
+    page: { offset, limit, total: items.length, matched: matched.length,
+      new_count: newCount, overdue_count: overdueCount,
+      next_offset: offset + limit < matched.length ? offset + limit : null },
+  };
+}
+
 export async function stubHomePool(page: Page, items: Array<Record<string, unknown>> = []) {
   await page.route(/\/api\/home\/pool(?:\?.*)?$/, async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
-    await route.fulfill({
-      json: {
-        entry: "memory",
-        kind: "memory",
-        creates_session: false,
-        calls_model: false,
-        index: "公海",
-        items,
-        kols: items,
-      },
-    });
+    await route.fulfill({ json: homePoolReadonlyPayload(items, new URL(route.request().url()).searchParams) });
   });
 }
 

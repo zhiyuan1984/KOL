@@ -157,6 +157,8 @@ async function todoRowLayout(card: ReturnType<Page["locator"]>) {
       titleRight: titleBox.right,
       titleTop: titleBox.top,
       statusLeft: statusBox.left,
+      statusRight: statusBox.right,
+      rowRight: el.getBoundingClientRect().right,
       statusTop: statusBox.top,
       actLeft: actBox.left,
       actTop: actBox.top,
@@ -207,7 +209,11 @@ test("home todo rows live in the task rail without横向滚动", async ({ page }
   expect(wide.paneMaxWidth).toMatch(/^(none|100%)$/);
   expect(wide.actLeft).toBeGreaterThan(wide.titleRight - 8);
   expect(Math.abs(wide.actTop - wide.titleTop)).toBeLessThan(48);
-  expect(wide.statusLeft).toBeLessThan(wide.titleRight);
+  // Current table has separate title/status/action columns, not a status
+  // overlaid on the title. Keep all facts in the owned row within 1px.
+  expect(wide.statusLeft).toBeGreaterThanOrEqual(wide.titleRight - 1);
+  expect(wide.statusRight).toBeLessThanOrEqual(wide.actLeft + 1);
+  expect(wide.statusRight).toBeLessThanOrEqual(wide.rowRight + 1);
   // 工作台列宽契约（DESIGN「Home Agent 工作台几何」）：右栏 clamp(360px, 54%, 820px)，
   // 右栏可以宽于中栏；行在右栏内不横向滚动。用 border-box 宽度之和，clientWidth
   // 会把右栏 1px 边框和百分比小数舍掉，算式对不上。
@@ -216,7 +222,7 @@ test("home todo rows live in the task rail without横向滚动", async ({ page }
   expect(railWidth).toBeGreaterThanOrEqual(360);
   expect(railWidth).toBeLessThanOrEqual(820);
   expect(centerWidth).toBeGreaterThan(0);
-  expect(Math.abs(railWidth - Math.min(Math.max(0.54 * (railWidth + centerWidth), 360), 820))).toBeLessThanOrEqual(2);
+  expect(Math.abs(railWidth - Math.min(Math.max(0.54 * (railWidth + centerWidth), 360), 820))).toBeLessThanOrEqual(1);
   await expectNoPageHorizontalScroll(page);
 
   await page.setViewportSize({ width: 720, height: 900 });
@@ -274,7 +280,8 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
   await expect(card.locator("[data-latest-fact]")).not.toContainText("From:");
   await expect(card.locator("[data-latest-fact]")).not.toContainText("Reply-To");
   await expect(card.locator("[data-recommended-action]")).toContainText("建议进入「已回复 · 有兴趣」");
-  await expect(card.locator("[data-action-why]")).toContainText("明确表达品牌合作意愿");
+  // A saved stage target is not a new inference from a mail snippet.
+  await expect(card.locator("[data-action-why]")).toHaveText("· 已有阶段建议记录，需人工核对邮件原文。");
   await expect(card).not.toContainText("支撑进入");
   await expect(card).not.toContainText("support_transition");
   await expect(card.locator("[data-action-evidence]")).toContainText("依据");
@@ -284,7 +291,12 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
   await expect(card.locator("[data-confirm-enter-stage]")).toHaveClass(/ant-btn-text/);
   await expect(page.locator("[data-followed-batch-confirm]")).toHaveCount(0);
   await expect(card.locator("[data-open-kol-detail]")).toHaveText("详情");
-  await expect(card.locator("[data-open-kol-detail]")).not.toHaveClass(/btn/);
+  await expect(card.locator("[data-open-kol-detail]")).not.toHaveClass(/(?:^|\s)btn(?:\s|$)/);
+  await expect(card.locator("[data-open-kol-detail]")).toHaveClass(/ant-btn-text/);
+  await expect(card.locator("[data-open-kol-detail]")).toHaveClass(/ant-btn-variant-text/);
+  await expect(card.locator("[data-open-kol-detail]")).toHaveAttribute("type", "button");
+  await page.mouse.move(0, 0);
+  await expect(card.locator("[data-open-kol-detail]")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(card.locator("[data-open-original-mail]")).toHaveText("互动");
   await expect(card.getByRole("button", { name: "确认阶段", exact: true })).toHaveCount(0);
 
@@ -332,7 +344,13 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
         h: Math.round(box.height),
       };
     };
+    const accentProbe = document.createElement("i");
+    accentProbe.style.color = "var(--accent-text)";
+    el.appendChild(accentProbe);
+    const accentColor = getComputedStyle(accentProbe).color;
+    accentProbe.remove();
     return {
+      accentColor,
       name: read(el.querySelector("[data-kol-name]")),
       stage: read(el.querySelector("[data-stage-label]")),
       avatar: read(el.querySelector("[data-kol-avatar]")),
@@ -360,7 +378,7 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
   if (type.ai) expect(type.ai.size).toBe(13);
   if (type.why) expect(type.why.size).toBe(12);
   expect(type.detail!.size).toBe(13);
-  expect(["rgb(107, 107, 107)", "rgb(102, 102, 102)"]).toContain(type.detail!.color);
+  expect(type.detail!.color).toBe(type.accentColor);
   if (type.mail) expect(type.mail.size).toBe(13);
   if (wide.columnWidth > 1000) {
     expect(wide.cardWidth).toBeLessThan(wide.columnWidth - 24);
@@ -757,7 +775,7 @@ test("suggested public-pool action opens the right rail on new KOLs", async ({ p
 
   await page.locator("[data-followed-public-pool-new]").click();
   await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
-  await expect(page.locator('[data-pool-filter="new"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('[data-home-pane="pool"] [data-pool-toolbar] [data-pool-filter="new"]')).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator('[data-pool-kol="uid_new_pool"]')).toBeVisible();
 });
 

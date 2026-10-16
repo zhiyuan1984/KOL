@@ -18,8 +18,9 @@ test("pool pages preserve global counts and selected analysis scope, and search 
     offsets.push(offset);
     const filtered = items.filter((row) => !query || row.handle.includes(query));
     await route.fulfill({ json: {
+      entry: "memory", kind: "memory", creates_session: false, calls_model: false, index: "公海",
       items: filtered.slice(offset, offset + limit), library: { count: 101 },
-      page: { offset, limit, total: 101, matched: filtered.length, new_count: 101,
+      page: { offset, limit, total: 101, matched: filtered.length, new_count: filtered.length, overdue_count: 0,
         next_offset: offset + limit < filtered.length ? offset + limit : null },
     } });
   });
@@ -51,8 +52,9 @@ test("a late search response cannot replace the current search", async ({ page }
     const query = new URL(route.request().url()).searchParams.get("query") || "";
     if (query === "慢") { sawSlow?.(); await pending; }
     await route.fulfill({ json: {
+      entry: "memory", kind: "memory", creates_session: false, calls_model: false, index: "公海",
       items: [{ ...items[0], handle: query || "初始", display_name: query || "初始" }],
-      library: { count: 101 }, page: { offset: 0, limit: 50, total: 101, matched: 1, new_count: 101, next_offset: null },
+      library: { count: 101 }, page: { offset: 0, limit: 50, total: 101, matched: 1, new_count: 1, overdue_count: 0, next_offset: null },
     } });
   });
   await page.goto("/?tab=pool");

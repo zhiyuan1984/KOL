@@ -3,6 +3,7 @@ import { expect, test, type APIRequestContext, type APIResponse, type Browser, t
 import { processExecutionJobById } from "../../backend/src/execution-jobs/dispatcher";
 import { nativeKnowledgeAuth, reviewerContext } from "./fixtures/native-knowledge-auth";
 import { nativeKnowledgeReviewer, prepareNativeKnowledgeAdmin } from "./fixtures/native-knowledge-admin";
+import { employeeExecutionWriteSnapshot, prepareEmployeeKnowledgeSeedOwners } from "./fixtures/native-employee-seed-owner";
 
 /**
  * 知识库问题模板：管理端操作 → 用户端可见（真实链路，不 stub 问题模板接口）。
@@ -15,9 +16,9 @@ import { nativeKnowledgeReviewer, prepareNativeKnowledgeAdmin } from "./fixtures
  *   3) 审批发布 → 用户端入口恢复，点击只预填「名单 + 模板正文」，不调用 /api/home/pool/jev-assess；
  *   4) 员工知识库 /kb「全部资料」能看到这条已发布的问题模板。
  *
- * 数据卫生：beforeEach 先 POST /api/demo/reset 复位种子（被归档的 kb_q_pool_score 会重新变回已发布），
- * 再归档/删除本套件上一次运行残留的「E2E 样例」知识；afterEach 归档本用例刚发布的条目并再次复位，
- * 避免影响其它套件（已发布知识只能归档不能硬删，这是既有规则）。
+ * 原生模式没有 demo/reset。beforeEach 只在隔离 employee DB 修复旧 seed 缺失 author，
+ * 然后经合法端点停用本套件旧 score 夹具，并以相同 seed 正文新建真实草稿、独立审批、队列发布。
+ * 每例使用本 run 的已发布 score fixture；afterEach 只清理本 run，审批冻结与指纹历史始终保留。
  */
 
 const MISSING_COPY = "问题模板未在管理端知识库发布，该入口暂不可用。";
@@ -26,6 +27,8 @@ const MISSING_COPY = "问题模板未在管理端知识库发布，该入口暂�
 const E2E_TITLE_PREFIX = `E2E 样例 · 公海评分提问模板 · ${randomUUID()}`;
 const OWN_TITLES = new Set<string>();
 const E2E_BODY = "请按公开资料给这些 KOL 打潜力与风险两个分（0-100），说明口径、依据与置信度，并列出资料缺口。";
+const SEED_BODY = "请对这些 KOL 的公开资料做潜力/风险评分，说明口径、依据与置信度。";
+let ownScoreFixture: { id: string; title: string };
 
 const POOL_ITEM = {
   id: "kpi_outdoor",
@@ -70,11 +73,9 @@ async function stubPool(page: Page) {
       },
     });
   });
-  // 用例只断言「点击不执行」；即使真被调用也不做外部写入。
-  await page.route("**/api/home/pool/jev-assess", (route) => route.fulfill({
-    status: 202,
-    json: { status: "running", accepted: true },
-  }));
+  // Never invent a successful execution receipt. The negative assertions also
+  // observe requests; an accidental execution is aborted and fails the test.
+  await page.route("**/api/home/pool/jev-assess", (route) => route.abort("blockedbyclient"));
 }
 
 /** Only remove an ordinary draft from this run; retained approval history remains auditable. */
@@ -126,18 +127,29 @@ async function createDraftViaAdmin(page: Page, request: APIRequestContext): Prom
   return { id: String(hits[0].id), title };
 }
 
-/** Archive the unfrozen seeded slot through the current admin UI to exercise the real missing-template negative. */
+/** Archive this run's independently published seed-equivalent through the current admin UI. */
 async function archiveSeedScoreTemplate(page: Page): Promise<void> {
-  await page.goto("/admin/knowledge?stage=published&mode=detail&assetType=entry&assetId=kb_q_pool_score");
-  const archive = page.locator("[data-kb-archive='kb_q_pool_score']");
+  await page.goto(`/?tab=pool`);
+  await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-select]").check();
+  await expect(page.locator("[data-pool-jev-assess]")).toBeEnabled();
+  await page.goto(`/admin/knowledge?stage=published&mode=detail&assetType=entry&assetId=${ownScoreFixture.id}`);
+  const detail = page.locator("[data-knowledge-right][data-workspace-mode='detail']");
+  await expect(detail.locator(".kbw-identity")).toContainText(ownScoreFixture.title);
+  await detail.getByText("版本、范围与引用记录", { exact: true }).click();
+  const archive = detail.getByRole("button", { name: "停用已发布版本", exact: true });
   await expect(archive).toBeEnabled();
   await archive.click();
   await expect(page.locator("[data-admin-confirm='knowledge-archive']")).toBeVisible();
   await page.locator("[data-admin-confirm-ok]").click();
-  await expect(archive).toBeDisabled();
+  await expect(detail.locator(".kbw-identity")).toContainText("已停用");
+  const templates = await responseJson<Array<{ slot: string; knowledge_id: string }>>(
+    await page.request.get("/api/knowledge/question-templates"), "读取归档后的真实模板槽位失败",
+  );
+  expect(templates.filter((item) => item.slot === "score"), "真实后端的 score 槽位必须全部缺失，而非仅隐藏按钮").toEqual([]);
 }
 
 async function expandEmployeeKnowledgeList(page: Page): Promise<void> {
+  await expect(page.locator("[data-knowledge]").first()).toBeVisible();
   const more = page.locator("[data-kb-load-more]");
   while (await more.count()) await more.click();
 }
@@ -246,22 +258,57 @@ async function approveViaAdmin(request: APIRequestContext, browser: Browser, id:
 
 test.beforeAll(async () => { await prepareNativeKnowledgeAdmin(); });
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, browser }) => {
   const request = page.request;
-  await request.post("/api/demo/reset", { data: { workbench: true } });
+  await prepareEmployeeKnowledgeSeedOwners();
   await cleanupE2eRows(request);
+  // Archive only this owned suite's score fixtures via real authorized product
+  // commands. Publication applications, frozen snapshots and fingerprints are
+  // not deleted or rewritten; no DB status/visibility mutation is performed.
+  const templates = await responseJson<Array<{ slot: string; knowledge_id: string; title: string }>>(
+    await request.get("/api/knowledge/question-templates"), "读取真实模板夹具失败",
+  );
+  for (const item of templates.filter((row) => row.slot === "score")) {
+    expect(item.knowledge_id === "kb_q_pool_score" || item.title.startsWith("E2E 样例 · 公海评分提问模板 ·"), "不能归档其它套件或真实业务模板").toBeTruthy();
+    await responseJson(await request.post(`/api/admin/knowledge/${item.knowledge_id}/archive`), "停用隔离score夹具失败");
+  }
+  const title = `${E2E_TITLE_PREFIX} · seed-equivalent · ${randomUUID()}`;
+  OWN_TITLES.add(title);
+  const fixture = await responseJson<{ id: string; status: string; created_by: string }>(
+    await request.post("/api/admin/knowledge", { data: {
+      title, body: SEED_BODY, source_body: SEED_BODY, kind: "question_template", base_id: "kbase_legacy",
+      tags: "pool-question:score,kol-pool", brand: "*", lang: "en",
+      structured: { question: SEED_BODY, answer: "说明评分口径、依据与置信度。" },
+    } }), "创建本run合法seed-equivalent草稿失败",
+  );
+  expect(fixture).toMatchObject({ status: "draft", created_by: "sriphy" });
+  ownScoreFixture = { id: fixture.id, title };
+  await approveViaAdmin(request, browser, fixture.id);
+  const published = await responseJson<Array<{ slot: string; knowledge_id: string; body: string }>>(
+    await request.get("/api/knowledge/question-templates"), "读取独立发布后的seed-equivalent模板失败",
+  );
+  expect(published.filter((item) => item.slot === "score")).toEqual([expect.objectContaining({ knowledge_id: fixture.id, body: SEED_BODY })]);
   await stubPool(page);
 });
 
 test.afterEach(async ({ page }) => {
   const request = page.request;
-  // 先归档本用例刚发布的知识，再复位种子（被归档的 kb_q_pool_score 变回已发布），保持套件可重复运行。
+  const rows = await responseJson<Array<{ id: string; title: string; status: string }>>(
+    await request.get("/api/admin/knowledge"), "读取本run清理列表失败",
+  );
+  for (const row of rows.filter((item) => OWN_TITLES.has(item.title) && item.status === "published")) {
+    await responseJson(await request.post(`/api/admin/knowledge/${row.id}/archive`), "停用本run已发布夹具失败（历史必须保留）");
+  }
   await cleanupE2eRows(request);
-  await request.post("/api/demo/reset", { data: { workbench: true } });
 });
 
 test("归档槽位模板后，公海入口禁用并如实提示", async ({ page }) => {
   await archiveSeedScoreTemplate(page);
+  const before = await employeeExecutionWriteSnapshot();
+  const negativeWrites: string[] = [];
+  page.on("request", (request) => {
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) negativeWrites.push(new URL(request.url()).pathname);
+  });
 
   await page.goto("/?tab=pool");
   await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
@@ -272,6 +319,12 @@ test("归档槽位模板后，公海入口禁用并如实提示", async ({ page 
   const riskEntry = page.locator("[data-pool-analysis='risk']");
   await expect(riskEntry).toBeVisible();
   await expect(riskEntry).not.toHaveAttribute("title", MISSING_COPY);
+  await page.goto("/kb");
+  await page.locator("[data-kb-search]").fill(ownScoreFixture.title);
+  await expect(page.locator(`[data-knowledge='${ownScoreFixture.id}']`)).toHaveCount(0);
+  await expect(page.locator("[data-kbv-count]")).toHaveText("0 条知识");
+  expect(negativeWrites, "缺失模板入口和搜索不得发起任何写请求").toEqual([]);
+  expect(await employeeExecutionWriteSnapshot(), "缺失模板浏览不得创建会话、草稿、worker或实际队列任务").toEqual(before);
 });
 
 test("草稿未审批用户端不可见；发布后入口恢复并预填模板正文，点击不执行", async ({ page, browser }) => {
@@ -295,16 +348,20 @@ test("草稿未审批用户端不可见；发布后入口恢复并预填模板�
   await approveViaAdmin(request, browser, draft.id);
 
   await page.goto("/?tab=pool");
-  await expect(scoreEntry).toBeEnabled();
   await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-select]").check();
+  await expect(scoreEntry).toBeEnabled();
+  const beforePrefill = await employeeExecutionWriteSnapshot();
   await scoreEntry.click();
 
   const input = page.locator("[data-home] [data-composer-input]");
-  await expect(input).toHaveValue(/户外充电君/);
-  await expect(input).toHaveValue(/打潜力与风险两个分/);
-  await expect(input).toHaveValue(/资料缺口/);
-  await expect(page.locator("[data-pool-score-confirm]")).toBeVisible();
+  await expect(input).toHaveValue(E2E_BODY);
+  // Names belong to independently frozen object context, not interpolated body.
+  const confirm = page.locator('[data-pool-score-confirm]');
+  await expect(confirm).toBeVisible();
+  await expect(confirm).toHaveAttribute('data-pool-score-targets', '1');
+  await expect(confirm).toContainText('户外充电君');
   expect(jevPosts, "点击只预填草稿，不得直接调用评分接口").toEqual([]);
+  expect(await employeeExecutionWriteSnapshot(), "点击只预填，不得创建会话、草稿、worker或实际队列任务").toEqual(beforePrefill);
 });
 
 test("员工知识库能看到这条已发布的问题模板", async ({ page, browser }) => {

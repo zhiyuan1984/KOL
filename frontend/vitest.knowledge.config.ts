@@ -13,6 +13,8 @@ export default defineConfig({
       "src/components/workspace/LifecycleNavigation*.test.tsx",
       "src/reviews/*.test.tsx",
       "src/layout/Approval*.test.tsx",
+      "src/hooks/useWorkspaceScroll.test.tsx",
+      "src/composer/skillTemplateProjection.test.ts",
     ],
     fileParallelism: false,
     testTimeout: 15_000,

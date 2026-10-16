@@ -1,9 +1,10 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { processExecutionJobById } from "../../backend/src/execution-jobs/dispatcher";
 import { prepareNativeKnowledgeAdmin } from "./fixtures/native-knowledge-admin";
 
 const PRODUCT_BASE_CODE = "e2e_product_knowledge";
 
-type ProductBase = { id: string; code: string; status: string };
+type ProductBase = { id: string; code: string; name: string; status: string };
 type ProductDomain = { id: string; code: string };
 
 async function responseJson<T>(response: Awaited<ReturnType<APIRequestContext["get"]>>, message: string): Promise<T> {
@@ -71,7 +72,11 @@ test("PDF 草稿可见并独立解析", async ({ page }) => {
   const upload = page.locator("[data-kbv-upload-dialog]");
   await upload.locator(`[data-kb-scope-base="${base.id}"]`).click();
   await upload.locator("[data-kbv-upload-pick]").setInputFiles({ name: `产品规格-${suffix}.pdf`, mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\nProduct fixture\n%%EOF") });
-  await upload.getByRole("button", { name: "上传并开始解析", exact: true }).click();
+  // UploadDialog keeps fields in the rail while WorkspaceActions renders the
+  // current semantic submit action outside that region.
+  const uploadSubmit = page.locator("[data-kbv-upload-submit]");
+  await expect(uploadSubmit).toBeEnabled();
+  await uploadSubmit.click();
   await expect(upload).not.toBeVisible();
   const documents = await responseJson<{ documents: Array<{ id: string; title: string; status: string }> }>(
     await request.get(`/api/admin/knowledge/documents?base=${base.id}`),
@@ -86,14 +91,32 @@ test("PDF 草稿可见并独立解析", async ({ page }) => {
     );
     return detail.document.status;
   }, { timeout: 15000, message: "PDF 解析应推进到待审批，而不能伪造已发布" }).toBe("pending_review");
-  await expect(page.locator("[data-workspace-mode='detail']")).toBeVisible();
-  await expect(page.locator("[data-knowledge-right]")).toContainText("待审批");
+  const pending = await responseJson<{ state: string; job?: { id?: string } | null }>(
+    await request.get(`/api/admin/knowledge/documents/${doc!.id}/scope`),
+    '读取资料真实持久范围作业失败',
+  );
+  expect(pending.state).toBe('empty');
+  expect(pending.job?.id, '上传后须真正持久化范围作业').toEqual(expect.any(String));
+  expect(await processExecutionJobById(pending.job!.id!, 'product-knowledge-real-scope')).toMatchObject({
+    execution_job_id: pending.job!.id, job_type: 'knowledge.scope', handled: true, outcome: 'processed',
+  });
+  await expect.poll(async () => (await responseJson<{ state: string }>(
+    await request.get(`/api/admin/knowledge/documents/${doc!.id}/scope`), '读取范围提炼终态失败',
+  )).state, { timeout: 15000 }).toBe('candidate');
+  const detail = page.locator("[data-knowledge-right][data-workspace-mode='detail']");
+  await expect(detail).toBeVisible();
+  await expect(detail.locator(".kbv-document-title")).toHaveText(`产品规格-${suffix}`);
+  // Parsing is not approval: the real completed range is still awaiting
+  // explicit human checking, while the document remains unpublished.
+  await expect(detail).toContainText('范围待核对', { timeout: 15000 });
+  const final = await responseJson<{ document: { status: string } }>(await request.get(`/api/admin/knowledge/documents/${doc!.id}`), '读取未发布资料状态失败');
+  expect(final.document.status).toBe('pending_review');
 });
 
 test("文档问答技能可绑定非结构化库", async ({ page }) => {
   const request = page.request;
-  const suffix=Date.now().toString();
-  const base=await ensureProductBase(request);
+  const suffix = Date.now().toString();
+  const base = await ensureProductBase(request);
   const skillId = `product_test_${suffix}`;
   await page.goto("/admin/skills");
   await page.getByRole("button", { name: "新增技能", exact: true }).click();
@@ -101,15 +124,103 @@ test("文档问答技能可绑定非结构化库", async ({ page }) => {
   await dialog.getByLabel("技能 Key（snake_case）").fill(skillId);
   await dialog.getByLabel("名称", { exact: true }).fill(`产品咨询 ${suffix}`);
   await dialog.getByLabel("说明（Markdown）").fill("查询产品规格，返回原文页码，不编造参数。");
-  await dialog.getByRole("checkbox").check();
+  const readonlyQuery = dialog.getByRole('checkbox', { name: '非结构化文档问答（L1 只读；知识库在 Agent 页绑定）', exact: true });
+  await readonlyQuery.check();
+  await expect(readonlyQuery).toBeChecked();
   await dialog.getByRole("button", { name: "创建技能", exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  const agent = await (await request.post("/api/admin/agents", { data: { name: `产品专家 ${suffix}` } })).json();
-  expect((await request.put(`/api/admin/agents/${agent.id}/skills/${skillId}`, { data: { enabled: true, expected_version: 0 } })).ok()).toBe(true);
-  await page.goto("/admin/agents");
-  await page.getByRole("button").filter({ hasText: `产品专家 ${suffix}` }).click();
-  await page.getByLabel("调用技能").selectOption(skillId);
-  await page.getByLabel("知识库").selectOption(base.id);
-  await page.getByRole("button", { name: "绑定知识库", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("知识库已绑定到技能");
+
+  // The creation checkbox establishes the ordinary SKU's document-query
+  // capability.  Persist the same tool as the SKU's supported lifecycle
+  // draft through its real management endpoint; saving a draft neither
+  // changes the current definition nor publishes it.
+  const toolDraft = await responseJson<{ id: string; patch: { mcp?: unknown }; updated_at: string | null }>(
+    await request.put(`/api/admin/skills/${encodeURIComponent(skillId)}/draft`, {
+      data: { mcp: ["knowledge.ask_documents"] },
+    }),
+    "保存文档问答技能草稿失败",
+  );
+  expect(toolDraft.id).toBe(skillId);
+  expect(toolDraft.patch.mcp).toEqual(["knowledge.ask_documents"]);
+
+  // The management binding form does not offer un-published SKUs or an
+  // explicit `base_ids` selector.  Use the same authenticated admin API that
+  // it calls, rather than inventing a second form or changing publication.
+  // This is the runtime's document-dependency fact source: a disabled record
+  // deliberately keeps the dependency as a draft and cannot be resolved.
+  const saved = await responseJson<{
+    id: string;
+    skill_id: string;
+    selector: Record<string, unknown>;
+    enabled: number | boolean;
+  }>(
+    await request.post("/api/admin/knowledge/bindings", {
+      data: {
+        skill_id: skillId,
+        selector: { base_ids: [base.id] },
+        enabled: false,
+        note: "E2E 草稿文档依赖；未发布、未注入",
+      },
+    }),
+    "保存文档问答草稿依赖失败",
+  );
+  expect(saved.id, "真实管理绑定 API 必须返回持久记录 id").toEqual(expect.any(String));
+  expect(saved.skill_id).toBe(skillId);
+  expect(Number(saved.enabled)).toBe(0);
+  expect(saved.selector).toEqual({ base_ids: [base.id] });
+
+  const persisted = await responseJson<Array<{
+    id: string;
+    skill_id: string;
+    selector: Record<string, unknown>;
+    enabled: number | boolean;
+  }>>(
+    await request.get("/api/admin/knowledge/bindings"),
+    "回读文档问答草稿依赖失败",
+  );
+  expect(persisted.find((binding) => binding.id === saved.id)).toMatchObject({
+    id: saved.id,
+    skill_id: skillId,
+    enabled: 0,
+    selector: { base_ids: [base.id] },
+  });
+
+  const draft = await responseJson<{ patch: { mcp?: unknown } }>(
+    await request.get(`/api/admin/skills/${encodeURIComponent(skillId)}/draft`),
+    "读取文档问答技能草稿失败",
+  );
+  expect(draft.patch.mcp, "文档问答工具必须仍是未发布草稿的一部分").toEqual(["knowledge.ask_documents"]);
+  const skillDirectory = await responseJson<{
+    skills: Array<{
+      id: string;
+      grants?: { org: string[]; team: string[]; user: string[] };
+      lifecycle?: { stage?: string; current_version?: number | null; release?: { kind?: string } };
+    }>;
+  }>(
+    await request.get("/api/admin/skills"),
+    "读取新建技能生命周期失败",
+  );
+  const createdSkill = skillDirectory.skills.find((skill) => skill.id === skillId);
+  expect(createdSkill, "新建 SKU 必须仍在真实技能目录中").toBeTruthy();
+  expect(createdSkill?.lifecycle?.stage).toBe("draft");
+  expect(createdSkill?.lifecycle?.current_version ?? null).toBeNull();
+  expect(createdSkill?.lifecycle?.release?.kind ?? "none").toBe("none");
+  expect(createdSkill?.grants ?? { org: [], team: [], user: [] }).toEqual({ org: [], team: [], user: [] });
+
+  const agents = await responseJson<{ agents: Array<{ skills: Array<{ skill_id: string; enabled: boolean | number }> }> }>(
+    await request.get("/api/admin/agents"),
+    "读取 Agent 装配关系失败",
+  );
+  expect(agents.agents.some((agent) => agent.skills.some((skill) => skill.skill_id === skillId && Boolean(skill.enabled)))).toBe(false);
+
+  // The SKU detail's current “知识” tab reads `knowledge_bindings`.  It is a
+  // review projection only: it must show this disabled draft record without
+  // creating an Agent, granting direct access, publishing the skill, or
+  // treating a draft dependency as a resolved document scope.
+  await page.goto(`/admin/skills?skillId=${encodeURIComponent(skillId)}`);
+  await page.getByRole("button", { name: "知识", exact: true }).click();
+  const knowledgeBindings = page.locator("section[aria-labelledby='skill-knowledge-heading']");
+  await expect(knowledgeBindings).toBeVisible();
+  await expect(knowledgeBindings.locator(".skill-knowledge-row")).toHaveCount(1);
+  await expect(knowledgeBindings.locator(".skill-knowledge-row")).toContainText("已停用");
 });
