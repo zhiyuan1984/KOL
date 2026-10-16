@@ -509,8 +509,7 @@ test("1440/1024/768/390、短高度、深色减动效与触控均无横向溢出
   await page.getByRole("tab", { name: "全部30", exact: true }).click();
   await expect(listRows(page)).toHaveCount(20);
   await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
-  const motion = await page.locator("[data-cron-page]").evaluate((node) => getComputedStyle(node.querySelector(".ant-tabs-tab")!).transitionDuration);
-  expect(motion).toBe("0s");
+  await expect(page.locator("[data-cron-page] .ant-tabs-tab").first()).toHaveCSS("transition-duration", "0s");
   await saveScreenshot(page, "cron-mobile-dark-reduced.png");
 
   const touch = await browser.newContext({ viewport: { width: 390, height: 600 }, hasTouch: true, colorScheme: "dark", reducedMotion: "reduce" });

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { EmailCard, Message, Task, TaskResultCard } from "../api";
 import { KolMailWorkbench, taskResultCardsFrom } from "./ChatBlocks";
@@ -95,6 +95,85 @@ function MailBodyArtifact({ mail }: { mail: SessionMailRow }) {
 }
 
 /**
+ * A new mail draft is rendered in the result rail, not in the time stream.
+ * Its review form can be taller than that rail, so merely putting the card at
+ * the rail's top makes the R3 send affordance unreachable. Reveal the genuine
+ * control once after the card has committed; never focus it or keep following
+ * after the employee has started reading the rail themselves.
+ */
+function useRevealNewDraftSendAction({
+  embedded,
+  sessionId,
+  messageId,
+  draftId,
+  active,
+}: {
+  embedded: boolean;
+  sessionId: string;
+  messageId?: string;
+  draftId?: string;
+  active: boolean;
+}) {
+  const revealed = useRef("");
+
+  useLayoutEffect(() => {
+    if (!embedded || !active || !messageId || !draftId) return;
+    const key = `${sessionId}:${messageId}:${draftId}`;
+    if (revealed.current === key) return;
+
+    let frame = 0;
+    let stopped = false;
+    let observer: ResizeObserver | undefined;
+    let rail: HTMLElement | null = null;
+    const cancel = () => {
+      stopped = true;
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+      rail?.removeEventListener("wheel", cancel);
+      rail?.removeEventListener("touchstart", cancel);
+      rail?.removeEventListener("pointerdown", cancel);
+      rail?.removeEventListener("keydown", cancel);
+    };
+    const findAction = () => Array.from(document.querySelectorAll<HTMLElement>("[data-result-message]"))
+      .find((element) => element.dataset.resultMessage === messageId && element.closest(".scope-task-rail-scroll"))
+      ?.querySelector<HTMLElement>('[data-email-action="send"]');
+    const reveal = (first = false) => {
+      if (stopped) return;
+      const action = findAction();
+      if (!action) return;
+      rail ||= action.closest<HTMLElement>(".scope-task-rail-scroll");
+      const actionRect = action.getBoundingClientRect();
+      const railRect = rail?.getBoundingClientRect();
+      const outsideRail = Boolean(railRect && (actionRect.top < railRect.top || actionRect.bottom > railRect.bottom));
+      if (first || outsideRail) {
+        action.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "auto" });
+        revealed.current = key;
+      }
+    };
+    const schedule = (first = false) => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => reveal(first));
+    };
+
+    schedule(true);
+    const action = findAction();
+    const card = action?.closest<HTMLElement>('[data-kind="email-card"]');
+    rail = action?.closest<HTMLElement>(".scope-task-rail-scroll") || null;
+    if (rail) {
+      rail.addEventListener("wheel", cancel, { passive: true });
+      rail.addEventListener("touchstart", cancel, { passive: true });
+      rail.addEventListener("pointerdown", cancel);
+      rail.addEventListener("keydown", cancel);
+    }
+    if (card && typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(() => schedule());
+      observer.observe(card);
+    }
+    return cancel;
+  }, [active, draftId, embedded, messageId, sessionId]);
+}
+
+/**
  * 右栏只做两件事：执行中显示当前状态；执行结束后状态文字退场，只列结果目录
  * （标题 + 时间，点击定位到中栏时间流里的卡片）。完整的成果、过程与确认都在中栏。
  */
@@ -140,6 +219,13 @@ export default function SideWorkbench({
   const primaryArtifactId = [...messages].reverse().find(message => ["email_card", "confirm_stage_card", "supplement_card", "task_result_card"].includes(message.kind))?.id;
   const latestDraft = [...messages].reverse().find((message) => message.kind === "email_card");
   const draft = latestDraft ? latestDraft.payload as unknown as EmailCard : null;
+  useRevealNewDraftSendAction({
+    embedded,
+    sessionId,
+    messageId: latestDraft?.id,
+    draftId: draft?.draft_id,
+    active: Boolean(draft && draft.status !== "sent" && !draft.send_disabled),
+  });
   const latestResult = [...messages].reverse().find((message) => message.kind === "task_result_card");
   const result = latestResult ? resultCardOf(latestResult) : (task?.task_result || task?.crawl_result) as TaskResultCard | undefined;
   const mailMessages = messages.filter(message => message.kind === "kol_mail_card");
