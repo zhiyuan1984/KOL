@@ -282,7 +282,10 @@ test("discovery confirmation uses the refreshed snapshot once and waits for remo
   await expect(page.locator("[data-discovery-run-status-label]")).toContainText("待确认");
   const submit = page.locator("[data-ai-prompt-submit]");
   await expect(submit).toHaveAttribute("data-send-emphasis", "secondary");
-  expect(await submit.evaluate(el => getComputedStyle(el).backgroundColor)).toBe("rgba(219, 24, 96, 0.07)");
+  // Let the primary -> secondary CSS transition settle under the fake clock.
+  // Intermediate alpha (.145/.07) is not the governed transparent end state.
+  await page.clock.runFor(500);
+  expect(await submit.evaluate(el => getComputedStyle(el).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
   state.revise();
   await page.clock.runFor(2100);
   await confirm.evaluate(el => { (el as HTMLButtonElement).click(); (el as HTMLButtonElement).click(); });
