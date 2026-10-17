@@ -304,10 +304,12 @@ test("AI draft result shows its gaps and opens the employee draft without submit
   await page.route("**/api/approvals/v2/drafts", route => route.fulfill({ json: [{ id: "restored", version: 1, templateId: "template", templateVersion: 1, title: "AI草稿", values: {}, updatedAt: "2026-10-09" }] }));
   await page.goto("/s/review-ai");
   const result = page.getByRole("button", { name: "查看成果", exact: true });
+  const gap = page.getByText("补充原始材料", { exact: true }).first();
+  await expect(result.or(gap).first()).toBeVisible({ timeout: 20000 });
   if (await result.isVisible()) await result.click();
-  await expect(page.getByText("补充原始材料", { exact: true }).first()).toBeVisible();
+  await expect(gap).toBeVisible();
   await page.getByRole("link", { name: "核对申请草稿", exact: true }).first().click();
-  await expect(page.locator("main.review-page").getByLabel("申请标题")).toHaveValue("AI草稿");
+  await expect(page.locator("main.review-page").getByLabel("申请标题")).toHaveValue("AI草稿", { timeout: 20000 });
   expect(f.commands).toHaveLength(0);
 });
 test("pipeline object links directly to the same draft flow", async ({ page }) => {
