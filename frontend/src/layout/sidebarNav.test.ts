@@ -65,6 +65,7 @@ describe("admin sidebar parity", () => {
   it("keeps the admin navigation contract for 业务地图 / 知识库 / Agent / 本体域 / 主数据", () => {
     expect(ADMIN_SECTIONS).toEqual([
       "employees",
+      "performance",
       "overview",
       "lead-funnel",
       "project-delivery",
@@ -88,10 +89,11 @@ describe("admin sidebar parity", () => {
     // master-data：PR #238 已随主数据导入上线、侧栏有入口，测试此前未同步（此前为红）。
     // business-domains：Phase 3 本体统一页合并，侧栏入口去掉，旧地址仍为合法深链（IA §1.1）。
     expect(ADMIN_HIDDEN_SECTIONS).toEqual(["approvals", "business-domains"]);
-    expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([3, 5, 1, 1, 7]);
+    expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([4, 5, 1, 1, 7]);
     expect(new Set(ADMIN_SECTIONS).size).toBe(ADMIN_SECTIONS.length);
     expect(ADMIN_NAV_GROUPS.flatMap((group) => group.rows.map((row) => row.label))).toEqual([
       "员工",
+      "绩效管理",
       "工作战报",
       "业务地图",
       "连接器",
@@ -125,6 +127,7 @@ describe("admin sidebar parity", () => {
     }
     expect(adminTabOf("/admin")).toBe("employees");
     expect(adminTabOf("/admin/overview")).toBe("overview");
+    expect(adminTabOf("/admin/performance/cycles")).toBe("performance");
     expect(adminTabOf("/admin/audit")).toBe("audit");
     expect(adminTabOf("/admin/approval-types")).toBe("approval-types");
     expect(adminTabOf("/admin/connectors/conn_a")).toBe("connectors");
