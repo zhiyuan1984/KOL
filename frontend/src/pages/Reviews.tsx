@@ -15,6 +15,7 @@ import "../reviews/reviews.css";
 import { ReviewDetail, reviewStatusLabel } from "../reviews/ReviewDetail";
 import { UpgradeDraft } from "../reviews/ReviewChanges";
 import { ReviewOrganization } from "../reviews/ReviewOrganization";
+import { reviewAmount, reviewDeadline } from "../reviews/presentation";
 import { ReviewChoices } from "../reviews/ReviewChoices";
 import { ReviewSubmissionPreview } from "../reviews/ReviewSubmissionPreview";
 import { ReviewLeaveDialog } from "../reviews/ReviewLeaveDialog";
@@ -29,6 +30,7 @@ const governanceBoxByFilter = {
   todo: "inbox",
   mine: "mine",
   done: "processed",
+  cc: undefined,
   all: "all",
 } as const;
 
@@ -36,6 +38,7 @@ const governanceLegacyFallback = {
   todo: "inbox",
   mine: "submitted",
   done: "done",
+  cc: undefined,
   all: undefined,
 } as const;
 
@@ -116,6 +119,8 @@ export default function Reviews() {
     [draft, setDraft] = useState<ReviewDraft>(),
     [saving, setSaving] = useState(false),
     [draftNotice, setDraftNotice] = useState("");
+  const [clock, setClock] = useState(Date.now());
+  useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 60000); return () => window.clearInterval(timer); }, []);
   const [governanceApprovals, setGovernanceApprovals] = useState<LegacyApprovalProjection[]>([]);
   const [selectedGovernanceApproval, setSelectedGovernanceApproval] = useState<LegacyApprovalProjection>();
   const [governanceLoading, setGovernanceLoading] = useState(false);
@@ -171,6 +176,7 @@ export default function Reviews() {
     setGovernanceLoading(true);
     setGovernanceApprovals([]);
     setGovernanceError("");
+    if (filter === "cc") { setGovernanceLoading(false); return; }
     const box = governanceBoxByFilter[filter];
     try {
       let rows: LegacyApprovalProjection[];
@@ -555,10 +561,10 @@ export default function Reviews() {
   return (
     <main className={`review-page review-workbench${wide && selected ? " is-wide" : ""}`}>
       <header className="review-toolbar">
-        <h1>审批中心</h1>
+        <div className="review-page-heading"><h1>审批中心</h1><p>处理申请，追踪每一步审批</p></div>
         <ReviewOrganization />
         {context && <ReviewInbox refreshKey={command.receipt} onOpen={async id => { setCreating(false); if (!await show({ id } as InstanceView)) throw new Error("未能打开审批，请重试；通知仍保留未读。"); }} />}
-        <Link to="/approvals/legacy">旧审批单据</Link>
+        <details className="review-legacy-menu"><summary>更多</summary><Link to="/approvals/legacy">旧审批单据</Link></details>
         {new URLSearchParams(location.search).get("session") && <Link to={`/s/${encodeURIComponent(new URLSearchParams(location.search).get("session")!)}`}>返回来源会话</Link>}
         {!creating && <button disabled={assistantBusy || !templates.length} onClick={() => setAssistantOpen(!assistantOpen)} aria-expanded={assistantOpen}>AI 辅助填写</button>}
         {!creating && (
@@ -757,6 +763,7 @@ export default function Reviews() {
             {[
               ["todo", "待我处理"],
               ["mine", "我发起的"],
+              ["cc", "抄送我的"],
               ["done", "已处理"],
               ["all", "我参与的"],
             ].map(([key, label]) => (
@@ -764,6 +771,8 @@ export default function Reviews() {
                 key={key}
                 aria-current={filter === key ? "page" : undefined}
                 onClick={() => {
+                  if (selectedGovernanceApproval) closeGovernanceApproval();
+                  ++detailRequest.current; setSelected(undefined); setDetailLoading(false);
                   setFilter(key as keyof typeof governanceBoxByFilter);
                   setCursor(undefined);
                 }}
@@ -773,6 +782,7 @@ export default function Reviews() {
             ))}
             <form className="review-search" onSubmit={e => { e.preventDefault(); setCursor(undefined); setSearch(query); }}>
               <WorkspaceSearchInput aria-label="搜索标题或流程名称" placeholder="搜索标题或流程名称" value={query} maxLength={120} onChange={e => setQuery(e.target.value)} />
+              <button type="submit">搜索</button>
             </form>
             <button title="刷新" aria-label="刷新" disabled={listLoading || governanceLoading || detailLoading || command.busy || governanceBusy} onClick={() => void refreshAll()}>↻</button>
           </nav>
@@ -782,15 +792,17 @@ export default function Reviews() {
           ) : (
             !instances.length && !governanceMatches.length && !governanceLoading && !governanceError && !governanceDetailError && !error && (
               <p>
-                当前页暂无匹配申请。{nextCursor ? "可继续检索下一页。" : ""}
+                {filter === "cc" ? "流程到达抄送节点后，会出现在这里。" : "当前页暂无匹配申请。"}{nextCursor ? "可继续检索下一页。" : ""}
               </p>
             )
           )}
           <div className="review-table-scroll">
-            <table className="review-table"><thead><tr><th>申请标题</th><th>流程</th><th>状态</th><th>发起时间</th></tr></thead>
+            <table className="review-table review-native-table"><thead><tr><th>申请 / 类型</th><th>金额</th><th>发起人</th><th>当前节点 / 处理人</th><th>状态 / 时效</th><th>发起时间</th></tr></thead>
             <tbody>{instances.map(i => <tr key={i.id} aria-selected={selected?.id === i.id} onClick={() => void show(i)}>
-              <td><button title={i.title} className="review-row-title" onClick={e => { e.stopPropagation(); void show(i); }}>{i.title}</button></td>
-              <td>{i.definition.name}</td><td><span data-review-status={i.status}>{reviewStatusLabel(i)}</span></td>
+              <td><button title={i.title} className="review-row-title" onClick={e => { e.stopPropagation(); void show(i); }}>{i.title}</button><small>{i.definition.name}</small></td>
+              <td>{reviewAmount(i)}</td><td>{context?.people.find(p => p.id === i.requester)?.name || i.requester}</td>
+              <td>{i.definition.nodes.find(n => n.id === i.currentNode)?.name || "—"}<small>{i.tasks.filter(t => t.status === "pending" && (t.round || 1) === (i.round || 1)).map(t => context?.people.find(p => p.id === t.userId)?.name || t.userId).join("、") || "—"}</small></td>
+              <td><span data-review-status={i.status}>{reviewStatusLabel(i)}</span><small className={reviewDeadline(i, clock).overdue ? "review-error" : ""}>{reviewDeadline(i, clock).text}</small></td>
               <td><time dateTime={i.createdAt} title={new Date(i.createdAt).toLocaleString()}>{new Date(i.createdAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", hour12: false })}</time></td>
             </tr>)}</tbody></table>
           </div>
@@ -830,7 +842,7 @@ export default function Reviews() {
           </div>
           <span className="review-muted">普通审批本页 {instances.length} 条 · 按发起时间排序</span>
         </section>
-        {selected && <ReviewDetail instance={selected} context={context} wide={wide} toggleWide={() => setWide(!wide)} close={() => { ++detailRequest.current; setDetailLoading(false); setSelected(undefined); setWide(false); }} actions={selected.allowedActions.length > 0 ? <ReviewActions key={`${selected.id}:${selected.round || 1}`} instance={selected} people={context?.people || []} reason={reason} setReason={setReason} busy={command.busy} run={command.run} /> : null} />}
+        {selected && <ReviewDetail key={selected.id} instance={selected} context={context} wide={wide} toggleWide={() => setWide(!wide)} close={() => { ++detailRequest.current; setDetailLoading(false); setSelected(undefined); setWide(false); }} actions={selected.allowedActions.length > 0 ? <ReviewActions key={`${selected.id}:${selected.round || 1}`} instance={selected} people={context?.people || []} reason={reason} setReason={setReason} busy={command.busy} run={command.run} /> : null} />}
         {selectedGovernanceApproval && <GovernanceApprovalDetail approval={selectedGovernanceApproval} busy={governanceBusy || governanceConfirm.open || detailLoading} notice={governanceNotice} onClose={closeGovernanceApproval} onRefresh={() => void refreshGovernanceApproval(selectedGovernanceApproval.id)} onDecide={decision => decideGovernanceApproval(selectedGovernanceApproval, decision)} />}
         </div>
       )}

@@ -36,6 +36,19 @@ afterEach(async () => {
 });
 
 describe("PostgresReviewService", () => {
+  it("returns cc tasks only to the authorized copy recipient and preserves ordinary inboxes", async () => {
+    const d = emptyReviewDefinition();
+    d.nodes[0].next = "copy";
+    d.nodes.push({ id: "copy", type: "cc", mode: "all", name: "抄送", assignee: { kind: "named", userIds: ["admin"] }, next: "review" });
+    const t = await service("admin", s => s.saveTemplate(undefined, undefined, d));
+    await run("admin", { action: "publish", templateId: t.id, expectedVersion: 1 }, "cc-publish-key");
+    await run("employee", { action: "submit", templateId: t.id, templateVersion: 1, title: "抄送验证", values: {} }, "cc-submit-key");
+    expect((await service("admin", s => s.instancePage({ filter: "cc" }))).items).toHaveLength(1);
+    expect((await service("reviewer", s => s.instancePage({ filter: "cc" }))).items).toHaveLength(0);
+    expect((await service("employee", s => s.instancePage({ filter: "cc" }))).items).toHaveLength(0);
+    expect((await service("reviewer", s => s.instancePage({ filter: "todo" }))).items).toHaveLength(1);
+  });
+
   it("uses one native PostgreSQL transaction for confirmation, state mutation, idempotency and timeout queueing", async () => {
     const definition = emptyReviewDefinition();
     definition.nodes[1].timeoutHours = 1;

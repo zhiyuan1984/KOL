@@ -4,6 +4,7 @@ import { formatReviewValue } from "./formatReviewValue";
 import { AttachmentLinks } from "./ReviewAttachments";
 import KnowledgeMaterial from "./KnowledgeMaterial";
 import KnowledgeScopeMaterial from './KnowledgeScopeMaterial';
+import { reviewDeadline } from "./presentation";
 import { reviewActionLabels } from "./ReviewActions";
 import { ReviewMaterialChanges } from "./ReviewMaterialChanges";
 import { PropertyList, TruncatableText } from "../components/InformationLayout";
@@ -41,7 +42,7 @@ export function ReviewDetail({ instance: i, context, actions, close, wide, toggl
   </li>)}</ol>;
   return <section className="review-detail" aria-label="申请详情">
     <header className="review-detail-head">
-      <div><h2><TruncatableText text={i.title} /></h2><p><span data-review-status={i.status}>{reviewStatusLabel(i)}</span> · 流程版本 v{i.templateVersion}</p></div>
+      <div><h2><TruncatableText text={i.title} /></h2><p><span data-review-status={i.status}>{reviewStatusLabel(i)}</span> · {i.definition.name}</p><p className="review-muted">流程版本 v{i.templateVersion} · 第 {i.round || 1} 轮 · {reviewDeadline(i).text}</p></div>
       <button onClick={toggleWide} aria-pressed={wide}>{wide ? "恢复列表与详情" : "展开宽视图"}</button>
       <button onClick={close}>返回列表</button>
     </header>
@@ -72,6 +73,7 @@ export function ReviewDetail({ instance: i, context, actions, close, wide, toggl
         {i.definition.fields.filter(f => f.type === "attachment").map(f => <div key={f.id}><strong>{f.label}</strong><AttachmentLinks ids={Array.isArray(i.values[f.id]) ? i.values[f.id] as string[] : []} instanceId={i.id} /></div>)}
       </section>}
       {i.definition.subjectType === "knowledge_publication" && !publication && <KnowledgeMaterial key={i.id} id={i.id} />}
+      <p className="review-snapshot-note">审批依据为提交时的材料快照，按流程版本 v{i.templateVersion} 执行。</p>
       <section id={`${anchor}-progress`} aria-label="审批进度"><h3>审批进度</h3>{rounds.map(round => round === (i.round || 1) ? <div key={round}>{renderRound(round)}</div> : <details key={round}><summary>第 {round} 轮历史</summary>{renderRound(round)}</details>)}</section>
       <section id={`${anchor}-result`} aria-label="办理结果"><h3>办理结果</h3>
         {i.progress && <p>审批结果：{{ pending: "待完成审批", approved: "已通过", rejected: "已驳回", withdrawn: "已撤回" }[i.progress.approval]} · 办理状态：{{ none: "无人工办理步骤", pending: "等待审批路径进入办理", handling: "办理中", completed: "已完成", cancelled: "已关闭" }[i.progress.fulfillment]}</p>}
@@ -81,6 +83,6 @@ export function ReviewDetail({ instance: i, context, actions, close, wide, toggl
       {(i.revisions?.length || 0) > 1 && <details><summary>历次申请材料</summary>{i.revisions?.map(r => <section key={r.round}><h3>第 {r.round} 轮</h3><dl className="review-values">{i.definition.fields.map(f => <div key={f.id}><dt>{f.label}</dt><dd>{f.type === "attachment" ? <AttachmentLinks ids={(r.values[f.id] as string[]) || []} instanceId={i.id} /> : formatReviewValue(r.values[f.id])}</dd></div>)}</dl></section>)}</details>}
       <details id={`${anchor}-history`}><summary>操作记录</summary><ol className="review-event-list">{[...(i.events || [])].sort((a,b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.version - b.version || a.id.localeCompare(b.id)).map(e => <li key={e.id}><time dateTime={e.created_at}>{new Date(e.created_at).toLocaleString()}</time> · {person(e.actor)} · {({ submit: "提交审批", "knowledge.published": "知识已发布", "knowledge.publish_failed": "知识发布失败" } as Record<string,string>)[e.action] || reviewActionLabels[e.action] || e.action}{e.detail.reason && ` · 意见：${e.detail.reason}`}</li>)}</ol></details>
     </div>
-    <footer className="review-action-bar">{actions && <p className="review-muted">当前步骤：{i.definition.nodes.find(n => n.id === i.currentNode)?.name || "等待处理"}</p>}{actions || <p>当前没有可执行动作 · 只读</p>}</footer>
+    <footer className="review-action-bar">{actions && <small className="review-muted">R3 · 正式审批，确认后记录决定与回执</small>}{actions && <p className="review-muted">当前步骤：{i.definition.nodes.find(n => n.id === i.currentNode)?.name || "等待处理"}</p>}{actions || <p>当前没有可执行动作 · 只读</p>}</footer>
   </section>;
 }

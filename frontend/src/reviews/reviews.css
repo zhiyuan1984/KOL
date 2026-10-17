@@ -295,3 +295,28 @@
 @media (pointer: coarse) {
   .review-workbench input, .review-workbench select, .review-workbench summary, .review-workbench button { min-height: var(--icon-box); }
 }
+
+/* Approval redesign adapted to the current PostgreSQL and governance surfaces. */
+.review-page-heading { margin-right: auto; }
+.review-page-heading p { margin: var(--space-1) 0 0; color: var(--text-muted); }
+.review-workbench .review-list-pane { container-type: inline-size; container-name: review-list; }
+.review-search { display: flex; align-items: center; gap: var(--space-2); }
+.review-search > .workspace-search-input { flex: 1; min-width: 0; width: auto; }
+.review-search button { flex-shrink: 0; }
+.review-workbench .review-native-table th { width: auto; }
+.review-workbench .review-native-table th:first-child { width: 28%; }
+.review-native-table small { display: block; margin-top: var(--space-1); font-size: inherit; font-weight: 400; }
+.review-native-table td { height: var(--table-row-h); }
+.review-snapshot-note { padding: var(--space-3); background: var(--bg-elevated); border-radius: var(--ds-radius-section); }
+.review-workbench .review-detail-head button:not(.primary) { border-color: transparent; background: transparent; }
+@container review-list (max-width: 719px) {
+  .review-native-table :is(th, td):nth-child(2), .review-native-table :is(th, td):nth-child(3), .review-native-table :is(th, td):nth-child(4) { display: none; }
+  .review-workbench .review-native-table th:first-child { width: auto; }
+}
+@container (max-width: 479px) {
+  .review-detail-head > div { flex-basis: 100%; }
+}
+@media (max-height: 630px) {
+  .review-page-heading p { display: none; }
+  .review-detail-head { padding-block: var(--space-1); }
+}

@@ -17,8 +17,10 @@ export function ReviewTemplateBrowser({ list, context, busy, creating, onCancel,
       .catch(e => { if (live) setError(e.message); }).finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, [creating, retry]);
+  const state = (t: ReviewTemplate) => !t.publishedVersion ? "unpublished" : t.enabled === false ? "disabled" : t.hasUnpublishedChanges === true ? "changed" : t.hasUnpublishedChanges === false || t.version === t.publishedVersion ? "enabled" : "unknown";
+  const count = (key: string) => list.filter(t => state(t) === key).length;
   const rows = list.filter(t => (!query || `${t.definition.name} ${t.definition.description}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
-    && (filter === "all" || filter === "draft" && (!t.publishedVersion || t.hasUnpublishedChanges) || filter === "enabled" && t.publishedVersion && t.enabled !== false || filter === "disabled" && t.publishedVersion && t.enabled === false));
+    && (filter === "all" || filter === "unpublished" && state(t) === "unpublished" || filter === "changed" && state(t) === "changed" || filter === "unknown" && state(t) === "unknown" || filter === "draft" && (!t.publishedVersion || t.hasUnpublishedChanges) || filter === "enabled" && t.publishedVersion && t.enabled !== false || filter === "disabled" && t.publishedVersion && t.enabled === false));
   const selected = rows.find(t => t.id === selectedId) || rows[0];
   if (creating) return <section className="review-create-picker" aria-label="创建流程方式">
     <header className="review-toolbar"><h2>新建流程</h2><button onClick={onCancel}>返回流程列表</button></header>
@@ -39,15 +41,16 @@ export function ReviewTemplateBrowser({ list, context, busy, creating, onCancel,
   return <div className="review-workspace review-template-browser">
     <section className="review-list-pane" aria-label="流程列表区域">
       <div className="review-toolbar review-list-tools"><WorkspaceSearchInput aria-label="搜索流程" placeholder="搜索流程名称或说明" value={query} onChange={e => setQuery(e.target.value)} />
-        <select aria-label="流程状态筛选" value={filter} onChange={e => setFilter(e.target.value)}><option value="all">全部流程</option><option value="enabled">已发布 · 可使用</option><option value="draft">待发布草稿</option><option value="disabled">已停用</option></select></div>
+        <select aria-label="流程状态筛选" value={filter} onChange={e => setFilter(e.target.value)}><option value="all">全部流程 · {list.length}</option><option value="enabled">已发布 · 可使用</option><option value="draft">待发布草稿</option><option value="unpublished">未发布 · {count("unpublished")}</option><option value="changed">待发布修改 · {count("changed")}</option><option value="disabled">已停用 · {count("disabled")}</option>{count("unknown") > 0 && <option value="unknown">待核对 · {count("unknown")}</option>}</select></div>
       <p className="review-muted">共 {rows.length} 个流程 · 草稿和发布版分别管理</p>
       {!rows.length ? <p>暂无匹配流程。可清空筛选或新建流程。</p> : <table className="review-table"><thead><tr><th>流程名称</th><th>草稿版本</th><th>已发布版本</th><th>版本关系</th></tr></thead>
         <tbody>{rows.map(t => <tr key={t.id} aria-selected={selected?.id === t.id} onClick={() => setSelectedId(t.id)}><td><button className="review-row-title" onClick={() => setSelectedId(t.id)}>{t.definition.name || "未命名流程"}</button></td>
-          <td>v{t.version}</td><td>{t.publishedVersion ? `v${t.publishedVersion} · ${t.enabled === false ? "已停用" : "可使用"}` : "未发布"}</td><td>{!t.publishedVersion ? "未发布" : t.version === t.publishedVersion || t.hasUnpublishedChanges === false ? "与发布版一致" : "有未发布修改"}</td></tr>)}</tbody></table>}
+          <td>v{t.version}</td><td>{t.publishedVersion ? `v${t.publishedVersion} · ${t.enabled === false ? "已停用" : "可使用"}` : "未发布"}</td><td>{!t.publishedVersion ? "未发布" : t.version === t.publishedVersion || t.hasUnpublishedChanges === false ? "与发布版一致" : t.hasUnpublishedChanges ? "有未发布修改" : "内容关系待核对"}</td></tr>)}</tbody></table>}
     </section>
     {selected && <section className="review-detail" aria-label="流程摘要"><header className="review-detail-head"><h2>{selected.definition.name || "未命名流程"}</h2></header>
       <div className="review-detail-body"><p>{selected.definition.description || "尚未填写适用说明"}</p>
         <dl className="review-values"><div><dt>归属组织</dt><dd>{context?.organization?.units.find(u => u.id === selected.definition.organizationUnitId)?.name || "公司范围"}</dd></div><div><dt>员工使用</dt><dd>{selected.publishedVersion && selected.enabled !== false ? `已发布 v${selected.publishedVersion}` : selected.enabled === false ? "已停用，新申请不可发起" : "尚未发布，员工不可使用"}</dd></div></dl>
+        <p className="review-muted">{selected.definition.fields.length} 个字段 · {selected.definition.nodes.filter(n => !["start", "end"].includes(n.type)).length} 个节点 · 更新于 {new Date(selected.updatedAt).toLocaleString("zh-CN", { hour12: false })}</p>
         <section><h3>申请材料</h3><ul>{selected.definition.fields.map(f => <li key={f.id}>{f.label} · {f.required ? "必填" : "可选"}</li>)}</ul>{!selected.definition.fields.length && <p>未配置附加材料</p>}</section>
         <section><h3>审批与办理步骤 · 草稿 v{selected.version}</h3><ol>{selected.definition.nodes.filter(n => !["start", "end"].includes(n.type)).map(n => <li key={n.id}>{n.name}{n.type === "handler" ? " · 人工办理" : n.type === "condition" ? " · 按材料分支" : n.assignee?.kind === "requester_choice" ? " · 员工在发布范围内选人" : ""}</li>)}</ol></section>
         <p className="review-muted">编辑草稿不影响已发布版本；新版本只用于新申请。</p>

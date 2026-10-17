@@ -68,7 +68,7 @@ export class PostgresReviewService {
   async instances():Promise<ReviewInstance[]>{return (await this.query<{payload:string}>("SELECT i.payload FROM review_instances i JOIN review_participants p ON p.tenant=i.tenant AND p.instance_id=i.id WHERE i.tenant=$1 AND p.user_id=$2 ORDER BY i.updated_at DESC LIMIT 200",[this.ctx.tenant,this.ctx.actor])).rows.map(r=>normalizeTasks(json<ReviewInstance>(r.payload)));}
   async instancePage(input:{cursor?:string;q?:string;filter?:string;limit?:number}){
     const limit=input.limit??30,q=(input.q||"").trim().toLocaleLowerCase(),filter=input.filter||"all";
-    if(!Number.isInteger(limit)||limit<1||limit>100||q.length>120||!["all","mine","todo","done"].includes(filter))fail(422,"列表参数无效");
+    if(!Number.isInteger(limit)||limit<1||limit>100||q.length>120||!["all","mine","todo","done","cc"].includes(filter))fail(422,"列表参数无效");
     let cursor:{createdAt:string;id:string}|undefined;
     if(input.cursor){try{cursor=json(Buffer.from(input.cursor,"base64url").toString());if(!cursor||typeof cursor.id!=="string"||typeof cursor.createdAt!=="string")throw Error();}catch{fail(422,"分页游标无效");}}
     const items:any[]=[];let scanned=0;
@@ -87,7 +87,7 @@ export class PostgresReviewService {
         ORDER BY e.created_at DESC,i.id DESC LIMIT 200`,
         [this.ctx.tenant,this.ctx.actor,...(cursor?[cursor.createdAt,cursor.id]:[])])).rows;
       if(!rows.length)return {items,nextCursor:null};
-      for(const row of rows){const i=normalizeTasks(json<ReviewInstance>(row.payload)),actions=this.actions(i),matches=(!q||i.title.toLocaleLowerCase().includes(q)||i.definition.name.toLocaleLowerCase().includes(q))&&(filter==="all"||(filter==="done"&&i.tasks.some(t=>t.userId===this.ctx.actor&&["approved","rejected","completed","transferred"].includes(t.status)))||(filter==="mine"&&i.requester===this.ctx.actor)||(filter==="todo"&&actions.some(a=>["approve","complete","resubmit"].includes(a))));if(matches&&items.length===limit)return {items,nextCursor:Buffer.from(JSON.stringify(cursor)).toString("base64url")};cursor={id:row.id,createdAt:row.created_at};scanned++;if(matches)items.push(this.project(i));}
+      for(const row of rows){const i=normalizeTasks(json<ReviewInstance>(row.payload)),actions=this.actions(i),matches=(!q||i.title.toLocaleLowerCase().includes(q)||i.definition.name.toLocaleLowerCase().includes(q))&&(filter==="all"||(filter==="cc"&&i.tasks.some(t=>t.userId===this.ctx.actor&&t.duty==="cc"))||(filter==="done"&&i.tasks.some(t=>t.userId===this.ctx.actor&&["approved","rejected","completed","transferred"].includes(t.status)))||(filter==="mine"&&i.requester===this.ctx.actor)||(filter==="todo"&&actions.some(a=>["approve","complete","resubmit"].includes(a))));if(matches&&items.length===limit)return {items,nextCursor:Buffer.from(JSON.stringify(cursor)).toString("base64url")};cursor={id:row.id,createdAt:row.created_at};scanned++;if(matches)items.push(this.project(i));}
       if(rows.length<200)return {items,nextCursor:null};
     }
     return {items,nextCursor:cursor?Buffer.from(JSON.stringify(cursor)).toString("base64url"):null};
