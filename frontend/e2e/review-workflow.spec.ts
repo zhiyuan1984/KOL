@@ -177,15 +177,29 @@ test("notification bell shows total unread, marks opened notices read, and close
 });
 
 test("notification failures preserve unread and offer retry without claiming an empty inbox", async ({ page }) => {
-  await fixture(page); let fail = true, markedRead = false;
-  await page.route("**/api/approvals/v2/notifications/inbox", route => fail ? route.fulfill({ status: 503, json: { detail: "通知暂不可用" } }) : route.fulfill({ json: { unreadCount: 1, items: [{ id: "notice", instance_id: "instance", message: "打开待处理审批", created_at: "2026-10-09T00:00:00Z", read_at: null }] } }));
+  await fixture(page); let markedRead = false;
+  await page.route("**/api/approvals/v2/notifications/inbox", async route => {
+    // Do not let the bell's queued read/focus refresh consume recovery before
+    // the actual retry click. This flag belongs only to this browser fixture.
+    const retried = await page.evaluate(() => Boolean((window as Window & { notificationRetryClicked?: boolean }).notificationRetryClicked));
+    return retried ? route.fulfill({ json: { unreadCount: 1, items: [{ id: "notice", instance_id: "instance", message: "打开待处理审批", created_at: "2026-10-09T00:00:00Z", read_at: null }] } }) : route.fulfill({ status: 503, json: { detail: "通知暂不可用" } });
+  });
   await page.route("**/api/approvals/v2/notifications/notice/read", route => { markedRead = true; return route.fulfill({ json: {} }); });
   await page.route("**/api/approvals/v2/instances/instance", route => route.fulfill({ status: 503, json: { detail: "审批详情暂不可用" } }));
   await page.goto("/approvals");
   await page.getByRole("button", { name: /站内通知.*加载失败/ }).click();
   const panel = page.getByRole("region", { name: "站内通知列表" });
   await expect(panel.getByRole("alert")).toContainText("通知暂不可用"); await expect(panel.getByText("暂无站内通知")).toHaveCount(0);
-  fail = false; await panel.getByRole("button", { name: "重试通知加载" }).click();
+  const retry = panel.getByRole("button", { name: "重试通知加载" });
+  await retry.evaluate(button => button.addEventListener("click", event => {
+    if (event.isTrusted) (window as Window & { notificationRetryClicked?: boolean }).notificationRetryClicked = true;
+  }, { capture: true, once: true }));
+  const backgroundFailure = page.waitForResponse(response => new URL(response.url()).pathname.endsWith("/notifications/inbox") && response.status() === 503);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await backgroundFailure;
+  await expect(retry).toBeVisible();
+  const recovered = page.waitForResponse(response => new URL(response.url()).pathname.endsWith("/notifications/inbox") && response.status() === 200);
+  await retry.click(); await recovered;
   await expect(page.getByRole("button", { name: "站内通知，1 条未读", exact: true })).toBeVisible();
   await panel.getByRole("button", { name: "打开待处理审批" }).click();
   await expect(panel.getByRole("alert")).toContainText("通知仍保留未读"); expect(markedRead).toBe(false);
@@ -385,17 +399,44 @@ test("authoring failed autosave keeps content and does not check; recovered crea
   await main.getByRole("button", { name: "从空白创建", exact: true }).click();
   await main.getByLabel("流程名称").fill("保留草稿");
   const keys: string[] = []; let fail = true;
+  let releaseFirstSave!: () => void;
+  const firstSaveGate = new Promise<void>(resolve => { releaseFirstSave = resolve; });
+  const next = main.getByRole("button", { name: "下一步：表单设计", exact: true });
+  const isCreateResponse = (response: import("@playwright/test").Response) =>
+    new URL(response.url()).pathname === "/api/admin/approval-types/v2/templates"
+      && response.request().method() === "POST";
   await page.route("**/api/admin/approval-types/v2/templates", async route => {
     if (route.request().method() === "GET") return route.fallback();
     keys.push(route.request().postDataJSON().creationKey);
+    // Exercise a real pending save; recovery must not change its fault before
+    // the first response and the rendered failure state have both completed.
+    if (keys.length === 1) await firstSaveGate;
     if (fail) return route.fulfill({ status: 503, json: { detail: "保存失败" } });
     return route.fallback();
   });
-  await main.getByRole("button", { name: "下一步：表单设计", exact: true }).click();
+  const failedSave = page.waitForResponse(response => isCreateResponse(response) && response.status() === 503);
+  await next.click();
+  await expect.poll(() => keys.length).toBe(1);
+  await expect(next).toBeDisabled();
   await expect(main.getByLabel("流程名称")).toHaveValue("保留草稿");
   expect(f.requests.filter(r => r.path === "validate")).toHaveLength(0);
-  fail = false; await main.getByRole("button", { name: "下一步：表单设计", exact: true }).click();
-  await expect(main.getByRole("heading", { name: /表单字段/ })).toBeVisible(); expect(keys[0]).toBe(keys[1]);
+  expect(f.commands).toHaveLength(0);
+  releaseFirstSave();
+  await failedSave;
+  await expect(main.getByRole("alert")).toContainText("保存失败");
+  await expect(main.locator(".review-save-status")).toHaveText("保存失败，内容已保留");
+  await expect(next).toBeEnabled();
+  await expect(main.getByLabel("流程名称")).toHaveValue("保留草稿");
+  expect(f.requests.filter(r => r.path === "validate")).toHaveLength(0);
+  expect(f.commands).toHaveLength(0);
+  fail = false;
+  const recoveredSave = page.waitForResponse(response => isCreateResponse(response) && response.status() === 200);
+  await next.click();
+  await recoveredSave;
+  await expect(main.getByRole("heading", { name: /表单字段/ })).toBeVisible();
+  expect(keys).toHaveLength(2); expect(keys[0]).toBe(keys[1]);
+  expect(f.requests.filter(r => r.path === "validate")).toHaveLength(1);
+  expect(f.commands).toHaveLength(0);
 });
 
 test("authoring edit and undo expire checks, re-entry checks automatically, and trial inputs do not expire configuration", async ({ page }) => {

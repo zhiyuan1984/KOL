@@ -530,9 +530,20 @@ describe("未指定发件箱时的默认发件箱", () => {
     expect(String((response.body.editor as Json).from)).toBe(BRAND_MAILBOXES.LT);
   });
 
-  it("sends from the mounted mailbox once it is inside the brand scope", async () => {
+  it("permits the mounted mailbox once it is inside the brand scope without sending or advancing stage", async () => {
     (await bindMountedMailbox(MOUNTED, "LT"));
-    await expect(enforceSend((await draftRow(MOUNTED)) as never, DEMO_USER)).resolves.toBeDefined();
+    const draft = await draftRow(MOUNTED);
+    const facts = async () => ({
+      sends: Number((await getConn().query("SELECT COUNT(*) AS n FROM starry_sends", [])).rows[0].n),
+      stage: String((await getConn().query("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'", [])).rows[0].stage_code),
+    });
+    const before = await facts();
+    await expect(enforceSend(draft as never, DEMO_USER)).resolves.toMatchObject({
+      from_addr: MOUNTED,
+      brand: "LT",
+      keep_stage: true,
+    });
+    expect(await facts()).toEqual(before);
   });
 
   it("still refuses an address that is neither a brand mailbox nor the user's own", async () => {

@@ -306,6 +306,27 @@ test("restored discovery retains the separate R3 stop confirmation and receipt",
   } });
   expect(response.ok()).toBeTruthy();
   const saved = await response.json();
+  // The session route selects DiscoveryWorkspace from the persisted task envelope.
+  // Keep the persisted restore envelopes fixed alongside the synthetic runtime state;
+  // a delayed task read must still recover the same workspace and independent R3 card.
+  const taskResponse = await request.get(`/api/tasks/${saved.task_id}`);
+  expect(taskResponse.ok(), await taskResponse.text()).toBeTruthy();
+  const taskData = await taskResponse.json();
+  const sessionResponse = await request.get(`/api/sessions/${saved.session_id}`);
+  expect(sessionResponse.ok(), await sessionResponse.text()).toBeTruthy();
+  const sessionData = await sessionResponse.json();
+  let releaseTaskRestore!: () => void;
+  let markTaskRead!: () => void;
+  const taskRestore = new Promise<void>((resolve) => { releaseTaskRestore = resolve; });
+  const taskRead = new Promise<void>((resolve) => { markTaskRead = resolve; });
+  let delayTaskRestore = true;
+  await page.route(new RegExp(`/api/tasks/(?:by-session/${saved.session_id}|${saved.task_id})$`), async route => {
+    markTaskRead();
+    if (delayTaskRestore) await taskRestore;
+    await route.fulfill({ json: taskData });
+  });
+  await page.route(new RegExp(`/api/sessions/${saved.session_id}(?:[?].*)?$`), route => route.fulfill({ json: sessionData }));
+  await page.route(`**/api/sessions/${saved.session_id}/events`, route => route.fulfill({ contentType: "text/event-stream", body: "" }));
   await page.route(`**/api/home/discovery/workspace/${saved.task_id}/pending`, route => route.fulfill({ json: { pending: null } }));
   let stopState = "pending";
   await page.route("**/api/queries/runtime.actions?*", route => route.fulfill({ json: { actions: [
@@ -322,6 +343,13 @@ test("restored discovery retains the separate R3 stop confirmation and receipt",
     return route.fulfill({ status: 202, json: { job: { id: "stop-fixture" } } });
   });
   await page.goto(`/s/${saved.session_id}`);
+  await taskRead;
+  expect(confirmations).toBe(0);
+  delayTaskRestore = false;
+  releaseTaskRestore();
+  await expect(page).toHaveURL(`/s/${saved.session_id}`);
+  await expect(page.locator("[data-workspace-session]")).toHaveAttribute("data-workspace-session", saved.session_id);
+  await expect(page.locator('[data-discovery-event="conditions"]')).toBeVisible();
   const stop = page.locator('[data-runtime-action="saved-stop"]');
   await expect(stop).toContainText("需要确认（R3）");
   await expect(stop).toContainText("saved-remote");
@@ -329,6 +357,8 @@ test("restored discovery retains the separate R3 stop confirmation and receipt",
   await stop.getByRole("button", { name: "确认执行以上内容" }).click();
   await expect(stop).toContainText("停止请求已提交");
   await page.reload();
+  await expect(page).toHaveURL(`/s/${saved.session_id}`);
+  await expect(page.locator("[data-workspace-session]")).toHaveAttribute("data-workspace-session", saved.session_id);
   await expect(stop).toContainText("停止请求已提交");
   expect(confirmations).toBe(1);
 });

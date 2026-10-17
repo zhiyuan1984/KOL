@@ -148,6 +148,10 @@ const READ_RETRY_LIMIT = 1;
 const DEFAULT_READ_RETRY_DELAY_MS = 250;
 const inflight = new Map<string, Promise<FollowedMailSync>>();
 const lastStarted = new Map<string, number>();
+// A keyed inflight entry is not available until mailboxSyncKey() resolves. Keep
+// the whole public start/ensure lifecycle visible from its synchronous call
+// boundary so request teardown cannot race that key lookup.
+const activeSyncLifecycles = new Set<Promise<unknown>>();
 type MailSyncRuntimeContext = {
   checkpoint: () => Promise<void>;
   diagnosticId: string;
@@ -163,6 +167,31 @@ const durableSync = new AsyncLocalStorage<MailSyncRuntimeContext>();
 async function syncCheckpoint(): Promise<void> { await durableSync.getStore()?.checkpoint(); }
 let backgroundSyncTask: Promise<void> | null = null;
 const mailHydrationWriteQueues = new Map<string, Promise<void>>();
+
+/** Track a call before it can yield for mailbox identity/cache I/O. The cleanup
+ * branch always fulfills, so it cannot create an unhandled rejection separate
+ * from the promise returned to the caller. */
+function trackMailSyncLifecycle<T>(work: () => Promise<T>): Promise<T> {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const tracked = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  activeSyncLifecycles.add(tracked);
+  void tracked.then(
+    () => { activeSyncLifecycles.delete(tracked); },
+    () => { activeSyncLifecycles.delete(tracked); },
+  );
+  void (async () => {
+    try {
+      resolve(await work());
+    } catch (error) {
+      reject(error);
+    }
+  })();
+  return tracked;
+}
 
 /** Remote body reads remain concurrent; serializable local observations for one
  * mailbox queue in source order so retries cannot starve each other. */
@@ -360,7 +389,8 @@ async function retryRead<T>(stage: "index" | "body", action: () => Promise<T>): 
 }
 
 onConnReset(() => {
-  inflight.clear();
+  // Do not discard a running promise here: waitForBackgroundSync() must retain
+  // its ability to drain work that started before a connection reset.
   lastStarted.clear();
 });
 
@@ -375,26 +405,30 @@ async function mailboxStateKey(mailbox = ""): Promise<string> {
 }
 
 export function resetFollowedMailSync(): void {
-  inflight.clear();
+  // Running syncs own their map/lifecycle cleanup. Clearing only cache timing
+  // preserves deterministic draining across a reset.
   lastStarted.clear();
 }
 
 export async function waitForBackgroundSync(): Promise<void> {
-  // Wait for in-flight foreground syncs first: they register the background
-  // task as their last step, so it is only observable after they resolve.
-  await Promise.all([...inflight.values()]);
-  while (backgroundSyncTask || mailHydrationWriteQueues.size) {
-    await Promise.allSettled([
+  // Each settled class can synchronously register the next (foreground → body
+  // hydration → mail memory). Re-snapshot until none remain; no timer/frame
+  // guess is involved.
+  for (;;) {
+    const pending = [
+      ...activeSyncLifecycles,
+      ...inflight.values(),
       ...(backgroundSyncTask ? [backgroundSyncTask] : []),
       ...mailHydrationWriteQueues.values(),
-    ]);
+    ];
+    if (pending.length) await Promise.allSettled(pending);
+    await waitForMailMemoryBackground();
+    if (!activeSyncLifecycles.size && !inflight.size && !backgroundSyncTask && !mailHydrationWriteQueues.size) return;
   }
-  await waitForMailMemoryBackground();
 }
 
-export async function startFollowedMailSync(force = false, mailbox = ""): Promise<FollowedMailSync> {
-  const key = (await mailboxSyncKey(mailbox));
-  const existing = (await inflight.get(key));
+function startFollowedMailSyncForKey(key: string, force: boolean, mailbox: string): Promise<FollowedMailSync> {
+  const existing = inflight.get(key);
   if (existing) return existing;
   const pending = (syncFollowedKolMail(mailbox).finally(async () => {
     if ((inflight.get(key)) === pending) inflight.delete(key);
@@ -405,15 +439,24 @@ export async function startFollowedMailSync(force = false, mailbox = ""): Promis
   return pending;
 }
 
-export async function ensureFollowedMailSync(force = false, mailbox = ""): Promise<FollowedMailSync> {
-  const key = (await mailboxSyncKey(mailbox));
-  const existing = (await inflight.get(key));
-  if (existing) return existing;
-  if (!force && lastStarted.has(key) && Date.now() - (lastStarted.get(key) || 0) < CACHE_MS) {
-    const cached = await followedMailStatus(mailbox);
-    if (cached.synced_at) return cached;
-  }
-  return (startFollowedMailSync(force, mailbox));
+export function startFollowedMailSync(force = false, mailbox = ""): Promise<FollowedMailSync> {
+  return trackMailSyncLifecycle(async () => {
+    const key = await mailboxSyncKey(mailbox);
+    return startFollowedMailSyncForKey(key, force, mailbox);
+  });
+}
+
+export function ensureFollowedMailSync(force = false, mailbox = ""): Promise<FollowedMailSync> {
+  return trackMailSyncLifecycle(async () => {
+    const key = await mailboxSyncKey(mailbox);
+    const existing = inflight.get(key);
+    if (existing) return existing;
+    if (!force && lastStarted.has(key) && Date.now() - (lastStarted.get(key) || 0) < CACHE_MS) {
+      const cached = await followedMailStatus(mailbox);
+      if (cached.synced_at) return cached;
+    }
+    return startFollowedMailSyncForKey(key, force, mailbox);
+  });
 }
 
 export async function followedMailStatus(mailboxOverride = ""): Promise<FollowedMailSync> {
@@ -1153,25 +1196,27 @@ async function hydrateRequestedConversationIfNeeded(conversationId: string, mail
   }
 }
 
-export async function syncMailboxMail(mailbox = ""): Promise<FollowedMailSync> {
+export function syncMailboxMail(mailbox = ""): Promise<FollowedMailSync> {
   return ensureFollowedMailSync(true, mailbox);
 }
 
-export async function syncFollowedKolMail(mailboxOverride = "", options?: MailSyncOptions): Promise<FollowedMailSync> {
-  const isDurable = options?.durable ?? Boolean(options);
-  return durableSync.run({
-    checkpoint: options?.checkpoint || (async () => {}),
-    diagnosticId: options?.diagnosticId || nid("mail_sync"),
-    durable: isDurable,
-    postgresNative: Boolean(options?.actorId && options?.authorizedScope),
-    onProgress: options?.onProgress,
-    actorId: options?.actorId,
-    authorizedScope: options?.authorizedScope,
-    conversationId: options?.conversationId,
-    // Durable workers need a real object here: the inner sync resets it to the
-    // persisted page pointer and reports the first committed index receipt.
-    ...(isDurable ? { progress: blankProgress() } : {}),
-  }, async () => (syncFollowedKolMailInner(mailboxOverride)));
+export function syncFollowedKolMail(mailboxOverride = "", options?: MailSyncOptions): Promise<FollowedMailSync> {
+  return trackMailSyncLifecycle(() => {
+    const isDurable = options?.durable ?? Boolean(options);
+    return durableSync.run({
+      checkpoint: options?.checkpoint || (async () => {}),
+      diagnosticId: options?.diagnosticId || nid("mail_sync"),
+      durable: isDurable,
+      postgresNative: Boolean(options?.actorId && options?.authorizedScope),
+      onProgress: options?.onProgress,
+      actorId: options?.actorId,
+      authorizedScope: options?.authorizedScope,
+      conversationId: options?.conversationId,
+      // Durable workers need a real object here: the inner sync resets it to the
+      // persisted page pointer and reports the first committed index receipt.
+      ...(isDurable ? { progress: blankProgress() } : {}),
+    }, async () => (syncFollowedKolMailInner(mailboxOverride)));
+  });
 }
 
 async function syncFollowedKolMailInner(mailboxOverride: string): Promise<FollowedMailSync> {

@@ -12,6 +12,7 @@ export default defineConfig({
       "src/components/LifecycleNavigation*.test.tsx",
       "src/components/workspace/LifecycleNavigation*.test.tsx",
       "src/components/SideWorkbench.test.tsx",
+      "src/components/RuntimeActions.recovery.test.tsx",
       "src/reviews/*.test.tsx",
       "src/layout/Approval*.test.tsx",
       "src/hooks/useWorkspaceScroll.test.tsx",

@@ -2514,17 +2514,20 @@ async function wb2OpenStageReview(page: Page) {
   const rail = wb2ResultRail(page);
   // A sent draft keeps the compose result open and nests stage review under its explicit evidence disclosure.
   const decisionContext = rail.locator(".mail-decision-context");
-  if (await decisionContext.count()) {
+  if (await decisionContext.count() && !(await decisionContext.evaluate((element) => element instanceof HTMLDetailsElement && element.open))) {
     await decisionContext.locator(":scope > summary").click();
   }
   const review = rail.locator(".mail-stage-review");
   await expect(review).toBeAttached({ timeout: 20000 });
-  if (!(await wb2StageCard(page).isVisible())) {
-    await review.locator(":scope > summary").click();
+  // Visibility of the descendant is not the native disclosure state: the per-ID
+  // restore can still expand between that snapshot and the summary click.
+  await expect(review).toHaveAttribute("data-stage-review-initialized", "true");
+  if (!(await review.evaluate((element) => element instanceof HTMLDetailsElement && element.open))) {
+    await review.locator(":scope > summary[data-stage-review-summary]").click();
   }
+  await expect(review).toHaveJSProperty("open", true);
   await expect(wb2StageCard(page)).toBeVisible({ timeout: 20000 });
 }
-
 async function wb2AskConfirmStage(page: Page, handle: string, stageLabel: string) {
   await page.locator("[data-composer-input]").fill(`提出阶段变更 @${handle} 到 ${stageLabel}`);
   await page.locator("[data-send]").click();
@@ -3489,7 +3492,7 @@ test("approval, knowledge, and exam are vertical primary nav items before cloud"
   expect(assetOrder.indexOf("exam")).toBeGreaterThanOrEqual(0);
   expect(assetOrder.indexOf("pipeline")).toBe(-1);
   expect(assetOrder.indexOf("cron")).toBe(-1);
-  expect(assetOrder).toEqual(["knowledge", "approvals", "exam"]);
+  expect(assetOrder).toEqual(["performance", "knowledge", "approvals", "exam"]);
   await expect(page.locator('[data-nav="pipeline"]')).toHaveCount(0);
   await expect(page.locator(".sidebar")).not.toContainText("生命周期");
   await expect(page.locator('nav[aria-label="Agent"] [data-nav]')).toHaveCount(1);
@@ -3646,7 +3649,7 @@ test("admin console uses a left sidebar with short labels for the current accoun
   await expect(page.locator("[data-admin-nav]").first()).toBeVisible();
   const labels = await page.locator(".sidebar [data-admin-nav]").allTextContents();
   expect(labels.map((label) => label.trim())).toEqual([
-    "员工", "工作战报", "业务地图", "连接器", "知识库", "Agent", "本体", "评审流程", "技能", "考试", "主数据", "数据", "成本", "调度监控", "工单治理", "审计中心", "配置",
+    "员工", "绩效管理", "工作战报", "业务地图", "连接器", "知识库", "Agent", "本体", "评审流程", "技能", "考试", "主数据", "数据", "成本", "调度监控", "工单治理", "审计中心", "配置",
   ]);
   // 「审批」已从菜单去掉（ADR-2026-10-12）：菜单不再渲染该条目，深链能力保留（见下方 goto 断言）。
   await expect(page.locator("[data-admin-nav='approvals']")).toHaveCount(0);
@@ -3709,11 +3712,11 @@ test("admin left menu replicates the employee sidebar shell", async ({ page }) =
   await expect(rail.locator(".sidebar-head [data-sidebar-brand]")).toBeVisible();
   await expect(rail.locator(".sidebar-head .sidebar-lucas img")).toHaveAttribute("src", /Lucas6\.webp$/);
   await expect(rail.locator(".sidebar-foot [data-account-bar]")).toBeVisible();
-  // 只换菜单文字：管理端 17 条，员工开工条目 0 条。
-  await expect(rail.locator("[data-admin-nav]")).toHaveCount(17);
+  // 只换菜单文字：含已上线绩效入口，管理端 18 条，员工开工条目 0 条。
+  await expect(rail.locator("[data-admin-nav]")).toHaveCount(18);
   await expect(rail.locator("[data-nav='new-task'], [data-nav='running'], [data-nav='cron'], [data-nav='mail']")).toHaveCount(0);
   // 同解剖：18px 描边图标 + 标签；分簇靠分隔线，不用可见组标题。
-  await expect(rail.locator("[data-admin-nav] .nav-ico")).toHaveCount(17);
+  await expect(rail.locator("[data-admin-nav] .nav-ico")).toHaveCount(18);
   await expect(rail.locator("nav.nav-group")).toHaveCount(5);
   await expect(rail.locator(".nav-group > h2, .nav-group > .nav-group-title")).toHaveCount(0);
   const clusterBorder = await rail.locator("nav.nav-group").nth(1).evaluate((el) => getComputedStyle(el).borderTopWidth);

@@ -28,7 +28,7 @@ function options() {
     ], nodes: []},
   }]};
 }
-async function render() { await act(async () => root.render(<MemoryRouter><PublicationPanel id="test-doc" mode="review" notify={vi.fn()} refreshDocument={vi.fn()} /></MemoryRouter>)); }
+async function render(mode: 'review' | 'detail' = 'review') { await act(async () => root.render(<MemoryRouter><PublicationPanel id="test-doc" mode={mode} notify={vi.fn()} refreshDocument={vi.fn()} /></MemoryRouter>)); }
 async function advance() { await act(async () => vi.advanceTimersByTimeAsync(350)); }
 function note() { return host.querySelector<HTMLTextAreaElement>('textarea[name="publication_note"]') || host.querySelectorAll<HTMLTextAreaElement>('textarea')[1]; }
 function submit() { return host.querySelector<HTMLButtonElement>('[data-kbv-doc-action="submit"]')!; }
@@ -55,6 +55,17 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); });
 
 describe('知识发布审批字段校验', () => {
+  it('详情只读不自动检查未展示的提交表单或发起POST', async () => {
+    await render('detail'); await advance();
+    expect(mocks.check).not.toHaveBeenCalled();
+    expect(mocks.api.mock.calls.every(([, body]) => body === undefined)).toBe(true);
+    expect(mocks.confirm).not.toHaveBeenCalled();
+  });
+  it('从审批表单切回详情时取消尚未发起的检查，不留下跨页面POST', async () => {
+    await render('review'); await render('detail'); await advance();
+    expect(mocks.check).not.toHaveBeenCalled();
+    expect(mocks.confirm).not.toHaveBeenCalled();
+  });
   it('显示服务端具体错误、必填标识和字段错误状态，不只给泛化提示', async () => {
     await render(); await advance();
     expect(host.textContent).toContain('发布说明必填');
