@@ -127,6 +127,7 @@ describe("admin sidebar parity", () => {
     }
     expect(adminTabOf("/admin")).toBe("employees");
     expect(adminTabOf("/admin/overview")).toBe("overview");
+    expect(adminTabOf("/admin/performance/cycles")).toBe("performance");
     expect(adminTabOf("/admin/audit")).toBe("audit");
     expect(adminTabOf("/admin/approval-types")).toBe("approval-types");
     expect(adminTabOf("/admin/connectors/conn_a")).toBe("connectors");
