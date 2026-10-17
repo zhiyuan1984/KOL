@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Hono } from "hono";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import { DEMO_USER } from "../src/config.js";
 import { HOME_ENTRY_REGISTRY } from "../src/host/entry-registry.js";
@@ -16,6 +16,7 @@ import { letterSummaryRecord } from "../src/host/mail-summary.js";
 import { memoryCompanyId } from "../src/host/kol-memory.js";
 import { listMailboxConversations } from "../src/host/mail-memory.js";
 import { matchesFollowedMailbox, saveStarryBinding } from "../src/host/starry-bind.js";
+import * as starryBind from "../src/host/starry-bind.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { freshTestDatabase } from "./support/pg.js";
@@ -140,6 +141,16 @@ function stubStarry(extraConversations: Json[] = [], beforeDetail?: () => Promis
     },
     async close() { /* noop */ },
   }));
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T | PromiseLike<T>) => void; reject: (reason?: unknown) => void } {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 beforeEach(async () => {
@@ -659,6 +670,95 @@ describe("mailbox memory P0", () => {
     expect((await app.request("/api/drafts/missing/send", { method: "POST", body: "{}" })).status).toBe(404);
     expect((await request("POST", "/api/actions/sendEmailNow", {})).status).toBe(404);
     expect(calls).toEqual([]);
+  });
+
+  it("drains a sync that is still resolving its mailbox key before a later cancelled job makes no calls", async () => {
+    (await bindLarry());
+    const mailboxGate = deferred<string>();
+    const lookupStarted = deferred<void>();
+    const mailboxSpy = vi.spyOn(starryBind, "boundMailboxEmail").mockImplementation(async () => {
+      lookupStarted.resolve();
+      return mailboxGate.promise;
+    });
+    let sync: Promise<unknown> | undefined;
+    try {
+      sync = ensureFollowedMailSync(true);
+      await lookupStarted.promise;
+
+      let drained = false;
+      const draining = waitForBackgroundSync().then(() => { drained = true; });
+      // Advance the two known Promise reactions in the old empty-inflight path;
+      // no timer, sleep, or frame scheduling is involved. The held key must keep
+      // the new lifecycle tracker observable throughout both reactions.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(drained).toBe(false);
+
+      mailboxGate.resolve("larry.zhao@amperetime.com");
+      await sync;
+      await draining;
+      expect(calls.filter((name) => name === "pageEmailConversations")).toHaveLength(1);
+
+      calls.length = 0;
+      const queued = await request("POST", "/api/jobs/mail.sync/start", { request_id: "after-drain-cancel-test" });
+      const id = String((queued.body.job as Json).id);
+      expect(queued.status).toBe(202);
+      expect((await request("POST", `/api/jobs/${id}/cancel`, {})).body.job).toMatchObject({ status: "cancelled" });
+      expect(await processExecutionJobById(id)).toBeNull();
+      expect(calls).toEqual([]);
+    } finally {
+      mailboxGate.resolve("larry.zhao@amperetime.com");
+      await Promise.allSettled(sync ? [sync] : []);
+      await waitForBackgroundSync();
+      mailboxSpy.mockRestore();
+    }
+  });
+
+  it("coalesces concurrent same-mailbox starts while their key lookup is held", async () => {
+    (await bindLarry());
+    const mailboxGate = deferred<string>();
+    const bothLookups = deferred<void>();
+    const actor = await mapUser((await getConn().query("SELECT * FROM users WHERE id=$1", [DEMO_USER.id])).rows[0]);
+    let lookups = 0;
+    const mailboxSpy = vi.spyOn(starryBind, "boundMailboxEmail").mockImplementation(async () => {
+      lookups += 1;
+      if (lookups === 2) bothLookups.resolve();
+      return mailboxGate.promise;
+    });
+    let first: Promise<unknown> | undefined;
+    let second: Promise<unknown> | undefined;
+    try {
+      first = withScopedUser(actor, () => ensureFollowedMailSync(true));
+      second = withScopedUser(actor, () => ensureFollowedMailSync(true));
+      await bothLookups.promise;
+      mailboxGate.resolve("larry.zhao@amperetime.com");
+      await Promise.all([first, second]);
+      await waitForBackgroundSync();
+      expect(lookups).toBeGreaterThanOrEqual(2);
+      expect(calls.filter((name) => name === "pageEmailConversations")).toHaveLength(1);
+    } finally {
+      mailboxGate.resolve("larry.zhao@amperetime.com");
+      await Promise.allSettled([...(first ? [first] : []), ...(second ? [second] : [])]);
+      await waitForBackgroundSync();
+      mailboxSpy.mockRestore();
+    }
+  });
+
+  it("cleans a failed mailbox-key lifecycle before a later sync drain", async () => {
+    (await bindLarry());
+    const mailboxSpy = vi.spyOn(starryBind, "boundMailboxEmail").mockRejectedValueOnce(new Error("mailbox_key_failed"));
+    try {
+      await expect(ensureFollowedMailSync(true)).rejects.toThrow("mailbox_key_failed");
+      await waitForBackgroundSync();
+      mailboxSpy.mockRestore();
+
+      await ensureFollowedMailSync(true);
+      await waitForBackgroundSync();
+      expect(calls.filter((name) => name === "pageEmailConversations")).toHaveLength(1);
+    } finally {
+      mailboxSpy.mockRestore();
+      await waitForBackgroundSync();
+    }
   });
 
   it("persists a cancellable sync job without making calls in the HTTP request", async () => {
