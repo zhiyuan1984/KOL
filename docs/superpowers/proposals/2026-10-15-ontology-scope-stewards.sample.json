@@ -1,0 +1,21 @@
+{
+  "proposal_id": "ontology-scope-stewards-20261015",
+  "status": "proposal",
+  "runtime_activation": false,
+  "policy_published": false,
+  "grants_authority": false,
+  "note": "仅为待审查配置样例，不被运行时加载，不授予审批权，不改变现行门禁或旧审批。",
+  "intended_strategy": "scope_steward_final_review",
+  "proposed_stewards": {
+    "objects": { "user_id": "usr_org_huang_qiyou", "display_name": "黄启友" },
+    "events": { "user_id": "usr_org_huang_qiyou", "display_name": "黄启友" },
+    "tickets": { "user_id": "usr_org_huang_qiyou", "display_name": "黄启友" },
+    "rules": { "user_id": "usr_org_huang_qiyou", "display_name": "黄启友" }
+  },
+  "authority_source": null,
+  "authorized_policy_publisher": null,
+  "approval_actor_mapping": null,
+  "self_approval_policy": "unresolved_no_new_authority_granted",
+  "existing_approval_migration": "none",
+  "existing_release_gate_change": "none"
+}
