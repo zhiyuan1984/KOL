@@ -2514,17 +2514,20 @@ async function wb2OpenStageReview(page: Page) {
   const rail = wb2ResultRail(page);
   // A sent draft keeps the compose result open and nests stage review under its explicit evidence disclosure.
   const decisionContext = rail.locator(".mail-decision-context");
-  if (await decisionContext.count()) {
+  if (await decisionContext.count() && !(await decisionContext.evaluate((element) => element instanceof HTMLDetailsElement && element.open))) {
     await decisionContext.locator(":scope > summary").click();
   }
   const review = rail.locator(".mail-stage-review");
   await expect(review).toBeAttached({ timeout: 20000 });
-  if (!(await wb2StageCard(page).isVisible())) {
-    await review.locator(":scope > summary").click();
+  // Visibility of the descendant is not the native disclosure state: the per-ID
+  // restore can still expand between that snapshot and the summary click.
+  await expect(review).toHaveAttribute("data-stage-review-initialized", "true");
+  if (!(await review.evaluate((element) => element instanceof HTMLDetailsElement && element.open))) {
+    await review.locator(":scope > summary[data-stage-review-summary]").click();
   }
+  await expect(review).toHaveJSProperty("open", true);
   await expect(wb2StageCard(page)).toBeVisible({ timeout: 20000 });
 }
-
 async function wb2AskConfirmStage(page: Page, handle: string, stageLabel: string) {
   await page.locator("[data-composer-input]").fill(`提出阶段变更 @${handle} 到 ${stageLabel}`);
   await page.locator("[data-send]").click();
