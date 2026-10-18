@@ -5,6 +5,8 @@ import { postgresTransaction } from "../postgres/pool.js";
 import { HttpFail } from "../host/errors.js";
 import { taskDefinitions } from "../tasks/registry.js";
 import { runtimeHash } from "../runtime/execution.js";
+import {operationFingerprint,resolveOperations} from '../capability/contracts.js';
+import {publishedBusinessDefinitions} from '../ontology/runtime-dependencies.js';
 import { computeEffectiveAgentUsers, type AgentBindingRow, type OrganizationCoverageSource } from "../runtime/organization-tree.js";
 import type { AgentContent, AgentDraft, AgentGovernanceDraft, AgentReleaseCheck, AgentReleaseReceipt, AgentSkillOption, AgentVersionRecord, AgentWorkspaceState } from "../../../shared/agent-workspace.js";
 import {organizationDirectory,organizationState,organizationHistory,organizationProposal,applyPublishedOrganization} from './organization.js';
@@ -47,7 +49,10 @@ export async function agentSkillCatalog(db: PoolClient): Promise<AgentSkillOptio
   const policies = await rows(db, "SELECT * FROM runtime_tool_policies");
   const connectors = new Map((await rows(db, "SELECT connector_id,config_json FROM runtime_connector_config")).map(row => [row.connector_id, json(row.config_json)]));
   return (await taskDefinitions()).map<AgentSkillOption>(definition => {
-    const release = runtimeHash({ definition, body: fs.readFileSync(definition.path, "utf8"), sop: sops.get(definition.id) });
+    let capabilitiesReady=true,operations='';
+    if(definition.capabilities?.length){try{operations=operationFingerprint(resolveOperations(definition.capabilities));}catch{capabilitiesReady=false;operations='unresolved';}}
+    const release = runtimeHash({ definition, body: fs.readFileSync(definition.path, "utf8"), sop: sops.get(definition.id),
+      ...(definition.capabilities?.length?{operations}:{}) });
     const tools = mounts.filter(row => row.skill_id === definition.id);
     const documentQuery = definition.mcp.includes("knowledge.ask_documents") || tools.some(row => row.connector_id === "knowledge");
     const cfg = configs.get(definition.id);
@@ -60,6 +65,8 @@ export async function agentSkillCatalog(db: PoolClient): Promise<AgentSkillOptio
       document_query: documentQuery, risk,
       knowledge_revision: cfg?.published_revision ? Number(cfg.published_revision) : null,
       knowledge_ready: !cfg || Boolean(cfg.published_revision && cfg.published_hash === release),
+      ...(definition.ontology?.length?{ontology_dependencies:definition.ontology}:{}),
+      ...(definition.capabilities?.length?{capabilities_ready:capabilitiesReady}:{}),
       resources: resources.filter(row => row.skill_id === definition.id).map(row => ({
         id: String(row.connector_id), configured: connectors.has(row.connector_id),
         enabled: Boolean(Number(row.enabled) && connectors.get(row.connector_id)?.enabled),
@@ -184,12 +191,20 @@ async function releaseContext(db: PoolClient, id: string) {
   if(governance&&(ownerChanged||added.length||removed.length)&&!governance.reason)blockers.push('请在草稿中填写归属或使用绑定变更原因');
   if (!current.draft.skills.length) blockers.push("发布前请先装配至少一项技能");
   if (!candidateBound.length&&id!=='agent:platform-sync') blockers.push("发布前请先绑定组织或人员");
+  const businessDependencies:Array<{skill_id:string;fingerprint:string}>=[];
   for (const pin of current.draft.skills) {
     const skill = catalog.find(row => row.id === pin.skill_id);
     if (!skill) { blockers.push(`技能 ${pin.skill_id} 已不存在`); continue; }
     if (!skill.published) blockers.push(`${skill.label} 尚未发布或已停用`);
+    if(skill.capabilities_ready===false)blockers.push(`${skill.label} 所需业务能力尚未接入或版本不兼容`);
     if (pin.release_hash !== skill.release_hash || pin.knowledge_revision !== skill.knowledge_revision) blockers.push(`${skill.label} 版本已变化，请重新保存草稿`);
     if (!skill.knowledge_ready) blockers.push(`${skill.label} 的知识依赖尚未正式发布`);
+    if(skill.ontology_dependencies?.length){
+      try{
+        const published=await publishedBusinessDefinitions(proposedOwner?.company_id||'',skill.ontology_dependencies,db);
+        businessDependencies.push({skill_id:skill.id,fingerprint:published!.fingerprint});
+      }catch{blockers.push(`${skill.label} 的业务定义未发布、版本不兼容，或尚未确定所属公司`);}
+    }
     for (const resource of skill.resources) if (!resource.configured || !resource.enabled || !resource.tool_count) warnings.push(`${skill.label} 的资源 ${resource.id} 未就绪；发布不代表实际调用可用`);
     if (!skill.risk) warnings.push(`${skill.label} 暂无完整工具风险登记；执行仍按服务端闸门校验`);
   }
@@ -202,7 +217,7 @@ async function releaseContext(db: PoolClient, id: string) {
   const resourceConfigs=await rows(db,"SELECT * FROM runtime_connector_config WHERE connector_id=ANY($1::text[]) ORDER BY connector_id",[resourceIds]);
   const resourcePolicies=await rows(db,"SELECT * FROM runtime_tool_policies WHERE connector_id=ANY($1::text[]) ORDER BY connector_id,tool_name",[resourceIds]);
   const fingerprint = runtimeHash({ agent_version: item.version, status: item.status, published_revision: item.published_revision,
-    draft: current.draft, catalog: relevant, bindings: bound, ownership:governance?owner:null,organization: org,resourceMounts,toolMounts,resourceConfigs,resourcePolicies });
+    draft: current.draft, catalog: relevant, bindings: bound, ownership:governance?owner:null,organization: org,resourceMounts,toolMounts,resourceConfigs,resourcePolicies,businessDependencies });
   const changes:NonNullable<AgentReleaseCheck['changes']>={name:current.effective.name!==current.draft.name?{before:current.effective.name,after:current.draft.name}:null,description:current.effective.description!==current.draft.description?{before:current.effective.description,after:current.draft.description}:null,organization:governance&&ownerChanged?{before:owner.assignment,after:proposedOwner}:null,bindings_added:added,bindings_removed:removed,users_added:coverage.users.filter(row=>row.user_id&&!beforeCoverage.user_ids.includes(row.user_id)).map(row=>({user_id:row.user_id!,display_name:row.display_name})),users_removed:beforeCoverage.users.filter(row=>row.user_id&&!coverage.user_ids.includes(row.user_id)).map(row=>({user_id:row.user_id!,display_name:row.display_name})),reason:governance?.reason||'',total:0};
   changes.total=Number(Boolean(changes.name))+Number(Boolean(changes.description))+Number(Boolean(changes.organization))+added.length+removed.length+current.draft.skills.filter(pin=>!current.effective.skills.some(old=>old.skill_id===pin.skill_id&&old.release_hash===pin.release_hash&&old.knowledge_revision===pin.knowledge_revision)).length+current.effective.skills.filter(pin=>!current.draft!.skills.some(next=>next.skill_id===pin.skill_id)).length;
   if(!changes.total)blockers.push('草稿与当前生效配置相同，无需发布新版本');
@@ -237,7 +252,7 @@ export async function publishAgentRelease(actor: string, id: string, input: { pr
     if ((await rows(db, "SELECT id FROM agent_release_receipts WHERE preparation_id=$1", [prepared.id])).length) throw new HttpFail(409, "本次预检已发布，请读取回执");
     // Authorization and dependency rows cannot change between recheck and commit.
     await db.query("LOCK TABLE agent_bindings,agent_organization_memberships,agent_organization_receipts IN SHARE ROW EXCLUSIVE MODE");
-    await db.query("LOCK TABLE organization_units,organization_people,organization_memberships,org_versions,users,skill_lifecycle,skill_sops,skill_knowledge_configs,runtime_skill_connectors,runtime_skill_tools,runtime_tool_policies,runtime_connector_config IN SHARE MODE");
+    await db.query("LOCK TABLE organization_units,organization_people,organization_memberships,org_versions,users,skill_lifecycle,skill_sops,skill_knowledge_configs,runtime_skill_connectors,runtime_skill_tools,runtime_tool_policies,runtime_connector_config,ontology_documents,ontology_versions IN SHARE MODE");
     const ctx = await releaseContext(db, id);
     if (ctx.fingerprint !== prepared.fingerprint) throw new HttpFail(409, "草稿、技能或授权依据已变化，请重新预检确认");
     if (ctx.blockers.length) throw new HttpFail(409, ctx.blockers.join("；"));

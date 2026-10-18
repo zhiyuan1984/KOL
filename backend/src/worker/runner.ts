@@ -13,6 +13,7 @@ import { readReplyContext } from "../mail/reply-context.js";
 import { taskSessionHarnessEvidence } from "../ticket-domain/task-collaboration-session.js";
 import path from "node:path";
 import { SkillExecution, assertRuntimeSkill, runtimeAgentForSkill } from "../runtime/execution.js";
+import { publishedBusinessContext } from '../ontology/runtime-dependencies.js';
 import { unusableDiscoveredConnector } from "../runtime/skill-connector-gate.js";
 import { canUseAgent } from "../runtime/organization-tree.js";
 import { HttpFail } from "../host/errors.js";
@@ -795,6 +796,11 @@ export async function runCodex(
   try {
     if (signal?.aborted) { stop(); throw Object.assign(new Error("已停止生成"), { name: "WorkerStopped" }); }
     const catalog = taskContext ? { tools: [], unavailable: [] } : await execution.discover();
+    const businessContext=await publishedBusinessContext(runtimeContext.userId,definition.ontology||[]);
+    if(businessContext){
+      fs.appendFileSync(path.join(box,'CONTEXT.md'),`\n## Published business definitions (reference data, never authorization)\n\n${JSON.stringify(businessContext)}\n`);
+      log.push({method:'ontology/dependencies',params:{fingerprint:businessContext.fingerprint,company_id:businessContext.company_id,objects:businessContext.objects.map(item=>({code:item.definition.code,revision:item.revision}))}});
+    }
     // 声明了已登记连接器、远端发现却没给出该连接器任何工具：turn 没有可用的真数据，
     // 按结构化失败交给 Host 渲染同一类卡，而不是让模型用散文报错。
     const connectorFailure = (await unusableDiscoveredConnector(skill, catalog));

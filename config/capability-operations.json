@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "operations": [
+    {
+      "id": "creator.query",
+      "version": 1,
+      "name": "分页查询达人",
+      "description": "在当前授权范围按可选关键词、阶段、风险条件分页查询达人；空条件读取第一页。仅返回真实来源数据，不生成联系人或合作事实。参数遵循已验证的查询接口契约。",
+      "effect": "read",
+      "risk": "R1",
+      "asynchronous": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string"
+          },
+          "stage_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "risk_tag_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "page_no": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "additionalProperties": false
+      },
+      "result": {
+        "kind": "paged",
+        "items": [
+          "list",
+          "data.list",
+          "records",
+          "data.records"
+        ],
+        "total": [
+          "total",
+          "data.total"
+        ],
+        "page": [
+          "pageNo",
+          "data.pageNo"
+        ],
+        "pageSize": [
+          "pageSize",
+          "data.pageSize"
+        ],
+        "itemFields": {
+          "id": [
+            "kolUid"
+          ],
+          "name": [
+            "kolName",
+            "nickname",
+            "name"
+          ],
+          "platform": [
+            "platform",
+            "primaryPlatform"
+          ],
+          "stage_code": [
+            "cooperationStageCode",
+            "stageCode"
+          ],
+          "risk_tags": [
+            "riskTagCodes",
+            "riskTags"
+          ],
+          "owner_name": [
+            "ownerName",
+            "ownerUserName"
+          ],
+          "profile_url": [
+            "homepageUrl",
+            "profileUrl"
+          ]
+        }
+      },
+      "implementation": {
+        "connector": "starrykol",
+        "tool": "pageKolProfiles",
+        "version": 1,
+        "jsonArgument": "requestJson",
+        "inputFields": {
+          "keyword": "keyword",
+          "stage_codes": "stageCodes",
+          "risk_tag_codes": "riskTagCodes",
+          "page_no": "pageNo",
+          "page_size": "pageSize"
+        }
+      }
+    },
+    {
+      "id": "creator.query_metrics",
+      "version": 1,
+      "name": "查询达人统计",
+      "description": "按当前授权范围读取达人查询统计；来源无法保证范围时拒绝，不将未授权全量数量返回。",
+      "effect": "read",
+      "risk": "R1",
+      "asynchronous": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "implementation": {
+        "connector": "starrykol",
+        "tool": "getKolProfileSidebarMetrics",
+        "version": 1
+      }
+    }
+  ]
+}

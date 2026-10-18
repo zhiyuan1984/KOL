@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { publishedSkillsDir, skillsDir } from "../config.js";
+import { operationTools, operationCatalogFingerprint, parseCapabilityReferences, parseOntologyReferences, type CapabilityReference, type OntologyReference } from '../capability/contracts.js';
 
 export const TASK_PROFILES = [
   "commander",
@@ -143,6 +144,9 @@ export type TaskDefinition = {
   profile: TaskProfileId;
   output: TaskOutput;
   mcp: string[];
+  capabilities?: CapabilityReference[];
+  ontology?: OntologyReference[];
+  applicable_objects?: string[];
   required_inputs: string[];
   input_schema?: TaskInputField[];
   result_type?: string;
@@ -433,7 +437,7 @@ export function validateTaskResultSchema(schema: TaskResultSchema, value: unknow
 
 function parseDeclaredContract(values: Record<string, unknown>, file: string): Pick<
   TaskDefinition,
-  "input_schema" | "result_type" | "result_schema" | "next_actions" | "memory_policy" | "supports" | "context"
+  "input_schema" | "result_type" | "result_schema" | "next_actions" | "memory_policy" | "supports" | "context" | "capabilities" | "ontology" | "applicable_objects"
 > {
   let inputSchema: TaskInputField[] | undefined;
   if (values.input_schema !== undefined) {
@@ -598,6 +602,9 @@ function parseDeclaredContract(values: Record<string, unknown>, file: string): P
   }
 
   return {
+    ...(values.applicable_objects!==undefined?{applicable_objects:stringArray(values.applicable_objects,'applicable_objects',file)}:{}),
+    ...(values.capabilities !== undefined ? {capabilities: parseCapabilityReferences(values.capabilities)} : {}),
+    ...(values.ontology !== undefined ? {ontology: parseOntologyReferences(values.ontology)} : {}),
     ...(inputSchema ? { input_schema: Object.freeze(inputSchema) as unknown as TaskInputField[] } : {}),
     ...(resultType ? { result_type: resultType } : {}),
     ...(resultSchema ? { result_schema: resultSchema } : {}),
@@ -610,7 +617,7 @@ function parseDeclaredContract(values: Record<string, unknown>, file: string): P
 
 export function validateDeclaredTaskContract(values: Record<string, unknown>): Pick<
   TaskDefinition,
-  "input_schema" | "result_type" | "result_schema" | "next_actions" | "memory_policy" | "supports" | "context"
+  "input_schema" | "result_type" | "result_schema" | "next_actions" | "memory_policy" | "supports" | "context" | "capabilities" | "ontology" | "applicable_objects"
 > {
   return parseDeclaredContract(values, "<skill contract>");
 }
@@ -726,7 +733,11 @@ function parseDefinition(file: string, folder: string, source: TaskSource): Task
     funnel = values.funnel as TaskFunnel;
   }
   const presentation = parsePresentation(values, file);
-  const mcp = stringArray(values.mcp, "mcp", file);
+  const capabilities = parseCapabilityReferences(values.capabilities);
+  const legacyMcp = stringArray(values.mcp, "mcp", file);
+  if (capabilities.length && legacyMcp.length) throw new Error(`manifest cannot combine capabilities and legacy mcp declarations: ${file}`);
+  // Internal compatibility projection keeps existing mounting/risk/lifecycle checks authoritative.
+  const mcp = capabilities.length ? operationTools(capabilities,true) : legacyMcp;
   for (const tool of mcp) {
     if (!MCP_TOOL_REFERENCE.test(tool)) throw new Error(`manifest has invalid MCP tool reference ${tool}: ${file}`);
   }
@@ -820,7 +831,7 @@ export async function taskDefinitions(root?: string): Promise<readonly TaskDefin
   const files = usingDefault
     ? combinedSkillFiles()
     : skillFiles(root).map((entry) => ({ ...entry, source: "bundled" as const }));
-  const signature = files.map((entry) => `${entry.source}:${entry.stamp}`).join("|");
+  const signature = files.map((entry) => `${entry.source}:${entry.stamp}`).join("|")+operationCatalogFingerprint();
   if (usingDefault && cached?.signature === signature) return cached.definitions;
 
   const generation = registryCacheGeneration;
