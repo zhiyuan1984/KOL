@@ -9,6 +9,7 @@ export function enterpriseSource(){return JSON.parse(fs.readFileSync(file,'utf8'
  dataset:string;source:string;sourceSha256:string;families:{code:string;name:string;scope:string;detailStatus:string}[];
  objects:{code:string;id:string;name:string;family:string;domain:string;theme:string;existing:boolean;sourceLine:number;sourceName?:string}[];
  placements:{family:string;domain:string;theme:string;objectCode:string;sourceLine:number}[];
+ definitionOverrides?:Record<string,{name:string;description:string;taxonomy:[string,string,string]}>;
  legacyTaxonomy:Record<string,[string,string,string]>;missing:{family:string;detail:string}[];
 };}
 export const enterpriseHash=()=>createHash('sha256').update(fs.readFileSync(file)).digest('hex');
@@ -16,7 +17,7 @@ export function enterpriseDefinitions(existing:OntologyDefinition[]):OntologyDef
  const source=enterpriseSource();const families=new Map(source.families.map(f=>[f.code,f.name]));
  const result=existing.map(d=>({...d,taxonomy:source.legacyTaxonomy[d.code]||d.taxonomy}));
  for(const o of source.objects)if(!o.existing)result.push({code:o.code,id:o.id,name:o.name,layer:'kol_business',taxonomy:[families.get(o.family)!,o.domain,o.theme],source:source.source+'；附件第'+o.sourceLine+'行',description:'企业业务架构规划目录，仅登记对象类型；不代表已有业务实例或可执行能力。'+(o.sourceName?'原文名称：'+o.sourceName+'。':''),items:{properties:[],relations:[],events:[],rules:[],actions:[]}});
- return result;
+ return result.map(d=>{const correction=source.definitionOverrides?.[d.code];return correction?{...d,name:correction.name,description:correction.description,taxonomy:correction.taxonomy}:d;});
 }
 export type CatalogNode={id:string;parentId:string|null;level:number;name:string;scope?:string;detailStatus?:string};
 export const themeId=(p:string[])=>'theme_'+createHash('sha256').update(JSON.stringify(p)).digest('hex').slice(0,24);

@@ -7,43 +7,102 @@
 /* ============ 中栏：行动面板 ============ */
 .followed-interaction {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--ds-space-4);
+  width: min(100%, 720px);
+  padding: 0 0 var(--ds-space-5);
   align-content: start;
   min-width: 0;
+}
+
+.followed-interaction-intro {
+  display: block;
+  padding-bottom: var(--ds-space-2);
+  border-bottom: 1px solid var(--ds-border);
+}
+
+.followed-interaction h1,
+.followed-interaction h2,
+.followed-interaction p,
+.followed-interaction ol {
+  margin: 0;
 }
 
 .followed-interaction-intro p {
   margin: 0;
   font-size: var(--ds-font-xs);
+  line-height: var(--ds-line-helper);
   color: var(--text-quiet);
 }
 
-.followed-selection-note {
-  display: inline-block;
-  margin-top: 4px;
-  font-size: var(--ds-font-xs);
-  color: var(--accent-text);
+.followed-priority,
+.followed-decision-brief,
+.followed-lifecycle-overview,
+.followed-next-step,
+.followed-summary-pending {
+  display: grid;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.followed-summary-pending {
+  max-width: 62ch;
+  padding: var(--ds-space-3);
+  border-left: 3px solid var(--accent);
+  background: var(--ds-selected-bg);
+}
+
+.followed-summary-pending strong {
+  font-size: var(--ds-font-body);
+  font-weight: 600;
+}
+
+.followed-summary-pending p {
+  color: var(--ds-text-dim);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+
+.followed-partial-summary,
+.followed-refresh-error {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2);
+}
+
+.followed-partial-summary span {
+  color: var(--ds-text-dim);
+  font-size: var(--ds-font-helper);
+}
+
+.followed-refresh-error p {
+  margin: 0;
 }
 
 .followed-section-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
+  gap: var(--ds-space-1) var(--ds-space-2);
+  min-width: 0;
 }
 
 .followed-section-heading h2 {
   margin: 0;
   font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
   font-weight: 600;
   color: var(--text);
 }
 
 .followed-section-heading > span {
+  min-width: 0;
   font-size: var(--ds-font-xs);
+  line-height: var(--ds-line-helper);
   color: var(--text-quiet);
-  white-space: nowrap;
+  text-align: right;
+  white-space: normal;
 }
 
 /* L3 文字按钮：行内次级动作 */
@@ -79,18 +138,23 @@
 
 .followed-decision-lead {
   margin: 0;
+  max-width: 62ch;
   font-size: var(--ds-font-sm);
   color: var(--text);
-  line-height: 1.5;
+  line-height: var(--ds-line-sm);
 }
 
 .followed-overview-count {
   margin: 0;
   font-size: var(--ds-font-xs);
+  line-height: var(--ds-line-helper);
   color: var(--text-quiet);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ============ 生命周期分布条（DESIGN §9.2） ============ */
+/* 分布条是同一总量的分段表达，不是并列 KPI 卡；窄中栏保持各段最小可读宽度，
+   放不下时横向滚动，不把四字阶段名压成省略号。 */
 .followed-distribution {
   display: flex;
   gap: 2px;
@@ -99,6 +163,24 @@
   border-radius: var(--radius-control);
   background: var(--bg-subtle);
   min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  scroll-snap-type: x proximity;
+}
+
+.followed-distribution::-webkit-scrollbar {
+  height: 4px;
+}
+
+.followed-distribution::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.followed-distribution::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .followed-dist-seg {
@@ -107,6 +189,7 @@
   align-items: center;
   justify-content: center;
   gap: 2px;
+  flex-shrink: 0;
   min-width: 60px;
   padding: var(--space-2) 4px;
   border: 0;
@@ -115,6 +198,7 @@
   cursor: pointer;
   color: var(--text);
   min-height: 48px;
+  scroll-snap-align: start;
 }
 
 .followed-dist-seg:hover {
@@ -196,41 +280,72 @@
 }
 
 /* ============ 建议先做：情境筛选入口 ============ */
+/* 整行都是按钮：编号在按钮内，命中区覆盖编号和文字；精细指针下不为文字按钮
+   保留 36px 的隐形最小高度，行距由 gap 控制。 */
 .followed-next-step ol {
   margin: 0;
-  padding-left: 20px;
+  padding: 0;
+  list-style: none;
   display: grid;
-  gap: 2px;
+  gap: var(--ds-space-2);
+  counter-reset: followed-next-step;
 }
 
-.followed-next-step li::marker {
-  color: var(--text-quiet);
-  font-size: var(--ds-font-xs);
+.followed-next-step li {
+  min-width: 0;
 }
 
 .followed-next-step li button {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
   align-items: center;
-  gap: 4px;
-  padding: 4px var(--space-2);
+  gap: var(--ds-space-2);
+  width: 100%;
+  min-height: auto;
+  padding: 2px var(--space-1);
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
   color: var(--text);
+  font: inherit;
   font-size: var(--ds-font-sm);
-  cursor: pointer;
+  line-height: var(--ds-line-sm);
   text-align: left;
+  cursor: pointer;
 }
 
-.followed-next-step li button:hover {
+.followed-next-step li button::before {
+  content: counter(followed-next-step) ".";
+  counter-increment: followed-next-step;
+  color: var(--text-quiet);
+  font-size: var(--ds-font-xs);
+  line-height: var(--ds-line-helper);
+  text-align: center;
+}
+
+.followed-next-step li button:hover,
+.followed-next-step li button:focus-visible {
   background: var(--btn-text-hover-bg);
   color: var(--accent-text);
+}
+
+.followed-next-step li button:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: 1px;
 }
 
 .followed-next-step li button.is-active {
   color: var(--accent-text);
   font-weight: 600;
   background: color-mix(in srgb, var(--accent) 8%, transparent);
+  text-decoration: underline;
+}
+
+@media (pointer: coarse) {
+  .followed-next-step li button {
+    min-height: var(--touch-hit-min);
+    padding-block: var(--space-1);
+  }
 }
 
 /* ============ 右栏：排序（L3 文字按钮组） ============ */
