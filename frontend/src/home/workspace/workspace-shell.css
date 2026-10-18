@@ -55,12 +55,31 @@
   width: var(--control-h-sm); height: var(--control-h-sm); min-height: var(--control-h-sm);
   padding: 0; border: 0; background: transparent; color: var(--accent-text); cursor: pointer;
 }
+.session-workspace .scope-task-rail-toggle { right: calc(var(--workspace-pane-gutter) + var(--space-1)); }
 .scope-workspace .scope-task-rail-toggle-icon { width: var(--icon-md); height: var(--icon-md); flex: 0 0 auto; }
 .scope-workspace .scope-task-rail-toggle:focus-visible { outline: 2px solid var(--focus-ring); }
 .scope-workspace-center-content > :is(header, footer, .home-composer-dock) { flex-shrink: 0; }
 .session-workspace .session-workspace-header {
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
   padding-block: var(--space-2); border-bottom: 1px solid var(--border);
+}
+.session-workspace .session-workspace-header > strong {
+  min-width: 0; overflow-wrap: anywhere;
+}
+.session-workspace .session-workspace-header > [data-complete-task] { margin-left: auto; }
+.session-workspace .task-context-facts {
+  display: grid; gap: var(--space-1); margin-top: var(--space-1);
+}
+.session-workspace .task-context-source {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2);
+  margin: 0;
+}
+.session-workspace .task-context-label,
+.session-workspace .task-context-priority {
+  color: var(--text-quiet); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper);
+}
+.session-workspace .task-context-facts .task-context {
+  margin: 0; font-size: var(--ds-font-sm); line-height: var(--ds-line-sm);
 }
 .session-workspace .conversation-context { max-height: none; overflow: visible; padding: 0; }
 .session-workspace .task-context-details { padding-block: var(--space-2); }

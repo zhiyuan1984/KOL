@@ -27,6 +27,8 @@ export type StreamArtifactContext = {
   onRefresh: () => void;
   onPosted: (messages: Message[]) => void;
   onPrefill?: (text: string) => void;
+  /** Result rail already names the view "结果"; do not repeat the kicker per card. */
+  railMode?: boolean;
 };
 
 /** 智能体产出的卡片（结果、草稿、阶段确认、来信、补全）在中栏时间流里各自出现在产生的时刻。 */
@@ -88,7 +90,7 @@ export function useStreamArtifacts(ctx: StreamArtifactContext): (message: Messag
   return (message: Message) => {
     const payload = message.payload as Record<string, unknown>;
     const parsed = ["assistant", "text"].includes(message.kind) ? taskResultCardsFrom(String(payload.text || "")) : [];
-    if (parsed.length) return <>{parsed.map((card, index) => <GenericResultArtifact key={index} card={card} sessionId={ctx.sessionId} onPrefill={ctx.onPrefill} onRefresh={ctx.onRefresh} showDraftPreview={!latestDraftId} />)}</>;
+    if (parsed.length) return <>{parsed.map((card, index) => <GenericResultArtifact key={index} card={card} sessionId={ctx.sessionId} onPrefill={ctx.onPrefill} onRefresh={ctx.onRefresh} showDraftPreview={!latestDraftId} showKicker={!ctx.railMode} />)}</>;
     if (message.kind === "task_result_card") {
       const card = resultCardOf(message);
       const candidates = crawlCandidates(card, payload);
@@ -121,6 +123,7 @@ export function useStreamArtifacts(ctx: StreamArtifactContext): (message: Messag
             collaborationId={ctx.collaborationId}
             handle={ctx.handle}
             onRefresh={ctx.onRefresh}
+            showKicker={!ctx.railMode}
           />
           {compose && (!draftFollows || Boolean(card.compose_loop?.gap?.field)) ? (
             <ResultActions

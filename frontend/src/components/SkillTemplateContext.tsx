@@ -10,6 +10,7 @@ export default function SkillTemplateContext({
   template,
   className = "",
   showOptionalInputs = true,
+  showHeader = true,
   flat = false,
   readOnly = false,
 }: {
@@ -17,6 +18,8 @@ export default function SkillTemplateContext({
   className?: string;
   /** Parameter editors render these in a collapsed form; avoid a duplicate list. */
   showOptionalInputs?: boolean;
+  /** Chat wraps the template in its own disclosure; avoid a duplicate title. */
+  showHeader?: boolean;
   /** Flat layout: no nested card border/background, no internal scroll.
    *  AI发现 中栏事件流还要求全文默认展开：使用边界与异常与恢复不用折叠块。 */
   flat?: boolean;
@@ -35,12 +38,14 @@ export default function SkillTemplateContext({
       data-skill-template-flat={flat ? "true" : undefined}
       aria-label={`${template.title}技能交互模板${readOnly ? "（只读）" : ""}`}
     >
-      <header className="skill-template-context-head">
-        <span className="skill-template-context-kicker">{flat ? `技能交互模板${readOnly ? " · 只读" : ""}` : "技能说明"}</span>
-        <strong>{template.title}</strong>
-      </header>
+      {showHeader ? (
+        <header className="skill-template-context-head">
+          <span className="skill-template-context-kicker">{flat ? `技能交互模板${readOnly ? " · 只读" : ""}` : "技能说明"}</span>
+          <strong>{template.title}</strong>
+        </header>
+      ) : null}
       <div className="skill-template-context-grid">
-        <section>
+        <section className="is-inline">
           <h2>功能</h2>
           <p>{template.description || "按可用技能处理你的请求。"}</p>
         </section>
@@ -54,7 +59,7 @@ export default function SkillTemplateContext({
             <p className="muted" data-skill-template-steps-empty>步骤未登记；发送后以实际任务状态为准。</p>
           )}
         </section>
-        <section>
+        <section className="is-inline">
           <h2>输出说明</h2>
           <p>{outputTitle}</p>
         </section>

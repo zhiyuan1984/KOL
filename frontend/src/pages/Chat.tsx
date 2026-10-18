@@ -1142,6 +1142,7 @@ export default function Chat() {
     onRefresh: reload,
     onPosted: (msgs) => setMessages(msgs),
     onPrefill: setText,
+    railMode: true,
   });
   const crawlCandidateRows = crawlJob ? crawlCandidates(crawlJob, task) : [];
   const crawlAt = String(crawlJob?.last_checked_at || crawlJob?.updated_at || crawlJob?.created_at || "");
@@ -1177,13 +1178,18 @@ export default function Chat() {
       </section>;
     }
     if (slot === "skill-template" && activeSkillTemplate) {
-      return <div className="session-skill-template" data-session-skill-template>
-        <SkillTemplateContext
-          template={activeSkillTemplate}
-          showOptionalInputs={!editableTemplateFields.length}
-        />
-        {templateParamEditor}
-      </div>;
+      const started = messages.some((message) => ["assistant", "task_result_card", "email_card", "confirm_stage_card", "process_trace", "step", "steps"].includes(message.kind));
+      return <details key={started ? "started" : "draft"} className="session-skill-template-fold" data-session-skill-template open={started ? undefined : true}>
+        <summary>技能说明 · {activeSkillTemplate.title}</summary>
+        <div className="session-skill-template">
+          <SkillTemplateContext
+            template={activeSkillTemplate}
+            showOptionalInputs={!editableTemplateFields.length}
+            showHeader={false}
+          />
+          {templateParamEditor}
+        </div>
+      </details>;
     }
     if (slot === "expert-intro" && boundExpert?.intro) {
       return <article className="expert-intro message is-assistant" data-expert-intro data-kind="expert-intro">
@@ -1307,20 +1313,20 @@ export default function Chat() {
         centerHeader={<header className="session-workspace-header">
           <Link to={taskWorkspace.task ? `/tasks?businessTask=${encodeURIComponent(taskWorkspace.task.task.task_id)}` : "/"} className="task-back" data-session-back-link>← 返回任务列表</Link>
           <strong>{task?.title || String(journey?.handle ? `@${journey.handle}` : "当前会话")}</strong>
+          {task && !discoveryEntry ? (
+            <button
+              className="btn row-action"
+              type="button"
+              onClick={complete}
+              disabled={completing || task.status === "completed"}
+              data-complete-task
+              title="标记任务完成；不会发送邮件或修改合作阶段"
+            >{task.status === "completed" ? "已完成" : "标记完成"}</button>
+          ) : null}
         </header>}
         centerScroll={<>
         <details className="task-context-details" data-task-context><summary>任务背景与上下文</summary>
         <div className="task-detail-header conversation-context" {...(task ? { "data-task-detail": true } : { "data-session-back": true })}>
-          {!discoveryEntry ? (
-            <div className="session-head-row">
-              <Link
-                to={taskWorkspace.task ? `/tasks?businessTask=${encodeURIComponent(taskWorkspace.task.task.task_id)}` : discoveryWorkspace && task ? `/?tab=discovery&resume=${encodeURIComponent(task.id)}` : "/"}
-                reloadDocument={Boolean(taskWorkspace.task)}
-                className="task-back"
-                data-session-back-link
-              >← 返回任务列表</Link>
-            </div>
-          ) : null}
           {discoveryWorkspace ? (
             <div data-discovery-workspace data-agent-identity={discoveryWorkspace.agent_id} data-agent-profile="lead">
               <strong>线索智能体</strong>
@@ -1411,24 +1417,18 @@ export default function Chat() {
           ) : null}
           {task && !discoveryEntry && (
             <>
-            <div className="task-detail-title">
-              <div>
+            <div className="task-context-facts">
+              <p className="task-context-source">
+                <span className="task-context-label">来源</span>
                 <span className={`detail-source source-${task.source || "manual"}`} data-task-source={task.source || "manual"}>
                   {task.source === "ai" ? todayTaskOriginLabel(task.source) : "今天的工作"}
                 </span>
                 {contextKicker && <span className="conversation-kicker">{contextKicker}</span>}
-                <h1>{task.title}</h1>
-              </div>
-              {/* 与今日任务右栏的动作同款：描边款，实底主 CTA 留给底部提问框（DESIGN 不变量 1）。 */}
-              <button className="btn row-action" type="button" onClick={complete} disabled={completing || task.status === "completed"} data-complete-task>
-                {task.status === "completed" ? "已完成" : "标记完成"}
-              </button>
+                {task.priority === "high" && <span className="task-context-priority">高优先级</span>}
+              </p>
+              {!discoveryExecutionResult && (task.context || task.description) && <p className="task-context">{task.context || task.description}</p>}
+              {completion && <p className={task.status === "completed" ? "completion-feedback" : "error"} role="status">{completion}</p>}
             </div>
-            <div className="task-detail-meta">
-              {task.priority === "high" && <span>高优先级</span>}
-            </div>
-            {!discoveryExecutionResult && (task.context || task.description) && <p className="task-context">{task.context || task.description}</p>}
-            {completion && <p className={task.status === "completed" ? "completion-feedback" : "error"} role="status">{completion}</p>}
             </>
           )}
         </div></details>

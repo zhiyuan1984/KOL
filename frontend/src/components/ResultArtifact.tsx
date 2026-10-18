@@ -127,6 +127,7 @@ export function GenericResultArtifact({
   handle,
   onRefresh,
   showDraftPreview = true,
+  showKicker = true,
 }: {
   card: TaskResultCard;
   sessionId: string;
@@ -136,6 +137,8 @@ export function GenericResultArtifact({
   handle?: string;
   onRefresh?: () => void;
   showDraftPreview?: boolean;
+  /** The result rail already names the view; hide the repeated “任务结果” kicker. */
+  showKicker?: boolean;
 }) {
   // 结果卡在中栏时间流里渲染，走同一套员工面清洗（DESIGN §15）：模型写的引擎名与技能 id 不外泄。
   const rawSections: TaskResultSection[] = Array.isArray(card.sections)
@@ -167,7 +170,7 @@ export function GenericResultArtifact({
   return (
     <article className="artifact task-result" data-kind="task-result-card">
       <header>
-        {stacked ? null : <div className="page-kicker">任务结果</div>}
+        {stacked || !showKicker ? null : <div className="page-kicker">任务结果</div>}
         {stacked && isComposeResultCard(card) ? null : <h2>{stripEngineCopy(String(card.title || "分析结果"))}</h2>}
         {summary ? <p className="task-result-summary">{summary}</p> : null}
       </header>

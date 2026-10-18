@@ -34,4 +34,12 @@ describe("middle-column skill template context", () => {
     expect(html).not.toContain("data-skill-template-optional");
     expect(html).toContain("无需必填参数");
   });
+
+  it("renders functional and output copy inline and can omit the duplicated header", () => {
+    const html = renderToStaticMarkup(createElement(SkillTemplateContext, { template, showHeader: false }));
+    expect(html).not.toContain("skill-template-context-head");
+    expect(html.match(/class="is-inline"/g)).toHaveLength(2);
+    expect(html).toContain("<h2>功能</h2><p>按授权范围查询达人</p>");
+    expect(html).toContain("<h2>输出说明</h2><p>达人列表</p>");
+  });
 });

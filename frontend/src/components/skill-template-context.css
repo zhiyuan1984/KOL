@@ -8,7 +8,7 @@
 
 .skill-template-context {
   display: grid;
-  gap: var(--ds-space-3);
+  gap: var(--ds-space-2);
   padding: var(--ds-space-3);
 }
 
@@ -55,11 +55,27 @@
 .skill-template-context-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: var(--ds-space-3);
+  gap: var(--ds-space-2);
 }
 
 .skill-template-context-grid section {
   min-width: 0;
+}
+
+.skill-template-context-grid section.is-inline {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-1);
+  align-items: baseline;
+}
+
+.skill-template-context-grid section.is-inline h2 {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.skill-template-context-grid section.is-inline p {
+  margin: 0;
 }
 
 .skill-template-context h2 {
@@ -87,6 +103,8 @@
 
 .skill-template-no-required {
   color: var(--ds-text-dim) !important;
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
 }
 
 .skill-template-optional,
@@ -105,7 +123,7 @@
 
 .skill-template-optional > :not(summary),
 .skill-template-context .skill-template-constraints > :not(summary) {
-  margin-top: var(--ds-space-2);
+  margin-top: var(--space-1);
 }
 
 .skill-template-param-editor {
@@ -219,6 +237,28 @@
 .kb-skill-template-actions > details[open] .skill-template-context {
   margin-top: var(--ds-space-2);
   width: 100%;
+}
+
+@container home-workspace-center (max-width: 480px) {
+  .skill-template-context-grid section.is-inline {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .skill-template-context-grid section.is-inline h2 {
+    margin-bottom: var(--ds-space-1);
+  }
+}
+
+@media (max-width: 600px) {
+  .skill-template-context-grid section.is-inline {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .skill-template-context-grid section.is-inline h2 {
+    margin-bottom: var(--ds-space-1);
+  }
 }
 
 @media (max-width: 860px) {
