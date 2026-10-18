@@ -2647,6 +2647,9 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
   });
   const extra: Json = {
     ...messageContextInput(intent.extras || {}),
+    // These ids came from resolveBoundTask's owner/session/run validation.
+    work_item_id: intent.extras?.work_item_id,
+    task_run_id: intent.extras?.task_run_id,
     handle: col?.handle || intent.handle,
     review_company: (intent.extras?.entities as Json | undefined)?.review_company,
     review_draft_only: (intent.extras?.entities as Json | undefined)?.review_draft_only,
