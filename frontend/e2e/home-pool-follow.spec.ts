@@ -819,10 +819,10 @@ test("claim is L3 and posts confirm to /api/kols/:kolUid/claim", async ({ page }
   const compactRow = page.locator("[data-pool-kol='uid_outdoor']");
   await expect(compactRow).toBeVisible();
   const height = await compactRow.evaluate((node) => node.getBoundingClientRect().height);
-  // Public identity, state, evidence and context stay in a token-bounded
-  // compact scan row (the 13px one-tier current layout needs 128px).
-  expect(height).toBeGreaterThanOrEqual(96);
-  expect(height).toBeLessThanOrEqual(128);
+  // Public identity, score, evidence and context stay in a token-bounded
+  // compact scan row: identity / score / meta+action (P1 density pass).
+  expect(height).toBeGreaterThanOrEqual(72);
+  expect(height).toBeLessThanOrEqual(112);
   await expect(compactRow.locator("[data-public-stage]")).toHaveCount(1);
   await expect(compactRow.locator("[data-public-stage]")).toHaveText("未首次建联");
   const nameBox = await compactRow.locator("[data-kol-name]").boundingBox();

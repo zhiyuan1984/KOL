@@ -23,16 +23,16 @@
 /*
   发现条件是一个高频、一次性配置面，而非阅读型表单。它在当前 916px 设计
   参考宽度（约 458 CSS px）内把 8 个方向收进两行，两组阈值各压成一行：
-  - 平台/地区/方向/关键词：标签独占一行，选项从左排起、行尾收齐；
+  - 平台/地区/方向/关键词：标签列与选项列同行，选项按 4px 间距自然换行；
   - 粉丝上下限是一组范围，因此共享「粉丝数范围」标签；
   - 均播与期望人数：<720px 中栏各占一行（不变量 7 不并排），标签与值同行、
     输入框撑满整行。
   保留原字段的 data-skill-param / API key，布局变化不改变提交语义。
 */
 .discovery-brief-form {  --ds-label-w: 88px;
-  --ds-row-gap: var(--space-2);
+  --ds-row-gap: var(--space-1);
   --ds-control-h: var(--control-h-form);
-  --ds-chip-h: var(--chip-h);
+  --ds-chip-h: var(--control-h-sm);
   /* 关键词芯片与芯片内输入位同高：24px 档，触摸模态升到 44px 命中区。 */  --ds-token-h: var(--control-h-sm);
   --ds-chip-gap: var(--space-1);
   --ds-space-5: var(--space-3);
@@ -47,8 +47,12 @@
 }
 .discovery-brief-form .ai-discovery-row {
   grid-template-columns: var(--ds-label-w) minmax(0, 1fr);
-  align-items: start;
+  align-items: baseline;
   column-gap: var(--space-2);
+}
+/* 关键词是带边框的芯片输入框，标签贴顶更稳。 */
+.discovery-brief-form .ai-discovery-row[data-skill-param="keywords"] {
+  align-items: start;
 }
 .discovery-brief-form .ai-discovery-label,
 .discovery-brief-form .ai-discovery-card .discovery-chip {
@@ -268,17 +272,9 @@
     --ds-chip-h: 44px;    --ds-token-h: 44px;
   }
 }
-/* 中栏是单列表单（不变量 7：<720px 不并排）：
-   - 平台/地区/方向/关键词：标签独占一行，选项从左侧铺满整行；
-   - 指标对：各占一行，标签与值同行、输入框撑满整行。 */
+/* 中栏 <720px 时只把指标对纵排（两个数字框并排会过窄）；
+   平台/地区/方向/关键词仍保持「标签列 + 选项列」，选项自然换行。 */
 @container home-workspace-center (max-width: 719px) {
-  .discovery-brief-form .ai-discovery-row[data-skill-param="platforms"],
-  .discovery-brief-form .ai-discovery-row[data-skill-param="region"],
-  .discovery-brief-form .ai-discovery-row[data-skill-param="directions"],
-  .discovery-brief-form .ai-discovery-row[data-skill-param="keywords"] {
-    grid-template-columns: minmax(0, 1fr);
-    row-gap: var(--space-1);
-  }
   .discovery-brief-form .ai-discovery-row.is-metric-pair {
     grid-template-columns: minmax(0, 1fr);
     row-gap: var(--space-1);

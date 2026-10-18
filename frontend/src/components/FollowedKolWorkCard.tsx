@@ -252,7 +252,7 @@ export default function FollowedKolWorkCard({
           data-recommended-action={rec.kind}
           data-confidence={rec.kind === "insufficient" ? "low" : "ok"}
         >
-          <p className="kol-card-suggestion">
+          <p className="kol-card-suggestion" title={`${headline}${rec.why ? ` · ${rec.why}` : ""}`}>
             {rec.kind === "insufficient" ? <KolFactIcon type="alert" /> : null}
             <span className="kol-card-suggestion-title">{headline}</span>
             {rec.why ? <span className="kol-card-why" data-action-why>· {rec.why}</span> : null}
@@ -334,16 +334,15 @@ export default function FollowedKolWorkCard({
             </KolAction>
           ) : null}
         </KolCardActions>
+        {hasEvidence ? (
+          <KolCardEvidence
+            label="依据"
+            data-action-evidence={card.evidence.kind}
+          >
+            <p>{card.evidence.label}</p>
+          </KolCardEvidence>
+        ) : null}
       </KolCardReview>
-
-      {hasEvidence ? (
-        <KolCardEvidence
-          label="依据"
-          data-action-evidence={card.evidence.kind}
-        >
-          <p>{card.evidence.label}</p>
-        </KolCardEvidence>
-      ) : null}
       {actionNotice ? (
         <p
           className={actionTone === "error" ? "error" : "muted"}

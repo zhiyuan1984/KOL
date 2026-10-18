@@ -686,6 +686,8 @@ test("compact discovery thresholds stay visible above the dock", async ({ page }
       metricPairBox: rect(element.querySelector('[data-skill-param-group="discovery_metrics"]')),
       visiblePlaysBox: rect(field("min_avg_plays_10")),
       countBox: rect(field("expect_count")),
+      platformLabelBox: rect(element.querySelector('[data-skill-param="platforms"] .ai-discovery-label')),
+      firstPlatformChipBox: rect(element.querySelector('[data-skill-param="platforms"] [data-discovery-chip]')),
       cardBox: rect(element),
       dockBox: rect(element.ownerDocument.querySelector('.home-composer-dock')),
     };
@@ -699,6 +701,8 @@ test("compact discovery thresholds stay visible above the dock", async ({ page }
     metricPairBox,
     visiblePlaysBox,
     countBox,
+    platformLabelBox,
+    firstPlatformChipBox,
     cardBox,
     dockBox,
   } = geometry;
@@ -731,6 +735,13 @@ test("compact discovery thresholds stay visible above the dock", async ({ page }
   for (const field of ["platforms", "region", "directions", "keywords"]) {
     await expect(card.locator(`[data-skill-param="${field}"]`)).toHaveCSS("border-bottom-width", "0px");
   }
+  // 标签与首选项同行：平台标签完整落在首个平台 chip 的垂直范围内，
+  // 且 chip 在标签右侧。防止窄中栏再次退化成“标签独占一行”。
+  // 用包含关系而不是固定中心差，触摸模态（chip 44px）也成立。
+  expect(platformLabelBox && firstPlatformChipBox
+    && platformLabelBox.y >= firstPlatformChipBox.y - 1
+    && platformLabelBox.y + platformLabelBox.height <= firstPlatformChipBox.y + firstPlatformChipBox.height + 1
+    && firstPlatformChipBox.x >= platformLabelBox.x + platformLabelBox.width).toBeTruthy();
   // 长表单允许在中栏滚动，但固定 dock 绝不能吞掉当前字段。
   for (const box of [visiblePlaysBox, countBox]) {
     expect(box && dockBox && box.y + box.height <= dockBox.y).toBeTruthy();
