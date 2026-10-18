@@ -49,7 +49,6 @@ export default function DiscoveryCandidateBatch({ rows, actionId, brief, capture
       <label><input type="checkbox" aria-label="全选当前候选" disabled={busy || !eligible.length}
         checked={eligible.length > 0 && selected.length === eligible.length}
         onChange={event => { for (const row of eligible) select(row.id, event.target.checked); }} />全选当前候选</label>
-      <span>已选 {selected.length} 人</span>
       <button type="button" className="link-button" disabled={busy || !selected.length}
         onClick={() => { setConfirmRows(selected); setError(""); }}>加入公海（{selected.length}）</button>
     </div>

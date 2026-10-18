@@ -27,7 +27,7 @@ export default function PoolInteraction({ selected, templates, disabled, templat
       {selected.length ? <p>{selected.slice(0, 3).map((card) => card.identity.display).join("、")}
         {selected.length > 3 ? ` +${selected.length - 3}` : ""}</p> : null}
       {selected.length > 3 || scopeExpanded ? <button className="btn text sm" data-pool-selection-all aria-expanded={scopeExpanded}
-        onClick={onToggleScope}>{scopeExpanded ? "收起范围" : `查看全部 ${selected.length} 位`}</button> : null}
+        onClick={onToggleScope}>{scopeExpanded ? "收起范围" : "查看全部"}</button> : null}
     </div>
     <div className="pool-agent-quick-actions" data-pool-analysis-actions aria-label="公海分析快捷意图">
       {(Object.keys(POOL_ANALYSIS_LABELS) as PoolAnalysisKind[]).map((kind) => <button

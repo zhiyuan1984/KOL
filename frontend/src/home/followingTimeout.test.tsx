@@ -11,7 +11,7 @@ import FollowedInteraction from './FollowedInteraction';
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(() => mocks.load.mockReset());
 it('failed overview has no contradictory still-loading title or final zero count', () => {
-  const html = renderToStaticMarkup(<FollowedInteraction cards={[]} completeness="incomplete-error" stageFilter="" situation="" selectedCount={0}
+  const html = renderToStaticMarkup(<FollowedInteraction cards={[]} completeness="incomplete-error" stageFilter="" situation=""
     onStageFilter={() => {}} onSituation={() => {}} onPrimary={() => {}} publicPoolNewCount={null} onOpenPublicPoolNew={() => {}} />);
   expect(html).toContain('名单核对未完成');
   expect(html).not.toContain('正在核对服务端授权名单');

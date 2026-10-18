@@ -2461,7 +2461,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
         <p>将对已选 {poolAgent.scoreConfirm.scope.length} 位使用 Jev 评分，结果写入 KOL 记忆。</p>
         <p>{poolAgent.scoreConfirm.scope.slice(0, 3).map((card) => card.identity.display).join("、")}
           {poolAgent.scoreConfirm.scope.length > 3 ? <button className="btn text sm" aria-expanded={poolScopeExpanded}
-            onClick={() => setPoolScopeExpanded((current) => !current)}>查看全部 {poolAgent.scoreConfirm.scope.length} 位</button> : null}</p>
+            onClick={() => setPoolScopeExpanded((current) => !current)}>查看全部</button> : null}</p>
         <p>{poolAgent.scoreConfirm.criteriaNote}</p>
         <div className="pool-agent-confirm-actions">
           <button className="btn text sm" data-pool-score-cancel onClick={() => poolAgent.setScoreConfirm(null)}>取消</button>
@@ -2644,7 +2644,6 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
                   completeness={followedWorkspace.completeness}
                   stageFilter={followedWorkspace.stageFilter}
                   situation={followedWorkspace.situation}
-                  selectedCount={selectedKolIds.length}
                   onStageFilter={followedWorkspace.setStageFilter}
                   onSituation={followedWorkspace.setSituation}
                   onPrimary={followedWorkspace.openDetails}

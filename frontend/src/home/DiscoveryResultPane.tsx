@@ -121,7 +121,7 @@ export default function DiscoveryResultPane({ state, brief, region = "all", runS
           ].map((option) => ({ ...option, dataAttributes: { "data-discovery-result-filter": option.id } }))} />
       </div>
       {!startAction ? <div className={"discovery-run-bar" + (selecting ? " is-selecting" : "")} data-discovery-run-bar>
-            <span className="discovery-run-count" data-discovery-selected-count>{`已选 ${selected.length} 人${followUpCount ? ` · 已跟进 ${followUpCount} 人` : ""}`}</span>
+            {followUpCount ? <span className="discovery-run-count" data-discovery-selected-count>{`已跟进 ${followUpCount} 人`}</span> : null}
             <label className="discovery-candidate-select">
               <input
                 type="checkbox"

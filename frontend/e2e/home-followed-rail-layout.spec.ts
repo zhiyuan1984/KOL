@@ -350,15 +350,17 @@ test("有名单但服务端未绑定范围时，筛到 0 条显示筛选空态�
   await openFollowed(page);
   await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
 
-  // 点「查看已表达兴趣的 0 位对象」：筛空就是筛空，不冒充「尚未绑定跟进邮箱」。
-  await page.locator('[data-followed-situation="interested"]').click();
+  // 搜索到 0 条：筛空就是筛空，不冒充「尚未绑定跟进邮箱」；零结果情境档不渲染。
+  await expect(page.locator('[data-followed-situation="interested"]')).toHaveCount(0);
+  const search = page.locator('[data-followed-object-search] input, input[data-followed-object-search]').first();
+  await search.fill("不存在的红人");
   await expect(page.locator('[data-follow-empty="filtered"]')).toBeVisible();
   await expect(page.locator('[data-follow-empty="filtered"] strong')).toHaveText("没有匹配的跟进对象");
   await expect(page.locator('[data-follow-empty="filtered"]')).not.toContainText("尚未绑定跟进邮箱");
   await expect(page.locator("[data-follow-bind]")).toHaveCount(0);
 
-  // 清除情境：名单回来，绑定引导仍不出现。
-  await page.locator("[data-followed-situation-clear]").click();
+  // 清空搜索：名单回来，绑定引导仍不出现。
+  await search.fill("");
   await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
   await expect(page.locator("[data-follow-bind]")).toHaveCount(0);
 });
