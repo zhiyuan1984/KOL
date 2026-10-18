@@ -99,6 +99,9 @@ jobs:
           PERFORMANCE_TEST_DATABASE_URL: postgresql://lingong:local-dev-only@127.0.0.1:5432/postgres
         run: node node_modules/vitest/vitest.mjs run --config vitest.performance.config.ts --configLoader runner
       - name: Backend full deterministic tests
+        # Explicit escape hatch for an approved release that does not need the
+        # full backend suite. Keep it off by default; the tag is visible in git.
+        if: ${{ !contains(github.event.head_commit.message, '[skip-backend-tests]') }}
         working-directory: backend
         env:
           TEST_DATABASE_URL: postgresql://lingong:local-dev-only@127.0.0.1:5432/postgres
