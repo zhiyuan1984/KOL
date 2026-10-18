@@ -100,7 +100,9 @@ function ApplicabilityEditor({definition,dimension,onClose,onSave}:{definition:O
 }
 function CategoryOptions({label,values,value,onChange}:{label:string;values:string[];value:string;onChange:(v:string)=>void}){
  const [expanded,setExpanded]=useState(false);const shown=expanded?values:values.slice(0,3);
- return <div className="onto-filter-line" role="group" aria-label={label}><span>{label}</span>{['全部',...shown].map(v=><button key={v} className="onto-filter-option" aria-pressed={value===v} onClick={()=>{onChange(v);setExpanded(false);}} title={v}>{v}</button>)}{values.length>3&&<button className="onto-text onto-filter-more" aria-expanded={expanded} onClick={()=>setExpanded(v=>!v)}>{expanded?<><span>收起</span><UpOutlined aria-hidden="true"/></>:<><span>更多</span><DownOutlined aria-hidden="true"/></>}</button>}{value!=='全部'&&!shown.includes(value)&&<button className="onto-filter-option" aria-pressed="true" onClick={()=>onChange('全部')} title={value}>{value}</button>}</div>;
+ const hiddenSelected=value!=='全部'&&!shown.includes(value);const options=['全部',...shown,...(hiddenSelected?[value]:[])];
+ const option=(v:string)=><button key={v} className="onto-filter-option" aria-pressed={value===v} onClick={()=>{onChange(hiddenSelected&&v===value?'全部':v);setExpanded(false);}} title={v}>{v}</button>;
+ return <div className="onto-filter-line" role="group" aria-label={label}><span>{label}</span>{(values.length>3?options.slice(0,-1):options).map(option)}{values.length>3&&<div className="onto-filter-tail">{option(options[options.length-1])}<button className="onto-text onto-filter-more" aria-expanded={expanded} onClick={()=>setExpanded(v=>!v)}>{expanded?<><span>收起</span><UpOutlined aria-hidden="true"/></>:<><span>更多</span><DownOutlined aria-hidden="true"/></>}</button></div>}</div>;
 }
 function ObjectGlyph(){return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l9 5v10l-9 5-9-5V7z M3 7l9 5 9-5 M12 12v10"/></svg>;}
 const dimensionColumns:Record<OntologyDimension,string[]>={properties:['数据类型','必填'],relations:['目标业务对象','关系基数'],events:['事件类型','触发条件'],rules:['条款依据','优先级'],actions:['风险级别','执行方式']};

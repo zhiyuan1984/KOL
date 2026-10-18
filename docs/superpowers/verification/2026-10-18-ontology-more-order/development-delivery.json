@@ -1,0 +1,98 @@
+{
+  "schema_version": "1.0.0",
+  "kind": "development-delivery-record",
+  "task_contract": {
+    "file": "task-contract.json",
+    "sha256": "fa36d36ef833c733dc6eb398de1468ffad5cc3e129d7991f4ed5f50d163a5bdc"
+  },
+  "artifacts": [
+    {
+      "id": "state-and-action-map",
+      "status": "complete",
+      "file": "state-and-action-map.json",
+      "sha256": "5ad23368c0f422cf02e15f6e49ee4a9196ac3f8041d032e6dd5c75323337c9ec"
+    },
+    {
+      "id": "layout-contract",
+      "status": "complete",
+      "file": "layout-contract.json",
+      "sha256": "80fffe25315e55a856b10820f5fc61c52ae4591dfdaeefbb98a1fdbaa784d9e0"
+    },
+    {
+      "id": "component-selection",
+      "status": "complete",
+      "file": "component-selection.json",
+      "sha256": "4f235f491fa48512cba0c0f9a42fb83fd941500528e09c2bcc3f4fa88340e372"
+    },
+    {
+      "id": "browser-and-source-evidence",
+      "status": "complete",
+      "file": "browser-and-source-evidence.json",
+      "sha256": "02d3c5de26b4220a884595cc14952c6ee6bf576cac0f18216b722b9557948c35"
+    }
+  ],
+  "checks": [
+    {
+      "id": "route-contract-schema",
+      "type": "machine",
+      "status": "passed",
+      "command": "playwright three targeted ontology tests; npm run build",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "page-results.json",
+          "sha256": "f5b80270f566ad74a205abc6ec9c85b6c2d2de650df30348aa9d0ed665ae7e73",
+          "kind": "test-report"
+        },
+        {
+          "file": "build-results.json",
+          "sha256": "097947cec53b99aaffbf8732c4e9d6b9f44b570fc708a47e48525cd9f669b470",
+          "kind": "test-report"
+        }
+      ]
+    },
+    {
+      "id": "frontend-experience-test",
+      "type": "machine",
+      "status": "passed",
+      "command": "playwright three targeted ontology tests; npm run build",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "page-results.json",
+          "sha256": "f5b80270f566ad74a205abc6ec9c85b6c2d2de650df30348aa9d0ed665ae7e73",
+          "kind": "test-report"
+        },
+        {
+          "file": "build-results.json",
+          "sha256": "097947cec53b99aaffbf8732c4e9d6b9f44b570fc708a47e48525cd9f669b470",
+          "kind": "test-report"
+        }
+      ]
+    },
+    {
+      "id": "frontend-browser-review",
+      "type": "human-browser",
+      "status": "passed",
+      "reviewer": "Codex UI/UX agent (not human research)",
+      "reviewed_at": "2026-10-18T11:12:31.625286+00:00",
+      "evidence": [
+        {
+          "file": "more-order.png",
+          "sha256": "d01bccb6fd164acbeb06dc37e8c4d1f600e2116b32892b14fc4ce11a0bc51e95",
+          "kind": "screenshot"
+        },
+        {
+          "file": "browser-review.json",
+          "sha256": "6d4ec198466d8a500f1fb55a44f91275519996092ee1b38ad2a318b03a1d7046",
+          "kind": "browser-record"
+        },
+        {
+          "file": "source-compare.json",
+          "sha256": "ae382dcf0e5942a3e28731937778e34d81f1f38b0f0ac1e4c0d6efce9c5324f4",
+          "kind": "source-compare"
+        }
+      ]
+    }
+  ]
+}

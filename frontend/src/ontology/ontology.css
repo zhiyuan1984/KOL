@@ -211,3 +211,8 @@ tr.selected .onto-row-arrow{opacity:1;color:var(--onto-blue)}
 @media(max-width:650px){.onto-catalog h1{font-size:var(--ds-font-sm)}}
 @media(max-height:600px) and (min-width:1001px){.onto-filters{gap:0;padding-block:0 2px}}
 @media(pointer:coarse){.ontology-workspace .onto-filter-option,.ontology-workspace .onto-filter-more{min-height:40px;height:40px}.ontology-workspace .onto-object-link{min-height:40px}.onto-object-table td{height:44px}}
+
+/* Keep expansion controls with the final visible classification option. */
+.onto-filter-tail{display:inline-flex;align-items:center;gap:2px;min-width:0;max-width:100%}
+.onto-filter-tail>.onto-filter-option{min-width:0}
+.onto-filter-tail>.onto-filter-more{flex-shrink:0}

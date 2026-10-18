@@ -1,0 +1,31 @@
+{
+  "status": "passed",
+  "task_id": "ontology-more-order-20261018",
+  "errors": [],
+  "warnings": [],
+  "machine_verification": {
+    "status": "passed",
+    "checks": [
+      {
+        "id": "route-contract-schema",
+        "status": "passed"
+      },
+      {
+        "id": "frontend-experience-test",
+        "status": "passed"
+      }
+    ]
+  },
+  "human_browser_review": {
+    "status": "records-present-not-automatically-judged",
+    "checks": [
+      {
+        "id": "frontend-browser-review",
+        "status": "passed",
+        "reviewer": "Codex UI/UX agent (not human research)",
+        "review_record": "2026-10-18T11:12:31.625286+00:00"
+      }
+    ],
+    "note": "This CLI validates supplied names, hashes, and evidence categories only. It does not claim that an expert reviewed UX or that browser/source fidelity is acceptable."
+  }
+}

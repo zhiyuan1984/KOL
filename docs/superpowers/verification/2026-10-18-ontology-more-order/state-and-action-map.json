@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "kind": "state-and-action-map",
+  "status": "complete",
+  "summary": "分类更多收起顺序及共同换行纠正",
+  "status_claims": [],
+  "owner": "ui-ux/frontend/test-manager",
+  "requirement_refs": [
+    "CONST-04",
+    "CONST-08",
+    "CONST-10",
+    "TECH-FE-01",
+    "TECH-TEST-01"
+  ],
+  "subject": {
+    "task_id": "ontology-more-order-20261018",
+    "base": "cdbc367122ee550539eafac8b589eae0547106b3"
+  },
+  "task_id": "ontology-more-order-20261018",
+  "decisions": {
+    "order": "Ordinary options, hidden selected option if any, More/Collapse; no duplicate selected item",
+    "actions": "Existing selection, collapse and expansion semantics preserved"
+  },
+  "verification": {
+    "evidence": [
+      "page-results.json",
+      "source-compare.json",
+      "browser-review.json"
+    ]
+  }
+}
