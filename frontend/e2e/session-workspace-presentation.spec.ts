@@ -198,7 +198,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 589
     if (viewport.width > 1100) { expect(geometry.rail.width).toBeGreaterThanOrEqual(360); expect(geometry.rail.left).toBeGreaterThanOrEqual(geometry.center.right); }
     else expect(geometry.rail.top).toBeGreaterThanOrEqual(geometry.center.bottom);
     await page.locator("[data-workbench-toggle]").click();
-    await page.locator("[data-session-stream-pane]").getByRole("button", { name: "查看成果" }).click();
+    await page.locator("[data-workbench-toggle]").click();
     await expect(page.locator("[data-round-results]")).toBeVisible();
     await expect(page.locator("[data-workbench-toggle]")).toHaveAttribute("aria-expanded", "true");
     expect(state.writes).toEqual([]);

@@ -2,6 +2,7 @@ import { postgresConnection } from "../postgres/pool.js";
 import type { PoolClient } from "pg";
 import type { Operation } from "../runtime/operations.js";
 import { traceEventPayload } from "../worker/trace-events.js";
+import { taskRunOutcome, outcomeError } from "../tasks/run-outcome.js";
 import { starryKolMcpConfigured } from "../starrykol/connection.js";
 /**
  * Host = Dify「应用后端」。
@@ -736,7 +737,7 @@ async function messages(sid: string): Promise<Json[]> {
   return rows.map((r) => ({ ...r, payload: JSON.parse(String(r.payload)) }));
 }
 
-type BoundTask = { workItemId: string; runId: string; taskType: string; agentId?: string };
+type BoundTask = { workItemId: string; runId: string; taskType: string; agentId?: string; workbenchContext?: Json };
 
 /**
  * Validation only: the run may queue, but nothing has started yet. The state
@@ -763,7 +764,7 @@ async function resolveBoundTask(sid: string, body: Json): Promise<BoundTask | nu
     ? (await postgresConnection().query("SELECT * FROM task_runs WHERE id=$1 AND work_item_id=$2 AND session_id=$3", [body.run_id, item.id, sid])).rows[0]
     : (await postgresConnection().query("SELECT * FROM task_runs WHERE work_item_id=$1 AND session_id=$2 AND status='pending' ORDER BY created_at DESC LIMIT 1", [item.id, sid])).rows[0]) as Row | undefined;
   if (!run) throw new HttpFail(409, "pending task run not found");
-  if (!["pending", "failed"].includes(String(run.status))) throw new HttpFail(409, `task run is ${run.status}`);
+  if (!["pending"].includes(String(run.status))) throw new HttpFail(409, `task run is ${run.status}`);
   const runInput = JSON.parse(String(run.input || "{}")) as Json;
   const storedTemplate = runInput._skill_template;
   if (isSkillTemplateSnapshot(storedTemplate, taskType)
@@ -777,6 +778,7 @@ async function resolveBoundTask(sid: string, body: Json): Promise<BoundTask | nu
     throw new HttpFail(409, detail);
   }
   return { workItemId: String(item.id), runId: String(run.id), taskType,
+    workbenchContext: runInput.workbench_context as Json | undefined,
     ...(runInput.agent_id ? { agentId: String(runInput.agent_id) } : {}) };
 }
 
@@ -795,8 +797,9 @@ async function startBoundTask(bound: BoundTask | null): Promise<boolean> {
   if (!bound) return false;
   const now = nowIso();
   const changed = (await postgresTransaction(async (db) => {
-    const run = (await db.query("UPDATE task_runs SET status='running',started_at=COALESCE(started_at,$1),error=NULL WHERE id=$2 AND work_item_id=$3 AND status IN ('pending','queued','failed')", [now, bound.runId, bound.workItemId]));
-    (await db.query("UPDATE tickets SET status='running',started_at=COALESCE(started_at,$1),updated_at=$2,data_version=data_version+1 WHERE id=$3", [now, now, bound.workItemId]));
+    const run = (await db.query("UPDATE task_runs SET status='running',started_at=COALESCE(started_at,$1),completed_at=NULL,error=NULL WHERE id=$2 AND work_item_id=$3 AND status IN ('pending','queued')", [now, bound.runId, bound.workItemId]));
+    if (!run.rowCount) return false;
+    (await db.query("UPDATE tickets SET status='running',started_at=COALESCE(started_at,$1),completed_at=NULL,updated_at=$2,data_version=data_version+1 WHERE id=$3 AND (SELECT id FROM task_runs WHERE work_item_id=$3 ORDER BY created_at DESC,id DESC LIMIT 1)=$4", [now, now, bound.workItemId, bound.runId]));
     return Number(run.rowCount) > 0;
   }));
   if (!changed) return false;
@@ -810,8 +813,9 @@ async function queueBoundTask(bound: BoundTask | null): Promise<void> {
   if (!bound) return;
   const now = nowIso();
   const changed = (await postgresTransaction(async (db) => {
-    const run = (await db.query("UPDATE task_runs SET status='queued',error=NULL WHERE id=$1 AND work_item_id=$2 AND status IN ('pending','failed')", [bound.runId, bound.workItemId]));
-    (await db.query("UPDATE tickets SET status='queued',updated_at=$1,data_version=data_version+1 WHERE id=$2 AND status NOT IN ('completed','cancelled','stopped')", [now, bound.workItemId]));
+    const run = (await db.query("UPDATE task_runs SET status='queued',error=NULL WHERE id=$1 AND work_item_id=$2 AND status IN ('pending')", [bound.runId, bound.workItemId]));
+    if (!run.rowCount) return false;
+    (await db.query("UPDATE tickets SET status='queued',completed_at=NULL,updated_at=$1,data_version=data_version+1 WHERE id=$2 AND status NOT IN ('completed','cancelled','stopped') AND (SELECT id FROM task_runs WHERE work_item_id=$2 ORDER BY created_at DESC,id DESC LIMIT 1)=$3", [now, bound.workItemId, bound.runId]));
     return Number(run.rowCount) > 0;
   }));
   if (!changed) return;
@@ -843,7 +847,8 @@ async function failBoundTask(bound: BoundTask | null, error: unknown): Promise<v
   const now = nowIso();
   const changed = (await postgresTransaction(async (db) => {
     const run = (await db.query("UPDATE task_runs SET status='failed',error=$1,completed_at=$2 WHERE id=$3 AND work_item_id=$4 AND status IN ('pending','queued','running')", [JSON.stringify({ code: needsInput ? "needs_clarification" : "not_started", message }), now, bound.runId, bound.workItemId]));
-    (await db.query("UPDATE tickets SET status=$1,updated_at=$2,data_version=data_version+1 WHERE id=$3 AND status NOT IN ('completed','cancelled','stopped')", [status, now, bound.workItemId]));
+    if (!run.rowCount) return false;
+    (await db.query("UPDATE tickets SET status=$1,updated_at=$2,data_version=data_version+1 WHERE id=$3 AND status NOT IN ('completed','cancelled','stopped') AND (SELECT id FROM task_runs WHERE work_item_id=$3 ORDER BY created_at DESC,id DESC LIMIT 1)=$4", [status, now, bound.workItemId, bound.runId]));
     return Number(run.rowCount) > 0;
   }));
   if (!changed) return;
@@ -865,7 +870,8 @@ async function cancelBoundTask(bound: BoundTask | null, summary: string): Promis
   const now = nowIso();
   const changed = (await postgresTransaction(async (db) => {
     const run = (await db.query("UPDATE task_runs SET status='cancelled',error=NULL,completed_at=$1 WHERE id=$2 AND work_item_id=$3 AND status IN ('pending','queued','running')", [now, bound.runId, bound.workItemId]));
-    (await db.query("UPDATE tickets SET status='waiting',completed_at=NULL,updated_at=$1,data_version=data_version+1 WHERE id=$2 AND status NOT IN ('completed','cancelled')", [now, bound.workItemId]));
+    if (!run.rowCount) return false;
+    (await db.query("UPDATE tickets SET status='cancelled',completed_at=$1,updated_at=$1,data_version=data_version+1 WHERE id=$2 AND status NOT IN ('completed','cancelled') AND (SELECT id FROM task_runs WHERE work_item_id=$2 ORDER BY created_at DESC,id DESC LIMIT 1)=$3", [now, bound.workItemId, bound.runId]));
     return Number(run.rowCount) > 0;
   }));
   if (!changed) return;
@@ -879,7 +885,8 @@ async function stoppedBoundTask(bound: BoundTask | null): Promise<void> {
   const now = nowIso();
   const changed = (await postgresTransaction(async (db) => {
     const run = (await db.query("UPDATE task_runs SET status='cancelled',error=$1,completed_at=$2 WHERE id=$3 AND work_item_id=$4 AND status='running'", [JSON.stringify({ code: "worker_stopped", message: "已停止生成" }), now, bound.runId, bound.workItemId]));
-    (await db.query("UPDATE tickets SET status='waiting',completed_at=NULL,updated_at=$1,data_version=data_version+1 WHERE id=$2 AND status IN ('running','in_progress','starting')", [now, bound.workItemId]));
+    if (!run.rowCount) return false;
+    (await db.query("UPDATE tickets SET status='stopped',completed_at=$1,updated_at=$1,data_version=data_version+1 WHERE id=$2 AND status IN ('running','in_progress','starting') AND (SELECT id FROM task_runs WHERE work_item_id=$2 ORDER BY created_at DESC,id DESC LIMIT 1)=$3", [now, bound.workItemId, bound.runId]));
     return Number(run.rowCount) > 0;
   }));
   if (!changed) return;
@@ -910,32 +917,54 @@ async function finishBoundTask(bound: BoundTask | null, sid: string, result?: Js
       error = error || { code: "illegal_kol_analyze_verb", illegal_verbs: illegal, applied: false };
     }
   }
-  const runStatus = failed ? "failed" : "completed";
-  const taskStatus = failed ? (needsClarification ? "needs_clarification" : "failed") : "waiting";
+  let runStatus = failed ? "failed" : "completed";
+  let taskStatus = failed ? (needsClarification ? "needs_clarification" : "failed") : "completed";
   const now = nowIso();
   const worker = result?.worker && typeof result.worker === "object" ? result.worker as Json : {};
+  let settled = false;
   try {
-    (await postgresTransaction(async (db) => {
-      (await db.query("UPDATE task_runs SET status=$1,worker_id=$2,thread_id=$3,turn_id=$4,error=$5,completed_at=$6 WHERE id=$7 AND work_item_id=$8", [runStatus, worker.id || null, worker.thread_id || null, worker.turn_id || null, failed ? JSON.stringify(result?.error || { message: error instanceof Error ? error.message : String(error) }) : null, now, bound.runId, bound.workItemId]));
-      (await db.query("UPDATE tickets SET status=$1,completed_at=NULL,updated_at=$2,data_version=data_version+1 WHERE id=$3", [taskStatus, now, bound.workItemId]));
-      const run = (await db.query("SELECT created_at FROM task_runs WHERE id=$1", [bound.runId])).rows[0] as
-        | { created_at: string }
-        | undefined;
-      if (!run) return;
+    await postgresTransaction(async (db) => {
+      // Serialize with new submissions and lifecycle commands. Late/duplicate
+      // completions cannot resurrect a stopped run or overwrite a newer run.
+      const ticket = (await db.query("SELECT id,status FROM tickets WHERE id=$1 FOR UPDATE", [bound.workItemId])).rows[0];
+      if (!ticket) return;
+      const run = (await db.query("SELECT id,status,created_at FROM task_runs WHERE id=$1 AND work_item_id=$2 FOR UPDATE", [bound.runId, bound.workItemId])).rows[0];
+      if (!run || !["pending", "queued", "running"].includes(String(run.status))) return;
       const rows = (await db.query(`SELECT id,kind,payload FROM messages
           WHERE session_id=$1 AND created_at>=$2
-            AND kind IN ('task_result_card','email_card','confirm_stage_card','inbound_card','error_card')
-          ORDER BY created_at,id`, [sid, run.created_at])).rows as Row[];
+            AND kind IN ('task_result_card','email_card','confirm_stage_card','inbound_card','error_card','crawl_plan')
+            AND (payload::jsonb->>'run_id' IS NULL OR payload::jsonb->>'run_id'=$3)
+          ORDER BY created_at,id`, [sid, run.created_at, bound.runId])).rows as Row[];
+      const actions = worker.id ? (await db.query(`SELECT CASE WHEN c.state='succeeded' AND c.result_state='failed' THEN 'failed' WHEN c.state='succeeded' AND COALESCE(c.result_state,'pending')<>'ready' THEN 'running' ELSE COALESCE(c.state,a.state) END AS state
+          FROM runtime_actions a LEFT JOIN runtime_crawl_jobs c ON c.id=a.id
+          WHERE a.session_id=$1 AND a.context_json->>'runId'=$2`, [sid, String(worker.id)])).rows : [];
+      const outcome = taskRunOutcome({ failed, needsInput: needsClarification,
+        workerStatus: String(worker.status || ""), artifactKinds: rows.map(row => String(row.kind)),
+        actionStates: actions.map(action => String(action.state)) });
+      taskStatus = outcome.status;
+      failed = taskStatus === "failed" || taskStatus === "needs_clarification";
+      runStatus = failed ? "failed" : "completed";
+      if (outcome.reason && !error && !result?.error) error = outcomeError(outcome.reason);
+      // Output, run receipt and automatic task terminal state commit together.
       for (const message of rows) {
-        (await db.query(`INSERT INTO task_artifacts
+        await db.query(`INSERT INTO task_artifacts
            (id,work_item_id,run_id,artifact_type,message_id,version,payload,created_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [nid("art"), bound.workItemId, bound.runId, message.kind, message.id, 1, message.payload || "{}", now]));
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [nid("art"), bound.workItemId, bound.runId, message.kind, message.id, 1, message.payload || "{}", now]);
       }
-    }));
+      await db.query("UPDATE task_runs SET status=$1,worker_id=$2,thread_id=$3,turn_id=$4,error=$5,completed_at=$6 WHERE id=$7 AND work_item_id=$8", [runStatus, worker.id || null, worker.thread_id || null, worker.turn_id || null,
+        outcome.reason ? JSON.stringify(result?.error || error || outcomeError(outcome.reason)) : null, now, bound.runId, bound.workItemId]);
+      const latest = (await db.query("SELECT id FROM task_runs WHERE work_item_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1", [bound.workItemId])).rows[0];
+      if (latest?.id === bound.runId && !["cancelled", "stopped"].includes(String(ticket.status))) {
+        const terminal = ["completed", "failed", "cancelled"].includes(taskStatus);
+        await db.query("UPDATE tickets SET status=$1,completed_at=$2,updated_at=$3,data_version=data_version+1 WHERE id=$4", [taskStatus, terminal ? now : null, now, bound.workItemId]);
+      }
+      settled = true;
+    });
   } catch (error) {
     if (isPostgresForeignKeyError(error) || isPostgresClosedError(error)) return;
     throw error;
   }
+  if (!settled) return;
   const failureReason = failed
     ? employeeFailReason(result?.error || error).replace(/[。．.!！?？；;]+$/u, "")
     : "";
@@ -943,15 +972,15 @@ async function finishBoundTask(bound: BoundTask | null, sid: string, result?: Js
     bound.workItemId,
     bound.runId,
     `run.${runStatus}`,
-    failed ? (needsClarification ? "还需要补充信息" : "执行失败") : "结果已生成",
-    failed && needsClarification ? "needs_clarification" : runStatus,
+    failed ? (needsClarification ? "还需要补充信息" : "执行失败") : taskStatus === "completed" ? "任务已完成" : taskStatus === "waiting_approval" ? "等待操作确认" : "等待业务回执",
+    taskStatus,
     failed
       ? needsClarification
         ? `${failureReason || "还需要补充信息"}。未启动处理；补齐后可重新执行。`
         : `未生成结果：${failureReason || "执行未完成"}。可重新执行。`
-      : (await taskDefinition(bound.taskType))?.side_effects === "none"
-        ? "本轮只读查询已结束。结果已生成，可查看资料来源；正式任务仍可验收。"
-        : "本轮结果已生成，任务待验收；正式操作仍需单独确认。",
+      : taskStatus === "completed" && (await taskDefinition(bound.taskType))?.side_effects === "none"
+        ? "本轮只读查询已结束，成果已保存，任务自动完成。"
+        : taskStatus === "completed" ? "必要成果已保存，任务自动完成；后续正式操作按原规则单独确认。" : "任务尚未完成，正在等待确认或真实业务回执。",
   ));
   (await audit(scopedUser()?.id || "demo", `task.run.${runStatus}`, {
     work_item_id: bound.workItemId,
@@ -960,7 +989,7 @@ async function finishBoundTask(bound: BoundTask | null, sid: string, result?: Js
   const definition = (await taskDefinition(bound.taskType));
   const memoryPolicy = definition?.memory_policy;
   if (
-    runStatus === "completed"
+    taskStatus === "completed"
     && bound.taskType !== "creator_discovery"
     && definition?.result_schema
     && memoryPolicy?.kind === "skill_result"
@@ -1214,10 +1243,12 @@ async function runInBackground(sid: string, me: Json, intent: Intent, col: Row |
   try {
     progress = (await addMsg(sid, "assistant", "job_status", {
       status: "running",
+      run_id: bound?.runId,
       text: "正在准备任务…",
     }));
     trace = (await addMsg(sid, "assistant", "process_trace", {
-      title: "处理过程",
+      title: "执行记录",
+      run_id: bound?.runId,
       items: [{ id: "host:preparing", label: "正在核对任务条件", status: "running", kind: "host", observed_at: nowIso() }],
     }));
     operations = (await addMsg(sid, "assistant", "operation_trace", {
@@ -1251,7 +1282,8 @@ async function runInBackground(sid: string, me: Json, intent: Intent, col: Row |
     if (!force && streaming && now - traceFlushAt < 80) return;
     traceFlushAt = now;
     (await updateMsg(traceId, {
-      title: "处理过程",
+      title: "执行记录",
+      run_id: bound?.runId,
       items: processItems,
       summaries: reasoningSummariesOf(processItems),
     }));
@@ -1259,6 +1291,7 @@ async function runInBackground(sid: string, me: Json, intent: Intent, col: Row |
   const publishOperations = async (active: boolean) => {
     (await updateMsg(operationId, {
       title: REMOTE_MCP_TITLE,
+      run_id: bound?.runId,
       persistent: true,
       active,
       items: operationItems,
@@ -2092,7 +2125,7 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
         : null;
       if (lockedTemplate?.template_id) item.template_id = lockedTemplate.template_id;
       draftRow = (await persistDraft(sid, item));
-      (await addMsg(sid, "assistant", "email_card", (await emailCardPayload(draftRow))));
+      (await addMsg(sid, "assistant", "email_card", { ...(await emailCardPayload(draftRow)), run_id: intent.extras?.task_run_id }));
     } else if (item.type === "create_approval") {
       continue;
     } else if (item.type === "list_overdue") {
@@ -2226,7 +2259,7 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
         snapshot: snap,
         thread_id: wr.thread_id || null,
       });
-      (await addMsg(sid, "assistant", "task_result_card", card));
+      (await addMsg(sid, "assistant", "task_result_card", { ...card, run_id: intent.extras?.task_run_id }));
       if (composePayload?.sent && col) {
         void rememberOutboundAndRefreshDigest({
           collaborationId: String(col.id),
@@ -4069,6 +4102,7 @@ host.post("/sessions/:sid/messages", async (c) => {
       ...(intent.extras?.entities && typeof intent.extras.entities === "object" ? intent.extras.entities as Json : {}),
       ...(body.entities && typeof body.entities === "object" ? body.entities as Json : {}),
     },
+    ...(boundTask?.workbenchContext ? { workbench_context: boundTask.workbenchContext } : {}),
     ...(boundTask
       ? { work_item_id: boundTask.workItemId, task_run_id: boundTask.runId }
       : {}),

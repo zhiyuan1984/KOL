@@ -16077,9 +16077,10 @@ button.task-operation-status.is-active { background: var(--btn-text-hover-bg); b
 /* Agent session visual baseline: 2e909ebe^ (6c71dca9), DESIGN §27.1. */
 :root {
   --agent-font: var(--ds-font-sm);
-  --agent-answer-line: var(--ds-line-ui);
+  --agent-answer-line: var(--ds-line-sm);
   --agent-compact-line: var(--ds-line-sm);
-  --agent-event-gap: var(--space-4);
+  --agent-event-gap: var(--space-1);
+  --agent-paragraph-gap: 2px;
   --agent-block-gap: var(--space-1);
   --agent-read-pad-y: var(--space-2);
   --agent-pad-x: var(--space-3);

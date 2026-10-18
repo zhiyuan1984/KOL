@@ -4,6 +4,7 @@ import { postgresPool, postgresTransaction } from "../postgres/pool.js";
 import { HttpFail } from "../host/errors.js";
 import type { Json } from "../types.js";
 import type { RuntimeContext } from "./execution.js";
+import { syncRuntimeTaskState } from "../tasks/runtime-task-state.js";
 
 export type RuntimeAction = {
   id: string; actor_id: string; session_id: string | null; context_json: RuntimeContext;
@@ -115,12 +116,14 @@ export async function waitForRuntimeActionTerminal(id: string, actor: string, ti
 /** A locally verified pre-claim rejection must not overwrite another executor's claim. */
 export async function rejectPendingRuntimeAction(id: string, actor: string, snapshot: string, code: string): Promise<boolean> {
   const result = await postgresConnection().query(`UPDATE runtime_actions SET state='rejected',error_code=$4,updated_at=now()
-    WHERE id=$1 AND actor_id=$2 AND snapshot=$3 AND state='pending' RETURNING id`, [id, actor, snapshot, code]);
+    WHERE id=$1 AND actor_id=$2 AND snapshot=$3 AND state='pending' RETURNING context_json`, [id, actor, snapshot, code]);
+  if (result.rowCount) await syncRuntimeTaskState(String(result.rows[0].context_json?.runId || ""));
   return result.rowCount === 1;
 }
 
 export async function finishRuntimeAction(id: string, state: "succeeded" | "rejected" | "uncertain", receipt: Json | null, code?: string): Promise<boolean> {
   const result = await postgresConnection().query(`UPDATE runtime_actions SET state=$2,receipt_json=$3,error_code=$4,updated_at=now()
-    WHERE id=$1 AND state='dispatching'`, [id, state, receipt ? JSON.stringify(receipt) : null, code || null]);
+    WHERE id=$1 AND state='dispatching' RETURNING context_json`, [id, state, receipt ? JSON.stringify(receipt) : null, code || null]);
+  if (result.rowCount) await syncRuntimeTaskState(String(result.rows[0].context_json?.runId || ""));
   return result.rowCount === 1;
 }

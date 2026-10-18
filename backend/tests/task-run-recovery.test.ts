@@ -106,7 +106,7 @@ describe("task run lifecycle honesty", () => {
     expect(String(queuedEvent?.safe_summary || "")).toContain("轮到时自动开始");
   });
 
-  it("keeps the bound ticket awaiting action when its queued run is removed", async () => {
+  it("cancels the bound ticket when its queued run is removed", async () => {
     const { taskId, sessionId, runId, pending } = await createAndQueueTask();
     (await markSessionRunning(sessionId));
     await request("POST", `/api/sessions/${sessionId}/messages`, pending);
@@ -114,7 +114,7 @@ describe("task run lifecycle honesty", () => {
     expect(qid).toBeTruthy();
     const removed = await request("DELETE", `/api/sessions/${sessionId}/queue/${qid}`);
     expect(removed.status, removed.text).toBe(200);
-    expect((await workItemStatus(taskId))).toBe("waiting");
+    expect((await workItemStatus(taskId))).toBe("cancelled");
     expect((await runRow(runId)).status).toBe("cancelled");
     const last = lastEvent((await taskEvents(taskId)));
     expect(last?.event_type).toBe("run.cancelled");

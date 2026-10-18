@@ -42,7 +42,8 @@ test("task session keeps one header and exposes result/status views", async ({ p
 
   // One header: one return link, one title, completion in the header.
   await expect(page.locator("[data-session-back-link]")).toHaveCount(1);
-  await expect(page.locator(".session-workspace-header [data-complete-task]")).toBeVisible();
+  await expect(page.locator("[data-complete-task]")).toHaveCount(0);
+  await expect(page.locator("[data-session-terminal-status]")).toHaveText("已完成");
   await expect(page.locator("[data-session-stream-pane] h1")).toHaveCount(0);
   await expect(page.locator("[data-task-context]")).not.toHaveAttribute("open", "");
   await page.locator("[data-task-context] > summary").click();
@@ -58,8 +59,9 @@ test("task session keeps one header and exposes result/status views", async ({ p
   await expect(page.locator("[data-round-results] [data-result-message='result-2']")).toContainText("匹配 236 位");
   await expect(page.locator("[data-kind='task-result-pointer']")).toHaveCount(1);
   await expect(page.locator("[data-kind='result-pointer-history']")).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "查看成果" })).toHaveCount(1);
-  await expect(page.locator("[data-rail-result-history]")).toContainText("历史结果（1）");
+  await expect(page.getByRole("button", { name: "查看成果" })).toHaveCount(0);
+  await page.locator("[data-rail-tab='status']").click();
+  await expect(page.locator("[data-rail-result-history]")).toContainText("历史与阶段输出");
   await page.locator("[data-rail-result-history] summary").click();
   await page.locator("[data-rail-result-history] button").first().click();
   await expect(page.locator("[data-round-results] [data-result-message='result-1']")).toContainText("第 1 页");
@@ -67,7 +69,7 @@ test("task session keeps one header and exposes result/status views", async ({ p
   // Status view keeps the process readable and does not repeat engine jargon.
   await page.locator("[data-rail-tab='status']").click();
   await expect(page.locator("[data-rail-panel='status']")).toBeVisible();
-  await expect(page.locator("[data-rail-panel='status']")).toContainText("正在准备这项工作");
+  await expect(page.locator("[data-rail-panel='status']")).toContainText("读取授权范围内的达人档案");
   await expect(page.locator("[data-rail-panel='status']")).not.toContainText("Preparing skill execution");
   await expect(page.locator("[data-round-results]")).toBeHidden();
 
