@@ -19,7 +19,8 @@ export type OntologyDocument = {
   status: 'registered' | 'published' | 'disabled' | 'draft'; updatedAt: string | null;
 };
 export type OntologyContext = { companyId: string; companies: { id: string; name: string }[]; admin: boolean };
-export type OntologyCatalog = { context: OntologyContext; sourceVersion: string; objects: OntologyDocument[] };
+export type OntologyTaxonomy = {nodes:{id:string;parentId:string|null;level:number;name:string;scope?:string;detailStatus?:string}[];placements:{objectCode:string;path:[string,string,string];primary:boolean}[];missing:{family:string;detail:string}[]};
+export type OntologyCatalog = { context: OntologyContext; sourceVersion: string; objects: OntologyDocument[]; taxonomy?:OntologyTaxonomy };
 export type OntologyVersion = { id: string; code: string; revision: number; action: string; actor: string; reason: string; createdAt: string; definition: OntologyDefinition | null };
 export type OntologyReceipt = { id: string; code: string; revision: number; action: string; createdAt: string };
 export type OntologyConfirmation = { token: string; code: string; revision: number; action: string; expiresAt: string; previous: OntologyDefinition | null; next: OntologyDefinition | null };

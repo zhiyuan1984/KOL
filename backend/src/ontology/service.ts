@@ -1,3 +1,4 @@
+import { enterpriseTaxonomy, enterpriseSource, enterpriseHash } from './enterprise.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { PoolClient, QueryResultRow } from 'pg';
 import type { OntologyCatalog, OntologyConfirmation, OntologyContext, OntologyDefinition, OntologyDocument, OntologyReceipt, OntologyVersion } from '../../../shared/ontology.js';
@@ -32,18 +33,33 @@ export class OntologyService {
   async catalog(admin=false):Promise<OntologyCatalog>{
     const context=await this.context(postgresPool(),admin);
     const baseline=loadOntologyCatalog();
+    const stored=(await postgresPool().query<{definition:OntologyDefinition}>('SELECT definition FROM ontology_catalog_objects WHERE source_version=$1',[enterpriseHash()])).rows;
+    const bases=stored.length?stored.map(r=>r.definition):baseline.objects;
+    const enterpriseCodes=new Set(enterpriseSource().objects.map(o=>o.code));
     const rows=(await postgresPool().query<DocumentRow>('SELECT * FROM ontology_documents WHERE company_id=$1',[context.companyId])).rows;
-    const codes=[...new Set([...baseline.objects.map(o=>o.code),...rows.map(r=>r.code)])];
+    const codes=[...new Set([...bases.map(o=>o.code),...rows.map(r=>r.code)])];
     const objects:OntologyDocument[]=[];
     for(const code of codes){
-      const base=baseline.objects.find(o=>o.code===code)||null;
+      const base=bases.find(o=>o.code===code)||null;
       const row=rows.find(r=>r.code===code);
       const published=row?.disabled&&!admin?null:row?.published||base;
-      if(!admin&&(!published||published.layer!=='kol_business'))continue;
+      if(!admin&&(!published||published.layer!=='kol_business'&&!enterpriseCodes.has(code)))continue;
       objects.push({code,revision:row?.revision||0,draft:admin?row?.draft||null:null,
         published:admin?published:employeeDefinition(published!),status:row?.disabled?'disabled':row?.published?'published':published?'registered':'draft',updatedAt:row?.updated_at||null});
     }
-    return {context,sourceVersion:baseline.sourceVersion,objects};
+    const taxonomy=enterpriseTaxonomy(bases);
+    if(stored.length){
+      taxonomy.nodes=(await postgresPool().query<{metadata:typeof taxonomy.nodes[number]}>('SELECT metadata FROM ontology_catalog_nodes WHERE source_version=$1 ORDER BY level,id',[enterpriseHash()])).rows.map(r=>r.metadata);
+      taxonomy.placements=(await postgresPool().query<{objectCode:string;path:[string,string,string];primary:boolean}>(`SELECT p.object_code AS "objectCode", ARRAY[f.name,d.name,t.name] AS path,p.is_primary AS "primary" FROM ontology_catalog_placements p JOIN ontology_catalog_nodes t ON t.id=p.theme_id JOIN ontology_catalog_nodes d ON d.id=t.parent_id JOIN ontology_catalog_nodes f ON f.id=d.parent_id WHERE p.source_version=$1`,[enterpriseHash()])).rows;
+    }
+    // Tenant drafts/published classifications take precedence over the shared catalog's primary path.
+    for(const doc of objects){const override=rows.find(r=>r.code===doc.code);const definition=admin?(override?.draft||override?.published):override?.published;
+      if(!definition)continue;
+      taxonomy.placements=taxonomy.placements.filter(p=>p.objectCode!==doc.code||!p.primary);
+      taxonomy.placements.push({objectCode:doc.code,path:definition.taxonomy,primary:true});
+    }
+    const visible=new Set(objects.map(o=>o.code));taxonomy.placements=taxonomy.placements.filter(p=>visible.has(p.objectCode));
+    return {context,sourceVersion:baseline.sourceVersion,objects,taxonomy};
   }
   async history(code:string):Promise<{items:OntologyVersion[]}>{
     const ctx=await this.context(postgresPool(),true);

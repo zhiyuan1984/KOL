@@ -1,0 +1,18 @@
+{
+  "commands": [
+    "tsc --noEmit (backend)",
+    "tsc --noEmit (frontend)",
+    "npm run build (frontend)"
+  ],
+  "exit_codes": [
+    0,
+    0,
+    0
+  ],
+  "scope": "Only affected ontology test suites; server performs final production build.",
+  "expected_tests": {
+    "unit": 18,
+    "native_pg": 14,
+    "mock_browser": 7
+  }
+}

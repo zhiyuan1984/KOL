@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "kind": "state-and-action-map",
+  "status": "complete",
+  "owner": "ui-ux",
+  "requirement_refs": [
+    "CONST-04",
+    "TECH-FE-01",
+    "TECH-FE-03",
+    "TECH-BE-03"
+  ],
+  "subject": {
+    "task_id": "ontology-catalog-20261018",
+    "source_base": "32c11e13"
+  },
+  "decisions": {
+    "states": {
+      "planned-type": "registered directory metadata; no instances/capabilities claim",
+      "B01": "family coverage registered; L2-L4 source not supplied",
+      "draft": "tenant draft independent of shared refresh",
+      "read-failure": "visible error and retry"
+    },
+    "authority": "Metadata never grants execution or approval authority"
+  },
+  "verification": {
+    "state": "passed",
+    "evidence": [
+      "normalization.json",
+      "unit-results.json",
+      "pg-results.json",
+      "page-results.json",
+      "browser-review.json"
+    ]
+  },
+  "task_id": "ontology-catalog-20261018",
+  "summary": "Enterprise catalog state-and-action-map",
+  "status_claims": []
+}

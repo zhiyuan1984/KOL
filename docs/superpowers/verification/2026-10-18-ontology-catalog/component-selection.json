@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "kind": "component-selection",
+  "status": "complete",
+  "owner": "frontend",
+  "requirement_refs": [
+    "TECH-ARCH-01",
+    "TECH-ARCH-04",
+    "TECH-FE-02"
+  ],
+  "subject": {
+    "task_id": "ontology-catalog-20261018",
+    "source_base": "32c11e13"
+  },
+  "decisions": {
+    "reuse": [
+      "Existing OntologyWorkspace/Workbench/AuthGate/table/dialog/filter controls"
+    ],
+    "changes": "Memoized placement lookup for full catalog; no style or dependency changes",
+    "theme_source": "frontend/src/styles.css"
+  },
+  "verification": {
+    "state": "passed",
+    "evidence": [
+      "normalization.json",
+      "unit-results.json",
+      "pg-results.json",
+      "page-results.json",
+      "browser-review.json"
+    ]
+  },
+  "task_id": "ontology-catalog-20261018",
+  "summary": "Enterprise catalog component-selection",
+  "status_claims": []
+}

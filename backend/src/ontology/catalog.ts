@@ -1,3 +1,4 @@
+import { enterpriseDefinitions, enterpriseHash } from './enterprise.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,7 +38,7 @@ export function loadOntologyCatalog(): { sourceVersion: string; objects: Ontolog
     for (const dimension of ['relations','rules','actions'] as const) items[dimension] = semantics[dimension].filter(i=>i.object===o.code).map(({object:_,...i})=>i);
     return {code:o.code,id:o.id,name:o.name,description:o.authority_source||'业务语义来源待补充',layer:o.layer,taxonomy:semantics.taxonomy[o.code]||[o.layer==='platform'?'智能体平台':'企业治理','未分类','待业务负责人分类'],source:'config/objects-registry.yaml '+o.source_ref,items};
   });
-  return {sourceVersion:createHash('sha256').update(sources.join('\n')).digest('hex'),objects};
+  return {sourceVersion:createHash('sha256').update(sources.join('\n')+enterpriseHash()).digest('hex'),objects:enterpriseDefinitions(objects)};
 }
 
 export function validateDefinition(raw:unknown, knownCodes:Set<string>, baseline:OntologyDefinition[]):OntologyDefinition {

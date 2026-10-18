@@ -1,3 +1,4 @@
+import {enterpriseSource,enterpriseTaxonomy} from '../src/ontology/enterprise.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { loadOntologyCatalog, employeeDefinition, validateDefinition } from '../src/ontology/catalog.js';
@@ -18,7 +19,7 @@ const validate=(value:unknown)=>validateDefinition(value,codes,baseline.objects)
 
 describe('ontology definition semantics',()=>{
   it('loads real registered definitions and validates all cross-object references',()=>{
-    expect(baseline.objects).toHaveLength(64);
+    expect(baseline.objects).toHaveLength(896);
     expect(baseline.objects.reduce((n,o)=>n+o.items.properties.length,0)).toBe(214);
     expect(baseline.objects.reduce((n,o)=>n+o.items.events.length,0)).toBe(140);
     for(const definition of baseline.objects)expect(validate(definition).code).toBe(definition.code);
@@ -50,7 +51,7 @@ describe('ontology definition semantics',()=>{
 
 describe('ontology tenant and draft boundaries (mocked database unit tests)',()=>{
   beforeEach(()=>{query.mockReset();});
-  function authorize(rows:unknown[]=[]){query.mockImplementation(async(sql:string)=>({rows:sql.includes('organization_people')?[{id:'company:a'}]:rows}));}
+  function authorize(rows:unknown[]=[]){query.mockImplementation(async(sql:string)=>({rows:sql.includes('organization_people')?[{id:'company:a'}]:sql.includes('ontology_catalog_')?[]:rows}));}
   it('requires current organization membership even for an administrator',async()=>{
     authorize();await expect(new OntologyService(admin,'company:b').catalog(true)).rejects.toMatchObject({status:403});
     query.mockResolvedValue({rows:[]});await expect(new OntologyService(admin).catalog(true)).rejects.toMatchObject({status:403});
@@ -60,15 +61,22 @@ describe('ontology tenant and draft boundaries (mocked database unit tests)',()=
     await expect(new OntologyService({...admin,active:false},'company:a').catalog(true)).rejects.toMatchObject({status:403});
     expect(query).not.toHaveBeenCalled();
   });
-  it('does not expose drafts, disabled definitions, platform assets or tool bindings to employees',async()=>{
+  it('does not expose drafts, disabled definitions, runtime-only assets or tool bindings to employees',async()=>{
     const draft=profile();draft.name='尚未发布的敏感草稿';
     authorize([{code:'kol_profile',revision:2,draft,published:null,disabled:false,updated_at:'2026-10-18'},
       {code:'email',revision:3,draft:null,published:null,disabled:true,updated_at:'2026-10-18'}]);
     const result=await new OntologyService(actor,'company:a').catalog();
     expect(result.objects.find(o=>o.code==='kol_profile')?.published?.name).not.toBe(draft.name);
-    expect(result.objects.every(o=>o.draft===null&&o.published?.layer==='kol_business')).toBe(true);
-    expect(result.objects.some(o=>o.code==='email')).toBe(false);
+    expect(result.objects.every(o=>o.draft===null&&(o.published?.layer==='kol_business'||enterpriseSource().objects.some(e=>e.code===o.code)))).toBe(true);
+    expect(result.objects.some(o=>o.code==='email')).toBe(false);expect(result.objects.some(o=>o.code==='credential_ref')).toBe(false);
     expect(result.objects.find(o=>o.code==='kol_profile')?.published?.items.actions[0].executor).toBeUndefined();
+  });
+  it('keeps tenant draft classifications separate from employee catalog classifications',async()=>{
+    const draft=profile();draft.taxonomy=['产品','商品管理','SKU管理'];authorize([{code:'kol_profile',revision:1,draft,published:null,disabled:false,updated_at:'2026-10-18'}]);
+    const adminView=await new OntologyService(admin,'company:a').catalog(true);
+    expect(adminView.taxonomy?.placements.find(p=>p.objectCode==='kol_profile'&&p.primary)?.path).toEqual(draft.taxonomy);
+    const employeeView=await new OntologyService(actor,'company:a').catalog();
+    expect(employeeView.taxonomy?.placements.find(p=>p.objectCode==='kol_profile'&&p.primary)?.path[0]).toBe('营销');
   });
   it('rejects stale draft saves without writing and rejects absent confirmation',async()=>{
     query.mockImplementation(async(sql:string)=>({rows:sql.includes('organization_people')?[{id:'company:a'}]:sql.includes('FOR UPDATE')?[{revision:5}]:[]}));
@@ -120,4 +128,25 @@ describe('ontology HTTP access boundary',()=>{
     expect((await withTicketPrincipal(actor,()=>app.request('/api/ontology/workspace/catalog?admin=1'))).status).toBe(403);
     expect((await withTicketPrincipal(admin,()=>app.request('/api/ontology/workspace/drafts',{method:'POST',body:'{'}))).status).toBe(400);
   });
+});
+
+
+describe('user enterprise ontology source normalization',()=>{
+ it('retains all 18 families and the 17 supplied family detail trees without fabricated B01 detail',()=>{
+  const source=enterpriseSource();const tree=enterpriseTaxonomy(baseline.objects);
+  expect(source.families).toHaveLength(18);expect(tree.nodes.filter(n=>n.level===2)).toHaveLength(148);expect(tree.nodes.filter(n=>n.level===3)).toHaveLength(343);
+  expect(tree.nodes.find(n=>n.id==='B01')?.detailStatus).toBe('not-provided');expect(tree.nodes.some(n=>n.parentId==='B01')).toBe(false);
+  expect(source.objects).toHaveLength(844);expect(source.placements).toHaveLength(847);
+ });
+ it('assigns one primary authority and preserves cross-theme references',()=>{
+  const tree=enterpriseTaxonomy(baseline.objects);
+  for(const d of baseline.objects)expect(tree.placements.filter(p=>p.objectCode===d.code&&p.primary)).toHaveLength(1);
+  const profit=baseline.objects.filter(d=>d.name==='渠道利润分析');expect(profit).toHaveLength(1);expect(profit[0].taxonomy[0]).toBe('财经');expect(tree.placements.filter(p=>p.objectCode===profit[0].code).map(p=>p.path[0])).toEqual(expect.arrayContaining(['销售','财经']));
+  expect(baseline.objects.filter(d=>['制造工位','办公工位'].includes(d.name))).toHaveLength(2);
+ });
+ it('reuses existing stable identities and leaves planning definitions without invented capabilities',()=>{
+  expect(baseline.objects.find(d=>d.code==='kol_profile')?.id).toBe('B2');
+  for(const d of baseline.objects.filter(d=>d.code.startsWith('ent_')))expect(Object.values(d.items).flat()).toHaveLength(0);
+  expect(baseline.objects.some(d=>d.taxonomy.includes('未分类')||d.taxonomy.includes('待业务负责人分类'))).toBe(false);
+ });
 });

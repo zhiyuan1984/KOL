@@ -1,3 +1,5 @@
+import {postgresTransaction} from '../src/postgres/pool.js';
+import {enterpriseSchema,enterpriseSource,importEnterpriseCatalog,enterpriseHash} from '../src/ontology/enterprise.js';
 import { randomUUID } from 'node:crypto';
 import { beforeAll, afterAll, beforeEach, describe, it, expect } from 'vitest';
 import { Hono } from 'hono';
@@ -33,9 +35,9 @@ suite('ontology native PostgreSQL integration (isolated disposable database)',()
       CREATE TABLE organization_units(id text PRIMARY KEY,company_id text,status text);
       CREATE TABLE organization_memberships(person_ref text,company_id text,org_unit_id text,status text,effective_from text,effective_to text);
     `);
-    await postgresPool().query(ontologySchema);
+    await postgresPool().query(ontologySchema);await postgresPool().query(enterpriseSchema);
     // Run twice: a normal feature migration must be idempotent.
-    await postgresPool().query(ontologySchema);
+    await postgresPool().query(ontologySchema);await postgresPool().query(enterpriseSchema);
     for(const company of ['a','b']){
       await postgresPool().query('INSERT INTO organization_units VALUES($1,$2,$3)',['unit:'+company,'company:'+company,'active']);
       for(const role of ['admin','employee']){
@@ -58,8 +60,8 @@ suite('ontology native PostgreSQL integration (isolated disposable database)',()
     const types=await postgresPool().query("SELECT column_name,data_type FROM information_schema.columns WHERE table_schema='public' AND table_name='ontology_documents'");
     expect(types.rows.find(r=>r.column_name==='draft')?.data_type).toBe('jsonb');
     expect((await postgresPool().query('SELECT current_database() AS name')).rows[0].name).toMatch(/^ontology_it_/);
-    expect((await service().catalog(true)).objects).toHaveLength(64);
-    expect((await service('employee_a').catalog()).objects).toHaveLength(18);
+    expect((await service().catalog(true)).objects).toHaveLength(896);
+    expect((await service('employee_a').catalog()).objects).toHaveLength(860);
   });
   it('persists drafts across pool reconnects without exposing them to employees',async()=>{
     const receipt=await save(definition());expect(receipt.revision).toBe(1);
@@ -195,4 +197,24 @@ suite('ontology native PostgreSQL integration (isolated disposable database)',()
     expect((await request('employee_b','catalog')).status).toBe(200);
     expect((await request('employee_a','history/native_object')).status).toBe(403);
   });
+});
+
+
+describe('enterprise catalog native import',()=>{
+ it('rolls back failed imports, persists complete hierarchy, replays idempotently and preserves tenant drafts',async()=>{
+  const defs=loadOntologyCatalog().objects;const db=postgresPool();
+  await db.query(`CREATE OR REPLACE FUNCTION reject_catalog_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.code='kol_profile' THEN RAISE EXCEPTION 'injected import failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_catalog_test BEFORE INSERT ON ontology_catalog_objects FOR EACH ROW EXECUTE FUNCTION reject_catalog_test();`);
+  await expect(postgresTransaction(c=>importEnterpriseCatalog(c,defs,'isolated-test'))).rejects.toThrow('injected import failure');
+  expect(Number((await db.query('SELECT count(*) AS n FROM ontology_catalog_nodes')).rows[0].n)).toBe(0);
+  expect(Number((await db.query('SELECT count(*) AS n FROM ontology_catalog_imports')).rows[0].n)).toBe(0);
+  await db.query('DROP TRIGGER reject_catalog_test ON ontology_catalog_objects; DROP FUNCTION reject_catalog_test()');
+  const before=(await db.query('SELECT * FROM ontology_documents ORDER BY company_id,code')).rows;
+  const beforeAdmin=await service().catalog(true);const beforeEmployee=await service('employee_a').catalog();
+  const report=await postgresTransaction(c=>importEnterpriseCatalog(c,defs,'isolated-test'));expect(report).toMatchObject({families:18,domains:148,themes:343,objects:896,sourceObjects:844,replayed:false});
+  expect(await postgresTransaction(c=>importEnterpriseCatalog(c,defs,'isolated-test'))).toMatchObject({replayed:true});
+  expect((await db.query('SELECT * FROM ontology_documents ORDER BY company_id,code')).rows).toEqual(before);
+  const catalog=await service().catalog(true);expect(catalog.objects.map(o=>o.code).sort()).toEqual(beforeAdmin.objects.map(o=>o.code).sort());expect(catalog.taxonomy?.nodes.filter(n=>n.level===1)).toHaveLength(18);
+  const employee=await service('employee_a').catalog();expect(employee.objects.map(o=>o.code).sort()).toEqual(beforeEmployee.objects.map(o=>o.code).sort());expect(employee.objects.every(o=>!o.draft)).toBe(true);
+  expect((await db.query('SELECT object_code FROM ontology_catalog_placements GROUP BY object_code HAVING count(*) FILTER(WHERE is_primary)<>1')).rows).toHaveLength(0);
+ });
 });

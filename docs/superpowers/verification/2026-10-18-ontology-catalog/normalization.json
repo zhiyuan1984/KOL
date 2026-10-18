@@ -1,0 +1,187 @@
+{
+  "sourceSha256": "091bd2cf0c18ab9c925df20b36850984dac76cf607497f8904f8526fd72fbd12",
+  "families": [
+    {
+      "code": "B01",
+      "name": "战略与经营",
+      "domains": 0,
+      "themes": 0,
+      "referencedObjects": 0,
+      "primaryObjects": 0,
+      "detailStatus": "not-provided"
+    },
+    {
+      "code": "B02",
+      "name": "市场",
+      "domains": 6,
+      "themes": 12,
+      "referencedObjects": 35,
+      "primaryObjects": 35,
+      "detailStatus": "provided"
+    },
+    {
+      "code": "B03",
+      "name": "品牌",
+      "domains": 5,
+      "themes": 8,
+      "referencedObjects": 23,
+      "primaryObjects": 23,
+      "detailStatus": "provided"
+    },
+    {
+      "code": "B04",
+      "name": "营销",
+      "domains": 10,
+      "themes": 21,
+      "referencedObjects": 63,
+      "primaryObjects": 63,
+      "detailStatus": "provided"
+    },
+    {
+      "code": "B05",
+      "name": "产品",
+      "domains": 9,
+      "themes": 17,
+      "referencedObjects": 46,
+      "primaryObjects": 46,
+      "detailStatus": "provided"
+    },
+    {
+      "code": "B06",
+      "name": "研发",
+      "domains": 11,
+      "themes": 19,
+      "referencedObjects": 51,
+      "primaryObjects": 51,
+      "detailStatus": "provided"
+    },
+    {
+      "code": "B07",
+      "name": "采购",
+      "domains": 5,
+      "themes": 13,
+      "referencedObjects": 27,
+      "primaryObjects": 27,
+      "detailStatus": "provided"
+    },
+    {
+      "code": "B08",
+      "name": "制造",
+      "domains": 8,
+      "themes": 19,
+      "referencedObjects": 44,
+      "primaryObjects": 44,
+      "detailStatus": "provided"
+    },
+    {
+      "code": "B09",
+      "name": "供应链",
+      "domains": 11,
+      "themes": 23,
+      "referencedObjects": 59,
+      "primaryObjects": 59,
+      "detailStatus": "provided"
+    },
+    {
+      "code": "B10",
+      "name": "销售",
+      "domains": 9,
+      "themes": 44,
+      "referencedObjects": 98,
+      "primaryObjects": 97,
+      "detailStatus": "provided"
+    },
+    {
+      "code": "B11",
+      "name": "客户",
+      "domains": 10,
+      "themes": 18,
+      "referencedObjects": 42,
+      "primaryObjects": 42,
+      "detailStatus": "provided"
+    },
+    {
+      "code": "B12",
+      "name": "客户服务",
+      "domains": 8,
+      "themes": 23,
+      "referencedObjects": 53,
+      "primaryObjects": 53,
+      "detailStatus": "provided"
+    },
+    {
+      "code": "B13",
+      "name": "财经",
+      "domains": 13,
+      "themes": 31,
+      "referencedObjects": 67,
+      "primaryObjects": 67,
+      "detailStatus": "provided"
+    },
+    {
+      "code": "B14",
+      "name": "人力资源",
+      "domains": 10,
+      "themes": 18,
+      "referencedObjects": 46,
+      "primaryObjects": 46,
+      "detailStatus": "provided"
+    },
+    {
+      "code": "B15",
+      "name": "IT与数字化",
+      "domains": 12,
+      "themes": 30,
+      "referencedObjects": 78,
+      "primaryObjects": 78,
+      "detailStatus": "provided"
+    },
+    {
+      "code": "B16",
+      "name": "企业治理",
+      "domains": 9,
+      "themes": 19,
+      "referencedObjects": 51,
+      "primaryObjects": 51,
+      "detailStatus": "provided"
+    },
+    {
+      "code": "B17",
+      "name": "法务与合规",
+      "domains": 8,
+      "themes": 18,
+      "referencedObjects": 39,
+      "primaryObjects": 39,
+      "detailStatus": "provided"
+    },
+    {
+      "code": "B18",
+      "name": "资产与行政",
+      "domains": 4,
+      "themes": 10,
+      "referencedObjects": 23,
+      "primaryObjects": 23,
+      "detailStatus": "provided"
+    }
+  ],
+  "sourceOccurrences": 847,
+  "uniqueSourceObjects": 844,
+  "sourcePlacements": 847,
+  "existingIdentityReuse": 12,
+  "newObjectTypes": 832,
+  "combinedRegistryObjects": 896,
+  "rules": [
+    "Original source row numbers preserved",
+    "One canonical owner per object",
+    "Channel profit analysis owned by finance and referenced from sales",
+    "Different concepts with identical labels are explicitly qualified",
+    "Original 64 registry identities and tenant drafts retained",
+    "No business instances or runnable rule/skill grants created"
+  ],
+  "missing": [
+    {
+      "family": "B01",
+      "detail": "用户未提供L2/L3/L4，保留业务族与覆盖范围，不补造明细"
+    }
+  ]
+}

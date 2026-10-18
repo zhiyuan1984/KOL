@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "kind": "layout-contract",
+  "status": "complete",
+  "owner": "ui-ux/frontend",
+  "requirement_refs": [
+    "CONST-04",
+    "TECH-FE-02",
+    "TECH-TEST-02"
+  ],
+  "subject": {
+    "task_id": "ontology-catalog-20261018",
+    "source_base": "32c11e13"
+  },
+  "decisions": {
+    "pattern": "Existing image-authorized three-column workspace unchanged",
+    "data_change": "Full family list and parent-aware filters; empty family remains selectable",
+    "axes": "Existing narrow/short viewport and keyboard tests retained"
+  },
+  "verification": {
+    "state": "passed",
+    "evidence": [
+      "normalization.json",
+      "unit-results.json",
+      "pg-results.json",
+      "page-results.json",
+      "browser-review.json"
+    ]
+  },
+  "task_id": "ontology-catalog-20261018",
+  "summary": "Enterprise catalog layout-contract",
+  "status_claims": []
+}

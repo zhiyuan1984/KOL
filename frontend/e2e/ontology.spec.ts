@@ -15,7 +15,8 @@ const profile:OntologyDefinition={code:'kol_profile',id:'B2',name:'KOL 画像',d
   actions:semantics.actions.filter((i:any)=>i.object==='kol_profile').map(({object,...i}:any)=>i),
 }};
 const collaboration:OntologyDefinition={...structuredClone(profile),code:'collaboration',id:'B3',name:'合作关系',taxonomy:['市场与增长','创作者合作','合作履约'],items:{properties:[],relations:[],events:[],rules:[],actions:[]}};
-async function fixture(page:Page,admin=true){
+const enterprise=JSON.parse(fs.readFileSync(path.join(root,'config/ontology-enterprise-catalog.json'),'utf8'));
+async function fixture(page:Page,admin=true,complete=false){
   let document:OntologyDocument={code:profile.code,revision:0,draft:null,published:structuredClone(profile),status:'registered',updatedAt:null};
   const account={id:admin?'admin':'employee',username:'ontology-ui',name:'界面测试用户',roles:admin?['admin','employee']:['employee'],available_modes:admin?['admin','employee']:['employee'],brands:[]};
   let commits=0;let failOnce=false;let savedDefinition:OntologyDefinition|undefined;
@@ -24,6 +25,10 @@ async function fixture(page:Page,admin=true){
     if(p==='/api/ontology/workspace/catalog'){
       if(failOnce){await route.fulfill({status:503,json:{detail:'本体服务暂不可用'}});return;}
       const catalog:OntologyCatalog={context:{companyId:'company:test',companies:[{id:'company:test',name:'测试公司'}],admin},sourceVersion:'test-source',objects:[{...structuredClone(document),draft:admin?document.draft:null},{code:'collaboration',revision:0,draft:null,published:collaboration,status:'registered',updatedAt:null}]};
+      if(complete){
+        catalog.objects=enterprise.objects.map((o:any)=>({code:o.code,revision:0,draft:null,status:'registered',updatedAt:null,published:o.code==='kol_profile'?profile:{code:o.code,id:o.id,name:o.name,description:'企业业务架构规划目录；无实例数据',layer:'kol_business',taxonomy:[enterprise.families.find((f:any)=>f.code===o.family).name,o.domain,o.theme],source:'用户提供目录',items:{properties:[],relations:[],events:[],rules:[],actions:[]}}}));
+        catalog.taxonomy={nodes:enterprise.families.map((f:any)=>({id:f.code,parentId:null,level:1,name:f.name,detailStatus:f.detailStatus})),placements:enterprise.placements.map((p:any)=>({objectCode:p.objectCode,path:[enterprise.families.find((f:any)=>f.code===p.family).name,p.domain,p.theme],primary:false})),missing:enterprise.missing};
+      }
       await route.fulfill({json:catalog});return;
     }
     if(p==='/api/ontology/workspace/drafts'){
@@ -93,4 +98,19 @@ test('ontology direct links survive refresh, navigation and browser back',async(
   await expect(page.getByRole('heading',{name:'合作关系',exact:true})).toBeVisible();
   await page.goto('/ontology');await page.goBack();expect(page.url()).toBe(selectedUrl);
   await expect(page.getByRole('heading',{name:'合作关系',exact:true})).toBeVisible();
+});
+
+
+test('full enterprise hierarchy filters Amazon Listing and preserves empty B01 and canonical references',async({page})=>{
+ await fixture(page,true,true);await page.goto('/admin/ontology');await expect(page.getByRole('heading',{name:'KOL 画像',exact:true})).toBeVisible();
+ const filters=page.locator('.onto-filter-line');await expect(filters.nth(0).getByRole('button').nth(1)).toContainText('战略与经营');
+ await filters.nth(0).getByRole('button',{name:/^销售/}).click();
+ await filters.nth(1).getByRole('button',{name:/^亚马逊经营/}).click();
+ await filters.nth(2).getByRole('button',{name:/^商品管理/}).click();
+ await expect(page.getByRole('button',{name:'Amazon Listing',exact:true})).toBeVisible();await page.getByRole('button',{name:'Amazon Listing',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Amazon Listing',exact:true})).toBeVisible();await expect(page.getByText('当前对象尚未登记此类定义。')).toBeVisible();
+ await filters.nth(0).getByRole('button',{name:/^战略与经营/}).click();await expect(page.getByText('该业务族已登记覆盖范围；本次来源尚未提供下级明细。')).toBeVisible();
+ await filters.nth(0).getByRole('button',{name:/^销售/}).click();await filters.nth(1).getByRole('button',{name:/^销售分析/}).click();await filters.nth(2).getByRole('button',{name:/^渠道经营/}).click();
+ await expect(page.getByRole('button',{name:'渠道利润分析',exact:true})).toBeVisible();
+ await page.screenshot({path:'test-results/ontology/enterprise.png',fullPage:true});
 });

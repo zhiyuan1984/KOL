@@ -1,0 +1,97 @@
+{
+  "schema_version": "1.0.0",
+  "kind": "development-delivery-record",
+  "task_contract": {
+    "file": "task-contract.json",
+    "sha256": "b3aa896f40ae3bede4182ddb8eaf98df3d375193cc2c14b90fafa9f841aa10ac"
+  },
+  "artifacts": [
+    {
+      "id": "state-and-action-map",
+      "file": "state-and-action-map.json",
+      "sha256": "dc88c9eea23ce0f0f8051f61f5928d8ddb03076331ced742b69999ffa176eb27",
+      "status": "complete"
+    },
+    {
+      "id": "layout-contract",
+      "file": "layout-contract.json",
+      "sha256": "d303ea8d8397cafd18600da0453eb97733fcd59c2ecd54e4655797d85e7c2597",
+      "status": "complete"
+    },
+    {
+      "id": "component-selection",
+      "file": "component-selection.json",
+      "sha256": "986fca0c5dc06676999cbe2904476ff64df2dc0510e552835c0f26716e896d2a",
+      "status": "complete"
+    },
+    {
+      "id": "browser-and-source-evidence",
+      "file": "browser-and-source-evidence.json",
+      "sha256": "a1d39d6d3071368286e5cac2df19331ec735c989bb4b121a629de4c4e28a345d",
+      "status": "complete"
+    }
+  ],
+  "checks": [
+    {
+      "id": "route-contract-schema",
+      "type": "machine",
+      "status": "passed",
+      "command": "node scripts/development-verify.mjs",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "build-results.json",
+          "sha256": "d4cf15ff5022d0aad9b3f8e287099a8fd9599796a4592487b17afdd2ff75202c",
+          "kind": "test-report"
+        }
+      ]
+    },
+    {
+      "id": "frontend-experience-test",
+      "type": "machine",
+      "status": "passed",
+      "command": "playwright test --config playwright.ontology.config.ts",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "page-results.json",
+          "sha256": "66373d11cd405b96fd427581d71bd7f430abb706e47ba273310aad67f4e20dcb",
+          "kind": "test-report"
+        }
+      ]
+    },
+    {
+      "id": "frontend-browser-review",
+      "type": "human-browser",
+      "status": "passed",
+      "reviewer": "Codex UI/UX expert agent; not human research",
+      "reviewed_at": "2026-10-18T03:57:55.710248+00:00",
+      "evidence": [
+        {
+          "file": "browser-review.json",
+          "sha256": "617e4678b3da8daae2844d62ae2f8fb18c54bdd8e9c6aa6dc18e3133a6439ac5",
+          "kind": "browser-record"
+        },
+        {
+          "file": "enterprise.png",
+          "sha256": "340713afdd90b70a8f41b8aea20326ee604b63b494860a6c8b556143dbc6d23e",
+          "kind": "screenshot"
+        }
+      ]
+    },
+    {
+      "id": "backend-affected-test",
+      "type": "machine",
+      "status": "passed",
+      "command": "vitest ontology suites",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "unit-results.json",
+          "sha256": "d1d6aa026566c803bf59bd52e5e282138eb4651178d424d71d2dd76ea70582a8",
+          "kind": "test-report"
+        }
+      ]
+    }
+  ]
+}

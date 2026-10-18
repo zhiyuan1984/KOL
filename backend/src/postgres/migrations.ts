@@ -1,3 +1,4 @@
+import { enterpriseSchema } from '../ontology/enterprise.js';
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,6 +51,7 @@ type SchemaMigration = {
 };
 
 const migrations: SchemaMigration[] = [
+  { id: "20261018_ontology_enterprise_catalog_v1", statements: [enterpriseSchema] },
   { id: "20261018_ontology_workspace_v1", statements: [ontologySchema] },
   { id: "20261016_performance_v1", statements: [performanceSchema] },
   { id: "20261016_performance_approval_v2", statements: [performanceApprovalSchema] },

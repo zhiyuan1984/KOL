@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "kind": "browser-and-source-evidence",
+  "status": "complete",
+  "owner": "test-manager/ui-ux",
+  "requirement_refs": [
+    "CONST-10",
+    "TECH-TEST-01",
+    "TECH-TEST-02",
+    "TECH-TEST-03"
+  ],
+  "subject": {
+    "task_id": "ontology-catalog-20261018",
+    "source_base": "32c11e13"
+  },
+  "decisions": {
+    "records": [
+      "normalization.json",
+      "unit-results.json",
+      "pg-results.json",
+      "pg-cleanup.json",
+      "page-results.json",
+      "browser-review.json",
+      "enterprise.png"
+    ],
+    "layers": {
+      "unit": "18 passed",
+      "native_pg": "14 passed, isolated real PG, failed import rollback and idempotency",
+      "browser": "7 passed, actual Chrome/UI fixtures",
+      "visual": "Codex UI/UX agent reviewed screenshot"
+    },
+    "limits": "B01 detailed source not supplied; no human study or production business-instance write claimed"
+  },
+  "verification": {
+    "state": "passed",
+    "evidence": [
+      "normalization.json",
+      "unit-results.json",
+      "pg-results.json",
+      "page-results.json",
+      "browser-review.json"
+    ]
+  },
+  "task_id": "ontology-catalog-20261018",
+  "summary": "Enterprise catalog browser-and-source-evidence",
+  "status_claims": []
+}
