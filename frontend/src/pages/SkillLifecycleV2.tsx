@@ -4,7 +4,7 @@ import {useSearchParams} from "react-router-dom";
 import { api } from "../api";
 import { DetailPanel, type SkillRow, useUnsavedDetailGuard } from "./SkillLifecycle";
 import { useAdminConfirm } from "../components/ConfirmDialog";
-import { AdminFormDialog } from "../components/AdminFormDialog";
+import {SkillAuthoringForm} from './SkillAuthoringForm';
 import { skillLifecyclePublishConfirm, skillStageConfirm } from "../adminConfirm";
 import type { SkillCoverage } from "../runtimeConnectorUi";
 import "../admin/governance-layout.css";
@@ -16,7 +16,7 @@ import SkillKnowledgeRange from '../admin/knowledge/SkillKnowledgeRange';
 const stageName = (skill: SkillRow) => skill.lifecycle?.stage_label || skill.lifecycle?.stage || "草稿";
 const STAGE_NAME: Record<string, string> = { draft: "草稿", editing: "编辑", testing: "测试", published: "已发布", disabled: "停用" };
 export default function SkillLifecycleV2() {
-  const [params]=useSearchParams();
+  const [params,setParams]=useSearchParams();
   const [skills, setSkills] = useState<SkillRow[]>([]);
   const [selectedId, setSelectedId] = useState(params.get("skillId") || "");
   useEffect(()=>{const requested=params.get("skillId");if(requested)setSelectedId(requested);},[params]);
@@ -25,16 +25,8 @@ export default function SkillLifecycleV2() {
   const [stage, setStage] = useState("all");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [createOpen, setCreateOpen] = useState(false);
+  const [editor,setEditor]=useState<{mode:'new'|'import'|'edit'|'clone';id?:string}|null>(null);
   const [knowledgeCreateOpen,setKnowledgeCreateOpen]=useState(false);
-  const [createError, setCreateError] = useState("");
-  const createKeyRef = useRef<HTMLInputElement | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
-  const [id, setId] = useState("");
-  const [title, setTitle] = useState("");
-  const [documentQuery, setDocumentQuery] = useState(false);
-  const [body, setBody] = useState("");
-  const [busy, setBusy] = useState(false);
   const [metricsDays, setMetricsDays] = useState(7);
   const [coverage, setCoverage] = useState<SkillCoverage | null>(null);
   const [legacyGrants, setLegacyGrants] = useState<{ notice: string; count: number } | null>(null);
@@ -78,22 +70,13 @@ export default function SkillLifecycleV2() {
     if (stage !== "all" && skill.lifecycle?.stage !== stage) return false;
     return `${skill.label} ${skill.id} ${skill.description}`.toLowerCase().includes(query.toLowerCase().trim());
   }), [skills, origin, stage, query]);
-  const createSkill = async () => {
-    if (!id.trim() || !title.trim() || !body.trim()) { setCreateError("请填写技能 Key、名称与说明。"); return; }
-    setBusy(true); setCreateError("");
-    try {
-      await api.createAdminSkill({ id: id.trim(), title: title.trim(), description: title.trim(), body: body.trim(), mcp: documentQuery ? ["knowledge.ask_documents"] : [], grant_org: false, in_market: false });
-      setSelectedId(id.trim()); setCreateOpen(false); setId(""); setTitle(""); setBody("");
-      setNotice("技能草稿已创建。装配到 Agent 后，按技能阶段完成测试与发布。");
-      await load();
-    } catch (cause) { setCreateError(cause instanceof Error ? cause.message : "创建技能失败"); }
-    finally { setBusy(false); }
-  };
-  const openCreate = () => { setDocumentQuery(false); setId(""); setTitle(""); setBody(""); setCreateError(""); setCreateOpen(true); };
+  useEffect(()=>{const mode=params.get('authoring');setEditor(mode&&['new','import','edit','clone'].includes(mode)?{mode:mode as 'new'|'import'|'edit'|'clone',...(['edit','clone'].includes(mode)&&params.get('skillId')?{id:params.get('skillId')!}:{})}:null);},[params]);
+  const authoringRoute=(mode?:'new'|'import'|'edit'|'clone',id?:string)=>setParams(previous=>{const next=new URLSearchParams(previous);if(mode)next.set('authoring',mode);else next.delete('authoring');if(id)next.set('skillId',id);return next;});
+  const openEditor=(mode:'new'|'import'|'edit'|'clone',id?:string)=>confirmDiscard(()=>authoringRoute(mode,id));
   const selectSkill = useCallback((id: string) => {
-    if (id === selectedId) return;
-    confirmDiscard(() => setSelectedId(id));
-  }, [confirmDiscard, selectedId]);
+    if (id === selectedId&&!params.get('authoring')) return;
+    confirmDiscard(() => {setSelectedId(id);setParams(previous=>{const next=new URLSearchParams(previous);next.set('skillId',id);next.delete('authoring');return next;});});
+  }, [confirmDiscard, selectedId,params,setParams]);
   const closeDetail = useCallback(() => {
     confirmDiscard(() => setSelectedId(""));
   }, [confirmDiscard]);
@@ -120,35 +103,19 @@ export default function SkillLifecycleV2() {
         <h2 className="governance-subheading">技能列表</h2>
         <div className="governance-list">{visible.map((skill) => <button type="button" key={skill.id} className={`governance-list-row skill-v2-row${selectedId === skill.id ? " is-selected" : ""}`} onClick={() => selectSkill(skill.id)}><strong>{skill.label}</strong><span className="muted">{skill.category || "未分类"}</span><span>{stageName(skill)}</span></button>)}{!visible.length && <p className="governance-empty">没有符合条件的技能。</p>}</div>
       </div>
-      <div className="governance-rail-footer"><button type="button" className="btn work" onClick={openCreate}>新增技能</button></div>
+      <div className="governance-rail-footer"><button type="button" className={editor?'governance-minor':'btn work'} onClick={()=>openEditor('new')}>新增技能</button></div>
     </aside>
-    <div className="governance-main"><header className="governance-main-head"><h2>{selected?.label || "技能详情"}</h2><button type="button" className="governance-minor" onClick={()=>setKnowledgeCreateOpen(true)}>新建知识技能</button><button type="button" className="governance-minor" onClick={() => setImportOpen(true)}>上传 SKILL.md</button></header>
+    <div className="governance-main"><header className="governance-main-head"><h2>{editor?'技能业务配置':selected?.label || "技能详情"}</h2>{selected&&<><button type="button" className="governance-minor" onClick={()=>openEditor('edit',selected.id)}>业务配置</button><button type="button" className="governance-minor" onClick={()=>openEditor('clone',selected.id)}>复用为新技能</button></>}<button type="button" className="governance-minor" onClick={()=>confirmDiscard(()=>setKnowledgeCreateOpen(true))}>新建知识技能</button><button type="button" className="governance-minor" onClick={() => openEditor('import')}>上传 SKILL.md</button></header>
       <div className="governance-scroll">
         {error && <p className="error" role="alert">{error}</p>}
         {notice && <p className="governance-notice" role="status">{notice}</p>}
         {legacyGrants && <p className="skill-governance-notice" role="note">直接技能授权已退役：残留 {legacyGrants.count} 条待迁移记录（{legacyGrants.notice}）</p>}
-        {selected ? <div className="skill-v2-detail">{selected.document_query && <SkillKnowledgeRange key={`range-${selected.id}`} skillId={selected.id} />}<DetailPanel key={selected.id} skill={selected} coverageRow={coverageById.get(selected.id) || null} onStage={(next, reason) => moveStage(next, reason)} onChanged={load} onDirtyChange={onDetailDirtyChange} metricsDays={metricsDays} onMetricsDays={setMetricsDays} onClose={closeDetail} /></div>
+        {editor?<SkillAuthoringForm key={`${editor.mode}:${editor.id||''}`} mode={editor.mode} skillId={editor.id} onDirtyChange={onDetailDirtyChange} onClose={()=>confirmDiscard(()=>authoringRoute(undefined,selectedId))} onSaved={id=>{setSelectedId(id);authoringRoute(undefined,id);setNotice('技能草稿已保存；请在原生命周期完成依赖接入、测试与发布，再装配到Agent。');void load();}}/>:selected ? <div className="skill-v2-detail">{selected.document_query && <SkillKnowledgeRange key={`range-${selected.id}`} skillId={selected.id} />}<DetailPanel key={selected.id} skill={selected} coverageRow={coverageById.get(selected.id) || null} onStage={(next, reason) => moveStage(next, reason)} onChanged={load} onDirtyChange={onDetailDirtyChange} metricsDays={metricsDays} onMetricsDays={setMetricsDays} onClose={closeDetail} /></div>
           : <p className="governance-empty">选择一项技能查看详情。</p>}
       </div>
     </div>
-    {importOpen && <div className="skill-governance-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setImportOpen(false); }}><section className="skill-upload-dialog" role="dialog" aria-modal="true" aria-label="上传技能"><h2>上传 SKILL.md</h2><p>导入为技能草稿；后续在 Agent 页装配。</p><input type="file" accept=".md,text/markdown" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; setBusy(true); try { const result = await api.importAdminSkill(file); setImportOpen(false); setSelectedId(String(result.id)); setNotice("技能已导入为草稿。"); await load(); } catch (cause) { setError(cause instanceof Error ? cause.message : "导入失败"); } finally { setBusy(false); } }} /><button type="button" className="governance-minor" disabled={busy} onClick={() => setImportOpen(false)}>关闭</button></section></div>}
     {dialog}
     {modalHolder}
     {knowledgeCreateOpen && <KnowledgeSkillWizard onClose={()=>setKnowledgeCreateOpen(false)} onCreated={id=>{setKnowledgeCreateOpen(false);setSelectedId(id);setNotice('知识技能草稿已保存。请核对知识依赖、完成真实试算后发布，再挂载到智能体。');void load();}} />}
-    <AdminFormDialog
-      open={createOpen}
-      title="新增技能"
-      subtitle="新技能先作为草稿保存，不授予任何人直接权限；装配到 Agent 后按阶段测试与发布。"
-      error={createError}
-      busy={busy}
-      initialFocusRef={createKeyRef}
-      onClose={() => { setCreateOpen(false); setCreateError(""); }}
-      footer={<><button type="button" className="btn" disabled={busy} onClick={() => { setCreateOpen(false); setCreateError(""); }}>取消</button><button type="button" className="btn work" disabled={busy} onClick={() => void createSkill()}>{busy ? "创建中…" : "创建技能"}</button></>}
-    >
-      <label>技能 Key（snake_case）<input ref={createKeyRef} type="text" value={id} onChange={(event) => setId(event.target.value)} /></label>
-      <label>名称<input type="text" value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-      <label><input type="checkbox" checked={documentQuery} onChange={(event) => setDocumentQuery(event.target.checked)} />非结构化文档问答（L1 只读；知识库在 Agent 页绑定）</label>
-      <label>说明（Markdown）<textarea value={body} onChange={(event) => setBody(event.target.value)} /></label>
-    </AdminFormDialog>
   </section>;
 }

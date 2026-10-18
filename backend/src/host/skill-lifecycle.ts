@@ -3,6 +3,7 @@
  * and usage metrics aggregation for the admin lifecycle workbench.
  */
 import fs from "node:fs";
+import {checkSkillAuthoring} from './skill-authoring.js';
 import { operationTools, parseCapabilityReferences, parseOntologyReferences, resolveOperations } from '../capability/contracts.js';
 import { publishedOperationCatalog } from '../capability/catalog.js';
 import { publishedBusinessContext } from '../ontology/runtime-dependencies.js';
@@ -134,6 +135,7 @@ async function assertDeclaredToolsReady(id: string): Promise<void> {
 async function assertBusinessDependenciesReady(id:string):Promise<void>{
   const definition=await taskDefinition(id);
   const patch=(await getSkillDraft(id)).patch;
+  if(patch.authoring??definition?.authoring){const check=await checkSkillAuthoring({...definition,...patch});if(!check.ready)throw new HttpFail(409,{code:'skill_authoring_dependencies_unresolved',message:check.issues.join('；')});}
   const capabilities=parseCapabilityReferences(patch.capabilities??definition?.capabilities);
   const ontology=parseOntologyReferences(patch.ontology??definition?.ontology);
   try {resolveOperations(capabilities,await publishedOperationCatalog());}

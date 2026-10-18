@@ -45,6 +45,7 @@ import { syncWorkbenchTicketPrincipal, withTicketPrincipal } from "./ticket-doma
 import { crawlRouter } from "./routers/crawl.js";
 import { knowledge } from "./routers/knowledge.js";
 import { capabilityRouter } from "./routers/capability.js";
+import {skillAuthoringRouter} from './routers/skill-authoring.js';
 import { experts } from "./routers/experts.js";
 import { discovery } from "./routers/discovery.js";
 import { homeDiscovery } from "./routers/home-discovery.js";
@@ -194,6 +195,7 @@ export async function createApp(): Promise<Hono> {
   app.route("/api", approvalTypes);
   app.route("/api", knowledge);
   app.route("/api", capabilityRouter);
+  app.route("/api", skillAuthoringRouter);
   app.route("/api", experts);
   app.route("/api", discovery);
   app.route("/api", homeDiscovery);

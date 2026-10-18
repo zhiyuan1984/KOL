@@ -1,0 +1,10 @@
+.skill-authoring { min-width: 0; padding: var(--space-4); }
+.skill-authoring-head { position: sticky; top: 0; z-index: 1; background: var(--bg); display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; justify-content: space-between; padding-block: var(--space-2); }
+.skill-authoring-filters { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
+.skill-authoring-filters > * { flex: 1 1 var(--field-value-max-w); min-width: 0; max-width: 100%; }
+.skill-object-picker, .skill-authoring .ant-select { width: 100%; min-width: 0; }
+.skill-authoring-object { padding-block: var(--space-3); border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.skill-authoring-object p { margin-block: var(--space-2); }
+.skill-authoring-input { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.skill-authoring-input > .ant-input { flex: 1 1 var(--field-value-max-w); min-width: 0; }
+.skill-authoring details { margin-top: var(--space-4); }

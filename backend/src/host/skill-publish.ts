@@ -3,6 +3,8 @@
  * copy into the Codex extraRoots runtime. People gain access only through an Agent.
  */
 import fs from "node:fs";
+import {parseSkillAuthoring,assertNoPlaintextSkillSecrets} from './skill-authoring-contract.js';
+import type {SkillAuthoring} from '../../../shared/skill-authoring.js';
 import { parseCapabilityReferences, parseOntologyReferences, type CapabilityReference, type OntologyReference } from '../capability/contracts.js';
 import path from "node:path";
 import { dataDir, publishedSkillsDir } from "../config.js";
@@ -47,6 +49,8 @@ const MAX_BODY = 32000;
 const ID_RE = /^[a-z][a-z0-9_]{1,39}$/;
 
 export type CreateSkillInput = {
+  authoring?:SkillAuthoring;
+  context?:import('../tasks/registry.js').TaskContext;
   id?: string;
   title?: string;
   description?: string;
@@ -80,6 +84,8 @@ export type CreateSkillInput = {
 export type UpdateSkillInput = Omit<CreateSkillInput, "id" | "grant_org">;
 
 const PACK_FIELDS = [
+  "authoring",
+  "context",
   "title",
   "description",
   "category",
@@ -140,6 +146,8 @@ function ensureForbidden(body: string): string {
 }
 
 export function formatSkillMarkdown(input: {
+  authoring?:SkillAuthoring;
+  context?:import('../tasks/registry.js').TaskContext;
   id: string;
   title: string;
   description: string;
@@ -179,6 +187,8 @@ export function formatSkillMarkdown(input: {
     `mcp: ${JSON.stringify(input.mcp)}`,
     ...(input.capabilities ? [`capabilities: ${JSON.stringify(input.capabilities)}`] : []),
     ...(input.ontology ? [`ontology: ${JSON.stringify(input.ontology)}`] : []),
+    ...(input.authoring ? [`authoring: ${JSON.stringify(input.authoring)}`] : []),
+    ...(input.context ? [`context: ${JSON.stringify(input.context)}`] : []),
     ...(input.applicable_objects ? [`applicable_objects: ${JSON.stringify(input.applicable_objects)}`] : []),
     `required_inputs: ${JSON.stringify(input.required_inputs)}`,
     `permissions: ${JSON.stringify(input.permissions)}`,
@@ -202,6 +212,8 @@ export function formatSkillMarkdown(input: {
 }
 
 function normalizeCreate(input: CreateSkillInput): {
+  authoring?:SkillAuthoring;
+  context?:import('../tasks/registry.js').TaskContext;
   id: string;
   title: string;
   description: string;
@@ -257,6 +269,7 @@ function normalizeCreate(input: CreateSkillInput): {
     if (!MCP_TOOL_REFERENCE.test(tool)) throw new HttpFail(400, `invalid MCP tool reference ${tool}`);
   }
   const body = String(input.body || "").trim();
+  try{assertNoPlaintextSkillSecrets(body);}catch(error){throw new HttpFail(400,error instanceof Error?error.message:'技能内容无效');}
   if (!body) throw new HttpFail(400, "skill body required");
   if (body.length > MAX_BODY) throw new HttpFail(400, "skill body too long");
   const inputSchema = asJsonValue<TaskInputField[]>(input.input_schema, "input_schema");
@@ -276,6 +289,8 @@ function normalizeCreate(input: CreateSkillInput): {
   try {
     validateDeclaredTaskContract({
       id,
+      ...(input.authoring!==undefined?{authoring:input.authoring}:{}),
+      ...(input.context!==undefined?{context:input.context}:{}),
       required_inputs: asList(input.required_inputs),
       ...(inputSchema ? { input_schema: inputSchema } : {}),
       ...(resultType ? { result_type: resultType } : {}),
@@ -292,6 +307,8 @@ function normalizeCreate(input: CreateSkillInput): {
     id,
     title,
     description,
+    ...(input.authoring!==undefined?{authoring:parseSkillAuthoring(input.authoring)}:{}),
+    ...(input.context!==undefined?{context:input.context}:{}),
     category,
     profile,
     output,
@@ -385,6 +402,8 @@ export async function updatePublishedSkill(id: string, input: UpdateSkillInput):
     capabilities: input.capabilities ?? def?.capabilities,
     ontology: input.ontology ?? def?.ontology,
     applicable_objects: input.applicable_objects ?? def?.applicable_objects,
+    authoring: input.authoring ?? def?.authoring,
+    context: input.context ?? def?.context,
     required_inputs: input.required_inputs ?? def?.required_inputs,
     permissions: input.permissions ?? def?.permissions,
     actions: input.actions ?? def?.actions,
@@ -420,6 +439,7 @@ export async function updatePublishedSkill(id: string, input: UpdateSkillInput):
 }
 
 export type SkillDraft = { id: string; patch: Record<string, unknown>; updated_at: string | null };
+export const validateSkillCandidate=(input:CreateSkillInput)=>normalizeCreate(input);
 const SOP_DRAFT_FIELDS = ["_sop_summary", "_sop_body"] as const;
 
 export async function getSkillDraft(id: string): Promise<Awaited<SkillDraft>> {
@@ -431,17 +451,20 @@ export async function getSkillDraft(id: string): Promise<Awaited<SkillDraft>> {
 }
 
 /** Persist candidate edits without changing the catalog, runtime pack, or employee-visible version. */
-export async function saveSkillDraft(id: string, patch: Record<string, unknown>): Promise<Awaited<SkillDraft>> {
+export async function saveSkillDraft(id: string, patch: Record<string, unknown>, guard?:{expectedUpdatedAt:string|null}): Promise<Awaited<SkillDraft>> {
   if (!(await catalogSkill(id))) throw new HttpFail(404, "unknown skill");
   const bundled = isBundledSkill(id);
   const allowed = new Set<string>(bundled ? [...SOP_DRAFT_FIELDS, ...PRESENTATION_OVERLAY_FIELDS] : PACK_FIELDS);
   const clean = Object.fromEntries(Object.entries(patch).filter(([key, value]) => allowed.has(key) && value !== undefined));
   if (!Object.keys(clean).length) throw new HttpFail(400, "no editable skill fields supplied");
+  try{if(clean.authoring!==undefined)parseSkillAuthoring(clean.authoring);if(clean.context!==undefined)validateDeclaredTaskContract({context:clean.context});}catch(error){throw new HttpFail(400,error instanceof Error?error.message:'业务配置格式无效');}
   if (bundled) normalizePresentationPatch(id, pickPresentationFields(clean), (await taskDefinition(id))?.actions);
   const previous = (await getSkillDraft(id));
+  if(guard&&previous.updated_at!==guard.expectedUpdatedAt)throw new HttpFail(409,'草稿已变化，请重新读取后核对');
   const payload = { ...previous.patch, ...clean };
-  const updatedAt = nowIso();
-  (await getConn().query("INSERT INTO skill_drafts (skill_id,payload,updated_at) VALUES ($1,$2,$3) ON CONFLICT(skill_id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at",[id,JSON.stringify(payload),updatedAt]));
+  const updatedAt = new Date(Math.max(Date.now(), (Date.parse(previous.updated_at||'')||0)+1)).toISOString();
+  const saved=await getConn().query(`INSERT INTO skill_drafts (skill_id,payload,updated_at) VALUES ($1,$2,$3) ON CONFLICT(skill_id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at ${guard?'WHERE skill_drafts.updated_at IS NOT DISTINCT FROM $4':''} RETURNING skill_id`,[id,JSON.stringify(payload),updatedAt,...(guard?[guard.expectedUpdatedAt]:[])]);
+  if(guard&&!saved.rows.length)throw new HttpFail(409,'草稿已变化，请重新读取后核对');
   (await audit((await currentUser()).handle, "skill.draft.save", { skill: id, fields: Object.keys(clean) }));
   return { id, patch: payload, updated_at: updatedAt };
 }

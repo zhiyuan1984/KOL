@@ -3123,6 +3123,11 @@ export const api = {
     ),
   createAdminSkill: (body: Record<string, unknown>) =>
     request<Record<string, unknown>>("/api/admin/skills", { method: "POST", body: JSON.stringify(body) }),
+  skillAuthoringOptions:(company?:string)=>request<import('../../shared/skill-authoring.js').SkillAuthoringOptions>('/api/admin/skill-authoring/options'+(company?'?company='+encodeURIComponent(company):'')),
+  skillAuthoring:(id:string)=>request<import('../../shared/skill-authoring.js').SkillAuthoringState>('/api/admin/skill-authoring/'+encodeURIComponent(id)),
+  saveSkillAuthoring:(spec:Record<string,unknown>,stamp:string|null,id?:string)=>request<import('../../shared/skill-authoring.js').SkillAuthoringState & {id:string;check:import('../../shared/skill-authoring.js').SkillAuthoringCheck}>('/api/admin/skill-authoring'+(id?'/'+encodeURIComponent(id):''),{method:id?'PUT':'POST',body:JSON.stringify({spec,stamp})}),
+  checkSkillAuthoring:(spec:Record<string,unknown>)=>request<import('../../shared/skill-authoring.js').SkillAuthoringCheck>('/api/admin/skill-authoring/check',{method:'POST',body:JSON.stringify(spec)}),
+  parseSkillUpload:async(file:File)=>{const body=new FormData();body.append('file',file);const response=await fetch('/api/admin/skill-authoring/parse',{method:'POST',body});const data=await response.json();if(!response.ok)throw Error(typeof data.detail==='string'?data.detail:data.detail?.message||'读取技能文件失败');return data as import('../../shared/skill-authoring.js').SkillAuthoringState;},
   importAdminSkill: async (file: File) => {
     const body = new FormData();
     body.append("file", file);

@@ -4,6 +4,8 @@ import { createHash } from "node:crypto";
 import { publishedSkillsDir, skillsDir } from "../config.js";
 import { operationTools, operationCatalogFingerprint, loadOperationContracts, parseCapabilityReferences, parseOntologyReferences, type ContractCatalog, type CapabilityReference, type OntologyReference } from '../capability/contracts.js';
 import { publishedOperationCatalog } from '../capability/catalog.js';
+import {parseSkillAuthoring} from '../host/skill-authoring-contract.js';
+import type {SkillAuthoring} from '../../../shared/skill-authoring.js';
 
 export const TASK_PROFILES = [
   "commander",
@@ -118,6 +120,7 @@ export type TaskInteraction = {
 };
 
 export type TaskDefinition = {
+  authoring?:SkillAuthoring;
   id: string;
   content_version?: string;
   interaction?: TaskInteraction;
@@ -438,7 +441,7 @@ export function validateTaskResultSchema(schema: TaskResultSchema, value: unknow
 
 function parseDeclaredContract(values: Record<string, unknown>, file: string): Pick<
   TaskDefinition,
-  "input_schema" | "result_type" | "result_schema" | "next_actions" | "memory_policy" | "supports" | "context" | "capabilities" | "ontology" | "applicable_objects"
+  "input_schema" | "result_type" | "result_schema" | "next_actions" | "memory_policy" | "supports" | "context" | "capabilities" | "ontology" | "applicable_objects" | "authoring"
 > {
   let inputSchema: TaskInputField[] | undefined;
   if (values.input_schema !== undefined) {
@@ -603,6 +606,7 @@ function parseDeclaredContract(values: Record<string, unknown>, file: string): P
   }
 
   return {
+    ...(values.authoring!==undefined?{authoring:parseSkillAuthoring(values.authoring)}:{}),
     ...(values.applicable_objects!==undefined?{applicable_objects:stringArray(values.applicable_objects,'applicable_objects',file)}:{}),
     ...(values.capabilities !== undefined ? {capabilities: parseCapabilityReferences(values.capabilities)} : {}),
     ...(values.ontology !== undefined ? {ontology: parseOntologyReferences(values.ontology)} : {}),
@@ -618,7 +622,7 @@ function parseDeclaredContract(values: Record<string, unknown>, file: string): P
 
 export function validateDeclaredTaskContract(values: Record<string, unknown>): Pick<
   TaskDefinition,
-  "input_schema" | "result_type" | "result_schema" | "next_actions" | "memory_policy" | "supports" | "context" | "capabilities" | "ontology" | "applicable_objects"
+  "input_schema" | "result_type" | "result_schema" | "next_actions" | "memory_policy" | "supports" | "context" | "capabilities" | "ontology" | "applicable_objects" | "authoring"
 > {
   return parseDeclaredContract(values, "<skill contract>");
 }
