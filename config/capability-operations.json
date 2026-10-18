@@ -69,17 +69,22 @@
             "name"
           ],
           "platform": [
+            "primaryPlatformName",
             "platform",
             "primaryPlatform"
           ],
           "stage_code": [
+            "currentStageCode",
             "cooperationStageCode",
             "stageCode"
           ],
           "risk_tags": [
+            "riskTagCode",
             "riskTagCodes",
             "riskTags"
           ],
+          "stage_name": ["currentStageName"],
+          "risk_tag_name": ["riskTagName"],
           "owner_name": [
             "ownerName",
             "ownerUserName"
