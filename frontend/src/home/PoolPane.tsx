@@ -40,7 +40,7 @@ function PoolScore({ card }: { card: PoolKol }) {
   const missing = [card.metrics.followers ? null : "粉丝数", card.metrics.avg_plays ? null : "近10条均播", card.metrics.engagement ? null : "互动率", card.direction ? null : "内容方向"].filter(Boolean);
   return <div className="pool-score-section" data-pool-score-section>
     <div className="pool-score-summary">
-      {evidence.insufficient ? <span data-pool-score-conclusion>资料不足，暂不能判断合作潜力</span> : null}
+      {evidence.insufficient ? <span data-pool-score-conclusion title="资料不足，暂不能判断合作潜力">资料不足</span> : null}
       <span className="kol-card-score" data-pool-score="potential" title="公开资料的模型参考评分；模型置信度不代表红人质量或合作成功率">参考评分 {raw}/100 · {evidence.confidenceLabel}</span>
     </div>
     <KolCardEvidence className="pool-score-evidence" label="评分依据" data-pool-score-evidence>

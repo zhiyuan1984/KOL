@@ -41,7 +41,7 @@ export function KolCardSummary({ label, text, className = "", ...props }: HTMLAt
   }, [text, expanded]);
   return <div {...props} className={`kol-card-summary ${className}`}>
     {label ? <span className="kol-card-summary-label">{label}：</span> : null}
-    <span ref={ref} className="kol-card-summary-text" data-expanded={expanded || undefined}>{text}</span>
+    <span ref={ref} className="kol-card-summary-text" title={text} data-expanded={expanded || undefined}>{text}</span>
     {truncated || expanded ? <KolAction aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? "收起全文" : "展开全文"}</KolAction> : null}
   </div>;
 }
