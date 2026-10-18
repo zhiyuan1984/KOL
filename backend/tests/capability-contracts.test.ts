@@ -29,6 +29,7 @@ describe('versioned business operation dependencies',()=>{
   });
   it('fails closed for missing implementations/versions and duplicate dependencies',()=>{
     expect(()=>resolveOperations([{id:'missing.operation',version:1}])).toThrow('capability_dependency_unavailable');
+    expect(resolveOperations([{id:'missing.operation',version:1,optional:true}])).toEqual([]);
     expect(()=>resolveOperations([{id:'creator.query',version:2}])).toThrow('capability_dependency_unavailable');
     expect(()=>parseCapabilityReferences([{id:'creator.query',version:1},{id:'creator.query',version:1}])).toThrow();
     expect(()=>parseCapabilityReferences([{id:'creator.query',version:0}])).toThrow();

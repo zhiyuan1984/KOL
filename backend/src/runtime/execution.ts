@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { resolveOperations, operationAlias, operationArguments, operationResult, operationFingerprint, type OperationContract } from '../capability/contracts.js';
+import { publishedOperationCatalog } from '../capability/catalog.js';
 import { publishedBusinessContext } from '../ontology/runtime-dependencies.js';
 import { ExecutionNotDispatched } from "../execution-jobs/failure.js";
 import { declaredAgentSubmissionAllowed } from "../contract-scope.js";
@@ -160,7 +161,7 @@ export async function runtimeSkillVersion(skillId:string):Promise<string> {
   const definition=(await requireTaskDefinition(skillId));
   const sop=(await postgresQuery<Row>("SELECT summary,body,updated_at FROM skill_sops WHERE id=$1", [skillId]))[0];
   return runtimeHash({definition,body:fs.readFileSync(definition.path,'utf8'),sop,
-    ...(definition.capabilities?.length?{operations: operationFingerprint(resolveOperations(definition.capabilities))}:{})});
+    ...(definition.capabilities?.length?{operations: operationFingerprint(resolveOperations(definition.capabilities,await publishedOperationCatalog()))}:{})});
 }
 
 /** Agents through which this person may run the skill (published, skill enabled, person covered). */
@@ -347,7 +348,7 @@ export class SkillExecution {
     this.active();
     (await assertRuntimeSkill(this.context));
     const definition = await requireTaskDefinition(this.context.skillId);
-    const operations = resolveOperations(definition.capabilities||[]);
+    const operations = resolveOperations(definition.capabilities||[],await publishedOperationCatalog());
     const tools: DiscoveredTool[] = [];
     if ((await hasDocumentTool(this.context.skillId))) {
       const manifest=isKnowledgePreview(this.context)?await previewManifest(this.context):await runtimeKnowledgeManifest(this.context.skillId,this.context.userId);
@@ -379,7 +380,7 @@ export class SkillExecution {
         for (const remote of remoteTools) {
           const name = String(remote.name);
           const matches = operations.filter(item=>item.implementation.connector===connectorId&&item.implementation.tool===name);
-          if (operations.length && !matches.length) continue;
+          if (definition.capabilities?.length && !matches.length) continue;
           for (const operation of matches.length ? matches : [undefined]) {
           const policy = (await getToolPolicy(connectorId, name));
           const toolBinding = (await getSkillTool(this.context.skillId, connectorId, name));
@@ -404,9 +405,9 @@ export class SkillExecution {
           const presented = runtimeToolPresentation(connectorId, remote);
           if (!presented) { unavailable.push({ connector_id: connectorId, code: "runtime_tool_scope_unsupported" }); continue; }
           const exposed: Json = { ...presented, name: alias,
-            ...(operation?{description:operation.description,...(operation.inputSchema?{inputSchema:operation.inputSchema}:{})}:{}),
+            ...(operation?{description:presented!==remote?`${operation.description}\n${presented.description||''}`:operation.description,...(operation.inputSchema?{inputSchema:operation.inputSchema}:{})}:{}),
             annotations: { ...annotations, readOnlyHint: readOnly },
-            _meta: { risk: runtimeRequiresGate(name) ? "L3" : operation?operation.risk.replace('R','L'):policy?.risk,
+            _meta: { ...(presented._meta as Json || {}), ...(operation?{asynchronous:operation.asynchronous}:{}), risk: runtimeRequiresGate(name) ? "L3" : operation?operation.risk.replace('R','L'):policy?.risk,
               confirmation_required: runtimeRequiresGate(name) || policy?.risk === "L3" || operation?.risk==='R3' } };
           tools.push({ connectorId, remoteName: name, exposed, schemaHash: toolSchemaHash(remote),
             stamp: authorizationStamp(current, policy, toolBinding), toolBindingVersion: Number(toolBinding.version),
@@ -460,7 +461,7 @@ export class SkillExecution {
         this.active();
         if(handle.operation){
           const currentDefinition=await requireTaskDefinition(this.context.skillId);
-          const currentOperation=resolveOperations(currentDefinition.capabilities||[]).find(item=>item.id===handle.operation!.id&&item.version===handle.operation!.version);
+          const currentOperation=resolveOperations(currentDefinition.capabilities||[],await publishedOperationCatalog()).find(item=>item.id===handle.operation!.id&&item.version===handle.operation!.version);
           if(!currentOperation||operationFingerprint([currentOperation])!==handle.operationFingerprint)reject('capability_mapping_changed',409);
         }
         const policy = (await getToolPolicy(handle.connectorId, handle.remoteName));

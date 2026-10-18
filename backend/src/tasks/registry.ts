@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { publishedSkillsDir, skillsDir } from "../config.js";
-import { operationTools, operationCatalogFingerprint, parseCapabilityReferences, parseOntologyReferences, type CapabilityReference, type OntologyReference } from '../capability/contracts.js';
+import { operationTools, operationCatalogFingerprint, loadOperationContracts, parseCapabilityReferences, parseOntologyReferences, type ContractCatalog, type CapabilityReference, type OntologyReference } from '../capability/contracts.js';
+import { publishedOperationCatalog } from '../capability/catalog.js';
 
 export const TASK_PROFILES = [
   "commander",
@@ -622,7 +623,7 @@ export function validateDeclaredTaskContract(values: Record<string, unknown>): P
   return parseDeclaredContract(values, "<skill contract>");
 }
 
-function parseDefinition(file: string, folder: string, source: TaskSource): TaskDefinition {
+function parseDefinition(file: string, folder: string, source: TaskSource, operations:ContractCatalog): TaskDefinition {
   const values = frontmatter(file);
   let interaction: TaskInteraction | undefined;
   if (values.interaction !== undefined) {
@@ -737,7 +738,7 @@ function parseDefinition(file: string, folder: string, source: TaskSource): Task
   const legacyMcp = stringArray(values.mcp, "mcp", file);
   if (capabilities.length && legacyMcp.length) throw new Error(`manifest cannot combine capabilities and legacy mcp declarations: ${file}`);
   // Internal compatibility projection keeps existing mounting/risk/lifecycle checks authoritative.
-  const mcp = capabilities.length ? operationTools(capabilities,true) : legacyMcp;
+  const mcp = capabilities.length ? operationTools(capabilities,true,operations) : legacyMcp;
   for (const tool of mcp) {
     if (!MCP_TOOL_REFERENCE.test(tool)) throw new Error(`manifest has invalid MCP tool reference ${tool}: ${file}`);
   }
@@ -831,11 +832,12 @@ export async function taskDefinitions(root?: string): Promise<readonly TaskDefin
   const files = usingDefault
     ? combinedSkillFiles()
     : skillFiles(root).map((entry) => ({ ...entry, source: "bundled" as const }));
-  const signature = files.map((entry) => `${entry.source}:${entry.stamp}`).join("|")+operationCatalogFingerprint();
+  const operations=usingDefault?await publishedOperationCatalog():loadOperationContracts();
+  const signature = files.map((entry) => `${entry.source}:${entry.stamp}`).join("|")+operationCatalogFingerprint(operations);
   if (usingDefault && cached?.signature === signature) return cached.definitions;
 
   const generation = registryCacheGeneration;
-  const parsed = files.map((entry) => parseDefinition(entry.file, entry.folder, entry.source));
+  const parsed = files.map((entry) => parseDefinition(entry.file, entry.folder, entry.source,operations));
   const overlays = usingDefault && presentationOverlaySource
     ? await presentationOverlaySource()
     : new Map<string, PresentationOverlay>();

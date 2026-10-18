@@ -1,4 +1,5 @@
 import {organizationLinksSchema} from '../ontology/organization-links.js';
+import {operationSchema} from '../capability/schema.js';
 import {relevanceSchema} from '../ontology/relevance.js';
 import { enterpriseSchema } from '../ontology/enterprise.js';
 import fs from "node:fs";
@@ -1123,6 +1124,7 @@ const migrations: SchemaMigration[] = [
   { id: "20261016_049_mail_memory_progress", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "20261016_049_mail_memory_progress.sql"), "utf8")] },
   {id:'20261018_ontology_relevance_v1',statements:[relevanceSchema]},
   {id:'20261018_ontology_organization_links_v1',statements:[organizationLinksSchema]},
+  {id:'20261018_capability_operation_governance_v1',statements:[operationSchema]},
 ];
 
 const { replyContextSchema } = await import("../mail/reply-context-schema.js");

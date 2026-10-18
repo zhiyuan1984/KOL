@@ -1,0 +1,100 @@
+import {beforeEach,afterEach,describe,it,expect} from 'vitest';
+import {randomUUID} from 'node:crypto';
+import {freshTestDatabase} from './support/pg.js';
+import {getConn,resetConn} from '../src/db.js';
+import {OperationGovernance} from '../src/capability/governance.js';
+import {publishedOperationCatalog} from '../src/capability/catalog.js';
+import {loadOperationContracts,resolveOperations} from '../src/capability/contracts.js';
+import {toolSchemaHash} from '../src/runtime/execution.js';
+import {createCredential} from '../src/runtime/credentials.js';
+import {setConnectorConfig,setToolPolicy,getToolPolicy} from '../src/runtime/store.js';
+import type {TicketPrincipal} from '../src/ticket-domain/auth.js';
+const actor:TicketPrincipal={id:'capability-admin',username:'capability-admin',name:'Configuration test',email:null,active:true,roles:['admin']};
+const descriptor={name:'pageKolProfiles',inputSchema:{type:'object',properties:{requestJson:{type:'string'}},required:['requestJson'],additionalProperties:false},annotations:{readOnlyHint:true}};
+const inspector=async()=>[{...descriptor,schema_hash:toolSchemaHash(descriptor)}];
+const service=()=>new OperationGovernance(actor,inspector);
+const baseline=()=>structuredClone(loadOperationContracts().operations.find(o=>o.id==='creator.query')!);
+const command=(action:string,expectedRevision:number,extra={})=>({id:'creator.query',version:1,action,expectedRevision,...extra});
+const commit=async(s:OperationGovernance,token:string)=>s.commit({token,commandId:randomUUID(),reason:'isolated native governance verification',confirmed:true});
+beforeEach(async()=>{
+  await freshTestDatabase({empty:true});process.env.NODE_ENV='test';process.env.AUTH_MODE='enabled';process.env.RUNTIME_CREDENTIAL_MASTER_KEY=Buffer.alloc(32,7).toString('base64');
+  await getConn().query(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES($1,$1,'Test','not-a-password','["admin"]','[]','',1,$2,$2)`,[actor.id,new Date().toISOString()]);
+  const secret=await createCredential({type:'organization_secret',secret:'isolated-config-key'},actor.id);
+  await getConn().query("UPDATE connectors SET enabled=1 WHERE id='starrykol'");
+  await setConnectorConfig('starrykol',{url:'https://capability.example.test/mcp',headers_secret_refs:{'X-MCP-API-KEY':secret.id}},0);
+  const policy=await getToolPolicy('starrykol','pageKolProfiles');await setToolPolicy('starrykol','pageKolProfiles',{enabled:true,risk:'L1',access:'read',schema_hash:toolSchemaHash(descriptor)},Number(policy?.version||0));
+  await getConn().query("UPDATE connectors SET enabled=1 WHERE id='starrykol'");
+});
+afterEach(async()=>{await resetConn();delete process.env.AUTH_MODE;delete process.env.RUNTIME_CREDENTIAL_MASTER_KEY;});
+describe('capability configuration publication on native PostgreSQL',()=>{
+  it('registers new executable capabilities without changing the bundled catalog',async()=>{
+    const s=service(),op=baseline();op.id='creator.registered.query';
+    await s.save({definition:op,expectedRevision:0,reason:'register isolated capability'});
+    expect((await publishedOperationCatalog()).operations.some(o=>o.id===op.id)).toBe(false);
+    const p=await s.prepare({id:op.id,version:1,expectedRevision:1,action:'publish'});await commit(s,p.token);
+    expect(resolveOperations([{id:op.id,version:1}],await publishedOperationCatalog())[0].implementation.tool).toBe('pageKolProfiles');
+    expect(loadOperationContracts().operations.some(o=>o.id===op.id)).toBe(false);
+  });
+  it('keeps drafts inert, publishes once, disables without baseline fallback, and restores immutable history',async()=>{
+    const s=service(),op=baseline();op.name='Reviewed creator query';
+    await s.save({definition:op,expectedRevision:0,reason:'prepare draft'});
+    expect(resolveOperations([{id:op.id,version:1}],await publishedOperationCatalog())[0].name).not.toBe(op.name);
+    const preview=await s.prepare(command('publish',1));
+    const request={token:preview.token,commandId:randomUUID(),reason:'publish reviewed draft',confirmed:true};
+    const first=await s.commit(request);expect(await s.commit(request)).toEqual(first);
+    expect(resolveOperations([{id:op.id,version:1}],await publishedOperationCatalog())[0].name).toBe(op.name);
+    await commit(s,(await s.prepare(command('disable',2))).token);
+    expect(()=>resolveOperations([{id:op.id,version:1}],{version:1,operations:[]})).toThrow();
+    expect((await publishedOperationCatalog()).operations.some(o=>o.id===op.id)).toBe(false);
+    await commit(s,(await s.prepare(command('restore',3,{targetVersion:first.id}))).token);
+    expect(resolveOperations([{id:op.id,version:1}],await publishedOperationCatalog())[0].name).toBe(op.name);
+    expect((await s.history(op.id,1)).versions).toHaveLength(3);
+    await expect(getConn().query('DELETE FROM capability_operation_versions WHERE receipt_id=$1',[first.id])).rejects.toThrow('immutable');
+  });
+  it('rejects stale drafts, changed tool policy, expired tokens and omitted confirmation',async()=>{
+    const s=service();await s.save({definition:baseline(),expectedRevision:0,reason:'draft'});
+    const old=await s.prepare(command('publish',1));await s.save({definition:baseline(),expectedRevision:1,reason:'new edit'});
+    await expect(commit(s,old.token)).rejects.toMatchObject({status:409});
+    const fresh=await s.prepare(command('publish',2));
+    const policy=await getToolPolicy('starrykol','pageKolProfiles');await setToolPolicy('starrykol','pageKolProfiles',{enabled:true,risk:'L1',access:'read',schema_hash:toolSchemaHash(descriptor)},Number(policy!.version));
+    await expect(commit(s,fresh.token)).rejects.toMatchObject({status:409});
+    const latest=await s.prepare(command('publish',2));await getConn().query("UPDATE capability_operation_confirmations SET expires_at='2000-01-01T00:00:00Z' WHERE token=$1",[latest.token]);
+    await expect(commit(s,latest.token)).rejects.toMatchObject({status:409});
+    await expect(s.commit({token:latest.token,commandId:randomUUID(),reason:'no confirmation'})).rejects.toMatchObject({status:409});
+  });
+  it('requires current admin identity, binds confirmation to its actor, and rejects credential configuration',async()=>{
+    await expect(new OperationGovernance({...actor,roles:['employee']},inspector).list()).rejects.toMatchObject({status:403});
+    await expect(new OperationGovernance({...actor,active:false},inspector).save({})).rejects.toMatchObject({status:403});
+    const s=service(),op=baseline();await s.save({definition:op,expectedRevision:0,reason:'draft'});const p=await s.prepare(command('publish',1));
+    await expect(commit(new OperationGovernance({...actor,id:'other-admin'},inspector),p.token)).rejects.toMatchObject({status:409});
+    await expect(s.save({definition:{...op,implementation:{...op.implementation,headers:{Authorization:'not-allowed'}}},expectedRevision:1,reason:'invalid credential placement'})).rejects.toMatchObject({status:422});
+  });
+  it('serializes competing saves and concurrent confirmation replays',async()=>{
+    const s=service(),op=baseline();const saves=await Promise.allSettled([s.save({definition:op,expectedRevision:0,reason:'writer A'}),s.save({definition:op,expectedRevision:0,reason:'writer B'})]);
+    expect(saves.filter(r=>r.status==='fulfilled')).toHaveLength(1);
+    const p=await s.prepare(command('publish',1)),body={token:p.token,commandId:randomUUID(),confirmed:true,reason:'same reviewed publication'};
+    const [a,b]=await Promise.all([s.commit(body),s.commit(body)]);expect(a).toEqual(b);expect((await s.history(op.id,1)).versions).toHaveLength(1);
+  });
+  it('requires a new protocol for public schema changes and a new implementation revision for remapping',async()=>{
+    const s=service(),op=baseline();op.inputSchema!.required=['keyword'];await s.save({definition:op,expectedRevision:0,reason:'changed public contract'});
+    await expect(s.prepare(command('publish',1))).rejects.toMatchObject({status:409});
+    const mapping=baseline();mapping.implementation.tool='differentTool';await s.save({definition:mapping,expectedRevision:1,reason:'changed mapping'});
+    await expect(s.prepare(command('publish',2))).rejects.toMatchObject({status:409});
+    const invalid=baseline();invalid.implementation.jsonArgument='missing';invalid.implementation.version=2;await s.save({definition:invalid,expectedRevision:2,reason:'invalid upstream envelope'});
+    await expect(s.prepare(command('publish',3))).rejects.toMatchObject({status:409});
+    const resultMapping=baseline();resultMapping.result!.items=['new.data.items'];
+    await s.save({definition:resultMapping,expectedRevision:3,reason:'changed result mapping'});
+    await expect(s.prepare(command('publish',4))).rejects.toMatchObject({status:409});
+    const publicResult=baseline();publicResult.result!.itemFields.extra=['extra'];publicResult.implementation.version=2;
+    await s.save({definition:publicResult,expectedRevision:4,reason:'changed public result fields'});
+    await expect(s.prepare(command('publish',5))).rejects.toMatchObject({status:409});
+  });
+  it('requires an existing asynchronous job contract instead of treating the flag as a job implementation',async()=>{
+    const s=service(),op=baseline();op.id='pilot.async';op.asynchronous=true;
+    await s.save({definition:op,expectedRevision:0,reason:'async contract check'});
+    const body={id:op.id,version:1,action:'publish',expectedRevision:1};
+    await expect(s.prepare(body)).rejects.toMatchObject({status:409});
+    const asyncInspector=async()=>[{...descriptor,_meta:{execution_mode:'async_job'},schema_hash:toolSchemaHash(descriptor)}];
+    expect((await new OperationGovernance(actor,asyncInspector).prepare(body)).next?.asynchronous).toBe(true);
+  });
+});

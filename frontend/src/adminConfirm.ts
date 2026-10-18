@@ -34,6 +34,7 @@ export type AdminConfirmCopy = {
 };
 
 export type AdminConfirmKind =
+  | "capability-publish"
   | "work-order-binding"
   | "work-order-publish"
   | "work-order-disable"

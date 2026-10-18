@@ -16,7 +16,7 @@ export type OperationContract = {
   result?: { kind: 'paged'; items: string[]; total: string[]; page?:string[]; pageSize?:string[]; itemFields: Record<string,string[]> };
   implementation: { connector: string; tool: string; version: number; jsonArgument?: string; inputFields?: Record<string,string>; topLevelFields?:string[] };
 };
-type ContractCatalog = { version: number; operations: OperationContract[] };
+export type ContractCatalog = { version: number; operations: OperationContract[] };
 let catalogCache:{source:string;catalog:ContractCatalog}|undefined;
 const idPattern = /^[a-z][a-z0-9_.-]{1,99}$/;
 const safeField = (value:unknown):value is string => typeof value==='string'&&/^[A-Za-z_][A-Za-z0-9_]{0,99}$/.test(value)&&!['__proto__','prototype','constructor'].includes(value);
@@ -69,7 +69,12 @@ export function loadOperationContracts(): ContractCatalog {
   const source=fs.readFileSync(path.join(REPO_ROOT,'config/capability-operations.json'),'utf8');
   if(catalogCache?.source===source)return structuredClone(catalogCache.catalog);
   const catalog = JSON.parse(source) as ContractCatalog;
-  if (catalog.version !== 1 || !Array.isArray(catalog.operations)) throw new Error('invalid_operation_catalog');
+  validateOperationCatalog(catalog);
+  catalogCache={source,catalog:structuredClone(catalog)};
+  return catalog;
+}
+export function validateOperationCatalog(catalog:ContractCatalog):void {
+  if (catalog.version !== 1 || !Array.isArray(catalog.operations) || catalog.operations.length>10000) throw new Error('invalid_operation_catalog');
   const seen = new Set<string>();
   const aliases = new Set<string>();
   for (const operation of catalog.operations) {
@@ -83,16 +88,13 @@ export function loadOperationContracts(): ContractCatalog {
     aliases.add(alias);seen.add(key);
     validateOperationAdapter(operation);
   }
-  catalogCache={source,catalog:structuredClone(catalog)};
-  return catalog;
 }
-export function resolveOperations(references: readonly CapabilityReference[]): OperationContract[] {
+export function resolveOperations(references: readonly CapabilityReference[], catalog=loadOperationContracts()): OperationContract[] {
   if (!references.length) return [];
-  const catalog = loadOperationContracts();
-  return references.map(reference => {
+  return references.flatMap(reference => {
     const found = catalog.operations.find(operation => operation.id === reference.id && operation.version === reference.version);
-    if (!found) throw new HttpFail(409,{code:'capability_dependency_unavailable',capability_id:reference.id,version:reference.version});
-    return structuredClone(found);
+    if (!found) {if(reference.optional)return [];throw new HttpFail(409,{code:'capability_dependency_unavailable',capability_id:reference.id,version:reference.version});}
+    return [structuredClone(found)];
   });
 }
 export function operationFingerprint(operations: readonly OperationContract[]): string {
@@ -101,20 +103,19 @@ export function operationFingerprint(operations: readonly OperationContract[]): 
 export function operationAlias(operation: OperationContract): string {
   return `cap_${operation.id.replace(/[^a-z0-9]/g,'_')}_v${operation.version}`;
 }
-export function operationTools(references: readonly CapabilityReference[], allowUnresolved=false): string[] {
-  if(!allowUnresolved)return resolveOperations(references).map(operation => `${operation.implementation.connector}.${operation.implementation.tool}`);
+export function operationTools(references: readonly CapabilityReference[], allowUnresolved=false,catalog=loadOperationContracts()): string[] {
+  if(!allowUnresolved)return resolveOperations(references,catalog).map(operation => `${operation.implementation.connector}.${operation.implementation.tool}`);
   if(!references.length)return [];
-  const catalog=loadOperationContracts();
   return references.flatMap(reference=>{
     const operation=catalog.operations.find(item=>item.id===reference.id&&item.version===reference.version);
     return operation?[`${operation.implementation.connector}.${operation.implementation.tool}`]:[];
   });
 }
-export function operationCatalogFingerprint():string {return operationFingerprint(loadOperationContracts().operations);}
-export function capabilityRiskFloor(references:readonly CapabilityReference[]):'L1'|'L2'|'L3'|null{
+export function operationCatalogFingerprint(catalog=loadOperationContracts()):string {return operationFingerprint(catalog.operations);}
+export function capabilityRiskFloor(references:readonly CapabilityReference[],catalog=loadOperationContracts()):'L1'|'L2'|'L3'|null{
   if(!references.length)return null;
   try{
-    const risks=resolveOperations(references).map(operation=>operation.risk);
+    const risks=resolveOperations(references,catalog).map(operation=>operation.risk);
     return risks.includes('R3')?'L3':risks.includes('R2')?'L2':'L1';
   }catch{return 'L3';}
 }

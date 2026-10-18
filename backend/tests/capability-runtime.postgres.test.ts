@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { beforeEach,afterEach,describe,it,expect } from 'vitest';
+import { beforeEach,afterEach,describe,it,expect,vi } from 'vitest';
+import * as registry from '../src/tasks/registry.js';
 import { freshTestDatabase } from './support/pg.js';
 import { getConn,resetConn } from '../src/db.js';
 import { loadOntologyCatalog } from '../src/ontology/catalog.js';
@@ -11,6 +12,8 @@ import { seedPublishedAgent } from './fixtures/runtime-auth.js';
 import { setAgentSkill,setSkillConnector,setSkillTool,setConnectorConfig,setToolPolicy,getSkillConnectors,getSkillTool,getToolPolicy } from '../src/runtime/store.js';
 import { SkillExecution,toolSchemaHash,runtimeSkillVersion,type RuntimeContext } from '../src/runtime/execution.js';
 import {agentSkillCatalog} from '../src/agents/workspace.js';
+import {OperationGovernance} from '../src/capability/governance.js';
+import {randomUUID} from 'node:crypto';
 import {postgresPool} from '../src/postgres/pool.js';
 import { createCredential } from '../src/runtime/credentials.js';
 import type { Json } from '../src/types.js';
@@ -40,9 +43,25 @@ beforeEach(async()=>{
   const tool=await getSkillTool(context.skillId,'starrykol','pageKolProfiles');
   await setSkillTool(context.skillId,'starrykol','pageKolProfiles',true,Number(tool?.version||0));
 });
-afterEach(async()=>{await resetConn();if(temp)fs.rmSync(temp,{recursive:true,force:true});delete process.env.LINGONG_DATA;delete process.env.AUTH_MODE;delete process.env.RUNTIME_CREDENTIAL_MASTER_KEY;});
+afterEach(async()=>{vi.restoreAllMocks();await resetConn();if(temp)fs.rmSync(temp,{recursive:true,force:true});delete process.env.LINGONG_DATA;delete process.env.AUTH_MODE;delete process.env.RUNTIME_CREDENTIAL_MASTER_KEY;});
 
 describe('business capability reuses the native runtime gates',()=>{
+  it('never falls back to raw supplier tools when every declared optional capability is absent',async()=>{
+    const definition=await registry.requireTaskDefinition(context.skillId);
+    vi.spyOn(registry,'requireTaskDefinition').mockResolvedValue({...definition,capabilities:[{id:'unavailable.optional',version:1,optional:true}]});
+    let calls=0;const execution=new SkillExecution(context,()=>({listTools:async()=>[descriptor],callToolRaw:async()=>{calls++;return {};},close:async()=>{}}));
+    try{expect((await execution.discover()).tools).toEqual([]);expect(calls).toBe(0);}finally{execution.close();}
+  });
+  it('blocks an already discovered handle when governance disables its capability before actual IO',async()=>{
+    let calls=0;const execution=new SkillExecution(context,()=>({listTools:async()=>[descriptor],callToolRaw:async()=>{calls++;return {};},close:async()=>{}}));
+    try{
+      await execution.discover();
+      const governance=new OperationGovernance({id:context.userId,username:'test',name:'Governance fixture',email:null,roles:['admin'],active:true},async()=>[{...descriptor,schema_hash:toolSchemaHash(descriptor)}]);
+      const preview=await governance.prepare({id:'creator.query',version:1,expectedRevision:0,action:'disable'});
+      await governance.commit({token:preview.token,commandId:randomUUID(),confirmed:true,reason:'isolated governance revocation'});
+      await expect(execution.invoke('cap_creator_query_v1',{})).rejects.toMatchObject({status:409});expect(calls).toBe(0);
+    }finally{execution.close();}
+  });
   it('uses the same release fingerprint for Agent assembly and actual execution',async()=>{
     const db=await postgresPool().connect();let hash:string;
     try{hash=(await agentSkillCatalog(db)).find(skill=>skill.id===context.skillId)!.release_hash;}finally{db.release();}

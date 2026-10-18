@@ -4,6 +4,7 @@
  */
 import fs from "node:fs";
 import { operationTools, parseCapabilityReferences, parseOntologyReferences, resolveOperations } from '../capability/contracts.js';
+import { publishedOperationCatalog } from '../capability/catalog.js';
 import { publishedBusinessContext } from '../ontology/runtime-dependencies.js';
 import path from "node:path";
 import { dataDir, publishedSkillsDir, codexMode } from "../config.js";
@@ -81,7 +82,7 @@ async function currentStage(id: string): Promise<Awaited<SkillStage>> {
 /** 待发布的「所需工具」：有草稿改动时以草稿为准（发布会应用草稿），否则取现行技能声明。 */
 async function pendingDeclaredTools(id: string): Promise<Awaited<string[]>> {
   const patch = (await getSkillDraft(id)).patch;
-  if(patch.capabilities!==undefined)return operationTools(parseCapabilityReferences(patch.capabilities),true);
+  if(patch.capabilities!==undefined)return operationTools(parseCapabilityReferences(patch.capabilities),true,await publishedOperationCatalog());
   const drafted = patch.mcp;
   if (Array.isArray(drafted)) return drafted.map(String);
   if (typeof drafted === "string") return drafted.split(/[,，]/).map((tool) => tool.trim()).filter(Boolean);
@@ -135,7 +136,7 @@ async function assertBusinessDependenciesReady(id:string):Promise<void>{
   const patch=(await getSkillDraft(id)).patch;
   const capabilities=parseCapabilityReferences(patch.capabilities??definition?.capabilities);
   const ontology=parseOntologyReferences(patch.ontology??definition?.ontology);
-  try {resolveOperations(capabilities);}
+  try {resolveOperations(capabilities,await publishedOperationCatalog());}
   catch {throw new HttpFail(409,{code:'skill_capability_dependency_unavailable',message:'所需业务能力或版本尚未就绪，请先完成依赖接入。'});}
   if(ontology.length)await publishedBusinessContext((await currentUser()).id,ontology);
 }

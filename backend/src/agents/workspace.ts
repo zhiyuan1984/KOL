@@ -6,6 +6,7 @@ import { HttpFail } from "../host/errors.js";
 import { taskDefinitions } from "../tasks/registry.js";
 import { runtimeHash } from "../runtime/execution.js";
 import {operationFingerprint,resolveOperations} from '../capability/contracts.js';
+import {publishedOperationCatalog} from '../capability/catalog.js';
 import {publishedBusinessDefinitions} from '../ontology/runtime-dependencies.js';
 import { computeEffectiveAgentUsers, type AgentBindingRow, type OrganizationCoverageSource } from "../runtime/organization-tree.js";
 import type { AgentContent, AgentDraft, AgentGovernanceDraft, AgentReleaseCheck, AgentReleaseReceipt, AgentSkillOption, AgentVersionRecord, AgentWorkspaceState } from "../../../shared/agent-workspace.js";
@@ -48,9 +49,10 @@ export async function agentSkillCatalog(db: PoolClient): Promise<AgentSkillOptio
   const resources = await rows(db, "SELECT * FROM runtime_skill_connectors ORDER BY skill_id,connector_id");
   const policies = await rows(db, "SELECT * FROM runtime_tool_policies");
   const connectors = new Map((await rows(db, "SELECT connector_id,config_json FROM runtime_connector_config")).map(row => [row.connector_id, json(row.config_json)]));
+  const operationCatalog=await publishedOperationCatalog(db);
   return (await taskDefinitions()).map<AgentSkillOption>(definition => {
     let capabilitiesReady=true,operations='';
-    if(definition.capabilities?.length){try{operations=operationFingerprint(resolveOperations(definition.capabilities));}catch{capabilitiesReady=false;operations='unresolved';}}
+    if(definition.capabilities?.length){try{operations=operationFingerprint(resolveOperations(definition.capabilities,operationCatalog));}catch{capabilitiesReady=false;operations='unresolved';}}
     const release = runtimeHash({ definition, body: fs.readFileSync(definition.path, "utf8"), sop: sops.get(definition.id),
       ...(definition.capabilities?.length?{operations}:{}) });
     const tools = mounts.filter(row => row.skill_id === definition.id);

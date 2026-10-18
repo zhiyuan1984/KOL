@@ -2183,6 +2183,11 @@ export type AdminSaveBudgetInput = {
 };
 
 export const api = {
+  capabilityOperations: () => request<{operations:import('../../shared/capability-governance.js').OperationRow[]}>('/api/admin/capability-operations'),
+  capabilityOperationHistory: (id:string,version:number) => request<{versions:import('../../shared/capability-governance.js').OperationHistory[]}>(`/api/admin/capability-operations/${encodeURIComponent(id)}/${version}/history`),
+  saveCapabilityOperation: (body:{definition:import('../../shared/capability-governance.js').OperationDefinition;expectedRevision:number;reason:string}) => request<{revision:number}>('/api/admin/capability-operations/drafts',{method:'POST',body:JSON.stringify(body)}),
+  prepareCapabilityOperation: (body:{id:string;version:number;expectedRevision:number;action:string;targetVersion?:string}) => request<import('../../shared/capability-governance.js').OperationPreview>('/api/admin/capability-operations/prepare',{method:'POST',body:JSON.stringify(body)}),
+  commitCapabilityOperation: (body:{token:string;commandId:string;confirmed:true;reason:string}) => request<{id:string;revision:number;action:string}>('/api/admin/capability-operations/commit',{method:'POST',body:JSON.stringify(body)}),
   replyContext: (sessionId: string) => request<ReplyContext>(`/api/queries/mail.reply-context?session_id=${encodeURIComponent(sessionId)}`),
   runtimeActions: (sessionId: string) => request<{ actions: RuntimeActionView[] }>(`/api/queries/runtime.actions?session_id=${encodeURIComponent(sessionId)}`),
   retryCrawlResults: (actionId: string) => request<{ state: string }>("/api/actions/runtime.crawl.results.retry", { method: "POST", body: JSON.stringify({ action_id: actionId }) }),

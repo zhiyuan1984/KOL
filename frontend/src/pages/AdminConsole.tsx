@@ -17,6 +17,7 @@ import AdminAudit from "./AdminAudit";
 import AdminOntology from "./AdminOntology";
 import { ConnectorDetail } from "../admin/connector/ConnectorDetail";
 import { ConnectorHub } from "../admin/connector/ConnectorHub";
+import {OperationGovernance} from '../admin/capability/OperationGovernance';
 import type { DirectoryEmployee } from "../admin/employees/EmployeeDirectory";
 import { EmployeeDirectoryV2 } from "../admin/employees/EmployeeDirectoryV2";
 import {
@@ -109,7 +110,7 @@ export default function AdminConsole() {
           <AdminAgents />
         )}
         {tab === "connectors" && (
-          detailId
+          detailId === '-/operations' ? <OperationGovernance connectors={connectors}/>:detailId
             ? <ConnectorDetail connectorId={detailId} connectors={connectors} auditRows={auditRows} reload={load} />
             : <ConnectorHub connectors={connectors} loading={loading} onSave={save} reload={load} />
         )}

@@ -7,6 +7,7 @@ export function crawlToolPresentation(tool: Json): Json | null {
   if (tool.name === "start_crawl") {
     const properties = schema.properties as Json || {};
     return { ...tool,
+      _meta: { ...(tool._meta as Json || {}), execution_mode: 'async_job' },
       description: `${tool.description || ""}\nOnly propose a confirmed-scope collection. Allowed arguments: ${START_FIELDS.join(", ")}. Region, follower/view thresholds and desired candidate count are post-collection criteria. max_notes_count limits a remote query/mode, NOT the total task or distinct creators; multiple keywords and channel enrichment may perform additional collection. P1 only accepts comments switches set to false. Do not promise a hard task-total limit.`,
       inputSchema: { ...schema,
         properties: Object.fromEntries(START_FIELDS.filter(key => key in properties).map(key => [key,
