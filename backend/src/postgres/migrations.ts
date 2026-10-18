@@ -1,3 +1,4 @@
+import {taskAgentHandoffSchema} from '../tasks/agent-handoff-schema.js';
 import {organizationLinksSchema} from '../ontology/organization-links.js';
 import {operationSchema} from '../capability/schema.js';
 import {relevanceSchema} from '../ontology/relevance.js';
@@ -1125,6 +1126,7 @@ const migrations: SchemaMigration[] = [
   {id:'20261018_ontology_relevance_v1',statements:[relevanceSchema]},
   {id:'20261018_ontology_organization_links_v1',statements:[organizationLinksSchema]},
   {id:'20261018_capability_operation_governance_v1',statements:[operationSchema]},
+  {id:'20261019_task_agent_handoff_v1',statements:[taskAgentHandoffSchema]},
 ];
 
 const { replyContextSchema } = await import("../mail/reply-context-schema.js");

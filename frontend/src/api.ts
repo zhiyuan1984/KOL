@@ -2460,6 +2460,11 @@ export const api = {
   task: (id: string) => request<TaskDetail | { task: TaskDetail }>(`/api/tasks/${encodeURIComponent(id)}`),
   taskBySession: (sessionId: string) =>
     request<Task | { task: Task }>(`/api/tasks/by-session/${encodeURIComponent(sessionId)}`),
+  taskHandoffOrigin:(id:string)=>request<{task_id:string;readable:boolean;title?:string;stale?:boolean}|null>(`/api/tasks/${encodeURIComponent(id)}/handoff-origin`),
+  taskHandoffTargets:(id:string)=>request<import('../../shared/agent-handoff.js').TaskHandoffTarget[]>(`/api/tasks/${encodeURIComponent(id)}/handoff-targets`),
+  taskHandoffs:(id:string)=>request<import('../../shared/agent-handoff.js').TaskHandoffView[]>(`/api/tasks/${encodeURIComponent(id)}/handoffs`),
+  prepareTaskHandoff:(id:string,body:Record<string,unknown>)=>request<import('../../shared/agent-handoff.js').TaskHandoffView>(`/api/tasks/${encodeURIComponent(id)}/handoffs`,{method:'POST',body:JSON.stringify(body)}),
+  acceptTaskHandoff:(id:string,handoff:string,body:Record<string,unknown>)=>request<{id:string;target_task_id:string;replayed:boolean}>(`/api/tasks/${encodeURIComponent(id)}/handoffs/${encodeURIComponent(handoff)}/accept`,{method:'POST',body:JSON.stringify(body)}),
   taskEvents: (id: string) =>
     request<TaskEvent[] | { events: TaskEvent[] }>(`/api/tasks/${encodeURIComponent(id)}/events`),
   cancelTask: (task: { id: string; data_version?: number | null }) =>

@@ -1,0 +1,2 @@
+export type TaskHandoffTarget={agent_id:string;skill_id:string;name:string;skill_name:string};
+export type TaskHandoffView={id:string;target_agent_id:string;target_skill_id:string;fingerprint:string;target_task_id:string|null;created_at:string;accepted_at:string|null;package:{schema:string;task:{id:string;title:string;version:number};reason:string;missing_refs:string[];references:Record<string,unknown>}};

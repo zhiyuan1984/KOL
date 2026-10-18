@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "source_agent": "agent:kol",
+  "profiles": [
+    {"id":"agent:lead","name":"线索智能体","description":"首批线索查询、画像与筛选字典；共享现有技能与Codex harness。采集、导入和归属仍需分别装配与确认。","skills":["creator_library_query","creator_profile","creator_filter_options"]},
+    {"id":"agent:collab","name":"达人合作智能体","description":"首批画像、筛选与授权邮件会话读取；保留实时上下文。交接不创建合作、不发信、不解密、不推进阶段，后续动作沿原独立技能与闸门。","skills":["creator_profile","creator_filter_options","email_conversation_list","email_conversation_read"]}
+  ]
+}

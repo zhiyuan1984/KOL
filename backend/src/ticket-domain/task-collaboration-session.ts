@@ -1,3 +1,4 @@
+import {formalTaskContext} from './formal-task-context.js';
 import { postgresConnection } from "../postgres/pool.js";
 import { nid } from "../ids.js";
 import type { PoolClient } from "pg";
@@ -78,7 +79,8 @@ export async function taskSessionHarnessEvidence(actorId: string, sessionId: str
     const visible = context.gates.map(gate => gate.work_order_id);
     const orders = (await client.query(`SELECT id,title,status,stage_code,data_version FROM work_orders
       WHERE task_id=$1 AND id=ANY($2::text[]) ORDER BY id`, [binding.task_id, visible])).rows;
-    const evidence = { task, gates: context.gates, work_orders: orders, events: context.events,
+    const business_context=await formalTaskContext(client,actorId,binding.task_id);
+    const evidence = { task, business_context, gates: context.gates, work_orders: orders, events: context.events,
       history_complete: !context.has_more, cursor: context.cursor };
     return { schema: "task-collaboration-evidence.v1", ...evidence, version: collaborationContentHash(evidence),
       as_of: context.as_of, risk: "L1", calls_model: false };

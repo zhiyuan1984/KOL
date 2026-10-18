@@ -1,3 +1,4 @@
+import {listTaskHandoffs,taskHandoffOrigin,handoffTargets,proposeTaskHandoff,acceptTaskHandoff} from '../tasks/agent-handoff.js';
 import { Hono } from "hono";
 import { authDisabled, isAdmin, requireSkill, scopedUser } from "../auth.js";
 import { DEMO_USER, codexMode } from "../config.js";
@@ -37,6 +38,14 @@ import { ticketOrgFormBootstrap, ticketOrganizationQualityReport } from "../tick
 import { listNativeTickets, nativeTicketById, nativeTicketTimeline, nativeTicketAllowedActions } from "../ticket-domain/read-tickets.js";
 
 export const tasks = new Hono();
+async function handoffBody(req:{json:()=>Promise<unknown>}):Promise<Json>{const body=await req.json().catch(()=>null);if(!body||typeof body!=='object'||Array.isArray(body))throw new HttpFail(400,'交接配置必须是JSON对象');return body as Json;}
+// References and pending work cross Agents; authorization never does.
+tasks.get('/tasks/:id/handoff-targets',async c=>c.json(await handoffTargets(ownerId(),c.req.param('id'))));
+tasks.get('/tasks/:id/handoff-origin',async c=>c.json(await taskHandoffOrigin(ownerId(),c.req.param('id'))));
+tasks.get('/tasks/:id/handoffs',async c=>c.json(await listTaskHandoffs(ownerId(),c.req.param('id'))));
+tasks.post('/tasks/:id/handoffs',async c=>c.json(await proposeTaskHandoff(ownerId(),c.req.param('id'),await handoffBody(c.req)),201));
+tasks.post('/tasks/:id/handoffs/:handoffId/accept',async c=>c.json(await acceptTaskHandoff(ownerId(),c.req.param('id'),c.req.param('handoffId'),await handoffBody(c.req),body=>createWorkItem(body,'agent_handoff'))));
+
 
 const STATUSES = new Set(["needs_clarification", "pending", "running", "waiting", "completed", "failed", "cancelled"]);
 const EDITABLE_STATUSES = new Set([...STATUSES, "in_progress", "queued", "starting"]);
