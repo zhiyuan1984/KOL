@@ -387,8 +387,9 @@ function humanError(message: string) {
 const ABNORMAL_MILESTONES = new Set(["run.failed", "run.stopped", "run.cancelled", "run.template_changed"]);
 
 /** 任务事件合成一条「任务进度」：每个里程碑一行、带各自的时间；整条按最新一步排进时间流。 */
-function safeEventMessages(taskId: string, events: TaskEvent[], milestonesOnly = false): Message[] {
+function safeEventMessages(taskId: string, events: TaskEvent[], milestonesOnly = false, currentRunId?: string): Message[] {
   const phases = events
+    .filter(event => !currentRunId || !event.run_id || event.run_id === currentRunId)
     .filter((event) => !/(reasoning|thought|tool|internal|think|say|stream)/i.test(String(event.type || "")))
     .filter((event) => !milestonesOnly || ABNORMAL_MILESTONES.has(String(event.type || event.event_type || "")))
     .map((event) => ({
@@ -435,6 +436,7 @@ export default function Chat() {
   const { debug } = useViewMode();
   const { messages, err, reload, setMessages, agentStatus, setAgentStatus, journey, collaborationId, sessionLoaded, runQueue, setRunQueue } = useSessionMessages(id);
   const [text, setText] = useState("");
+  const rerunTaskId = useRef<string | null>(null);
   const [entryIntent, setEntryIntent] = useState<ComposerEntryIntent>("free");
   const [lockedIntent, setLockedIntent] = useState<string | null>(null);
   const [lockedLabel, setLockedLabel] = useState<string | null>(null);
@@ -467,8 +469,6 @@ export default function Chat() {
   const [skillParamErrors, setSkillParamErrors] = useState<Record<string, string>>({});
   const [skillParamTouched, setSkillParamTouched] = useState<Set<string>>(() => new Set());
   const [taskEvents, setTaskEvents] = useState<TaskEvent[]>([]);
-  const [completion, setCompletion] = useState("");
-  const [completing, setCompleting] = useState(false);
   const [crawlJob, setCrawlJob] = useState<CrawlJob | null>(null);
   const [crawlEvents, setCrawlEvents] = useState<TaskEvent[]>([]);
   const [taskListWidth, setTaskListWidth] = useState(() => readTaskListWidth());
@@ -527,7 +527,7 @@ export default function Chat() {
     };
     void loadTask();
     const timer = window.setInterval(() => {
-      if (task?.status === "pending" || task?.status === "running" || task?.status === "waiting" || task?.status === "queued") {
+      if (task?.status === "pending" || task?.status === "running" || task?.status === "waiting" || task?.status === "waiting_approval" || task?.status === "uncertain" || task?.status === "queued") {
         void loadTask();
       }
     }, 1000);
@@ -779,6 +779,12 @@ export default function Chat() {
         setSkillParamTouched(new Set());
         pendingAsk = bound.pending;
       }
+      if (rerunTaskId.current && task?.id === rerunTaskId.current) {
+        const rerun = await api.runTask(task.id, { text: t });
+        pendingAsk = (rerun.pending_message || rerun.pending) as PendingAsk;
+        setTask(rerun.task);
+        rerunTaskId.current = null;
+      }
       submitted = pendingAsk;
       const r = await postOnce(id, pendingAsk);
       if (stopRequestedRef.current) return;
@@ -861,7 +867,7 @@ export default function Chat() {
   const hasVisibleTrace = messages.some((message) => message.kind === "process_trace" || message.kind === "operation_trace");
   // 处理过程已经逐步记录时，只补它表达不了的异常里程碑（失败、停止、取消、模板变化）。
   const timeline = task && taskEvents.length
-    ? [...messages, ...safeEventMessages(task.id, taskEvents, hasVisibleTrace)]
+    ? [...messages, ...safeEventMessages(task.id, taskEvents, hasVisibleTrace, task.execution?.run_id)]
     : messages;
   // 结果只写在任务上、会话里没有结果卡时（例如任务级运行），按完成时刻把它放进时间流；
   // 发现工作台的结果由专用面板呈现，采集作业的候选由采集条目呈现，都不重复。
@@ -985,32 +991,6 @@ export default function Chat() {
   }, [focusThread, journey?.mail_history]);
   // 任务刚启动时还没有 task_result/card，但右栏仍需立即出现并展示处理中状态。
   const showRightWorkbench = Boolean(id);
-
-  // 验收记录由系统按已发生的事实生成，不再要员工手写「凭证」：点击本身就是
-  // 一次明确的人工验收提交，这里只补充可回放的引用，不新增完成门槛。
-  const acceptanceEvidence = (target: Task) => ({
-    source: "employee_confirmation",
-    accepted_at: new Date().toISOString(),
-    task_title: target.title,
-    ticket_version: Math.max(1, Number(target.data_version || 1)),
-    ...(target.execution?.run_id ? { run_id: target.execution.run_id } : {}),
-  });
-
-  const complete = async () => {
-    if (!task || completing) return;
-    setCompleting(true);
-    setCompletion("");
-    try {
-      const result = await api.completeTask(task, acceptanceEvidence(task));
-      setTask(unwrapTask(result.ticket || await api.task(task.id)));
-      setCompletion("任务已完成验收");
-      rememberJourney({ kind: "complete", skillId: String(task.skill_id || task.skill || ""), skillLabel: task.title });
-    } catch (error) {
-      setCompletion(error instanceof Error ? error.message : String(error));
-    } finally {
-      setCompleting(false);
-    }
-  };
 
   const startCrawl = async (input: StartCrawlInput) => {
     if (!task || crawlBusy) return;
@@ -1301,6 +1281,7 @@ export default function Chat() {
     // A stopped run has no server-side automatic retry command. Reuse the
     // original request as an editable draft only; a new explicit send remains
     // subject to the current authorization, confirmation and version gates.
+    rerunTaskId.current = task?.id || null;
     setText(stoppedTaskPrompt);
     setLockedIntent(null);
     setLockedLabel(null);
@@ -1316,18 +1297,9 @@ export default function Chat() {
         railLabel="结果" railToggleLabel="结果" railStorageKey="ui:right-collapsed"
         streamStick={taskView.live} railScrollJump pendingTarget={pendingRuntimeActionId}
         centerHeader={<header className="session-workspace-header">
-          <Link to={taskWorkspace.task ? `/tasks?businessTask=${encodeURIComponent(taskWorkspace.task.task.task_id)}` : "/"} className="task-back" data-session-back-link>← 返回任务列表</Link>
+          <Link to={taskWorkspace.task ? `/tasks?businessTask=${encodeURIComponent(taskWorkspace.task.task.task_id)}` : "/"} onClick={event => { if (window.history.state?.idx > 0) { event.preventDefault(); navigate(-1); } }} className="task-back" data-session-back-link>← 返回</Link>
           <strong>{task?.title || String(journey?.handle ? `@${journey.handle}` : "当前会话")}</strong>
-          {task && !discoveryEntry ? (
-            <button
-              className="btn row-action"
-              type="button"
-              onClick={complete}
-              disabled={completing || task.status === "completed"}
-              data-complete-task
-              title="标记任务完成；不会发送邮件或修改合作阶段"
-            >{task.status === "completed" ? "已完成" : "标记完成"}</button>
-          ) : null}
+          <span className="session-terminal-status" data-session-terminal-status role="status">{taskView.label}</span>
         </header>}
         centerScroll={<>
         <details className="task-context-details" data-task-context><summary>任务背景与上下文</summary>
@@ -1432,7 +1404,6 @@ export default function Chat() {
                 {task.priority === "high" && <span className="task-context-priority">高优先级</span>}
               </p>
               {!discoveryExecutionResult && (task.context || task.description) && <p className="task-context">{task.context || task.description}</p>}
-              {completion && <p className={task.status === "completed" ? "completion-feedback" : "error"} role="status">{completion}</p>}
             </div>
             </>
           )}

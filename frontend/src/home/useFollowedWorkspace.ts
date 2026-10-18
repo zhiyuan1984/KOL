@@ -295,6 +295,7 @@ export function useFollowedWorkspace(options: {
   const openDetails = useCallback(
     (card: FollowedKolCardModel, focusThread?: string) => {
       const kol = card.source;
+      setFocusedId(card.id);
       rememberJourney({
         kind: "kol",
         handle: kol.handle,

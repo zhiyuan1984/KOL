@@ -435,7 +435,7 @@ export async function monitorRuntimeCrawl(executionJob: ClaimedExecutionJob, che
     throw error;
   }
 }
-registerExecutionHandler("crawler.monitor", monitorRuntimeCrawl);
+registerExecutionHandler("crawler.monitor", withTaskState(monitorRuntimeCrawl));
 
 /** starter：把 drain 选中的 queued 任务真正启动。出队前重校验参数、连接器配置与
  *  Agent/技能使用资格（PROD-AGENT-09：组织或绑定变化后再次执行须重验）。 */
@@ -487,7 +487,7 @@ async function starterHandler(executionJob: ClaimedExecutionJob, checkpoint: () 
     throw error;
   }
 }
-registerExecutionHandler("crawler.starter", starterHandler);
+registerExecutionHandler("crawler.starter", withTaskState(starterHandler));
 
 /** reconcile（T3）：uncertain 任务的低频对账。有远端任务号就查远端拿终态；
  *  24h 仍不明则判 failed(monitor_abandoned) 并出队，不永久占位。 */
@@ -536,7 +536,7 @@ async function reconcileHandler(executionJob: ClaimedExecutionJob, checkpoint: (
     return { state: "uncertain", reason: "reconcile_failed" };
   }
 }
-registerExecutionHandler("crawler.reconcile", reconcileHandler);
+registerExecutionHandler("crawler.reconcile", withTaskState(reconcileHandler));
 
 /** sweep：每小时兜底。清理超时排队（T4）、复活卡死的 starting、触发漏掉的出队；
  *  还有排队才续约，否则停止链条（下一次入队会重新起链）。 */
@@ -560,4 +560,18 @@ async function sweepHandler(executionJob: ClaimedExecutionJob): Promise<Json> {
   if (pending.rows.length) await ensureSweepScheduled(instanceKey, String(pending.rows[0].actor_id));
   return { state: "swept" };
 }
-registerExecutionHandler("crawler.sweep", sweepHandler);
+registerExecutionHandler("crawler.sweep", withTaskState(sweepHandler));
+
+/** Keep generated tasks synchronized with durable async receipts, including
+ * failures/cancellation before result collection and queue timeout sweeps. */
+function withTaskState(handler: (job: ClaimedExecutionJob, checkpoint: () => Promise<void>) => Promise<Json>) {
+  return async (job: ClaimedExecutionJob, checkpoint: () => Promise<void>): Promise<Json> => {
+    try { return await handler(job, checkpoint); }
+    finally {
+      const { syncRuntimeTaskState } = await import("../tasks/runtime-task-state.js");
+      const payload = pgExecutionJobPayload(job);
+      const rows = (await postgresConnection().query("SELECT DISTINCT context_json->>'runId' AS worker_id FROM runtime_crawl_jobs WHERE id=$1 OR instance_key=$2", [payload.crawl_id || null, payload.instance_key || null])).rows;
+      for (const row of rows) await syncRuntimeTaskState(String(row.worker_id || ""));
+    }
+  };
+}

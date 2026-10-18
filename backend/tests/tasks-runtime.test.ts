@@ -340,7 +340,8 @@ describe("task CRUD and run flow", () => {
     expect(bySession.body.id).toBe(taskId);
 
     const detail = await request("GET", `/api/tasks/${taskId}`);
-    expect(detail.body.status).toBe("waiting");
+    expect(detail.body.status).toBe("completed");
+    expect(detail.body.completed_at).toBeTruthy();
     expect(detail.body.execution).toEqual({ run_id: String(queued.body.run_id), status: "completed", result_ready: true });
     expect(bySession.body.execution).toEqual(detail.body.execution);
     expect((detail.body.artifacts as Json[]).some((artifact) => artifact.artifact_type === "task_result_card")).toBe(true);
@@ -354,7 +355,7 @@ describe("task CRUD and run flow", () => {
     (await getConn().query("UPDATE task_runs SET status='running' WHERE id=$1",[queued.body.run_id]));
     expect(((await request("GET", `/api/tasks/${taskId}`)).body.execution as Json).result_ready).toBe(false);
     (await getConn().query("UPDATE task_runs SET status='completed' WHERE id=$1",[queued.body.run_id]));
-    expect((await request("GET", `/api/tasks/${taskId}`)).body.status).toBe("waiting");
+    expect((await request("GET", `/api/tasks/${taskId}`)).body.status).toBe("completed");
     const retired = await request("POST", `/api/tasks/${taskId}/complete`, {});
     expect(retired.status).toBe(410);
     expect(retired.body).toMatchObject({ detail: { code: "legacy_write_endpoint_retired" } });

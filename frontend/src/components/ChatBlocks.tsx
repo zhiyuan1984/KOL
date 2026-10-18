@@ -1,3 +1,4 @@
+import ExecutionTimeline from "./ExecutionTimeline";
 import WorkspaceSearchInput from "./WorkspaceSearchInput";
 import { Fragment, useCallback, useEffect, useRef, useState, type HTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
@@ -69,7 +70,7 @@ function ThreadMessage({
       data-risk={risk}
       {...attrs}
     >
-      {risk ? <span className="risk-kicker">{MESSAGE_RISK_LABEL[risk]}</span> : null}
+      {risk && risk !== "L1" ? <span className="risk-kicker">{MESSAGE_RISK_LABEL[risk]}</span> : null}
       {observedAt ? <div className="message-time"><StepTime value={observedAt} /></div> : null}
       <div className="message-content">{children}</div>
     </div>
@@ -1167,7 +1168,7 @@ function humanizeTraceLabel(label: string) {
 export function employeeProcessLabel(raw: string) {
   const human = stripEngineCopy(humanizeTraceLabel(raw));
   if (!human || human === "正在处理这项工作" || /[{[]/.test(human) || isHarnessLabel(human) || /\b(?:starrykol|starry)\./i.test(human)) {
-    return "正在读取任务所需资料 · 未提供步骤说明";
+    return "正在处理任务";
   }
   return human;
 }
@@ -1188,7 +1189,7 @@ export function employeeReasoningLabel(raw: string) {
   // Employee copy (04 / UX-EMPLOYEE): a jargon-only title is not a summary. Keep real prose.
   if (isHarnessLabel(cleaned) || isToolId(cleaned) || /^[a-z0-9_.:/-]+$/i.test(cleaned)) return "正在分析…";
   // 中栏时间线按纯文本渲染过程行：强调标记不进入员工可读文案（截图里出现过 **…**）。
-  return cleaned.replace(/\*\*/g, "").trim() || cleaned;
+  return /[\u4e00-\u9fff]/.test(cleaned) ? cleaned.replace(/\*\*/g, "").trim() || cleaned : "正在分析…";
 }
 
 export function employeeTraceLabel(raw: string, kind?: string) {
@@ -1552,7 +1553,7 @@ export function ChatThread({
         if (m.kind === "me") {
           return (
             <ThreadMessage key={m.id} role="user" data-kind="me" observedAt={discovery ? m.created_at : undefined}>
-              {String(m.payload.text || "")}
+              {String(m.payload.display_text || m.payload.text || "").split(/\n\n(?=当前页面：工作台)/)[0]}
             </ThreadMessage>
           );
         }
@@ -1568,7 +1569,7 @@ export function ChatThread({
           return <ThreadMessage key={m.id} role="assistant" result={m.kind === "email_card" ? "draft" : m.kind === "confirm_stage_card" ? "stage" : "task_result"}
             risk={risk} data-kind={m.kind === "email_card" ? "email-card-pointer" : "task-result-pointer"} data-stream-entry={m.id}>
             <strong>{label}</strong><p>{String(m.payload.summary || "成果与依据已放入结果工作台。")}</p>
-            <button type="button" className="result-pointer-button" onClick={() => onViewResult(m.id)}>查看成果</button>
+
           </ThreadMessage>;
         }
         const artifact = renderArtifact?.(m);
@@ -1676,98 +1677,17 @@ export function ChatThread({
             </ThreadMessage>
           );
         }
-        if (m.kind === "process_trace") {
-          const items = traceItems(m.payload);
-          const summaries = summaryLines(m.payload, items)
-            .map((line) => employeeReasoningLabel(line))
-            .filter((line) => line && line !== "正在分析…" && !/[{[]/.test(line));
-          const hasThinking = items.some((item) => item.kind === "reasoning" || Boolean(item.summary || item.reasoning_summary));
-          return (
-            <ThreadMessage
-              key={m.id}
-              role="assistant"
-              className="process-trace process-md"
-              data-kind="process-trace"
-              data-harness-thinking={hasThinking ? "true" : undefined}
-            >
-              <strong>{employeeProcessLabel(String(m.payload.title || "处理过程"))}</strong>
-              <ul className="trace-list">
-                {items.map((item, index) => {
-                  const rawLabel = String(
-                    item.label || item.summary || item.reasoning_summary || item.title || item.phase || `阶段 ${index + 1}`,
-                  );
-                  const label = employeeTraceLabel(rawLabel, item.kind);
-                  const status = safeStatus(item.status);
-                  const streaming = item.kind === "reasoning" && (item.streaming || status === "running");
-                  return (
-                    <li key={item.id || `${label}-${index}`} data-status={status} data-kind={item.kind || undefined}>
-                      <i role="img" aria-label={statusLabel(status)}>{statusMark(status)}</i>
-                      <span className={streaming ? "is-streaming" : undefined}>{label}</span>
-                      <StepTime value={item.observed_at} />
-                    </li>
-                  );
-                })}
-              </ul>
-              {summaries.length > 0 && (
-                <details data-reasoning-summaries>
-                  <summary>分析摘要</summary>
-                  {summaries.map((summary, index) => (
-                    looksLikeInferenceJson(summary)
-                      ? <HumanizedInference key={`${summary}-${index}`} text={summary} debug={debug} />
-                      : <p key={`${summary}-${index}`}>{summary}</p>
-                  ))}
-                </details>
-              )}
-            </ThreadMessage>
-          );
-        }
-        if (m.kind === "operation_trace") {
-          const source = m.payload.operations || m.payload.items || [];
-          const legacyTrace = String(m.payload.title || "") === "操作过程";
-          const operations: OperationTraceItem[] = Array.isArray(source)
-            ? source
-              .map((item) => typeof item === "string" ? { label: item, status: "done" } : item as OperationTraceItem)
-              .filter((operation) => !isLegacyPhaseOperation(operation, legacyTrace))
-            : [];
-          const active = Boolean(m.payload.active);
-          const ended = m.payload.active === false;
-          const title = ended ? "系统能力调用记录" : employeeProcessLabel(String(m.payload.title || "正在调用系统能力"));
-          if (!operations.length && !active) return null;
-          return (
-            <ThreadMessage key={m.id} role="assistant" className="operation-trace process-md" data-kind="operation-trace">
-              <strong>{title}</strong>
-              <ul className="trace-list">
-                {operations.length
-                  ? operations.map((operation, index) => {
-                    const { human, name } = operationParts(operation, index);
-                    const reportedStatus = safeStatus(operation.status);
-                    const status = ended && (reportedStatus === "running" || reportedStatus === "pending") ? "interrupted" : reportedStatus;
-                    const streaming = status === "running";
-                    const label = employeeProcessLabel(human);
-                    const settledLabel = ended && status === "failed"
-                      ? `调用失败：${label.replace(/^正在/, "")}`
-                      : ended && status === "interrupted"
-                      ? label.replace(/^正在/, "")
-                      : !streaming && label === "正在处理这项工作"
-                      ? `系统能力调用${status === "failed" ? "失败" : status === "interrupted" ? "中断" : "记录"}`
-                      : label;
-                    return (
-                      <li key={operation.id || name || index} data-status={status} data-mcp-name={debug ? (name || undefined) : undefined}>
-                        <i role="img" aria-label={statusLabel(status)}>{statusMark(status)}</i>
-                        <span className={streaming ? "is-streaming" : undefined}>{settledLabel}</span>
-                        <StepTime value={operation.observed_at} />
-                      </li>
-                    );
-                  })
-                  : (
-                    <li data-status="running" data-mcp-waiting>
-                      <i role="img" aria-label="执行中">…</i>
-                      <span className="is-streaming">正在调用系统能力…</span>
-                    </li>
-                  )}
-              </ul>
-            </ThreadMessage>
-          );
+        if (m.kind === "process_trace" || m.kind === "operation_trace") {
+          const traces = messages.filter(message => ["process_trace", "operation_trace"].includes(message.kind));
+          const lastRequest = messages.map(message => message.kind).lastIndexOf("me");
+          const current = traces.filter(message => messages.indexOf(message) > lastRequest || message.id.startsWith("task-events:"));
+          const previous = traces.filter(message => !current.includes(message));
+          const first = traces[0];
+          if (m.id !== first?.id) return null;
+          return <ThreadMessage key={m.id} role="assistant" className="process-trace process-md" data-kind="process-trace" data-stream-entry={m.id}>
+            {previous.length ? <details className="execution-history"><summary>历史执行记录</summary><ExecutionTimeline messages={previous} label={employeeTraceLabel} /></details> : null}
+            <ExecutionTimeline messages={current} label={employeeTraceLabel} />
+          </ThreadMessage>;
         }
         if (isBoxSteps(m)) return null;
         if (isOverdueSteps(m)) {

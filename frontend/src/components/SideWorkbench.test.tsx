@@ -9,6 +9,7 @@ vi.mock("./ChatBlocks", () => ({
     <button type="button" data-mail-review-stage onClick={onReviewStage}>核对阶段变更</button>
   ),
   taskResultCardsFrom: () => [],
+  employeeTraceLabel: (text: string) => text,
 }));
 vi.mock("../home/WorkspaceShell", () => ({ revealWorkspace: vi.fn() }));
 

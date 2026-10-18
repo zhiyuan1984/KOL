@@ -129,4 +129,12 @@ if (createRuntime === undefined) createRuntime = async (context) =>
     throw error;
   } finally { (await runtime.close()); }
 }
-registerExecutionHandler("crawler.results", collectCrawlResults);
+registerExecutionHandler("crawler.results", async (...args: Parameters<typeof collectCrawlResults>) => {
+  try { return await collectCrawlResults(...args); }
+  finally {
+    const { syncRuntimeTaskState } = await import("../tasks/runtime-task-state.js");
+    const payload = pgExecutionJobPayload(args[0]);
+    const row = (await postgresConnection().query("SELECT context_json FROM runtime_crawl_jobs WHERE id=$1", [payload.crawl_id])).rows[0];
+    if (row) await syncRuntimeTaskState(String(row.context_json?.runId || ""));
+  }
+});

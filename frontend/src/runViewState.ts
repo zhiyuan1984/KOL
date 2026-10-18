@@ -7,6 +7,7 @@ import type { CrawlJob, Message, RuntimeActionView, Task } from "./api";
 export type TaskRunKey =
   | "uncertain"
   | "idle"
+  | "needs_input"
   | "queued"
   | "running"
   | "awaiting_confirm"
@@ -29,11 +30,12 @@ export type TaskRunView = {
 export const TASK_RUN_LABEL: Record<TaskRunKey, string> = {
   uncertain: "结果待核实",
   idle: "待命",
+  needs_input: "待补充信息",
   queued: "已排队",
   running: "执行中",
   awaiting_confirm: "待你确认",
-  awaiting_acceptance: "结果待验收",
-  result_ready: "结果已生成",
+  awaiting_acceptance: "等待继续",
+  result_ready: "已完成",
   stopped: "已停止",
   cancelled: "已取消",
   failed: "失败",
@@ -50,23 +52,21 @@ export type TaskStatusView = TaskRunView & {
   copy: string;
   tone: TaskStatusTone;
   shape: TaskStatusShape;
-  /** 需要人做高风险确认（R3）才为 true；「结果已出、等你标记完成」不算待确认。 */
+  /** 需要人做高风险确认（R3）才为 true；任务完成不算待确认。 */
   needsConfirm: boolean;
 };
 
-/**
- * 状态文案对照表。`awaiting_acceptance` / `result_ready` 是「等你标记完成」，
- * 与需要人确认后才执行的高风险 `awaiting_confirm`（待确认）分开表述，
- * 不把「待确认」挪用成「等你标记完成」；结果未出时也不谎称已有结果。
- */
+/** Task terminal states are persisted by the server. R3 action confirmations
+ * remain separate from task completion; never ask employees to accept a run. */
 const TASK_STATUS_PRESENTATION: Record<TaskRunKey, { copy: string; tone: TaskStatusTone; shape: TaskStatusShape }> = {
   uncertain: { copy: "结果待核实", tone: "confirm", shape: "alert" },
   idle: { copy: "待命", tone: "neutral", shape: "dot" },
+  needs_input: { copy: "待补充信息", tone: "confirm", shape: "hollow" },
   queued: { copy: "已排队 · 等待开始", tone: "neutral", shape: "dot" },
   running: { copy: "执行中", tone: "live", shape: "pulse" },
   awaiting_confirm: { copy: "待确认 · 需要你确认后才会执行", tone: "confirm", shape: "alert" },
-  awaiting_acceptance: { copy: "执行已结束 · 待你核对结果", tone: "neutral", shape: "hollow" },
-  result_ready: { copy: "结果已生成 · 待你标记完成", tone: "done", shape: "check" },
+  awaiting_acceptance: { copy: "等待继续", tone: "neutral", shape: "hollow" },
+  result_ready: { copy: "已完成 · 结果已生成", tone: "done", shape: "check" },
   stopped: { copy: "已停止", tone: "neutral", shape: "square" },
   cancelled: { copy: "已取消", tone: "neutral", shape: "cross" },
   failed: { copy: "失败", tone: "failed", shape: "cross" },
@@ -91,6 +91,8 @@ export function isTerminalTaskStatus(status?: string): boolean {
 
 export function taskRunView(task: Task | null | undefined, agentStatus?: string): TaskRunView {
   const status = String(task?.status || "").toLowerCase();
+  if (status === "uncertain") return view("uncertain", false, false);
+  if (status === "needs_clarification") return view("needs_input", false, false);
   if (status === "completed" || status === "success") return view("completed", false, false);
   if (status === "failed" || status === "error") return view("failed", false, true);
   if (status === "stopped") return view("stopped", false, true);
@@ -114,7 +116,7 @@ function view(key: TaskRunKey, live: boolean, canRerun: boolean): TaskRunView {
 }
 
 /** One projection for conversation and result status. Result readiness remains
- * distinct from formal work order acceptance. */
+ * distinct from permission to execute a later business action. */
 export function sessionRunView(task: Task | null, agentStatus: string, messages: Message[], actions: RuntimeActionView[], crawl?: CrawlJob | null): TaskRunView {
   if (actions.some(action => action.state === "pending" && !action.execution)) return view("awaiting_confirm", false, false);
   const active = actions.some(action => ["dispatching", "running", "starting", "stopping", "queued"]

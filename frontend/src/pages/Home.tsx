@@ -19,7 +19,6 @@ import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
 import { clearPending, storePending, runPendingAsk } from "../components/ChatBlocks";
 import { applyAddressesToText } from "../composer/addresses";
 import { clearDraft, writeDraft } from "../composer/draft";
-import { assembleComposerText } from "../composer/submit";
 import type { ComposerEntryIntent, ComposerObjectRef } from "../composer/types";
 import Markdown from "../components/Markdown";
 import { starterPrompt } from "../taskStarters";
@@ -1218,6 +1217,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
       task_type: String(pending.task_type || result.task.task_type || result.task.skill || lockedIntent || ""),
       run_id: String(pending.run_id || result.run_id || ""),
       entities: pending.entities && typeof pending.entities === "object" ? pending.entities as Record<string, unknown> : undefined,
+      workbench_context: pending.workbench_context as Record<string, unknown> | undefined,
     });
     nav(`/s/${result.session_id}`);
   };
@@ -1639,26 +1639,16 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
    * exception paths keep their own payloads.
    */
   const buildWorkbenchContext = () => {
-    const selectedFollowed = followedWorkspace.rows.filter((row) => selectedKolIds.includes(row.id));
-    const followedLine = selectedFollowed.length
-      ? `选中红人：${selectedFollowed.map((row) => `@${row.handle}（阶段：${row.stage_label || "未知"}）`).join("，")}`
-      : "选中红人：无";
-    const poolLine = selectedPoolCards.length
-      ? `公海选中：${selectedPoolCards.map((card) => card.identity.display || card.kol_uid).join("，")}`
-      : "公海选中：无";
-    const taskLine = detailTask?.title ? `选中任务：${detailTask.title}` : "选中任务：无";
-    const brief = discoveryBrief;
-    const briefLine = brief
-      ? `AI发现条件：平台 ${brief.platforms.join("、") || "未设置"}，地区 ${brief.region || "未设置"}，方向 ${brief.directions.join("、") || "未设置"}，关键词 ${brief.keywords.join("、") || "未设置"}，粉丝 ${brief.min_followers}${brief.max_followers != null ? `–${brief.max_followers}` : "+"}，近10条最低均播 ${brief.min_avg_plays_10}，期望数量 ${brief.expect_count}`
-      : "AI发现条件：未设置";
-    return [
-      `当前页面：工作台（模式：${mode}）`,
-      followedLine,
-      poolLine,
-      taskLine,
-      briefLine,
-      "以上仅为已加载内容；未加载的不得猜测。",
-    ].join("\n");
+    const current = followedWorkspace.rows.find(row => row.id === followedWorkspace.focusedId);
+    return {
+      surface: "home", mode,
+      ...(current ? { current_object: { id: current.id, label: current.handle } } : {}),
+      selected_objects: followedWorkspace.rows.filter(row => selectedKolIds.includes(row.id))
+        .map(row => ({ id: row.id, label: row.handle })),
+      selected_pool: selectedPoolCards.map(card => ({ id: card.kol_uid, label: card.identity.display })),
+      ...(detailTask ? { task: { id: detailTask.id, title: detailTask.title } } : {}),
+      ...(discoveryBrief ? { discovery_brief: discoveryBrief } : {}),
+    };
   };
 
   const onComposer = async (p: ComposerSubmit) => {
@@ -1833,13 +1823,14 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
       // ambiguous request remains on the home page with an actionable card;
       // only a resolved task opens a session and starts the run.
       const recognized = await api.createTaskFromText({
-        text: assembleComposerText(intakeText, buildWorkbenchContext),
+        text: intakeText,
         task_type: intent || undefined,
         intent: intent || undefined,
         source: "text",
         attachments: p.attachments,
         model_tier: p.model_tier,
         input: {
+          workbench_context: buildWorkbenchContext(),
           ...nonEmptyTemplateEntities(submittedSchemaFields, submittedSkillValues, submittedTouched),
           ...(submittedTemplate?.version ? { skill_template_version: submittedTemplate.version } : {}),
         },
@@ -1940,6 +1931,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
         object_refs: p.object_refs,
         compose_input: p.compose_input,
         input: {
+          workbench_context: buildWorkbenchContext(),
           ...nonEmptyTemplateEntities(submittedSchemaFields, submittedSkillValues, submittedTouched),
           ...(submittedTemplate?.version ? { skill_template_version: submittedTemplate.version } : {}),
         },
