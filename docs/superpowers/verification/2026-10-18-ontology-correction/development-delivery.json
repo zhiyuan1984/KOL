@@ -1,0 +1,117 @@
+{
+  "schema_version": "1.0.0",
+  "kind": "development-delivery-record",
+  "task_contract": {
+    "file": "task-contract.json",
+    "sha256": "55c72a3dc0c3e1bae4b464a8798e81872f05a17756335220fd44fe8e4c54840c"
+  },
+  "artifacts": [
+    {
+      "id": "state-and-action-map",
+      "status": "complete",
+      "file": "state-and-action-map.json",
+      "sha256": "8d6da1aec6d30473e4fbd9cf71866ea510de9bee29d755cd04544b219d99b525"
+    },
+    {
+      "id": "layout-contract",
+      "status": "complete",
+      "file": "layout-contract.json",
+      "sha256": "37ea3cfd09ee51b1dd6edd09e615808e01a556058e3910b3667b64ab1b087a9a"
+    },
+    {
+      "id": "component-selection",
+      "status": "complete",
+      "file": "component-selection.json",
+      "sha256": "7f9a7b1edf4107817543253aaa94332989f56152bcbd2ac265a62ff03bc42dbe"
+    },
+    {
+      "id": "browser-and-source-evidence",
+      "status": "complete",
+      "file": "browser-and-source-evidence.json",
+      "sha256": "f32907f2231f86161523350f4cbec10327cea37c779a585b2690768f462851c2"
+    }
+  ],
+  "checks": [
+    {
+      "id": "route-contract-schema",
+      "type": "machine",
+      "status": "passed",
+      "command": "node scripts/development-verify.mjs",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "page-results.json",
+          "sha256": "bcb5f77eb9bb7e2cc90b40365cfa2d5bbd86a29026d1caf65c6b8a9755f15385",
+          "kind": "test-report"
+        },
+        {
+          "file": "build-results.json",
+          "sha256": "b43fcfaf0d012eb873b237737601f9cd863d2595f62d637ecd094c369a8a5554",
+          "kind": "test-report"
+        }
+      ]
+    },
+    {
+      "id": "frontend-experience-test",
+      "type": "machine",
+      "status": "passed",
+      "command": "npx playwright test --config playwright.ontology.config.ts --reporter=list,json",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "page-results.json",
+          "sha256": "bcb5f77eb9bb7e2cc90b40365cfa2d5bbd86a29026d1caf65c6b8a9755f15385",
+          "kind": "test-report"
+        },
+        {
+          "file": "build-results.json",
+          "sha256": "b43fcfaf0d012eb873b237737601f9cd863d2595f62d637ecd094c369a8a5554",
+          "kind": "test-report"
+        }
+      ]
+    },
+    {
+      "id": "frontend-browser-review",
+      "type": "human-browser",
+      "status": "passed",
+      "reviewer": "Codex acting as UI/UX expert agent (not human research)",
+      "reviewed_at": "2026-10-18T07:34:32.732961+00:00",
+      "evidence": [
+        {
+          "file": "middle-correction.png",
+          "sha256": "823529341e7246bd6b55b55bb5b2f4a1637c6da0cc1f57247605672062534e08",
+          "kind": "screenshot"
+        },
+        {
+          "file": "source-compare.json",
+          "sha256": "142a53e488cade822c7f1ab7aea8a71664221a8190fac25df5bbf72561bc438e",
+          "kind": "source-compare"
+        },
+        {
+          "file": "browser-review.json",
+          "sha256": "47bf982724013dee72348723a1c112d00822eb05608ead2787cc27ca3483c678",
+          "kind": "browser-record"
+        }
+      ]
+    },
+    {
+      "id": "backend-affected-test",
+      "type": "machine",
+      "status": "passed",
+      "command": "vitest run --config vitest.ontology-postgres.config.ts; vitest run --config vitest.ontology-unit.config.ts",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "pg-results.json",
+          "sha256": "5aac255d961fcaa4ae7b7f1e7bb008acd1a81c07817d7c98e9141bcfc5e1bef8",
+          "kind": "test-report"
+        },
+        {
+          "file": "unit-results.json",
+          "sha256": "41315d64a665cb26051addb448f228b8dd2919dea4326c6c04ea42fca00581f4",
+          "kind": "test-report"
+        }
+      ]
+    }
+  ]
+}

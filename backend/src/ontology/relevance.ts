@@ -1,3 +1,4 @@
+import {readOrganizationMappings,writeOrganizationMappings} from './organization-links.js';
 import { randomUUID,createHash } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import type { OntologyContext,OntologyScopeSettings,OntologyScopeOptions,OntologyRelevance,OntologyScopeMapping,OntologyMaintenanceRequest } from '../../../shared/ontology.js';
@@ -15,7 +16,7 @@ DROP TRIGGER IF EXISTS ontology_scope_history_immutable ON ontology_scope_histor
 CREATE TRIGGER ontology_scope_history_immutable BEFORE UPDATE OR DELETE ON ontology_scope_history FOR EACH ROW EXECUTE FUNCTION ontology_scope_keep_history();
 `;
 const active=`m.status='active' AND p.status='active' AND ou.status='active' AND (m.effective_from IS NULL OR m.effective_from<=$2) AND (m.effective_to IS NULL OR m.effective_to>$2)`;
-export async function scopeSettings(db:DB,company:string):Promise<OntologyScopeSettings>{const r=(await db.query('SELECT revision,mappings,updated_at FROM ontology_scope_settings WHERE company_id=$1',[company])).rows[0];return {revision:r?.revision||0,mappings:r?.mappings||[],updatedAt:r?.updated_at||null};}
+export async function scopeSettings(db:DB,company:string):Promise<OntologyScopeSettings>{const r=(await db.query('SELECT revision,mappings,updated_at FROM ontology_scope_settings WHERE company_id=$1',[company])).rows[0];return {revision:r?.revision||0,mappings:r?await readOrganizationMappings(db,company):[],updatedAt:r?.updated_at||null};}
 export async function scopeOptions(db:DB,company:string):Promise<OntologyScopeOptions>{
  const stamp=new Date().toISOString();
  const units=(await db.query("SELECT id,display_name AS name FROM organization_units WHERE company_id=$1 AND status='active' ORDER BY display_name",[company])).rows as {id:string;name:string}[];
@@ -24,7 +25,7 @@ export async function scopeOptions(db:DB,company:string):Promise<OntologyScopeOp
  return {units,people,positions};
 }
 export async function relevance(db:DB,ctx:OntologyContext,userId:string):Promise<OntologyRelevance>{
- const settings=await scopeSettings(db,ctx.companyId);if(!settings.mappings.length)return {configured:false,relatedDomains:[],matchedMappings:[],owners:[]};
+ const settings=await scopeSettings(db,ctx.companyId);if(!settings.mappings.length)return {configured:false,relatedDomains:[],relatedObjectCodes:[],matchedMappings:[],owners:[]};
  const memberships=(await db.query(`SELECT m.org_unit_id,m.position,p.person_ref FROM organization_people p JOIN organization_memberships m ON m.person_ref=p.person_ref JOIN organization_units ou ON ou.id=m.org_unit_id AND ou.company_id=m.company_id JOIN users u ON u.id=p.user_id AND u.active=1 WHERE m.company_id=$1 AND ${active} AND p.user_id=$3`,[ctx.companyId,new Date().toISOString(),userId])).rows;
  const units=(await db.query("SELECT id,parent_id FROM organization_units WHERE company_id=$1 AND status='active'",[ctx.companyId])).rows;
  const related=settings.mappings.filter(mapping=>memberships.some(m=>{
@@ -35,7 +36,8 @@ export async function relevance(db:DB,ctx:OntologyContext,userId:string):Promise
  const owners:OntologyRelevance['owners']=[];
  const refs=[...new Set(settings.mappings.map(m=>m.ownerPersonRef).filter((v):v is string=>!!v))];
  if(refs.length){const people=(await scopeOptions(db,ctx.companyId)).people;for(const m of settings.mappings){const person=people.find(p=>p.id===m.ownerPersonRef);if(person&&!owners.some(o=>JSON.stringify(o.domain)===JSON.stringify(m.domain)&&o.name===person.name))owners.push({domain:m.domain,name:person.name});}}
- return {configured:true,relatedDomains:[...new Map(related.map(m=>[JSON.stringify(m.domain),m.domain])).values()],matchedMappings:related.map(m=>m.id),owners};
+ const relatedObjectCodes=(await db.query('SELECT DISTINCT object_code FROM ontology_organization_business_objects WHERE company_id=$1 AND binding_id=ANY($2::text[])',[ctx.companyId,related.map(m=>m.id)])).rows.map(r=>r.object_code as string);
+ return {configured:true,relatedObjectCodes,relatedDomains:[...new Map(related.map(m=>[JSON.stringify(m.domain),m.domain])).values()],matchedMappings:related.map(m=>m.id),owners};
 }
 export async function saveScope(db:DB,ctx:OntologyContext,actor:string,body:Record<string,unknown>){
  if(body.confirmed!==true)throw new HttpFail(409,'请确认默认范围配置；该操作不改变访问权限');
@@ -50,6 +52,7 @@ export async function saveScope(db:DB,ctx:OntologyContext,actor:string,body:Reco
   if(!valid||raw.subjectType!=='organization_unit'&&raw.includeDescendants||raw.ownerPersonRef&&!choices.people.some(p=>p.id===raw.ownerPersonRef))throw new HttpFail(422,'范围主体或维护责任人不是当前公司有效组织／岗位／人员');
   seen.add(raw.id);mappings.push({id:raw.id,subjectType:raw.subjectType,subjectId:raw.subjectId,domain:raw.domain,includeDescendants:raw.includeDescendants,...(raw.ownerPersonRef?{ownerPersonRef:raw.ownerPersonRef}:{})});
  }
+ await writeOrganizationMappings(db,ctx.companyId,mappings);
  const revision=current.revision+1,createdAt=new Date().toISOString(),id=randomUUID();
  await db.query('INSERT INTO ontology_scope_settings(company_id,revision,mappings,updated_at) VALUES($1,$2,$3,$4) ON CONFLICT(company_id) DO UPDATE SET revision=$2,mappings=$3,updated_at=$4',[ctx.companyId,revision,JSON.stringify(mappings),createdAt]);
  await db.query('INSERT INTO ontology_scope_history(id,company_id,revision,actor,reason,mappings,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,ctx.companyId,revision,actor,body.reason.trim(),JSON.stringify(mappings),createdAt]);

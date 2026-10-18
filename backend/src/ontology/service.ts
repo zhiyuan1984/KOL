@@ -1,3 +1,4 @@
+import {syncOrganizationObjects} from './organization-links.js';
 import {relevance,scopeSettings,scopeOptions,saveScope,feedback,maintenanceRequests} from './relevance.js';
 import { enterpriseTaxonomy, enterpriseSource, enterpriseHash } from './enterprise.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -159,6 +160,7 @@ export class OntologyService {
       const remainingDraft=confirmation.action==='publish'?null:current?.draft||null;
       await db.query(`INSERT INTO ontology_documents(company_id,code,revision,published,disabled,updated_at,draft) VALUES($1,$2,$3,$4,$5,$6,$7)
         ON CONFLICT(company_id,code) DO UPDATE SET revision=$3,published=$4,disabled=$5,draft=$7,updated_at=$6`,[ctx.companyId,confirmation.code,next,stored?JSON.stringify(stored):null,confirmation.action==='disable',time,remainingDraft?JSON.stringify(remainingDraft):null]);
+      await syncOrganizationObjects(db,ctx.companyId);
       await db.query('UPDATE ontology_confirmations SET consumed=true WHERE id=$1',[token]);
       await db.query('INSERT INTO ontology_versions(id,company_id,code,revision,action,actor,reason,definition,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[id,ctx.companyId,confirmation.code,next,confirmation.action,this.actor.id,reason,target?JSON.stringify(target):null,time]);
       const receipt:OntologyReceipt={id,code:confirmation.code,revision:next,action:confirmation.action,createdAt:time};

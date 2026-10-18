@@ -1,3 +1,4 @@
+import {organizationLinksSchema} from '../src/ontology/organization-links.js';
 import {relevanceSchema} from '../src/ontology/relevance.js';
 import {postgresTransaction} from '../src/postgres/pool.js';
 import {enterpriseSchema,enterpriseSource,importEnterpriseCatalog,enterpriseHash} from '../src/ontology/enterprise.js';
@@ -36,9 +37,9 @@ suite('ontology native PostgreSQL integration (isolated disposable database)',()
       CREATE TABLE organization_units(id text PRIMARY KEY,company_id text,status text,display_name text DEFAULT '测试部门',parent_id text);
       CREATE TABLE organization_memberships(person_ref text,company_id text,org_unit_id text,status text,effective_from text,effective_to text,position text);
     `);
-    await postgresPool().query(ontologySchema);await postgresPool().query(enterpriseSchema);await postgresPool().query(relevanceSchema);
+    await postgresPool().query(ontologySchema);await postgresPool().query(enterpriseSchema);await postgresPool().query(relevanceSchema);await postgresPool().query(organizationLinksSchema);
     // Run twice: a normal feature migration must be idempotent.
-    await postgresPool().query(ontologySchema);await postgresPool().query(enterpriseSchema);await postgresPool().query(relevanceSchema);
+    await postgresPool().query(ontologySchema);await postgresPool().query(enterpriseSchema);await postgresPool().query(relevanceSchema);await postgresPool().query(organizationLinksSchema);
     for(const company of ['a','b']){
       await postgresPool().query('INSERT INTO organization_units(id,company_id,status) VALUES($1,$2,$3)',['unit:'+company,'company:'+company,'active']);
       for(const role of ['admin','employee']){
@@ -51,7 +52,7 @@ suite('ontology native PostgreSQL integration (isolated disposable database)',()
   });
   beforeEach(async()=>{
     // Only these feature tables, inside the disposable ontology_it_* database.
-    await postgresPool().query('TRUNCATE ontology_documents,ontology_versions,ontology_confirmations,ontology_receipts,ontology_scope_settings,ontology_scope_history,ontology_maintenance_requests');
+    await postgresPool().query('TRUNCATE ontology_documents,ontology_versions,ontology_confirmations,ontology_receipts,ontology_scope_settings,ontology_scope_history,ontology_maintenance_requests,ontology_organization_business_domains,ontology_organization_business_objects');
     await postgresPool().query("UPDATE organization_memberships SET status='active',effective_to=NULL");
     await postgresPool().query('UPDATE users SET active=1');
   });
@@ -244,12 +245,14 @@ describe('enterprise catalog native import',()=>{
 
 suite('ontology relevance native PostgreSQL boundaries',()=>{
  afterAll(async()=>{await closePostgresPool();});
- beforeEach(async()=>{await postgresPool().query('TRUNCATE ontology_scope_settings,ontology_scope_history,ontology_maintenance_requests');await postgresPool().query("UPDATE organization_memberships SET status='active',effective_to=NULL,position='运营专员'");await postgresPool().query('UPDATE users SET active=1');});
+ beforeEach(async()=>{await postgresPool().query('TRUNCATE ontology_scope_settings,ontology_scope_history,ontology_maintenance_requests,ontology_organization_business_domains,ontology_organization_business_objects');await postgresPool().query("UPDATE organization_memberships SET status='active',effective_to=NULL,position='运营专员'");await postgresPool().query('UPDATE users SET active=1');});
  const mapping=(subjectType='organization_unit',subjectId='unit:a',domain=['营销','KOL营销'],includeDescendants=false)=>({id:randomUUID(),subjectType,subjectId,domain,includeDescendants});
  it('starts unconfigured, explicitly maps multiple domains and never changes authorized catalog',async()=>{
   const before=await service('employee_a').catalog();expect(before.relevance?.configured).toBe(false);
   const saved=await service().configureScope({expectedRevision:0,mappings:[mapping(),mapping('position','运营专员',['销售','亚马逊经营'])],reason:'确认跨域职责',confirmed:true});expect(saved.revision).toBe(1);
-  const result=await service('employee_a').catalog();expect(result.relevance?.relatedDomains).toContainEqual(['营销','KOL营销']);expect(result.relevance?.relatedDomains).toContainEqual(['销售','亚马逊经营']);expect(result.objects.length).toBe(before.objects.length);expect((await service('employee_b').catalog()).relevance?.relatedDomains).toEqual([]);
+  expect((await postgresPool().query("SELECT organization_id,subject_type FROM ontology_organization_business_domains WHERE company_id='company:a'")).rows).toContainEqual({organization_id:'unit:a',subject_type:'organization_unit'});
+  expect((await postgresPool().query("SELECT object_code FROM ontology_organization_business_objects WHERE company_id='company:a' AND organization_id='unit:a'")).rows).toContainEqual({object_code:'kol_profile'});
+  const result=await service('employee_a').catalog();expect(result.relevance?.relatedObjectCodes).toContain('kol_profile');expect(result.relevance?.relatedDomains).toContainEqual(['营销','KOL营销']);expect(result.relevance?.relatedDomains).toContainEqual(['销售','亚马逊经营']);expect(result.objects.length).toBe(before.objects.length);expect((await service('employee_b').catalog()).relevance?.relatedDomains).toEqual([]);
   await expect(service().configureScope({expectedRevision:0,mappings:[],reason:'过期配置',confirmed:true})).rejects.toMatchObject({status:409});
  });
  it('rejects unconfirmed, employee, cross-company and invalid domain mappings',async()=>{
@@ -265,6 +268,22 @@ suite('ontology relevance native PostgreSQL boundaries',()=>{
   await service().configureScope({expectedRevision:0,mappings:[mapping('organization_unit','unit:a',['营销','KOL营销'],false)],reason:'仅本级职责',confirmed:true});expect((await service('employee_a').catalog()).relevance?.relatedDomains).toHaveLength(0);
   await service().configureScope({expectedRevision:1,mappings:[mapping('organization_unit','unit:a',['营销','KOL营销'],true)],reason:'包含下级职责',confirmed:true});expect((await service('employee_a').catalog()).relevance?.relatedDomains).toHaveLength(1);
   await postgresPool().query("DELETE FROM organization_memberships WHERE org_unit_id='child:a'");
+ });
+ it('migrates only already-confirmed JSON mappings into queryable organization relationships',async()=>{
+  const m=mapping();await service().configureScope({expectedRevision:0,mappings:[m],reason:'已确认组织职责',confirmed:true});
+  await postgresPool().query("DELETE FROM ontology_organization_business_domains WHERE company_id='company:a'");
+  await postgresPool().query(organizationLinksSchema);await postgresPool().query(organizationLinksSchema);
+  expect((await service().scope()).mappings).toContainEqual(m);
+  expect((await service('employee_a').catalog()).relevance?.relatedObjectCodes).toContain('kol_profile');
+  expect((await postgresPool().query("SELECT * FROM ontology_organization_business_domains WHERE company_id='company:b'")).rows).toHaveLength(0);
+ });
+ it('keeps organization-object relationships current after publication, disable and configuration removal',async()=>{
+  await service().configureScope({expectedRevision:0,mappings:[mapping()],reason:'组织业务域确认',confirmed:true});
+  const d=definition('organization_linked');d.taxonomy=['营销','KOL营销','达人资源'];await save(d);await commit(d.code,1);
+  expect((await service('employee_a').catalog()).relevance?.relatedObjectCodes).toContain(d.code);
+  await commit(d.code,2,'disable');expect((await service('employee_a').catalog()).relevance?.relatedObjectCodes).not.toContain(d.code);
+  await service().configureScope({expectedRevision:1,mappings:[],reason:'解除关联',confirmed:true});
+  expect((await postgresPool().query("SELECT * FROM ontology_organization_business_objects WHERE company_id='company:a'")).rows).toHaveLength(0);
  });
  it('publishes reasoned applicability through the existing draft confirmation flow',async()=>{const d=definition('applicability_test');d.applicability={relations:{status:'not_applicable',reason:'独立参考对象，无关系需求'}};await save(d);expect((await objectFrom(d.code))).toBeUndefined();await commit(d.code,1);expect((await objectFrom(d.code))?.published?.applicability?.relations?.reason).toBe('独立参考对象，无关系需求');});
  it('persists idempotent employee feedback and limits admin inbox to its company',async()=>{

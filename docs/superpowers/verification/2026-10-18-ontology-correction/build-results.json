@@ -1,0 +1,15 @@
+{
+  "status": "passed",
+  "checks": [
+    {
+      "command": "npm run build",
+      "cwd": "frontend",
+      "exit_code": 0
+    },
+    {
+      "command": "npm run typecheck",
+      "cwd": "backend",
+      "exit_code": 0
+    }
+  ]
+}

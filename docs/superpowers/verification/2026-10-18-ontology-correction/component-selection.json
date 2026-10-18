@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "kind": "component-selection",
+  "status": "complete",
+  "owner": "frontend/backend/ui-ux/test-manager",
+  "requirement_refs": [
+    "CONST-04",
+    "CONST-05",
+    "CONST-08",
+    "CONST-10",
+    "TECH-ARCH-01",
+    "TECH-FE-02",
+    "TECH-BE-03",
+    "TECH-TEST-02"
+  ],
+  "subject": {
+    "task_id": "ontology-correction-20261018",
+    "base": "421ace5c057698a26c1e95610a8647222e6f7179"
+  },
+  "decisions": {
+    "removed": "Unrequested classification Select search only; explicit scope-configuration Select remains unchanged.",
+    "retained": "Existing buttons, WorkspaceSearchInput object search, ProjectTheme and all object forms."
+  },
+  "verification": {
+    "records": [
+      "page-results.json",
+      "pg-results.json",
+      "source-compare.json"
+    ]
+  },
+  "task_id": "ontology-correction-20261018",
+  "summary": "按用户限定纠正分类、滚动与组织对象关系表",
+  "status_claims": []
+}

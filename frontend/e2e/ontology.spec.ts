@@ -118,7 +118,7 @@ test('ontology direct links survive refresh, navigation and browser back',async(
 
 test('full enterprise hierarchy filters Amazon Listing and opens completed B01 and canonical references',async({page})=>{
  await fixture(page,true,true);await page.goto('/admin/ontology');await expect(page.getByRole('heading',{name:'KOL 画像',exact:true})).toBeVisible();
- await expect(page.getByRole('group',{name:'业务域',exact:true})).toHaveCount(0);await page.getByRole('button',{name:'全部范围',exact:true}).click();
+ await expect(page.getByRole('group',{name:'业务域',exact:true})).toBeVisible();await expect(page.getByRole('group',{name:'业务主题',exact:true})).toBeVisible();await page.getByRole('button',{name:'全部范围',exact:true}).click();
  await chooseCategory(page,'业务族','销售');await chooseCategory(page,'业务域','亚马逊经营');await chooseCategory(page,'业务主题','商品管理');
  await expect(page.getByRole('button',{name:'Amazon Listing',exact:true})).toBeVisible();await page.getByRole('button',{name:'Amazon Listing',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Amazon Listing',exact:true})).toBeVisible();await expect(page.getByText('尚未定义属性',{exact:true})).toBeVisible();
@@ -135,7 +135,7 @@ test('compact layout retains stable controls, single selection and URL filter co
  await expect(page.getByRole('heading',{name:'业务对象管理',exact:true})).toBeVisible();
  await expect(page.locator('.onto-object-table input[type=checkbox]')).toHaveCount(0);
  const filters=await page.locator('.onto-filters').boundingBox();expect(filters!.height).toBeLessThan(150);
- const list=await page.locator('.onto-object-list').boundingBox();expect(list!.height).toBeGreaterThan(400);
+ const catalog=await page.getByLabel('业务对象目录').boundingBox();expect(catalog!.height).toBeGreaterThan(400);
  await page.getByRole('button',{name:'全部范围',exact:true}).click();await chooseCategory(page,'业务族','销售');await chooseCategory(page,'业务域','亚马逊经营');await chooseCategory(page,'业务主题','商品管理');
  await page.getByRole('button',{name:'Amazon Listing',exact:true}).click();const url=page.url();
  await page.reload();await expect(page.getByRole('heading',{name:'Amazon Listing',exact:true})).toBeVisible();expect(page.url()).toBe(url);
@@ -156,8 +156,8 @@ test('object information, impacts and field details remain available without dup
 
 test('related defaults are distinct from access and unconfigured mapping has a useful next step',async({page})=>{
  const state=await fixture(page,true,true);await page.goto('/admin/ontology');await expect(page.getByRole('button',{name:'与我相关',exact:true})).toHaveAttribute('aria-pressed','true');
- await expect(page.getByRole('button',{name:'企业战略',exact:true})).toHaveCount(0);await page.getByRole('button',{name:'全部范围',exact:true}).click();await expect(page.getByRole('button',{name:'企业战略',exact:true})).toBeVisible();
- state.clearScope();await page.goto('/admin/ontology');await expect(page.getByText('尚未配置组织／岗位与业务域的关联。',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'配置相关业务域',exact:true})).toBeVisible();await page.getByRole('button',{name:'查看全部范围',exact:true}).click();await expect(page.getByRole('button',{name:'企业战略',exact:true})).toBeVisible();
+ await expect(page.getByRole('table',{name:'业务对象',exact:true}).getByRole('button',{name:'企业战略',exact:true})).toHaveCount(0);await page.getByRole('button',{name:'全部范围',exact:true}).click();await expect(page.getByRole('table',{name:'业务对象',exact:true}).getByRole('button',{name:'企业战略',exact:true})).toBeVisible();
+ state.clearScope();await page.goto('/admin/ontology');await expect(page.getByText('尚未配置组织／岗位与业务域的关联。',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'配置相关业务域',exact:true})).toBeVisible();await page.getByRole('button',{name:'查看全部范围',exact:true}).click();await expect(page.getByRole('table',{name:'业务对象',exact:true}).getByRole('button',{name:'企业战略',exact:true})).toBeVisible();
 });
 test('admin maintains explicit organization-domain mappings with confirmation and receipt',async({page})=>{
  await fixture(page);await page.goto('/admin/ontology');await page.getByRole('button',{name:'配置范围',exact:true}).click();await expect(page.getByRole('dialog')).toContainText('不授予或撤销访问权限');
@@ -177,4 +177,14 @@ test('reference layout shows lead business definition, exposed filters and empty
  const datatype=await page.getByRole('columnheader',{name:'数据类型',exact:true}).boundingBox();const required=await page.getByRole('columnheader',{name:'必填',exact:true}).boundingBox();expect(datatype!.width).toBeLessThanOrEqual(74);expect(required!.width).toBeLessThanOrEqual(50);await page.screenshot({path:'test-results/ontology/reference.png',fullPage:true});
  await page.getByRole('tab',{name:'关系 0',exact:true}).click();await expect(page.getByRole('button',{name:'＋ 新建关系',exact:true})).toBeVisible();await page.screenshot({path:'test-results/ontology/empty-relations.png',fullPage:true});
  await page.getByRole('button',{name:'设置适用性',exact:true}).click();await page.getByLabel('明确标记为不适用').check();await page.getByLabel('适用性依据').fill('经业务负责人确认，此对象暂不建立关系定义');await page.getByRole('button',{name:'保存适用性草稿',exact:true}).click();await expect(page.getByText('关系不适用',{exact:true})).toBeVisible();await expect(page.getByText('草稿 · 未生效',{exact:true})).toBeVisible();
+});
+
+test('requested middle-column correction: all levels visible, no category search, leftmost wrapping and one scroller',async({page})=>{
+ await fixture(page,true,true);await page.setViewportSize({width:1680,height:940});await page.goto('/admin/ontology?scope=all');
+ for(const label of ['业务族','业务域','业务主题'])await expect(page.getByRole('group',{name:label,exact:true})).toBeVisible();
+ const family=page.getByRole('group',{name:'业务族',exact:true});await family.getByRole('button',{name:'更多⌄',exact:true}).click();
+ await expect(page.locator('.onto-filters [role=combobox]')).toHaveCount(0);
+ const wraps=await family.evaluate(group=>{const x=group.getBoundingClientRect().left;const options=[...group.querySelectorAll('button')];const firstY=options[0].getBoundingClientRect().top;const wrapped=options.find(b=>b.getBoundingClientRect().top>firstY+5);return {left:x,wrappedLeft:wrapped?.getBoundingClientRect().left};});expect(wraps.wrappedLeft).toBeDefined();expect(Math.abs(wraps.wrappedLeft!-wraps.left)).toBeLessThan(3);
+ const scrolls=await page.getByLabel('业务对象目录').evaluate(catalog=>({catalog:getComputedStyle(catalog).overflowY,filter:getComputedStyle(catalog.querySelector('.onto-filters')!).overflowY,list:getComputedStyle(catalog.querySelector('.onto-object-list')!).overflowY}));expect(scrolls).toEqual({catalog:'auto',filter:'visible',list:'visible'});
+ await page.screenshot({path:'test-results/ontology/middle-correction.png',fullPage:true});
 });

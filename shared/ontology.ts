@@ -30,5 +30,5 @@ export type OntologyConfirmation = { token: string; code: string; revision: numb
 export type OntologyScopeMapping = {id:string;subjectType:'organization_unit'|'position'|'person';subjectId:string;domain:[string,string];includeDescendants:boolean;ownerPersonRef?:string};
 export type OntologyScopeSettings = {revision:number;mappings:OntologyScopeMapping[];updatedAt:string|null};
 export type OntologyScopeOptions = {units:{id:string;name:string}[];positions:string[];people:{id:string;name:string}[]};
-export type OntologyRelevance = {configured:boolean;relatedDomains:[string,string][];matchedMappings:string[];owners:{domain:[string,string];name:string}[]};
+export type OntologyRelevance = {configured:boolean;relatedObjectCodes?:string[];relatedDomains:[string,string][];matchedMappings:string[];owners:{domain:[string,string];name:string}[]};
 export type OntologyMaintenanceRequest = {id:string;code:string;dimension:OntologyDimension;note:string;createdAt:string};

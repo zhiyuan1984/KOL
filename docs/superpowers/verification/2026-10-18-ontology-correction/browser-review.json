@@ -1,0 +1,22 @@
+{
+  "reviewer": "Codex acting as UI/UX expert agent (not human research)",
+  "reviewedAt": "2026-10-18T07:34:32.732961+00:00",
+  "status": "passed",
+  "evidence": [
+    "middle-correction.png",
+    "reference.png",
+    "source-compare.json",
+    "page-results.json"
+  ],
+  "observations": [
+    "All three classification groups rendered concurrently.",
+    "No classification search control exists, including after More.",
+    "Wrapped choices start at group left edge, not after the label.",
+    "Catalog is sole vertical scroller; filter and list overflow visible.",
+    "Right column and global left nav source unchanged."
+  ],
+  "limitations": [
+    "Fixture screenshots verify layout; native PG verifies persistence separately.",
+    "Previously specified no guessed initial business mappings remains in force."
+  ]
+}

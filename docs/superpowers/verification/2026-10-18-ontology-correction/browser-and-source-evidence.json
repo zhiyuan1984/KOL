@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "kind": "browser-and-source-evidence",
+  "status": "complete",
+  "owner": "frontend/backend/ui-ux/test-manager",
+  "requirement_refs": [
+    "CONST-04",
+    "CONST-05",
+    "CONST-08",
+    "CONST-10",
+    "TECH-ARCH-01",
+    "TECH-FE-02",
+    "TECH-BE-03",
+    "TECH-TEST-02"
+  ],
+  "subject": {
+    "task_id": "ontology-correction-20261018",
+    "base": "421ace5c057698a26c1e95610a8647222e6f7179"
+  },
+  "decisions": {
+    "layers": {
+      "unit": "21 ontology tests passed",
+      "nativePostgres": "22 passed; disposable database dropped",
+      "browser": "15 ontology tests passed",
+      "source": "Exact right JSX and left nav CSS comparison passed"
+    },
+    "records": [
+      "unit-results.json",
+      "pg-results.json",
+      "pg-cleanup.json",
+      "page-results.json",
+      "build-results.json",
+      "middle-correction.png",
+      "source-compare.json"
+    ],
+    "limits": "No human research claim, no production fixture writes."
+  },
+  "verification": {
+    "records": [
+      "page-results.json",
+      "pg-results.json",
+      "source-compare.json"
+    ]
+  },
+  "task_id": "ontology-correction-20261018",
+  "summary": "按用户限定纠正分类、滚动与组织对象关系表",
+  "status_claims": []
+}
