@@ -67,6 +67,11 @@
           "file": "build-results.json",
           "sha256": "f89b5681d75b6d4ada2df37ac78dc1ae005b8637fc326167ba8bb5617ab040ac",
           "kind": "test-report"
+        },
+        {
+          "file": "final-page-results.json",
+          "kind": "test-report",
+          "sha256": "d67006005ce7a4cdd54b117deb621b6f9421d05f00ab76126c7041e460417ac1"
         }
       ]
     },
