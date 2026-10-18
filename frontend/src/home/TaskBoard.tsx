@@ -143,16 +143,16 @@ export default function TaskBoard({
           options={BOARD_FILTERS.filter(({ id }) => counts[id] > 0 || filter === id)
             .map(({ id, label }) => ({ id, label, count: counts[id], dataAttributes: { "data-board-filter": id } }))}
         />
-      </div>
-      <div className="task-board-attention" role="group" aria-label="任务提醒筛选">
-        {ATTENTION_FILTERS.filter(({ id }) => attentionCounts[id] > 0 || attention === id).map(({ id, label }) => <button key={id} type="button"
-          className="task-board-attention-filter" data-attention-filter={id}
-          aria-pressed={attention === id} onClick={() => setAttention(attention === id ? null : id)}>
-          {label} {attentionCounts[id]}
-        </button>)}
-        {(filter !== "all" || attention || query) ? <button type="button" className="task-board-clear-filter"
-          onClick={() => { setFilter("all"); setAttention(null); setQuery(""); }}>清除筛选</button> : null}
-        <span className="sr-only" role="status">{filtered.length} 项符合当前筛选；提醒可重叠，不作合计</span>
+        <div className="task-board-attention" role="group" aria-label="任务提醒筛选">
+          {ATTENTION_FILTERS.filter(({ id }) => attentionCounts[id] > 0 || attention === id).map(({ id, label }) => <button key={id} type="button"
+            className="task-board-attention-filter" data-attention-filter={id}
+            aria-pressed={attention === id} onClick={() => setAttention(attention === id ? null : id)}>
+            {label} {attentionCounts[id]}
+          </button>)}
+          {(filter !== "all" || attention || query) ? <button type="button" className="task-board-clear-filter"
+            onClick={() => { setFilter("all"); setAttention(null); setQuery(""); }}>清除筛选</button> : null}
+          <span className="sr-only" role="status">{filtered.length} 项符合当前筛选；提醒可重叠，不作合计</span>
+        </div>
       </div>
       {summary}
 

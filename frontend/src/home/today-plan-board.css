@@ -121,8 +121,20 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--home-chip-gap);
+  gap: var(--space-1) var(--space-3);
   margin: 14px 0 12px;
+}
+/* 优先级与提醒是两个维度，但共用一条筛选横线：组内各自换行，组间保持 12px。 */
+.task-board-filters > .lifecycle-navigation {
+  min-width: 0;
+  min-height: var(--filter-tab-h);
+  flex-shrink: 1;
+  flex-wrap: wrap;
+  overflow: visible;
+  border-bottom: 0;
+}
+.task-board-filters > .task-board-attention {
+  flex: 0 0 auto;
 }
 .task-board-tab {
   min-height: var(--hit-min);
@@ -160,7 +172,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 4px 8px;
-  margin: 0 0 var(--space-2);
+  margin: 0;
   min-width: 0;
 }
 .task-board-attention-filter,
