@@ -3,6 +3,8 @@
  * and usage metrics aggregation for the admin lifecycle workbench.
  */
 import fs from "node:fs";
+import { operationTools, parseCapabilityReferences, parseOntologyReferences, resolveOperations } from '../capability/contracts.js';
+import { publishedBusinessContext } from '../ontology/runtime-dependencies.js';
 import path from "node:path";
 import { dataDir, publishedSkillsDir, codexMode } from "../config.js";
 import { audit, getConn, nowIso, tx } from "../db.js";
@@ -78,7 +80,9 @@ async function currentStage(id: string): Promise<Awaited<SkillStage>> {
 
 /** 待发布的「所需工具」：有草稿改动时以草稿为准（发布会应用草稿），否则取现行技能声明。 */
 async function pendingDeclaredTools(id: string): Promise<Awaited<string[]>> {
-  const drafted = (await getSkillDraft(id)).patch.mcp;
+  const patch = (await getSkillDraft(id)).patch;
+  if(patch.capabilities!==undefined)return operationTools(parseCapabilityReferences(patch.capabilities),true);
+  const drafted = patch.mcp;
   if (Array.isArray(drafted)) return drafted.map(String);
   if (typeof drafted === "string") return drafted.split(/[,，]/).map((tool) => tool.trim()).filter(Boolean);
   return [...((await taskDefinition(id))?.mcp || [])];
@@ -89,7 +93,9 @@ async function pendingDeclaredTools(id: string): Promise<Awaited<string[]>> {
  * 保证「工具风险变了，技能风险自动跟着变」的单一事实源。
  */
 export async function skillRiskLevel(id: string): Promise<"L1" | "L2" | "L3" | null> {
-  return (await skillToolProfile(id, (await pendingDeclaredTools(id)))).risk;
+  const patch=(await getSkillDraft(id)).patch;
+  const capabilities=parseCapabilityReferences(patch.capabilities??(await taskDefinition(id))?.capabilities);
+  return (await skillToolProfile(id, (await pendingDeclaredTools(id)),capabilities)).risk;
 }
 
 export async function skillDependencyIssues(id: string): Promise<{ unregistered: string[]; unmounted: string[] }> {
@@ -105,6 +111,7 @@ export async function skillDependencyIssues(id: string): Promise<{ unregistered:
  * stub 模式不走挂载链（执行由本地桩完成），因此只在真实执行模式下拦截。
  */
 async function assertDeclaredToolsReady(id: string): Promise<void> {
+  await assertBusinessDependenciesReady(id);
   if (codexMode() === "stub") return;
   const issues = (await skillDependencyIssues(id));
   if (issues.unregistered.length) {
@@ -121,6 +128,16 @@ async function assertDeclaredToolsReady(id: string): Promise<void> {
       tools: issues.unmounted,
     });
   }
+}
+
+async function assertBusinessDependenciesReady(id:string):Promise<void>{
+  const definition=await taskDefinition(id);
+  const patch=(await getSkillDraft(id)).patch;
+  const capabilities=parseCapabilityReferences(patch.capabilities??definition?.capabilities);
+  const ontology=parseOntologyReferences(patch.ontology??definition?.ontology);
+  try {resolveOperations(capabilities);}
+  catch {throw new HttpFail(409,{code:'skill_capability_dependency_unavailable',message:'所需业务能力或版本尚未就绪，请先完成依赖接入。'});}
+  if(ontology.length)await publishedBusinessContext((await currentUser()).id,ontology);
 }
 
 export async function skillLifecycleMeta(id: string): Promise<{
@@ -261,6 +278,7 @@ export async function latestSkillPublishApproval(id: string): Promise<Awaited<Sk
  */
 export async function assertSkillPublishAllowed(id: string): Promise<void> {
   await requireSkill(id);
+  await assertBusinessDependenciesReady(id);
   const row = (await lifecycleRow(id));
   if (!row?.owner || !row.owner.trim()) {
     throw new HttpFail(400, { code: "skill_owner_required", message: "请先设置技能负责人，再发布。" });
@@ -297,6 +315,8 @@ export async function skillPublishCheck(id: string): Promise<SkillPublishCheck> 
   await requireSkill(id);
   const meta = (await skillLifecycleMeta(id));
   const reasons: string[] = [];
+  try {await assertBusinessDependenciesReady(id);}
+  catch {reasons.push('业务定义或能力依赖尚未发布、已停用或版本不兼容，请先处理依赖。');}
 
   const t = meta.test_summary;
   const testsOk = t.total > 0 && t.failing === 0;

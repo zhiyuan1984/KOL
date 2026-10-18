@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
+import { resolveOperations, operationAlias, operationArguments, operationResult, operationFingerprint, type OperationContract } from '../capability/contracts.js';
+import { publishedBusinessContext } from '../ontology/runtime-dependencies.js';
 import { ExecutionNotDispatched } from "../execution-jobs/failure.js";
 import { declaredAgentSubmissionAllowed } from "../contract-scope.js";
 import fs from "node:fs";
@@ -59,7 +61,20 @@ export function runtimeErrorCode(error: unknown): string {
   return "runtime_remote_failed";
 }
 export function runtimeErrorDetail(error: unknown): Json {
-  return error instanceof RuntimeToolArgumentsInvalid ? error.detail as Json : { code: runtimeErrorCode(error) };
+  if(error instanceof RuntimeToolArgumentsInvalid)return error.detail as Json;
+  const code=runtimeErrorCode(error);
+  const messages:Record<string,string>={
+    ontology_company_context_required:'当前公司范围尚未明确，请在任务中选择适用公司。',
+    ontology_dependency_not_published:'所需业务定义尚未发布或已停用，请联系维护人员处理。',
+    ontology_dependency_version_conflict:'业务定义版本已变化，请检查依赖并重新发布工作方法。',
+    ontology_action_dependency_missing:'所需业务动作尚未定义，请先补齐已发布定义。',
+    capability_implementation_unavailable:'所需业务能力暂不可用，请检查接入与授权。',
+    capability_dependency_unavailable:'所需业务能力或版本尚未接入，请先完成依赖配置。',
+    capability_mapping_changed:'业务能力的接入版本已变化，请重新检查后继续。',
+    capability_result_contract_invalid:'数据来源返回的结果不符合约定，未将其作为有效结果。',
+    capability_pagination_contract_invalid:'数据来源返回的分页与请求不一致，请核对后重试。',
+  };
+  return {code,...(messages[code]?{message:messages[code]}:{})};
 }
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -129,6 +144,7 @@ export async function assertRuntimeSkill(context: RuntimeContext): Promise<{ use
   if (!platform && !declaredAgentSubmissionAllowed(context.agentId)) {
     reject("agent_not_published", 409);
   }
+  await publishedBusinessContext(context.userId,definition.ontology||[]);
   const skillVersion=(await runtimeSkillVersion(context.skillId));
   if (binding.release_hash && binding.release_hash !== skillVersion) reject("runtime_agent_skill_upgrade_required", 409);
   if(definition.mcp.includes(DOCUMENT_TOOL)) {
@@ -143,7 +159,8 @@ export async function assertRuntimeSkill(context: RuntimeContext): Promise<{ use
 export async function runtimeSkillVersion(skillId:string):Promise<string> {
   const definition=(await requireTaskDefinition(skillId));
   const sop=(await postgresQuery<Row>("SELECT summary,body,updated_at FROM skill_sops WHERE id=$1", [skillId]))[0];
-  return runtimeHash({definition,body:fs.readFileSync(definition.path,'utf8'),sop});
+  return runtimeHash({definition,body:fs.readFileSync(definition.path,'utf8'),sop,
+    ...(definition.capabilities?.length?{operations: operationFingerprint(resolveOperations(definition.capabilities))}:{})});
 }
 
 /** Agents through which this person may run the skill (published, skill enabled, person covered). */
@@ -300,7 +317,7 @@ function isPolicyAllowed(policy: Row | undefined, tool: Json): boolean {
     && ["read", "write"].includes(String(policy.access)) && policy.schema_hash === toolSchemaHash(tool));
 }
 
-export type DiscoveredTool = { connectorId: string; remoteName: string; exposed: Json; schemaHash: string; stamp: string; toolBindingVersion: number };
+export type DiscoveredTool = { connectorId: string; remoteName: string; exposed: Json; schemaHash: string; stamp: string; toolBindingVersion: number; operation?: OperationContract; operationFingerprint?: string };
 export type RuntimeCatalog = { tools: DiscoveredTool[]; unavailable: Array<{ connector_id: string; code: string }> };
 
 /** A run-scoped capability set; no model calls and no provider-specific business routing. */
@@ -329,6 +346,8 @@ export class SkillExecution {
   async discover(): Promise<RuntimeCatalog> {
     this.active();
     (await assertRuntimeSkill(this.context));
+    const definition = await requireTaskDefinition(this.context.skillId);
+    const operations = resolveOperations(definition.capabilities||[]);
     const tools: DiscoveredTool[] = [];
     if ((await hasDocumentTool(this.context.skillId))) {
       const manifest=isKnowledgePreview(this.context)?await previewManifest(this.context):await runtimeKnowledgeManifest(this.context.skillId,this.context.userId);
@@ -359,29 +378,41 @@ export class SkillExecution {
         let authorized = 0;
         for (const remote of remoteTools) {
           const name = String(remote.name);
+          const matches = operations.filter(item=>item.implementation.connector===connectorId&&item.implementation.tool===name);
+          if (operations.length && !matches.length) continue;
+          for (const operation of matches.length ? matches : [undefined]) {
           const policy = (await getToolPolicy(connectorId, name));
           const toolBinding = (await getSkillTool(this.context.skillId, connectorId, name));
           if (!toolBinding?.enabled || !isPolicyAllowed(policy, remote)) continue;
           let current: Awaited<ReturnType<typeof authorizeConnector>>;
           try { current = (await authorizeConnector(this.context, connectorId)); }
           catch { continue; }
-          const alias = runtimeToolAlias(connectorId, name);
+          const alias = operation ? operationAlias(operation) : runtimeToolAlias(connectorId, name);
+          if (operation) {
+            const ranks: Record<string,number> = {R1:1,R2:2,R3:3,L1:1,L2:2,L3:3};
+            if (ranks[operation.risk] < ranks[String(policy?.risk)] || (runtimeRequiresGate(name)&&operation.risk!=='R3')) {
+              unavailable.push({connector_id:connectorId,code:'capability_risk_contract_conflict'});continue;
+            }
+          }
           // Codex treats a missing readOnlyHint as approval-required. Translate the
           // reviewed L1/read policy into the MCP contract, while preserving explicit
           // upstream contradictions. Never present L2 writes as read-only.
           const annotations = remote.annotations && typeof remote.annotations === "object"
             ? remote.annotations as Json : {};
-          const readOnly = !runtimeRequiresGate(name) && policy?.risk === "L1" && policy.access === "read"
+          const readOnly = (!operation || (operation.effect === 'read'&&operation.risk==='R1')) && !runtimeRequiresGate(name) && policy?.risk === "L1" && policy.access === "read"
             && annotations.readOnlyHint !== false && annotations.destructiveHint !== true;
           const presented = runtimeToolPresentation(connectorId, remote);
           if (!presented) { unavailable.push({ connector_id: connectorId, code: "runtime_tool_scope_unsupported" }); continue; }
           const exposed: Json = { ...presented, name: alias,
+            ...(operation?{description:operation.description,...(operation.inputSchema?{inputSchema:operation.inputSchema}:{})}:{}),
             annotations: { ...annotations, readOnlyHint: readOnly },
-            _meta: { risk: runtimeRequiresGate(name) ? "L3" : policy?.risk,
-              confirmation_required: runtimeRequiresGate(name) || policy?.risk === "L3" } };
+            _meta: { risk: runtimeRequiresGate(name) ? "L3" : operation?operation.risk.replace('R','L'):policy?.risk,
+              confirmation_required: runtimeRequiresGate(name) || policy?.risk === "L3" || operation?.risk==='R3' } };
           tools.push({ connectorId, remoteName: name, exposed, schemaHash: toolSchemaHash(remote),
-            stamp: authorizationStamp(current, policy, toolBinding), toolBindingVersion: Number(toolBinding.version) });
+            stamp: authorizationStamp(current, policy, toolBinding), toolBindingVersion: Number(toolBinding.version),
+            ...(operation?{operation,operationFingerprint:operationFingerprint([operation])}:{}) });
           authorized += 1;
+          }
         }
         if (!authorized) unavailable.push({ connector_id: connectorId, code: "runtime_no_authorized_tools" });
       } catch (error) {
@@ -390,6 +421,8 @@ export class SkillExecution {
     }
     this.active();
     (await assertRuntimeSkill(this.context));
+    const missingRequired=(definition.capabilities||[]).filter(reference=>!reference.optional&&!tools.some(tool=>tool.operation?.id===reference.id&&tool.operation.version===reference.version));
+    if(missingRequired.length)reject('capability_implementation_unavailable',503);
     this.handles = new Map(tools.map((tool) => [String(tool.exposed.name), tool]));
     await pgAudit(this.context.userId, "runtime.tools.discovered", { ...this.trace(), tool_count: tools.length, unavailable }, new Date().toISOString());
     return { tools, unavailable };
@@ -399,7 +432,9 @@ export class SkillExecution {
     const callId = `call_${randomUUID()}`;
     const handle = this.handles.get(alias);
     const trace: Json = { ...this.trace(), call_id: callId, connector_id: handle?.connectorId ?? null,
-      tool: handle?.remoteName ?? null, schema_hash: handle?.schemaHash ?? null, input: summary(args) };
+      tool: handle?.remoteName ?? null, schema_hash: handle?.schemaHash ?? null, input: summary(args),
+      ...(handle?.operation?{capability_id:handle.operation.id,capability_version:handle.operation.version,
+        implementation_version:handle.operation.implementation.version,capability_fingerprint:handle.operationFingerprint}:{}) };
     let client: RuntimeRemote | undefined;
     let dispatched = false;
     let claimedHere = false;
@@ -423,6 +458,11 @@ export class SkillExecution {
       }
       const check = async () => {
         this.active();
+        if(handle.operation){
+          const currentDefinition=await requireTaskDefinition(this.context.skillId);
+          const currentOperation=resolveOperations(currentDefinition.capabilities||[]).find(item=>item.id===handle.operation!.id&&item.version===handle.operation!.version);
+          if(!currentOperation||operationFingerprint([currentOperation])!==handle.operationFingerprint)reject('capability_mapping_changed',409);
+        }
         const policy = (await getToolPolicy(handle.connectorId, handle.remoteName));
         if (!policy?.enabled) reject("runtime_tool_not_granted");
         const toolBinding = (await getSkillTool(this.context.skillId, handle.connectorId, handle.remoteName));
@@ -469,12 +509,14 @@ export class SkillExecution {
         reject("runtime_tool_schema_changed", 409);
       }
       const remote = matching[0];
-      assertRuntimeToolArguments([remote.inputSchema as Json, handle.exposed.inputSchema as Json], args);
+      assertRuntimeToolArguments([handle.exposed.inputSchema as Json], args);
+      const remoteArgs=handle.operation?operationArguments(handle.operation,args):args;
+      assertRuntimeToolArguments([remote.inputSchema as Json], remoteArgs);
       if (Buffer.byteLength(JSON.stringify(args)) > 1_000_000) reject("runtime_tool_arguments_too_large", 413);
       authorized = (await guardedCheck());
-      await validateRuntimeToolScope(handle.connectorId, this.context, handle.remoteName, args);
+      await validateRuntimeToolScope(handle.connectorId, this.context, handle.remoteName, remoteArgs);
       authorized = (await guardedCheck());
-      const controlled = runtimeRequiresGate(handle.remoteName) || authorized.policy.risk === "L3";
+      const controlled = runtimeRequiresGate(handle.remoteName) || authorized.policy.risk === "L3" || handle.operation?.risk==='R3';
       const snapshot = runtimeHash({ context: this.context, alias, args, stamp: handle.stamp, credentialStamp });
       if (controlled) {
         (await rejectDiscoveryHarnessTool(handle.remoteName));
@@ -491,7 +533,7 @@ export class SkillExecution {
         preClaimSnapshot = action.snapshot;
         if (action.snapshot !== snapshot) reject("runtime_action_snapshot_stale", 409);
         const gate = runtimeActionGate(handle.connectorId, handle.remoteName);
-        await gate.validate(this.context, args);
+        await gate.validate(this.context, remoteArgs);
         (await guardedCheck());
         const claim = await claimRuntimeAction(action.id, this.context.userId, snapshot, {
           agentId: this.context.agentId, skillId: this.context.skillId, connectorId: handle.connectorId, toolName: handle.remoteName,
@@ -518,12 +560,12 @@ export class SkillExecution {
         await this.checkpoint();
         (await guardedCheck());
         dispatched = true;
-        const result = await client!.callToolRaw(handle.remoteName, args);
+        const result = await client!.callToolRaw(handle.remoteName, remoteArgs);
         assertNoCredentialEcho(result, options.headers);
         return result;
       };
       const result = controlled
-        ? await runtimeActionGate(handle.connectorId, handle.remoteName).execute(this.context, args, this.confirmedActionId!, dispatch)
+        ? await runtimeActionGate(handle.connectorId, handle.remoteName).execute(this.context, remoteArgs, this.confirmedActionId!, dispatch)
         : await dispatch();
       await pgAudit(this.context.userId, "runtime.tool.received", { ...trace, output: summary(result), is_error: result.isError === true }, new Date().toISOString());
       (await guardedCheck()); // Suppress data received after revocation; do not claim the remote action was rolled back.
@@ -531,7 +573,7 @@ export class SkillExecution {
       if (controlled) await finishRuntimeAction(this.confirmedActionId!, result.isError ? "uncertain" : "succeeded", result);
       await pgAudit(this.context.userId, "runtime.tool.completed", { ...trace, output: summary(result), is_error: result.isError === true,
         duration_ms: Date.now() - started }, new Date().toISOString());
-      return result;
+      return handle.operation?operationResult(handle.operation,args,result):result;
     } catch (error) {
       const code = runtimeErrorCode(error);
       const rejectionSaved = claimedHere

@@ -6,11 +6,13 @@ category: 线索
 profile: lead
 output: task_result
 funnel: reach
-mcp: ["starrykol.pageKolProfiles", "starrykol.getKolProfileSidebarMetrics"]
+mcp: []
+capabilities: [{"id":"creator.query","version":1},{"id":"creator.query_metrics","version":1,"optional":true}]
+ontology: [{"object":"kol_profile","revision":2,"actions":["read_profile"]}]
 required_inputs: []
 input_schema: [{"key":"keyword","label":"关键词","kind":"text","required":false,"reason":"可留空；按当前授权范围查询。","prefill":"entities.keyword"},{"key":"stage_codes","label":"合作阶段","kind":"text","required":false,"reason":"可填写阶段名称或已知代码；多项用逗号分隔。","prefill":"entities.stageCodes"},{"key":"risk_tag_codes","label":"风险标签","kind":"text","required":false,"reason":"可填写风险标签；多项用逗号分隔。","prefill":"entities.riskTagCodes"},{"key":"page_no","label":"页码","kind":"number","required":false,"default":1,"min":1,"integer":true,"prefill":"entities.pageNo"},{"key":"page_size","label":"每页数量","kind":"number","required":false,"default":20,"min":1,"max":50,"integer":true,"prefill":"entities.pageSize"}]
 interaction: {"purpose":"在你有权限访问的达人库中，按关键词、合作阶段和风险标签筛选达人，分页查看档案及负责人信息。","steps":["确认本次筛选条件；未填写条件时查询授权范围内的第一页。","读取符合条件的达人档案，必要时补充统计信息。","在结果区展示匹配达人、分页信息与来源；无匹配或读取失败时说明原因。"],"output_title":"达人列表、分页信息与来源说明","constraints":["关键词和筛选条件均为可选项。","本技能只读，不发信、不更改合作阶段、不解密联系方式。"]}
-permissions: ["starrykol:read"]
+permissions: ["creator:read"]
 actions: ["analyze"]
 aliases: ["查询达人库","达人筛选"]
 in_market: true
@@ -40,12 +42,14 @@ next_actions: [{"action_id":"skill:creator_profile","when":"has_results","note":
 ## 执行步骤
 
 1. 校验上述参数与当前授权范围。空条件使用默认分页；缺少可选条件不是失败。
-2. 在本 Skill 的 Codex app-server turn 中调用 Starry 达人库的 `pageKolProfiles`，按工具 schema 传入筛选及分页参数；需要统计时才调用 `getKolProfileSidebarMetrics`。禁止裸 HTTP 或未经授权的替代数据源。
+2. 在本技能的思考运行中调用当前获准的“分页查询达人”能力；关键词、阶段、风险和分页按能力参数传入（`keyword`、`stage_codes`、`risk_tag_codes`、`page_no`、`page_size`）。空条件传空对象即可，不把占位符当关键词。需要统计时才调用“查询达人统计”。禁止裸 HTTP 或未经授权的替代数据源。
 3. 从真实工具回执生成 `task_result`，区分有效空结果与工具失败。失败返回真实原因及重试建议，禁止输出伪造达人或一直保持“正在查询”。
 
 ## 输出
 
 使用现有 `task_result` 契约，展示查询条件、匹配达人、返回的总数/分页信息与数据来源。列表按实际返回字段呈现昵称/标识、平台、阶段、风险标签及负责人；未知字段留空或标记未提供，不臆测总数。结果在右栏展示，中栏说明必要的缺失信息、结论与下一步，不重复粘贴工具 JSON。
+
+阶段和风险优先显示来源返回的 `stage_name`、`risk_tag_name`，缺少名称时保留原始代码。画像查询中的阶段是来源显示的合作阶段，不能据此断言该达人所有合作的统一阶段。
 
 “本页达人”必须写成 `sections[].body` 里的 Markdown 表格，不要把同一批数据再放进 `items` 字符串数组。列固定为 `名称 / 平台 / 合作阶段 / 风险标签 / 负责人`；缺失值写 `未提供`，不编造。示例：
 
@@ -60,7 +64,7 @@ next_actions: [{"action_id":"skill:creator_profile","when":"has_results","note":
 ## 禁止事项
 
 - 不发信；不修改官方阶段、档案或负责人。
-- 不调用 `decryptKolContact`，不擅自解密联系方式。
+- 不调用联系方式解密能力，不擅自解密联系方式。
 - 不把“未命中”说成服务失败，不把服务失败说成零条记录。
 
 ## 是否发信

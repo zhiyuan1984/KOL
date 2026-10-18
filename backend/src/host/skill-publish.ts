@@ -3,6 +3,7 @@
  * copy into the Codex extraRoots runtime. People gain access only through an Agent.
  */
 import fs from "node:fs";
+import { parseCapabilityReferences, parseOntologyReferences, type CapabilityReference, type OntologyReference } from '../capability/contracts.js';
 import path from "node:path";
 import { dataDir, publishedSkillsDir } from "../config.js";
 import { audit, getConn, nowIso } from "../db.js";
@@ -54,6 +55,9 @@ export type CreateSkillInput = {
   output?: string;
   funnel?: string;
   mcp?: string[] | string;
+  capabilities?: CapabilityReference[];
+  ontology?: OntologyReference[];
+  applicable_objects?: string[];
   required_inputs?: string[] | string;
   input_schema?: TaskInputField[] | string;
   result_type?: string;
@@ -83,6 +87,9 @@ const PACK_FIELDS = [
   "output",
   "funnel",
   "mcp",
+  "capabilities",
+  "ontology",
+  "applicable_objects",
   "required_inputs",
   "input_schema",
   "result_type",
@@ -141,6 +148,9 @@ export function formatSkillMarkdown(input: {
   output: string;
   funnel?: string;
   mcp: string[];
+  capabilities?: CapabilityReference[];
+  ontology?: OntologyReference[];
+  applicable_objects?: string[];
   required_inputs: string[];
   permissions: string[];
   actions: string[];
@@ -167,6 +177,9 @@ export function formatSkillMarkdown(input: {
     `profile: ${input.profile}`,
     `output: ${input.output}`,
     `mcp: ${JSON.stringify(input.mcp)}`,
+    ...(input.capabilities ? [`capabilities: ${JSON.stringify(input.capabilities)}`] : []),
+    ...(input.ontology ? [`ontology: ${JSON.stringify(input.ontology)}`] : []),
+    ...(input.applicable_objects ? [`applicable_objects: ${JSON.stringify(input.applicable_objects)}`] : []),
     `required_inputs: ${JSON.stringify(input.required_inputs)}`,
     `permissions: ${JSON.stringify(input.permissions)}`,
     `actions: ${JSON.stringify(input.actions)}`,
@@ -197,6 +210,9 @@ function normalizeCreate(input: CreateSkillInput): {
   output: TaskOutput;
   funnel: FunnelId;
   mcp: string[];
+  capabilities?: CapabilityReference[];
+  ontology?: OntologyReference[];
+  applicable_objects?: string[];
   required_inputs: string[];
   permissions: string[];
   actions: string[];
@@ -230,6 +246,13 @@ function normalizeCreate(input: CreateSkillInput): {
   const funnelRaw = String(input.funnel || skillFunnelId(id, category)).trim();
   if (!TASK_FUNNELS.includes(funnelRaw as TaskFunnel)) throw new HttpFail(400, "unknown funnel");
   const mcp = asList(input.mcp);
+  let capabilities: CapabilityReference[] | undefined;
+  let ontology: OntologyReference[] | undefined;
+  try {
+    capabilities=input.capabilities===undefined?undefined:parseCapabilityReferences(input.capabilities);
+    ontology=input.ontology===undefined?undefined:parseOntologyReferences(input.ontology);
+    if(capabilities?.length&&mcp.length)throw new Error('capabilities cannot be combined with legacy mcp declarations');
+  }catch(error){throw new HttpFail(400,error instanceof Error?error.message:'invalid dependencies');}
   for (const tool of mcp) {
     if (!MCP_TOOL_REFERENCE.test(tool)) throw new HttpFail(400, `invalid MCP tool reference ${tool}`);
   }
@@ -274,6 +297,9 @@ function normalizeCreate(input: CreateSkillInput): {
     output,
     funnel: funnelRaw as FunnelId,
     mcp,
+    ...(capabilities ? {capabilities} : {}),
+    ...(ontology ? {ontology} : {}),
+    ...(input.applicable_objects ? {applicable_objects:asList(input.applicable_objects)} : {}),
     required_inputs: asList(input.required_inputs),
     permissions: asList(input.permissions),
     actions,
@@ -355,7 +381,10 @@ export async function updatePublishedSkill(id: string, input: UpdateSkillInput):
     profile: input.profile ?? current.profile,
     output: input.output ?? def?.output,
     funnel: input.funnel ?? current.funnel,
-    mcp: input.mcp ?? def?.mcp,
+    mcp: input.mcp ?? ((input.capabilities??def?.capabilities)?.length ? [] : def?.mcp),
+    capabilities: input.capabilities ?? def?.capabilities,
+    ontology: input.ontology ?? def?.ontology,
+    applicable_objects: input.applicable_objects ?? def?.applicable_objects,
     required_inputs: input.required_inputs ?? def?.required_inputs,
     permissions: input.permissions ?? def?.permissions,
     actions: input.actions ?? def?.actions,

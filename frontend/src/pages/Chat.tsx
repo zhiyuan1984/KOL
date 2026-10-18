@@ -604,9 +604,14 @@ export default function Chat() {
     if (!id) return;
     const workspace = account?.id ? readWorkspaceDraft(account.id,id) : null;
     if (workspace) {
+      const template = workspace.draft.skill_template;
+      const skillChips = workspace.draft.chips?.filter(chip => chip.kind === "skill") || [];
+      const selectedSkill = skillChips.length === 1 ? skillChips[0] : null;
       setText(workspace.draft.text); setEntryIntent(workspace.draft.intent || "free");
-      setLockedIntent(workspace.draft.locked_intent || null);
-      setLockedLabel(workspace.draft.locked_label || null);
+      setLockedIntent(workspace.draft.locked_intent || template?.skill_id || selectedSkill?.id || null);
+      setLockedLabel(workspace.draft.locked_label || template?.title || selectedSkill?.label || null);
+      setSelectedTemplateSkillId(template?.skill_id || null);
+      setSelectedSkillTemplate(template || null);
       setLockedKnowledgeId(workspace.draft.locked_knowledge_id || null);
       setFocusDraft(true); setBlockSubmit(false); return;
     }

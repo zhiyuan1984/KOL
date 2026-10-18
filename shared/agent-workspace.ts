@@ -9,6 +9,8 @@ export type AgentSkillOption = {
   id: string; label: string; summary: string; category: string; release_hash: string;
   published: boolean; document_query: boolean; risk: "R1" | "R2" | "R3" | null;
   knowledge_revision: number | null; knowledge_ready: boolean;
+  ontology_dependencies?:Array<{object:string;revision:number;actions?:string[]}>;
+  capabilities_ready?:boolean;
   resources: Array<{ id: string; configured: boolean; enabled: boolean; tool_count: number }>;
   execution: "async_job" | "skill";
 };
