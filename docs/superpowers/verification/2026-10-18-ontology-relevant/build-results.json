@@ -1,0 +1,18 @@
+{
+  "status": "passed",
+  "checks": [
+    {
+      "command": "npm run typecheck",
+      "cwd": "backend",
+      "exit_code": 0
+    },
+    {
+      "command": "npm run build",
+      "cwd": "frontend",
+      "exit_code": 0
+    }
+  ],
+  "warnings": [
+    "Existing chunk-size advisory only."
+  ]
+}

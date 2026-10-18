@@ -47,5 +47,10 @@
     {"object":"email","code":"compose_email","name":"起草邮件","risk":"R2","executor":"email_compose","description":"草稿不发送。通过当前可用 Agent 装配的技能执行。","source":"docs/BUSINESS.md BIZ-11"},
     {"object":"collaboration","code":"confirm_stage","name":"确认阶段变更","risk":"R3","executor":"confirm_stage","description":"独立受控动作，不与发信合并；目标、证据、版本和适用审批必须满足。","source":"docs/BUSINESS.md BIZ-12"},
     {"object":"crawl_batch","code":"collect_candidates","name":"采集候选资料","risk":"R3","executor":"crawler_collect","asynchronous":true,"description":"异步采集作业，保留任务标识、进度和恢复入口；采集与导入分别确认。","source":"docs/07-mcp-data-contract.md"}
-  ]
+  ],
+  "definitions": {
+    "creator_candidate": "尚未完成合作评估的潜在达人对象。",
+    "kol_profile": "经权威来源确认的达人档案，记录平台身份、画像及已核实的业务信息。",
+    "collaboration": "公司、品牌、活动与达人之间的一次合作关系，承载合作阶段、报价和交付约定。"
+  }
 }

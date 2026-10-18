@@ -1,4 +1,4 @@
-import type { OntologyCatalog, OntologyConfirmation, OntologyDefinition, OntologyReceipt, OntologyVersion } from '../../../shared/ontology';
+import type { OntologyCatalog, OntologyConfirmation, OntologyDefinition, OntologyReceipt, OntologyVersion, OntologyScopeSettings, OntologyScopeOptions, OntologyScopeMapping, OntologyMaintenanceRequest, OntologyDimension } from '../../../shared/ontology';
 export class OntologyApiError extends Error {
   constructor(message:string,readonly companies:{id:string;name:string}[]=[]) { super(message); }
 }
@@ -11,6 +11,10 @@ export async function ontologyRequest<T>(endpoint:string,company:string,body?:un
   return data;
 }
 export const ontologyApi={
+  scope:(company:string)=>ontologyRequest<OntologyScopeSettings & {options:OntologyScopeOptions}>('scope',company),
+  configureScope:(company:string,expectedRevision:number,mappings:OntologyScopeMapping[],reason:string)=>ontologyRequest<OntologyReceipt>('scope',company,{expectedRevision,mappings,reason,confirmed:true}),
+  requestMaintenance:(company:string,code:string,dimension:OntologyDimension,note:string,commandId:string)=>ontologyRequest<OntologyReceipt>('maintenance',company,{code,dimension,note,commandId}),
+  maintenance:(company:string)=>ontologyRequest<{items:OntologyMaintenanceRequest[]}>('maintenance',company),
   catalog:(company:string,admin:boolean,signal?:AbortSignal)=>ontologyRequest<OntologyCatalog>('catalog'+(admin?'?admin=1':''),company,undefined,signal),
   save:(company:string,definition:OntologyDefinition,expectedRevision:number,sourceVersion:string,reason:string)=>ontologyRequest<OntologyReceipt>('drafts',company,{definition,expectedRevision,sourceVersion,reason}),
   history:(company:string,code:string)=>ontologyRequest<{items:OntologyVersion[]}>('history/'+encodeURIComponent(code),company),

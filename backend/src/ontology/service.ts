@@ -1,3 +1,4 @@
+import {relevance,scopeSettings,scopeOptions,saveScope,feedback,maintenanceRequests} from './relevance.js';
 import { enterpriseTaxonomy, enterpriseSource, enterpriseHash } from './enterprise.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { PoolClient, QueryResultRow } from 'pg';
@@ -34,7 +35,7 @@ export class OntologyService {
     const context=await this.context(postgresPool(),admin);
     const baseline=loadOntologyCatalog();
     const stored=(await postgresPool().query<{definition:OntologyDefinition}>('SELECT definition FROM ontology_catalog_objects WHERE source_version=$1',[enterpriseHash()])).rows;
-    const bases=stored.length?stored.map(r=>r.definition):baseline.objects;
+    const bases=stored.length?stored.map(r=>baseline.objects.find(o=>o.code===r.definition.code)||r.definition):baseline.objects;
     const enterpriseCodes=new Set(enterpriseSource().objects.map(o=>o.code));
     const rows=(await postgresPool().query<DocumentRow>('SELECT * FROM ontology_documents WHERE company_id=$1',[context.companyId])).rows;
     const codes=[...new Set([...bases.map(o=>o.code),...rows.map(r=>r.code)])];
@@ -59,8 +60,12 @@ export class OntologyService {
       taxonomy.placements.push({objectCode:doc.code,path:definition.taxonomy,primary:true});
     }
     const visible=new Set(objects.map(o=>o.code));taxonomy.placements=taxonomy.placements.filter(p=>visible.has(p.objectCode));
-    return {context,sourceVersion:baseline.sourceVersion,objects,taxonomy};
+    return {context,sourceVersion:baseline.sourceVersion,objects,taxonomy,relevance:await relevance(postgresPool(),context,this.actor.id)};
   }
+  async scope(){const ctx=await this.context(postgresPool(),true);return {...await scopeSettings(postgresPool(),ctx.companyId),options:await scopeOptions(postgresPool(),ctx.companyId)};}
+  async configureScope(body:Record<string,unknown>){return postgresTransaction(async db=>{const ctx=await this.context(db,true);return saveScope(db,ctx,this.actor.id,body);});}
+  async requestMaintenance(body:Record<string,unknown>){const catalog=await this.catalog();return postgresTransaction(async db=>feedback(db,await this.context(db),this.actor.id,body,new Set(catalog.objects.map(o=>o.code))));}
+  async maintenance(){const ctx=await this.context(postgresPool(),true);return maintenanceRequests(postgresPool(),ctx.companyId);}
   async history(code:string):Promise<{items:OntologyVersion[]}>{
     const ctx=await this.context(postgresPool(),true);
     const rows=await postgresPool().query('SELECT * FROM ontology_versions WHERE company_id=$1 AND code=$2 ORDER BY revision DESC LIMIT 100',[ctx.companyId,code]);

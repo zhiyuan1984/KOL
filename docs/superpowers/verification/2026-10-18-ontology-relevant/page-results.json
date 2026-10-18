@@ -1,0 +1,565 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\admin\\.codex\\worktrees\\ontology-release-20261018\\KOL\\frontend\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "--config",
+      "playwright.ontology.config.ts",
+      "--reporter=list,json"
+    ],
+    "configFile": "C:\\Users\\admin\\.codex\\worktrees\\ontology-release-20261018\\KOL\\frontend\\playwright.ontology.config.ts",
+    "rootDir": "C:/Users/admin/.codex/worktrees/ontology-release-20261018/KOL/frontend/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/Users/admin/.codex/worktrees/ontology-release-20261018/KOL/frontend/test-results/ontology",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "ontology-chromium",
+        "name": "ontology-chromium",
+        "testDir": "C:/Users/admin/.codex/worktrees/ontology-release-20261018/KOL/frontend/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "ontology.spec.ts"
+        ],
+        "timeout": 45000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list"
+      ],
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.62.1",
+    "workers": 1,
+    "webServer": {
+      "command": "node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 4198 --strictPort",
+      "url": "http://127.0.0.1:4198",
+      "reuseExistingServer": false,
+      "timeout": 60000
+    }
+  },
+  "suites": [
+    {
+      "title": "ontology.spec.ts",
+      "file": "ontology.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "employee browses all five dimensions without management controls",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 45000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ontology-chromium",
+              "projectName": "ontology-chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3316,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T07:04:49.138Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6f22f2a498ecef32ecba-7049cd853dd6583bfdc1",
+          "file": "ontology.spec.ts",
+          "line": 63,
+          "column": 1
+        },
+        {
+          "title": "admin edits a real definition, retains drafts after reload and explicitly confirms publication",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 45000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ontology-chromium",
+              "projectName": "ontology-chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3387,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T07:04:52.852Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6f22f2a498ecef32ecba-32f2c425fac206ca4b75",
+          "file": "ontology.spec.ts",
+          "line": 71,
+          "column": 1
+        },
+        {
+          "title": "five editor cards preserve structure and keyboard close; dirty changes require discard",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 45000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ontology-chromium",
+              "projectName": "ontology-chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2238,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T07:04:56.256Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6f22f2a498ecef32ecba-41b896a03a2c07de4206",
+          "file": "ontology.spec.ts",
+          "line": 82,
+          "column": 1
+        },
+        {
+          "title": "error recovery, admin route guard and viewport layout",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 45000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ontology-chromium",
+              "projectName": "ontology-chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1937,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T07:04:58.506Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6f22f2a498ecef32ecba-441e3836064b5b3d5b68",
+          "file": "ontology.spec.ts",
+          "line": 93,
+          "column": 1
+        },
+        {
+          "title": "employee cannot enter admin editing surface",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 45000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ontology-chromium",
+              "projectName": "ontology-chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1259,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T07:05:00.454Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6f22f2a498ecef32ecba-89dd95f05a1679bea1f1",
+          "file": "ontology.spec.ts",
+          "line": 102,
+          "column": 1
+        },
+        {
+          "title": "ontology direct links survive refresh, navigation and browser back",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 45000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ontology-chromium",
+              "projectName": "ontology-chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4060,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T07:05:01.723Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6f22f2a498ecef32ecba-bf4b713f353bf8b98df6",
+          "file": "ontology.spec.ts",
+          "line": 107,
+          "column": 1
+        },
+        {
+          "title": "full enterprise hierarchy filters Amazon Listing and opens completed B01 and canonical references",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 45000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ontology-chromium",
+              "projectName": "ontology-chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2739,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T07:05:05.801Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6f22f2a498ecef32ecba-8481e3d3fedf0728193f",
+          "file": "ontology.spec.ts",
+          "line": 119,
+          "column": 1
+        },
+        {
+          "title": "compact layout retains stable controls, single selection and URL filter context",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 45000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ontology-chromium",
+              "projectName": "ontology-chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5298,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T07:05:08.555Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6f22f2a498ecef32ecba-a0c89cae243c4d879f0f",
+          "file": "ontology.spec.ts",
+          "line": 133,
+          "column": 1
+        },
+        {
+          "title": "object information, impacts and field details remain available without duplicate headings",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 45000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ontology-chromium",
+              "projectName": "ontology-chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1741,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T07:05:13.863Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6f22f2a498ecef32ecba-65bc6e92bc8786d8117c",
+          "file": "ontology.spec.ts",
+          "line": 150,
+          "column": 1
+        },
+        {
+          "title": "related defaults are distinct from access and unconfigured mapping has a useful next step",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 45000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ontology-chromium",
+              "projectName": "ontology-chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2649,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T07:05:15.615Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6f22f2a498ecef32ecba-b42dc97371d58ac36058",
+          "file": "ontology.spec.ts",
+          "line": 157,
+          "column": 1
+        },
+        {
+          "title": "admin maintains explicit organization-domain mappings with confirmation and receipt",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 45000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ontology-chromium",
+              "projectName": "ontology-chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3158,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T07:05:18.274Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6f22f2a498ecef32ecba-39b66fc06e7c07da7818",
+          "file": "ontology.spec.ts",
+          "line": 162,
+          "column": 1
+        },
+        {
+          "title": "empty relations offer admin creation, employee feedback and explicit applicability",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 45000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ontology-chromium",
+              "projectName": "ontology-chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1834,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T07:05:21.445Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6f22f2a498ecef32ecba-cde20388161177532665",
+          "file": "ontology.spec.ts",
+          "line": 167,
+          "column": 1
+        },
+        {
+          "title": "business first header and minimal table columns retain full definition values",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 45000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ontology-chromium",
+              "projectName": "ontology-chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1568,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T07:05:23.291Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6f22f2a498ecef32ecba-08bb4da664cffab5e9d8",
+          "file": "ontology.spec.ts",
+          "line": 170,
+          "column": 1
+        },
+        {
+          "title": "reference layout shows lead business definition, exposed filters and empty relation next steps",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 45000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ontology-chromium",
+              "projectName": "ontology-chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2056,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T07:05:24.869Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6f22f2a498ecef32ecba-8840cc2925ee7969c3f9",
+          "file": "ontology.spec.ts",
+          "line": 175,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-18T07:04:47.510Z",
+    "duration": 40145.116,
+    "expected": 14,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

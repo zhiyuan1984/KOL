@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "kind": "layout-contract",
+  "status": "complete",
+  "owner": "ui-ux/frontend/backend/test-manager",
+  "requirement_refs": [
+    "CONST-04",
+    "CONST-05",
+    "CONST-08",
+    "CONST-10",
+    "TECH-FE-02",
+    "TECH-FE-03",
+    "TECH-BE-01",
+    "TECH-BE-02",
+    "TECH-BE-03",
+    "TECH-TEST-02"
+  ],
+  "subject": {
+    "task_id": "ontology-relevant-20261018",
+    "source_base": "6fad3634778019e822219b8aa14dc257ab860c64"
+  },
+  "decisions": {
+    "source": "User new reference and docs/DESIGN.md business-reading contract",
+    "catalog": "320 default;280–440 adjustable; name-only38px rows; selected row scrolled into view; compact footer",
+    "filters": "Exposed first3 choices; More explicit; no disabled row placeholders; subordinate choices cascade; no useless clear row",
+    "detail": "Two-to-three line summary with definition before classification, text edit and More; stable numeric tabs; useful empty states",
+    "fixedColumns": "Datatype72px, required48px, actions96px; name and description fluid; full values in details",
+    "responsive": "Wide/short/narrow actual browser; native-dialog dropdown container fixed; table internally scrolls on narrow width."
+  },
+  "verification": {
+    "evidence": [
+      "page-results.json",
+      "unit-results.json",
+      "pg-results.json",
+      "browser-review.json"
+    ]
+  },
+  "task_id": "ontology-relevant-20261018",
+  "summary": "本体相关范围与业务阅读：layout-contract",
+  "status_claims": []
+}

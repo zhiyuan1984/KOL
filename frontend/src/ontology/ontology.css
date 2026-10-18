@@ -6,7 +6,7 @@
 .ontology-shell .sidebar{background:var(--onto-white);border:1px solid var(--onto-line);border-radius:6px;width:100%;min-width:0;padding:12px 10px;gap:12px;box-shadow:var(--onto-shadow)}
 .ontology-shell .sidebar-head{padding:5px 6px 15px}.ontology-shell .brand-logo{width:90px;max-width:90px;height:auto}.ontology-shell .sidebar-scroll{padding:0}.ontology-shell .nav-link{height:45px;min-height:45px;font-size:14px;color:var(--onto-ink);border-radius:6px;padding-inline:12px}.ontology-shell .nav-link.active{background:var(--onto-selected);color:var(--onto-blue)}.ontology-shell .nav-group+.nav-group{border-color:var(--onto-line);padding-top:10px;margin-top:10px}.ontology-shell.sidebar-collapsed{--left-width:56px}.ontology-shell .main{min-width:0;min-height:0;padding:0;overflow:hidden;background:transparent}.ontology-shell .main>.ontology-workspace{padding:0;margin:0;max-width:none;width:100%;height:100%;overflow:hidden;flex:1}
 /* Object definition workspace. Values follow the user-reviewed compact contract in DESIGN.md. */
-.ontology-workspace.onto-compact{display:grid;grid-template-columns:var(--onto-catalog-width,360px) 6px minmax(0,1fr);gap:0;min-width:0;font:13px/1.5 'Segoe UI','Microsoft YaHei',Arial,sans-serif;color:var(--onto-ink)}
+.ontology-workspace.onto-compact{display:grid;grid-template-columns:var(--onto-catalog-width,320px) 6px minmax(0,1fr);gap:0;min-width:0;font:13px/1.5 'Segoe UI','Microsoft YaHei',Arial,sans-serif;color:var(--onto-ink)}
 .ontology-workspace *{box-sizing:border-box}
 .ontology-workspace :is(h1,h2,h3,p){margin:0}
 .ontology-workspace :is(button,input,select,textarea){font:inherit;color:inherit;letter-spacing:normal}
@@ -14,7 +14,7 @@
 .ontology-workspace button:hover{background:var(--onto-selected)}
 .ontology-workspace button:disabled{color:var(--onto-quiet);cursor:not-allowed;opacity:.65}
 .ontology-workspace :is(button,input,select,textarea,summary,[role=separator]):focus-visible{outline:2px solid var(--onto-blue);outline-offset:2px}
-.ontology-workspace :is(input:not(.ant-input),select,textarea){min-height:32px;border:1px solid var(--onto-control-border);border-radius:4px;background:var(--onto-white);padding:5px 8px;min-width:0;width:100%}
+.ontology-workspace :is(input:not(.ant-input):not(.ant-select-input),select,textarea){min-height:32px;border:1px solid var(--onto-control-border);border-radius:4px;background:var(--onto-white);padding:5px 8px;min-width:0;width:100%}
 .ontology-workspace textarea{resize:vertical;line-height:1.6}
 .ontology-workspace .onto-primary{background:var(--onto-blue);color:var(--onto-white);border:1px solid var(--onto-blue);white-space:nowrap;height:32px}
 .ontology-workspace .onto-primary:hover{background:var(--onto-blue-hover)}
@@ -35,14 +35,14 @@
 .onto-range>label{display:flex;gap:4px;align-items:center;white-space:nowrap}
 .ontology-workspace .onto-range input[type=checkbox]{width:14px;min-height:14px;height:14px;margin:0;accent-color:var(--onto-blue)}
 .onto-range select{max-width:140px}
-.onto-filters{padding:4px 12px 8px;display:grid;gap:6px;border-bottom:1px solid var(--onto-line);flex-shrink:0}
-.onto-filter-line{display:grid;grid-template-columns:58px minmax(0,1fr);gap:6px;align-items:center;min-height:28px}
+.onto-filters{padding:2px 12px 4px;display:grid;gap:4px;flex-shrink:0;max-height:210px;overflow:auto}
+.onto-filter-line{display:grid;grid-template-columns:48px minmax(0,1fr);gap:6px;align-items:start;min-height:28px}
 .onto-filter-line>label{color:var(--onto-quiet);font-size:12px}
 .onto-filter-line .ant-select{width:100%;min-width:0;height:28px;font-size:13px}
 .onto-filter-line .ant-select-selector{border-color:var(--onto-control-border)!important;border-radius:4px!important}
 .onto-clear-filters{justify-self:end;font-size:12px;padding-block:0!important;min-height:24px!important}
-.onto-object-list{flex:1;min-height:0;overflow:auto;padding:0 8px}
-.onto-catalog>footer{display:flex;align-items:center;justify-content:space-between;gap:4px;padding:6px 10px;border-top:1px solid var(--onto-line);font-size:12px;color:var(--onto-quiet);min-height:38px;flex-shrink:0}
+.onto-object-list{flex:1;min-height:0;overflow:auto;padding:0 8px;position:relative}
+.onto-catalog>footer{display:flex;align-items:center;justify-content:flex-end;gap:4px;padding:2px 10px;border-top:1px solid var(--onto-line);font-size:12px;color:var(--onto-quiet);min-height:32px;flex-shrink:0}
 .onto-catalog>footer>span{white-space:nowrap;flex:1;min-width:0}
 .onto-catalog>footer>div{display:flex;align-items:center;gap:2px;white-space:nowrap}
 .ontology-workspace .onto-catalog>footer select{width:78px!important;min-width:78px!important;max-width:78px;flex:0 0 78px;font-size:12px;min-height:28px;height:28px;padding:2px 4px}
@@ -50,7 +50,7 @@
 .onto-table th{height:32px;background:var(--onto-th);font-size:12px;font-weight:600;text-align:left;color:var(--onto-ink)}
 .onto-table :is(th,td){border-bottom:1px solid var(--onto-line);padding:6px 8px;vertical-align:middle}
 .onto-table td{height:38px}
-.onto-object-table th:last-child{width:96px}
+
 .onto-object-table tr{cursor:pointer}
 .onto-object-table tr.selected{background:var(--onto-selected)}
 .onto-object-table tr:hover{background:var(--onto-chip)}
@@ -99,12 +99,12 @@
 .onto-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:10px}
 .onto-toolbar .workspace-search-input{flex:1;min-width:0}
 .onto-table-wrap{overflow:auto}
-.onto-definition-table th:nth-child(1){width:24%}
-.onto-definition-table th:nth-child(2){width:15%}
-.onto-definition-table th:nth-child(3){width:14%}
-.ontology-workspace .onto-definition-table .onto-operations{width:128px}
+.onto-definition-table th:nth-child(1){width:28%}
+
+
+.ontology-workspace .onto-definition-table .onto-operations{width:96px}
 .onto-definition-table td{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.onto-definition-table td:first-child>span{display:inline-block;max-width:calc(100% - 76px);overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+.onto-definition-table td:first-child>button{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;padding:0;color:var(--onto-ink)}
 .onto-item-code{display:inline-block;max-width:70px;margin-left:6px;overflow:hidden;text-overflow:ellipsis;font-size:12px;vertical-align:middle}
 .onto-definition-table td button{font-size:12px;padding:2px 4px;min-height:24px}
 .onto-first-definition{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:16px 0;max-width:540px}
@@ -143,9 +143,53 @@
 .onto-item-details{margin:0}
 .onto-item-details dt{font-size:12px;color:var(--onto-quiet);margin-top:10px}
 .onto-item-details dd{margin:3px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
-@media(max-width:1150px){.onto-object-head{flex-wrap:wrap}.onto-head-actions{margin-left:36px}.onto-definition-table th:nth-child(5),.onto-definition-table td:nth-child(5){display:none}.onto-tabs{gap:14px}}
-@media(max-width:1000px){.ontology-workspace.onto-compact{display:flex;flex-direction:column;overflow:auto!important;gap:6px}.onto-resizer{display:none}.onto-catalog{max-height:46dvh;min-height:290px;flex-shrink:0}.onto-filters{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.onto-filter-line{display:block;min-width:0}.onto-filter-line>label{display:block;margin-bottom:3px}.onto-clear-filters{grid-column:1/-1}.onto-detail{min-height:420px;flex:1}.onto-panel{min-height:180px}.onto-object-copy h2{font-size:17px}.onto-catalog>footer{padding-block:4px}}
-@media(max-width:650px){.onto-catalog h1{font-size:18px}.onto-catalog{max-height:48dvh}.onto-object-head{padding:10px;gap:6px}.onto-object-copy>div{flex-wrap:wrap;gap:2px 8px}.onto-object-copy h2{max-width:100%}.onto-head-actions{margin-left:34px}.onto-tabs{padding-inline:10px;gap:16px}.onto-tabs small{font-size:12px}.onto-object-status{padding-inline:10px}.onto-panel{padding:10px}.onto-definition-table th:nth-child(4),.onto-definition-table td:nth-child(4){display:none}.onto-definition-table th:first-child{width:34%}.onto-definition-table th:nth-child(2){width:22%}.onto-definition-table th:nth-child(3){width:18%}.ontology-workspace .onto-definition-table .onto-operations{width:128px}.onto-definition-table{min-width:510px}.onto-object-copy p{white-space:normal;max-height:44px}}
+@media(max-width:1150px){.onto-tabs{gap:14px}}
+@media(max-width:1000px){.ontology-workspace.onto-compact{display:flex;flex-direction:column;overflow:auto!important;gap:6px}.onto-resizer{display:none}.onto-catalog{max-height:46dvh;min-height:290px;flex-shrink:0}.onto-filters{gap:4px}.onto-filter-line{min-width:0}.onto-clear-filters{grid-column:1/-1}.onto-detail{min-height:420px;flex:1}.onto-panel{min-height:180px}.onto-object-copy h2{font-size:17px}.onto-catalog>footer{padding-block:4px}}
+@media(max-width:650px){.onto-catalog h1{font-size:18px}.onto-catalog{max-height:48dvh}.onto-object-head{padding:10px;gap:6px}.onto-object-copy>div{flex-wrap:wrap;gap:2px 8px}.onto-object-copy h2{max-width:100%}.onto-head-actions{margin-left:0}.onto-tabs{padding-inline:10px;gap:16px}.onto-tabs small{font-size:12px}.onto-object-status{padding-inline:10px}.onto-panel{padding:10px}.ontology-workspace .onto-definition-table .onto-operations{width:96px}.onto-definition-table{min-width:560px}.onto-object-copy p{white-space:normal;max-height:44px}}
 @media(max-height:600px) and (min-width:1001px){.onto-catalog-head{padding-block:6px 0}.onto-catalog-tools{padding-block:6px}.onto-range{padding-bottom:0}.onto-filters{gap:4px;padding-block:2px 4px}.onto-object-head{padding-block:8px 4px}.onto-object-status{padding-bottom:4px}.onto-panel{padding-top:8px}}
-@media(pointer:coarse){.ontology-workspace button{min-height:44px}.ontology-workspace .onto-filter-line .ant-select{height:40px}.ontology-workspace :is(input:not(.ant-input),select){min-height:40px}.ontology-workspace .onto-primary,.ontology-workspace .onto-outline{min-height:44px;height:44px}.onto-catalog>footer select{min-height:40px;height:40px}.onto-catalog{max-height:52dvh}.onto-clear-filters{min-height:36px!important}}
+@media(pointer:coarse){.ontology-workspace button{min-height:44px}.ontology-workspace .onto-filter-line .ant-select{height:40px}.ontology-workspace :is(input:not(.ant-input):not(.ant-select-input),select){min-height:40px}.ontology-workspace .onto-primary,.ontology-workspace .onto-outline{min-height:44px;height:44px}.onto-catalog>footer select{min-height:40px;height:40px}.onto-catalog{max-height:52dvh}.onto-clear-filters{min-height:36px!important}}
 @media(prefers-reduced-motion:reduce){.ontology-workspace *{scroll-behavior:auto}}
+
+/* User reference v2: exposed filters and business-first summary. */
+.onto-range>div{display:flex;gap:4px;align-items:center}
+.onto-range .onto-text{font-size:12px;min-height:24px;padding:2px 4px}
+.onto-range button[aria-pressed=true]{background:var(--onto-selected);font-weight:600}
+.onto-filter-line>span{white-space:nowrap;font-size:12px;color:var(--onto-quiet);line-height:28px}
+.onto-filter-options{display:flex;gap:2px;align-items:center;flex-wrap:wrap;min-width:0}
+.ontology-workspace .onto-filter-option,.ontology-workspace .onto-filter-more{min-height:28px;height:28px;padding:2px 6px;font-size:13px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.onto-filter-option[aria-pressed=true]{background:var(--onto-selected);color:var(--onto-blue);font-weight:600}
+.onto-filter-option[aria-pressed=true]::after{content:'';display:block;border-bottom:1px solid currentColor}
+.onto-filter-options .ant-select{flex-basis:100%;height:28px}
+.onto-filter-hint{margin-left:48px;font-size:12px}
+.onto-global-search{display:flex;gap:4px;align-items:center;font-size:12px;color:var(--onto-quiet)}
+.ontology-workspace .onto-global-search input,.ontology-workspace .onto-accept input{width:14px;height:14px;min-height:14px;flex-shrink:0;accent-color:var(--onto-blue)}
+.onto-list-summary{min-height:30px;display:flex;align-items:center;justify-content:space-between;padding:2px 12px;border-top:1px solid var(--onto-line);font-size:12px;color:var(--onto-quiet);flex-shrink:0}
+.onto-list-summary button{font-size:12px;padding:0 2px;min-height:24px}
+.onto-object-link>span:first-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.onto-row-arrow{color:var(--onto-quiet);opacity:0}
+tr.selected .onto-row-arrow{opacity:1;color:var(--onto-blue)}
+.onto-object-table tr.selected{box-shadow:inset 2px 0 var(--onto-blue)}
+.onto-result-path{padding-left:0}
+.onto-object-head{position:relative;padding:12px 14px 8px;gap:8px;align-items:flex-start}
+.onto-object-copy{display:flex;flex-direction:column;min-width:0;padding-right:130px;flex:1}
+.onto-object-copy>div{min-height:26px}
+.onto-object-copy p{white-space:normal;line-height:20px;max-height:40px;overflow:hidden;margin:2px 0 0}
+.onto-object-path{font-size:12px;line-height:18px;order:3}
+.onto-head-actions{position:absolute;right:12px;top:12px;gap:6px}
+.onto-object-status:empty{display:none}
+.onto-tabs{gap:20px}
+.ontology-workspace .onto-tabs button{min-width:54px}
+.onto-tabs small{display:inline-block;min-width:14px;text-align:left}
+.onto-toolbar .workspace-search-input{max-width:360px}
+.onto-toolbar>.onto-primary{margin-left:auto}
+.onto-definition-table{min-width:560px}
+.onto-definition-table td{height:38px}
+.onto-definition-table td:last-child button{padding:2px 4px}
+.onto-definition-table .onto-name-detail{font-size:13px;min-height:24px}
+.onto-definition-table[data-dimension=relations] th:first-child{width:36%}
+.onto-scope-mappings{padding-left:0;list-style:none;margin:12px 0}
+.onto-scope-mappings li{padding:8px 0;border-bottom:1px solid var(--onto-line);font-size:12px;display:flex;gap:8px;align-items:center}
+.onto-scope-mappings li>span{flex:1}
+.onto-fields .ant-select{width:100%;min-width:0}
+.onto-modal-body .onto-accept input{width:14px;height:14px;min-height:14px}
+@media(max-width:650px){.onto-object-copy{padding-right:0}.onto-head-actions{position:static;margin-left:auto}.onto-object-head{flex-wrap:wrap}.onto-object-copy{min-width:180px}.onto-catalog-tools .onto-outline{font-size:12px;padding-inline:4px}.onto-toolbar{flex-wrap:wrap}.onto-toolbar .workspace-search-input{flex-basis:100%;max-width:none}.onto-filter-options .onto-filter-option{max-width:140px}}

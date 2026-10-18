@@ -1,0 +1,9 @@
+{
+  "base": "6fad3634778019e822219b8aa14dc257ab860c64",
+  "globalNavigationCssUnchanged": true,
+  "globalNavigationTsxUntouched": true,
+  "reference": "User attached codex-clipboard-44c46b1d-76b0-4dcb-8272-0e57fafcc0b5.png; actual business fields retained, no invented relation instances.",
+  "businessDefinitions": "Source authority moved to source, explicit definitions for creator_candidate,kol_profile,collaboration. Tenant published overrides retain precedence.",
+  "permissions": "No new grants. Mappings select default browse scope only. Existing service active membership and management checks remain authority.",
+  "database": "Additive new scope settings/history and feedback tables only; no guessed initial mappings."
+}

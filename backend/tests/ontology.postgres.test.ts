@@ -1,3 +1,4 @@
+import {relevanceSchema} from '../src/ontology/relevance.js';
 import {postgresTransaction} from '../src/postgres/pool.js';
 import {enterpriseSchema,enterpriseSource,importEnterpriseCatalog,enterpriseHash} from '../src/ontology/enterprise.js';
 import { randomUUID } from 'node:crypto';
@@ -31,26 +32,26 @@ suite('ontology native PostgreSQL integration (isolated disposable database)',()
     await closePostgresPool();process.env.DATABASE_URL=url!;
     await postgresPool().query(`
       CREATE TABLE users(id text PRIMARY KEY,active integer NOT NULL);
-      CREATE TABLE organization_people(person_ref text PRIMARY KEY,user_id text,status text);
-      CREATE TABLE organization_units(id text PRIMARY KEY,company_id text,status text);
-      CREATE TABLE organization_memberships(person_ref text,company_id text,org_unit_id text,status text,effective_from text,effective_to text);
+      CREATE TABLE organization_people(person_ref text PRIMARY KEY,user_id text,status text,display_name text DEFAULT '测试人员');
+      CREATE TABLE organization_units(id text PRIMARY KEY,company_id text,status text,display_name text DEFAULT '测试部门',parent_id text);
+      CREATE TABLE organization_memberships(person_ref text,company_id text,org_unit_id text,status text,effective_from text,effective_to text,position text);
     `);
-    await postgresPool().query(ontologySchema);await postgresPool().query(enterpriseSchema);
+    await postgresPool().query(ontologySchema);await postgresPool().query(enterpriseSchema);await postgresPool().query(relevanceSchema);
     // Run twice: a normal feature migration must be idempotent.
-    await postgresPool().query(ontologySchema);await postgresPool().query(enterpriseSchema);
+    await postgresPool().query(ontologySchema);await postgresPool().query(enterpriseSchema);await postgresPool().query(relevanceSchema);
     for(const company of ['a','b']){
-      await postgresPool().query('INSERT INTO organization_units VALUES($1,$2,$3)',['unit:'+company,'company:'+company,'active']);
+      await postgresPool().query('INSERT INTO organization_units(id,company_id,status) VALUES($1,$2,$3)',['unit:'+company,'company:'+company,'active']);
       for(const role of ['admin','employee']){
         const id=role+'_'+company;
         await postgresPool().query('INSERT INTO users VALUES($1,1)',[id]);
-        await postgresPool().query("INSERT INTO organization_people VALUES($1,$1,'active')",[id]);
-        await postgresPool().query("INSERT INTO organization_memberships VALUES($1,$2,$3,'active',NULL,NULL)",[id,'company:'+company,'unit:'+company]);
+        await postgresPool().query("INSERT INTO organization_people(person_ref,user_id,status) VALUES($1,$1,'active')",[id]);
+        await postgresPool().query("INSERT INTO organization_memberships(person_ref,company_id,org_unit_id,status,effective_from,effective_to) VALUES($1,$2,$3,'active',NULL,NULL)",[id,'company:'+company,'unit:'+company]);
       }
     }
   });
   beforeEach(async()=>{
     // Only these feature tables, inside the disposable ontology_it_* database.
-    await postgresPool().query('TRUNCATE ontology_documents,ontology_versions,ontology_confirmations,ontology_receipts');
+    await postgresPool().query('TRUNCATE ontology_documents,ontology_versions,ontology_confirmations,ontology_receipts,ontology_scope_settings,ontology_scope_history,ontology_maintenance_requests');
     await postgresPool().query("UPDATE organization_memberships SET status='active',effective_to=NULL");
     await postgresPool().query('UPDATE users SET active=1');
   });
@@ -239,4 +240,35 @@ describe('enterprise catalog native import',()=>{
   expect((await db.query('SELECT source_version FROM ontology_catalog_imports')).rows).toHaveLength(2);
  });
 
+});
+
+suite('ontology relevance native PostgreSQL boundaries',()=>{
+ afterAll(async()=>{await closePostgresPool();});
+ beforeEach(async()=>{await postgresPool().query('TRUNCATE ontology_scope_settings,ontology_scope_history,ontology_maintenance_requests');await postgresPool().query("UPDATE organization_memberships SET status='active',effective_to=NULL,position='运营专员'");await postgresPool().query('UPDATE users SET active=1');});
+ const mapping=(subjectType='organization_unit',subjectId='unit:a',domain=['营销','KOL营销'],includeDescendants=false)=>({id:randomUUID(),subjectType,subjectId,domain,includeDescendants});
+ it('starts unconfigured, explicitly maps multiple domains and never changes authorized catalog',async()=>{
+  const before=await service('employee_a').catalog();expect(before.relevance?.configured).toBe(false);
+  const saved=await service().configureScope({expectedRevision:0,mappings:[mapping(),mapping('position','运营专员',['销售','亚马逊经营'])],reason:'确认跨域职责',confirmed:true});expect(saved.revision).toBe(1);
+  const result=await service('employee_a').catalog();expect(result.relevance?.relatedDomains).toContainEqual(['营销','KOL营销']);expect(result.relevance?.relatedDomains).toContainEqual(['销售','亚马逊经营']);expect(result.objects.length).toBe(before.objects.length);expect((await service('employee_b').catalog()).relevance?.relatedDomains).toEqual([]);
+  await expect(service().configureScope({expectedRevision:0,mappings:[],reason:'过期配置',confirmed:true})).rejects.toMatchObject({status:409});
+ });
+ it('rejects unconfirmed, employee, cross-company and invalid domain mappings',async()=>{
+  await expect(service().configureScope({expectedRevision:0,mappings:[],reason:'未确认'})).rejects.toMatchObject({status:409});
+  await expect(service('employee_a').configureScope({})).rejects.toMatchObject({status:403});
+  await expect(service().configureScope({expectedRevision:0,mappings:[mapping('organization_unit','unit:b')],reason:'跨公司',confirmed:true})).rejects.toMatchObject({status:422});
+  await expect(service().configureScope({expectedRevision:0,mappings:[mapping('position','运营专员',['未知','未知'])],reason:'未知域',confirmed:true})).rejects.toMatchObject({status:422});
+ });
+ it('resolves collaborative membership and explicit descendants without matching by display names',async()=>{
+  await postgresPool().query("INSERT INTO organization_units(id,company_id,status,parent_id) VALUES('child:a','company:a','active','unit:a') ON CONFLICT(id) DO UPDATE SET status='active'");
+  await postgresPool().query("INSERT INTO organization_memberships(person_ref,company_id,org_unit_id,status,position) VALUES('employee_a','company:a','child:a','active','运营专员')");
+  await postgresPool().query("UPDATE organization_memberships SET status='ended' WHERE person_ref='employee_a' AND org_unit_id='unit:a'");
+  await service().configureScope({expectedRevision:0,mappings:[mapping('organization_unit','unit:a',['营销','KOL营销'],false)],reason:'仅本级职责',confirmed:true});expect((await service('employee_a').catalog()).relevance?.relatedDomains).toHaveLength(0);
+  await service().configureScope({expectedRevision:1,mappings:[mapping('organization_unit','unit:a',['营销','KOL营销'],true)],reason:'包含下级职责',confirmed:true});expect((await service('employee_a').catalog()).relevance?.relatedDomains).toHaveLength(1);
+  await postgresPool().query("DELETE FROM organization_memberships WHERE org_unit_id='child:a'");
+ });
+ it('publishes reasoned applicability through the existing draft confirmation flow',async()=>{const d=definition('applicability_test');d.applicability={relations:{status:'not_applicable',reason:'独立参考对象，无关系需求'}};await save(d);expect((await objectFrom(d.code))).toBeUndefined();await commit(d.code,1);expect((await objectFrom(d.code))?.published?.applicability?.relations?.reason).toBe('独立参考对象，无关系需求');});
+ it('persists idempotent employee feedback and limits admin inbox to its company',async()=>{
+  const request={code:'kol_profile',dimension:'relations',note:'请核查业务关系',commandId:randomUUID()};const first=await service('employee_a').requestMaintenance(request);expect((await service('employee_a').requestMaintenance(request)).id).toBe(first.id);expect((await service().maintenance()).items).toHaveLength(1);expect((await service('admin_b').maintenance()).items).toHaveLength(0);
+  await expect(service('employee_a').requestMaintenance({...request,note:'改变说明'})).rejects.toMatchObject({status:409});await expect(service('employee_a').requestMaintenance({...request,code:'credential_ref',commandId:randomUUID()})).rejects.toMatchObject({status:422});await expect(service('employee_a').maintenance()).rejects.toMatchObject({status:403});
+ });
 });

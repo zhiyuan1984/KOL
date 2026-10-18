@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "kind": "state-and-action-map",
+  "status": "complete",
+  "owner": "ui-ux/frontend/backend/test-manager",
+  "requirement_refs": [
+    "CONST-04",
+    "CONST-05",
+    "CONST-08",
+    "CONST-10",
+    "TECH-FE-02",
+    "TECH-FE-03",
+    "TECH-BE-01",
+    "TECH-BE-02",
+    "TECH-BE-03",
+    "TECH-TEST-02"
+  ],
+  "subject": {
+    "task_id": "ontology-relevant-20261018",
+    "source_base": "6fad3634778019e822219b8aa14dc257ab860c64"
+  },
+  "decisions": {
+    "states": [
+      "Reading with dashes",
+      "Load failure with retry",
+      "Unconfigured related scope with config/all-range action",
+      "No role-matched domain with all-range action",
+      "No search match with clear",
+      "Empty applicable type: awaiting maintenance",
+      "Not applicable only with explicit reason, draft and publication",
+      "Draft not effective",
+      "Published view read-only",
+      "Persisted feedback receipt"
+    ],
+    "actions": {
+      "scope": "Admin selects real organizations/positions/people and multiple domains, optional explicit owner; reason, revision and confirmation; audited transaction",
+      "feedback": "Employee note persisted idempotently to company inbox, no auto publish",
+      "maintenance": "Original edit/save/publish/disable/restore flows unchanged; all item fields preserved"
+    },
+    "authority": "Scope preferences never grant access; server role and membership checks remain."
+  },
+  "verification": {
+    "evidence": [
+      "page-results.json",
+      "unit-results.json",
+      "pg-results.json",
+      "browser-review.json"
+    ]
+  },
+  "task_id": "ontology-relevant-20261018",
+  "summary": "本体相关范围与业务阅读：state-and-action-map",
+  "status_claims": []
+}

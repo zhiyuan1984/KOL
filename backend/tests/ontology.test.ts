@@ -51,7 +51,7 @@ describe('ontology definition semantics',()=>{
 
 describe('ontology tenant and draft boundaries (mocked database unit tests)',()=>{
   beforeEach(()=>{query.mockReset();});
-  function authorize(rows:unknown[]=[]){query.mockImplementation(async(sql:string)=>({rows:sql.includes('organization_people')?[{id:'company:a'}]:sql.includes('ontology_catalog_')?[]:rows}));}
+  function authorize(rows:unknown[]=[]){query.mockImplementation(async(sql:string)=>({rows:sql.includes('organization_people')?[{id:'company:a'}]:sql.includes('ontology_catalog_')||sql.includes('ontology_scope_')?[]:rows}));}
   it('requires current organization membership even for an administrator',async()=>{
     authorize();await expect(new OntologyService(admin,'company:b').catalog(true)).rejects.toMatchObject({status:403});
     query.mockResolvedValue({rows:[]});await expect(new OntologyService(admin).catalog(true)).rejects.toMatchObject({status:403});
@@ -149,4 +149,10 @@ describe('user enterprise ontology source normalization',()=>{
   for(const d of baseline.objects.filter(d=>d.code.startsWith('ent_')))expect(Object.values(d.items).flat()).toHaveLength(0);
   expect(baseline.objects.some(d=>d.taxonomy.includes('未分类')||d.taxonomy.includes('待业务负责人分类'))).toBe(false);
  });
+});
+
+describe('ontology relevance and applicability',()=>{
+ it('separates the business definition of a lead from its authority source',()=>{const lead=baseline.objects.find(o=>o.code==='creator_candidate')!;expect(lead.description).toContain('尚未完成合作评估');expect(lead.source).toContain('采集批次');});
+ it('requires a reason for not-applicable and rejects conflicting populated definitions',()=>{const d=profile();d.applicability={relations:{status:'not_applicable',reason:'业务边界确认'}};expect(()=>validate(d)).toThrow(/同时有记录/);d.items.relations=[];expect(validate(d).applicability?.relations?.reason).toBe('业务边界确认');d.applicability.relations!.reason='';expect(()=>validate(d)).toThrow(/格式/);});
+ it('employee cannot configure scope or read other employees feedback',async()=>{await expect(new OntologyService(actor,'company:a').configureScope({})).rejects.toMatchObject({status:403});await expect(new OntologyService(actor,'company:a').maintenance()).rejects.toMatchObject({status:403});});
 });

@@ -24,3 +24,8 @@ ontology.get('/ontology/workspace/history/:code',async c=>c.json(await service(c
 ontology.post('/ontology/workspace/drafts',async c=>c.json(await service(c.req.header('X-Ontology-Company')).save(await body(c))));
 ontology.post('/ontology/workspace/prepare',async c=>c.json(await service(c.req.header('X-Ontology-Company')).prepare(await body(c))));
 ontology.post('/ontology/workspace/commit',async c=>c.json(await service(c.req.header('X-Ontology-Company')).commit(await body(c))));
+
+ontology.get('/ontology/workspace/scope',async c=>c.json(await service(c.req.header('X-Ontology-Company')).scope()));
+ontology.post('/ontology/workspace/scope',async c=>c.json(await service(c.req.header('X-Ontology-Company')).configureScope(await body(c))));
+ontology.post('/ontology/workspace/maintenance',async c=>c.json(await service(c.req.header('X-Ontology-Company')).requestMaintenance(await body(c))));
+ontology.get('/ontology/workspace/maintenance',async c=>c.json(await service(c.req.header('X-Ontology-Company')).maintenance()));

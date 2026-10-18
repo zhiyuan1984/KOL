@@ -1,0 +1,186 @@
+{
+  "schema_version": "1.0.0",
+  "kind": "development-delivery-record",
+  "task_contract": {
+    "file": "task-contract.json",
+    "sha256": "99a2ba1cb53125753a1cc77cde955882893f27107022689a371156b458c1c78a"
+  },
+  "artifacts": [
+    {
+      "id": "state-and-action-map",
+      "status": "complete",
+      "file": "state-and-action-map.json",
+      "sha256": "916080df3a1c6b39863824812c887c96ef48fdedc8943b0e30cf180457c15b0b"
+    },
+    {
+      "id": "layout-contract",
+      "status": "complete",
+      "file": "layout-contract.json",
+      "sha256": "d9f99ce00cb2af535e5ac569dccbf2efed22e5ef360f2897ee7d31cd5de8b937"
+    },
+    {
+      "id": "component-selection",
+      "status": "complete",
+      "file": "component-selection.json",
+      "sha256": "38c89f19aa9c22a6547981fe63acddfb5b78e8ea2059ea9f3b2d779e75850d9f"
+    },
+    {
+      "id": "browser-and-source-evidence",
+      "status": "complete",
+      "file": "browser-and-source-evidence.json",
+      "sha256": "d118a74a94d82833c40f4fbf2a90197f1b65ca2d271678ca4d6eda133a5bdab8"
+    },
+    {
+      "id": "navigation-contract",
+      "status": "complete",
+      "file": "navigation-contract.json",
+      "sha256": "c558528df7cd3cdbb266d35d9aa7bdbb53d8394e480128c76dc4e4820a9bb8df"
+    }
+  ],
+  "checks": [
+    {
+      "id": "route-contract-schema",
+      "type": "machine",
+      "status": "passed",
+      "command": "node scripts/development-verify.mjs",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "page-results.json",
+          "sha256": "834bff44a6a4283552545f6adeab828a0484195430bc97cc71ee3cc9e5d16fb8",
+          "kind": "test-report"
+        },
+        {
+          "file": "build-results.json",
+          "sha256": "2418b44ddfeb9f87ed5d8d20f9a5af37784eb436942978bfa4ed61d8260f6f27",
+          "kind": "test-report"
+        }
+      ]
+    },
+    {
+      "id": "frontend-experience-test",
+      "type": "machine",
+      "status": "passed",
+      "command": "npx playwright test --config playwright.ontology.config.ts --reporter=list,json",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "page-results.json",
+          "sha256": "834bff44a6a4283552545f6adeab828a0484195430bc97cc71ee3cc9e5d16fb8",
+          "kind": "test-report"
+        },
+        {
+          "file": "build-results.json",
+          "sha256": "2418b44ddfeb9f87ed5d8d20f9a5af37784eb436942978bfa4ed61d8260f6f27",
+          "kind": "test-report"
+        },
+        {
+          "file": "final-page-results.json",
+          "kind": "test-report",
+          "sha256": "f5a4f9b01a3bf1febf9d3d140d4950c2dca4373240a453f585282e4f7d257bb4"
+        }
+      ]
+    },
+    {
+      "id": "frontend-browser-review",
+      "type": "human-browser",
+      "status": "passed",
+      "reviewer": "Codex acting as UI/UX expert agent (not human research)",
+      "reviewed_at": "2026-10-18T07:08:30.237018+00:00",
+      "evidence": [
+        {
+          "file": "browser-review.json",
+          "sha256": "47b5bbe5053ff7caa98161fa4df813b536b4ddc3a8d76c2f540f39b50fa2add1",
+          "kind": "browser-record"
+        },
+        {
+          "file": "reference.png",
+          "sha256": "041da50f9a15b41ea412b60ece21b8896f6d40c92bca7d0d3e9323dc61f93b48",
+          "kind": "screenshot"
+        },
+        {
+          "file": "empty-relations.png",
+          "sha256": "9f33f4b3672b9e43671006da916bde90e9c65f290513cae270fc98de008f2222",
+          "kind": "screenshot"
+        },
+        {
+          "file": "source-compare.json",
+          "sha256": "01959116e8f6725e4b92a4f98aacd4562a614d660a009024255af7808f959e9c",
+          "kind": "source-compare"
+        }
+      ]
+    },
+    {
+      "id": "navigation-route-test",
+      "type": "machine",
+      "status": "passed",
+      "command": "npx playwright test --config playwright.ontology.config.ts --reporter=list,json",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "page-results.json",
+          "sha256": "834bff44a6a4283552545f6adeab828a0484195430bc97cc71ee3cc9e5d16fb8",
+          "kind": "test-report"
+        },
+        {
+          "file": "build-results.json",
+          "sha256": "2418b44ddfeb9f87ed5d8d20f9a5af37784eb436942978bfa4ed61d8260f6f27",
+          "kind": "test-report"
+        },
+        {
+          "file": "final-page-results.json",
+          "kind": "test-report",
+          "sha256": "f5a4f9b01a3bf1febf9d3d140d4950c2dca4373240a453f585282e4f7d257bb4"
+        }
+      ]
+    },
+    {
+      "id": "navigation-browser-review",
+      "type": "human-browser",
+      "status": "passed",
+      "reviewer": "Codex acting as UI/UX expert agent (not human research)",
+      "reviewed_at": "2026-10-18T07:08:30.237018+00:00",
+      "evidence": [
+        {
+          "file": "browser-review.json",
+          "sha256": "47b5bbe5053ff7caa98161fa4df813b536b4ddc3a8d76c2f540f39b50fa2add1",
+          "kind": "browser-record"
+        },
+        {
+          "file": "reference.png",
+          "sha256": "041da50f9a15b41ea412b60ece21b8896f6d40c92bca7d0d3e9323dc61f93b48",
+          "kind": "screenshot"
+        },
+        {
+          "file": "empty-relations.png",
+          "sha256": "9f33f4b3672b9e43671006da916bde90e9c65f290513cae270fc98de008f2222",
+          "kind": "screenshot"
+        },
+        {
+          "file": "source-compare.json",
+          "sha256": "01959116e8f6725e4b92a4f98aacd4562a614d660a009024255af7808f959e9c",
+          "kind": "source-compare"
+        }
+      ]
+    },
+    {
+      "id": "backend-affected-test",
+      "type": "machine",
+      "status": "passed",
+      "command": "vitest run --config vitest.ontology-postgres.config.ts + vitest.ontology-unit.config.ts",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "unit-results.json",
+          "sha256": "5afe38495d36492ea796a5b7b5f56a1e030b103981051d71f0c833e17329db4d",
+          "kind": "test-report"
+        },
+        {
+          "file": "pg-results.json",
+          "sha256": "e21909b0e1bf2d0358791d7e60e63ab04ff65221baa7d2de72a11fc53dabf4b1",
+          "kind": "test-report"
+        }
+      ]
+    }
+  ]
+}

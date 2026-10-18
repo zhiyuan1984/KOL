@@ -23,20 +23,20 @@ const definitionSchema = z.object({
   code: z.string().regex(/^[a-z][a-z0-9_]{0,99}$/), id: z.string().trim().min(1).max(120),
   name: z.string().trim().min(1).max(200), description: text,
   layer: z.enum(['platform', 'kol_business', 'org_governance']), taxonomy: z.tuple([z.string().trim().min(1).max(100),z.string().trim().min(1).max(100),z.string().trim().min(1).max(100)]),
-  source: z.string().trim().min(1).max(1000), items: z.object(Object.fromEntries(ontologyDimensions.map(d => [d,z.array(itemSchema).max(300)])) as Record<typeof ontologyDimensions[number], z.ZodArray<typeof itemSchema>>).strict(),
+  source: z.string().trim().min(1).max(1000), applicability:z.object(Object.fromEntries(ontologyDimensions.map(d=>[d,z.object({status:z.literal('not_applicable'),reason:z.string().trim().min(1).max(1000)}).strict().optional()]))).strict().optional(), items: z.object(Object.fromEntries(ontologyDimensions.map(d => [d,z.array(itemSchema).max(300)])) as Record<typeof ontologyDimensions[number], z.ZodArray<typeof itemSchema>>).strict(),
 }).strict();
 
 export function loadOntologyCatalog(): { sourceVersion: string; objects: OntologyDefinition[] } {
   const sources = files.map(file => fs.readFileSync(path.join(root,file), 'utf8').replace(/^\uFEFF/,''));
   const registry = JSON.parse(sources[0]) as { objects: Array<{code:string;id:string;name:string;layer:OntologyDefinition['layer'];authority_source?:string;source_ref:string;properties:Array<{code:string;name:string;rule?:string;lineage?:string;biz_type:string}>}> };
   const events = JSON.parse(sources[1]) as {events:Array<{code:string;name:string;object_type:string;producer?:string;category?:string;source_ref:string;payload?:string[]}>};
-  const semantics = JSON.parse(sources[2]) as {taxonomy:Record<string,[string,string,string]>;relations:Array<OntologyItem & {object:string}>;rules:Array<OntologyItem & {object:string}>;actions:Array<OntologyItem & {object:string}>};
+  const semantics = JSON.parse(sources[2]) as {taxonomy:Record<string,[string,string,string]>;definitions?:Record<string,string>;relations:Array<OntologyItem & {object:string}>;rules:Array<OntologyItem & {object:string}>;actions:Array<OntologyItem & {object:string}>};
   const objects: OntologyDefinition[] = registry.objects.map(o => {
     const items: OntologyDefinition['items'] = { properties:[], relations:[], events:[], rules:[], actions:[] };
     items.properties = o.properties.map(p => ({code:p.code,name:p.name,description:(p.rule||'').replace(/\bL([123])\b/g,'R$1'),source:p.lineage||o.source_ref,type:p.biz_type}));
     items.events = events.events.filter(e=>e.object_type===o.code).map(e=>({code:e.code,name:e.name,description:'事件类型定义；历史事实由事件生产者记录。目录登记不代表已接线。',source:'config/event-catalog.yaml '+e.source_ref,producer:e.producer,type:e.category,payload:JSON.stringify({type:'object',properties:Object.fromEntries((e.payload||[]).map(k=>[k,{}]))},null,2)}));
     for (const dimension of ['relations','rules','actions'] as const) items[dimension] = semantics[dimension].filter(i=>i.object===o.code).map(({object:_,...i})=>i);
-    return {code:o.code,id:o.id,name:o.name,description:o.authority_source||'业务语义来源待补充',layer:o.layer,taxonomy:semantics.taxonomy[o.code]||[o.layer==='platform'?'智能体平台':'企业治理','未分类','待业务负责人分类'],source:'config/objects-registry.yaml '+o.source_ref,items};
+    return {code:o.code,id:o.id,name:o.name,description:semantics.definitions?.[o.code]||'未填写业务定义',layer:o.layer,taxonomy:semantics.taxonomy[o.code]||[o.layer==='platform'?'智能体平台':'企业治理','未分类','待业务负责人分类'],source:(o.authority_source?o.authority_source+' · ':'')+'config/objects-registry.yaml '+o.source_ref,items};
   });
   return {sourceVersion:createHash('sha256').update(sources.join('\n')+enterpriseHash()).digest('hex'),objects:enterpriseDefinitions(objects)};
 }
@@ -47,6 +47,7 @@ export function validateDefinition(raw:unknown, knownCodes:Set<string>, baseline
   const value=parsed.data as OntologyDefinition;
   const riskRank={R1:1,R2:2,R3:3};
   for(const dimension of ontologyDimensions){
+    if(value.applicability?.[dimension]&&value.items[dimension].length)throw new HttpFail(422,'不适用的定义类型不能同时有记录');
     const seen=new Set<string>();
     for(const item of value.items[dimension]){
       if(seen.has(item.code))throw new HttpFail(422,`${dimension} 编码重复：${item.code}`);

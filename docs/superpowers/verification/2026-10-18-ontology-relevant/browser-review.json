@@ -1,0 +1,26 @@
+{
+  "reviewer": "Codex acting as UI/UX expert agent (not human research)",
+  "reviewedAt": "2026-10-18T07:08:30.237018+00:00",
+  "status": "passed",
+  "viewports": [
+    "1680x940",
+    "390x844",
+    "1280x500",
+    "1280x720"
+  ],
+  "referenceReview": [
+    "Global left navigation unchanged.",
+    "Exposed cascading choices with More; dependent empty rows hidden; clear only with effective filters.",
+    "Labels fixed to48px to avoid theme wrapping; list38px, controls28–32px.",
+    "Default320px adjustable list; name-only rows, selected row kept visible.",
+    "Business definition before path; codes/status/history under More; no category-completeness score.",
+    "Datatype72px, required48px and admin actions96px verified in browser.",
+    "Admin empty relations have create and applicability; employee has persisted feedback.",
+    "Fixture screenshots preserve actual registry fields, not sample fields from the visual mock."
+  ],
+  "limitations": [
+    "Fixtures prove UI only; native PG tests independently prove service persistence and isolation.",
+    "User explicitly requested no guessed initial organization mappings.",
+    "Runtime consumers are unknown; displayed dependency counts are declared object references only."
+  ]
+}

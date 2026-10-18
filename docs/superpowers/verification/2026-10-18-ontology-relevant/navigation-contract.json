@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "kind": "navigation-contract",
+  "status": "complete",
+  "owner": "ui-ux/frontend/backend/test-manager",
+  "requirement_refs": [
+    "CONST-04",
+    "CONST-05",
+    "CONST-08",
+    "CONST-10",
+    "TECH-FE-02",
+    "TECH-FE-03",
+    "TECH-BE-01",
+    "TECH-BE-02",
+    "TECH-BE-03",
+    "TECH-TEST-02"
+  ],
+  "subject": {
+    "task_id": "ontology-relevant-20261018",
+    "source_base": "6fad3634778019e822219b8aa14dc257ab860c64"
+  },
+  "decisions": {
+    "routes": [
+      "/ontology",
+      "/admin/ontology",
+      "/admin/ontology/governance unchanged"
+    ],
+    "query": [
+      "company",
+      "scope=related|all",
+      "object",
+      "dimension",
+      "family",
+      "domain",
+      "topic",
+      "q",
+      "global",
+      "page",
+      "size"
+    ],
+    "behavior": "Initial related scope uses explicit service mappings; deep object links honored. Scope/query/filter/page reset atomic. Selection auto visible and refresh/back retain object.",
+    "newEntry": "Configure scope in catalog range row; feedback in employee content; admin inbox and history in object More.",
+    "authorization": "No per-department access inferred; server returns authorized definitions."
+  },
+  "verification": {
+    "evidence": [
+      "page-results.json",
+      "unit-results.json",
+      "pg-results.json",
+      "browser-review.json"
+    ]
+  },
+  "task_id": "ontology-relevant-20261018",
+  "summary": "本体相关范围与业务阅读：navigation-contract",
+  "status_claims": []
+}
