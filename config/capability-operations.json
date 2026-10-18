@@ -63,6 +63,7 @@
           "id": [
             "kolUid"
           ],
+          "record_id": ["kolId"],
           "name": [
             "kolName",
             "nickname",
@@ -83,8 +84,12 @@
             "riskTagCodes",
             "riskTags"
           ],
-          "stage_name": ["currentStageName"],
-          "risk_tag_name": ["riskTagName"],
+          "stage_name": [
+            "currentStageName"
+          ],
+          "risk_tag_name": [
+            "riskTagName"
+          ],
           "owner_name": [
             "ownerName",
             "ownerUserName"
@@ -126,6 +131,107 @@
         "connector": "starrykol",
         "tool": "getKolProfileSidebarMetrics",
         "version": 1
+      }
+    },
+    {
+      "id": "creator.profile.read",
+      "version": 1,
+      "name": "读取达人档案",
+      "description": "读取达人档案。仅使用当前获准范围和真实来源；缺失信息如实返回。只读，不发送、不解密、不改变阶段。",
+      "effect": "read",
+      "risk": "R1",
+      "asynchronous": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "creator_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "creator_id"
+        ],
+        "additionalProperties": false
+      },
+      "implementation": {
+        "connector": "starrykol",
+        "tool": "getKolProfileDetail",
+        "version": 1,
+        "inputFields": {
+          "creator_id": "kolUid"
+        }
+      }
+    },
+    {
+      "id": "creator.platform_data.read",
+      "version": 1,
+      "name": "读取达人平台数据",
+      "description": "读取达人平台数据；仅使用当前已授权对象与真实来源。不发送消息或推进正式阶段。",
+      "effect": "read",
+      "risk": "R1",
+      "asynchronous": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "creator_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "creator_id"
+        ],
+        "additionalProperties": false
+      },
+      "implementation": {
+        "connector": "starrykol",
+        "tool": "listKolPlatformData",
+        "version": 1,
+        "inputFields": {
+          "creator_id": "kolUid"
+        }
+      }
+    },
+    {
+      "id": "mail.conversations.query",
+      "version": 1,
+      "name": "查询达人邮件会话",
+      "description": "仅按已核实达人记录ID读取当前获准范围内的会话；不发送、不解密，不将邮件请求视为审批或合作事实。",
+      "effect": "read",
+      "risk": "R1",
+      "asynchronous": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "creator_record_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "page_no": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "required": [
+          "creator_record_id"
+        ],
+        "additionalProperties": false
+      },
+      "implementation": {
+        "connector": "starrykol",
+        "tool": "pageEmailConversations",
+        "version": 1,
+        "inputFields": {
+          "creator_record_id": "kolId",
+          "page_no": "pageNo",
+          "page_size": "pageSize"
+        }
       }
     }
   ]
