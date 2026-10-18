@@ -1,0 +1,13 @@
+{
+  "base": "368790983c956fe476b4f830db33a3f9a8dc7d32",
+  "rightColumnJsxIdentical": true,
+  "originalCssPreserved": true,
+  "globalNavigationUnchanged": true,
+  "backendAndDatabaseUnchanged": true,
+  "changed": [
+    "docs/DESIGN.md",
+    "frontend/e2e/ontology.spec.ts",
+    "frontend/src/ontology/OntologyWorkspace.tsx",
+    "frontend/src/ontology/ontology.css"
+  ]
+}

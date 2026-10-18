@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "kind": "browser-and-source-evidence",
+  "status": "complete",
+  "owner": "ui-ux/frontend/test-manager",
+  "requirement_refs": [
+    "CONST-04",
+    "CONST-08",
+    "CONST-10",
+    "TECH-FE-02",
+    "TECH-FE-03",
+    "TECH-TEST-02"
+  ],
+  "subject": {
+    "task_id": "ontology-density-20261018",
+    "base": "368790983c956fe476b4f830db33a3f9a8dc7d32"
+  },
+  "decisions": {
+    "browser": "16 focused ontology E2E tests passed with explicit fixtures",
+    "visual": "Agent inspected middle-density.png at1680x940",
+    "build": "Frontend production build/typecheck recorded separately",
+    "source": "Right JSX identical; prior CSS preserved; no backend/shared/schema changes",
+    "records": [
+      "page-results.json",
+      "build-results.json",
+      "browser-review.json",
+      "source-compare.json",
+      "middle-density.png"
+    ]
+  },
+  "verification": {
+    "evidence": [
+      "page-results.json",
+      "source-compare.json",
+      "browser-review.json"
+    ]
+  },
+  "task_id": "ontology-density-20261018",
+  "summary": "落实用户确认的中栏入口移除与密度计划",
+  "status_claims": []
+}

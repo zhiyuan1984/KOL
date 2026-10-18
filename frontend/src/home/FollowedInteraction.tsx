@@ -22,7 +22,6 @@ export default function FollowedInteraction({
   completeness,
   stageFilter,
   situation,
-  selectedCount,
   onStageFilter,
   onSituation,
   onPrimary,
@@ -34,7 +33,6 @@ export default function FollowedInteraction({
   completeness: FollowListCompleteness;
   stageFilter: string;
   situation: FollowedSituation | "";
-  selectedCount: number;
   onStageFilter: (value: string) => void;
   onSituation: (value: FollowedSituation | "") => void;
   onPrimary: (card: FollowedKolCardModel) => void;
@@ -59,13 +57,12 @@ export default function FollowedInteraction({
   const intro = (
     <section className="followed-interaction-intro" aria-label="当前跟进概览">
       <p>{summaryReady
-        ? "名单已由服务端按当前授权范围核对"
+        ? "名单已核对"
         : completeness === "incomplete-error"
           ? cards.length ? `${cards.length} 位已加载 · 名单核对未完成` : "名单核对未完成"
         : cards.length
           ? `${cards.length} 位已加载 · 正在核对服务端授权名单…`
           : "正在核对服务端授权名单…"}</p>
-      {selectedCount ? <span className="followed-selection-note">已选择 {selectedCount} 位，可在下方继续提问</span> : null}
     </section>
   );
 
@@ -107,10 +104,10 @@ export default function FollowedInteraction({
               ? `${interestedCount} 位已表达合作意向，可以优先判断下一步。`
               : brief.lead}
         </p>
+        <p className="followed-overview-count" data-followed-overview-count>
+          目前跟进了 {cards.length} 位
+        </p>
       </section>
-      <p className="followed-overview-count" data-followed-overview-count>
-        目前跟进了 {cards.length} 位
-      </p>
 
       <section className="followed-lifecycle-overview" aria-labelledby="followed-lifecycle-title">
         <div className="followed-section-heading">
@@ -184,10 +181,10 @@ export default function FollowedInteraction({
           {situation ? <button type="button" className="followed-inline-clear" data-followed-situation-clear onClick={() => onSituation("")}>清除</button> : null}
         </div>
         <ol>
-          <li><button type="button" className={situation === "interested" ? "is-active" : ""} data-followed-situation="interested" aria-pressed={situation === "interested"} onClick={() => onSituation(situation === "interested" ? "" : "interested")}>查看已表达兴趣的 {interestedCount} 位对象</button></li>
-          <li><button type="button" className={situation === "near_14d" ? "is-active" : ""} data-followed-situation="near_14d" aria-pressed={situation === "near_14d"} onClick={() => onSituation(situation === "near_14d" ? "" : "near_14d")}>查看临近失联的 {nearCount} 位对象</button></li>
-          {refusedCount ? <li><button type="button" className={situation === "refused" ? "is-active" : ""} data-followed-situation="refused" aria-pressed={situation === "refused"} onClick={() => onSituation(situation === "refused" ? "" : "refused")}>核对已拒绝的 {refusedCount} 位对象</button></li> : null}
-          <li><button type="button" data-followed-public-pool-new onClick={onOpenPublicPoolNew}>{publicPoolNewCount == null ? "查看公海新加入的 KOL" : `查看公海新加入的 ${publicPoolNewCount} 位 KOL`}</button></li>
+          {interestedCount ? <li><button type="button" className={situation === "interested" ? "is-active" : ""} data-followed-situation="interested" aria-pressed={situation === "interested"} onClick={() => onSituation(situation === "interested" ? "" : "interested")}><span>查看已表达兴趣的 {interestedCount} 位对象</span></button></li> : null}
+          {nearCount ? <li><button type="button" className={situation === "near_14d" ? "is-active" : ""} data-followed-situation="near_14d" aria-pressed={situation === "near_14d"} onClick={() => onSituation(situation === "near_14d" ? "" : "near_14d")}><span>查看临近失联的 {nearCount} 位对象</span></button></li> : null}
+          {refusedCount ? <li><button type="button" className={situation === "refused" ? "is-active" : ""} data-followed-situation="refused" aria-pressed={situation === "refused"} onClick={() => onSituation(situation === "refused" ? "" : "refused")}><span>核对已拒绝的 {refusedCount} 位对象</span></button></li> : null}
+          <li><button type="button" data-followed-public-pool-new onClick={onOpenPublicPoolNew}><span>{publicPoolNewCount == null ? "查看公海新加入的 KOL" : `查看公海新加入的 ${publicPoolNewCount} 位 KOL`}</span></button></li>
         </ol>
       </section>
 

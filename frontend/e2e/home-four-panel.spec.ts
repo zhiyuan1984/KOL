@@ -751,10 +751,10 @@ test("suggested actions narrow the list as a situational filter", async ({ page 
   await expect(page.locator("[data-followed-interaction]")).not.toContainText("需要关注");
   await expect(page.locator("[data-followed-lifecycle-grid] button em")).toHaveCount(0);
 
-  // 情境分区全部可点；零档也可作为明确的空筛选结果使用。
+  // 情境分区只渲染有对象的档；零档不制造一条点进去必然为空的死路。
   await expect(page.locator('button[data-followed-situation="refused"]')).toContainText("核对已拒绝的 1 位对象");
-  await expect(page.locator('button[data-followed-situation="near_14d"]')).toContainText("查看临近失联的 0 位对象");
-  await expect(page.locator('button[data-followed-situation="interested"]')).toContainText("查看已表达兴趣的 0 位对象");
+  await expect(page.locator('button[data-followed-situation="near_14d"]')).toHaveCount(0);
+  await expect(page.locator('button[data-followed-situation="interested"]')).toHaveCount(0);
 
   await page.locator('button[data-followed-situation="refused"]').click();
   await expect(page.locator("[data-followed-kol]")).toHaveCount(1);

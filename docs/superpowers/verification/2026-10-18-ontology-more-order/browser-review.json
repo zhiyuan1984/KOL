@@ -1,0 +1,12 @@
+{
+  "status": "passed",
+  "reviewer": "Codex UI/UX agent, not human research",
+  "reviewed_at": "2026-10-18T11:12:31.625286+00:00",
+  "findings": [
+    "Inspected more-order.png at280px catalog: selected item precedes More",
+    "Final visible option wraps with More; no orphan control",
+    "Three-level filters, prior typography, row heights and scroll retained"
+  ],
+  "boundary": "Explicit UI fixtures; production assets/health checked separately",
+  "preliminary_runs": "Initial invocation from repository root could not locate fixture; corrected to frontend. Added no-orphan wrapping after screenshot review and reran all three tests."
+}

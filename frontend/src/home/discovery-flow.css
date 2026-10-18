@@ -65,6 +65,11 @@
   color: var(--text-muted);
 }
 
+/* 引导文案是辅助说明，行高收到 helper 档，避免两行之间出现阅读型空隙。 */
+.discovery-event [data-discovery-guidance] {
+  line-height: var(--ds-line-helper);
+}
+
 /* 实际参数：紧凑清单，字段名与值左右对齐，窄容器整组换行。 */
 .discovery-params-list {
   display: grid;

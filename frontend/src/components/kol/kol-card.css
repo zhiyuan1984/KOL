@@ -173,11 +173,24 @@
 .kol-card-row [data-jev-potential] { color: var(--success); }
 .followed-kol-list:has(> .kol-card-row), .pool-compact-list:has(> .kol-card-row) { gap: 0; }
 /* Public-pool rows are deliberately one 13px information tier. Their compactness
-   comes from token spacing and a full-width divider, never a second tiny text tier. */
+   comes from token spacing and a full-width divider, never a second tiny text tier.
+   The row is a three-line scan unit: identity / score / meta+action. */
 .kol-card-row[data-kol-unified="pool"] {
-  gap: var(--space-1);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "identity identity"
+    "score score"
+    "meta actions";
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-1) var(--space-2);
   border-bottom-color: var(--workspace-list-divider, var(--border));
 }
+.kol-card-row[data-kol-unified="pool"] > .kol-card-identity { grid-area: identity; }
+.kol-card-row[data-kol-unified="pool"] > .pool-score-section { grid-area: score; }
+.kol-card-row[data-kol-unified="pool"] > .kol-card-meta { grid-area: meta; }
+.kol-card-row[data-kol-unified="pool"] > .kol-card-actions[data-pool-actions] { grid-area: actions; align-self: start; }
 .kol-card-row[data-kol-unified="pool"] :where(
   .kol-card-state,
   .kol-card-meta,
@@ -191,7 +204,7 @@
   line-height: var(--ds-line-sm);
 }
 .kol-card-row[data-kol-unified="pool"] .kol-card-meta {
-  gap: var(--space-1) var(--space-2);
+  gap: var(--space-1);
 }
 .kol-card-row[data-kol-unified="pool"] .kol-card-meta > span {
   display: block;
@@ -204,6 +217,10 @@
   flex-wrap: wrap;
 }
 .kol-card-row[data-kol-unified="pool"] .pool-score-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
   width: 100%;
   min-width: 0;
 }
@@ -218,7 +235,7 @@
   margin-inline-start: 0;
 }
 .kol-card-row[data-kol-unified="pool"] .pool-score-evidence {
-  width: 100%;
+  width: auto;
   min-width: 0;
 }
 .kol-card-row[data-kol-unified="pool"] .pool-score-evidence > summary {
@@ -241,14 +258,101 @@
   min-width: 0;
 }
 .kol-card-row[data-kol-unified="pool"] .kol-card-actions[data-pool-actions] {
-  width: 100%;
-  margin-inline-start: 0;
+  width: auto;
+  margin: 0;
   justify-content: flex-end;
+  justify-self: end;
+  white-space: nowrap;
 }
-.kol-card-row[data-kol-unified="pool"] .kol-card-error {
-  width: 100%;
-  text-align: end;
+.kol-card-row[data-kol-unified="pool"] > [data-pool-claim-error] {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  white-space: normal;
 }
+.kol-card-row[data-kol-unified="pool"] > [data-pool-claim-error] .kol-card-error {
+  flex: 1 1 12rem;
+  width: auto;
+  min-width: 0;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+/* Followed rows are a three-line scan unit: identity / meta+fact / action. */
+.kol-card-row[data-kol-unified="followed"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  grid-template-areas:
+    "identity identity"
+    "meta fact"
+    "action action";
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-1) var(--space-2);
+}
+.kol-card-row[data-kol-unified="followed"] > [data-kol-band="identity"] { grid-area: identity; }
+.kol-card-row[data-kol-unified="followed"] > .kol-card-meta { grid-area: meta; align-self: center; }
+.kol-card-row[data-kol-unified="followed"] > [data-kol-band="fact"] { grid-area: fact; align-self: center; }
+.kol-card-row[data-kol-unified="followed"] > [data-kol-band="action"] { grid-area: action; }
+.kol-card-row[data-kol-unified="followed"] > :is([data-confirm-stage-feedback], [data-release-follow-error]) { grid-column: 1 / -1; }
+.kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+.kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] .kol-card-recommendation {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] .kol-card-suggestion {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+  max-height: var(--ds-line-sm);
+  overflow: hidden;
+}
+.kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] .kol-card-suggestion-title,
+.kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] .kol-card-why {
+  min-width: 0;
+  overflow: hidden;
+}
+.kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] .kol-card-actions {
+  flex: 0 0 auto;
+  margin: 0 0 0 auto;
+}
+.kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] .kol-card-evidence {
+  flex: 0 0 auto;
+  width: auto;
+}
+.kol-card-row[data-kol-unified="followed"] [data-kol-band="action"]:has(.kol-card-evidence[open]) {
+  flex-wrap: wrap;
+}
+.kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] .kol-card-evidence[open] {
+  flex: 1 1 100%;
+}
+@container (max-width: 380px) {
+  .kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] {
+    flex-wrap: wrap;
+  }
+  .kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] .kol-card-recommendation {
+    flex: 1 1 100%;
+  }
+  .kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] .kol-card-actions {
+    flex: 1 1 auto;
+    margin: 0;
+    flex-wrap: wrap;
+  }
+  .kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] .kol-card-evidence {
+    flex: 0 0 auto;
+  }
+}
+
 @container (max-width: 719px) {
   .kol-card-row .kol-card-review > :not(.kol-card-actions) { flex-basis: auto; }
   .kol-card-row .kol-card-actions { margin-inline-start: 0; }

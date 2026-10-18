@@ -1,0 +1,9 @@
+{
+  "status": "passed",
+  "only_CategoryOptions_changed": true,
+  "existing_css_preserved": true,
+  "new_css": "Only final option/control inline-flex grouping; no token changes",
+  "right_column_and_nav_unchanged": true,
+  "backend_and_database_unchanged": true,
+  "source_sha256": "1beaa39cf72c7d0074e2b04c5ebb502e69c048f85eaa354f2a747281ef7c6319"
+}
