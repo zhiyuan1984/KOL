@@ -193,3 +193,21 @@ tr.selected .onto-row-arrow{opacity:1;color:var(--onto-blue)}
 .onto-fields .ant-select{width:100%;min-width:0}
 .onto-modal-body .onto-accept input{width:14px;height:14px;min-height:14px}
 @media(max-width:650px){.onto-object-copy{padding-right:0}.onto-head-actions{position:static;margin-left:auto}.onto-object-head{flex-wrap:wrap}.onto-object-copy{min-width:180px}.onto-catalog-tools .onto-outline{font-size:12px;padding-inline:4px}.onto-toolbar{flex-wrap:wrap}.onto-toolbar .workspace-search-input{flex-basis:100%;max-width:none}.onto-filter-line .onto-filter-option{max-width:140px}}
+
+/* User-approved middle-column density; no changes to detail or global navigation. */
+.onto-catalog h1{font-size:var(--ds-font-sm);font-weight:600;color:var(--color-ink)}
+.onto-catalog-head{padding:6px 12px 2px}
+.onto-catalog-tools{padding:4px 12px}
+.onto-range{min-height:24px;padding-bottom:2px;justify-content:flex-end}
+.onto-filters{gap:0;padding-top:0;padding-bottom:2px}
+.onto-filter-line{gap:0 2px;min-height:24px}
+.onto-filter-line>span{font-size:var(--ds-font-sm);line-height:24px;color:var(--color-ink)}
+.ontology-workspace .onto-filter-option,.ontology-workspace .onto-filter-more{height:24px;min-height:24px;padding:0 4px;font-size:var(--ds-font-sm);line-height:20px;color:var(--color-graphite)}
+.ontology-workspace .onto-filter-option[aria-pressed=true]{color:var(--onto-blue)}
+.onto-filter-more .anticon{font-size:10px;margin-left:4px}
+.onto-object-table td{height:28px;padding:2px 6px;font-size:var(--ds-font-sm);line-height:20px}
+.ontology-workspace .onto-object-link{font-size:var(--ds-font-sm);color:var(--color-graphite);min-height:24px;line-height:20px}
+.onto-object-link[aria-current=true]{color:var(--color-ink);font-weight:600}
+@media(max-width:650px){.onto-catalog h1{font-size:var(--ds-font-sm)}}
+@media(max-height:600px) and (min-width:1001px){.onto-filters{gap:0;padding-block:0 2px}}
+@media(pointer:coarse){.ontology-workspace .onto-filter-option,.ontology-workspace .onto-filter-more{min-height:40px;height:40px}.ontology-workspace .onto-object-link{min-height:40px}.onto-object-table td{height:44px}}

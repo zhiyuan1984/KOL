@@ -1,0 +1,24 @@
+{
+  "reviewer": "Codex acting as UI/UX expert agent (not human research)",
+  "reviewedAt": "2026-10-18T10:21:44.774399+00:00",
+  "status": "passed",
+  "observations": [
+    "No related/all-range toggle, no employee empty placeholder row.",
+    "Default shows authorized full company catalog, including old scope=related URLs.",
+    "Middle title, labels, choices and object names measured13px; labels black and inactive choices lighter black.",
+    "Classification controls24px, object rows28–29px in browser.",
+    "Ant Design DownOutlined/UpOutlined with accessible text and expansion state.",
+    "Three levels, leftmost continuation and one catalog scroller preserved.",
+    "Right column JSX identical; global left navigation and backend unchanged."
+  ],
+  "evidence": [
+    "middle-density.png",
+    "reference.png",
+    "source-compare.json",
+    "page-results.json"
+  ],
+  "limits": [
+    "Explicit API fixtures validate UI, not new database capabilities.",
+    "No backend or schema changes; no unrelated tests rerun."
+  ]
+}

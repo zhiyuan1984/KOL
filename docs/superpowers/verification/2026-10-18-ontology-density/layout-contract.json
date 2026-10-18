@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "kind": "layout-contract",
+  "status": "complete",
+  "owner": "ui-ux/frontend/test-manager",
+  "requirement_refs": [
+    "CONST-04",
+    "CONST-08",
+    "CONST-10",
+    "TECH-FE-02",
+    "TECH-FE-03",
+    "TECH-TEST-02"
+  ],
+  "subject": {
+    "task_id": "ontology-density-20261018",
+    "base": "368790983c956fe476b4f830db33a3f9a8dc7d32"
+  },
+  "decisions": {
+    "scope": "Only catalog middle column. Right column/global nav unchanged.",
+    "typography": "13px title/labels/choices/object names. Existing ink black and graphite lighter-black tokens, selection unchanged.",
+    "density": "24px classification controls,0px group gap,28px object rows; coarse-pointer40/44px preserved.",
+    "scroll": "One catalog scroller; wrapped choices continue from left edge."
+  },
+  "verification": {
+    "evidence": [
+      "page-results.json",
+      "source-compare.json",
+      "browser-review.json"
+    ]
+  },
+  "task_id": "ontology-density-20261018",
+  "summary": "落实用户确认的中栏入口移除与密度计划",
+  "status_claims": []
+}

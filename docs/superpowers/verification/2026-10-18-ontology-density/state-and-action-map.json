@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "kind": "state-and-action-map",
+  "status": "complete",
+  "owner": "ui-ux/frontend/test-manager",
+  "requirement_refs": [
+    "CONST-04",
+    "CONST-08",
+    "CONST-10",
+    "TECH-FE-02",
+    "TECH-FE-03",
+    "TECH-TEST-02"
+  ],
+  "subject": {
+    "task_id": "ontology-density-20261018",
+    "base": "368790983c956fe476b4f830db33a3f9a8dc7d32"
+  },
+  "decisions": {
+    "requested": "Remove related/all-range switching. Default authorized full catalog plus classification filters.",
+    "retained": "Existing object search, configuration entry, company selection, edit/save/publish/history/feedback preserved.",
+    "expansion": "Existing More/Collapse states now use Ant Design icons, icon hidden from accessible name."
+  },
+  "verification": {
+    "evidence": [
+      "page-results.json",
+      "source-compare.json",
+      "browser-review.json"
+    ]
+  },
+  "task_id": "ontology-density-20261018",
+  "summary": "落实用户确认的中栏入口移除与密度计划",
+  "status_claims": []
+}

@@ -1,0 +1,13 @@
+{
+  "status": "passed",
+  "command": "npm run build",
+  "cwd": "frontend",
+  "exit_code": 0,
+  "checks": [
+    "tsc --noEmit",
+    "vite build --configLoader runner"
+  ],
+  "warnings": [
+    "Existing chunk-size advisory only; final build has no CSS syntax warning."
+  ]
+}
