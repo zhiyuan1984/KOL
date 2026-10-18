@@ -156,3 +156,22 @@ describe('ontology relevance and applicability',()=>{
  it('requires a reason for not-applicable and rejects conflicting populated definitions',()=>{const d=profile();d.applicability={relations:{status:'not_applicable',reason:'业务边界确认'}};expect(()=>validate(d)).toThrow(/同时有记录/);d.items.relations=[];expect(validate(d).applicability?.relations?.reason).toBe('业务边界确认');d.applicability.relations!.reason='';expect(()=>validate(d)).toThrow(/格式/);});
  it('employee cannot configure scope or read other employees feedback',async()=>{await expect(new OntologyService(actor,'company:a').configureScope({})).rejects.toMatchObject({status:403});await expect(new OntologyService(actor,'company:a').maintenance()).rejects.toMatchObject({status:403});});
 });
+
+
+describe('approved KOL information architecture refresh',()=>{
+ it('retains stable identities and classifies all 25 definitions in six bounded themes',()=>{
+  const source=enterpriseSource();const corrections=source.definitionOverrides!;expect(Object.keys(corrections)).toHaveLength(25);
+  const revised=baseline.objects.filter(d=>corrections[d.code]);
+  expect(new Set(revised.map(d=>d.taxonomy[2]))).toEqual(new Set(['达人资源','达人评估','达人关系与沟通','达人合作与交付','达人样品履约','达人费用与结算']));
+  for(const d of revised){expect(d.description).toContain('数据来源与责任边界');expect(d.description).not.toContain('仅登记对象类型');expect(validate(d).code).toBe(d.code);}
+  expect(revised.find(d=>d.code==='kol_profile')?.id).toBe('B2');
+ });
+ it('keeps scalar score and label values out of independent object definitions and preserves action risk',()=>{
+  const revised=baseline.objects.filter(d=>enterpriseSource().definitionOverrides?.[d.code]);
+  expect(revised.some(d=>d.name==='达人评分'||d.name==='达人标签')).toBe(false);
+  expect(revised.find(d=>d.name==='达人评估记录')?.description).toContain('评分是记录的属性');
+  expect(revised.find(d=>d.name==='合作协议')?.description).toContain('复用合同身份');
+  expect(revised.find(d=>d.code==='follow_relation')?.taxonomy[2]).toBe('达人关系与沟通');
+  expect(profile().items.actions.find(a=>a.code==='decrypt_contact')?.risk).toBe('R3');
+ });
+});
