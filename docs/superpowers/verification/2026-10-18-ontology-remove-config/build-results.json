@@ -1,0 +1,7 @@
+{
+  "status": "passed",
+  "exit_code": 0,
+  "command": "npm run build",
+  "log": "build.log",
+  "includes": "tsc --noEmit and vite build"
+}

@@ -159,11 +159,17 @@ test('removed range toggles default to all authorized objects even for old relat
  await expect(page.getByRole('button',{name:'与我相关',exact:true})).toHaveCount(0);await expect(page.getByRole('button',{name:'全部范围',exact:true})).toHaveCount(0);await expect(page.getByText('当前范围 878',{exact:true})).toBeVisible();
  await page.getByLabel('搜索业务对象').fill('企业战略');await expect(page.getByRole('table',{name:'业务对象',exact:true}).getByRole('button',{name:'企业战略',exact:true})).toBeVisible();
 });
-test('admin maintains explicit organization-domain mappings with confirmation and receipt',async({page})=>{
- await fixture(page);await page.goto('/admin/ontology');await page.getByRole('button',{name:'配置范围',exact:true}).click();await expect(page.getByRole('dialog')).toContainText('不授予或撤销访问权限');
- for(const [name,value] of [['组织／岗位／人员','真实测试部门'],['默认关联业务域','营销 / KOL营销']]){await page.getByRole('combobox',{name,exact:true}).fill(value);await page.locator('.ant-select-dropdown:visible .ant-select-item-option-content').filter({hasText:value}).click();}
- await page.getByRole('button',{name:'添加关联',exact:true}).click();await expect(page.getByRole('button',{name:'确认保存范围',exact:true})).toBeDisabled();await page.getByLabel('配置变更原因').fill('确认运营职责默认范围');await page.getByLabel('我已核对以上关联，仅调整默认浏览范围').check();await page.getByRole('button',{name:'确认保存范围',exact:true}).click();await expect(page.locator('.onto-receipt')).toContainText('scope-receipt');
+test('configuration range entry is absent in admin and employee catalogs',async({page})=>{
+ await fixture(page);for(const route of ['/admin/ontology','/ontology']){
+  await page.goto(route);await expect(page.getByRole('table',{name:'业务对象',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'配置范围',exact:true})).toHaveCount(0);
+  await expect(page.getByText('默认范围配置',{exact:true})).toHaveCount(0);
+  await expect(page.locator('.onto-range')).toHaveCount(0);
+ }
+ await page.goto('/admin/ontology');await expect(page.getByRole('button',{name:'＋ 新建对象',exact:true})).toBeVisible();
+ await page.screenshot({path:'test-results/ontology/no-range-config.png',fullPage:true});
 });
+
 test('empty relations offer admin creation, employee feedback and explicit applicability',async({page})=>{
  const state=await fixture(page,false);await page.goto('/ontology?object=collaboration&dimension=relations');await expect(page.getByRole('tab',{name:'关系 0',exact:true})).toBeVisible();await expect(page.getByText('尚未定义关系',{exact:true})).toBeVisible();await page.getByRole('button',{name:'反馈维护',exact:true}).click();await page.getByLabel('维护说明').fill('请补充合作与达人之间的关系');await page.getByRole('button',{name:'提交维护反馈',exact:true}).click();await expect(page.locator('.onto-receipt')).toContainText('feedback-receipt');expect(state.getFeedbackCount()).toBe(1);
 });

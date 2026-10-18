@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "kind": "component-selection",
+  "status": "complete",
+  "owner": "ui-ux/frontend/test-manager",
+  "requirement_refs": [
+    "CONST-04",
+    "CONST-08",
+    "CONST-10",
+    "TECH-FE-01",
+    "TECH-TEST-01"
+  ],
+  "subject": {
+    "task_id": "ontology-remove-config-20261018",
+    "base": "0940bfc9b8f8b8f8c1ffe60957728b2c9fa773e8"
+  },
+  "task_id": "ontology-remove-config-20261018",
+  "decisions": {
+    "change": "Delete ScopeEditor and unused types/state/domain calculation",
+    "dependencies": "No new components or package changes"
+  },
+  "verification": {
+    "evidence": [
+      "page-results.json",
+      "source-compare.json",
+      "browser-review.json"
+    ]
+  },
+  "summary": "仅删除配置范围入口及不可达弹窗",
+  "status_claims": []
+}
