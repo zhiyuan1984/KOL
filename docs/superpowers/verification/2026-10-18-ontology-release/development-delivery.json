@@ -1,0 +1,136 @@
+{
+  "schema_version": "1.0.0",
+  "kind": "development-delivery-record",
+  "task_contract": {
+    "file": "task-contract.json",
+    "sha256": "dc4cbe4dedb21ab6d4d9392f77261cb303156e53767f967b6d226101e21e0493"
+  },
+  "artifacts": [
+    {
+      "id": "state-and-action-map",
+      "file": "state-and-action-map.json",
+      "sha256": "d8a67b698839afc004b78e55beee92f9d13663fa56c4c2b2dbc8d3657bc9f0bd",
+      "status": "complete"
+    },
+    {
+      "id": "layout-contract",
+      "file": "layout-contract.json",
+      "sha256": "08d3582675fd596a0031d3d0b3015d0833b298fdb76ce657303c47f1155681fe",
+      "status": "complete"
+    },
+    {
+      "id": "component-selection",
+      "file": "component-selection.json",
+      "sha256": "7bc1a576684f58066e93ff76314b6ce4e76d07e4190844a9ebfd6fd16f2f36f5",
+      "status": "complete"
+    },
+    {
+      "id": "navigation-contract",
+      "file": "navigation-contract.json",
+      "sha256": "9542449f2b099643f806c315601a528fa200f59952cd338256534eeaf842aa80",
+      "status": "complete"
+    },
+    {
+      "id": "browser-and-source-evidence",
+      "file": "browser-and-source-evidence.json",
+      "sha256": "8ceea130a9ceb6fa966df4879dde88e3c72bcc75e0f511670d571a4dc315a5df",
+      "status": "complete"
+    }
+  ],
+  "checks": [
+    {
+      "id": "route-contract-schema",
+      "type": "machine",
+      "status": "passed",
+      "command": "development-verify",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "build-results.json",
+          "sha256": "a2e3fb37c412f76e1a0d60c64ee0b424a780cb3d1470c2613bd2cf09b644fcff",
+          "kind": "test-report"
+        }
+      ]
+    },
+    {
+      "id": "frontend-experience-test",
+      "type": "machine",
+      "status": "passed",
+      "command": "playwright test --config playwright.ontology.config.ts",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "page-results.json",
+          "sha256": "9894f749a3814ec0bb0bfb541412e6b922fe537778dd94ac893297408ff037c7",
+          "kind": "test-report"
+        }
+      ]
+    },
+    {
+      "id": "frontend-browser-review",
+      "type": "human-browser",
+      "status": "passed",
+      "reviewer": "Codex UI/UX expert agent; not human research",
+      "reviewed_at": "2026-10-17T22:27:32.100487+00:00",
+      "evidence": [
+        {
+          "file": "browser-review.json",
+          "sha256": "a04e7e9662aba1a25ce61510e17e6a521198ecba99271e9e4be44ad6d59d5bab",
+          "kind": "browser-record"
+        },
+        {
+          "file": "admin.png",
+          "sha256": "764c3d21ac81e758f6a4ce6d84af55c608646bacd16ea3f5f3a68b4fbbf38c9c",
+          "kind": "screenshot"
+        }
+      ]
+    },
+    {
+      "id": "navigation-route-test",
+      "type": "machine",
+      "status": "passed",
+      "command": "playwright test --config playwright.ontology.config.ts",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "page-results.json",
+          "sha256": "9894f749a3814ec0bb0bfb541412e6b922fe537778dd94ac893297408ff037c7",
+          "kind": "test-report"
+        }
+      ]
+    },
+    {
+      "id": "navigation-browser-review",
+      "type": "human-browser",
+      "status": "passed",
+      "reviewer": "Codex UI/UX expert agent; not human research",
+      "reviewed_at": "2026-10-17T22:27:32.140866+00:00",
+      "evidence": [
+        {
+          "file": "browser-review.json",
+          "sha256": "a04e7e9662aba1a25ce61510e17e6a521198ecba99271e9e4be44ad6d59d5bab",
+          "kind": "browser-record"
+        },
+        {
+          "file": "admin.png",
+          "sha256": "764c3d21ac81e758f6a4ce6d84af55c608646bacd16ea3f5f3a68b4fbbf38c9c",
+          "kind": "screenshot"
+        }
+      ]
+    },
+    {
+      "id": "backend-affected-test",
+      "type": "machine",
+      "status": "passed",
+      "command": "vitest ontology suites",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "unit-results.json",
+          "sha256": "6897c822ecd61adb60fc10e053eac1236327f9572493b457c45b003e5fafc582",
+          "kind": "test-report"
+        }
+      ]
+    }
+  ]
+}

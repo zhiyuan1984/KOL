@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "kind": "navigation-contract",
+  "status": "complete",
+  "owner": "ui-ux",
+  "requirement_refs": [
+    "CONST-04",
+    "TECH-FE-03",
+    "PROD-PLAT-02"
+  ],
+  "subject": {
+    "task_id": "ontology-release-20261018",
+    "source_base": "c5718200d66bd4311372823ef8a2b1b84738cc22"
+  },
+  "decisions": {
+    "nodes": {
+      "/ontology": "Employee definitions",
+      "/admin/ontology": "Admin metadata",
+      "/admin/ontology/governance": "Existing registry/domain/approvals",
+      "/admin/business-domains": "Existing deep link unchanged"
+    },
+    "identity": "object and dimension query parameters",
+    "migration": "Default admin metadata workspace per user request; old governance reachable through explicit link. All old backend routes retained."
+  },
+  "verification": {
+    "state": "passed",
+    "evidence": [
+      "unit-results.json",
+      "page-results.json",
+      "pg-results.json",
+      "browser-review.json"
+    ]
+  },
+  "task_id": "ontology-release-20261018",
+  "summary": "Ontology release: navigation-contract",
+  "status_claims": []
+}

@@ -20,6 +20,7 @@ const SkillCatalog = lazy(() =>
 const Exam = lazy(() => import("./pages/Exam"));
 const Knowledge = lazy(() => import("./pages/Knowledge"));
 const AccountSettings = lazy(() => import("./pages/AccountSettings"));
+const OntologyWorkspace = lazy(() => import("./ontology/OntologyWorkspace"));
 const AdminConsole = lazy(() => import("./pages/AdminConsole"));
 const SharedSession = lazy(() => import("./pages/SharedSession"));
 const SkillHub = lazy(() => import("./pages/SkillHub").then((m) => ({ default: m.SkillHub })));
@@ -88,6 +89,9 @@ function WorkbenchRoutes() {
             <Route path="/admin/approval-types/legacy" element={<ApprovalTypes />} />
             <Route path="/admin/approval-types" element={<ReviewTypes />} />
             <Route path="/settings" element={<AccountSettings />} />
+            <Route path="/ontology" element={<OntologyWorkspace />} />
+            <Route path="/admin/ontology" element={<OntologyWorkspace admin />} />
+            <Route path="/admin/data/ontology" element={<Navigate to="/admin/ontology" replace />} />
             <Route path="/admin/*" element={<AdminConsole />} />
           </Route>
         </Routes>

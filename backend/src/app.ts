@@ -18,6 +18,7 @@ import { approvals } from "./routers/approvals.js";
 import { approvalTypes } from "./routers/approval-types.js";
 import { reviews } from "./routers/reviews.js";
 import { misc } from "./routers/misc.js";
+import { ontology as ontologyWorkspace } from "./routers/ontology-workspace.js";
 import { ontology } from "./routers/ontology.js";
 import { pipeline } from "./routers/pipeline.js";
 import { examRouter } from "./exam.js";
@@ -67,7 +68,8 @@ import { reconcileDocumentJobs } from "./host/knowledge-documents.js";
 
 /** 需要同步 workbench ticket principal（PG 镜像、可审计外键）的正式权限路径。 */
 export function isFormalAuthorityPath(pathname: string): boolean {
-  return pathname.startsWith("/api/tickets")
+  return pathname.startsWith("/api/ontology/workspace/")
+    || pathname.startsWith("/api/tickets")
     || pathname.startsWith("/api/performance/")
     || pathname === "/api/task-work-orders"
     || pathname.startsWith("/api/task-work-orders/")
@@ -202,6 +204,7 @@ export async function createApp(): Promise<Hono> {
   app.route("/api", homeToday);
   app.route("/api", workReport);
   app.route("/api", misc);
+  app.route("/api", ontologyWorkspace);
   app.route("/api", ontology);
   // Formal ticket endpoints are isolated from the legacy `/tasks` router so
   // their production request path has no SQLite-shaped repository or identity imports.

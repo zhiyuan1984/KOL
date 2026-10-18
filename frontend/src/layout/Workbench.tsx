@@ -254,7 +254,7 @@ export default function Workbench() {
 
   return (
     <div
-      className={"workbench" + (collapsed ? " sidebar-collapsed" : "") + (onAdmin ? " admin-surface" : "")}
+      className={"workbench" + (["/ontology", "/admin/ontology", "/admin/data/ontology"].includes(loc.pathname) ? " ontology-shell" : "") + (collapsed ? " sidebar-collapsed" : "") + (onAdmin ? " admin-surface" : "")}
       data-ui-shell="agent-v1"
       data-left-width={collapsed ? "56" : "260"}
       data-view-mode={debug ? "debug" : "business"}
@@ -347,6 +347,7 @@ export default function Workbench() {
         </nav>
 
         <nav className="nav-group" aria-label="KOL业务">
+          <NavLink to="/ontology" className={({isActive}) => "nav-link" + (isActive ? " active" : "")} data-nav="ontology" onClick={() => setMobileOpen(false)}><Ico path="M5 3h5v5H5z M14 16h5v5h-5z M3 16h5v5H3z M7 8v4h10v4 M5 16v-4h2" /><span className="sidebar-label">本体</span></NavLink>
           <NavLink
             to="/leads"
             className={() => "nav-link" + (businessMapActive ? " active" : "")}

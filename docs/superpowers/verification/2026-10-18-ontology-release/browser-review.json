@@ -1,0 +1,12 @@
+{
+  "reviewer": "Codex UI/UX expert agent (not a human study)",
+  "reviewed_at": "2026-10-17T22:27:32.039926+00:00",
+  "method": "Inspected actual Chrome admin.png with view_image; actual browser tests exercised cards, states, viewport and navigation.",
+  "findings": [
+    "Three-column white/blue reference layout, purple object glyph, hierarchy filters and object selection.",
+    "Visible state/version and one filled main CTA.",
+    "Draft is explicitly not effective; publish requires full-diff confirmation.",
+    "Old registry/approval router and page preserved at /admin/ontology/governance."
+  ],
+  "limits": "Screenshot uses real KOL registry fixtures instead of Amazon examples. No production authenticated write or human research claimed."
+}

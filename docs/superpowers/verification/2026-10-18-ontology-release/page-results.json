@@ -1,0 +1,17 @@
+{
+  "command": "playwright test --config playwright.ontology.config.ts --reporter=list,json",
+  "exit_code": 0,
+  "passed": 6,
+  "failed": 0,
+  "skipped": 0,
+  "duration_ms": 39622.651,
+  "environment": "Actual Chrome; explicit UI API fixtures, not production persistence",
+  "cases": [
+    "employee five dimensions",
+    "draft edit/reload/explicit publish",
+    "five cards/keyboard/discard",
+    "error/retry/1680x940,390x844,1280x500",
+    "employee admin denial",
+    "direct-open/refresh/back selected identity"
+  ]
+}

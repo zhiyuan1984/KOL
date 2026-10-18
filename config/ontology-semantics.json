@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "note": "Descriptive ontology metadata from current BUSINESS and PRODUCT clauses; no executable policies or resource grants.",
+  "taxonomy": {
+    "creator_candidate": ["市场与增长", "创作者合作", "发现与评估"],
+    "kol_profile": ["市场与增长", "创作者合作", "发现与评估"],
+    "crawl_batch": ["市场与增长", "创作者合作", "发现与评估"],
+    "follow_relation": ["市场与增长", "创作者合作", "归属与跟进"],
+    "follow_task": ["市场与增长", "创作者合作", "归属与跟进"],
+    "collaboration": ["市场与增长", "创作者合作", "合作履约"],
+    "quote": ["市场与增长", "创作者合作", "合作履约"],
+    "contract": ["市场与增长", "创作者合作", "合作履约"],
+    "sample": ["市场与增长", "创作者合作", "合作履约"],
+    "content": ["市场与增长", "创作者合作", "合作履约"],
+    "settlement": ["市场与增长", "创作者合作", "合作履约"],
+    "project": ["市场与增长", "营销运营", "项目与活动"],
+    "campaign": ["市场与增长", "营销运营", "项目与活动"],
+    "report": ["市场与增长", "营销运营", "项目与活动"],
+    "email": ["市场与增长", "沟通运营", "邮箱与往来"],
+    "mailbox": ["市场与增长", "沟通运营", "邮箱与往来"],
+    "approval": ["市场与增长", "业务治理", "审批与风险"],
+    "risk": ["市场与增长", "业务治理", "审批与风险"]
+  },
+  "relations": [
+    {"object":"kol_profile","code":"has_collaboration","name":"参与合作","target":"collaboration","cardinality":"1:N","description":"同一 KOL 可以有多条合作关系，合作以公司、品牌、活动和 KOL 表达。","source":"docs/BUSINESS.md BIZ-01"},
+    {"object":"collaboration","code":"for_kol","name":"关联 KOL","target":"kol_profile","cardinality":"N:1","description":"商务与履约事实归合作关系，不作为全局 KOL 永久属性。","source":"docs/BUSINESS.md BIZ-01"},
+    {"object":"follow_relation","code":"follows_kol","name":"排他跟进","target":"kol_profile","cardinality":"N:1","description":"员工跟进关系与合作关系、正式阶段分别表达。","source":"docs/BUSINESS.md BIZ-01 / BIZ-05"},
+    {"object":"campaign","code":"belongs_project","name":"隶属项目","target":"project","cardinality":"N:1","description":"一个项目可以包含多个活动。","source":"docs/BUSINESS.md BIZ-19"},
+    {"object":"collaboration","code":"in_campaign","name":"参与活动","target":"campaign","cardinality":"N:1","description":"合作关系引用活动。","source":"docs/BUSINESS.md BIZ-01 / BIZ-19"},
+    {"object":"quote","code":"collaboration_quote","name":"所属合作","target":"collaboration","cardinality":"N:1","description":"报价归具体合作关系。","source":"docs/BUSINESS.md BIZ-01"},
+    {"object":"contract","code":"collaboration_contract","name":"所属合作","target":"collaboration","cardinality":"N:1","description":"合同归具体合作关系。","source":"docs/BUSINESS.md BIZ-01"},
+    {"object":"sample","code":"collaboration_sample","name":"所属合作","target":"collaboration","cardinality":"N:1","description":"样品履约归具体合作关系。","source":"docs/BUSINESS.md BIZ-01"},
+    {"object":"content","code":"collaboration_content","name":"所属合作","target":"collaboration","cardinality":"N:1","description":"交付内容归具体合作关系。","source":"docs/BUSINESS.md BIZ-01"},
+    {"object":"settlement","code":"collaboration_settlement","name":"所属合作","target":"collaboration","cardinality":"N:1","description":"结算归具体合作关系。","source":"docs/BUSINESS.md BIZ-01"}
+  ],
+  "rules": [
+    {"object":"kol_profile","code":"stable_identity","name":"稳定身份识别","description":"通过平台和稳定外部 ID 识别，同名和邮箱前缀相似不能认定为同一对象。","clause":"BIZ-01","executionPoint":"既有领域身份服务","source":"docs/BUSINESS.md BIZ-01"},
+    {"object":"kol_profile","code":"authority_source","name":"权威来源","description":"Starry 提供正式 KOL 域事实，本地索引保留来源，不另立主数据。","clause":"BIZ-02","executionPoint":"既有领域取数服务","source":"docs/BUSINESS.md BIZ-02"},
+    {"object":"email","code":"send_not_stage","name":"发送不推进阶段","description":"生成与保存草稿不发送，确认发送不修改正式合作阶段。","clause":"BIZ-11 / BIZ-12","executionPoint":"Host 发送与阶段闸门","source":"docs/BUSINESS.md BIZ-11 / BIZ-12"},
+    {"object":"collaboration","code":"explicit_stage","name":"明确目标阶段","description":"正式阶段变更通过独立 confirm_stage，明确目标、证据及预期版本。","clause":"BIZ-12","executionPoint":"Host confirm_stage","source":"docs/BUSINESS.md BIZ-12"},
+    {"object":"creator_candidate","code":"import_separate","name":"采集与导入分离","description":"采集只形成候选；导入正式库按来源批次确认，逐项记录结果。","clause":"BIZ-10","executionPoint":"既有发现与导入闸门","source":"docs/BUSINESS.md BIZ-10"},
+    {"object":"crawl_batch","code":"single_async_job","name":"单任务异步采集","description":"同一时间只运行一个 MediaCrawler 采集任务，提供真实进度、取消和重试。","clause":"BIZ-10 / TECH-BE-04","executionPoint":"既有采集作业服务","source":"docs/07-mcp-data-contract.md"}
+  ],
+  "actions": [
+    {"object":"kol_profile","code":"read_profile","name":"读取画像","risk":"R1","executor":"creator_profile","description":"查询授权范围内的画像。使用资格和数据范围仍在技能执行前校验。","source":"docs/PRODUCT.md PROD-AGENT-01；docs/BUSINESS.md BIZ-02"},
+    {"object":"kol_profile","code":"decrypt_contact","name":"解密联系方式","risk":"R3","executor":"creator_contact_decrypt","description":"执行前明确对象、确认范围和用途，按适用审批校验并保留回执。","source":"docs/BUSINESS.md BIZ-14"},
+    {"object":"email","code":"compose_email","name":"起草邮件","risk":"R2","executor":"email_compose","description":"草稿不发送。通过当前可用 Agent 装配的技能执行。","source":"docs/BUSINESS.md BIZ-11"},
+    {"object":"collaboration","code":"confirm_stage","name":"确认阶段变更","risk":"R3","executor":"confirm_stage","description":"独立受控动作，不与发信合并；目标、证据、版本和适用审批必须满足。","source":"docs/BUSINESS.md BIZ-12"},
+    {"object":"crawl_batch","code":"collect_candidates","name":"采集候选资料","risk":"R3","executor":"crawler_collect","asynchronous":true,"description":"异步采集作业，保留任务标识、进度和恢复入口；采集与导入分别确认。","source":"docs/07-mcp-data-contract.md"}
+  ]
+}

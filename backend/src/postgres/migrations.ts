@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import type { Client, PoolClient } from "pg";
+import { ontologySchema } from "../ontology/schema.js";
 import { performanceSchema, performanceApprovalSchema } from "../performance/schema.js";
 import { reviewSchema } from "../approval/review-schema.js";
 import { crawlQueueStateMigration, runtimeActionSchema } from "../runtime/action-schema.js";
@@ -49,6 +50,7 @@ type SchemaMigration = {
 };
 
 const migrations: SchemaMigration[] = [
+  { id: "20261018_ontology_workspace_v1", statements: [ontologySchema] },
   { id: "20261016_performance_v1", statements: [performanceSchema] },
   { id: "20261016_performance_approval_v2", statements: [performanceApprovalSchema] },
   { id: "20261015_mail_send_reply_stale", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "047_mail_send_reply_stale.sql"), "utf8")] },

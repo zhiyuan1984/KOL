@@ -1,0 +1,123 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { Hono } from 'hono';
+import { loadOntologyCatalog, employeeDefinition, validateDefinition } from '../src/ontology/catalog.js';
+import { OntologyService } from '../src/ontology/service.js';
+import { ontology } from '../src/routers/ontology-workspace.js';
+import { withTicketPrincipal, type TicketPrincipal } from '../src/ticket-domain/auth.js';
+import { HttpFail } from '../src/host/errors.js';
+import type { OntologyDefinition } from '../../shared/ontology.js';
+
+const {query}=vi.hoisted(()=>({query:vi.fn()}));
+vi.mock('../src/postgres/pool.js',()=>({postgresPool:()=>({query}),postgresTransaction:(fn:Function)=>fn({query})}));
+const actor:TicketPrincipal={id:'employee',username:'employee',name:'员工',email:null,roles:['employee'],active:true};
+const admin={...actor,id:'admin',roles:['employee','admin']};
+const baseline=loadOntologyCatalog();
+const codes=new Set(baseline.objects.map(o=>o.code));
+const profile=()=>structuredClone(baseline.objects.find(o=>o.code==='kol_profile')!);
+const validate=(value:unknown)=>validateDefinition(value,codes,baseline.objects);
+
+describe('ontology definition semantics',()=>{
+  it('loads real registered definitions and validates all cross-object references',()=>{
+    expect(baseline.objects).toHaveLength(64);
+    expect(baseline.objects.reduce((n,o)=>n+o.items.properties.length,0)).toBe(214);
+    expect(baseline.objects.reduce((n,o)=>n+o.items.events.length,0)).toBe(140);
+    for(const definition of baseline.objects)expect(validate(definition).code).toBe(definition.code);
+    expect(baseline.objects.flatMap(o=>Object.values(o.items).flat()).some(i=>i.code.startsWith('example_'))).toBe(false);
+  });
+  it('rejects duplicate item codes, invalid relation targets and malformed schema',()=>{
+    const duplicate=profile();duplicate.items.properties.push(duplicate.items.properties[0]);expect(()=>validate(duplicate)).toThrow(/编码重复/);
+    const reference=profile();reference.items.relations[0].target='missing_object';expect(()=>validate(reference)).toThrow(/目标/);
+    const payload=profile();payload.items.events[0].payload='[1,2]';expect(()=>validate(payload)).toThrow(/JSON/);
+  });
+  it('keeps risk floors even if the action executor is tampered with',()=>{
+    const definition=profile();const action=definition.items.actions.find(i=>i.code==='decrypt_contact')!;
+    action.risk='R1';expect(()=>validate(definition)).toThrow(/风险/);
+    action.executor='creator_profile';expect(()=>validate(definition)).toThrow(/风险/);
+    action.risk='R3';expect(validate(definition).items.actions[1].risk).toBe('R3');
+  });
+  it('requires documented rule clauses and rejects executable or unknown fields',()=>{
+    const definition=profile();definition.items.rules[0].clause='';expect(()=>validate(definition)).toThrow(/条款/);
+    expect(()=>validate({...profile(),grants:['admin']})).toThrow(/格式/);
+    const unsafe=profile();Object.assign(unsafe.items.actions[0],{executeUrl:'/api/send'});expect(()=>validate(unsafe)).toThrow(/格式/);
+  });
+  it('projects employee semantics without exposing tool dependency details',()=>{
+    const definition=profile();const result=employeeDefinition(definition);
+    expect(result.items.actions[0].executor).toBeUndefined();expect(result.items.events[0].producer).toBeUndefined();
+    expect(result.items.events[0].payload).toBeUndefined();expect(result.items.rules[0].executionPoint).toBeUndefined();
+    expect(definition.items.actions[0].executor).toBeTruthy();
+  });
+});
+
+describe('ontology tenant and draft boundaries (mocked database unit tests)',()=>{
+  beforeEach(()=>{query.mockReset();});
+  function authorize(rows:unknown[]=[]){query.mockImplementation(async(sql:string)=>({rows:sql.includes('organization_people')?[{id:'company:a'}]:rows}));}
+  it('requires current organization membership even for an administrator',async()=>{
+    authorize();await expect(new OntologyService(admin,'company:b').catalog(true)).rejects.toMatchObject({status:403});
+    query.mockResolvedValue({rows:[]});await expect(new OntologyService(admin).catalog(true)).rejects.toMatchObject({status:403});
+  });
+  it('denies management operations and inactive accounts before any write',async()=>{
+    authorize();await expect(new OntologyService(actor,'company:a').history('kol_profile')).rejects.toMatchObject({status:403});
+    await expect(new OntologyService({...admin,active:false},'company:a').catalog(true)).rejects.toMatchObject({status:403});
+    expect(query).not.toHaveBeenCalled();
+  });
+  it('does not expose drafts, disabled definitions, platform assets or tool bindings to employees',async()=>{
+    const draft=profile();draft.name='尚未发布的敏感草稿';
+    authorize([{code:'kol_profile',revision:2,draft,published:null,disabled:false,updated_at:'2026-10-18'},
+      {code:'email',revision:3,draft:null,published:null,disabled:true,updated_at:'2026-10-18'}]);
+    const result=await new OntologyService(actor,'company:a').catalog();
+    expect(result.objects.find(o=>o.code==='kol_profile')?.published?.name).not.toBe(draft.name);
+    expect(result.objects.every(o=>o.draft===null&&o.published?.layer==='kol_business')).toBe(true);
+    expect(result.objects.some(o=>o.code==='email')).toBe(false);
+    expect(result.objects.find(o=>o.code==='kol_profile')?.published?.items.actions[0].executor).toBeUndefined();
+  });
+  it('rejects stale draft saves without writing and rejects absent confirmation',async()=>{
+    query.mockImplementation(async(sql:string)=>({rows:sql.includes('organization_people')?[{id:'company:a'}]:sql.includes('FOR UPDATE')?[{revision:5}]:[]}));
+    await expect(new OntologyService(admin,'company:a').save({definition:profile(),reason:'修订',expectedRevision:4,sourceVersion:baseline.sourceVersion})).rejects.toMatchObject({status:409});
+    expect(query.mock.calls.some(([sql])=>String(sql).includes('INSERT'))).toBe(false);
+    await expect(new OntologyService(admin,'company:a').commit({token:'token',commandId:'request',reason:'发布',confirmed:false})).rejects.toMatchObject({status:409});
+  });
+  it('rejects confirmation from another actor/company or an expired challenge',async()=>{
+    authorize();const body={token:'foreign-token',commandId:'request',reason:'发布',confirmed:true};
+    await expect(new OntologyService(admin,'company:a').commit(body)).rejects.toMatchObject({status:409});
+    query.mockImplementation(async(sql:string)=>({rows:sql.includes('organization_people')?[{id:'company:a'}]:sql.includes('ontology_confirmations')?[{expires_at:'2000-01-01',consumed:false}]:[]}));
+    await expect(new OntologyService(admin,'company:a').commit(body)).rejects.toMatchObject({status:409});
+    expect(query.mock.calls.some(([sql])=>String(sql).startsWith('UPDATE'))).toBe(false);
+  });
+  it('invalidates confirmation after a draft changes',async()=>{
+    query.mockImplementation(async(sql:string)=>({rows:sql.includes('organization_people')?[{id:'company:a'}]:sql.includes('ontology_confirmations')?[{code:'kol_profile',revision:2,expires_at:'2999-01-01',consumed:false}]:sql.includes('ontology_documents')?[{revision:3}]:[]}));
+    await expect(new OntologyService(admin,'company:a').commit({token:'old-token',commandId:'request',reason:'发布',confirmed:true})).rejects.toMatchObject({status:409});
+    expect(query.mock.calls.some(([sql])=>String(sql).startsWith('UPDATE'))).toBe(false);
+  });
+  it('preserves unpublished work on disable and returns one receipt for a repeated confirmed command',async()=>{
+    const definition:OntologyDefinition={...profile(),code:'test_object',id:'TEST-1',name:'测试对象'};
+    const draft={...definition,name:'待发布修订'};
+    const current={code:definition.code,revision:1,draft,published:definition,disabled:false};
+    let receiptRow:unknown;
+    query.mockImplementation(async(sql:string,values:unknown[]=[])=>{
+      if(sql.includes('organization_people'))return {rows:[{id:'company:a'}]};
+      if(sql.startsWith('SELECT * FROM ontology_confirmations'))return {rows:[{code:definition.code,revision:1,action:'disable',expires_at:'2999-01-01',consumed:false,source_version:baseline.sourceVersion}]};
+      if(sql.startsWith('SELECT * FROM ontology_documents'))return {rows:[current]};
+      if(sql.startsWith('SELECT * FROM ontology_receipts'))return {rows:receiptRow?[receiptRow]:[]};
+      if(sql.startsWith('INSERT INTO ontology_receipts'))receiptRow={command_hash:values[3],receipt:JSON.parse(String(values[4]))};
+      return {rows:[]};
+    });
+    const service=new OntologyService(admin,'company:a');const body={token:'confirmed-token',commandId:'one-command',reason:'停用',confirmed:true};
+    const first=await service.commit(body);expect(await service.commit(body)).toEqual(first);
+    const writes=query.mock.calls.filter(([sql])=>String(sql).startsWith('INSERT INTO ontology_documents'));
+    expect(writes).toHaveLength(1);expect(JSON.parse(writes[0][1][6]).name).toBe('待发布修订');
+    await expect(service.commit({...body,reason:'不同内容'})).rejects.toMatchObject({status:409});
+  });
+});
+
+describe('ontology HTTP access boundary',()=>{
+  const app=new Hono();app.route('/api',ontology);app.onError((e,c)=>c.json({detail:e instanceof HttpFail?e.detail:e.message},e instanceof HttpFail?e.status as 400|403|401|422|409:500));
+  beforeEach(()=>{query.mockReset();});
+  it('rejects anonymous and inactive requests',async()=>{
+    expect((await app.request('/api/ontology/workspace/catalog')).status).toBe(401);
+    expect((await withTicketPrincipal({...actor,active:false},()=>app.request('/api/ontology/workspace/catalog'))).status).toBe(403);
+  });
+  it('rejects employee admin-mode spoofing and malformed JSON',async()=>{
+    expect((await withTicketPrincipal(actor,()=>app.request('/api/ontology/workspace/catalog?admin=1'))).status).toBe(403);
+    expect((await withTicketPrincipal(admin,()=>app.request('/api/ontology/workspace/drafts',{method:'POST',body:'{'}))).status).toBe(400);
+  });
+});

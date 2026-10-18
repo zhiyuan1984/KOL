@@ -8,6 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "worker:execution": "tsx src/execution-worker.ts",
     "worker:outbox": "tsx src/outbox-publisher.ts",
+    "db:apply:ontology": "tsx scripts/apply-ontology-schema.ts",
     "db:apply:postgres-schema": "tsx scripts/apply-postgres-schema.ts",
     "db:seed:reference": "tsx scripts/seed-reference-data.ts",
     "db:import:org-accounts": "tsx scripts/import-org-accounts.ts",

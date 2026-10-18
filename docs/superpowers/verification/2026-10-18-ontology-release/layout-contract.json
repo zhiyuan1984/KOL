@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "kind": "layout-contract",
+  "status": "complete",
+  "owner": "ui-ux/frontend",
+  "requirement_refs": [
+    "CONST-04",
+    "TECH-FE-02",
+    "TECH-TEST-02"
+  ],
+  "subject": {
+    "task_id": "ontology-release-20261018",
+    "source_base": "c5718200d66bd4311372823ef8a2b1b84738cc22"
+  },
+  "decisions": {
+    "pattern": "Reference navigation + taxonomy/object list + five dimensions",
+    "axes": [
+      "width",
+      "height",
+      "input modality"
+    ],
+    "tested": [
+      "1680x940",
+      "390x844",
+      "1280x500"
+    ],
+    "narrow": "Stacked layout; dialog footer visible",
+    "primary": "One create-item CTA or modal save/confirm"
+  },
+  "verification": {
+    "state": "passed",
+    "evidence": [
+      "unit-results.json",
+      "page-results.json",
+      "pg-results.json",
+      "browser-review.json"
+    ]
+  },
+  "task_id": "ontology-release-20261018",
+  "summary": "Ontology release: layout-contract",
+  "status_claims": []
+}

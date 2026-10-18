@@ -1,0 +1,12 @@
+{
+  "frontend_typecheck": 0,
+  "backend_typecheck": 0,
+  "frontend_build": 0,
+  "commands": [
+    "tsc --noEmit (frontend/backend)",
+    "npm run build (frontend)"
+  ],
+  "vite": "6.4.3",
+  "modules": 3819,
+  "scope": "Ontology suites only, no unrelated full regression."
+}

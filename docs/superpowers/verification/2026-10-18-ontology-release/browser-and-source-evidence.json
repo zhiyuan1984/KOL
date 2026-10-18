@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "kind": "browser-and-source-evidence",
+  "status": "complete",
+  "owner": "test-manager/ui-ux",
+  "requirement_refs": [
+    "CONST-10",
+    "TECH-TEST-01",
+    "TECH-TEST-02",
+    "TECH-TEST-03"
+  ],
+  "subject": {
+    "task_id": "ontology-release-20261018",
+    "source_base": "c5718200d66bd4311372823ef8a2b1b84738cc22"
+  },
+  "decisions": {
+    "layers": {
+      "unit": "14 passed (mocked DB)",
+      "browser": "6 passed (Chrome/UI fixtures)",
+      "pg": "13 passed (real isolated DB)",
+      "visual": "Codex UI/UX agent inspected screenshot"
+    },
+    "limits": [
+      "No human research claim",
+      "No production authenticated write exercised"
+    ],
+    "records": [
+      "unit-results.json",
+      "page-results.json",
+      "pg-results.json",
+      "pg-cleanup.json",
+      "build-results.json",
+      "browser-review.json",
+      "admin.png"
+    ]
+  },
+  "verification": {
+    "state": "passed",
+    "evidence": [
+      "unit-results.json",
+      "page-results.json",
+      "pg-results.json",
+      "browser-review.json"
+    ]
+  },
+  "task_id": "ontology-release-20261018",
+  "summary": "Ontology release: browser-and-source-evidence",
+  "status_claims": []
+}

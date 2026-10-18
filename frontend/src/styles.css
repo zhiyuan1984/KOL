@@ -1,3 +1,35 @@
+/* Ontology surfaces: user's seven reference images are the visual authority.
+   Values are scoped; existing pages keep their own tokens. */
+.ontology-shell {
+  --onto-blue: #0658ff;
+  --onto-blue-hover: #064bdd;
+  --onto-white: #ffffff;
+  --onto-ink: #192b4c;
+  --onto-title: #17263f;
+  --onto-quiet: #687b9a;
+  --onto-canvas: #f2f6fc;
+  --onto-selected: #e9f0ff;
+  --onto-chip: #f4f6fa;
+  --onto-line: #e9eef6;
+  --onto-th: #f3f6fb;
+  --onto-control-border: #dfe6f2;
+  --onto-selection-border: #a8c4ff;
+  --onto-purple: #7938ee;
+  --onto-purple-light: #a568ff;
+  --onto-icon-green: #0eb487;
+  --onto-icon-orange: #ff8a15;
+  --onto-icon-pink: #cc3d98;
+  --onto-icon-blue: #147de0;
+  --onto-icon-red: #f15b2a;
+  --onto-success: #147f3d;
+  --onto-success-bg: #eaf9ee;
+  --onto-warning: #a45b14;
+  --onto-warning-bg: #fff2df;
+  --onto-danger: #b82f3c;
+  --onto-shadow: 0 2px 8px #284f9010;
+  --onto-dialog-shadow: 0 12px 40px #233d7026;
+  --onto-backdrop: #162d4c2e;
+}
 :root {
   /* MASTER Product tokens + OpenAI-quiet mood — --color-* then wired into workbench tokens */
   --color-obsidian: #000000; /* hairline source only; not filled CTA */
@@ -969,7 +1001,7 @@ summary:focus-visible,
   flex-direction: column;
   overflow: hidden;
 }
-.main > :not(.perf-ant-app):not(.perf-workspace):not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.skill-catalog-page):not(.kbv-page):not(.tasks-page) {
+.main > :not(.ontology-workspace):not(.perf-ant-app):not(.perf-workspace):not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.skill-catalog-page):not(.kbv-page):not(.tasks-page) {
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
@@ -7903,7 +7935,7 @@ body {
   height: var(--scrollbar-size);
 }
 
-.main > :not(.perf-ant-app):not(.perf-workspace):not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.skill-catalog-page):not(.kbv-page):not(.tasks-page) {
+.main > :not(.ontology-workspace):not(.perf-ant-app):not(.perf-workspace):not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.skill-catalog-page):not(.kbv-page):not(.tasks-page) {
   width: 100%;
   max-width: var(--content-max);
   margin-inline: auto;
@@ -9411,7 +9443,7 @@ body {
   .kb-drawer { width: min(100vw, 440px); }
   .list-page.kb-page.has-drawer { padding-right: 0; }
   .main { padding: 0; }
-  .main > :not(.perf-ant-app):not(.perf-workspace):not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.kbv-page):not(.tasks-page) { padding: 16px 14px 36px; }
+  .main > :not(.ontology-workspace):not(.perf-ant-app):not(.perf-workspace):not(.session-shell):not(.session-workspace):not(.home-pane):not(.admin-shell):not(.kbv-page):not(.tasks-page) { padding: 16px 14px 36px; }
   /* 管理面在窄视口与员工端同规则：导航走 .sidebar 抽屉（由 .mobile-top ☰ 打开），
      不再把导航压成横向顶条。 */
   .admin-body { padding: var(--space-3) var(--space-3) var(--space-5); }
@@ -14788,7 +14820,7 @@ button.today-brief-primary-btn:disabled {
    DESIGN §24.6 cards own their approved text/helper/icon token tiers; do not
    flatten their 12px helper text or 14px icons back to the shell's 13px reset.
    Other workbench surfaces and the documented mono face are unchanged. */
-#root .workbench, #root .workbench :where(:not(svg):not(svg *):not(.kol-card-row):not(.kol-card-row *)) {
+#root .workbench:not(.ontology-shell), #root .workbench:not(.ontology-shell) :where(:not(svg):not(svg *):not(.kol-card-row):not(.kol-card-row *)) {
   font-size: var(--ds-font-sm) !important;
   font-family: var(--sans) !important;
 }

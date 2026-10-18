@@ -1,0 +1,209 @@
+{
+  "numTotalTestSuites": 2,
+  "numPassedTestSuites": 2,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 13,
+  "numPassedTests": 13,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "snapshot": {
+    "added": 0,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0,
+    "didUpdate": false
+  },
+  "startTime": 1792275269279,
+  "success": true,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "ontology native PostgreSQL integration (isolated disposable database)"
+          ],
+          "fullName": "ontology native PostgreSQL integration (isolated disposable database) uses native jsonb storage, an idempotent schema and no mock connection",
+          "status": "passed",
+          "title": "uses native jsonb storage, an idempotent schema and no mock connection",
+          "duration": 45.643763000000035,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "ontology native PostgreSQL integration (isolated disposable database)"
+          ],
+          "fullName": "ontology native PostgreSQL integration (isolated disposable database) persists drafts across pool reconnects without exposing them to employees",
+          "status": "passed",
+          "title": "persists drafts across pool reconnects without exposing them to employees",
+          "duration": 84.45404299999996,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "ontology native PostgreSQL integration (isolated disposable database)"
+          ],
+          "fullName": "ontology native PostgreSQL integration (isolated disposable database) publishes once under duplicate concurrent confirmations and replays the same receipt",
+          "status": "passed",
+          "title": "publishes once under duplicate concurrent confirmations and replays the same receipt",
+          "duration": 104.39309500000002,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "ontology native PostgreSQL integration (isolated disposable database)"
+          ],
+          "fullName": "ontology native PostgreSQL integration (isolated disposable database) permits exactly one concurrent stale-base draft save",
+          "status": "passed",
+          "title": "permits exactly one concurrent stale-base draft save",
+          "duration": 171.78544999999997,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "ontology native PostgreSQL integration (isolated disposable database)"
+          ],
+          "fullName": "ontology native PostgreSQL integration (isolated disposable database) isolates tenant drafts, published definitions, history and confirmation tokens",
+          "status": "passed",
+          "title": "isolates tenant drafts, published definitions, history and confirmation tokens",
+          "duration": 86.02217599999994,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "ontology native PostgreSQL integration (isolated disposable database)"
+          ],
+          "fullName": "ontology native PostgreSQL integration (isolated disposable database) denies writes after membership revocation, expiry or account deactivation",
+          "status": "passed",
+          "title": "denies writes after membership revocation, expiry or account deactivation",
+          "duration": 52.853250000000116,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "ontology native PostgreSQL integration (isolated disposable database)"
+          ],
+          "fullName": "ontology native PostgreSQL integration (isolated disposable database) rejects absent, expired, reused or content-stale confirmation",
+          "status": "passed",
+          "title": "rejects absent, expired, reused or content-stale confirmation",
+          "duration": 107.96513899999991,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "ontology native PostgreSQL integration (isolated disposable database)"
+          ],
+          "fullName": "ontology native PostgreSQL integration (isolated disposable database) rolls back the document and token consumption if audit persistence fails",
+          "status": "passed",
+          "title": "rolls back the document and token consumption if audit persistence fails",
+          "duration": 87.97015800000008,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "ontology native PostgreSQL integration (isolated disposable database)"
+          ],
+          "fullName": "ontology native PostgreSQL integration (isolated disposable database) keeps audit versions and receipts immutable in PostgreSQL",
+          "status": "passed",
+          "title": "keeps audit versions and receipts immutable in PostgreSQL",
+          "duration": 100.7225739999999,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "ontology native PostgreSQL integration (isolated disposable database)"
+          ],
+          "fullName": "ontology native PostgreSQL integration (isolated disposable database) preserves pending drafts while disabling and restoring a published version",
+          "status": "passed",
+          "title": "preserves pending drafts while disabling and restoring a published version",
+          "duration": 263.8421579999999,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "ontology native PostgreSQL integration (isolated disposable database)"
+          ],
+          "fullName": "ontology native PostgreSQL integration (isolated disposable database) revalidates relation targets and prevents disable/publication races",
+          "status": "passed",
+          "title": "revalidates relation targets and prevents disable/publication races",
+          "duration": 144.3220580000002,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "ontology native PostgreSQL integration (isolated disposable database)"
+          ],
+          "fullName": "ontology native PostgreSQL integration (isolated disposable database) rejects duplicate stable IDs, risk downgrades and missing relation targets without partial saves",
+          "status": "passed",
+          "title": "rejects duplicate stable IDs, risk downgrades and missing relation targets without partial saves",
+          "duration": 62.22180400000002,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": [
+            "ontology native PostgreSQL integration (isolated disposable database)"
+          ],
+          "fullName": "ontology native PostgreSQL integration (isolated disposable database) serves the actual HTTP router over native PostgreSQL with employee/admin isolation",
+          "status": "passed",
+          "title": "serves the actual HTTP router over native PostgreSQL with employee/admin isolation",
+          "duration": 169.63885300000015,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        }
+      ],
+      "startTime": 1792275269962,
+      "endTime": 1792275271448.639,
+      "status": "passed",
+      "message": "",
+      "name": "/home/ecs-user/kol-ontology-it-20261018-release2/backend/tests/ontology.postgres.test.ts"
+    }
+  ]
+}
