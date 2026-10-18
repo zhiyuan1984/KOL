@@ -202,3 +202,24 @@ test('middle column uses unified black typography, tighter rows and Ant Design e
  expect([metrics.title,metrics.label,metrics.option,metrics.object]).toEqual(['13px','13px','13px','13px']);expect(metrics.labelColor).not.toBe(metrics.optionColor);expect(metrics.row).toBeLessThanOrEqual(29);expect(metrics.control).toBe(24);
  await page.screenshot({path:'test-results/ontology/middle-density.png',fullPage:true});
 });
+
+
+test('classification expansion controls follow hidden selections at both catalog widths',async({page})=>{
+ await fixture(page,true,true);await page.setViewportSize({width:1680,height:940});
+ for(const width of [280,440]){
+  for(const label of ['业务族','业务域','业务主题']){
+   await page.goto('/admin/ontology');const resize=page.getByRole('separator',{name:'调整对象列表宽度'});await resize.press(width===280?'Home':'End');await expect(resize).toHaveAttribute('aria-valuenow',String(width));const group=page.getByRole('group',{name:label,exact:true});
+   const more=group.getByRole('button',{name:'更多',exact:true});await expect(more).toBeVisible({timeout:15000});await more.click();
+   await expect(group.locator('button').last()).toHaveText('收起');
+   const target=group.locator('.onto-filter-option').last();const name=(await target.innerText()).trim();await target.click();
+   await expect(group.getByRole('button',{name,exact:true})).toHaveCount(1);
+   await expect(group.getByRole('button',{name,exact:true})).toHaveAttribute('aria-pressed','true');
+   await expect(group.locator('button').last()).toHaveText('更多');
+   const layout=await group.evaluate(g=>{const buttons=[...g.querySelectorAll('button')];const last=buttons.at(-1)!;const chosen=g.querySelector('[aria-pressed=true]')!;const r=last.getBoundingClientRect(),c=chosen.getBoundingClientRect(),previous=buttons.at(-2)!.getBoundingClientRect();return {sameRow:Math.abs(r.top-previous.top)<2,ordered:!!(chosen.compareDocumentPosition(last)&Node.DOCUMENT_POSITION_FOLLOWING),after:r.top>c.top||r.left>=c.right-1,overflow:g.scrollWidth>g.clientWidth+1,icon:last.querySelector('.anticon')?.getBoundingClientRect().top,text:last.querySelector('span')?.getBoundingClientRect().top};});
+   expect(layout.sameRow).toBe(true);expect(layout.ordered).toBe(true);expect(layout.after).toBe(true);expect(layout.overflow).toBe(false);expect(Math.abs(layout.icon!-layout.text!)).toBeLessThan(8);
+   if(width===280&&label==='业务主题')await page.screenshot({path:'test-results/ontology/more-order.png',fullPage:true});
+   await group.getByRole('button',{name:'更多',exact:true}).click();await expect(group.locator('button').last()).toHaveText('收起');await expect(group.getByRole('button',{name,exact:true})).toHaveCount(1);
+   await group.getByRole('button',{name:'收起',exact:true}).click();await expect(group.locator('button').last()).toHaveText('更多');await expect(group.getByRole('button',{name,exact:true})).toBeVisible();
+  }
+ }
+});
