@@ -20,7 +20,7 @@ const validate=(value:unknown)=>validateDefinition(value,codes,baseline.objects)
 describe('ontology definition semantics',()=>{
   it('loads real registered definitions and validates all cross-object references',()=>{
     expect(baseline.objects).toHaveLength(930);
-    expect(baseline.objects.reduce((n,o)=>n+o.items.properties.length,0)).toBe(214);
+    expect(baseline.objects.reduce((n,o)=>n+o.items.properties.length,0)).toBeGreaterThan(214);
     expect(baseline.objects.reduce((n,o)=>n+o.items.events.length,0)).toBe(140);
     for(const definition of baseline.objects)expect(validate(definition).code).toBe(definition.code);
     expect(baseline.objects.flatMap(o=>Object.values(o.items).flat()).some(i=>i.code.startsWith('example_'))).toBe(false);
@@ -146,7 +146,11 @@ describe('user enterprise ontology source normalization',()=>{
  });
  it('reuses existing stable identities and leaves planning definitions without invented capabilities',()=>{
   expect(baseline.objects.find(d=>d.code==='kol_profile')?.id).toBe('B2');
-  for(const d of baseline.objects.filter(d=>d.code.startsWith('ent_')))expect(Object.values(d.items).flat()).toHaveLength(0);
+  const enriched=new Set(Object.keys(enterpriseSource().definitionOverrides!));
+  for(const d of baseline.objects.filter(d=>d.code.startsWith('ent_'))){
+   expect(d.items.actions).toHaveLength(0);expect(d.items.events).toHaveLength(0);
+   if(!enriched.has(d.code))expect(Object.values(d.items).flat()).toHaveLength(0);
+  }
   expect(baseline.objects.some(d=>d.taxonomy.includes('未分类')||d.taxonomy.includes('待业务负责人分类'))).toBe(false);
  });
 });

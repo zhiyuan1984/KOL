@@ -1,0 +1,2333 @@
+{
+  "version": 1,
+  "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）",
+  "objects": [
+    {
+      "code": "kol_profile",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "profile_owner_ref",
+            "name": "档案负责人引用",
+            "type": "reference",
+            "description": "仅指档案维护负责人，不能据此推断排他跟进归属、合作负责人或访问权限。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "platform_account_refs",
+            "name": "已核实平台账号引用",
+            "type": "reference[]",
+            "description": "平台及稳定账号ID、证据和适用范围一致后建立关联；不按昵称或邮箱前缀自动合并跨平台身份。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "score",
+            "name": "当前评估结果引用",
+            "type": "number",
+            "description": "当前展示评分须保留评估记录与模型版本；历史评估不被最新分数覆盖，不作为达人永久属性。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "platform_accounts",
+            "name": "平台账号",
+            "target": "ent_b04_84f240141be6ae60",
+            "cardinality": "1:N",
+            "description": "须有平台稳定标识及核实依据；不自动完成跨平台主体合并。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "account_profile"
+          },
+          {
+            "code": "source_leads",
+            "name": "来源线索",
+            "target": "creator_candidate",
+            "cardinality": "1:N",
+            "description": "可为空；仅凭稳定身份及明确证据确认，不把候选ID当正式UID。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "verified_profile"
+          },
+          {
+            "code": "assessment_records",
+            "name": "历史评估",
+            "target": "ent_b04_7b94485cc13fe401",
+            "cardinality": "1:N",
+            "description": "按记录保留评估证据和版本，不覆盖历史。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "assessed_profile"
+          },
+          {
+            "code": "classification_tags",
+            "name": "分类标签定义",
+            "target": "ent_b04_d5df24164028debb",
+            "cardinality": "N:N",
+            "description": "标签关联须保留打标证据和版本；标签存在不代表已打标。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "tagged_profiles"
+          },
+          {
+            "code": "profile_owner",
+            "name": "档案负责人",
+            "target": "user",
+            "cardinality": "N:1",
+            "description": "仅表达档案维护职责，不产生跟进、合作或审批权限。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19"
+          },
+          {
+            "code": "follow_relations",
+            "name": "跟进关系",
+            "target": "follow_relation",
+            "cardinality": "1:N",
+            "description": "跟进归属独立于档案负责人及正式合作阶段。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "follows_kol"
+          },
+          {
+            "code": "outreach_tasks",
+            "name": "建联任务",
+            "target": "ent_b04_7ebb1c2ee662a0e6",
+            "cardinality": "1:N",
+            "description": "任务可先于合作存在，完成不证明正式合作。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "target_profile"
+          },
+          {
+            "code": "follow_tasks",
+            "name": "跟进任务",
+            "target": "follow_task",
+            "cardinality": "1:N",
+            "description": "关联对象与任务状态分别表达。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "for_profile"
+          },
+          {
+            "code": "business_conversations",
+            "name": "业务沟通会话",
+            "target": "ent_b04_c55e1a376c064575",
+            "cardinality": "1:N",
+            "description": "先关联已核实达人，可后关联合作；保留原邮件/社媒线程。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "conversation_profile"
+          },
+          {
+            "code": "profile_interactions",
+            "name": "互动记录",
+            "target": "ent_b04_180492d0be60dba3",
+            "cardinality": "1:N",
+            "description": "互动时间、参与方和原始证据分别保留。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "interaction_profile"
+          },
+          {
+            "code": "has_collaboration",
+            "name": "参与合作",
+            "target": "collaboration",
+            "cardinality": "1:N",
+            "description": "同一达人可参加多次合作；合作身份与跟进独立。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "for_kol"
+          },
+          {
+            "code": "trial_feedback",
+            "name": "样品反馈",
+            "target": "ent_b04_064c31280575d255",
+            "cardinality": "1:N",
+            "description": "反馈须有原始证据，不以物流签收推断本人反馈。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "feedback_profile"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b04_84f240141be6ae60",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "platform_code",
+            "name": "平台编码",
+            "type": "string",
+            "description": "按既有平台字典区分账号所在平台。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "external_account_id",
+            "name": "平台稳定账号ID",
+            "type": "string",
+            "description": "原平台稳定账号标识；不是昵称、URL或邮件内部数值ID。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "account_url",
+            "name": "账号主页证据",
+            "type": "url",
+            "description": "原平台可核验链接，不能由名称拼接制造。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "metrics_snapshot",
+            "name": "账号指标快照",
+            "type": "object",
+            "description": "粉丝、播放等实测指标及对应时间与来源；不是技能筛选条件。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "account_profile",
+            "name": "已核实达人档案",
+            "target": "kol_profile",
+            "cardinality": "N:1",
+            "description": "须有平台稳定标识及核实依据；不自动完成跨平台主体合并。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "platform_accounts"
+          },
+          {
+            "code": "discovery_leads",
+            "name": "发现线索",
+            "target": "creator_candidate",
+            "cardinality": "1:N",
+            "description": "保留每次发现的来源标识与映射证据；同一账号可多次发现，不按昵称归并。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "source_accounts"
+          },
+          {
+            "code": "account_assessments",
+            "name": "账号评估",
+            "target": "ent_b04_7b94485cc13fe401",
+            "cardinality": "N:N",
+            "description": "评价依据限定具体账号及指标时间快照。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "assessed_accounts"
+          },
+          {
+            "code": "account_tags",
+            "name": "账号标签定义",
+            "target": "ent_b04_d5df24164028debb",
+            "cardinality": "N:N",
+            "description": "账号分类引用统一标签含义及关联证据。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "tagged_accounts"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          }
+        ]
+      }
+    },
+    {
+      "code": "creator_candidate",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "candidate_status",
+            "name": "线索状态",
+            "type": "string",
+            "description": "表达线索管理状态，沿用原来源值；独立于合作阶段、工单状态。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "identity_evidence_ref",
+            "name": "身份确认依据",
+            "type": "reference",
+            "description": "候选/kol_leads/档案之间保留各自身份和来源映射；只有稳定平台标识及核实证据成立才确认同一达人。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "verified_profile",
+            "name": "核实后关联档案",
+            "target": "kol_profile",
+            "cardinality": "N:1",
+            "description": "可为空；仅凭稳定身份及明确证据确认，不把候选ID当正式UID。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "source_leads"
+          },
+          {
+            "code": "source_accounts",
+            "name": "来源平台账号",
+            "target": "ent_b04_84f240141be6ae60",
+            "cardinality": "N:1",
+            "description": "保留每次发现的来源标识与映射证据；同一账号可多次发现，不按昵称归并。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "discovery_leads"
+          },
+          {
+            "code": "from_batch",
+            "name": "来源批次",
+            "target": "crawl_batch",
+            "cardinality": "N:1",
+            "description": "引用现有source_batch；关联档案后仍保留发现来源。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "candidate_leads"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          },
+          {
+            "code": "identity_confirmation",
+            "name": "身份核实与来源保留",
+            "description": "同名、昵称、邮箱前缀或候选ID不足以确认同一达人；平台稳定身份、来源和明确核实证据满足后才建立档案关联。",
+            "clause": "BIZ-01/02/04",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；BIZ-01/02/04"
+          }
+        ]
+      }
+    },
+    {
+      "code": "crawl_batch",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_batch",
+            "name": "来源批次ID",
+            "type": "string",
+            "description": "沿用现有source_batch身份，不能替代发现计划ID或异步采集作业ID。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "crawl_job_ref",
+            "name": "异步采集作业引用",
+            "type": "reference",
+            "description": "引用原作业进度、取消与恢复入口；不复制执行状态机。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "discovery_plan_ref",
+            "name": "发现计划引用",
+            "type": "reference",
+            "description": "业务意图及筛选条件的出处，不把期望人数当已采集人数。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "candidate_leads",
+            "name": "来源线索",
+            "target": "creator_candidate",
+            "cardinality": "1:N",
+            "description": "引用现有source_batch；关联档案后仍保留发现来源。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "from_batch"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b04_7b94485cc13fe401",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "assessment_id",
+            "name": "评估记录ID",
+            "type": "string",
+            "description": "每次评估独立保留身份，不能被最新总分覆盖。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "model_version",
+            "name": "评价模型版本",
+            "type": "string",
+            "description": "评分方法及已发布模型引用；未发布模型不得冒充正式标准。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "assessed_at",
+            "name": "评估时间",
+            "type": "datetime",
+            "description": "评估所对应的时间与证据快照。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "score_value",
+            "name": "评分结果",
+            "type": "number",
+            "description": "评估结果属性，不是永久画像事实；没有评分保持未知。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "evidence_refs",
+            "name": "评估依据",
+            "type": "reference[]",
+            "description": "原始证据及版本，推断须标明不确定性。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "assessed_profile",
+            "name": "评估达人",
+            "target": "kol_profile",
+            "cardinality": "N:1",
+            "description": "按记录保留评估证据和版本，不覆盖历史。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "assessment_records"
+          },
+          {
+            "code": "assessed_accounts",
+            "name": "评估账号",
+            "target": "ent_b04_84f240141be6ae60",
+            "cardinality": "N:N",
+            "description": "评价依据限定具体账号及指标时间快照。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "account_assessments"
+          },
+          {
+            "code": "assessment_reports",
+            "name": "引用报告",
+            "target": "ent_b04_6ee7475c5de5d078",
+            "cardinality": "N:N",
+            "description": "报告可引用一次或多次评估；文件与评估事实不重复建档。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "assessment_records"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b04_6ee7475c5de5d078",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "report_number",
+            "name": "报告编号",
+            "type": "string",
+            "description": "可引用的业务报告身份。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "report_version",
+            "name": "报告版本",
+            "type": "string",
+            "description": "报告内容变化保留版本；导出文件本身不是另一条评估事实。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "artifact_refs",
+            "name": "报告成果引用",
+            "type": "reference[]",
+            "description": "引用既有成果/文件身份，保留来源。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "assessment_records",
+            "name": "引用评估记录",
+            "target": "ent_b04_7b94485cc13fe401",
+            "cardinality": "N:N",
+            "description": "报告可引用一次或多次评估；文件与评估事实不重复建档。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "assessment_reports"
+          },
+          {
+            "code": "report_artifacts",
+            "name": "成果与文件",
+            "target": "artifact",
+            "cardinality": "1:N",
+            "description": "引用统一成果身份及报告版本，不另建文件存储。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b04_d5df24164028debb",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "tag_code",
+            "name": "标签稳定编码",
+            "type": "string",
+            "description": "标签名称可变，编码用于引用其定义。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "tag_category",
+            "name": "标签分类",
+            "type": "string",
+            "description": "引用现行标签字典，不在此新增审批或可见范围。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "effective_status",
+            "name": "有效状态",
+            "type": "string",
+            "description": "标签定义的有效性；不等于达人已被打上该标签。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "assignment_evidence",
+            "name": "打标依据引用",
+            "type": "reference",
+            "description": "关联达人/账号的分类事实需另有证据，不能由定义存在自动打标。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "tagged_profiles",
+            "name": "已关联达人",
+            "target": "kol_profile",
+            "cardinality": "N:N",
+            "description": "标签关联须保留打标证据和版本；标签存在不代表已打标。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "classification_tags"
+          },
+          {
+            "code": "tagged_accounts",
+            "name": "已关联账号",
+            "target": "ent_b04_84f240141be6ae60",
+            "cardinality": "N:N",
+            "description": "账号分类引用统一标签含义及关联证据。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "account_tags"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b04_7ebb1c2ee662a0e6",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "task_ref",
+            "name": "统一任务引用",
+            "type": "reference",
+            "description": "复用原任务ID及任务类型，不新建重复待办。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "acceptance_evidence",
+            "name": "建联验收证据",
+            "type": "reference[]",
+            "description": "完成任务不证明合作成立或阶段推进；有效往来仍按已发布规则认定。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "canonical_task",
+            "name": "统一任务身份",
+            "target": "task",
+            "cardinality": "N:1",
+            "description": "任务业务类型复用统一任务及状态；不另建待办或执行循环。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19"
+          },
+          {
+            "code": "target_profile",
+            "name": "建联目标达人",
+            "target": "kol_profile",
+            "cardinality": "N:1",
+            "description": "任务可先于合作存在，完成不证明正式合作。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "outreach_tasks"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          },
+          {
+            "code": "task_status_boundary",
+            "name": "任务状态独立",
+            "description": "只引用统一任务状态；发信、合作阶段改变、归属解除不自动完成任务。",
+            "clause": "PROD-AGENT-08；BIZ-16",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；PROD-AGENT-08；BIZ-16"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b04_c55e1a376c064575",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "channel",
+            "name": "通信渠道",
+            "type": "string",
+            "description": "邮件或原社媒渠道，区别于员工与Agent的思考会话。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "channel_thread_id",
+            "name": "原渠道线程ID",
+            "type": "string",
+            "description": "复用原通信线程身份；通信正文仍来自原系统，不复制一套主数据。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "context_source_refs",
+            "name": "实时上下文来源引用",
+            "type": "reference[]",
+            "description": "邮件、会话、附件及历史仍按原链路实时读取；对象关联仅补语义和来源。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "conversation_profile",
+            "name": "通信达人",
+            "target": "kol_profile",
+            "cardinality": "N:1",
+            "description": "先关联已核实达人，可后关联合作；保留原邮件/社媒线程。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "business_conversations"
+          },
+          {
+            "code": "communication_records",
+            "name": "共享邮件记录",
+            "target": "email",
+            "cardinality": "1:N",
+            "description": "引用共享通信身份、正文及附件；不关联为员工与Agent的session_thread。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19"
+          },
+          {
+            "code": "conversation_cooperations",
+            "name": "适用合作",
+            "target": "collaboration",
+            "cardinality": "N:N",
+            "description": "可为空；多合作归属需明确证据，不由模型静默搬移历史会话。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "cooperation_conversations"
+          },
+          {
+            "code": "interaction_records",
+            "name": "互动记录",
+            "target": "ent_b04_180492d0be60dba3",
+            "cardinality": "1:N",
+            "description": "可为空；人工业务互动也需可追溯原始证据。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "in_conversation"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          },
+          {
+            "code": "live_context_preserved",
+            "name": "实时通信上下文",
+            "description": "沿用原邮件/会话/附件/历史上下文及权限；本体关联不替代实时读取，不将邮件陈述自动写为正式阶段或审批事实。",
+            "clause": "CONST-06；BIZ-04/11/12",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-04/11/12"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b04_180492d0be60dba3",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "interaction_id",
+            "name": "互动记录ID",
+            "type": "string",
+            "description": "一次真实业务互动的稳定身份，不是系统操作日志ID。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "occurred_at",
+            "name": "实际互动时间",
+            "type": "datetime",
+            "description": "原证据的发生时间，不用迟到的接收时间替代。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "participant_refs",
+            "name": "参与方引用",
+            "type": "reference[]",
+            "description": "引用可核实参与方，不从相似姓名推断。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "evidence_refs",
+            "name": "互动原始证据",
+            "type": "reference[]",
+            "description": "引用邮件或渠道记录；有效往来判定沿用既有规则。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "in_conversation",
+            "name": "原沟通会话",
+            "target": "ent_b04_c55e1a376c064575",
+            "cardinality": "N:1",
+            "description": "可为空；人工业务互动也需可追溯原始证据。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "interaction_records"
+          },
+          {
+            "code": "interaction_profile",
+            "name": "互动达人",
+            "target": "kol_profile",
+            "cardinality": "N:1",
+            "description": "互动时间、参与方和原始证据分别保留。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "profile_interactions"
+          },
+          {
+            "code": "interaction_cooperations",
+            "name": "适用合作",
+            "target": "collaboration",
+            "cardinality": "N:N",
+            "description": "可为空；互动不是系统审计日志，也不自动推进阶段。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "cooperation_interactions"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          }
+        ]
+      }
+    },
+    {
+      "code": "follow_relation",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "employee_ref",
+            "name": "跟进负责人引用",
+            "type": "reference",
+            "description": "排他跟进的员工身份；与档案负责人、合作负责人独立保存和校验。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "owner_scope",
+            "name": "跟进作用范围",
+            "type": "object",
+            "description": "沿用公司、平台稳定身份及现有品牌范围，不通过本体扩大权限。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "follows_kol",
+            "name": "排他跟进达人",
+            "target": "kol_profile",
+            "cardinality": "N:1",
+            "description": "跟进归属独立于档案负责人及正式合作阶段。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "follow_relations"
+          },
+          {
+            "code": "follow_employee",
+            "name": "跟进负责人",
+            "target": "user",
+            "cardinality": "N:1",
+            "description": "沿用既有归属保护和授权，不由关系定义授予权限。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19"
+          },
+          {
+            "code": "relation_tasks",
+            "name": "跟进待办",
+            "target": "follow_task",
+            "cardinality": "1:N",
+            "description": "可为空；发信、会话关闭或解除归属不自动完成任务。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "for_follow_relation"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          }
+        ]
+      }
+    },
+    {
+      "code": "follow_task",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "task_ref",
+            "name": "统一任务引用",
+            "type": "reference",
+            "description": "复用统一任务ID、状态与执行记录；发信、关闭会话或解除归属不自动完成任务。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "canonical_task",
+            "name": "统一任务身份",
+            "target": "task",
+            "cardinality": "N:1",
+            "description": "任务业务类型复用统一任务及状态；不另建待办或执行循环。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19"
+          },
+          {
+            "code": "for_profile",
+            "name": "跟进目标达人",
+            "target": "kol_profile",
+            "cardinality": "N:1",
+            "description": "关联对象与任务状态分别表达。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "follow_tasks"
+          },
+          {
+            "code": "for_follow_relation",
+            "name": "关联跟进关系",
+            "target": "follow_relation",
+            "cardinality": "N:1",
+            "description": "可为空；发信、会话关闭或解除归属不自动完成任务。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "relation_tasks"
+          },
+          {
+            "code": "task_cooperation",
+            "name": "适用合作",
+            "target": "collaboration",
+            "cardinality": "N:1",
+            "description": "可为空；任务可跨会话继续，不自动推进合作阶段。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "cooperation_tasks"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          },
+          {
+            "code": "task_status_boundary",
+            "name": "任务状态独立",
+            "description": "只引用统一任务状态；发信、合作阶段改变、归属解除不自动完成任务。",
+            "clause": "PROD-AGENT-08；BIZ-16",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；PROD-AGENT-08；BIZ-16"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b04_49e8ccb0273f856e",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "plan_id",
+            "name": "合作计划ID",
+            "type": "string",
+            "description": "合作目标、范围及计划交付的业务计划身份；与项目、活动和单条合作分别引用。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "plan_version",
+            "name": "计划版本",
+            "type": "string",
+            "description": "计划调整留原版本，不据此更新正式合作阶段。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "planned_deliverables",
+            "name": "计划交付约定",
+            "type": "object[]",
+            "description": "预期范围，不代表已交付事实。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "planned_cooperations",
+            "name": "计划内合作",
+            "target": "collaboration",
+            "cardinality": "N:N",
+            "description": "一组合作按计划组织，具体阶段和交付仍归单次合作。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "cooperation_plans"
+          },
+          {
+            "code": "project_reference",
+            "name": "所属项目",
+            "target": "project",
+            "cardinality": "N:1",
+            "description": "沿用现有项目身份，不以合作计划代替项目。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19"
+          },
+          {
+            "code": "campaign_references",
+            "name": "适用活动",
+            "target": "campaign",
+            "cardinality": "N:N",
+            "description": "引用项目下活动，计划不生成正式活动实例。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          }
+        ]
+      }
+    },
+    {
+      "code": "collaboration",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "cooperation_owner_ref",
+            "name": "合作负责人引用",
+            "type": "reference",
+            "description": "单条合作的责任人；不以档案负责人或排他跟进员工字段替代。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_cooperation_id",
+            "name": "正式合作来源ID",
+            "type": "string",
+            "description": "引用Starry对应kol_cooperations记录及来源版本；不使用历史collaborations表作为新事实源。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "exclusive_owner_ref",
+            "name": "历史跟进归属引用（兼容）",
+            "type": "reference",
+            "description": "仅保留既有字段兼容；跟进归属的权威关系仍为follow_relation，不能以此字段代替合作负责人或授予访问权限。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "cooperation_conversations",
+            "name": "合作沟通",
+            "target": "ent_b04_c55e1a376c064575",
+            "cardinality": "N:N",
+            "description": "可为空；多合作归属需明确证据，不由模型静默搬移历史会话。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "conversation_cooperations"
+          },
+          {
+            "code": "cooperation_interactions",
+            "name": "合作互动",
+            "target": "ent_b04_180492d0be60dba3",
+            "cardinality": "N:N",
+            "description": "可为空；互动不是系统审计日志，也不自动推进阶段。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "interaction_cooperations"
+          },
+          {
+            "code": "cooperation_plans",
+            "name": "适用计划",
+            "target": "ent_b04_49e8ccb0273f856e",
+            "cardinality": "N:N",
+            "description": "一组合作按计划组织，具体阶段和交付仍归单次合作。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "planned_cooperations"
+          },
+          {
+            "code": "for_kol",
+            "name": "合作达人",
+            "target": "kol_profile",
+            "cardinality": "N:1",
+            "description": "同一达人可参加多次合作；合作身份与跟进独立。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "has_collaboration"
+          },
+          {
+            "code": "cooperation_owner",
+            "name": "合作负责人",
+            "target": "user",
+            "cardinality": "N:1",
+            "description": "单次合作的负责人，不能以档案或跟进负责人覆盖。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19"
+          },
+          {
+            "code": "company_reference",
+            "name": "合作公司",
+            "target": "company",
+            "cardinality": "N:1",
+            "description": "引用既有公司身份及数据范围，不授予访问权。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19"
+          },
+          {
+            "code": "brand_reference",
+            "name": "合作品牌",
+            "target": "brand",
+            "cardinality": "N:1",
+            "description": "引用既有品牌身份及授权，不用显示名称作权限依据。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19"
+          },
+          {
+            "code": "has_quote",
+            "name": "合作报价",
+            "target": "quote",
+            "cardinality": "1:N",
+            "description": "具体商务、履约和费用事实归单次合作，保留原来源。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "collaboration_quote"
+          },
+          {
+            "code": "has_contract",
+            "name": "合作合同",
+            "target": "contract",
+            "cardinality": "1:N",
+            "description": "具体商务、履约和费用事实归单次合作，保留原来源。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "collaboration_contract"
+          },
+          {
+            "code": "has_sample",
+            "name": "合作样品事项",
+            "target": "sample",
+            "cardinality": "1:N",
+            "description": "具体商务、履约和费用事实归单次合作，保留原来源。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "collaboration_sample"
+          },
+          {
+            "code": "has_settlement",
+            "name": "结算单",
+            "target": "settlement",
+            "cardinality": "1:N",
+            "description": "具体商务、履约和费用事实归单次合作，保留原来源。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "collaboration_settlement"
+          },
+          {
+            "code": "delivery_tasks",
+            "name": "交付任务",
+            "target": "ent_b04_68908b46dcca9512",
+            "cardinality": "1:N",
+            "description": "交付任务完成与正式内容发布分别有证据。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "delivery_cooperation"
+          },
+          {
+            "code": "cooperation_tasks",
+            "name": "合作跟进任务",
+            "target": "follow_task",
+            "cardinality": "1:N",
+            "description": "可为空；任务可跨会话继续，不自动推进合作阶段。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "task_cooperation"
+          },
+          {
+            "code": "sample_requests",
+            "name": "寄样申请",
+            "target": "ent_b04_95bbbc3277cfe6d0",
+            "cardinality": "1:N",
+            "description": "申请不代表已发运或已签收。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "requested_cooperation"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          },
+          {
+            "code": "independent_owner_and_stage",
+            "name": "合作负责人及阶段边界",
+            "description": "合作负责人独立保存；合作阶段、线索状态、统一任务状态分别表达；发送不等于推进阶段。正式事实仍来自Starry对应记录。",
+            "clause": "BIZ-01/08/12",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；BIZ-01/08/12"
+          }
+        ]
+      }
+    },
+    {
+      "code": "quote",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "quote_id",
+            "name": "报价ID",
+            "type": "string",
+            "description": "具体合作的报价稳定身份。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "quote_version",
+            "name": "报价版本",
+            "type": "string",
+            "description": "金额、交付和授权条件变化保留原报价版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "quote_lines",
+            "name": "报价明细",
+            "type": "object[]",
+            "description": "金额、币种、交付、授权条件按明细记录，收到报价与认可报价分开。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "collaboration_quote",
+            "name": "所属合作",
+            "target": "collaboration",
+            "cardinality": "N:1",
+            "description": "具体商务、履约和费用事实归单次合作，保留原来源。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "has_quote"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          }
+        ]
+      }
+    },
+    {
+      "code": "contract",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "contract_id",
+            "name": "统一合同身份",
+            "type": "string",
+            "description": "合同、合作协议、佣金协议复用相同原合同身份；不因展示名称复制实例。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "contract_version",
+            "name": "合同版本",
+            "type": "string",
+            "description": "关联实际协议和条款版本；发送、审核、签署、生效分别保留事实。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "effective_period",
+            "name": "适用期间",
+            "type": "object",
+            "description": "条款约定的生效/失效时间，不从发送时间推断签署或生效。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "collaboration_contract",
+            "name": "所属合作",
+            "target": "collaboration",
+            "cardinality": "N:1",
+            "description": "具体商务、履约和费用事实归单次合作，保留原来源。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "has_contract"
+          },
+          {
+            "code": "legal_contract_reference",
+            "name": "共享法务合同",
+            "target": "ent_b16_06c891807ee3feec",
+            "cardinality": "N:1",
+            "description": "需要时引用统一法务合同身份及版本，不复制法务主数据。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19"
+          },
+          {
+            "code": "agreement_types",
+            "name": "合作协议类型",
+            "target": "ent_b04_e74ed1524b7f1f75",
+            "cardinality": "1:N",
+            "description": "复用同一合同身份及适用版本；补充协议、期间与签署事实分别保留。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "contract_identity"
+          },
+          {
+            "code": "commission_types",
+            "name": "佣金协议类型",
+            "target": "ent_b04_7fce348a8093a038",
+            "cardinality": "1:N",
+            "description": "复用同一合同身份及适用版本；补充协议、期间与签署事实分别保留。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "contract_identity"
+          },
+          {
+            "code": "contract_settlements",
+            "name": "适用结算",
+            "target": "settlement",
+            "cardinality": "N:N",
+            "description": "关联适用合同版本及费用条款，不重复建立同一合同事实。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "settlement_contracts"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b04_e74ed1524b7f1f75",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "contract_ref",
+            "name": "原合同身份引用",
+            "type": "reference",
+            "description": "合作合同的协议业务类型，引用原合同及版本，不创建同一文件的第二份合同事实。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "contract_version",
+            "name": "适用合同版本",
+            "type": "string",
+            "description": "补充协议、适用期间与原版本关联；不能固定成每条合作仅一份协议。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "contract_identity",
+            "name": "复用合同身份",
+            "target": "contract",
+            "cardinality": "N:1",
+            "description": "复用同一合同身份及适用版本；补充协议、期间与签署事实分别保留。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "agreement_types"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b04_68908b46dcca9512",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "task_ref",
+            "name": "统一交付任务引用",
+            "type": "reference",
+            "description": "复用统一任务身份、负责人和期限；与外部交付事实分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "deliverable_refs",
+            "name": "交付项引用",
+            "type": "reference[]",
+            "description": "引用内容/交付版本及验收证据，不以任务完成替代内容已发布。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "acceptance_evidence",
+            "name": "验收证据",
+            "type": "reference[]",
+            "description": "审核对应具体内容版本；排期、提交、审核、上线分别表达。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "canonical_task",
+            "name": "统一任务身份",
+            "target": "task",
+            "cardinality": "N:1",
+            "description": "任务业务类型复用统一任务及状态；不另建待办或执行循环。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19"
+          },
+          {
+            "code": "delivery_cooperation",
+            "name": "所属合作",
+            "target": "collaboration",
+            "cardinality": "N:1",
+            "description": "交付任务完成与正式内容发布分别有证据。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "delivery_tasks"
+          },
+          {
+            "code": "content_deliverables",
+            "name": "内容交付项",
+            "target": "content",
+            "cardinality": "1:N",
+            "description": "复用原内容/交付身份，关联版本、原稿与验收记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          },
+          {
+            "code": "task_status_boundary",
+            "name": "任务状态独立",
+            "description": "只引用统一任务状态；发信、合作阶段改变、归属解除不自动完成任务。",
+            "clause": "PROD-AGENT-08；BIZ-16",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；PROD-AGENT-08；BIZ-16"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b04_95bbbc3277cfe6d0",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "request_id",
+            "name": "寄样申请ID",
+            "type": "string",
+            "description": "业务申请身份；申请获批不代表已发货。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "requested_items",
+            "name": "申请产品明细",
+            "type": "object[]",
+            "description": "产品/SKU及数量引用现有产品对象，不复制产品主数据。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "recipient_evidence_ref",
+            "name": "收件资料证据引用",
+            "type": "reference",
+            "description": "敏感信息仍沿用原权限和解密边界，定义不含实际地址。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "requested_cooperation",
+            "name": "寄样合作",
+            "target": "collaboration",
+            "cardinality": "N:1",
+            "description": "申请不代表已发运或已签收。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "sample_requests"
+          },
+          {
+            "code": "requested_products",
+            "name": "产品引用",
+            "target": "ent_b05_aea82737cc01867d",
+            "cardinality": "N:N",
+            "description": "引用共享产品主数据，具体产品与数量归申请明细。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19"
+          },
+          {
+            "code": "requested_skus",
+            "name": "SKU引用",
+            "target": "ent_b05_f88ba99c9b342767",
+            "cardinality": "N:N",
+            "description": "引用共享SKU及申请数量，不复制产品字典。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19"
+          },
+          {
+            "code": "fulfilment_orders",
+            "name": "寄样履约单",
+            "target": "ent_b04_3cc7c46d5c5aa4e7",
+            "cardinality": "1:N",
+            "description": "一次申请可分批履约，保留原申请与履约单身份。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "sample_request"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b04_3cc7c46d5c5aa4e7",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "fulfilment_id",
+            "name": "寄样履约单ID",
+            "type": "string",
+            "description": "寄样执行单据身份，申请、履约和物流事实分别引用。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "shipment_evidence",
+            "name": "实际发运证据",
+            "type": "reference[]",
+            "description": "引用原物流运单；计划发运不算已发货。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "received_evidence",
+            "name": "签收证据",
+            "type": "reference[]",
+            "description": "物流签收与达人本人确认分开保存。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "sample_request",
+            "name": "来源寄样申请",
+            "target": "ent_b04_95bbbc3277cfe6d0",
+            "cardinality": "N:1",
+            "description": "一次申请可分批履约，保留原申请与履约单身份。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "fulfilment_orders"
+          },
+          {
+            "code": "logistics_waybills",
+            "name": "共享物流运单",
+            "target": "ent_b09_5cb76ef34b653115",
+            "cardinality": "1:N",
+            "description": "实际发货与签收由物流证据支持，不能以计划发货替代。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19"
+          },
+          {
+            "code": "cooperation_samples",
+            "name": "合作样品事项",
+            "target": "sample",
+            "cardinality": "N:1",
+            "description": "保留原样品事项身份，寄样履约单单独记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "sample_fulfilments"
+          },
+          {
+            "code": "trial_feedback_records",
+            "name": "试用反馈",
+            "target": "ent_b04_064c31280575d255",
+            "cardinality": "1:N",
+            "description": "可为空；有依据时引用实际寄样履约单。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "tested_fulfilment"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b04_064c31280575d255",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "feedback_id",
+            "name": "试用反馈ID",
+            "type": "string",
+            "description": "一次试用反馈的稳定身份及原始证据。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "feedback_at",
+            "name": "反馈时间",
+            "type": "datetime",
+            "description": "达人反馈实际发生时间。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "feedback_evidence",
+            "name": "原始反馈证据",
+            "type": "reference[]",
+            "description": "引用通信或原渠道证据；不捏造测试效果。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "tested_fulfilment",
+            "name": "试用样品履约",
+            "target": "ent_b04_3cc7c46d5c5aa4e7",
+            "cardinality": "N:1",
+            "description": "可为空；有依据时引用实际寄样履约单。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "trial_feedback_records"
+          },
+          {
+            "code": "feedback_profile",
+            "name": "反馈达人",
+            "target": "kol_profile",
+            "cardinality": "N:1",
+            "description": "反馈须有原始证据，不以物流签收推断本人反馈。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "trial_feedback"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          }
+        ]
+      }
+    },
+    {
+      "code": "sample",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "sample_item_ref",
+            "name": "合作样品事项引用",
+            "type": "reference",
+            "description": "保留既有样品事项身份；申请、履约单与物流分别关联，不替代现有样品数据。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "collaboration_sample",
+            "name": "所属合作",
+            "target": "collaboration",
+            "cardinality": "N:1",
+            "description": "具体商务、履约和费用事实归单次合作，保留原来源。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "has_sample"
+          },
+          {
+            "code": "sample_fulfilments",
+            "name": "履约单引用",
+            "target": "ent_b04_3cc7c46d5c5aa4e7",
+            "cardinality": "1:N",
+            "description": "保留原样品事项身份，寄样履约单单独记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "cooperation_samples"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b04_7fce348a8093a038",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "contract_ref",
+            "name": "统一合同引用",
+            "type": "reference",
+            "description": "佣金业务类型复用合同及版本，不另立同一协议事实。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "contract_version",
+            "name": "佣金条款版本",
+            "type": "string",
+            "description": "比例、计佣和归因条件的实际合同版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "commission_terms",
+            "name": "佣金条款",
+            "type": "object",
+            "description": "计佣依据、比例、归因口径和有效期间须引用真实业务依据。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "contract_identity",
+            "name": "复用合同身份",
+            "target": "contract",
+            "cardinality": "N:1",
+            "description": "复用同一合同身份及适用版本；补充协议、期间与签署事实分别保留。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "commission_types"
+          },
+          {
+            "code": "commission_settlements",
+            "name": "引用结算",
+            "target": "ent_b04_848800632a086ae9",
+            "cardinality": "N:N",
+            "description": "结算期间按实际适用协议版本核对，不默认单一永久费率。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "commission_agreements"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b04_848800632a086ae9",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "settlement_ref",
+            "name": "统一结算身份",
+            "type": "reference",
+            "description": "佣金业务类型复用原结算单身份。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "settlement_period",
+            "name": "佣金期间",
+            "type": "object",
+            "description": "本次确认结算的期间，不从读取时间推断。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "commission_lines",
+            "name": "佣金明细",
+            "type": "object[]",
+            "description": "业务计佣依据、金额、币种和调整；付款事实另行引用财务来源。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "settlement_identity",
+            "name": "复用结算身份",
+            "target": "settlement",
+            "cardinality": "N:1",
+            "description": "佣金业务类型复用原结算单，明细与调整保留证据。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "commission_types"
+          },
+          {
+            "code": "commission_agreements",
+            "name": "适用佣金条款",
+            "target": "ent_b04_7fce348a8093a038",
+            "cardinality": "N:N",
+            "description": "结算期间按实际适用协议版本核对，不默认单一永久费率。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "commission_settlements"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          }
+        ]
+      }
+    },
+    {
+      "code": "settlement",
+      "items": {
+        "properties": [
+          {
+            "code": "source_record_ref",
+            "name": "权威来源记录引用",
+            "type": "reference",
+            "description": "保留原系统及记录稳定标识；类型登记不生成实例。来源尚未确认的对象不得伪装成已接入。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_record_version",
+            "name": "来源记录版本",
+            "type": "string",
+            "description": "用于指向对应事实版本；缺失时明确未知，不用本地读取时间冒充版本。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "source_updated_at",
+            "name": "来源更新时间",
+            "type": "datetime",
+            "description": "原始来源报告的更新时间；与本平台读取时间分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "settlement_id",
+            "name": "结算单ID",
+            "type": "string",
+            "description": "特定合作与结算期间的原业务单据身份。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "settlement_period",
+            "name": "结算期间",
+            "type": "object",
+            "description": "本次确认费用的适用期间。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "settlement_lines",
+            "name": "结算明细",
+            "type": "object[]",
+            "description": "固定合作费、佣金等分类、业务依据、金额及币种分别记录。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          },
+          {
+            "code": "financial_payment_refs",
+            "name": "财务付款事实引用",
+            "type": "reference[]",
+            "description": "引用真实财务付款单；收到发票、申请付款、付款成功不可合并为一个状态。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02"
+          }
+        ],
+        "relations": [
+          {
+            "code": "collaboration_settlement",
+            "name": "所属合作",
+            "target": "collaboration",
+            "cardinality": "N:1",
+            "description": "具体商务、履约和费用事实归单次合作，保留原来源。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "has_settlement"
+          },
+          {
+            "code": "commission_types",
+            "name": "佣金结算类型",
+            "target": "ent_b04_848800632a086ae9",
+            "cardinality": "1:N",
+            "description": "佣金业务类型复用原结算单，明细与调整保留证据。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "settlement_identity"
+          },
+          {
+            "code": "financial_payments",
+            "name": "共享财务付款单",
+            "target": "ent_b13_909ee190e69566f4",
+            "cardinality": "1:N",
+            "description": "引用已发生财务付款事实；结算或审批完成不自动表示付款成功。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19"
+          },
+          {
+            "code": "settlement_contracts",
+            "name": "费用约定合同",
+            "target": "contract",
+            "cardinality": "N:N",
+            "description": "关联适用合同版本及费用条款，不重复建立同一合同事实。",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；docs/BUSINESS.md BIZ-01/02/16/19",
+            "inverse": "contract_settlements"
+          }
+        ],
+        "rules": [
+          {
+            "code": "evidence_boundary",
+            "name": "事实与来源边界",
+            "description": "本体只定义语义；数据须保留来源与证据，推断不能覆盖正式事实。未确定的实例写入源继续标记待确认。",
+            "clause": "CONST-06；BIZ-02",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；CONST-06；BIZ-02"
+          },
+          {
+            "code": "payment_fact_boundary",
+            "name": "费用与付款事实分离",
+            "description": "费用约定、结算、发票、付款申请和财务付款成功分别记录；定义和结算状态不触发付款。",
+            "clause": "BIZ-14/17",
+            "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；BIZ-14/17"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,14 +1,9 @@
-import { enterpriseDefinitions, enterpriseHash } from './enterprise.js';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { createHash } from 'node:crypto';
+import { enterpriseDefinitions } from './enterprise.js';
+import {readOntologySources,ontologySourceHash} from './sources.js';
 import { z } from 'zod';
 import { ontologyDimensions, type OntologyDefinition, type OntologyItem } from '../../../shared/ontology.js';
 import { HttpFail } from '../host/errors.js';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-const files = ['config/objects-registry.yaml', 'config/event-catalog.yaml', 'config/ontology-semantics.json'];
 const code = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_.:-]{0,119}$/);
 const text = z.string().max(8000);
 const itemSchema = z.object({
@@ -27,7 +22,7 @@ const definitionSchema = z.object({
 }).strict();
 
 export function loadOntologyCatalog(): { sourceVersion: string; objects: OntologyDefinition[] } {
-  const sources = files.map(file => fs.readFileSync(path.join(root,file), 'utf8').replace(/^\uFEFF/,''));
+  const loaded=readOntologySources(),sources=loaded.map(value=>value.content);
   const registry = JSON.parse(sources[0]) as { objects: Array<{code:string;id:string;name:string;layer:OntologyDefinition['layer'];authority_source?:string;source_ref:string;properties:Array<{code:string;name:string;rule?:string;lineage?:string;biz_type:string}>}> };
   const events = JSON.parse(sources[1]) as {events:Array<{code:string;name:string;object_type:string;producer?:string;category?:string;source_ref:string;payload?:string[]}>};
   const semantics = JSON.parse(sources[2]) as {taxonomy:Record<string,[string,string,string]>;definitions?:Record<string,string>;relations:Array<OntologyItem & {object:string}>;rules:Array<OntologyItem & {object:string}>;actions:Array<OntologyItem & {object:string}>};
@@ -38,7 +33,38 @@ export function loadOntologyCatalog(): { sourceVersion: string; objects: Ontolog
     for (const dimension of ['relations','rules','actions'] as const) items[dimension] = semantics[dimension].filter(i=>i.object===o.code).map(({object:_,...i})=>i);
     return {code:o.code,id:o.id,name:o.name,description:semantics.definitions?.[o.code]||'未填写业务定义',layer:o.layer,taxonomy:semantics.taxonomy[o.code]||[o.layer==='platform'?'智能体平台':'企业治理','未分类','待业务负责人分类'],source:(o.authority_source?o.authority_source+' · ':'')+'config/objects-registry.yaml '+o.source_ref,items};
   });
-  return {sourceVersion:createHash('sha256').update(sources.join('\n')+enterpriseHash()).digest('hex'),objects:enterpriseDefinitions(objects)};
+  return {sourceVersion:ontologySourceHash(loaded),objects:applyDefinitionSupplements(enterpriseDefinitions(objects),JSON.parse(sources[4]))};
+}
+
+/** Versioned definition data enriches the catalog; it never mutates tenant publications or instances. */
+export function applyDefinitionSupplements(definitions:OntologyDefinition[],raw:unknown):OntologyDefinition[]{
+  const schema=z.object({version:z.literal(1),source:z.string().min(1),objects:z.array(z.object({code:definitionSchema.shape.code,items:z.object(Object.fromEntries(ontologyDimensions.map(d=>[d,z.array(itemSchema).max(300).optional()]))).strict()}).strict()).max(1000)}).strict();
+  const parsed=schema.safeParse(raw);
+  if(!parsed.success)throw new Error('invalid_ontology_definition_supplements');
+  const known=new Set(definitions.map(d=>d.code)),patches=new Map<string,typeof parsed.data.objects[number]>();
+  for(const patch of parsed.data.objects){
+    if(!known.has(patch.code)||patches.has(patch.code))throw new Error('unknown_or_duplicate_supplement_object');
+    for(const dimension of ontologyDimensions){const entries=patch.items[dimension];if(entries&&new Set(entries.map(item=>item.code)).size!==entries.length)throw new Error('duplicate_supplement_item');}
+    patches.set(patch.code,patch);
+  }
+  const merged=definitions.map(definition=>{
+    const patch=patches.get(definition.code);if(!patch)return definition;
+    const result=structuredClone(definition);
+    for(const dimension of ontologyDimensions){
+      const entries=patch.items[dimension] as OntologyItem[]|undefined;
+      if(entries)result.items[dimension]=[...new Map([...result.items[dimension],...entries].map(item=>[item.code,item])).values()];
+    }
+    return result;
+  });
+  for(const definition of merged)if(patches.has(definition.code)){
+    validateDefinition(definition,known,definitions);
+    for(const relation of definition.items.relations)if(relation.inverse){
+      const inverse=merged.find(d=>d.code===relation.target)?.items.relations.find(item=>item.code===relation.inverse);
+      const cardinalities={'1:1':'1:1','1:N':'N:1','N:1':'1:N','N:N':'N:N'};
+      if(!inverse||inverse.target!==definition.code||inverse.inverse!==relation.code||inverse.cardinality!==cardinalities[relation.cardinality as keyof typeof cardinalities])throw new Error('invalid_supplement_relation_inverse');
+    }
+  }
+  return merged;
 }
 
 export function validateDefinition(raw:unknown, knownCodes:Set<string>, baseline:OntologyDefinition[]):OntologyDefinition {

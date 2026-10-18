@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import type { OntologyDefinition, OntologyTaxonomy } from '../../../shared/ontology.js';
+import {ontologySourceHash} from './sources.js';
 const file=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../../config/ontology-enterprise-catalog.json');
 export function enterpriseSource(){return JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,'')) as {
  dataset:string;source:string;sourceSha256:string;families:{code:string;name:string;scope:string;detailStatus:string}[];
@@ -12,7 +13,7 @@ export function enterpriseSource(){return JSON.parse(fs.readFileSync(file,'utf8'
  definitionOverrides?:Record<string,{name:string;description:string;taxonomy:[string,string,string]}>;
  legacyTaxonomy:Record<string,[string,string,string]>;missing:{family:string;detail:string}[];
 };}
-export const enterpriseHash=()=>createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+export const enterpriseHash=ontologySourceHash;
 export function enterpriseDefinitions(existing:OntologyDefinition[]):OntologyDefinition[]{
  const source=enterpriseSource();const families=new Map(source.families.map(f=>[f.code,f.name]));
  const result=existing.map(d=>({...d,taxonomy:source.legacyTaxonomy[d.code]||d.taxonomy}));
