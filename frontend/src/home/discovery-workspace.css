@@ -77,15 +77,12 @@
 .discovery-brief-form .ai-discovery-chips {
   gap: var(--ds-chip-gap);
 }
-/* 选项从左侧依次排布、间距紧凑；行尾由该行最后一个芯片吸收到右缘
-   （落单芯片即整行填满）。水平内边距 16px→8px；文字左对齐避免按钮默认居中。 */
+/* 选项从左侧依次排布、间距紧凑；芯片按内容宽度排列，不吸收行尾空白。
+   水平内边距 16px→8px；文字左对齐避免按钮默认居中。 */
 .discovery-brief-form .ai-discovery-card .discovery-chip {
   flex: 0 1 auto;
   justify-content: flex-start;
   padding-inline: var(--space-2);
-}
-.discovery-brief-form .ai-discovery-card .discovery-chip:last-child {
-  flex-grow: 1;
 }
 .discovery-brief-form .ai-discovery-card .discovery-chip {  height: var(--ds-chip-h);  min-height: var(--ds-chip-h);  /* 水平内边距见上方 8px 档；命中区由全局 :after 扩展补足 44px。 */  border-color: transparent;  border-radius: var(--radius-control);  background: transparent;  color: var(--text-muted);
   font-weight: 400;
@@ -168,9 +165,24 @@
   background: var(--canvas);
   box-shadow: var(--shadow-quiet);
 }
-/* 关键词标签容器：一层描边、随内容增高、无内部滚动条；标签在前、「＋」在末尾；   清空按钮钉在右上角，不参与换行。 */.discovery-brief-form .ai-discovery-text-control.is-keyword-control {  display: flex;  flex-wrap: wrap;  align-items: center;  gap: var(--ds-chip-gap);  min-height: var(--ds-control-h);  padding: 0 calc(var(--space-1) + var(--space-5)) 0 var(--space-2);  border: 1px solid var(--ds-border);  border-radius: var(--radius-control);  background: var(--ds-surface);}
-.discovery-brief-form .ai-discovery-text-control.is-keyword-control:hover {  border-color: var(--ds-selected-border);}
-.discovery-brief-form .ai-discovery-text-control.is-keyword-control:focus-within {  border-color: var(--ds-selected-border);  box-shadow: 0 0 0 3px var(--ds-selected-bg);}
+/* 关键词标签行：芯片紧贴内容，不再用满宽带边框卡片；
+   「＋」在末尾，清空按钮钉在行尾，不参与换行。 */
+.discovery-brief-form .ai-discovery-text-control.is-keyword-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-chip-gap);
+  min-height: 0;
+  padding: 0 calc(var(--space-1) + var(--space-5)) 0 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.discovery-brief-form .ai-discovery-text-control.is-keyword-control:hover,
+.discovery-brief-form .ai-discovery-text-control.is-keyword-control:focus-within {
+  border-color: transparent;
+  box-shadow: none;
+}
 .discovery-brief-form .ai-discovery-text-control.is-keyword-control .ai-discovery-input:focus-visible {  outline: none;  box-shadow: none;}
 .discovery-brief-form .discovery-keyword-chip {  display: inline-flex;  align-items: center;  gap: var(--space-1);  max-width: 100%;  height: var(--ds-token-h);  padding: 0 var(--space-1) 0 var(--space-2);  border: 1px solid var(--ds-selected-border);  border-radius: var(--radius-control);  background: var(--ds-selected-bg);  color: var(--text);  font-size: var(--ds-font-helper);  line-height: var(--ds-line-helper);  overflow-wrap: anywhere;}
 /* 关键词标签从左侧依次排布；增补走「＋」弹窗，不再占一行大输入框。 */
@@ -184,7 +196,7 @@
 /* 候选列表在「＋」弹窗内滚动，不撑高芯片容器。 */.discovery-brief-form .discovery-keyword-options {  display: flex;  flex-direction: column;  gap: var(--space-1);  max-height: 32vh;  overflow-y: auto;  margin: 0;  padding: 0;  list-style: none;}
 .discovery-brief-form .discovery-keyword-option {  padding: var(--space-1) var(--space-2);  border-radius: var(--radius-control);  color: var(--text);  cursor: pointer;  font-size: var(--ds-font-sm);  line-height: var(--ds-line-sm);  overflow-wrap: anywhere;}
 .discovery-brief-form .discovery-keyword-option:hover,.discovery-brief-form .discovery-keyword-option.is-active {  background: var(--ds-selected-bg);  color: var(--text);}
-.discovery-brief-form .discovery-keyword-clear {  position: absolute;  top: var(--space-1);  right: var(--space-1);  display: inline-flex;  align-items: center;  justify-content: center;  width: var(--control-h-sm);  height: var(--control-h-sm);  padding: 0;  border: 0;  border-radius: var(--radius-control);  background: transparent;  color: var(--text-muted);  cursor: pointer;  font: inherit;  font-size: var(--ds-font-sm);  line-height: 1;}
+.discovery-brief-form .discovery-keyword-clear {  position: absolute;  top: 0;  right: 0;  display: inline-flex;  align-items: center;  justify-content: center;  width: var(--control-h-sm);  height: var(--control-h-sm);  padding: 0;  border: 0;  border-radius: var(--radius-control);  background: transparent;  color: var(--text-muted);  cursor: pointer;  font: inherit;  font-size: var(--ds-font-sm);  line-height: 1;}
 .discovery-brief-form .discovery-keyword-clear:hover {  background: var(--surface-hover);  color: var(--text);}
 .discovery-brief-form .discovery-keyword-clear:focus-visible {  outline: 2px solid var(--focus-ring);  outline-offset: 1px;}
 .discovery-brief-form .ai-discovery-card .ai-discovery-input.is-number {

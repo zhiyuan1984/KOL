@@ -182,6 +182,12 @@ test("pool and followed rows stay compact at the narrow result rail", async ({ p
     && discoveryLabel.y >= discoveryChip.y - 1
     && discoveryLabel.y + discoveryLabel.height <= discoveryChip.y + discoveryChip.height + 1
     && discoveryChip.x >= discoveryLabel.x + discoveryLabel.width).toBeTruthy();
+
+  // 关键词不再是满宽带边框卡片；平台行最后一个 chip 也不再吸满行尾。
+  await expect(discoveryCard.locator("[data-discovery-keywords-control]")).toHaveCSS("border-top-width", "0px");
+  const lastPlatformChipWidth = await discoveryCard.locator('[data-skill-param="platforms"] [data-discovery-chip]').last()
+    .evaluate((node) => node.getBoundingClientRect().width);
+  expect.soft(lastPlatformChipWidth).toBeLessThan(200);
 });
 
 test("pool claim error stays readable in a full-width row", async ({ page }) => {
