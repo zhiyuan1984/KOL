@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "kind": "navigation-contract",
+  "status": "complete",
+  "owner": "ui-ux/frontend/test-manager",
+  "requirement_refs": [
+    "CONST-04",
+    "CONST-05",
+    "CONST-08",
+    "CONST-10",
+    "TECH-FE-02",
+    "TECH-FE-03",
+    "TECH-TEST-01",
+    "TECH-TEST-02"
+  ],
+  "subject": {
+    "task_id": "ontology-compact-20261018",
+    "source_base": "77a6623499a70ab42b2b57a9e1ef814e93eb4ab5"
+  },
+  "decisions": {
+    "routes": [
+      "/ontology",
+      "/admin/ontology",
+      "/admin/ontology/governance unchanged"
+    ],
+    "query": [
+      "company",
+      "object",
+      "dimension",
+      "family",
+      "domain",
+      "topic",
+      "q",
+      "global",
+      "page",
+      "size"
+    ],
+    "behavior": "Filter/search/page changes update URL atomically. Direct object links infer page. Search across classes reveals canonical path on selection. Refresh and browser back preserve context.",
+    "permission": "Current account projection plus server catalog management flag; backend remains authority.",
+    "scope": "All visible current-company definitions; no inferred department/owner permission."
+  },
+  "verification": {
+    "evidence": [
+      "page-results.json",
+      "build-results.json",
+      "browser-review.json",
+      "source-compare.json"
+    ]
+  },
+  "task_id": "ontology-compact-20261018",
+  "summary": "本体管理中右栏紧凑工作台：navigation-contract",
+  "status_claims": []
+}

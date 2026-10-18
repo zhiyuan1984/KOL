@@ -1,0 +1,14 @@
+{
+  "base": "77a6623499a70ab42b2b57a9e1ef814e93eb4ab5",
+  "leftNavigationCssUnchanged": true,
+  "globalNavigationFilesChanged": false,
+  "backendChanged": false,
+  "changes": [
+    "OntologyWorkspace.tsx",
+    "ontology.css",
+    "ontology.spec.ts",
+    "DESIGN.md"
+  ],
+  "editorFields": "Existing editor field definitions retained; detail expansion shows full values.",
+  "selectionFix": "Clearing filters and changing pages selects a row on that page; direct object links infer its page."
+}

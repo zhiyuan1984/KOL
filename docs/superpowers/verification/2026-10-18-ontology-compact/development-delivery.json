@@ -1,0 +1,167 @@
+{
+  "schema_version": "1.0.0",
+  "kind": "development-delivery-record",
+  "task_contract": {
+    "file": "task-contract.json",
+    "sha256": "fe65477dcdc3045d468039eb643ddfd7d0febd3e02066761eaec05b672e97cfd"
+  },
+  "artifacts": [
+    {
+      "id": "state-and-action-map",
+      "status": "complete",
+      "file": "state-and-action-map.json",
+      "sha256": "e27506ace67c4e263650623e1d9633b9494733d3b4946479851f592f1264bbf4"
+    },
+    {
+      "id": "layout-contract",
+      "status": "complete",
+      "file": "layout-contract.json",
+      "sha256": "a12c1c1f28e6395a70f61cd56339925aa068753b333076cfbb45786e8230d841"
+    },
+    {
+      "id": "component-selection",
+      "status": "complete",
+      "file": "component-selection.json",
+      "sha256": "ce49d4a0f73f7435244544395e5e74257d080b160860021155a3f671d97dd63a"
+    },
+    {
+      "id": "browser-and-source-evidence",
+      "status": "complete",
+      "file": "browser-and-source-evidence.json",
+      "sha256": "1df6a8e9f6ad4d2574eab44206e4f5ca5be224aaec67f0a8d14d3792d40892cc"
+    },
+    {
+      "id": "navigation-contract",
+      "status": "complete",
+      "file": "navigation-contract.json",
+      "sha256": "87e656b866daed35173e3dcdbf6f8d9ee6a27bc504f6ea21ceac36c7df65e59b"
+    }
+  ],
+  "checks": [
+    {
+      "id": "route-contract-schema",
+      "type": "machine",
+      "status": "passed",
+      "command": "node scripts/development-verify.mjs",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "page-results.json",
+          "sha256": "616d0f217c0598626800ace2761f3b2585f4484691b31dc9d6d00503a116e939",
+          "kind": "test-report"
+        },
+        {
+          "file": "build-results.json",
+          "sha256": "4f6b01dc451e9fa61abee49a5a50363286021f4338527fa7d7d75828a2a902fb",
+          "kind": "test-report"
+        }
+      ]
+    },
+    {
+      "id": "frontend-experience-test",
+      "type": "machine",
+      "status": "passed",
+      "command": "npx playwright test --config playwright.ontology.config.ts --reporter=list,json",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "page-results.json",
+          "sha256": "616d0f217c0598626800ace2761f3b2585f4484691b31dc9d6d00503a116e939",
+          "kind": "test-report"
+        },
+        {
+          "file": "build-results.json",
+          "sha256": "4f6b01dc451e9fa61abee49a5a50363286021f4338527fa7d7d75828a2a902fb",
+          "kind": "test-report"
+        }
+      ]
+    },
+    {
+      "id": "frontend-browser-review",
+      "type": "human-browser",
+      "status": "passed",
+      "reviewer": "Codex acting as UI/UX expert agent (not human research)",
+      "reviewed_at": "2026-10-18T05:06:59.081542+00:00",
+      "evidence": [
+        {
+          "file": "browser-review.json",
+          "sha256": "b70326b78fcd9f2ec2210728ee410973c35b584fa8dd76119039085f18f2a6a5",
+          "kind": "browser-record"
+        },
+        {
+          "file": "admin.png",
+          "sha256": "f9bb5a5054cca29f2dfe2130db9a58584b8f72a3cb6c20da8e9d3f58cfec92a6",
+          "kind": "screenshot"
+        },
+        {
+          "file": "compact.png",
+          "sha256": "161583aa120047cb92462fce6c23b67d8262ba79be76c9b070cc7d76d296303b",
+          "kind": "screenshot"
+        },
+        {
+          "file": "enterprise.png",
+          "sha256": "c571c97c47c8e633e3ffea8eeaacfb272e665d2ca477673455272e16f8238f6e",
+          "kind": "screenshot"
+        },
+        {
+          "file": "source-compare.json",
+          "sha256": "dc125eab0f15217aba54e2917a639629cc50434d97cf0d134de6f2d215b4e876",
+          "kind": "source-compare"
+        }
+      ]
+    },
+    {
+      "id": "navigation-route-test",
+      "type": "machine",
+      "status": "passed",
+      "command": "npx playwright test --config playwright.ontology.config.ts --reporter=list,json",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "page-results.json",
+          "sha256": "616d0f217c0598626800ace2761f3b2585f4484691b31dc9d6d00503a116e939",
+          "kind": "test-report"
+        },
+        {
+          "file": "build-results.json",
+          "sha256": "4f6b01dc451e9fa61abee49a5a50363286021f4338527fa7d7d75828a2a902fb",
+          "kind": "test-report"
+        }
+      ]
+    },
+    {
+      "id": "navigation-browser-review",
+      "type": "human-browser",
+      "status": "passed",
+      "reviewer": "Codex acting as UI/UX expert agent (not human research)",
+      "reviewed_at": "2026-10-18T05:06:59.081542+00:00",
+      "evidence": [
+        {
+          "file": "browser-review.json",
+          "sha256": "b70326b78fcd9f2ec2210728ee410973c35b584fa8dd76119039085f18f2a6a5",
+          "kind": "browser-record"
+        },
+        {
+          "file": "admin.png",
+          "sha256": "f9bb5a5054cca29f2dfe2130db9a58584b8f72a3cb6c20da8e9d3f58cfec92a6",
+          "kind": "screenshot"
+        },
+        {
+          "file": "compact.png",
+          "sha256": "161583aa120047cb92462fce6c23b67d8262ba79be76c9b070cc7d76d296303b",
+          "kind": "screenshot"
+        },
+        {
+          "file": "enterprise.png",
+          "sha256": "c571c97c47c8e633e3ffea8eeaacfb272e665d2ca477673455272e16f8238f6e",
+          "kind": "screenshot"
+        },
+        {
+          "file": "source-compare.json",
+          "sha256": "dc125eab0f15217aba54e2917a639629cc50434d97cf0d134de6f2d215b4e876",
+          "kind": "source-compare"
+        }
+      ]
+    }
+  ]
+}

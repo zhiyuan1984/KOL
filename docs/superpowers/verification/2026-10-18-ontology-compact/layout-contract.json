@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "kind": "layout-contract",
+  "status": "complete",
+  "owner": "ui-ux/frontend/test-manager",
+  "requirement_refs": [
+    "CONST-04",
+    "CONST-05",
+    "CONST-08",
+    "CONST-10",
+    "TECH-FE-02",
+    "TECH-FE-03",
+    "TECH-TEST-01",
+    "TECH-TEST-02"
+  ],
+  "subject": {
+    "task_id": "ontology-compact-20261018",
+    "source_base": "77a6623499a70ab42b2b57a9e1ef814e93eb4ab5"
+  },
+  "decisions": {
+    "scope": "Center and right columns; original left navigation CSS unchanged.",
+    "tokens": "docs/DESIGN.md compact ontology contract; existing palette in styles.css",
+    "catalog": "360px default, 320–520 draggable/keyboard; one list scroll and stable toolbar/footer",
+    "density": "28–32px controls;38px ordinary rows;13px body;18px titles",
+    "responsive": "Below1000 stacked; content horizontal overflow only; coarse input enlarged; no UA sniff."
+  },
+  "verification": {
+    "evidence": [
+      "page-results.json",
+      "build-results.json",
+      "browser-review.json",
+      "source-compare.json"
+    ]
+  },
+  "task_id": "ontology-compact-20261018",
+  "summary": "本体管理中右栏紧凑工作台：layout-contract",
+  "status_claims": []
+}

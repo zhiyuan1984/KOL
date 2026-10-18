@@ -1,0 +1,14 @@
+{
+  "command": "npm run build",
+  "cwd": "frontend",
+  "status": "passed",
+  "exit_code": 0,
+  "checks": [
+    "tsc --noEmit",
+    "vite build --configLoader runner"
+  ],
+  "warnings": [
+    "Existing build chunk size advisory; no build failure."
+  ],
+  "checkedAt": "2026-10-18T05:06:59.081542+00:00"
+}

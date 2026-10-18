@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "kind": "state-and-action-map",
+  "status": "complete",
+  "owner": "ui-ux/frontend/test-manager",
+  "requirement_refs": [
+    "CONST-04",
+    "CONST-05",
+    "CONST-08",
+    "CONST-10",
+    "TECH-FE-02",
+    "TECH-FE-03",
+    "TECH-TEST-01",
+    "TECH-TEST-02"
+  ],
+  "subject": {
+    "task_id": "ontology-compact-20261018",
+    "source_base": "77a6623499a70ab42b2b57a9e1ef814e93eb4ab5"
+  },
+  "decisions": {
+    "states": [
+      "loading with dashes",
+      "read error and retry",
+      "empty scope",
+      "registered source definition",
+      "draft not effective",
+      "published view read-only",
+      "disabled",
+      "pending real request",
+      "saved receipt"
+    ],
+    "actions": {
+      "edit": "Basic object metadata only",
+      "fiveDimensions": "Existing fields retained in each editor; full values in detail",
+      "save": "Draft plus reason and receipt",
+      "publishDisableRestore": "Existing server preview, full diff, reason, confirmation, token and receipt"
+    },
+    "unsaved": "Native modal prevents background switching; dirty cancel/Escape requires discard; beforeunload guard."
+  },
+  "verification": {
+    "evidence": [
+      "page-results.json",
+      "build-results.json",
+      "browser-review.json",
+      "source-compare.json"
+    ]
+  },
+  "task_id": "ontology-compact-20261018",
+  "summary": "本体管理中右栏紧凑工作台：state-and-action-map",
+  "status_claims": []
+}
