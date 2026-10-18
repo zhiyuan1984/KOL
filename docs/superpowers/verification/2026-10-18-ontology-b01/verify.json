@@ -1,0 +1,20 @@
+{
+  "status": "passed",
+  "task_id": "ontology-b01-20261018",
+  "errors": [],
+  "warnings": [],
+  "machine_verification": {
+    "status": "passed",
+    "checks": [
+      {
+        "id": "route-contract-schema",
+        "status": "passed"
+      }
+    ]
+  },
+  "human_browser_review": {
+    "status": "records-present-not-automatically-judged",
+    "checks": [],
+    "note": "This CLI validates supplied names, hashes, and evidence categories only. It does not claim that an expert reviewed UX or that browser/source fidelity is acceptable."
+  }
+}

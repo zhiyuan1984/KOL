@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0.0",
+  "kind": "development-delivery-record",
+  "task_contract": {
+    "file": "task-contract.json",
+    "sha256": "73cf4d9963c3e38f7582ad6d091a6dceb30ec84ccecd3e867c23b5db3493bece"
+  },
+  "artifacts": [],
+  "checks": [
+    {
+      "id": "route-contract-schema",
+      "type": "machine",
+      "status": "passed",
+      "command": "node scripts/development-verify.mjs",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "unit-results.json",
+          "sha256": "88223b2fc3394804ca05f9ab894ccbb1bdca6c29ebfb98d90f5c5f71ba0c7790",
+          "kind": "test-report"
+        },
+        {
+          "file": "pg-results.json",
+          "sha256": "f31d87dfb72294a62b204357e74f1d0ebe644a3204dfc7db86ec0174ad8e4de1",
+          "kind": "test-report"
+        },
+        {
+          "file": "page-results.json",
+          "sha256": "9811363b91598ee957a5e94200b8007dbc444d9d3e717a7644e9384592bc593f",
+          "kind": "test-report"
+        }
+      ]
+    }
+  ]
+}

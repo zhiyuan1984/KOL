@@ -60,8 +60,8 @@ suite('ontology native PostgreSQL integration (isolated disposable database)',()
     const types=await postgresPool().query("SELECT column_name,data_type FROM information_schema.columns WHERE table_schema='public' AND table_name='ontology_documents'");
     expect(types.rows.find(r=>r.column_name==='draft')?.data_type).toBe('jsonb');
     expect((await postgresPool().query('SELECT current_database() AS name')).rows[0].name).toMatch(/^ontology_it_/);
-    expect((await service().catalog(true)).objects).toHaveLength(896);
-    expect((await service('employee_a').catalog()).objects).toHaveLength(860);
+    expect((await service().catalog(true)).objects).toHaveLength(930);
+    expect((await service('employee_a').catalog()).objects).toHaveLength(894);
   });
   it('persists drafts across pool reconnects without exposing them to employees',async()=>{
     const receipt=await save(definition());expect(receipt.revision).toBe(1);
@@ -210,11 +210,33 @@ describe('enterprise catalog native import',()=>{
   await db.query('DROP TRIGGER reject_catalog_test ON ontology_catalog_objects; DROP FUNCTION reject_catalog_test()');
   const before=(await db.query('SELECT * FROM ontology_documents ORDER BY company_id,code')).rows;
   const beforeAdmin=await service().catalog(true);const beforeEmployee=await service('employee_a').catalog();
-  const report=await postgresTransaction(c=>importEnterpriseCatalog(c,defs,'isolated-test'));expect(report).toMatchObject({families:18,domains:148,themes:343,objects:896,sourceObjects:844,replayed:false});
+  const report=await postgresTransaction(c=>importEnterpriseCatalog(c,defs,'isolated-test'));expect(report).toMatchObject({families:18,domains:153,themes:354,objects:930,sourceObjects:878,replayed:false});
   expect(await postgresTransaction(c=>importEnterpriseCatalog(c,defs,'isolated-test'))).toMatchObject({replayed:true});
   expect((await db.query('SELECT * FROM ontology_documents ORDER BY company_id,code')).rows).toEqual(before);
   const catalog=await service().catalog(true);expect(catalog.objects.map(o=>o.code).sort()).toEqual(beforeAdmin.objects.map(o=>o.code).sort());expect(catalog.taxonomy?.nodes.filter(n=>n.level===1)).toHaveLength(18);
   const employee=await service('employee_a').catalog();expect(employee.objects.map(o=>o.code).sort()).toEqual(beforeEmployee.objects.map(o=>o.code).sort());expect(employee.objects.every(o=>!o.draft)).toBe(true);
   expect((await db.query('SELECT object_code FROM ontology_catalog_placements GROUP BY object_code HAVING count(*) FILTER(WHERE is_primary)<>1')).rows).toHaveLength(0);
  });
+ it('refreshes the prior imported catalog with B01 while retaining every previous identity and tenant document',async()=>{
+  const db=postgresPool();const definitions=loadOntologyCatalog().objects;
+  await postgresTransaction(async c=>{
+   await c.query("DELETE FROM ontology_catalog_placements WHERE object_code LIKE 'ent_b01_%'");
+   await c.query("DELETE FROM ontology_catalog_objects WHERE code LIKE 'ent_b01_%'");
+   await c.query("DELETE FROM ontology_catalog_nodes WHERE parent_id IN (SELECT id FROM ontology_catalog_nodes WHERE parent_id='B01')");
+   await c.query("DELETE FROM ontology_catalog_nodes WHERE parent_id='B01'");
+   await c.query(`UPDATE ontology_catalog_nodes SET metadata=jsonb_set(metadata,'{detailStatus}','"not-provided"') WHERE id='B01'`);
+   for(const table of ['ontology_catalog_nodes','ontology_catalog_objects','ontology_catalog_placements','ontology_catalog_imports'])await c.query('UPDATE '+table+" SET source_version='prior-test-snapshot'");
+  });
+  const before=(await db.query('SELECT code FROM ontology_catalog_objects ORDER BY code')).rows;
+  expect(before).toHaveLength(896);
+  const tenants=(await db.query('SELECT * FROM ontology_documents ORDER BY company_id,code')).rows;
+  const report=await postgresTransaction(c=>importEnterpriseCatalog(c,definitions,'isolated-b01-test'));
+  expect(report).toMatchObject({families:18,domains:153,themes:354,sourceObjects:878,objects:930,placements:934,missing:[],replayed:false});
+  expect((await db.query("SELECT code FROM ontology_catalog_objects WHERE code NOT LIKE 'ent_b01_%' ORDER BY code")).rows).toEqual(before);
+  expect((await db.query('SELECT * FROM ontology_documents ORDER BY company_id,code')).rows).toEqual(tenants);
+  expect((await db.query("SELECT metadata FROM ontology_catalog_nodes WHERE id='B01'")).rows[0].metadata.detailStatus).toBe('provided');
+  expect(await postgresTransaction(c=>importEnterpriseCatalog(c,definitions,'isolated-b01-test'))).toMatchObject({replayed:true});
+  expect((await db.query('SELECT source_version FROM ontology_catalog_imports')).rows).toHaveLength(2);
+ });
+
 });

@@ -1,0 +1,303 @@
+{
+  "schema_version": 1,
+  "kind": "task-contract",
+  "status": "complete",
+  "owner": "project-manager",
+  "requirement_refs": [
+    "CONST-08",
+    "CONST-10",
+    "TECH-ARCH-04",
+    "TECH-TEST-01"
+  ],
+  "subject": {
+    "task_id": "ontology-b01-20261018",
+    "intents": [
+      "将用户补充的b01战略与经营四级明细并入已授权企业目录并刷新远程postgresql"
+    ],
+    "paths": [
+      "config/ontology-enterprise-catalog.json",
+      "backend/tests/ontology.test.ts",
+      "backend/tests/ontology.postgres.test.ts"
+    ]
+  },
+  "decisions": {
+    "route_selection": [
+      {
+        "id": "governed-task-contract",
+        "match_reasons": [
+          "base:governed-task-contract"
+        ]
+      }
+    ],
+    "responsibility_roles": [
+      "project-manager"
+    ],
+    "mandatory_reading": [
+      "AGENTS.md",
+      "docs/AGENTS.md",
+      "docs/CONSTITUTION.md",
+      "docs/TECHNOLOGY.md"
+    ],
+    "required_skill_ids": [
+      "governed-task-routing"
+    ],
+    "B01": {
+      "requirement": "User supplied B01 details after authorizing full enterprise directory refresh",
+      "roles": [
+        "business semantics",
+        "backend/data",
+        "test manager"
+      ],
+      "review": "符合；CONST-04/05/06/08/10；BIZ-01/02；TECH-BE-03、TECH-TEST-01/03。只补用户明示目录，不创造实例、动作或权限。",
+      "base": "ce2d0c588b4ba31783cc2176244dfdfb9c914d90",
+      "counts": {
+        "newDomains": 5,
+        "newThemes": 11,
+        "newObjects": 34,
+        "families": 18,
+        "domains": 153,
+        "themes": 354,
+        "sourceObjects": 878,
+        "combinedObjects": 930,
+        "placements": 934
+      },
+      "invariants": [
+        "Stable identities of previous 896 definitions retained",
+        "No tenant documents modified",
+        "B01 detailStatus provided; missing empty",
+        "Data-only update; runtime code and built assets unchanged"
+      ]
+    }
+  },
+  "verification": {
+    "preflight": {
+      "status": "passed",
+      "method": "actual-file-load-and-hash",
+      "loaded_file_count": 11
+    }
+  },
+  "task": {
+    "id": "ontology-b01-20261018",
+    "intents": [
+      "将用户补充的b01战略与经营四级明细并入已授权企业目录并刷新远程postgresql"
+    ],
+    "paths": [
+      "config/ontology-enterprise-catalog.json",
+      "backend/tests/ontology.test.ts",
+      "backend/tests/ontology.postgres.test.ts"
+    ]
+  },
+  "matched_routes": [
+    {
+      "id": "governed-task-contract",
+      "match_reasons": [
+        "base:governed-task-contract"
+      ]
+    }
+  ],
+  "governance": {
+    "roles": [
+      "project-manager"
+    ],
+    "clauses": [
+      "CONST-08",
+      "CONST-10",
+      "TECH-ARCH-04",
+      "TECH-TEST-01"
+    ],
+    "must_read": [
+      "AGENTS.md",
+      "docs/AGENTS.md",
+      "docs/CONSTITUTION.md",
+      "docs/TECHNOLOGY.md"
+    ],
+    "skills": [
+      {
+        "id": "governed-task-routing",
+        "version": "1.0.0",
+        "skill_file": ".agents/skills/governed-task-routing/SKILL.md",
+        "source_hash": "bffbebadd6f610a1278b1b7eed0cd8babdebb383c7c093cfb3ed566a3da26f5e",
+        "template_hashes": [
+          {
+            "path": ".agents/skills/governed-task-routing/templates/task-contract.json",
+            "sha256": "61d89f431e6665ddd9a1dba31164d9336d2f256100213e8df0b738988a69e8e1",
+            "bytes": 934,
+            "purposes": [
+              "skill template governed-task-routing"
+            ]
+          }
+        ],
+        "dependency_hashes": [
+          {
+            "path": "AGENTS.md",
+            "sha256": "55996b201b12729a41ec8b8a80608e1d5b8c5b269bfdd5230a8a0b87cb19c20f",
+            "bytes": 8413,
+            "purposes": [
+              "mandatory reading",
+              "skill dependency governed-task-routing"
+            ]
+          },
+          {
+            "path": "docs/CONSTITUTION.md",
+            "sha256": "befac95b53abec1ba20a104433c6fb7cee2c02a8c7ba8fc4e42ec1f84c16086c",
+            "bytes": 11750,
+            "purposes": [
+              "mandatory reading",
+              "skill dependency governed-task-routing"
+            ]
+          },
+          {
+            "path": "config/development-task-routes.yaml",
+            "sha256": "ae8a02871a0055138bd18151cf0ad6f10b3f3087cbc1d555c234c64df36b7080",
+            "bytes": 8887,
+            "purposes": [
+              "skill dependency governed-task-routing",
+              "task routing configuration"
+            ]
+          },
+          {
+            "path": "schemas/development-task.schema.json",
+            "sha256": "96f068c7a585e873fc1be220bae4b36f3421a3e92bd71f56cfd952d299baa8d9",
+            "bytes": 8308,
+            "purposes": [
+              "development task schema",
+              "skill dependency governed-task-routing"
+            ]
+          },
+          {
+            "path": "docs/governance/development-component-catalog.md",
+            "sha256": "686f9e5ac22811e6cd1b4bcf1a8e4d8c8497cd4ee37c3aeae3ab03dbf6bbd6d4",
+            "bytes": 8222,
+            "purposes": [
+              "skill dependency governed-task-routing"
+            ]
+          },
+          {
+            "path": ".agents/skills/governed-task-routing/references/provenance.md",
+            "sha256": "37a566ad50e225ed5126ff0db0547cd277a9b0e4964adad2a4e4f48cb6a553f1",
+            "bytes": 542,
+            "purposes": [
+              "skill dependency governed-task-routing"
+            ]
+          }
+        ]
+      }
+    ],
+    "loaded_files": [
+      {
+        "path": ".agents/skills/governed-task-routing/references/provenance.md",
+        "sha256": "37a566ad50e225ed5126ff0db0547cd277a9b0e4964adad2a4e4f48cb6a553f1",
+        "bytes": 542,
+        "purposes": [
+          "skill dependency governed-task-routing"
+        ]
+      },
+      {
+        "path": ".agents/skills/governed-task-routing/SKILL.md",
+        "sha256": "bffbebadd6f610a1278b1b7eed0cd8babdebb383c7c093cfb3ed566a3da26f5e",
+        "bytes": 2542,
+        "purposes": [
+          "skill source governed-task-routing"
+        ]
+      },
+      {
+        "path": ".agents/skills/governed-task-routing/templates/task-contract.json",
+        "sha256": "61d89f431e6665ddd9a1dba31164d9336d2f256100213e8df0b738988a69e8e1",
+        "bytes": 934,
+        "purposes": [
+          "skill template governed-task-routing"
+        ]
+      },
+      {
+        "path": "AGENTS.md",
+        "sha256": "55996b201b12729a41ec8b8a80608e1d5b8c5b269bfdd5230a8a0b87cb19c20f",
+        "bytes": 8413,
+        "purposes": [
+          "mandatory reading",
+          "skill dependency governed-task-routing"
+        ]
+      },
+      {
+        "path": "config/development-skill-registry.yaml",
+        "sha256": "012bba8155b0e7815c3bf0f3ca913fc3b458c96ca019299f659c930c04975878",
+        "bytes": 4533,
+        "purposes": [
+          "skill registry"
+        ]
+      },
+      {
+        "path": "config/development-task-routes.yaml",
+        "sha256": "ae8a02871a0055138bd18151cf0ad6f10b3f3087cbc1d555c234c64df36b7080",
+        "bytes": 8887,
+        "purposes": [
+          "skill dependency governed-task-routing",
+          "task routing configuration"
+        ]
+      },
+      {
+        "path": "docs/AGENTS.md",
+        "sha256": "a88cf4e2aab11b691083f7ec5706e1b36f50add6347f131e69d07a29e19ac07c",
+        "bytes": 5964,
+        "purposes": [
+          "mandatory reading"
+        ]
+      },
+      {
+        "path": "docs/CONSTITUTION.md",
+        "sha256": "befac95b53abec1ba20a104433c6fb7cee2c02a8c7ba8fc4e42ec1f84c16086c",
+        "bytes": 11750,
+        "purposes": [
+          "mandatory reading",
+          "skill dependency governed-task-routing"
+        ]
+      },
+      {
+        "path": "docs/governance/development-component-catalog.md",
+        "sha256": "686f9e5ac22811e6cd1b4bcf1a8e4d8c8497cd4ee37c3aeae3ab03dbf6bbd6d4",
+        "bytes": 8222,
+        "purposes": [
+          "skill dependency governed-task-routing"
+        ]
+      },
+      {
+        "path": "docs/TECHNOLOGY.md",
+        "sha256": "2e54ef62a54d87715053a88a88130d8350590fecbbde2517003a8b41a380305f",
+        "bytes": 16962,
+        "purposes": [
+          "mandatory reading"
+        ]
+      },
+      {
+        "path": "schemas/development-task.schema.json",
+        "sha256": "96f068c7a585e873fc1be220bae4b36f3421a3e92bd71f56cfd952d299baa8d9",
+        "bytes": 8308,
+        "purposes": [
+          "development task schema",
+          "skill dependency governed-task-routing"
+        ]
+      }
+    ]
+  },
+  "required_outputs": [
+    {
+      "id": "task-contract",
+      "fulfillment": "preflight",
+      "owner_roles": [
+        "project-manager"
+      ],
+      "route_ids": [
+        "governed-task-contract"
+      ]
+    }
+  ],
+  "required_checks": [
+    {
+      "id": "route-contract-schema",
+      "type": "machine",
+      "description": "Validate the selected task contract, actual loaded files, and delivery record schema.",
+      "route_ids": [
+        "governed-task-contract"
+      ]
+    }
+  ]
+}

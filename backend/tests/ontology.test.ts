@@ -19,7 +19,7 @@ const validate=(value:unknown)=>validateDefinition(value,codes,baseline.objects)
 
 describe('ontology definition semantics',()=>{
   it('loads real registered definitions and validates all cross-object references',()=>{
-    expect(baseline.objects).toHaveLength(896);
+    expect(baseline.objects).toHaveLength(930);
     expect(baseline.objects.reduce((n,o)=>n+o.items.properties.length,0)).toBe(214);
     expect(baseline.objects.reduce((n,o)=>n+o.items.events.length,0)).toBe(140);
     for(const definition of baseline.objects)expect(validate(definition).code).toBe(definition.code);
@@ -132,11 +132,11 @@ describe('ontology HTTP access boundary',()=>{
 
 
 describe('user enterprise ontology source normalization',()=>{
- it('retains all 18 families and the 17 supplied family detail trees without fabricated B01 detail',()=>{
+ it('retains all 18 families and the 18 supplied family detail trees including completed B01',()=>{
   const source=enterpriseSource();const tree=enterpriseTaxonomy(baseline.objects);
-  expect(source.families).toHaveLength(18);expect(tree.nodes.filter(n=>n.level===2)).toHaveLength(148);expect(tree.nodes.filter(n=>n.level===3)).toHaveLength(343);
-  expect(tree.nodes.find(n=>n.id==='B01')?.detailStatus).toBe('not-provided');expect(tree.nodes.some(n=>n.parentId==='B01')).toBe(false);
-  expect(source.objects).toHaveLength(844);expect(source.placements).toHaveLength(847);
+  expect(source.families).toHaveLength(18);expect(tree.nodes.filter(n=>n.level===2)).toHaveLength(153);expect(tree.nodes.filter(n=>n.level===3)).toHaveLength(354);
+  expect(tree.nodes.find(n=>n.id==='B01')?.detailStatus).toBe('provided');expect(tree.nodes.filter(n=>n.parentId==='B01')).toHaveLength(5);
+  expect(source.missing).toHaveLength(0);expect(source.objects.filter(o=>o.family==='B01')).toHaveLength(34);expect(source.objects).toHaveLength(878);expect(source.placements).toHaveLength(881);
  });
  it('assigns one primary authority and preserves cross-theme references',()=>{
   const tree=enterpriseTaxonomy(baseline.objects);

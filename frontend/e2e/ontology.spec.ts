@@ -101,7 +101,7 @@ test('ontology direct links survive refresh, navigation and browser back',async(
 });
 
 
-test('full enterprise hierarchy filters Amazon Listing and preserves empty B01 and canonical references',async({page})=>{
+test('full enterprise hierarchy filters Amazon Listing and opens completed B01 and canonical references',async({page})=>{
  await fixture(page,true,true);await page.goto('/admin/ontology');await expect(page.getByRole('heading',{name:'KOL 画像',exact:true})).toBeVisible();
  const filters=page.locator('.onto-filter-line');await expect(filters.nth(0).getByRole('button').nth(1)).toContainText('战略与经营');
  await filters.nth(0).getByRole('button',{name:/^销售/}).click();
@@ -109,7 +109,7 @@ test('full enterprise hierarchy filters Amazon Listing and preserves empty B01 a
  await filters.nth(2).getByRole('button',{name:/^商品管理/}).click();
  await expect(page.getByRole('button',{name:'Amazon Listing',exact:true})).toBeVisible();await page.getByRole('button',{name:'Amazon Listing',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Amazon Listing',exact:true})).toBeVisible();await expect(page.getByText('当前对象尚未登记此类定义。')).toBeVisible();
- await filters.nth(0).getByRole('button',{name:/^战略与经营/}).click();await expect(page.getByText('该业务族已登记覆盖范围；本次来源尚未提供下级明细。')).toBeVisible();
+ await filters.nth(0).getByRole('button',{name:/^战略与经营/}).click();await expect(page.getByText('该业务族已登记覆盖范围；本次来源尚未提供下级明细。')).toHaveCount(0);await filters.nth(1).getByRole('button',{name:/^战略管理/}).click();await filters.nth(2).getByRole('button',{name:/^企业战略/}).click();await page.getByRole('button',{name:'企业战略',exact:true}).click();await expect(page.getByRole('heading',{name:'企业战略',exact:true})).toBeVisible();
  await filters.nth(0).getByRole('button',{name:/^销售/}).click();await filters.nth(1).getByRole('button',{name:/^销售分析/}).click();await filters.nth(2).getByRole('button',{name:/^渠道经营/}).click();
  await expect(page.getByRole('button',{name:'渠道利润分析',exact:true})).toBeVisible();
  await page.screenshot({path:'test-results/ontology/enterprise.png',fullPage:true});
