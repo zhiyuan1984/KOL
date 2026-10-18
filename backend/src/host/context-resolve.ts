@@ -114,6 +114,22 @@ export type CollaborationPick = {
   reason: string;
 };
 
+/** Preserve selected runtime evidence through the normal message queue. These
+ * references are untrusted selectors; existing per-key resolvers authorize them. */
+export function messageContextInput(body: Json): Json {
+  const result: Json = {};
+  for (const key of ['conversation_id','thread_id','message_id','mailbox','mailbox_from'] as const) {
+    const value=body[key];
+    if ((typeof value==='string'&&value.length<=512)||(typeof value==='number'&&Number.isSafeInteger(value))) result[key]=value;
+  }
+  if (Array.isArray(body.object_refs)) result.object_refs=body.object_refs.slice(0,32).flatMap(value=>{
+    if(!value||typeof value!=='object'||Array.isArray(value))return [];
+    const kind=String(value.kind||value.type||''),id=String(value.id||'');
+    return kind&&kind.length<=64&&id&&id.length<=512?[{kind,id}]:[];
+  });
+  return result;
+}
+
 export type ContextResolveInput = {
   skillId: string;
   /** 原始请求体；显式载荷（第 1 级）与 object_refs（第 2 级）都从这里读。 */

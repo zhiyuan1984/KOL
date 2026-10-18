@@ -61,7 +61,7 @@ import {
   type WorkerTraceItem,
 } from "../worker/progress.js";
 import { sanitizeAttachments } from "./attachments.js";
-import { contextKeyLabel, contextVersion as composeContextVersion, openContext, resolveContext, type ContextResolution } from "./context-resolve.js";
+import { contextKeyLabel, contextVersion as composeContextVersion, openContext, resolveContext, messageContextInput, type ContextResolution } from "./context-resolve.js";
 import { HostReject, HttpFail } from "./errors.js";
 import { classify, resolveCollab, collabById } from "./intent.js";
 import { bindCollaborationEmail, firstEmail, resolveMailTo } from "./mail-to.js";
@@ -2646,6 +2646,7 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
     boundMailbox: (await boundMailboxEmail()),
   });
   const extra: Json = {
+    ...messageContextInput(intent.extras || {}),
     handle: col?.handle || intent.handle,
     review_company: (intent.extras?.entities as Json | undefined)?.review_company,
     review_draft_only: (intent.extras?.entities as Json | undefined)?.review_draft_only,
@@ -4054,6 +4055,7 @@ host.post("/sessions/:sid/messages", async (c) => {
   }
   intent.extras = {
     ...intent.extras,
+    ...messageContextInput(body),
     ...(agent ? { agent_id: agent.id, agent_name: agent.name } : {}),
     ...(attachments.length ? { attachments } : {}),
     ...(body.creator_id ? { creator_id: body.creator_id } : {}),
