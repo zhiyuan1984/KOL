@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { EmailCard, Message, Task, TaskResultCard } from "../api";
-import { KolMailWorkbench, taskResultCardsFrom } from "./ChatBlocks";
+import { KolMailWorkbench, taskResultCardsFrom, employeeTraceLabel } from "./ChatBlocks";
 import PanelToggleIcon from "./PanelToggleIcon";
 import { api } from "../api";
 import { stripEngineCopy } from "../employeeCopy";
@@ -15,6 +15,7 @@ import { resultCardOf } from "./StreamArtifact";
 import { streamTime } from "../streamOrder";
 import AgentAvatar from "./AgentAvatar";
 import type { TaskRunView } from "../runViewState";
+import ResultRailTabs, { type ResultRailTab } from "./ResultRailTabs";
 
 /** 形状通道的字形：⚠ 只给需要人确认的 R3 等待，✓/✕ 只在真的完成或失败时出现。 */
 const STATUS_SHAPE_GLYPH: Record<TaskStatusShape, string> = {
@@ -26,6 +27,18 @@ const STATUS_SHAPE_GLYPH: Record<TaskStatusShape, string> = {
   cross: "✕",
   square: "■",
 };
+
+/** 只有这些运行态需要占用右栏状态区；结果已生成/已完成退场，避免压过成果。 */
+const ATTENTION_RUN_KEYS = new Set(["running", "awaiting_confirm", "stopped", "failed", "uncertain"]);
+
+function readSavedRailTab(sessionId: string, debug: boolean): ResultRailTab | null {
+  try {
+    const saved = sessionStorage.getItem(`ui:rail-tab:${sessionId}`);
+    if (saved === "result" || saved === "status") return saved;
+    if (saved === "debug" && debug) return saved;
+  } catch { /* Storage is optional. */ }
+  return null;
+}
 
 /** 结果目录的一行：指向中栏时间流里的那张卡（`data-stream-entry`）。 */
 export type ResultEntry = { id: string; kind: string; title: string; detail?: string; time: number };
@@ -213,8 +226,56 @@ export default function SideWorkbench({
 }) {
   const { debug } = useViewMode();
   const statusView = taskStatusView(task, status);
-  // 执行中、待人确认、失败是需要员工知道的状态；其余（已完成、待命等）结束后不再占位。
-  const showStatus = runView ? runView.key !== "idle" : statusView.live || statusView.needsConfirm || statusView.tone === "failed";
+  // 执行中、待人确认、停止、失败才占用状态区；结果已生成/已完成退场，只留成果。
+  const showStatus = runView
+    ? runView.live || ATTENTION_RUN_KEYS.has(runView.key)
+    : statusView.live || statusView.needsConfirm || statusView.tone === "failed";
+  const attention = showStatus || statusView.needsConfirm;
+  const railRootRef = useRef<HTMLDivElement>(null);
+  const railScrollPositions = useRef<Record<string, number>>({});
+  const pendingRailScroll = useRef<ResultRailTab | null>(null);
+  const userPickedTab = useRef(Boolean(readSavedRailTab(sessionId, debug)));
+  const previousSessionId = useRef(sessionId);
+  const [activeTab, setActiveTab] = useState<ResultRailTab>(() => readSavedRailTab(sessionId, debug) || (attention ? "status" : "result"));
+  const chooseTab = (next: ResultRailTab) => {
+    if (next === activeTab) return;
+    const scroll = railRootRef.current?.closest<HTMLElement>(".scope-task-rail-scroll");
+    if (scroll) railScrollPositions.current[activeTab] = scroll.scrollTop;
+    userPickedTab.current = true;
+    try { sessionStorage.setItem(`ui:rail-tab:${sessionId}`, next); } catch { /* Storage is optional. */ }
+    pendingRailScroll.current = next;
+    setActiveTab(next);
+  };
+  useLayoutEffect(() => {
+    const next = pendingRailScroll.current;
+    if (!next) return;
+    pendingRailScroll.current = null;
+    const scroll = railRootRef.current?.closest<HTMLElement>(".scope-task-rail-scroll");
+    if (scroll) scroll.scrollTop = railScrollPositions.current[next] ?? 0;
+  }, [activeTab]);
+  useEffect(() => {
+    if (!userPickedTab.current) setActiveTab(attention ? "status" : "result");
+  }, [attention]);
+  useEffect(() => {
+    if (!debug && activeTab === "debug") setActiveTab("result");
+  }, [debug, activeTab]);
+  useEffect(() => {
+    if (previousSessionId.current === sessionId) return;
+    previousSessionId.current = sessionId;
+    const saved = readSavedRailTab(sessionId, debug);
+    userPickedTab.current = Boolean(saved);
+    railScrollPositions.current = {};
+    setActiveTab(saved || (attention ? "status" : "result"));
+  }, [sessionId, attention, debug]);
+  useEffect(() => {
+    const reveal = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string; region?: string }>).detail;
+      if (detail?.sessionId !== sessionId || detail.region !== "rail") return;
+      if (activeTab !== "result") chooseTab("result");
+    };
+    window.addEventListener("workspace:reveal", reveal);
+    return () => window.removeEventListener("workspace:reveal", reveal);
+  }, [sessionId, activeTab]);
   const entries = resultEntries(messages, extraEntries);
   const primaryArtifactId = [...messages].reverse().find(message => ["email_card", "confirm_stage_card", "supplement_card", "task_result_card"].includes(message.kind))?.id;
   const latestDraft = [...messages].reverse().find((message) => message.kind === "email_card");
@@ -243,6 +304,9 @@ export default function SideWorkbench({
   const stageRequested = Boolean(latestStage && !latestStage.payload.locked && !latestStage.payload.resolved && !latestStage.payload.rejected
     && lastUserIndex > messages.findIndex(message => message.id === mailMessages.at(-1)?.id));
   const stageReviewInitialized = initializedStageReviewKey === stageReviewKey;
+  useEffect(() => {
+    if (stageRequested && activeTab !== "result") chooseTab("result");
+  }, [stageRequested, activeTab]);
   useEffect(() => {
     const element = stageReview.current;
     if (!stageReviewKey || !latestStage || !ready || !element
@@ -340,6 +404,46 @@ export default function SideWorkbench({
       <summary data-stage-review-summary>正式阶段变更 · 独立确认</summary>{renderArtifact(latestStage)}
     </details> : null}
   </> : null;
+  const resultExtraInStatus = Boolean(runView?.canRerun || statusView.canRerun);
+  const renderedArtifacts = renderArtifact
+    ? messages
+      .map((message) => ({ message, artifact: renderArtifact(message) }))
+      .filter((row): row is { message: Message; artifact: ReactNode } => Boolean(row.artifact))
+    : [];
+  const artifactRows = renderedArtifacts.filter(({ message }) => {
+    if (mailDecision && message.kind === "kol_mail_card") return false;
+    if (mailDecision && message.id === latestStage?.id) return false;
+    if (mailDecision && composing && message.id === latestDraft?.id) return false;
+    return true;
+  });
+  const [activeArtifactId, setActiveArtifactId] = useState<string | undefined>(primaryArtifactId);
+  const previousPrimaryArtifactId = useRef(primaryArtifactId);
+  useEffect(() => {
+    if (primaryArtifactId === previousPrimaryArtifactId.current) return;
+    previousPrimaryArtifactId.current = primaryArtifactId;
+    setActiveArtifactId(primaryArtifactId);
+  }, [primaryArtifactId]);
+  const activeArtifact = artifactRows.find((row) => row.message.id === activeArtifactId) || artifactRows.at(-1);
+  const historyArtifacts = artifactRows.filter((row) => row.message.id !== activeArtifact?.message.id);
+  const artifactLabel = (message: Message) => {
+    if (message.kind === "email_card") return String((message.payload as unknown as EmailCard).subject || "邮件草稿");
+    if (message.kind === "confirm_stage_card") return "阶段建议";
+    if (message.kind === "task_result_card") return stripEngineCopy(String(resultCardOf(message).title || "任务结果"));
+    return entries.find((entry) => entry.id === message.id)?.title || "成果";
+  };
+  const processRows = messages
+    .filter((message) => ["process_trace", "step", "steps", "discovery_step"].includes(message.kind))
+    .slice(-5);
+  const processTitle = (message: Message) => {
+    const payload = message.payload as Record<string, unknown>;
+    const raw = String(payload.title || payload.label || payload.summary || payload.text || payload.message || "执行记录");
+    return employeeTraceLabel(raw, String(payload.kind || "")).replace(/\s+/g, " ").slice(0, 120);
+  };
+  const tabs: Array<{ id: ResultRailTab; label: string; badge?: number }> = [
+    { id: "result", label: "结果", badge: artifactRows.length > 1 ? artifactRows.length : undefined },
+    { id: "status", label: "状态过程" },
+    ...(debug ? [{ id: "debug" as const, label: "调试细节" }] : []),
+  ];
   return (
     <Container
       className={embedded ? "embedded-workbench" : "side-workbench scope-task-rail" + (collapsed ? " is-collapsed" : "")}
@@ -359,7 +463,8 @@ export default function SideWorkbench({
       </button> : null}
       {discoveryReturn && collapsed ? <Link className="discovery-return is-collapsed-return" to={discoveryReturn} data-session-back-link>返回 AI发现</Link> : null}
       {!embedded && collapsed ? null : <>
-      <details className="result-tools"><summary>更多操作</summary>
+      <div className="rail-tab-root" ref={railRootRef}>
+      <details className="result-tools" data-rail-tools><summary>更多操作</summary>
       <div className="artifact-toolbar" aria-label="产物工具栏">
         {discoveryReturn ? <Link className="discovery-return" to={discoveryReturn} data-session-back-link>返回 AI发现</Link> : null}
         <a className="icon-btn" href={`/api/sessions/${sessionId}/export?format=md`} download aria-label="下载 Markdown">↓ MD</a>
@@ -372,58 +477,114 @@ export default function SideWorkbench({
           aria-label="收起结果" aria-expanded onClick={toggle}><PanelToggleIcon className="scope-task-rail-toggle-icon" /></button> : null}
       </div>
       </details>
-      {/* 执行中的状态（DESIGN §8.6）：颜色 + 形状 + 文案三条通道同时变化；结束后退场，只留结果目录。 */}
-      {showStatus ? (
-        <div className="side-status" data-run-status={statusView.key} data-run-tone={statusView.tone}>
-          <AgentAvatar active={runView?.live ?? statusView.live} failed={(runView?.key || statusView.key) === "failed"} />
-          <i className={`status-shape is-${statusView.tone}`} aria-hidden>{STATUS_SHAPE_GLYPH[statusView.shape]}</i>
-          <span className="side-status-copy" data-agent-status={status} data-workspace-status role="status" aria-live="polite">
-            {statusOverride || runView?.label || statusView.copy}
-          </span>
-          {statusView.live && phase ? <span className="side-status-phase" data-run-phase>{phase}</span> : null}
-          {statusView.live ? <span className="side-status-hint">刷新页面不会取消后台执行；过程在中栏，完整成果保存在这里</span> : null}
-          {debug && remoteLabel ? (
-            <details className="execution-details side-status-debug">
-              <summary>调试细节</summary>
-              <p data-run-remote>{remoteLabel}</p>
-            </details>
-          ) : null}
-        </div>
-      ) : null}
+      <ResultRailTabs tabs={tabs} active={activeTab} onChange={chooseTab} />
       {(toolStatus || share) && <div className="share-status" role="status">{toolStatus}{share?.expires_at && <> · {new Date(share.expires_at).toLocaleString()} 过期</>}{share?.url && <><input className="share-url" aria-label="分享链接" readOnly value={share.url} onFocus={(e) => e.currentTarget.select()} /><button className="link-button" onClick={() => void navigator.clipboard.writeText(share.url || "").then(() => setToolStatus("分享链接已复制")).catch(() => setToolStatus("请手动复制链接"))}>复制链接</button></>}{share && <button className="link-button" onClick={() => void api.revokeShare(sessionId).then(() => { setShare(null); setToolStatus("分享已撤销"); }).catch((e) => setToolStatus(String(e)))}>撤销</button>}</div>}
-      <div className="side-body" data-round-results>
-        {resultExtra}
-        {focusedMail ? (
-          <section data-mail-focus>
-            <MailBodyArtifact mail={focusedMail} />
-          </section>
-        ) : null}
-        {renderArtifact ? <>
+      <div className="side-body" data-rail-panels>
+        <section className="rail-panel" role="tabpanel" id="rail-panel-result" aria-labelledby="rail-tab-result" data-round-results hidden={activeTab !== "result"}>
           {mailDecision && composing && latestDraft ? <>
-            <section data-tab="draft" data-result-message={latestDraft.id}>{renderArtifact(latestDraft)}</section>
+            <section data-tab="draft" data-result-message={latestDraft.id}>{renderArtifact ? renderArtifact(latestDraft) : null}</section>
             <details className="mail-decision-context"><summary>阶段建议与证据链</summary>{mailDecision}</details>
           </> : mailDecision}
-          {messages.filter(message => !mailDecision || (message.kind !== "kol_mail_card" && message.id !== latestStage?.id && (!composing || message.id !== latestDraft?.id))).map(message => {
-          const artifact = renderArtifact(message);
-          return artifact ? <section key={message.id} aria-selected={message.id === primaryArtifactId} data-result-message={message.id} data-tab={message.kind === "email_card" ? "draft" : "result"}>{artifact}</section> : null;
-        })}{artifactExtra}</> : entries.length ? (
-          <nav className="result-index" aria-label="结果目录" data-result-index>
-            <div className="page-kicker">结果目录</div>
-            <ol>
-              {entries.map((entry) => (
-                <li key={`${entry.kind}:${entry.id}`}>
-                  <button type="button" className="result-index-item" data-result-entry={entry.id} data-result-kind={entry.kind} onClick={() => locateStreamEntry(entry.id)}>
-                    <span className="result-index-title">{entry.title}</span>
-                    {entry.detail ? <span className="result-index-detail">{entry.detail}</span> : null}
-                    {entry.time ? <time className="result-index-time" dateTime={new Date(entry.time).toISOString()}>{clock(entry.time)}</time> : null}
-                  </button>
-                </li>
-              ))}
-            </ol>
-          </nav>
-        ) : !resultExtra && !focusedMail && !showStatus ? (
-          <p className="muted" data-result-index-empty>还没有结果。智能体的过程与成果按时间出现在中栏，这里会列出成果目录。</p>
+          {activeArtifact ? (
+            <section key={activeArtifact.message.id} aria-current="true" data-result-message={activeArtifact.message.id} data-tab={activeArtifact.message.kind === "email_card" ? "draft" : "result"}>
+              {activeArtifact.artifact}
+            </section>
+          ) : null}
+          {historyArtifacts.length ? (
+            <details className="rail-result-history" data-rail-result-history>
+              <summary>历史结果（{historyArtifacts.length}）</summary>
+              <ol>
+                {historyArtifacts.map(({ message }) => {
+                  const time = streamTime(message);
+                  return <li key={message.id}>
+                    <button type="button" className="result-index-item" onClick={() => setActiveArtifactId(message.id)}>
+                      <span className="result-index-title">{artifactLabel(message)}</span>
+                      {time ? <time className="result-index-time" dateTime={new Date(time).toISOString()}>{clock(time)}</time> : null}
+                    </button>
+                  </li>;
+                })}
+              </ol>
+            </details>
+          ) : null}
+          {!resultExtraInStatus ? resultExtra : null}
+          {focusedMail ? (
+            <section data-mail-focus>
+              <MailBodyArtifact mail={focusedMail} />
+            </section>
+          ) : null}
+          {artifactExtra}
+          {resultExtraInStatus ? <p className="muted">停止或失败后的恢复入口在“状态过程”页。</p> : null}
+          {!mailDecision && !activeArtifact && !resultExtra && !focusedMail && !artifactExtra ? (
+            entries.length ? (
+              <nav className="result-index" aria-label="结果目录" data-result-index>
+                <div className="page-kicker">结果目录</div>
+                <ol>
+                  {entries.map((entry) => (
+                    <li key={`${entry.kind}:${entry.id}`}>
+                      <button type="button" className="result-index-item" data-result-entry={entry.id} data-result-kind={entry.kind} onClick={() => locateStreamEntry(entry.id)}>
+                        <span className="result-index-title">{entry.title}</span>
+                        {entry.detail ? <span className="result-index-detail">{entry.detail}</span> : null}
+                        {entry.time ? <time className="result-index-time" dateTime={new Date(entry.time).toISOString()}>{clock(entry.time)}</time> : null}
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              </nav>
+            ) : (
+              <p className="muted" data-result-index-empty>还没有结果。智能体的过程与成果按时间出现在中栏，这里会列出成果目录。</p>
+            )
+          ) : null}
+        </section>
+        <section className="rail-panel rail-status-panel" role="tabpanel" id="rail-panel-status" aria-labelledby="rail-tab-status" data-rail-panel="status" hidden={activeTab !== "status"}>
+          {showStatus ? (
+            <div className="side-status" data-run-status={statusView.key} data-run-tone={statusView.tone}>
+              <AgentAvatar active={runView?.live ?? statusView.live} failed={(runView?.key || statusView.key) === "failed"} />
+              <i className={`status-shape is-${statusView.tone}`} aria-hidden>{STATUS_SHAPE_GLYPH[statusView.shape]}</i>
+              <span className="side-status-copy" data-agent-status={status} data-workspace-status role="status" aria-live="polite">
+                {statusOverride || runView?.label || statusView.copy}
+              </span>
+              {statusView.live && phase ? <span className="side-status-phase" data-run-phase>{phase}</span> : null}
+              {statusView.live ? <span className="side-status-hint">刷新页面不会取消后台执行；过程在中栏，完整成果保存在这里</span> : null}
+            </div>
+          ) : (
+            <div className="rail-status-quiet" data-rail-status-quiet>
+              <strong data-agent-status={status} data-workspace-status role="status" aria-live="polite">{statusOverride || runView?.label || statusView.copy}</strong>
+              <p>当前没有需要关注的状态；结果保存在“结果”页。</p>
+            </div>
+          )}
+          <div className="rail-process" data-rail-process>
+            <h3>最近过程</h3>
+            {processRows.length ? (
+              <ol>
+                {processRows.map((message) => (
+                  <li key={message.id}>
+                    <button type="button" className="rail-process-row" onClick={() => locateStreamEntry(message.id)}>
+                      <time>{clock(streamTime(message))}</time>
+                      <span>{processTitle(message)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            ) : <p className="muted">本次没有可展开的过程记录；完整过程在中栏。</p>}
+          </div>
+          {task?.last_error ? <p className="error" role="alert">失败原因：{task.last_error}</p> : null}
+          {stageRequested ? <button type="button" className="result-pointer-button" onClick={() => chooseTab("result")}>查看待确认的阶段建议</button> : null}
+          {resultExtraInStatus ? resultExtra : null}
+        </section>
+        {debug ? (
+          <section className="rail-panel rail-debug-panel" role="tabpanel" id="rail-panel-debug" aria-labelledby="rail-tab-debug" data-rail-panel="debug" hidden={activeTab !== "debug"}>
+            <dl className="rail-debug-list">
+              <div><dt>会话</dt><dd>{sessionId}</dd></div>
+              <div><dt>任务</dt><dd>{task?.id || "—"}</dd></div>
+              <div><dt>执行面</dt><dd>{remoteLabel || "未提供"}</dd></div>
+              <div><dt>状态</dt><dd>{statusView.key} · {status}</dd></div>
+              <div><dt>阶段</dt><dd>{phase || "—"}</dd></div>
+              <div><dt>运行</dt><dd>{runView?.key || "—"}</dd></div>
+            </dl>
+            <p className="muted">仅调试视图可见；不包含凭据或私有正文。</p>
+          </section>
         ) : null}
+      </div>
       </div>
       </>}
     </Container>

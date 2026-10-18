@@ -1492,6 +1492,24 @@ export function ChatThread({
     ["email_card", "confirm_stage_card", "inbound_card", "supplement_card", "task_result_card", "kol_mail_card"].includes(m.kind)
     || taskResultCardsFrom(String(m.payload.text || "")).length > 0,
   );
+  // 同一类成果只保留最新一张完整指针；更早的同名成果收成一行，完整内容仍在右栏。
+  const pointerGroup = (message: Message) => {
+    if (message.kind === "task_result_card") {
+      const payload = message.payload as Record<string, unknown>;
+      const card = (payload.task_result && typeof payload.task_result === "object" ? payload.task_result : payload) as { title?: string };
+      return `result:${String(card.title || "任务结果")}`;
+    }
+    if (message.kind === "email_card") return "draft";
+    if (message.kind === "confirm_stage_card") return "stage";
+    return "mail";
+  };
+  const latestPointerByGroup = new Map<string, string>();
+  for (const message of messages) {
+    if (["task_result_card", "email_card", "confirm_stage_card", "inbound_card", "kol_mail_card"].includes(message.kind)) {
+      latestPointerByGroup.set(pointerGroup(message), message.id);
+    }
+  }
+  const latestTaskResultId = [...messages].reverse().find((message) => message.kind === "task_result_card")?.id;
   // 所有条目按「最后一次有新内容」的时刻排进同一条时间流，最新的在输入框上方。
   const rows = orderStream([
     ...(discovery ? discoveryTimeline(messages, actions) : [...messages, ...actions.map(runtimeActionRow)]),
@@ -1541,6 +1559,12 @@ export function ChatThread({
         if (onViewResult && ["task_result_card", "email_card", "confirm_stage_card", "inbound_card", "kol_mail_card"].includes(m.kind)) {
           const label = m.kind === "email_card" ? "邮件草稿" : m.kind === "confirm_stage_card" ? "阶段建议" : m.kind.includes("mail") || m.kind === "inbound_card" ? "邮件与证据" : String(m.payload.title || "任务成果");
           const risk = m.kind === "email_card" && String(m.payload.status || "") === "sent" ? undefined : messageRisk(m.kind, m.payload) || undefined;
+          const latest = latestPointerByGroup.get(pointerGroup(m)) === m.id;
+          if (!latest) {
+            return <ThreadMessage key={m.id} role="assistant" data-kind="result-pointer-history" data-stream-entry={m.id}>
+              <span className="muted">已生成：{label}</span>
+            </ThreadMessage>;
+          }
           return <ThreadMessage key={m.id} role="assistant" result={m.kind === "email_card" ? "draft" : m.kind === "confirm_stage_card" ? "stage" : "task_result"}
             risk={risk} data-kind={m.kind === "email_card" ? "email-card-pointer" : "task-result-pointer"} data-stream-entry={m.id}>
             <strong>{label}</strong><p>{String(m.payload.summary || "成果与依据已放入结果工作台。")}</p>
@@ -1802,10 +1826,16 @@ export function ChatThread({
         if (!text && !m.payload.streaming) return null;
         if (isDuplicateSessionChrome(text)) return null;
         const stageReceipt = /正式阶段已按你的确认更新|已提交阶段审批/.test(text);
-        if (onViewResult && taskResultCardsFrom(text).length) return <ThreadMessage key={m.id} role="assistant" data-kind="task-result-pointer">
-          <strong>{String(taskResultCardsFrom(text).at(-1)?.title || "任务成果")}</strong>
-          <p>成果与依据已放入结果工作台。</p>{resultLink("result")}
-        </ThreadMessage>;
+        if (onViewResult && taskResultCardsFrom(text).length) {
+          const title = String(taskResultCardsFrom(text).at(-1)?.title || "任务成果");
+          if (latestTaskResultId) return <ThreadMessage key={m.id} role="assistant" data-kind="result-pointer-history">
+            <span className="muted">已生成：{title}</span>
+          </ThreadMessage>;
+          return <ThreadMessage key={m.id} role="assistant" data-kind="task-result-pointer">
+            <strong>{title}</strong>
+            <p>成果与依据已放入结果工作台。</p>{resultLink("result")}
+          </ThreadMessage>;
+        }
         return (
           <ThreadMessage
             key={m.id}

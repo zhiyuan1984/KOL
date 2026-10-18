@@ -243,7 +243,6 @@
   align-items: center;
   width: auto;
   min-height: var(--control-h-sm);
-  line-height: var(--ds-line-sm);
   color: var(--accent-text);
 }
 .kol-card-row[data-kol-unified="pool"] .pool-score-evidence .kol-card-evidence-body {
@@ -265,9 +264,20 @@
   justify-self: end;
   white-space: nowrap;
 }
-.kol-card-row[data-kol-unified="pool"] .kol-card-error {
-  width: 100%;
-  text-align: end;
+.kol-card-row[data-kol-unified="pool"] > [data-pool-claim-error] {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  white-space: normal;
+}
+.kol-card-row[data-kol-unified="pool"] > [data-pool-claim-error] .kol-card-error {
+  flex: 1 1 12rem;
+  width: auto;
+  min-width: 0;
+  text-align: start;
+  overflow-wrap: anywhere;
 }
 
 /* Followed rows are a three-line scan unit: identity / meta+fact / action. */
@@ -287,7 +297,6 @@
 .kol-card-row[data-kol-unified="followed"] > [data-kol-band="fact"] { grid-area: fact; align-self: center; }
 .kol-card-row[data-kol-unified="followed"] > [data-kol-band="action"] { grid-area: action; }
 .kol-card-row[data-kol-unified="followed"] > :is([data-confirm-stage-feedback], [data-release-follow-error]) { grid-column: 1 / -1; }
-.kol-card-row[data-kol-unified="followed"] .kol-card-summary-text { -webkit-line-clamp: 1; }
 .kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] {
   display: flex;
   flex-wrap: nowrap;
@@ -305,14 +314,13 @@
   align-items: baseline;
   gap: var(--space-1);
   min-width: 0;
+  max-height: var(--ds-line-sm);
   overflow: hidden;
-  white-space: nowrap;
 }
 .kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] .kol-card-suggestion-title,
 .kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] .kol-card-why {
+  min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] .kol-card-actions {
   flex: 0 0 auto;
@@ -327,6 +335,22 @@
 }
 .kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] .kol-card-evidence[open] {
   flex: 1 1 100%;
+}
+@container (max-width: 380px) {
+  .kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] {
+    flex-wrap: wrap;
+  }
+  .kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] .kol-card-recommendation {
+    flex: 1 1 100%;
+  }
+  .kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] .kol-card-actions {
+    flex: 1 1 auto;
+    margin: 0;
+    flex-wrap: wrap;
+  }
+  .kol-card-row[data-kol-unified="followed"] [data-kol-band="action"] .kol-card-evidence {
+    flex: 0 0 auto;
+  }
 }
 
 @container (max-width: 719px) {

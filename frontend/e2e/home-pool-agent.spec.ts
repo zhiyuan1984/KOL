@@ -59,7 +59,7 @@ test("pool scope stays compact and selection preserves an authored draft", async
   const scope = page.locator("[data-pool-selection-scope]");
   await expect(scope).toContainText("已选 4 位红人");
   await expect(scope).toContainText("+1");
-  await expect(scope.getByRole("button")).toHaveText("查看全部 4 位");
+  await expect(scope.getByRole("button")).toHaveText("查看全部");
   await scope.getByRole("button").click();
   await expect(page.locator("[data-pool-selected-list] li")).toHaveCount(4);
   await select(page, 1).uncheck();

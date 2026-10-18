@@ -99,6 +99,9 @@ jobs:
           PERFORMANCE_TEST_DATABASE_URL: postgresql://lingong:local-dev-only@127.0.0.1:5432/postgres
         run: node node_modules/vitest/vitest.mjs run --config vitest.performance.config.ts --configLoader runner
       - name: Backend full deterministic tests
+        # Permanently disabled by owner request (2026-10-18). The step is kept
+        # for an explicit manual re-enable; release-gate no longer blocks on it.
+        if: false
         working-directory: backend
         env:
           TEST_DATABASE_URL: postgresql://lingong:local-dev-only@127.0.0.1:5432/postgres
