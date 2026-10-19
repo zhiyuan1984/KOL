@@ -1,22 +1,25 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { Dropdown } from "antd";
 import { api } from "../../api";
 import { auditTouchesConnector, governanceStatus, type AdminRow } from "../../adminGovernance";
 import { connectorDisableConfirm } from "../../adminConfirm";
 import { useAdminConfirm } from "../../components/ConfirmDialog";
-import { ConnectorCredentialVault } from "../../components/ConnectorCredentialVault";
+import { ProjectTheme } from "../../components/ProjectTheme";
 import { auditEventLabel } from "../../labels";
-import { errorMessage, remoteFailureMessage } from "../../runtimeConnectorUi";
+import { errorMessage, remoteFailureMessage, type RuntimeConnectorConfig } from "../../runtimeConnectorUi";
 import { ConnectorConfigCard } from "./ConnectorConfigCard";
+import { ConnectorCredentialBindings } from "./ConnectorCredentialBindings";
 import { ConnectorMark } from "./ConnectorMark";
 import { ConnectorToolsCard } from "./ConnectorToolsCard";
 import { friendlyEnableFailure } from "./connectorSetup";
-import { connectorCardView, connectorStatusNote, kindLabel } from "./entity";
+import { connectorCardView, kindLabel } from "./entity";
 import { useDeclaredToolMount } from "./useDeclaredToolMount";
 import "./connectorAdmin.css";
 
 type ProbeRecord = {
   id: number;
+  config_version?: number;
   checked_at: string;
   status: string;
   probe_kind: "mcp_tools_list" | "http_definition" | "mediacrawler_start";
@@ -25,14 +28,23 @@ type ProbeRecord = {
   error_code?: string | null;
 };
 type RunEvent = { id: number; ts: string; actor: string; event_type: string; payload: Record<string, unknown> };
-
+type DetailProps = { connectorId: string; connectors: AdminRow[]; auditRows: AdminRow[]; reload: () => void };
+const DETAIL_TABS = [
+  { id: "config", label: "接入配置" },
+  { id: "tools", label: "工具目录" },
+  { id: "credentials", label: "凭据引用" },
+  { id: "audit", label: "测试与审计" },
+] as const;
+type DetailTab = typeof DETAIL_TABS[number]["id"];
+function isDetailTab(value: string | null): value is DetailTab {
+  return DETAIL_TABS.some((tab) => tab.id === value);
+}
 function codeOf(cause: unknown): string {
   const payload = (cause as { payload?: { code?: unknown; error_code?: unknown } } | null)?.payload;
   if (typeof payload?.code === "string") return payload.code;
   if (typeof payload?.error_code === "string") return payload.error_code;
   return "";
 }
-
 function friendlyProbeFailure(code: string): string {
   if (code === "AbortError" || code === "request_aborted") return "测试已取消或连接中断；请确认服务可访问后重试。";
   if (code === "runtime_connector_disabled") return "连接器已停用，无法测试。请在完成验证后再启用。";
@@ -43,12 +55,11 @@ function friendlyProbeFailure(code: string): string {
   return code ? `测试未通过；请检查已保存配置后重试（错误码：${code}）。` : "测试未通过；请检查已保存配置后重试。";
 }
 
-export function ConnectorDetail({ connectorId, connectors, auditRows, reload }: {
-  connectorId: string;
-  connectors: AdminRow[];
-  auditRows: AdminRow[];
-  reload: () => void;
-}) {
+// A different connector gets its own form, navigation and discovery state.
+export function ConnectorDetail(props: DetailProps) {
+  return <ProjectTheme><ConnectorDetailContent key={props.connectorId} {...props} /></ProjectTheme>;
+}
+function ConnectorDetailContent({ connectorId, connectors, auditRows, reload }: DetailProps) {
   const raw = connectors.find((row) => String(row.id) === connectorId);
   const card = raw ? connectorCardView(raw) : null;
   const { ask, dialog } = useAdminConfirm();
@@ -64,173 +75,219 @@ export function ConnectorDetail({ connectorId, connectors, auditRows, reload }: 
   const [notice, setNotice] = useState("");
   const [activity, setActivity] = useState<{ probes: ProbeRecord[]; events: RunEvent[] } | null>(null);
   const [activityError, setActivityError] = useState("");
+  const [activityLoading, setActivityLoading] = useState(true);
+  const [config, setConfig] = useState<RuntimeConnectorConfig | null>(null);
+  const [configVersion, setConfigVersion] = useState<number | null>(null);
+  const [configDirty, setConfigDirty] = useState(false);
+  const [needsTest, setNeedsTest] = useState(false);
+  const [toolCount, setToolCount] = useState<number | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigation = useRef({ searchParams, setSearchParams });
+  navigation.current = { searchParams, setSearchParams };
+  const defaultResolved = useRef(false);
+  const requestedTab = searchParams.get("tab");
+  const defaultTab: DetailTab = card && governanceStatus(card).key !== "draft" ? "tools" : "config";
+  const activeTab: DetailTab = isDetailTab(requestedTab) ? requestedTab : defaultTab;
+  const [visited, setVisited] = useState<Set<DetailTab>>(() => new Set([activeTab]));
+  const root = useRef<HTMLElement | null>(null);
+  const tabButtons = useRef<Partial<Record<DetailTab, HTMLButtonElement | null>>>({});
+  const scrollPositions = useRef<Partial<Record<DetailTab, number>>>({});
+  const previousTab = useRef(activeTab);
+  const scrollHost = useRef<HTMLElement | null>(null);
 
-  const loadActivity = useCallback(async () => {
-    setActivityError("");
-    try {
-      setActivity(await api.runtimeConnectorActivity(connectorId));
-    } catch (cause) {
-      setActivityError(errorMessage(cause, "无法读取测试与治理记录"));
+  const onConfigLoaded = useCallback((saved: RuntimeConnectorConfig | null, version: number) => {
+    setConfig(saved);
+    setConfigVersion(version);
+    if (!defaultResolved.current) {
+      defaultResolved.current = true;
+      const current = navigation.current;
+      if (!isDetailTab(current.searchParams.get("tab"))) {
+        const params = new URLSearchParams(current.searchParams);
+        params.set("tab", version > 0 ? "tools" : "config");
+        current.setSearchParams(params, { replace: true });
+      }
     }
+  }, []);
+  useEffect(() => { setVisited((current) => current.has(activeTab) ? current : new Set([...current, activeTab])); }, [activeTab]);
+  // Keep each panel mounted after its first visit, including secret drafts in memory only.
+  // Scroll belongs to the existing admin scroll container, not the document/iframe.
+  useLayoutEffect(() => {
+    let host = root.current?.parentElement || null;
+    while (host && !/auto|scroll/.test(getComputedStyle(host).overflowY)) host = host.parentElement;
+    scrollHost.current = host;
+    if (previousTab.current !== activeTab && host) {
+      host.scrollTop = scrollPositions.current[activeTab] || 0;
+    }
+    previousTab.current = activeTab;
+    const remember = () => { if (host) scrollPositions.current[activeTab] = host.scrollTop; };
+    host?.addEventListener("scroll", remember, { passive: true });
+    return () => host?.removeEventListener("scroll", remember);
+  }, [activeTab]);
+  useEffect(() => {
+    if (!configDirty) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [configDirty]);
+
+  const selectTab = (id: DetailTab, focus = false) => {
+    if (id !== activeTab) {
+      if (scrollHost.current) scrollPositions.current[activeTab] = scrollHost.current.scrollTop;
+      setVisited((current) => new Set([...current, id]));
+      const params = new URLSearchParams(searchParams);
+      params.set("tab", id);
+      setSearchParams(params);
+    }
+    if (focus) requestAnimationFrame(() => tabButtons.current[id]?.focus({ preventScroll: true }));
+  };
+  const loadActivity = useCallback(async () => {
+    setActivityLoading(true);
+    setActivityError("");
+    try { setActivity(await api.runtimeConnectorActivity(connectorId)); }
+    catch (cause) { setActivityError(errorMessage(cause, "无法读取测试与治理记录")); }
+    finally { setActivityLoading(false); }
   }, [connectorId]);
   useEffect(() => { void loadActivity(); }, [loadActivity]);
 
-  if (!card) {
-    return (
-      <section className="admin-govern" data-admin-page="connector-detail">
-        <p className="muted">未找到这条连接器。</p>
-        <Link to="/admin/connectors">返回连接器目录</Link>
-      </section>
-    );
-  }
-
+  if (!card) return (
+    <section className="admin-govern" data-admin-page="connector-detail">
+      <p className="muted">未找到这条连接器。</p><Link to="/admin/connectors">返回连接器目录</Link>
+    </section>
+  );
   const status = governanceStatus(card);
   const recentGovernance = auditRows.filter((row) => auditTouchesConnector(row, card.id)).slice(-8).reverse();
-
+  const latestProbe = activity?.probes[0];
+  const outdatedProbe = needsTest || (latestProbe?.config_version !== undefined && configVersion !== null && latestProbe.config_version !== configVersion);
+  const testStatus = outdatedProbe ? "配置已更新，待重新测试"
+    : activityError ? "测试记录读取失败"
+    : latestProbe ? latestProbe.status === "succeeded" ? "最近测试通过" : "最近测试失败"
+    : activityLoading ? "测试记录读取中" : "尚未测试";
   const probe = async () => {
-    setBusy("probe");
-    setError("");
-    setNotice("");
+    if (configDirty && !window.confirm("接入配置有未保存改动。本次测试只使用服务端已保存配置，不包含当前草稿。是否继续测试？")) return;
+    setBusy("probe"); setError(""); setNotice("");
     try {
       const result = await api.probeRuntimeConnector(connectorId);
+      setNeedsTest(false);
       setNotice(result.notice || "测试完成。");
       reload();
-    } catch (cause) {
-      setError(friendlyProbeFailure(codeOf(cause)));
-    } finally {
-      setBusy("");
-      void loadActivity();
-    }
+    } catch (cause) { setError(friendlyProbeFailure(codeOf(cause))); }
+    finally { setBusy(""); void loadActivity(); }
   };
-
   const setEnabled = async (enabled: boolean) => {
-    setBusy("enable");
-    setError("");
-    setNotice("");
+    setBusy("enable"); setError(""); setNotice("");
     try {
       await api.adminSave(`/api/admin/connectors/${encodeURIComponent(card.id)}`, { enabled }, "PATCH");
       setNotice(enabled ? "连接器已启用。" : "连接器已停用。");
       reload();
     } catch (cause) {
       const code = codeOf(cause);
-      // 闸门里唯一还需要人做的一步：挂载。这里直接把动作放在错误旁边。
       setMountNeeded(code === "connector_skill_binding_required");
       setError(friendlyEnableFailure(code) || errorMessage(cause, "连接器状态未更新"));
-    } finally {
-      setBusy("");
-    }
+    } finally { setBusy(""); }
   };
-
   const copyId = async () => {
-    try {
-      await navigator.clipboard.writeText(card.id);
-      setNotice(`已复制短名 ${card.id}。`);
-    } catch {
-      setError(`复制失败；请手动记录短名 ${card.id}。`);
-    }
+    try { await navigator.clipboard.writeText(card.id); setNotice(`已复制短名 ${card.id}。`); }
+    catch { setError(`复制失败；请手动记录短名 ${card.id}。`); }
   };
+  const panelProps = (id: DetailTab) => ({
+    id: `connector-panel-${card.id}-${id}`,
+    role: "tabpanel",
+    "aria-labelledby": `connector-tab-${card.id}-${id}`,
+    hidden: activeTab !== id,
+    className: "connector-detail-panel",
+    "data-connector-detail-panel": id,
+  });
 
   return (
-    <section className="connector-detail" data-admin-page="connector-detail" data-connector-id={card.id} data-governance-status={status.key}>
+    <section ref={root} className="connector-detail" data-admin-page="connector-detail" data-connector-id={card.id} data-governance-status={status.key}>
       {dialog}
       <p className="admin-crumb"><Link to="/admin/connectors">连接器目录</Link> / {card.label}</p>
       <header className="panel connector-detail-hero">
         <ConnectorMark id={card.id} label={card.label} iconUrl={card.iconUrl} />
         <div className="connector-detail-title">
           <h2>{card.label}</h2>
-          <p className="muted">
-            {kindLabel(card.kind)} · 短名 <code>{card.id}</code> · {card.protocol === "mcp" ? "MCP" : "HTTP"}
-          </p>
+          <p className="muted">{kindLabel(card.kind)} · 短名 <code>{card.id}</code> · {card.protocol === "mcp" ? "MCP" : "HTTP"}</p>
           <p>{card.purpose || "未填写业务用途"}</p>
-          <p className="muted" data-connector-status-note>{connectorStatusNote(card)}</p>
+          <p className="connector-detail-test-status muted" data-connector-status-note>
+            <span className={`admin-status is-${card.enabled ? "enabled" : "disabled"}`}>{card.enabled ? "已启用" : "未启用"}</span>
+            <span data-connector-test-status>{testStatus}</span>
+            {latestProbe && !outdatedProbe && <small>{new Date(latestProbe.checked_at).toLocaleString("zh-CN", { hour12: false })} · {latestProbe.duration_ms}ms</small>}
+          </p>
         </div>
         <div className="connector-detail-actions">
-          <span className={`admin-status is-${status.key}`}>{status.label}</span>
-          <button type="button" className="btn" data-connector-copy-id onClick={() => void copyId()}>复制 ID</button>
-          <button type="button" className="btn" data-connector-probe disabled={busy !== ""} onClick={() => void probe()}>
-            {busy === "probe" ? "测试中…" : "测试连接"}
-          </button>
-          {card.enabled ? (
-            <button
-              type="button"
-              className="btn danger"
-              data-connector-disable
-              disabled={busy !== ""}
-              onClick={() => ask(connectorDisableConfirm(card.label, card.id), async () => { await setEnabled(false); })}
-            >
-              停用
-            </button>
-          ) : status.key === "verified" ? (
-            <button type="button" className="btn work" data-connector-enable disabled={busy !== ""} onClick={() => void setEnabled(true)}>
-              启用连接器
-            </button>
-          ) : null}
+          <button type="button" className={activeTab === "config" || (!card.enabled && status.key === "verified") ? "btn text" : "btn work"} data-connector-probe disabled={busy !== ""} aria-busy={busy === "probe"} onClick={() => void probe()}>{busy === "probe" ? "测试中…" : "测试连接"}</button>
+          {!card.enabled && status.key === "verified" && <button type="button" className={activeTab === "config" ? "btn text" : "btn work"} data-connector-enable disabled={busy !== "" || needsTest} onClick={() => void setEnabled(true)}>启用连接器</button>}
+          <Dropdown trigger={["click"]} menu={{ items: [
+            { key: "copy", label: <span data-connector-copy-id>复制 ID</span>, onClick: () => void copyId() },
+            ...(card.enabled ? [{ key: "disable", danger: true, disabled: busy !== "", label: <span data-connector-disable>停用连接器</span>, onClick: () => ask(connectorDisableConfirm(card.label, card.id), async () => { await setEnabled(false); }) }] : []),
+          ] }}>
+            <button type="button" className="btn text" aria-label="连接器更多操作" data-connector-more>更多操作</button>
+          </Dropdown>
         </div>
       </header>
-
       {error && <p className="error" role="alert" data-connector-detail-error>{error}</p>}
       {notice && <p className="admin-receipt status-ok" role="status" data-connector-detail-notice>{notice}</p>}
-      {mountNeeded && (
-        <div className="connector-detail-mount" data-connector-detail-mount>
-          <p className="muted">启用还差一步：至少一个技能把它已登记的工具挂到可用状态。可以按技能定义一次挂好；挂载不启用连接器。</p>
-          <button
-            type="button"
-            className="btn"
-            data-connector-detail-mount-declared
-            disabled={declaredMount.busy}
-            onClick={declaredMount.mount}
-          >
-            {declaredMount.busy ? "挂载中…" : "按技能定义挂载工具"}
-          </button>
-          {declaredMount.receipt && <p className="runtime-notice" role="status">{declaredMount.receipt}现在可以再点「启用连接器」。</p>}
-          {declaredMount.failure && <p className="error" role="alert">{declaredMount.failure}</p>}
-        </div>
-      )}
-
-      <ConnectorConfigCard card={card} reload={reload} />
-      <ConnectorToolsCard connectorId={card.id} />
-
-      <details className="panel connector-detail-card connector-disclosure">
-        <summary><b>凭据引用</b><span className="muted">全局安全资产；秘密只在写入时提交，不能读取、复制或回显。</span></summary>
-        <ConnectorCredentialVault />
-      </details>
-
-      <details className="panel connector-detail-card connector-disclosure" data-connector-audit>
-        <summary><b>审计</b><span className="muted">本连接器的测试与治理记录；不显示秘密或凭据原值。</span></summary>
-        {activityError && <p className="error" role="alert">{activityError}</p>}
-        <div className="connector-audit-grid">
-          <div>
-            <strong>最近测试</strong>
-            {activity && !activity.probes.length && <p className="muted">尚无测试记录。</p>}
-            <ul className="connector-audit-list">
-              {activity?.probes.slice(0, 6).map((record) => (
-                <li key={record.id}>
-                  <span>{record.status === "succeeded" ? "通过" : "失败"} · {record.probe_kind === "mediacrawler_start" ? "MediaCrawler 实际采集" : record.probe_kind === "mcp_tools_list" ? "MCP 工具目录" : "HTTP 动作定义"}</span>
-                  <small>{record.checked_at} · {record.probe_kind === "mediacrawler_start" ? "历史采集测试" : `${record.tool_count} 个工具`} · {record.duration_ms}ms{record.error_code ? ` · ${record.error_code}` : ""}</small>
-                </li>
-              ))}
-            </ul>
+      {configDirty && activeTab !== "config" && <p className="connector-config-dirty-note muted" role="status">接入配置有未保存改动，草稿已保留；测试使用已保存配置。<button type="button" className="btn text" onClick={() => selectTab("config")}>返回配置</button></p>}
+      {mountNeeded && <div className="connector-detail-mount" data-connector-detail-mount>
+        <p className="muted">启用还差一步：至少一个技能把它已登记的工具挂到可用状态。可以按技能定义一次挂好；挂载不启用连接器。</p>
+        <button type="button" className="btn text" data-connector-detail-mount-declared disabled={declaredMount.busy} onClick={declaredMount.mount}>{declaredMount.busy ? "挂载中…" : "按技能定义挂载工具"}</button>
+        {declaredMount.receipt && <p className="runtime-notice" role="status">{declaredMount.receipt}现在可以再点「启用连接器」。</p>}
+        {declaredMount.failure && <p className="error" role="alert">{declaredMount.failure}</p>}
+      </div>}
+      <div className="connector-detail-tabs" role="tablist" aria-label="连接器管理导航" data-connector-detail-tabs>
+        {DETAIL_TABS.map((tab, index) => <button
+          key={tab.id} ref={(node) => { tabButtons.current[tab.id] = node; }}
+          type="button" role="tab" id={`connector-tab-${card.id}-${tab.id}`}
+          aria-selected={activeTab === tab.id} aria-controls={`connector-panel-${card.id}-${tab.id}`}
+          tabIndex={activeTab === tab.id ? 0 : -1} data-connector-detail-tab={tab.id}
+          onClick={() => selectTab(tab.id)}
+          onKeyDown={(event) => {
+            let target: DetailTab | null = null;
+            if (event.key === "ArrowRight") target = DETAIL_TABS[(index + 1) % DETAIL_TABS.length].id;
+            if (event.key === "ArrowLeft") target = DETAIL_TABS[(index - 1 + DETAIL_TABS.length) % DETAIL_TABS.length].id;
+            if (event.key === "Home") target = DETAIL_TABS[0].id;
+            if (event.key === "End") target = DETAIL_TABS[DETAIL_TABS.length - 1].id;
+            if (target) { event.preventDefault(); selectTab(target, true); }
+          }}
+        >
+          <span className="connector-detail-tab-label">{tab.label}</span>
+          {tab.id === "tools" && toolCount !== null && <span className="connector-detail-tab-count" aria-label={`${toolCount} 个工具`}>{toolCount}</span>}
+          {tab.id === "config" && configDirty && <span className="connector-detail-tab-count">未保存</span>}
+        </button>)}
+      </div>
+      <div {...panelProps("config")}>
+        <ConnectorConfigCard card={card} reload={reload} onConfigLoaded={onConfigLoaded} onDirtyChange={setConfigDirty} onSaved={() => { setNeedsTest(true); void loadActivity(); }} />
+      </div>
+      <div {...panelProps("tools")}>
+        {(visited.has("tools") || activeTab === "tools") && <ConnectorToolsCard connectorId={card.id} onToolCountChange={setToolCount} />}
+      </div>
+      <div {...panelProps("credentials")}>
+        {(visited.has("credentials") || activeTab === "credentials") && <ConnectorCredentialBindings config={config} configVersion={configVersion} configLoaded={configVersion !== null} onOpenConfig={() => selectTab("config")} />}
+      </div>
+      <div {...panelProps("audit")}>
+        <section className="panel connector-detail-card" data-connector-audit>
+          <div className="connector-card-head"><div><h3>测试与审计</h3><p className="muted">测试只验证目录或已定义接口，不代表业务动作可用；记录不显示秘密或凭据原值。</p></div><button type="button" className="btn text" disabled={activityLoading} onClick={() => void loadActivity()}>刷新记录</button></div>
+          {activityLoading && <p className="muted" role="status">正在读取测试与治理记录…</p>}
+          {activityError && <div role="alert"><p className="error">{activityError}</p><button type="button" className="btn text" disabled={activityLoading} onClick={() => void loadActivity()}>重试读取记录</button></div>}
+          {activityError && activity && <p className="muted">以下为上一次成功读取的记录，可能已过期。</p>}
+          <div className="connector-audit-grid">
+            <div><strong>连接测试记录</strong>
+              {activity && !activity.probes.length && <p className="muted">尚无测试记录。</p>}
+              <ul className="connector-audit-list">{activity?.probes.slice(0, 6).map((record) => <li key={record.id}>
+                <span className={record.status === "succeeded" ? "status-ok" : "status-warn"}>{record.status === "succeeded" ? "通过" : "失败"} · {record.probe_kind === "mediacrawler_start" ? "MediaCrawler 实际采集" : record.probe_kind === "mcp_tools_list" ? "MCP 工具目录" : "HTTP 动作定义"}</span>
+                <small>{new Date(record.checked_at).toLocaleString("zh-CN", { hour12: false })} · {record.probe_kind === "mediacrawler_start" ? "历史采集测试" : `${record.tool_count} 个工具`} · {record.duration_ms}ms{record.error_code ? ` · ${record.error_code}` : ""}</small>
+              </li>)}</ul>
+            </div>
+            <div><strong>配置与治理记录</strong>
+              {!recentGovernance.length && activity && !activity.events.length && <p className="muted">暂无本连接器的治理记录。</p>}
+              <ul className="connector-audit-list">
+                {recentGovernance.map((row) => <li key={`gov-${String(row.id)}`}><span>{auditEventLabel(String(row.event_type))}</span><small>{String(row.ts || "")} · {String(row.actor || "系统")}</small></li>)}
+                {activity?.events.slice(0, 8).map((event) => <li key={`run-${event.id}`}><span>{auditEventLabel(event.event_type)}</span><small>{event.ts} · {event.actor === "usr_sriphy" ? "sriphy" : event.actor || "系统"}</small></li>)}
+              </ul>
+            </div>
           </div>
-          <div>
-            <strong>治理与运行记录</strong>
-            {!recentGovernance.length && activity && !activity.events.length && <p className="muted">暂无本连接器的治理记录。</p>}
-            <ul className="connector-audit-list">
-              {recentGovernance.map((row) => (
-                <li key={`gov-${String(row.id)}`}>
-                  <span>{auditEventLabel(String(row.event_type))}</span>
-                  <small>{String(row.ts || "")} · {String(row.actor || "系统")}</small>
-                </li>
-              ))}
-              {activity?.events.slice(0, 8).map((event) => (
-                <li key={`run-${event.id}`}>
-                  <span>{event.event_type}</span>
-                  <small>{event.ts} · {event.actor === "usr_sriphy" ? "sriphy" : event.actor || "系统"}</small>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      </details>
+        </section>
+      </div>
     </section>
   );
 }

@@ -149,7 +149,7 @@ test('configuration on a narrow screen keeps all controls within the dialog', as
 
 test('standalone detail preserves the existing note and save layout', async ({ page }) => {
   await fixture(page);
-  await page.goto('/admin/connectors/claw');
+  await page.goto('/admin/connectors/claw?tab=config');
   const card = page.locator('[data-connector-config-card]');
   await expect(card.locator('[data-connector-field="label"]')).toBeVisible();
   await expect(card).not.toHaveClass(/connector-config-compact/);

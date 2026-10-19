@@ -2481,3 +2481,286 @@
     gap: var(--space-2);
   }
 }
+
+/* Connector detail tabs, references, and the detail-only compact tool catalog. */
+.connector-detail .connector-detail-tabs {
+  display: flex;
+  gap: var(--workspace-tab-gap);
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: thin;
+}
+.connector-detail .connector-detail-tabs > button[role="tab"] {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--workspace-tab-h);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--ds-font-sm);
+  cursor: pointer;
+  transition: color var(--duration-control);
+}
+.connector-detail .connector-detail-tabs > button[role="tab"][aria-selected="true"] {
+  color: var(--accent-text);
+  font-weight: 500;
+}
+.connector-detail .connector-detail-tabs > button[role="tab"][aria-selected="true"]::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: var(--workspace-tab-indicator-h);
+  background: var(--accent);
+  content: "";
+}
+.connector-detail .connector-detail-tabs > button[role="tab"]:hover:not(:disabled) {
+  color: var(--text);
+}
+.connector-detail .connector-detail-tabs > button[role="tab"]:focus-visible,
+.connector-detail .connector-tool-catalog-compact select:focus-visible,
+.connector-detail .connector-tool-catalog-compact .connector-tool-schema-button:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+.connector-detail .connector-detail-tabs > button[role="tab"]:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+.connector-detail .connector-detail-tab-label {
+  white-space: nowrap;
+}
+.connector-detail .connector-detail-tab-count {
+  color: var(--text-quiet);
+  font-size: var(--ds-font-xs);
+  font-weight: 400;
+}
+.connector-detail .connector-detail-panel[hidden] {
+  display: none !important;
+}
+.connector-detail .connector-detail-test-status {
+  margin: 0;
+  color: var(--text-quiet);
+  font-size: var(--ds-font-xs);
+}
+.connector-detail .connector-config-footer {
+  position: sticky;
+  z-index: 1;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-inline: calc(var(--space-4) * -1);
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+.connector-detail .connector-config-dirty-note {
+  margin: 0;
+  color: var(--text-quiet);
+  font-size: var(--ds-font-xs);
+}
+.connector-detail .connector-credential-bindings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-4);
+}
+.connector-detail .connector-credential-reference-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.connector-detail .connector-credential-reference-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.connector-detail .connector-tool-catalog-compact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.connector-detail .connector-tool-catalog-compact .connector-search {
+  width: min(100%, var(--workspace-search-max-w));
+  min-width: 0;
+}
+.connector-detail .connector-tool-catalog-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-2);
+}
+.connector-detail .connector-tool-catalog-filters > label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  color: var(--text-quiet);
+  font-size: var(--ds-font-xs);
+}
+.connector-detail .connector-tool-catalog-filters select {
+  min-width: 0;
+  height: var(--control-h-sm);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--ds-font-sm);
+}
+.connector-detail .connector-tool-catalog-category-note,
+.connector-detail .connector-tool-catalog-count {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--ds-font-xs);
+}
+.connector-detail .connector-tool-catalog-compact .connector-tools-list {
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+.connector-detail .connector-tool-catalog-compact .connector-tool-compact {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: var(--list-row-h-relaxed);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+}
+.connector-detail .connector-tool-catalog-compact .connector-tool-compact:last-child {
+  border-bottom: 0;
+}
+.connector-detail .connector-tool-catalog-compact .connector-tool-compact:hover {
+  background: var(--bg-subtle);
+}
+.connector-detail .connector-tool-catalog-compact .connector-tool-main {
+  min-width: 0;
+}
+.connector-detail .connector-tool-catalog-compact .connector-tool-description {
+  display: -webkit-box;
+  margin: var(--space-1) 0 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+.connector-detail .connector-tool-catalog-compact .connector-tool-compact-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.connector-detail .connector-tool-catalog-compact .connector-tool-category {
+  color: var(--text-quiet);
+  font-size: var(--ds-font-xs);
+  white-space: nowrap;
+}
+.connector-detail .connector-tool-catalog-compact .connector-tool-schema-button {
+  min-height: var(--control-h-sm);
+  padding: 0 var(--btn-text-pad-x);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--accent-text);
+  font-size: var(--ds-font-sm);
+  white-space: nowrap;
+}
+.connector-detail .connector-tool-catalog-compact .connector-tool-schema-button:hover:not(:disabled) {
+  background: var(--btn-text-hover-bg);
+}
+.connector-detail-tool-schema-drawer .connector-tool-schema-readonly {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.connector-detail-tool-schema-drawer .connector-tool-schema-readonly > p,
+.connector-detail-tool-schema-drawer .connector-tool-schema-readonly h4 {
+  margin: 0;
+}
+.connector-detail-tool-schema-drawer .connector-tool-schema-readonly dl,
+.connector-detail-tool-schema-drawer .connector-tool-schema-readonly dd {
+  margin: 0;
+}
+.connector-detail-tool-schema-drawer .connector-tool-schema-readonly dt {
+  color: var(--text-quiet);
+  font-size: var(--ds-font-xs);
+}
+.connector-detail-tool-schema-drawer .connector-tool-schema-readonly pre {
+  max-width: 100%;
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: var(--ds-font-xs);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.connector-detail-tool-schema-drawer :is(code, .runtime-hash),
+.connector-global-vault-drawer :is(code, .runtime-hash) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.connector-global-vault-drawer .runtime-vault,
+.connector-global-vault-drawer .runtime-vault-form {
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .connector-detail .connector-tool-catalog-compact .connector-tool-compact {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .connector-detail .connector-tool-catalog-compact .connector-tool-compact-meta {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+  .connector-global-vault-drawer .runtime-vault-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (pointer: coarse) {
+  .connector-detail .connector-detail-tabs > button[role="tab"],
+  .connector-detail .connector-tool-catalog-compact select,
+  .connector-detail .connector-tool-catalog-compact .connector-tool-schema-button {
+    min-height: var(--touch-hit-min);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .connector-detail .connector-detail-tabs > button[role="tab"] {
+    transition: none;
+  }
+}

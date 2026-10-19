@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Form } from "antd";
 import { api } from "../../api";
@@ -22,7 +22,7 @@ function secretRowsFromConfig(config: RuntimeConnectorConfig): SecretRow[] {
   return rows.length ? rows : [{ name: "", value: "" }];
 }
 
-export function ConnectorConfigCard({ card, reload, embedded = false, saveFooterHost, onSaved, onLoaded }: {
+export function ConnectorConfigCard({ card, reload, embedded = false, saveFooterHost, onSaved, onLoaded, onConfigLoaded, onDirtyChange }: {
   card: ConnectorCardView;
   reload: () => void;
   /** Rendered inside the setup wizard: heading drops and save becomes that step's primary action. */
@@ -32,6 +32,9 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
   onSaved?: (version: number) => void;
   /** Reports the server's stored config version after each load (0 when none is saved). */
   onLoaded?: (version: number, probeMode?: "directory" | "mediacrawler_start") => void;
+  /** Reference-only snapshot for the detail page; never includes secret values. */
+  onConfigLoaded?: (config: RuntimeConnectorConfig | null, version: number) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -56,6 +59,21 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const snapshot = JSON.stringify([label, purpose, protocol, transport, url, urlEnv, timeoutMs, noAuth, secretRows, envRefs, bearerRef, bearerEnv, httpTools]);
+  const savedSnapshot = useRef<string | null>(null);
+  // The baseline is taken only after an explicit config load, never on Tab switches.
+  const captureBaseline = useRef(true);
+  useEffect(() => {
+    if (loading || loadError) return;
+    if (captureBaseline.current) {
+      savedSnapshot.current = snapshot;
+      captureBaseline.current = false;
+    }
+    const changed = snapshot !== savedSnapshot.current || iconFile !== null;
+    setDirty(changed);
+    onDirtyChange?.(changed);
+  }, [snapshot, iconFile, loading, loadError, onDirtyChange]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -66,6 +84,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
       const config = result.config;
       setVersion(result.version);
       onLoaded?.(result.version, result.probe_mode);
+      onConfigLoaded?.(config, result.version);
       setProtocol(config.protocol === "http" ? "http" : "mcp");
       setTransport(config.transport === "sse" ? "sse" : "streamable-http");
       setUrl(config.url || "");
@@ -82,6 +101,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
       if (status === 404) {
         setVersion(0);
         onLoaded?.(0);
+        onConfigLoaded?.(null, 0);
         setSecretRows([{ name: "", value: "" }]);
         setEnvRefs({});
         setBearerRef("");
@@ -93,9 +113,10 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
         setLoadError(errorMessage(cause, "无法读取连接器配置"));
       }
     } finally {
+      captureBaseline.current = true;
       setLoading(false);
     }
-  }, [card.id, card.protocol, onLoaded]);
+  }, [card.id, card.protocol, onLoaded, onConfigLoaded]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { setLabel(card.label); setPurpose(card.purpose); }, [card.label, card.purpose]);
@@ -207,7 +228,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
           <span>配置改动后须重新测试，通过后方可启用。</span>
         </p>
       ) : (
-        <p className="connector-panel-note muted">保存只更新配置，不等于连通或启用；改动后需重新测试。</p>
+        <p className="connector-panel-note muted">{dirty ? "有未保存改动；切换 Tab 会保留草稿。" : "保存只更新配置，不等于连通或启用；改动后需重新测试。"}</p>
       )}
       <button
         type="button"
@@ -218,7 +239,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
         aria-busy={busy}
         onClick={() => void submit()}
       >
-        {busy ? "保存中…" : "保存"}
+        {busy ? "保存中…" : embedded ? "保存" : "保存配置"}
       </button>
     </>
   );
@@ -375,7 +396,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
           </Form>
           {embedded
             ? saveFooterHost && createPortal(saveAction, saveFooterHost)
-            : <div className="connector-card-actions">{saveAction}</div>}
+            : <div className="connector-card-actions connector-config-footer">{saveAction}</div>}
         </>
       )}
     </section>
