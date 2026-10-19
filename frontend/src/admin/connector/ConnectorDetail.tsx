@@ -16,6 +16,7 @@ import { friendlyEnableFailure } from "./connectorSetup";
 import { connectorCardView, kindLabel } from "./entity";
 import { useDeclaredToolMount } from "./useDeclaredToolMount";
 import "./connectorAdmin.css";
+import "./connectorDetail.css";
 
 type ProbeRecord = {
   id: number;
@@ -38,6 +39,10 @@ const DETAIL_TABS = [
 type DetailTab = typeof DETAIL_TABS[number]["id"];
 function isDetailTab(value: string | null): value is DetailTab {
   return DETAIL_TABS.some((tab) => tab.id === value);
+}
+function recordTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-CN", { hour12: false });
 }
 function codeOf(cause: unknown): string {
   const payload = (cause as { payload?: { code?: unknown; error_code?: unknown } } | null)?.payload;
@@ -109,6 +114,16 @@ function ConnectorDetailContent({ connectorId, connectors, auditRows, reload }: 
     }
   }, []);
   useEffect(() => { setVisited((current) => current.has(activeTab) ? current : new Set([...current, activeTab])); }, [activeTab]);
+  useEffect(() => {
+    const tab = tabButtons.current[activeTab];
+    const rail = tab?.parentElement;
+    if (!tab || !rail) return;
+    const button = tab.getBoundingClientRect();
+    const viewport = rail.getBoundingClientRect();
+    // Reveal only the horizontal tab strip; do not disturb the panel's saved scroll.
+    if (button.left < viewport.left) rail.scrollLeft += button.left - viewport.left;
+    else if (button.right > viewport.right) rail.scrollLeft += button.right - viewport.right;
+  }, [activeTab]);
   // Keep each panel mounted after its first visit, including secret drafts in memory only.
   // Scroll belongs to the existing admin scroll container, not the document/iframe.
   useLayoutEffect(() => {
@@ -195,6 +210,7 @@ function ConnectorDetailContent({ connectorId, connectors, auditRows, reload }: 
     "aria-labelledby": `connector-tab-${card.id}-${id}`,
     hidden: activeTab !== id,
     className: "connector-detail-panel",
+    tabIndex: 0,
     "data-connector-detail-panel": id,
   });
 
@@ -266,25 +282,26 @@ function ConnectorDetailContent({ connectorId, connectors, auditRows, reload }: 
       </div>
       <div {...panelProps("audit")}>
         <section className="panel connector-detail-card" data-connector-audit>
-          <div className="connector-card-head"><div><h3>测试与审计</h3><p className="muted">测试只验证目录或已定义接口，不代表业务动作可用；记录不显示秘密或凭据原值。</p></div><button type="button" className="btn text" disabled={activityLoading} onClick={() => void loadActivity()}>刷新记录</button></div>
+          <div className="connector-card-head"><div><h3>测试与审计</h3><p className="muted">测试只验证目录或已定义接口，不代表业务动作可用；记录不显示秘密或凭据原值。</p></div><button type="button" className="btn text" disabled={activityLoading} aria-busy={activityLoading} data-connector-audit-refresh onClick={() => void loadActivity()}>{activityLoading ? "读取中…" : "刷新记录"}</button></div>
           {activityLoading && <p className="muted" role="status">正在读取测试与治理记录…</p>}
           {activityError && <div role="alert"><p className="error">{activityError}</p><button type="button" className="btn text" disabled={activityLoading} onClick={() => void loadActivity()}>重试读取记录</button></div>}
           {activityError && activity && <p className="muted">以下为上一次成功读取的记录，可能已过期。</p>}
           <div className="connector-audit-grid">
-            <div><strong>连接测试记录</strong>
+            <section className="connector-audit-section" aria-label="连接测试记录"><h4>连接测试记录</h4>
               {activity && !activity.probes.length && <p className="muted">尚无测试记录。</p>}
               <ul className="connector-audit-list">{activity?.probes.slice(0, 6).map((record) => <li key={record.id}>
-                <span className={record.status === "succeeded" ? "status-ok" : "status-warn"}>{record.status === "succeeded" ? "通过" : "失败"} · {record.probe_kind === "mediacrawler_start" ? "MediaCrawler 实际采集" : record.probe_kind === "mcp_tools_list" ? "MCP 工具目录" : "HTTP 动作定义"}</span>
-                <small>{new Date(record.checked_at).toLocaleString("zh-CN", { hour12: false })} · {record.probe_kind === "mediacrawler_start" ? "历史采集测试" : `${record.tool_count} 个工具`} · {record.duration_ms}ms{record.error_code ? ` · ${record.error_code}` : ""}</small>
+                <div className="connector-audit-record-head"><span className={"connector-audit-result " + (record.status === "succeeded" ? "status-ok" : "status-warn")}>{record.status === "succeeded" ? "通过" : "失败"}</span><span>{record.probe_kind === "mediacrawler_start" ? "MediaCrawler 实际采集" : record.probe_kind === "mcp_tools_list" ? "MCP 工具目录" : "HTTP 动作定义"}</span></div>
+                <div className="connector-audit-record-meta muted"><time dateTime={record.checked_at}>{recordTime(record.checked_at)}</time><span>{record.probe_kind === "mediacrawler_start" ? "历史采集测试" : `${record.tool_count} 个工具`}</span><span>{record.duration_ms} ms</span>{record.config_version !== undefined && <span>配置 v{record.config_version}</span>}</div>
+                {record.error_code && <code className="connector-audit-error-code">{record.error_code}</code>}
               </li>)}</ul>
-            </div>
-            <div><strong>配置与治理记录</strong>
+            </section>
+            <section className="connector-audit-section" aria-label="配置与治理记录"><h4>配置与治理记录</h4>
               {!recentGovernance.length && activity && !activity.events.length && <p className="muted">暂无本连接器的治理记录。</p>}
               <ul className="connector-audit-list">
-                {recentGovernance.map((row) => <li key={`gov-${String(row.id)}`}><span>{auditEventLabel(String(row.event_type))}</span><small>{String(row.ts || "")} · {String(row.actor || "系统")}</small></li>)}
-                {activity?.events.slice(0, 8).map((event) => <li key={`run-${event.id}`}><span>{auditEventLabel(event.event_type)}</span><small>{event.ts} · {event.actor === "usr_sriphy" ? "sriphy" : event.actor || "系统"}</small></li>)}
+                {recentGovernance.map((row) => <li key={`gov-${String(row.id)}`}><div className="connector-audit-record-head">{auditEventLabel(String(row.event_type))}</div><div className="connector-audit-record-meta muted"><time dateTime={String(row.ts || "")}>{recordTime(String(row.ts || ""))}</time><span>{String(row.actor || "系统")}</span></div></li>)}
+                {activity?.events.slice(0, 8).map((event) => <li key={`run-${event.id}`}><div className="connector-audit-record-head">{auditEventLabel(event.event_type)}</div><div className="connector-audit-record-meta muted"><time dateTime={event.ts}>{recordTime(event.ts)}</time><span>{event.actor === "usr_sriphy" ? "sriphy" : event.actor || "系统"}</span></div></li>)}
               </ul>
-            </div>
+            </section>
           </div>
         </section>
       </div>
