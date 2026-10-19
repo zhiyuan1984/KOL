@@ -23,6 +23,10 @@ RUN cd /app/backend && npm install --omit=dev --ignore-scripts=false --foregroun
   && (npm rebuild esbuild --ignore-scripts=false || node ./node_modules/esbuild/install.js)
 COPY backend /app/backend
 COPY shared /app/shared
+COPY config /app/config
+COPY agents /app/agents
+COPY experts /app/experts
+COPY policies /app/policies
 COPY --from=fe /src/frontend/dist /app/frontend/dist
 ENV LINGONG_DATA=/app/data
 ENV CODEX_MODE=real
