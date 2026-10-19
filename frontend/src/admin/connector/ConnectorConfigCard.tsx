@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Form } from "antd";
 import { api } from "../../api";
@@ -20,6 +20,13 @@ type SecretRow = { name: string; value: string; ref?: string; removed?: boolean 
 function secretRowsFromConfig(config: RuntimeConnectorConfig): SecretRow[] {
   const rows = Object.entries(config.headers_secret_refs || {}).map(([name, ref]) => ({ name, value: "", ref }));
   return rows.length ? rows : [{ name: "", value: "" }];
+}
+
+function ConfigSection({ embedded, title, children }: { embedded: boolean; title: string; children: ReactNode }) {
+  // The existing wizard keeps its direct flex children and its own density.
+  return embedded ? <>{children}</> : <section className="connector-config-section" aria-label={title}>
+    <h4>{title}</h4><div className="connector-config-fields">{children}</div>
+  </section>;
 }
 
 export function ConnectorConfigCard({ card, reload, embedded = false, saveFooterHost, onSaved, onLoaded, onConfigLoaded, onDirtyChange }: {
@@ -267,11 +274,12 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
           {error && <p className="error" role="alert" data-connector-config-error>{error}</p>}
           {notice && <p className="runtime-notice" role="status">{notice}</p>}
           <Form component="div" layout="horizontal" className="connector-config-form">
+          <ConfigSection embedded={embedded} title="基础信息">
           <div className="connector-form-grid">
-            <label className="field connector-config-inline"><span className="connector-config-label">服务器名称</span>
+            <label className="field connector-config-inline connector-field-name"><span className="connector-config-label">服务器名称</span>
               <input value={label} maxLength={120} data-connector-field="label" onChange={(event) => setLabel(event.target.value)} />
             </label>
-            {protocol === "mcp" && <label className="field connector-config-inline"><span className="connector-config-label">传输类型</span>
+            {protocol === "mcp" && <label className="field connector-config-inline connector-field-transport"><span className="connector-config-label">传输类型</span>
               <select value={transport} data-connector-field="transport" onChange={(event) => setTransport(event.target.value as RuntimeConnectorTransport)}>
                 <option value="streamable-http">HTTP</option>
                 <option value="sse">SSE</option>
@@ -279,12 +287,12 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
             </label>}
           </div>
           <div className="field connector-config-inline"><span className="connector-config-label">图标</span>
-            <ConnectorIconUpload variant={embedded ? "compact" : "dialog"} file={iconFile} existingUrl={card.iconUrl} onPick={setIconFile} />
+            <ConnectorIconUpload variant="compact" file={iconFile} existingUrl={card.iconUrl} onPick={setIconFile} />
           </div>
-          <label className="field connector-config-purpose"><span className={embedded ? "sr-only" : undefined}>备注<span className="field-optional">（可选）</span></span>
+          <label className="field connector-config-inline connector-config-purpose"><span className={embedded ? "sr-only" : "connector-config-label"}>备注<span className="field-optional">（可选）</span></span>
             <textarea
               value={purpose}
-              rows={embedded ? 2 : 5}
+              rows={2}
               maxLength={280}
               data-connector-field="purpose"
               placeholder={embedded ? "备注（可选）" : "提供 MCP 文档或说明，以告知平台如何及何时使用此 MCP"}
@@ -292,7 +300,9 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
               onChange={(event) => setPurpose(event.target.value)}
             />
           </label>
-          <label className="field connector-config-inline"><span className="connector-config-label">{protocol === "mcp" ? "服务器 URL" : "API Base URL"}</span>
+          </ConfigSection>
+          <ConfigSection embedded={embedded} title="端点与鉴权">
+          <label className="field connector-config-inline connector-field-url"><span className="connector-config-label">{protocol === "mcp" ? "服务器 URL" : "API Base URL"}</span>
             <input
               value={url}
               placeholder={urlEnv
@@ -338,7 +348,11 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
           <div className="field connector-config-inline connector-config-headers"><span className="connector-config-label">自定义 headers</span>
             <div className="connector-header-rows" data-connector-header-rows>
               {secretRows.map((row, index) => (
-                <div className="connector-header-row" key={index}>
+                <div className={"connector-header-row" + (row.removed ? " is-pending-removal" : "")} key={index}>
+                  {row.removed ? <div className="connector-header-removal" data-connector-header-removal>
+                    <span className="muted" role="status">已标记移除 <code>{row.name}</code>，保存后生效。</span>
+                    <button type="button" className="btn text" disabled={busy} onClick={() => updateRow(index, { removed: false })}>撤销移除</button>
+                  </div> : <>
                   <HeaderNameInput
                     value={row.name}
                     ariaLabel="Header 名称"
@@ -369,6 +383,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
                     <svg viewBox="0 0 16 16" aria-hidden><path d="M3 4.5h10M6.5 4.5V3h3v1.5M5 4.5l.6 8h4.8l.6-8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
                   </button>
                   <HeaderNameHint name={row.name} bearerReference={Boolean(bearerRef || bearerEnv)} />
+                  </>}
                 </div>
               ))}
               <button type="button" className="btn sm" disabled={busy} data-connector-header-add onClick={() => setSecretRows((rows) => [...rows, { name: "", value: "" }])}>
@@ -385,14 +400,17 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
               {bearerRef && <li>Bearer 凭据引用 · <code>{bearerRef}</code>（不回显）</li>}
             </ul>
           )}
+          </ConfigSection>
+          <ConfigSection embedded={embedded} title="请求选项">
           <div className="connector-form-grid">
-            <label className="field connector-config-inline"><span className="connector-config-label">超时（毫秒）</span>
-              <input type="number" min="1" max="120000" value={timeoutMs} onChange={(event) => setTimeoutMs(event.target.value)} />
+            <label className="field connector-config-inline connector-field-timeout"><span className="connector-config-label">超时（毫秒）</span>
+              <input type="number" min="1" max="120000" value={timeoutMs} data-connector-field="timeout" onChange={(event) => setTimeoutMs(event.target.value)} />
             </label>
             <label className="check connector-check-row">
               <input type="checkbox" checked={noAuth} onChange={(event) => setNoAuth(event.target.checked)} /> 该端点明确允许无鉴权
             </label>
           </div>
+          </ConfigSection>
           </Form>
           {embedded
             ? saveFooterHost && createPortal(saveAction, saveFooterHost)
