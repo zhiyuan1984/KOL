@@ -13,14 +13,27 @@ vi.mock("../../components/WorkspaceSearchInput", () => ({
   default: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
 }));
 vi.mock("antd", () => ({
-  Drawer: ({ open, title, children, className, onClose }: {
+  Drawer: ({ open, title, children, className, keyboard, onClose, afterOpenChange }: {
     open?: boolean;
     title?: React.ReactNode;
     children?: React.ReactNode;
     className?: string;
+    keyboard?: boolean;
     onClose?: () => void;
+    afterOpenChange?: (open: boolean) => void;
   }) => open ? (
-    <aside className={className} role="dialog" aria-label={typeof title === "string" ? title : "工具 Schema"}>
+    <aside
+      className={className}
+      role="dialog"
+      tabIndex={-1}
+      aria-label={typeof title === "string" ? title : "工具 Schema"}
+      onKeyDown={(event) => {
+        if (keyboard && event.key === "Escape") {
+          onClose?.();
+          queueMicrotask(() => afterOpenChange?.(false));
+        }
+      }}
+    >
       <button type="button" onClick={onClose}>关闭</button>
       {children}
     </aside>
@@ -82,7 +95,33 @@ afterEach(() => {
 });
 
 describe("ConnectorToolsReadOnlyList detail mode", () => {
-  it("filters by name/description, platform risk, and platform enablement without changing policy values", async () => {
+  it("keeps public non-detail search and inline read-only Schema behavior unchanged", async () => {
+    await act(async () => {
+      root.render(<ConnectorToolsReadOnlyList connectorId="connector-a" filterable />);
+    });
+    await flush();
+
+    expect(host.querySelector("[data-connector-tools-toolbar]")).toBeNull();
+    expect(host.querySelector("[data-connector-tools-category-filter]")).toBeNull();
+    expect(host.querySelector("details.runtime-schema")).not.toBeNull();
+    expect(host.querySelector("[role=dialog]")).toBeNull();
+
+    const search = host.querySelector("[data-connector-drawer-search]") as HTMLInputElement;
+    act(() => setControlValue(search, "email"));
+    await flush();
+    expect(host.querySelector('[data-connector-tool="list_profiles"]')).toBeNull();
+    expect(host.querySelector('[data-connector-tool="send_email"]')).not.toBeNull();
+
+    act(() => setControlValue(search, "does-not-exist"));
+    await flush();
+    expect(host.textContent).toContain("没有匹配的工具");
+    expect(host.querySelector("[data-connector-tools-filter-empty]")).toBeNull();
+    expect(host.querySelector("[data-connector-tools-filter-empty-reset]")).toBeNull();
+    expect(connectorApi.runtimeConnectorDiscovery).toHaveBeenCalledOnce();
+    expect(connectorApi.runtimeConnectorPolicies).toHaveBeenCalledOnce();
+  });
+
+  it("combines search and three filters in a toolbar and announces the dynamic result count", async () => {
     const onToolCountChange = vi.fn();
     await act(async () => {
       root.render(<ConnectorToolsReadOnlyList connectorId="connector-a" compact detailMode filterable onToolCountChange={onToolCountChange} />);
@@ -90,6 +129,10 @@ describe("ConnectorToolsReadOnlyList detail mode", () => {
     await flush();
 
     expect(onToolCountChange).toHaveBeenLastCalledWith(2);
+    const toolbar = host.querySelector("[data-connector-tools-toolbar]");
+    expect(toolbar).not.toBeNull();
+    expect(toolbar?.querySelectorAll("[data-connector-tools-category-filter], [data-connector-tools-risk-filter], [data-connector-tools-platform-filter]")).toHaveLength(3);
+    expect(host.querySelector("[data-connector-tools-count]")?.getAttribute("aria-live")).toBe("polite");
     expect(host.querySelector("[data-connector-tools-count]")?.textContent).toContain("数量来源为最近一次服务端工具发现");
     expect(host.querySelector('[data-connector-tool="list_profiles"]')).not.toBeNull();
     expect(host.querySelector('[data-connector-tool="send_email"]')).not.toBeNull();
@@ -116,15 +159,58 @@ describe("ConnectorToolsReadOnlyList detail mode", () => {
     expect(host.textContent).toContain("平台风险 L3");
   });
 
-  it("shows the complete schema in a read-only Drawer", async () => {
+  it("clears local filter conditions without requesting a new discovery", async () => {
+    await act(async () => {
+      root.render(<ConnectorToolsReadOnlyList connectorId="connector-a" compact detailMode filterable />);
+    });
+    await flush();
+
+    const risk = host.querySelector("[data-connector-tools-risk-filter]") as HTMLSelectElement;
+    act(() => setControlValue(risk, "L1"));
+    await flush();
+    expect(host.querySelector('[data-connector-tool="list_profiles"]')).not.toBeNull();
+    expect(host.querySelector('[data-connector-tool="send_email"]')).toBeNull();
+
+    const clear = host.querySelector<HTMLButtonElement>("[data-connector-tools-clear-filters]");
+    expect(clear?.textContent).toContain("清空筛选");
+    act(() => clear?.click());
+    await flush();
+    expect(risk.value).toBe("all");
+    expect(host.querySelector('[data-connector-tool="list_profiles"]')).not.toBeNull();
+    expect(host.querySelector('[data-connector-tool="send_email"]')).not.toBeNull();
+    expect(connectorApi.runtimeConnectorDiscovery).toHaveBeenCalledOnce();
+    expect(connectorApi.runtimeConnectorPolicies).toHaveBeenCalledOnce();
+  });
+
+  it("offers a local recovery entry when active filters have no matches", async () => {
+    await act(async () => {
+      root.render(<ConnectorToolsReadOnlyList connectorId="connector-a" compact detailMode filterable />);
+    });
+    await flush();
+
+    const search = host.querySelector("[data-connector-drawer-search]") as HTMLInputElement;
+    act(() => setControlValue(search, "does-not-exist"));
+    await flush();
+    expect(host.querySelector("[data-connector-tools-filter-empty]")?.textContent).toContain("没有匹配的工具");
+    expect(host.querySelector("[data-connector-tools-filter-empty-reset]")?.textContent).toContain("恢复全部工具");
+
+    act(() => host.querySelector<HTMLButtonElement>("[data-connector-tools-filter-empty-reset]")?.click());
+    await flush();
+    expect(search.value).toBe("");
+    expect(host.querySelector("[data-connector-tools-filter-empty]")).toBeNull();
+    expect(host.querySelectorAll("[data-connector-tool]")).toHaveLength(2);
+    expect(connectorApi.runtimeConnectorDiscovery).toHaveBeenCalledOnce();
+  });
+
+  it("shows the complete schema in a read-only Drawer and restores trigger focus after Escape", async () => {
     await act(async () => {
       root.render(<ConnectorToolsReadOnlyList connectorId="connector-a" compact detailMode />);
     });
     await flush();
 
-    const schemaButton = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "查看 Schema");
+    const schemaButton = host.querySelector<HTMLButtonElement>('[aria-label="查看 list_profiles 的 Schema（只读）"]');
     expect(schemaButton).toBeTruthy();
-    act(() => schemaButton?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    act(() => schemaButton?.click());
     await flush();
 
     const drawer = host.querySelector("[data-connector-tools-catalog] .connector-detail-tool-schema-drawer");
@@ -133,5 +219,13 @@ describe("ConnectorToolsReadOnlyList detail mode", () => {
     expect(drawer?.textContent).toContain('"limit"');
     expect(drawer?.querySelector("input, textarea, select")).toBeNull();
     expect(drawer?.textContent).toContain("不提供执行、授权或范围操作");
+
+    const close = drawer?.querySelector<HTMLButtonElement>("button");
+    close?.focus();
+    act(() => drawer?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await flush();
+    await act(async () => { await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())); });
+    expect(host.querySelector("[role=dialog]")).toBeNull();
+    expect(document.activeElement).toBe(schemaButton);
   });
 });

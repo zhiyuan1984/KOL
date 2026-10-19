@@ -152,16 +152,79 @@ export function ConnectorToolsReadOnlyList({
       || (platformStatusFilter === "enabled" ? policy?.enabled === true : policy?.enabled !== true);
     return matchesSearch && matchesCategory && matchesRisk && matchesPlatformStatus;
   }), [categoryFilter, connectorId, needle, platformStatusFilter, policyByTool, riskFilter, tools]);
+  const hasActiveFilters = Boolean(needle)
+    || categoryFilter !== "all"
+    || riskFilter !== "all"
+    || platformStatusFilter !== "all";
+
+  const clearFilters = useCallback(() => {
+    setQ("");
+    setCategoryFilter("all");
+    setRiskFilter("all");
+    setPlatformStatusFilter("all");
+  }, []);
 
   const openSchema = useCallback((tool: RuntimeToolDefinition, trigger: HTMLButtonElement) => {
     schemaTriggerRef.current = trigger;
     setSchemaTool(tool);
   }, []);
-  const closeSchema = useCallback(() => setSchemaTool(null), []);
+  const closeSchema = useCallback(() => {
+    setSchemaTool(null);
+    // Early ESC can close before Drawer has emitted its opening animation event.
+    // In that path destroyOnHidden skips afterOpenChange(false), so restore here too.
+    requestAnimationFrame(() => schemaTriggerRef.current?.focus({ preventScroll: true }));
+  }, []);
 
   const content = (
     <>
-      {(filterable || detailMode) && (
+      {detailMode ? (
+        <div className="connector-tool-catalog-toolbar" data-connector-tools-toolbar>
+          <WorkspaceSearchInput
+            className="connector-search connector-drawer-search connector-search-input connector-tool-catalog-toolbar-search"
+            data-connector-drawer-search
+            placeholder="搜索工具"
+            aria-label="搜索工具"
+            value={q}
+            onChange={(event) => setQ(event.target.value)}
+          />
+
+          <div className="connector-tool-catalog-filters" role="group" aria-label="工具目录筛选">
+            <label className="connector-tool-catalog-filter">
+              <span className="connector-tool-catalog-filter-label">展示分类</span>
+              <select className="connector-tool-catalog-filter-control" data-connector-tools-category-filter value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value as "all" | ToolDisplayCategory)}>
+                <option value="all">全部分类</option>
+                {categories.map((category) => <option value={category} key={category}>{category}</option>)}
+              </select>
+            </label>
+            <label className="connector-tool-catalog-filter">
+              <span className="connector-tool-catalog-filter-label">平台风险</span>
+              <select className="connector-tool-catalog-filter-control" data-connector-tools-risk-filter value={riskFilter} onChange={(event) => setRiskFilter(event.target.value as "all" | RuntimeToolPolicy["risk"])}>
+                <option value="all">全部风险</option>
+                <option value="L1">L1</option>
+                <option value="L2">L2</option>
+                <option value="L3">L3</option>
+              </select>
+            </label>
+            <label className="connector-tool-catalog-filter">
+              <span className="connector-tool-catalog-filter-label">平台状态</span>
+              <select className="connector-tool-catalog-filter-control" data-connector-tools-platform-filter value={platformStatusFilter} onChange={(event) => setPlatformStatusFilter(event.target.value as PlatformStatusFilter)}>
+                <option value="all">全部状态</option>
+                <option value="enabled">平台已启用</option>
+                <option value="disabled">平台未启用</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="connector-tool-catalog-toolbar-meta">
+            <p className="muted connector-tool-catalog-category-note">分类仅按工具名称和描述推导，仅供浏览；不构成授权或范围依据。</p>
+            {hasActiveFilters && (
+              <button type="button" className="btn text connector-tool-catalog-clear-filters" data-connector-tools-clear-filters onClick={clearFilters}>
+                清空筛选
+              </button>
+            )}
+          </div>
+        </div>
+      ) : filterable ? (
         <WorkspaceSearchInput
           className="connector-search connector-drawer-search connector-search-input"
           data-connector-drawer-search
@@ -170,40 +233,10 @@ export function ConnectorToolsReadOnlyList({
           value={q}
           onChange={(event) => setQ(event.target.value)}
         />
-      )}
-
-      {detailMode && (
-        <div className="connector-tool-catalog-filters" aria-label="工具目录筛选">
-          <label>
-            <span>展示分类</span>
-            <select data-connector-tools-category-filter value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value as "all" | ToolDisplayCategory)}>
-              <option value="all">全部分类</option>
-              {categories.map((category) => <option value={category} key={category}>{category}</option>)}
-            </select>
-          </label>
-          <label>
-            <span>平台风险</span>
-            <select data-connector-tools-risk-filter value={riskFilter} onChange={(event) => setRiskFilter(event.target.value as "all" | RuntimeToolPolicy["risk"])}>
-              <option value="all">全部风险</option>
-              <option value="L1">L1</option>
-              <option value="L2">L2</option>
-              <option value="L3">L3</option>
-            </select>
-          </label>
-          <label>
-            <span>平台状态</span>
-            <select data-connector-tools-platform-filter value={platformStatusFilter} onChange={(event) => setPlatformStatusFilter(event.target.value as PlatformStatusFilter)}>
-              <option value="all">全部状态</option>
-              <option value="enabled">平台已启用</option>
-              <option value="disabled">平台未启用</option>
-            </select>
-          </label>
-          <p className="muted connector-tool-catalog-category-note">分类仅由工具名称和描述推导，供浏览分组使用，不构成授权或范围依据。</p>
-        </div>
-      )}
+      ) : null}
 
       {detailMode && discovered && (
-        <p className="muted connector-tool-catalog-count" data-connector-tools-count>
+        <p className="muted connector-tool-catalog-count" data-connector-tools-count role="status" aria-live="polite" aria-atomic="true">
           已发现 {tools.length} 项；数量来源为最近一次服务端工具发现。当前显示 {visible.length} 项。
         </p>
       )}
@@ -233,7 +266,16 @@ export function ConnectorToolsReadOnlyList({
         <p className="muted" data-connector-tools-empty>该 MCP 当前没有返回任何工具。</p>
       )}
       {discovered && !discovering && !discoveryError && tools.length > 0 && !visible.length && (
-        <p className="muted">没有匹配的工具。</p>
+        detailMode ? (
+          <div className="connector-tool-catalog-filter-empty" data-connector-tools-filter-empty>
+            <p className="muted">没有匹配的工具。</p>
+            {hasActiveFilters && (
+              <button type="button" className="btn text connector-tool-catalog-filter-empty-reset" data-connector-tools-filter-empty-reset onClick={clearFilters}>
+                恢复全部工具
+              </button>
+            )}
+          </div>
+        ) : <p className="muted">没有匹配的工具。</p>
       )}
 
       {!policiesLoading && !policiesError && tools.length > 0 && (
@@ -251,16 +293,17 @@ export function ConnectorToolsReadOnlyList({
                   <span className="connector-tool-category">分类：{category}</span>
                   {policy
                     ? <span className={"runtime-risk risk-" + policy.risk.toLowerCase()}>平台风险 {policy.risk}</span>
-                    : <span className="chip">平台风险未记录</span>}
+                    : <span className={detailMode ? "connector-tool-platform-state muted" : "chip"}>平台风险未记录</span>}
                   {policy?.enabled
-                    ? <span className="chip chip-ok">平台已启用</span>
-                    : <span className="chip chip-warn">平台未启用 · 调用默认拒绝</span>}
+                    ? <span className={detailMode ? "connector-tool-platform-state status-ok" : "chip chip-ok"}>平台已启用</span>
+                    : <span className={detailMode ? "connector-tool-platform-state status-warn" : "chip chip-warn"}>平台未启用 · 调用默认拒绝</span>}
                 </div>
                 {detailMode ? (
                   <button
                     type="button"
                     className="btn connector-tool-schema-button"
                     aria-haspopup="dialog"
+                    aria-label={`查看 ${tool.name} 的 Schema（只读）`}
                     onClick={(event) => openSchema(tool, event.currentTarget)}
                   >
                     查看 Schema
@@ -310,13 +353,14 @@ export function ConnectorToolsReadOnlyList({
           className="connector-detail-tool-schema-drawer"
           destroyOnHidden
           keyboard
+          focusable={{ focusTriggerAfterClose: false }}
           open={Boolean(schemaTool)}
           placement="right"
           title={schemaTool ? `工具 Schema · ${schemaTool.name}` : "工具 Schema"}
           width="var(--drawer-w-md)"
           onClose={closeSchema}
           afterOpenChange={(open) => {
-            if (!open) schemaTriggerRef.current?.focus();
+            if (!open) requestAnimationFrame(() => schemaTriggerRef.current?.focus({ preventScroll: true }));
           }}
         >
           {schemaTool && (
@@ -364,13 +408,13 @@ export function ConnectorToolsCard({ connectorId, onToolCountChange }: Connector
         </div>
         <button
           type="button"
-          className="btn"
+          className="btn text connector-tools-discover-action"
           data-connector-tools-discover
           disabled={discovering}
           aria-busy={discovering}
           onClick={() => setRequestKey((value) => value + 1)}
         >
-          {discovering ? "正在重新发现…" : "重新发现"}
+          {discovering ? "读取中…" : "重新发现"}
         </button>
       </div>
       <ConnectorToolsReadOnlyList

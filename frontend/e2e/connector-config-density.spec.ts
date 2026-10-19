@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "./fixtures/connector-density-fixture";
 
 const connector = { id: "claw", label: "MediaCrawler MCP", purpose: "创作者采集、检索与画像数据", kind: "app", protocol: "mcp", status: "configured", enabled: 0 };
 const initialConfig = { protocol: "mcp", transport: "streamable-http", url: "https://mcp.example.test/mcp", timeout_ms: 30000, allow_unauthenticated: false, headers_secret_refs: { "X-API-Key": "cred_existing_test" } };
@@ -147,13 +148,14 @@ test('configuration on a narrow screen keeps all controls within the dialog', as
   await modal.locator('.connector-panel').screenshot({ path: test.info().outputPath('config-375.png') });
 });
 
-test('standalone detail preserves the existing note and save layout', async ({ page }) => {
+test('standalone detail uses the approved compact note and keeps its original save handler', async ({ page }) => {
   await fixture(page);
   await page.goto('/admin/connectors/claw?tab=config');
   const card = page.locator('[data-connector-config-card]');
   await expect(card.locator('[data-connector-field="label"]')).toBeVisible();
   await expect(card).not.toHaveClass(/connector-config-compact/);
-  await expect(card.locator('[data-connector-field="purpose"]')).toHaveAttribute('rows', '5');
+  await expect(card.locator('[data-connector-field="purpose"]')).toHaveAttribute('rows', '2');
   await expect(card.locator('.connector-card-actions [data-connector-panel-save]')).toBeVisible();
-  await expect(card.locator('.connector-icon-field')).not.toHaveClass(/is-compact/);
+  await expect(card.locator('.connector-icon-field')).toHaveClass(/is-compact/);
+  expect(await card.locator('[data-connector-field="label"]').evaluate(el => el.getBoundingClientRect().height)).toBe(28);
 });
