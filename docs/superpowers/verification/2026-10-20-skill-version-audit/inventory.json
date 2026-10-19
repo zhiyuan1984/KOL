@@ -1,0 +1,692 @@
+{
+  "scope": "All shipped skill packs and live catalog",
+  "live_checked_at": "2026-10-19T23:31:55.880Z",
+  "live_count": 35,
+  "live_sources": [
+    "bundled"
+  ],
+  "live_custom_skills": 0,
+  "local_count": 35,
+  "skills": [
+    {
+      "id": "business_approval",
+      "title": "审批申请",
+      "file": "backend/skills/business_approval/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [],
+      "permissions": [],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "confirm_stage",
+      "title": "提出阶段变更",
+      "file": "backend/skills/confirm_stage/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "starry.get_collaboration"
+      ],
+      "permissions": [
+        "starrykol:read"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "crawler_collect",
+      "title": "采集线索",
+      "file": "backend/skills/crawler_collect/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "claw.start_crawl",
+        "claw.get_crawl_status",
+        "claw.get_crawl_logs",
+        "claw.get_creators",
+        "claw.stop_crawl"
+      ],
+      "permissions": [
+        "claw:write"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "creator_budget_report",
+      "title": "KOL 预算报告",
+      "file": "backend/skills/creator_budget_report/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "kolclaw.get_budget_report"
+      ],
+      "permissions": [
+        "kolclaw:read"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "creator_contact_decrypt",
+      "title": "解密达人联系方式",
+      "file": "backend/skills/creator_contact_decrypt/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "starrykol.decryptKolContact"
+      ],
+      "permissions": [
+        "starrykol:write"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "creator_daily_tasks",
+      "title": "今日 KOL 任务",
+      "file": "backend/skills/creator_daily_tasks/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "kolclaw.get_daily_tasks"
+      ],
+      "permissions": [
+        "kolclaw:read"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "creator_discovery",
+      "title": "达人发现",
+      "file": "backend/skills/creator_discovery/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [],
+      "permissions": [
+        "claw:write"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "creator_filter_options",
+      "title": "达人筛选字典",
+      "file": "backend/skills/creator_filter_options/SKILL.md",
+      "ontology": [],
+      "capabilities": [
+        {
+          "id": "creator.dictionary.options",
+          "version": 1,
+          "effect": "read",
+          "risk": "R1",
+          "has_input_schema": true,
+          "implementation_version": 1,
+          "decision": "retain",
+          "reason": "Reviewed input/result mapping and implementation contract; unknown versions fail closed; do not switch automatically."
+        },
+        {
+          "id": "creator.stages.options",
+          "version": 1,
+          "effect": "read",
+          "risk": "R1",
+          "has_input_schema": true,
+          "implementation_version": 1,
+          "decision": "retain",
+          "reason": "Reviewed input/result mapping and implementation contract; unknown versions fail closed; do not switch automatically."
+        },
+        {
+          "id": "creator.risks.options",
+          "version": 1,
+          "effect": "read",
+          "risk": "R1",
+          "has_input_schema": true,
+          "implementation_version": 1,
+          "decision": "retain",
+          "reason": "Reviewed input/result mapping and implementation contract; unknown versions fail closed; do not switch automatically."
+        }
+      ],
+      "legacy_tool_declarations": [],
+      "permissions": [
+        "starrykol:read"
+      ],
+      "applicable_objects": [
+        "kol_profile"
+      ],
+      "decision": "no mandatory local ontology release for source reads",
+      "change": "remove incidental ontology revision prerequisite"
+    },
+    {
+      "id": "creator_library_all",
+      "title": "达人库全量",
+      "file": "backend/skills/creator_library_all/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "starrykol.listAllKolProfiles"
+      ],
+      "permissions": [
+        "starrykol:read"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "creator_library_query",
+      "title": "达人库查询",
+      "file": "backend/skills/creator_library_query/SKILL.md",
+      "ontology": [],
+      "capabilities": [
+        {
+          "id": "creator.query",
+          "version": 1,
+          "effect": "read",
+          "risk": "R1",
+          "has_input_schema": true,
+          "implementation_version": 1,
+          "decision": "retain",
+          "reason": "Reviewed input/result mapping and implementation contract; unknown versions fail closed; do not switch automatically."
+        },
+        {
+          "id": "creator.query_metrics",
+          "version": 1,
+          "effect": "read",
+          "risk": "R1",
+          "has_input_schema": true,
+          "implementation_version": 1,
+          "decision": "retain",
+          "reason": "Reviewed input/result mapping and implementation contract; unknown versions fail closed; do not switch automatically."
+        }
+      ],
+      "legacy_tool_declarations": [],
+      "permissions": [
+        "creator:read"
+      ],
+      "applicable_objects": [],
+      "decision": "no mandatory local ontology release for source reads",
+      "change": "none"
+    },
+    {
+      "id": "creator_library_sync",
+      "title": "达人同步入库",
+      "file": "backend/skills/creator_library_sync/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "starrykol.pageKolProfiles",
+        "starrykol.addKolProfile"
+      ],
+      "permissions": [
+        "starrykol:write"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "creator_lifecycle_kanban",
+      "title": "合作生命周期看板",
+      "file": "backend/skills/creator_lifecycle_kanban/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "starrykol.pageLifecycleKanban"
+      ],
+      "permissions": [
+        "starrykol:read"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "creator_outreach",
+      "title": "达人建联话术",
+      "file": "backend/skills/creator_outreach/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "kolclaw.generate_outreach_script",
+        "kolclaw.list_creators"
+      ],
+      "permissions": [
+        "kolclaw:read"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "creator_owner_update",
+      "title": "更新红人负责人",
+      "file": "backend/skills/creator_owner_update/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "starrykol.getKolProfileDetail",
+        "starrykol.updateKolProfile"
+      ],
+      "permissions": [
+        "starrykol:write"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "creator_profile",
+      "title": "达人画像",
+      "file": "backend/skills/creator_profile/SKILL.md",
+      "ontology": [],
+      "capabilities": [
+        {
+          "id": "creator.query",
+          "version": 1,
+          "effect": "read",
+          "risk": "R1",
+          "has_input_schema": true,
+          "implementation_version": 1,
+          "decision": "retain",
+          "reason": "Reviewed input/result mapping and implementation contract; unknown versions fail closed; do not switch automatically."
+        },
+        {
+          "id": "creator.profile.read",
+          "version": 1,
+          "effect": "read",
+          "risk": "R1",
+          "has_input_schema": true,
+          "implementation_version": 1,
+          "decision": "retain",
+          "reason": "Reviewed input/result mapping and implementation contract; unknown versions fail closed; do not switch automatically."
+        },
+        {
+          "id": "creator.platform_data.read",
+          "version": 1,
+          "effect": "read",
+          "risk": "R1",
+          "has_input_schema": true,
+          "implementation_version": 1,
+          "decision": "retain",
+          "reason": "Reviewed input/result mapping and implementation contract; unknown versions fail closed; do not switch automatically."
+        },
+        {
+          "id": "mail.conversations.query",
+          "version": 1,
+          "effect": "read",
+          "risk": "R1",
+          "has_input_schema": true,
+          "implementation_version": 1,
+          "decision": "retain",
+          "reason": "Reviewed input/result mapping and implementation contract; unknown versions fail closed; do not switch automatically."
+        }
+      ],
+      "legacy_tool_declarations": [],
+      "permissions": [
+        "creator:read"
+      ],
+      "applicable_objects": [
+        "kol_profile"
+      ],
+      "decision": "no mandatory local ontology release for source reads",
+      "change": "remove incidental ontology revision prerequisite"
+    },
+    {
+      "id": "creator_risk_conversations",
+      "title": "达人风险会话",
+      "file": "backend/skills/creator_risk_conversations/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "starrykol.pageRiskConversations",
+        "starrykol.summarizeRiskConversations"
+      ],
+      "permissions": [
+        "starrykol:read"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "creator_scoring",
+      "title": "达人评分",
+      "file": "backend/skills/creator_scoring/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "kolclaw.analyze_creator",
+        "kolclaw.analyze_creators"
+      ],
+      "permissions": [
+        "kolclaw:read"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "creator_status_update",
+      "title": "达人状态更新",
+      "file": "backend/skills/creator_status_update/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "starrykol.getKolProfileDetail",
+        "starrykol.updateKolProfile"
+      ],
+      "permissions": [
+        "starrykol:write"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "deal_memory",
+      "title": "谈判纪要",
+      "file": "backend/skills/deal_memory/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "starry.deal_memory",
+        "starry.get_collaboration",
+        "starrykol.updateKolProfile"
+      ],
+      "permissions": [
+        "starrykol:read"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "discovery_brief",
+      "title": "发现简报",
+      "file": "backend/skills/discovery_brief/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [],
+      "permissions": [],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "discovery_plan",
+      "title": "发现计划",
+      "file": "backend/skills/discovery_plan/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [],
+      "permissions": [],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "email_app_conversation_list",
+      "title": "应用邮件会话",
+      "file": "backend/skills/email_app_conversation_list/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "starrykol.pageAppEmailConversations"
+      ],
+      "permissions": [
+        "starrykol:read"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "email_compose",
+      "title": "写合作邮件",
+      "file": "backend/skills/email_compose/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "starry.get_collaboration",
+        "starrykol.pageMailboxes",
+        "starrykol.previewEmailDraft"
+      ],
+      "permissions": [
+        "starrykol:write"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "email_conversation_list",
+      "title": "邮件会话列表",
+      "file": "backend/skills/email_conversation_list/SKILL.md",
+      "ontology": [],
+      "capabilities": [
+        {
+          "id": "mail.conversations.search",
+          "version": 1,
+          "effect": "read",
+          "risk": "R1",
+          "has_input_schema": true,
+          "implementation_version": 1,
+          "decision": "retain",
+          "reason": "Reviewed input/result mapping and implementation contract; unknown versions fail closed; do not switch automatically."
+        }
+      ],
+      "legacy_tool_declarations": [],
+      "permissions": [
+        "starrykol:read"
+      ],
+      "applicable_objects": [
+        "email"
+      ],
+      "decision": "no mandatory local ontology release for source reads",
+      "change": "remove incidental ontology revision prerequisite"
+    },
+    {
+      "id": "email_conversation_read",
+      "title": "邮件会话详情",
+      "file": "backend/skills/email_conversation_read/SKILL.md",
+      "ontology": [],
+      "capabilities": [
+        {
+          "id": "mail.conversation.read",
+          "version": 1,
+          "effect": "read",
+          "risk": "R1",
+          "has_input_schema": true,
+          "implementation_version": 1,
+          "decision": "retain",
+          "reason": "Reviewed input/result mapping and implementation contract; unknown versions fail closed; do not switch automatically."
+        }
+      ],
+      "legacy_tool_declarations": [],
+      "permissions": [
+        "starrykol:read"
+      ],
+      "applicable_objects": [
+        "email"
+      ],
+      "decision": "no mandatory local ontology release for source reads",
+      "change": "remove incidental ontology revision prerequisite"
+    },
+    {
+      "id": "email_mailbox_list",
+      "title": "品牌邮箱列表",
+      "file": "backend/skills/email_mailbox_list/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "starrykol.pageMailboxes",
+        "starrykol.listNylasAccounts"
+      ],
+      "permissions": [
+        "starrykol:read"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "kol_analyze",
+      "title": "红人分析简报",
+      "file": "backend/skills/kol_analyze/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "starrykol.pageKolProfiles",
+        "starrykol.getKolProfileDetail"
+      ],
+      "permissions": [
+        "starrykol:read"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "mail_summary",
+      "title": "邮件总结",
+      "file": "backend/skills/mail_summary/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [],
+      "permissions": [],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "mail_translate",
+      "title": "邮件翻译",
+      "file": "backend/skills/mail_translate/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "starrykol.translateEmailToChinese"
+      ],
+      "permissions": [
+        "starrykol:read"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "reply_analysis",
+      "title": "回复分析",
+      "file": "backend/skills/reply_analysis/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "starrykol.pageEmailConversations",
+        "starrykol.getEmailConversation",
+        "starrykol.getEmailConversationSubjectGroups",
+        "starrykol.translateEmailToChinese",
+        "starrykol.listCooperationStageOptions",
+        "starrykol.getStageRiskMatrix",
+        "starrykol.getKolProfileDetail",
+        "starrykol.pageLifecycleKanban",
+        "starrykol.pageRiskConversations"
+      ],
+      "permissions": [
+        "starrykol:read"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "risk_scan",
+      "title": "超时/风险扫描",
+      "file": "backend/skills/risk_scan/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [
+        "starrykol.pageRiskConversations",
+        "starrykol.summarizeRiskConversations",
+        "starry.list_collaborations"
+      ],
+      "permissions": [
+        "starrykol:read"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "stage_sop",
+      "title": "阶段 SOP",
+      "file": "backend/skills/stage_sop/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [],
+      "permissions": [
+        "starrykol:read"
+      ],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "today_analyze",
+      "title": "今日对象分析",
+      "file": "backend/skills/today_analyze/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [],
+      "permissions": [],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "today_plan",
+      "title": "今日规划",
+      "file": "backend/skills/today_plan/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [],
+      "permissions": [],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    },
+    {
+      "id": "todo_plan",
+      "title": "待办规划",
+      "file": "backend/skills/todo_plan/SKILL.md",
+      "ontology": [],
+      "capabilities": [],
+      "legacy_tool_declarations": [],
+      "permissions": [],
+      "applicable_objects": [],
+      "decision": "retain existing contract; no fixed ontology prerequisite",
+      "change": "none"
+    }
+  ],
+  "authoring_review": {
+    "decision": "retain explicit company business-definition snapshot validation",
+    "evidence": [
+      "backend/src/host/skill-authoring.ts:54",
+      "backend/src/host/skill-authoring.ts:74",
+      "backend/src/ontology/runtime-dependencies.ts:40"
+    ],
+    "reason": "Author explicitly selects company business objects/actions. Publication validates the selected snapshot and blocks changed definitions pending re-review; no automatic company-version or permission fallback. No live authored skills found. This is distinct from incidental object applicability on simple source reads."
+  },
+  "upgrade_policy": {
+    "capabilities": "Publish and validate a new adapter contract/version; update skill dependency after compatibility verification, tests and normal skill/Agent release. Do not guess latest.",
+    "explicit_business_rules": "A skill genuinely using selected business fields/rules/actions retains explicit dependency validation; changed definitions require review and republishing. No global gate removed."
+  }
+}

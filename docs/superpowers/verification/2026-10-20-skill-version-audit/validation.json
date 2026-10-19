@@ -1,0 +1,26 @@
+{
+  "status": "passed",
+  "tests": {
+    "passed": 29,
+    "failed": 0
+  },
+  "checks": [
+    {
+      "command": "npx vitest run --config vitest.skill-dependencies.config.ts --reporter=json --outputFile=.tmp/skill-version-tests.json",
+      "exit_code": 0
+    },
+    {
+      "command": "npm run typecheck",
+      "exit_code": 0
+    },
+    {
+      "command": "npm run validate:contracts",
+      "exit_code": 0
+    },
+    {
+      "command": "npm run validate:registry",
+      "exit_code": 0
+    }
+  ],
+  "scope": "Five shipped read packs, operation mapping contracts, explicit ontology missing/disabled/mismatched-version/action checks, recognition and HTTP selection behavior. No remote business IO or production completion claimed."
+}

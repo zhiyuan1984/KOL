@@ -1,0 +1,370 @@
+{
+  "checked_at": "2026-10-19T23:31:55.880Z",
+  "target": "https://dev-lingong.askstarry.com/api",
+  "count": 35,
+  "skills": [
+    {
+      "id": "business_approval",
+      "title": "审批申请",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "confirm_stage",
+      "title": "提出阶段变更",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "crawler_collect",
+      "title": "采集线索",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "creator_budget_report",
+      "title": "KOL 预算报告",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "creator_contact_decrypt",
+      "title": "解密达人联系方式",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "creator_daily_tasks",
+      "title": "今日 KOL 任务",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "creator_discovery",
+      "title": "达人发现",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "creator_filter_options",
+      "title": "达人筛选字典",
+      "source": "bundled",
+      "capabilities": [
+        {
+          "id": "creator.dictionary.options",
+          "version": 1
+        },
+        {
+          "id": "creator.stages.options",
+          "version": 1
+        },
+        {
+          "id": "creator.risks.options",
+          "version": 1
+        }
+      ],
+      "ontology": [
+        {
+          "object": "kol_profile",
+          "revision": 2
+        }
+      ],
+      "authoring": null
+    },
+    {
+      "id": "creator_library_all",
+      "title": "达人库全量",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "creator_library_query",
+      "title": "达人库查询",
+      "source": "bundled",
+      "capabilities": [
+        {
+          "id": "creator.query",
+          "version": 1
+        },
+        {
+          "id": "creator.query_metrics",
+          "version": 1,
+          "optional": true
+        }
+      ],
+      "ontology": [
+        {
+          "object": "kol_profile",
+          "revision": 2,
+          "actions": [
+            "read_profile"
+          ]
+        }
+      ],
+      "authoring": null
+    },
+    {
+      "id": "creator_library_sync",
+      "title": "达人同步入库",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "creator_lifecycle_kanban",
+      "title": "合作生命周期看板",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "creator_outreach",
+      "title": "达人建联话术",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "creator_owner_update",
+      "title": "更新红人负责人",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "creator_profile",
+      "title": "达人画像",
+      "source": "bundled",
+      "capabilities": [
+        {
+          "id": "creator.query",
+          "version": 1
+        },
+        {
+          "id": "creator.profile.read",
+          "version": 1
+        },
+        {
+          "id": "creator.platform_data.read",
+          "version": 1
+        },
+        {
+          "id": "mail.conversations.query",
+          "version": 1,
+          "optional": true
+        }
+      ],
+      "ontology": [
+        {
+          "object": "kol_profile",
+          "revision": 2,
+          "actions": [
+            "read_profile"
+          ]
+        }
+      ],
+      "authoring": null
+    },
+    {
+      "id": "creator_risk_conversations",
+      "title": "达人风险会话",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "creator_scoring",
+      "title": "达人评分",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "creator_status_update",
+      "title": "达人状态更新",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "deal_memory",
+      "title": "谈判纪要",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "discovery_brief",
+      "title": "发现简报",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "discovery_plan",
+      "title": "发现计划",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "email_app_conversation_list",
+      "title": "应用邮件会话",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "email_compose",
+      "title": "写合作邮件",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "email_conversation_list",
+      "title": "邮件会话列表",
+      "source": "bundled",
+      "capabilities": [
+        {
+          "id": "mail.conversations.search",
+          "version": 1
+        }
+      ],
+      "ontology": [
+        {
+          "object": "email",
+          "revision": 2
+        }
+      ],
+      "authoring": null
+    },
+    {
+      "id": "email_conversation_read",
+      "title": "邮件会话详情",
+      "source": "bundled",
+      "capabilities": [
+        {
+          "id": "mail.conversation.read",
+          "version": 1
+        }
+      ],
+      "ontology": [
+        {
+          "object": "email",
+          "revision": 2
+        }
+      ],
+      "authoring": null
+    },
+    {
+      "id": "email_mailbox_list",
+      "title": "品牌邮箱列表",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "kol_analyze",
+      "title": "红人分析简报",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "mail_summary",
+      "title": "邮件总结",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "mail_translate",
+      "title": "邮件翻译",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "reply_analysis",
+      "title": "回复分析",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "risk_scan",
+      "title": "超时/风险扫描",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "stage_sop",
+      "title": "阶段 SOP",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "today_analyze",
+      "title": "今日对象分析",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "today_plan",
+      "title": "今日规划",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    },
+    {
+      "id": "todo_plan",
+      "title": "待办规划",
+      "source": "bundled",
+      "capabilities": [],
+      "ontology": [],
+      "authoring": null
+    }
+  ],
+  "note": "Read-only catalog audit. Does not execute skills or change publication/permissions."
+}
