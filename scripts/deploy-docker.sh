@@ -15,10 +15,19 @@ command -v docker >/dev/null
 command -v flock >/dev/null
 exec 9>"$DEPLOY_DIR/.deploy-docker.lock"
 flock -n 9 || { echo '[FAIL] Another Docker release holds the deployment lock' >&2; exit 1; }
+bash "$SCRIPT_DIR/install-postgres-runtime-compat.sh" "$DEPLOY_DIR"
 COMPOSE=(docker compose --project-directory "$DEPLOY_DIR")
 
 redact_logs() {
-  sed -E "s#postgres(ql)?://[^[:space:]\"'<>]+#postgresql://[REDACTED]#g; s#((PASSWORD|TOKEN|SECRET|API_KEY|DATABASE_URL)[[:space:]]*[=:][[:space:]]*)[^[:space:]]+#\\1[REDACTED]#gI"
+  # Read the fixed program on fd3 while preserving piped log data on stdin.
+  python3 /dev/fd/3 3<<'PY'
+import re, sys
+uri = re.compile(r"postgres(?:ql)?://[^\s\"'<>]+", re.I)
+field = re.compile(r"""((?:[A-Za-z0-9_.-]*?(?:PASSWORD|TOKEN|SECRET|API_KEY|DATABASE_URL))[\"']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,}\]]+)""", re.I)
+for line in sys.stdin:
+    line = uri.sub("postgresql://[REDACTED]", line)
+    sys.stdout.write(field.sub(lambda match: match.group(1) + "[REDACTED]", line))
+PY
 }
 failed() {
   local rc="$1"
