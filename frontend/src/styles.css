@@ -118,6 +118,15 @@
      （--primary 数值、--radius-cards 等）不在此处，需单独一轮。 */
   --hit-min: 24px;
   --control-h-sm: 24px;
+  /* AI discovery: compact reference-image controls (DESIGN §4.1). */
+  --discovery-control-h: 20px;
+  --discovery-control-radius: 2px;
+  --discovery-inline-pad: 2px;
+  --discovery-accent: #2860EE;
+  --discovery-selected-text: var(--discovery-accent);
+  --discovery-selected-bg: #EAF1FF;
+  --discovery-selected-border: #CBD9FF;
+  --discovery-keyword-bg: #EDF2FE;
   /* DESIGN §28: business knowledge rows, not generic table density. */
   --knowledge-row-h: 36px;
   --knowledge-row-h-detail: 44px;
@@ -16911,3 +16920,5 @@ button.task-operation-status.is-active { background: var(--btn-text-hover-bg); b
   --mail-gmail-label-violet-bg: #f3e8fd;
   --mail-gmail-label-violet-ink: #6d3cc2;
 }
+
+:root[data-theme="dark"] { --discovery-accent: var(--accent-text); --discovery-selected-text: var(--text); --discovery-selected-bg: var(--ds-selected-bg); --discovery-selected-border: var(--ds-selected-border); --discovery-keyword-bg: var(--ds-selected-bg); }

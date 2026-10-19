@@ -633,35 +633,132 @@
 .scope-workspace[data-home-pane="discovery"] .scope-workspace-center { container-type: inline-size; container-name: home-workspace-center; }
 @media (pointer: coarse) { .discovery-result-filters .lifecycle-tab { min-height: var(--touch-hit-min); } }
 
-/* Screenshot reference: flat, compact conditions and a trailing submit action. */
-.discovery-brief-form { position: relative; }
-.discovery-brief-form .discovery-param-icon { display: none; }
-.discovery-brief-reset { position: absolute; top: 0; right: 0; z-index: 1; }
-.discovery-brief-form [data-skill-param="platforms"] { padding-right: calc(var(--touch-hit-min) + var(--space-2)); }
-.scope-workspace[data-home-pane="discovery"] .discovery-event [data-discovery-conditions-heading="edit"] { display: none; }
-.discovery-event[data-discovery-event="conditions"] { padding-top: var(--space-3); border-top: 1px solid var(--border); }
-.discovery-brief-form [data-skill-param="keywords"] { padding-top: var(--space-1); border-top: 1px solid var(--border); }
-.discovery-brief-form .discovery-card-foot { flex-direction: row; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-top: var(--space-1); padding-top: var(--space-1); border-top: 1px solid var(--border); text-align: left; }
-.discovery-brief-form .discovery-card-note { color: var(--text-muted); font-size: var(--ds-font-sm); }
-.discovery-brief-form .discovery-card-foot [data-discovery-card-submit] { margin-left: auto; }
+/* Reference image density. This scope deliberately wins over Home's AntD defaults.
+   Labels and choices share inline flow so continuation lines return to the left edge. */
+.scope-workspace[data-home-pane="discovery"] {
+  --workspace-pane-gutter: var(--space-3);
+  --workspace-agent-content-w: min(calc(var(--dialog-w-sm) + var(--space-1)), max(0px, calc(100vw - var(--left-width) - var(--workspace-result-rail-min) - 2 * var(--workspace-pane-gutter))));
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form {
+  position: relative;
+  --ds-control-h: var(--discovery-control-h);
+  --ds-chip-h: var(--discovery-control-h);
+  --ds-token-h: var(--discovery-control-h);
+  --ds-row-gap: 0;
+  font-family: Arial, "Microsoft YaHei", var(--sans);
+  font-size: var(--ds-font-sm);
+  line-height: var(--discovery-control-h);
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .discovery-param-icon,
+.scope-workspace[data-home-pane="discovery"] [data-discovery-conditions-heading="edit"],
+.scope-workspace[data-home-pane="discovery"] .discovery-keyword-clear { display: none; }
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .ai-discovery-card {
+  padding: 0; border: 0; background: transparent; border-radius: 0;
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .ai-discovery-rows { gap: 0; }
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .ai-discovery-label {
+  color: var(--text); font-size: var(--ds-font-sm); line-height: var(--discovery-control-h);
+  font-weight: 400; gap: 0;
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .ai-discovery-row[data-skill-param] {
+  position: relative; display: block; min-width: 0; line-height: var(--discovery-control-h);
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .ai-discovery-row[data-skill-param] > .ai-discovery-label {
+  display: inline-flex; vertical-align: top; margin-right: var(--space-1);
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .ai-discovery-row[data-skill-param] > .ai-discovery-param-value,
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .ai-discovery-chips,
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .is-keyword-control,
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .discovery-keyword-static { display: contents; }
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .discovery-chip {
+  display: inline-flex; vertical-align: top; align-items: center; justify-content: flex-start;
+  height: var(--discovery-control-h); min-height: var(--discovery-control-h);
+  padding: 0; margin: 0 var(--space-1) 0 0; gap: var(--space-1);
+  border: 1px solid transparent; border-radius: var(--discovery-control-radius);
+  background: transparent; color: var(--text-muted); box-shadow: none;
+  font-size: var(--ds-font-sm); line-height: var(--ds-line-helper); font-weight: 400;
+  opacity: 1;
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .discovery-chip[aria-pressed="true"] {
+  padding-inline: var(--space-1); color: var(--discovery-selected-text);
+  border-color: var(--discovery-selected-border); background: var(--discovery-selected-bg);
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .discovery-chip-check {
+  width: auto; height: auto; margin: 0; font: inherit;
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form [data-skill-param="platforms"] { padding-right: var(--touch-hit-min); }
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form [data-skill-param="keywords"] {
+  padding-top: var(--space-1); border-top: 1px solid var(--border);
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .discovery-keyword-chip {
+  display: inline-flex; vertical-align: top; align-items: center; max-width: 100%;
+  height: var(--discovery-control-h); min-height: 0;
+  margin: 0 var(--space-1) 0 0; padding: 0 var(--discovery-inline-pad); gap: var(--discovery-inline-pad);
+  border: 1px solid var(--discovery-selected-border); border-radius: var(--discovery-control-radius);
+  background: var(--discovery-keyword-bg); color: var(--text);
+  font-size: var(--ds-font-sm); line-height: var(--ds-line-helper);
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .discovery-keyword-chip .chip-x {
+  min-width: 0; width: auto; flex: 0 0 auto; height: 100%; padding: 0; margin: 0;
+  font-size: var(--ds-font-sm); line-height: 1; border: 0; background: transparent;
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .discovery-keyword-add {
+  display: inline-flex; vertical-align: top; align-items: center;
+  width: auto; height: var(--discovery-control-h); min-height: 0;
+  margin: 0; padding: 0 var(--space-1); white-space: nowrap;
+  border: 1px solid var(--ds-border); border-radius: var(--discovery-control-radius);
+  font-size: var(--ds-font-sm); line-height: var(--ds-line-helper);
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .ai-discovery-input {
+  box-sizing: border-box; height: var(--discovery-control-h); min-height: 0;
+  padding: 0 var(--space-1); border: 1px solid var(--ds-border);
+  border-radius: var(--discovery-control-radius); background: var(--bg); color: var(--text);
+  font-size: var(--ds-font-sm); line-height: var(--ds-line-helper); box-shadow: none;
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .ai-discovery-row.is-follower-range {
+  grid-template-columns: max-content minmax(0, 1fr); column-gap: var(--space-2);
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .ai-discovery-range-control {
+  grid-template-columns: minmax(0, .9fr) var(--space-3) minmax(0, 1fr); gap: var(--space-1);
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .ai-discovery-row.is-metric-pair {
+  grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); column-gap: var(--space-3);
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .is-metric-pair .ai-discovery-inline-field {
+  grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: var(--space-2);
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form > .discovery-brief-reset {
+  position: absolute; top: 0; right: 0; z-index: 1;
+  height: var(--discovery-control-h); min-height: 0; padding: 0;
+  background: transparent; border: 0; color: var(--text-muted); box-shadow: none;
+  border-radius: var(--discovery-control-radius); font-size: var(--ds-font-sm); line-height: var(--ds-line-helper);
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .discovery-card-foot {
+  display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--space-1); margin-top: var(--space-1); padding-top: var(--space-1);
+  border-top: 1px solid var(--border); text-align: left;
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form .discovery-card-note {
+  color: var(--text-muted); font-size: var(--ds-font-sm); line-height: var(--discovery-control-h);
+}
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form [data-discovery-card-submit] {
+  height: var(--discovery-control-h); min-height: 0; margin-left: auto; padding: 0 var(--space-1);
+  border-radius: var(--discovery-control-radius); border: 1px solid var(--discovery-accent);
+  background: var(--discovery-accent); color: var(--accent-fg); box-shadow: none;
+  font-size: var(--ds-font-sm); line-height: var(--ds-line-helper); font-weight: 400;
+}
+.scope-workspace[data-home-pane="discovery"] .scope-workspace-center-scroll-wrap > .scope-scroll-jump { right: 50%; transform: translateX(50%); }
+@container home-workspace-center (max-width: 359px) {
+  .scope-workspace[data-home-pane="discovery"] .discovery-brief-form .ai-discovery-row.is-metric-pair { grid-template-columns: minmax(0, 1fr); }
+}
 @media (pointer: coarse) {
-  .discovery-brief-form .discovery-keyword-add { min-height: var(--touch-hit-min); }
+  .scope-workspace[data-home-pane="discovery"] .discovery-brief-form { --discovery-control-h: var(--touch-hit-min); }
+  .scope-workspace[data-home-pane="discovery"] .discovery-brief-form .discovery-keyword-chip .chip-x { min-width: var(--control-h-sm); }
 }
 
-.discovery-brief-form .ai-discovery-label { color: var(--text); }
-.discovery-brief-form .discovery-keyword-add { width: auto; padding-inline: var(--space-1); white-space: nowrap; }
-.discovery-brief-form .discovery-card-foot [data-discovery-card-submit] { background: var(--accent-text); border-color: var(--accent-text); color: var(--primary-fg); }
-.discovery-brief-form .discovery-card-foot [data-discovery-card-submit]:hover { filter: brightness(.95); }
-
-.discovery-brief-form .is-metric-pair .ai-discovery-inline-field,
-.discovery-brief-form .is-metric-pair .ai-discovery-inline-field + .ai-discovery-inline-field { grid-template-columns: max-content minmax(0, 1fr); align-items: center; }
-
-.discovery-brief-form .discovery-keyword-chip .chip-x { min-width: 0; width: var(--space-4); flex: 0 0 var(--space-4); }
-
-.discovery-brief-form .discovery-brief-reset { background: transparent; border: 0; color: var(--text-muted); }
-
-.scope-workspace[data-home-pane="discovery"] { --workspace-agent-content-w: min(var(--drawer-w-sm), max(0px, calc(100vw - var(--left-width) - var(--workspace-result-rail-min) - 2 * var(--workspace-pane-gutter)))); }
-.scope-workspace[data-home-pane="discovery"] .discovery-brief-form > .discovery-brief-reset { background: transparent; border: 0; color: var(--text-muted); }
-
-/* Keep the scroll shortcut in the gap between the note and submit action. */
-.scope-workspace[data-home-pane="discovery"] .scope-workspace-center-scroll-wrap > .scope-scroll-jump { right: 50%; transform: translateX(50%); }
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form [data-discovery-card-submit]:is(:hover, :active):not(:disabled) {
+  background: var(--discovery-accent); border-color: var(--discovery-accent); color: var(--accent-fg); filter: brightness(.95);
+}
+@media (pointer: coarse) {
+  .scope-workspace[data-home-pane="discovery"] .discovery-brief-form :is(.discovery-chip, .discovery-keyword-add, .chip-x, .discovery-brief-reset) { min-width: var(--touch-hit-min); }
+}
