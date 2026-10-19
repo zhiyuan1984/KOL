@@ -27,6 +27,7 @@ COPY config /app/config
 COPY agents /app/agents
 COPY experts /app/experts
 COPY policies /app/policies
+COPY scripts /app/scripts
 COPY --from=fe /src/frontend/dist /app/frontend/dist
 ENV LINGONG_DATA=/app/data
 ENV CODEX_MODE=real
