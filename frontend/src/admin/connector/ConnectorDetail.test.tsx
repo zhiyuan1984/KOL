@@ -173,4 +173,34 @@ describe("connector detail Tab contract", () => {
     expect(container.querySelector('[data-connector-credential-references]')).toBeNull();
     expect(mocked.credentials).not.toHaveBeenCalled();
   });
+  it("keeps compact configuration groups and an accessible panel entry without changing field identity", async () => {
+    await render("/admin/connectors/starrykol?tab=config");
+    expect([...container.querySelectorAll('.connector-config-section')].map((section) => section.getAttribute('aria-label'))).toEqual(["基础信息", "端点与鉴权", "请求选项"]);
+    expect(panel("config").tabIndex).toBe(0);
+    expect(container.querySelector('.connector-field-transport [data-connector-field="transport"]')).not.toBeNull();
+    expect(container.querySelector('.connector-field-timeout [data-connector-field="timeout"]')).not.toBeNull();
+    expect(container.querySelector<HTMLTextAreaElement>('[data-connector-field="purpose"]')?.rows).toBe(2);
+    expect(mocked.save).not.toHaveBeenCalled();
+  });
+  it("shows pending reference removal and lets the user undo it without saving or dropping the binding", async () => {
+    await render("/admin/connectors/starrykol?tab=config");
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="移除 X-MCP-API-KEY 的引用"]')!.click());
+    expect(container.querySelector('[data-connector-header-removal]')?.textContent).toContain("保存后生效");
+    await clickTab("credentials");
+    expect(container.querySelector('[data-connector-credential-references]')?.textContent).toContain("cred_bound");
+    await clickTab("config");
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-connector-header-removal] button')!.click());
+    expect(container.querySelector('[data-connector-header-removal]')).toBeNull();
+    expect(container.querySelector<HTMLInputElement>('[aria-label="Header 名称"]')?.value).toBe("X-MCP-API-KEY");
+    expect(mocked.save).not.toHaveBeenCalled(); expect(mocked.write).not.toHaveBeenCalled();
+  });
+  it("refreshes audit reads explicitly and preserves real duration/config-version metadata", async () => {
+    await render("/admin/connectors/starrykol?tab=audit");
+    expect(container.querySelector('.connector-audit-record-meta')?.textContent).toContain("12 ms");
+    expect(container.querySelector('.connector-audit-record-meta')?.textContent).toContain("配置 v3");
+    expect(container.querySelector('.connector-audit-list time')?.getAttribute("datetime")).toBe("2026-10-19T20:00:00Z");
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-connector-audit-refresh]')!.click());
+    expect(mocked.activity).toHaveBeenCalledTimes(2);
+    expect(mocked.probe).not.toHaveBeenCalled(); expect(mocked.write).not.toHaveBeenCalled();
+  });
 });
