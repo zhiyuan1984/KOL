@@ -30,7 +30,7 @@
       "browser-tests.json",
       "source-review.json"
     ],
-    "human_review": "pending"
+    "human_review": "user accepted the presented fix for release; independent expert review not claimed"
   },
   "task_id": "creator-query-context-20261020",
   "summary": "Explicit query context and truthful intake recovery; automated evidence is separate from human/live acceptance.",

@@ -9,25 +9,25 @@
     {
       "id": "state-and-action-map",
       "file": "state-and-action-map.json",
-      "sha256": "dc653712eec82144139a7bb85fefec9b3e2e7a9d05bbad2f06c7067ac236b662",
+      "sha256": "b30296506f2b2874a92c193c423d9b0cad251f64b8e4aede1b88f729069fc2a4",
       "status": "complete"
     },
     {
       "id": "layout-contract",
       "file": "layout-contract.json",
-      "sha256": "2a9f5b6216408af00edcd246cf4a7154b988603aae212be939d0d5388684e48c",
+      "sha256": "d4151da17755db82cca496087c40d45cd6dd3a4e1b5e8ceaf6a01671181d7ee4",
       "status": "complete"
     },
     {
       "id": "component-selection",
       "file": "component-selection.json",
-      "sha256": "557bdc1204c3602058c70361d3dc4566cf808ec1796b256ad2c1fee54be41ffd",
+      "sha256": "ce6b607e6aa2cf7785a8e6e1272db3e942dbca915f67fcc44f891f7d0ba60ae0",
       "status": "complete"
     },
     {
       "id": "browser-and-source-evidence",
       "file": "browser-and-source-evidence.json",
-      "sha256": "88868042d44eac91650389b438a0089a1baa53fc6896997e8ae1ca8e05019dbb",
+      "sha256": "bd8d0b18de16d640f7c59eef7ab8110c2652030d5ca2c1dbb747c5a51cf8743f",
       "status": "complete"
     }
   ],
@@ -87,7 +87,7 @@
     {
       "id": "frontend-browser-review",
       "type": "human-browser",
-      "status": "pending",
+      "status": "passed",
       "evidence": [
         {
           "file": "query-blocked.png",
@@ -98,8 +98,15 @@
           "file": "source-review.json",
           "kind": "source-review",
           "sha256": "8d9ae3a8b92bb54014beb2d75de198755f92797026d03fc7c0c0dc72933e1106"
+        },
+        {
+          "file": "user-release-approval.json",
+          "kind": "browser-record",
+          "sha256": "7b4d1e7c6bef25a096a8ebb7a5320214ff4e4e9ea36763b965621d3451db6733"
         }
-      ]
+      ],
+      "reviewer": "本会话用户（发布决策人）",
+      "reviewed_at": "2026-10-19T22:49:11.344Z"
     }
   ]
 }

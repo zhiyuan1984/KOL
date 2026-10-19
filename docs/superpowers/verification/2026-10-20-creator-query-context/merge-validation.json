@@ -1,0 +1,17 @@
+{
+  "recorded_at": "2026-10-19T22:51:33.064Z",
+  "tested_merge": "e5ea2ba6a1bff8a6dbc82f629bfe5011f3852945",
+  "preserved_main": "369f48e92aadbe3d86946576efcaa870026d73f5",
+  "tests": {
+    "connector": 53,
+    "query": 10,
+    "browser": 6
+  },
+  "frontend_typecheck_and_build": "passed",
+  "target": {
+    "pipeline": 5333085,
+    "environment": "test",
+    "url": "https://dev-lingong.askstarry.com/"
+  },
+  "deployed": false
+}

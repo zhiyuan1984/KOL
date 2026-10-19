@@ -17,7 +17,7 @@
     "layers": {
       "backend": "Isolated real Hono route and recognizer tests with catalog/handle fixtures",
       "browser": "Built application with explicit HTTP fixtures; no production data or writes",
-      "human": "pending",
+      "human": "user release acceptance recorded in user-release-approval.json",
       "live_service": "not verified"
     },
     "tests": {
@@ -26,8 +26,8 @@
     },
     "limitations": [
       "No real PostgreSQL/remote MCP end-to-end acceptance",
-      "No human UX sign-off",
-      "Not deployed"
+      "Independent expert UX sign-off not claimed",
+      "Deployment receipt recorded separately"
     ]
   },
   "verification": {
@@ -36,7 +36,7 @@
       "browser-tests.json",
       "source-review.json"
     ],
-    "human_review": "pending"
+    "human_review": "user accepted the presented fix for release; independent expert review not claimed"
   },
   "task_id": "creator-query-context-20261020",
   "summary": "Explicit query context and truthful intake recovery; automated evidence is separate from human/live acceptance.",
