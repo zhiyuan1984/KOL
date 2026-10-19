@@ -15,10 +15,6 @@ command -v docker >/dev/null
 command -v flock >/dev/null
 exec 9>"$DEPLOY_DIR/.deploy-docker.lock"
 flock -n 9 || { echo '[FAIL] Another Docker release holds the deployment lock' >&2; exit 1; }
-# Temporary, approved maintenance release: fail closed to origin repair only.
-# Restore the normal deployment entry after the scoped maintenance run completes.
-exec bash "$SCRIPT_DIR/repair-auth-origin-docker.sh"
-
 bash "$SCRIPT_DIR/install-postgres-runtime-compat.sh" "$DEPLOY_DIR"
 COMPOSE=(docker compose --project-directory "$DEPLOY_DIR")
 
