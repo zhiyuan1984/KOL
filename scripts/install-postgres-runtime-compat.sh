@@ -40,11 +40,9 @@ if not any(v.get('type')=='bind' and v.get('source')==sys.argv[2] and v.get('tar
 print(pg.get('image') or '')
 PY
 )"
+repair_alpine=1
 case "$CURRENT_IMAGE" in
-  postgres:16-bookworm|postgres:16-bookworm@sha256:*)
-    echo '[PG-COMPAT] PG16 Bookworm already selected; existing configuration preserved'
-    exit 0
-    ;;
+  postgres:16|postgres:16@sha256:*|postgres:16-bookworm|postgres:16-bookworm@sha256:*) repair_alpine=0 ;;
   postgres:16-alpine|postgres:16-alpine@sha256:*) ;;
   *) echo '[FAIL] Unexpected PG image/major; no automatic migration or configuration change' >&2; exit 1 ;;
 esac
@@ -56,6 +54,10 @@ if [[ -f "$PG_DATA/PG_VERSION" ]]; then
 elif [[ -n "$(find "$PG_DATA" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
   echo '[FAIL] Unversioned nonempty PG directory; refusing initialization or cleanup' >&2
   exit 1
+fi
+if [[ "$repair_alpine" == 0 ]]; then
+  echo '[PG-COMPAT] Non-Alpine PG16 already selected; existing configuration preserved'
+  exit 0
 fi
 # Compose's normal override preserves the base file, bind paths and all credentials.
 # Never replace a pre-existing override, even if it is not currently loaded.
