@@ -11,7 +11,7 @@ import { markSessionRunning, publicQueue, resetRunControl } from "../src/host/ru
 import { seedAll } from "../src/seed.js";
 import type { Json } from "../src/types.js";
 import { freshTestDatabase } from "./support/pg.js";
-import { seedPublishedAgent } from "./fixtures/runtime-auth.js";
+import { seedPublishedAgent, seedRuntimeTestActor } from "./fixtures/runtime-auth.js";
 
 let tmp: string;
 let app: Hono;
@@ -71,7 +71,7 @@ function lastEvent(rows: TaskEventRow[]): TaskEventRow | undefined {
 
 describe("task run lifecycle honesty", () => {
   beforeEach(async () => {
-    await freshTestDatabase();
+    await freshTestDatabase({ reclaimPrevious: true });
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-task-run-"));
 
     process.env.LINGONG_DATA = tmp;
@@ -184,6 +184,53 @@ describe("task run lifecycle honesty", () => {
       expect(last?.label).toBe("未能开始");
       expect(String(last?.safe_summary || "")).toContain("未授权");
     } finally {
+      if (previousAuthMode === undefined) delete process.env.AUTH_MODE;
+      else process.env.AUTH_MODE = previousAuthMode;
+    }
+  });
+
+  it.each([false, true])("resumes Agent selection without failing a pending run (unbound=%s)", async (unbound) => {
+    const previousAuthMode = process.env.AUTH_MODE;
+    process.env.AUTH_MODE = "enabled";
+    try {
+      await seedPublishedAgent("agent:kol");
+      const cookie = await seedRuntimeTestActor(["risk_scan"], true);
+      await seedPublishedAgent("agent:recovery-alternate", "Alternate Agent");
+      await enableAgentSkill("agent:recovery-alternate", "risk_scan");
+      await createAgentBinding({ agent_id: "agent:recovery-alternate", target_type: "organization_unit",
+        target_id: "org:lt_team", company_id: "company:amperetime", source: "test" });
+      const created = await request("POST", "/api/tasks", {
+        task_type: "risk_scan", title: "扫描风险", agent_id: "agent:kol",
+      }, cookie);
+      expect(created.status, created.text).toBe(201);
+      const taskId = String(created.body.id);
+      const queued = await request("POST", `/api/tasks/${taskId}/run`, { text: "风险扫描" }, cookie);
+      expect(queued.status, queued.text).toBe(202);
+      const sessionId = String(queued.body.session_id);
+      const runId = String(queued.body.run_id);
+      const pending = { ...(queued.body.pending_message as Json) };
+      // The browser may carry only the run binding; the saved Agent is authoritative.
+      delete pending.agent_id;
+      if (unbound) await getConn().query("UPDATE task_runs SET input=(input::jsonb - 'agent_id')::text WHERE id=$1", [runId]);
+      process.env.CODEX_MODE = "real";
+      await markSessionRunning(sessionId); // Exercise submission without launching a real worker.
+      if (unbound) {
+        const choice = await request("POST", `/api/sessions/${sessionId}/messages`, pending, cookie);
+        expect(choice.status, choice.text).toBe(409);
+        expect((choice.body.detail as Json)?.code || choice.body.code).toBe("runtime_agent_ambiguous");
+        expect((await runRow(runId)).status).toBe("pending");
+        expect(await workItemStatus(taskId)).toBe("pending");
+        expect((await taskEvents(taskId)).some((row) => row.event_type === "run.failed")).toBe(false);
+        pending.agent_id = "agent:kol";
+      }
+      const posted = await request("POST", `/api/sessions/${sessionId}/messages`, pending, cookie);
+      expect(posted.status, posted.text).toBe(202);
+      expect(posted.body.queued).toBe(true);
+      expect((await runRow(runId)).status).toBe("queued");
+      expect(await workItemStatus(taskId)).toBe("queued");
+      expect((await taskEvents(taskId)).some((row) => row.event_type === "run.failed")).toBe(false);
+    } finally {
+      process.env.CODEX_MODE = "stub";
       if (previousAuthMode === undefined) delete process.env.AUTH_MODE;
       else process.env.AUTH_MODE = previousAuthMode;
     }

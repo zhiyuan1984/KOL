@@ -841,6 +841,8 @@ function employeeFailReason(error: unknown): string {
 /** The run never reached execution: close it honestly instead of leaving it running. */
 async function failBoundTask(bound: BoundTask | null, error: unknown): Promise<void> {
   if (!bound) return;
+  // Choosing an Agent is a resumable submission step, not an execution failure.
+  if (error instanceof HttpFail && (error.detail as Json | undefined)?.code === "runtime_agent_ambiguous") return;
   const message = employeeFailReason(error);
   const needsInput = error instanceof HostReject && Number(error.statusCode) === 422;
   const status = needsInput ? "needs_clarification" : "failed";
@@ -3973,6 +3975,12 @@ host.post("/sessions/:sid/messages", async (c) => {
   // a refused ask can close only its own validated pending run. This performs
   // no execution, and forged/foreign task bindings remain hidden by 404.
   const boundTask = workspace ? null : (await resolveBoundTask(sid, body));
+  // Reuse the run's saved choice before any submit-time authorization. The
+  // current Agent/Skill qualification is still checked below on every ask.
+  if (boundTask?.agentId) {
+    if (body.agent_id && body.agent_id !== boundTask.agentId) throw new HttpFail(409, "任务已绑定其他智能体");
+    body.agent_id = boundTask.agentId;
+  }
   // Explicit task selection is authorized before recognition can return a clarification.
   // An unavailable task must not receive an accepted=true early-return receipt.
   const explicitSkill = typeof body.intent === "string" && (await taskDefinition(body.intent)) ? body.intent : null;
@@ -4010,10 +4018,6 @@ host.post("/sessions/:sid/messages", async (c) => {
     const agentId = (await agentForExpert(String(session.expert_id)));
     if (body.agent_id && body.agent_id !== agentId) throw new HttpFail(409, "当前会话已绑定其他智能体");
     body.agent_id = agentId;
-  }
-  if (boundTask?.agentId) {
-    if (body.agent_id && body.agent_id !== boundTask.agentId) throw new HttpFail(409, "任务已绑定其他智能体");
-    body.agent_id = boundTask.agentId;
   }
   const text = String(body.text || body.content || "").trim();
   const attachments = (await sanitizeAttachments(body.attachments));
