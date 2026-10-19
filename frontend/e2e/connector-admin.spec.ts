@@ -107,10 +107,14 @@ test("connector hub renders, filters, opens the browse modal and the create menu
 });
 
 test("connector detail surfaces the governance cards", async ({ page }) => {
-  await page.goto("/admin/connectors/claw");
+  await page.goto("/admin/connectors/claw?tab=config");
   await expect(page.locator("[data-admin-page='connector-detail']")).toBeVisible();
+  await expect(page.locator("[data-connector-detail-tab]")).toHaveCount(4);
   await expect(page.locator("[data-connector-config-card]")).toBeVisible();
+  await page.locator("[data-connector-detail-tab='tools']").click();
+  await expect(page.locator("[data-connector-config-card]")).toBeHidden();
   await expect(page.locator("[data-connector-tools]")).toBeVisible();
+  await page.locator("[data-connector-more]").click();
   await expect(page.locator("[data-connector-copy-id]")).toBeVisible();
   await expect(page.locator("[data-connector-status-note]")).not.toHaveText("");
   // 退役：按人授权与范围卡片不再出现（授权单位＝技能，见 design 2026-09-27）。
@@ -641,11 +645,13 @@ test("URL add flow creates a pending connector with governance cards", async ({ 
   await expect(configModal.locator("h2")).toContainText("E2E URL MCP");
   await configModal.locator(".connector-panel-detail-link").click();
   await expect(page.locator("[data-admin-page='connector-detail']")).toBeVisible();
+  await page.locator("[data-connector-detail-tab='config']").click();
   await expect(page.locator("[data-connector-config-card]")).toBeVisible();
+  await page.locator("[data-connector-detail-tab='tools']").click();
   await expect(page.locator("[data-connector-tools]")).toBeVisible();
   await expect(page.locator("[data-connector-scope]")).toHaveCount(0);
   await expect(page.locator("[data-admin-grants]")).toHaveCount(0);
-  await expect(page.locator("[data-connector-status-note]")).toContainText("配置已保存");
+  await expect(page.locator("[data-connector-status-note]")).toContainText("尚未测试");
 });
 
 test("HTTP API flow creates a draft and saves explicit actions without an MCP adapter", async ({ page }) => {
@@ -666,7 +672,7 @@ test("HTTP API flow creates a draft and saves explicit actions without an MCP ad
   await expect(card).toHaveAttribute("data-connector-kind", "custom_api");
   const id = await card.getAttribute("data-connector");
 
-  await page.goto(`/admin/connectors/${id}`);
+  await page.goto(`/admin/connectors/${id}?tab=config`);
   const config = page.locator("[data-connector-config-card]");
   // 协议在创建入口决定：草稿按 HTTP 字段集打开，端点与动作在详情补齐。
   await expect(config.locator("[data-connector-http-definition]")).toBeVisible();
@@ -754,7 +760,7 @@ test("config form validates icons and keeps submitted secrets write-only", async
   await request.post("/api/admin/connectors", {
     data: { id: TEST_ID, label: "E2E Icon MCP", purpose: "图标与密钥校验" },
   });
-  await page.goto(`/admin/connectors/${TEST_ID}`);
+  await page.goto(`/admin/connectors/${TEST_ID}?tab=config`);
   await expect(page.locator("[data-connector-config-card]")).toBeVisible();
 
   // 与创建弹窗同一套版式：HTTP / SSE 两项、图标分裂按钮、备注（可选、5 行）、单一保存实底。
@@ -762,7 +768,7 @@ test("config form validates icons and keeps submitted secrets write-only", async
   await expect(form.locator("[data-connector-field='transport'] option")).toHaveText(["HTTP", "SSE"]);
   await expect(form.locator(".connector-icon-field")).toHaveClass(/is-bare/);
   await expect(form.locator("textarea")).toHaveAttribute("rows", "5");
-  await expect(form.locator("[data-connector-panel-save]")).toHaveText("保存");
+  await expect(form.locator("[data-connector-panel-save]")).toHaveText("保存配置");
   // 保存与启用不再合并：卡片里没有「发布并保存」，启用走详情/向导的独立动作。
   await expect(form.locator("[data-connector-split='config-save']")).toHaveCount(0);
   await expect(form.getByText("发布并保存")).toHaveCount(0);
