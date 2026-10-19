@@ -1,0 +1,6 @@
+{
+  "command": "node .tmp/finalize-query-evidence.mjs",
+  "exit_code": 0,
+  "status": "passed",
+  "errors": []
+}

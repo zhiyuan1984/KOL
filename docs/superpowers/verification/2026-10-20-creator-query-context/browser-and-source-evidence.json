@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "kind": "browser-and-source-evidence",
+  "status": "complete",
+  "owner": "test-manager",
+  "requirement_refs": [
+    "CONST-08",
+    "CONST-10",
+    "PROD-AGENT-03",
+    "TECH-TEST-01"
+  ],
+  "subject": {
+    "task_id": "creator-query-context-20261020",
+    "source_revision": "cd12dd8 + recorded source hashes"
+  },
+  "decisions": {
+    "layers": {
+      "backend": "Isolated real Hono route and recognizer tests with catalog/handle fixtures",
+      "browser": "Built application with explicit HTTP fixtures; no production data or writes",
+      "human": "pending",
+      "live_service": "not verified"
+    },
+    "tests": {
+      "backend": 10,
+      "browser": 6
+    },
+    "limitations": [
+      "No real PostgreSQL/remote MCP end-to-end acceptance",
+      "No human UX sign-off",
+      "Not deployed"
+    ]
+  },
+  "verification": {
+    "evidence": [
+      "backend-tests.json",
+      "browser-tests.json",
+      "source-review.json"
+    ],
+    "human_review": "pending"
+  },
+  "task_id": "creator-query-context-20261020",
+  "summary": "Explicit query context and truthful intake recovery; automated evidence is separate from human/live acceptance.",
+  "status_claims": []
+}

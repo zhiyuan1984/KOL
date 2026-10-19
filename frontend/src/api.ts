@@ -1517,6 +1517,8 @@ export type TaskRunResult = {
 export type ClarificationKind = "none" | "missing_fields" | "direction";
 
 export type FromTextResult = {
+  /** Explicit employee selection retained when execution cannot resolve an Agent. */
+  requested_task_type?: string;
   task?: Task;
   tasks?: Task[];
   resolved_tasks?: Array<Task | TaskDefinition>;
@@ -1536,6 +1538,7 @@ export type FromTextResult = {
     entities?: Record<string, unknown>;
     source?: string;
     error?: string;
+    next_action?: string;
     alternatives?: Array<{ task_type?: string; id?: string; title?: string; confidence?: number }>;
   };
 };

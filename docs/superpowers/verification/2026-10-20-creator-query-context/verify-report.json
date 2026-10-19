@@ -1,0 +1,38 @@
+{
+  "status": "failed",
+  "task_id": "creator-query-context-20261020",
+  "errors": [
+    "check is not passed (failed, skipped, pending, and not-run are blocking): frontend-browser-review (pending)",
+    "human or browser check requires named reviewer and review time: frontend-browser-review"
+  ],
+  "warnings": [],
+  "machine_verification": {
+    "status": "failed",
+    "checks": [
+      {
+        "id": "route-contract-schema",
+        "status": "passed"
+      },
+      {
+        "id": "frontend-experience-test",
+        "status": "passed"
+      },
+      {
+        "id": "backend-affected-test",
+        "status": "passed"
+      }
+    ]
+  },
+  "human_browser_review": {
+    "status": "invalid-record",
+    "checks": [
+      {
+        "id": "frontend-browser-review",
+        "status": "pending",
+        "reviewer": null,
+        "review_record": null
+      }
+    ],
+    "note": "This CLI validates supplied names, hashes, and evidence categories only. It does not claim that an expert reviewed UX or that browser/source fidelity is acceptable."
+  }
+}

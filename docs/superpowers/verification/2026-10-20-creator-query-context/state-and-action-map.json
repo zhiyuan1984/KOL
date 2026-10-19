@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "kind": "state-and-action-map",
+  "status": "complete",
+  "owner": "frontend/ui-ux",
+  "requirement_refs": [
+    "CONST-08",
+    "CONST-10",
+    "PROD-AGENT-03",
+    "TECH-TEST-01"
+  ],
+  "subject": {
+    "task_id": "creator-query-context-20261020",
+    "source_revision": "cd12dd8 + recorded source hashes"
+  },
+  "decisions": {
+    "states": [
+      {
+        "state": "planning-idle",
+        "content": "未选其他技能时显示原规划空态"
+      },
+      {
+        "state": "skill-selected",
+        "content": "当前技能标题、参数与任务结果空态；无今日计划或规划流"
+      },
+      {
+        "state": "selected-skill-blocked",
+        "content": "保留选择、具体原因及恢复建议；不执行、不重新猜任务"
+      },
+      {
+        "state": "ambiguous-free-text",
+        "content": "继续澄清意图"
+      },
+      {
+        "state": "return-to-planning",
+        "content": "清除旧查询反馈并恢复规划面"
+      }
+    ],
+    "authorization": "Agent/skill/resource gates unchanged; missing routes remain blocked"
+  },
+  "verification": {
+    "evidence": [
+      "backend-tests.json",
+      "browser-tests.json",
+      "source-review.json"
+    ],
+    "human_review": "pending"
+  },
+  "task_id": "creator-query-context-20261020",
+  "summary": "Explicit query context and truthful intake recovery; automated evidence is separate from human/live acceptance.",
+  "status_claims": []
+}

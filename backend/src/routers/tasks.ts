@@ -1305,7 +1305,7 @@ tasks.post("/tasks/recognize", async (c) => {
     confidence: resolution.confidence,
     clarification_kind: resolution.clarification_kind,
     needs_clarification: !resolution.task_type || resolution.confidence < 0.75 || resolution.needs_clarification,
-    message: resolution.error,
+    message: resolution.error || resolution.next_action,
   });
 });
 
@@ -1321,11 +1321,10 @@ tasks.post("/tasks/from-text", async (c) => {
       task_type: requestedType,
     });
   }
-  const lockedType = requestedType && (await taskDefinition(requestedType)) ? requestedType : undefined;
   const resolution = await recognizeTaskIntent({
     text,
     agent_id: body.agent_id ? String(body.agent_id) : undefined,
-    task_type: lockedType,
+    task_type: requestedType && requestedType !== "free" ? requestedType : undefined,
     entities: body.entities as Record<string, unknown> | undefined,
     input: taskInput(body),
   });
@@ -1338,9 +1337,10 @@ tasks.post("/tasks/from-text", async (c) => {
       resolved_tasks: [],
       needs_clarification: true,
       clarification_kind: "direction",
-      clarification: resolution.error
+      requested_task_type: requestedType && requestedType !== "free" ? requestedType : undefined,
+      clarification: [resolution.error, resolution.next_action].filter(Boolean).join(" ")
         || "请选择最符合你意图的任务，不会自动执行。",
-      message: resolution.error,
+      message: resolution.error || resolution.next_action,
       candidates: resolution.alternatives.map((candidate) => ({
         id: candidate.task_type,
         task_type: candidate.task_type,

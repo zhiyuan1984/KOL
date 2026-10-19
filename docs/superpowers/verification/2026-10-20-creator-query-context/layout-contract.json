@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "kind": "layout-contract",
+  "status": "complete",
+  "owner": "frontend/ui-ux",
+  "requirement_refs": [
+    "CONST-08",
+    "CONST-10",
+    "PROD-AGENT-03",
+    "TECH-TEST-01"
+  ],
+  "subject": {
+    "task_id": "creator-query-context-20261020",
+    "source_revision": "cd12dd8 + recorded source hashes"
+  },
+  "decisions": {
+    "composition": "Reuse ScopeWorkspace/WorkspaceShell; selected skill temporarily owns intake center and result rail",
+    "navigation": "Existing Home and task-session routes unchanged",
+    "viewport_checks": [
+      "375x667",
+      "768x600",
+      "1280x720",
+      "1920x1080"
+    ],
+    "tokens": "No CSS or visual token changes"
+  },
+  "verification": {
+    "evidence": [
+      "backend-tests.json",
+      "browser-tests.json",
+      "source-review.json"
+    ],
+    "human_review": "pending"
+  },
+  "task_id": "creator-query-context-20261020",
+  "summary": "Explicit query context and truthful intake recovery; automated evidence is separate from human/live acceptance.",
+  "status_claims": []
+}

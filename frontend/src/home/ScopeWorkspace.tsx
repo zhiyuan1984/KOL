@@ -64,6 +64,8 @@ export default function ScopeWorkspace({
   centerHeader,
   centerSupplement,
   centerFooter,
+  suppressPlanEmpty = false,
+  taskIntake,
 }: {
   scope: PlanScope;
   rows: Task[];
@@ -92,6 +94,10 @@ export default function ScopeWorkspace({
   /** Composer 产生的澄清、排队、失败或恢复信息，属于中栏交互时间线。 */
   centerSupplement?: ReactNode;
   centerFooter?: ReactNode;
+  /** An explicit skill or intake feedback owns the center; planning has not started. */
+  suppressPlanEmpty?: boolean;
+  /** A chosen skill owns this intake surface until its task session opens. */
+  taskIntake?: { resultTitle: string };
 }) {
   const cfg = SCOPE_CONFIG[scope];
   const stamped = useMemo(
@@ -113,15 +119,15 @@ export default function ScopeWorkspace({
     <WorkspaceShell
       key={scope}
       pane={scope}
-      railLabel={cfg.railLabel}
-      railToggleLabel={cfg.railToggleLabel}
+      railLabel={taskIntake?.resultTitle || cfg.railLabel}
+      railToggleLabel={taskIntake?.resultTitle || cfg.railToggleLabel}
       railStorageKey={cfg.railStorageKey}
-      railBadge={stamped.length}
+      railBadge={taskIntake ? undefined : stamped.length}
       preserveRailPosition
-      streamStick={phase === "loading-memory" || phase === "planning"}
+      streamStick={!taskIntake && (phase === "loading-memory" || phase === "planning")}
       resultView={{
-        resultType: cfg.resultType,
-        status: phase === "failed" ? "failed" : phase === "planning" || phase === "loading-memory"
+        resultType: taskIntake ? "task_result" : cfg.resultType,
+        status: taskIntake ? "idle" : phase === "failed" ? "failed" : phase === "planning" || phase === "loading-memory"
           ? "running" : hasStream ? "completed" : stamped.length ? "ready" : "idle",
         freshness: "unknown",
       }}
@@ -129,14 +135,14 @@ export default function ScopeWorkspace({
       centerHeader={(
         <>
           {centerHeader}
-          {notice ? (
+          {notice && !taskIntake ? (
             <p className="home-dedupe-notice" data-todo-deduped role="status">{notice}</p>
           ) : null}
         </>
       )}
       centerScroll={(
         <>
-          <TodayPlanProgress
+          {!taskIntake ? <TodayPlanProgress
             phase={phase}
             events={events}
             brief={brief}
@@ -147,9 +153,9 @@ export default function ScopeWorkspace({
             previousEvents={previousEvents}
             snapshot={snapshot}
             scope={scope}
-          />
+          /> : null}
           {centerSupplement}
-          {phase === "idle" && !hasStream ? (
+          {phase === "idle" && !hasStream && !suppressPlanEmpty && !taskIntake ? (
             <div className="scope-workspace-empty" data-scope-ai-empty>
               <p>{cfg.streamEmpty.body}</p>
             </div>
@@ -157,7 +163,12 @@ export default function ScopeWorkspace({
         </>
       )}
       centerFooter={centerFooter}
-      rail={selectedTask ? (
+      rail={taskIntake ? (
+        <section className="scope-workspace-empty" data-task-intake-result aria-label={taskIntake.resultTitle}>
+          <strong>{taskIntake.resultTitle}</strong>
+          <p>尚无任务结果。执行后可在任务会话中查看过程与结果。</p>
+        </section>
+      ) : selectedTask ? (
         <TaskDetailRail
           task={selectedTask}
           sessionId={taskSessionId(selectedTask)}
