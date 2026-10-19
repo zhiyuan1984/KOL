@@ -1021,7 +1021,7 @@ export default function ComposerDock({
   const compactDiscoveryPreview = Boolean(discoveryBrief && !showDiscoveryEditor && value.startsWith(DISCOVERY_BODY_PREFIX) && !autoFocus && !discoveryTextExpanded);
   const discoveryReady = Boolean(discoveryBrief && canSubmitDiscovery(discoveryBrief));
   const discoveryBlocked = Boolean(discoveryBrief && !canSubmitDiscovery(discoveryBrief));
-  const canSend = Boolean(
+  const canSend = !(discoveryBrief && !showDiscoveryEditor && !value.trim() && !attachments.length) && Boolean(
     value.trim()
     || attachments.length
     || discoveryReady

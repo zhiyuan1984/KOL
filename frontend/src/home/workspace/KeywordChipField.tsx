@@ -177,7 +177,7 @@ export default function KeywordChipField({
         </span>
       ))}
       <button type="button" className="discovery-keyword-add" data-discovery-keywords-add aria-label="添加关键词"
-        aria-expanded={open} aria-controls={listId} onClick={toggle}>＋</button>
+        aria-expanded={open} aria-controls={listId} onClick={toggle}>＋添加</button>
       {words.length || draft ? <button type="button" className="discovery-keyword-clear" data-discovery-clear-keywords
         aria-label="清除关键词" onClick={() => applyWords(EMPTY_WORDS)}>×</button> : null}
       {open ? (

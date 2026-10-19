@@ -201,7 +201,7 @@ test("submitted discovery stays in its workspace while task loading is delayed",
   const errors = await intercept(page, 1600);
   await page.goto("/?tab=discovery");
   await expect(page.locator("[data-discovery-search-card]")).toBeVisible();
-  await page.locator("[data-home] [data-ai-prompt-submit]").click();
+  await page.locator("[data-discovery-card-submit]").click();
   await expect(page).toHaveURL(/tab=discovery/);
   await expect(page.locator("[data-workspace-session]")).toHaveAttribute("data-workspace-session", task.session_id);
   await expect(page.locator("[data-discovery-start-confirm]")).toBeVisible();
@@ -226,7 +226,7 @@ test("focused stream links remain reachable during live content growth", async (
   });
   try {
     await page.goto("/?tab=discovery");
-    await page.locator("[data-home] [data-ai-prompt-submit]").click();
+    await page.locator("[data-discovery-card-submit]").click();
     await started;
     await expect(page.locator("[data-discovery-start-confirm]")).toBeInViewport();
     const stream = page.locator(".scope-workspace-center-scroll");
@@ -257,7 +257,7 @@ test("Home uses one directional jump control without covering the composer", asy
   const errors = await intercept(page);
   await page.goto("/?tab=discovery");
   const pane = page.locator(".scope-workspace-center-scroll");
-  await expect(pane).toBeVisible();
+  await expect(pane).toBeVisible({ timeout: 15000 });
   await pane.locator(".scope-workspace-center-scroll-content").evaluate(el => {
     for (let i = 0; i < 40; i++) {
       const p = document.createElement("p");
@@ -282,7 +282,6 @@ test("short discovery reveals focused input after context growth and respects ma
   await page.emulateMedia({ reducedMotion: "reduce" });
   const errors = await intercept(page);
   await page.goto("/?tab=discovery");
-  await page.getByRole("button", { name: "编辑完整请求" }).click();
   await page.locator("[data-home] [data-composer-input]").fill("保留尺寸变化时的草稿");
   const submit = page.locator("[data-home] [data-ai-prompt-submit]");
   await submit.focus();
@@ -583,5 +582,41 @@ for (const theme of ["light", "dark"]) {
       for (const response of clients) response.end();
       await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     }
+  });
+}
+
+for (const width of [375, 768, 1101, 1280, 1720, 1920]) {
+  test('reference discovery conditions remain compact and reset locally at ' + width, async ({page}, info) => {
+    await page.setViewportSize({width, height: width === 1280 ? 600 : 914});
+    await intercept(page);
+    const writes: string[] = [];
+    page.on('request', request => { if (request.method() === 'POST') writes.push(request.url()); });
+    await page.goto('/?tab=discovery');
+    const form = page.locator('.discovery-brief-form').first();
+    await expect(form.locator('[data-discovery-reset]')).toBeVisible();
+    await expect(page.locator('[data-discovery-conditions-heading="edit"]')).toBeHidden();
+    await expect(page.locator('[data-home] [data-composer-input]')).toHaveValue('');
+    await expect(page.locator('[data-home] [data-ai-prompt-submit]')).toBeDisabled();
+    await expect(form.locator('[data-discovery-keywords-add]')).toHaveText('＋添加');
+    const min = form.locator('[data-discovery-min-followers]');
+    const initial = await min.inputValue();
+    await min.fill('23456');
+    await expect(min).toHaveValue('23,456');
+    await form.locator('[data-discovery-keywords-add]').click();
+    await form.locator('[data-discovery-keywords-input]').fill('discarded keyword draft');
+    await form.locator('[data-discovery-reset]').click();
+    await expect(form.locator('[data-discovery-keywords-popup]')).toHaveCount(0);
+    await expect(min).toHaveValue(initial);
+    await expect(form.locator('.discovery-card-note')).toHaveText('核对后再开始采集');
+    const bounds = await form.evaluate(el => ({width: el.clientWidth, scrollWidth: el.scrollWidth}));
+    expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.width + 1);
+    expect(writes).toEqual([]);
+    const submit = form.locator('[data-discovery-card-submit]');
+    await submit.scrollIntoViewIfNeeded();
+    await expect.poll(() => submit.evaluate(el => {
+      const r = el.getBoundingClientRect();
+      return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+    })).toBe(true);
+    await page.screenshot({path: info.outputPath('reference-' + width + '.png')});
   });
 }

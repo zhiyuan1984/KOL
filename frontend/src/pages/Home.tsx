@@ -386,13 +386,13 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
   }, [homeReadScope]);
   const [sort, setSort] = useState("priority");
   const initialHomeMode = sessionRoute ? "discovery" : parseHomeMode(new URLSearchParams(window.location.search).get("tab"));
-  // AI发现 tab：条件卡与提问框正文在首帧就位，不等 GET /api/home/discovery/template。
+  // AI发现 tab：条件卡首帧就位，提问框留给自由输入。
   const discoveryEntryTab = initialHomeMode === "discovery";
   const todayEntryDefault = !discoveryEntryTab && initialHomeMode === "today";
   const todoEntryDefault = !discoveryEntryTab && initialHomeMode === "todo";
   const [text, setText] = useState(
     discoveryEntryTab
-      ? renderDiscoveryBody(defaultDiscoveryBrief())
+      ? ""
       : todayEntryDefault
         ? starterPrompt({ id: "creator_daily_tasks", title: "今日任务" })
         : todoEntryDefault
@@ -561,14 +561,14 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
   };
 
   /**
-   * 进入 AI发现：条件卡与提问框正文都取本地默认 brief，首屏既有条件也可编辑。
-   * 只在提问框为空、或已经是【发现任务】正文时才写入 —— 用户别处打的字不动。
+   * 进入 AI发现：条件卡取本地默认 brief，提问框保留员工草稿。
+   * 只清理系统起始文本，用户别处打的字不动。
    * 不走 openDiscoveryTemplate（那会 stash 草稿，等同显式点选）。
    */
   const seedDiscoveryEntry = () => {
     const brief = discoveryFormBrief || discoveryBrief || defaultDiscoveryBrief();
     setDiscoveryFormBrief((current) => current ?? brief);
-    // 模板起始文本不算用户输入：切到 AI发现 时允许被发现正文替换，
+    // 模板起始文本不算用户输入：切到 AI发现 时清理系统起始文本，
     // 只有员工真正打过的字才受保护。
     const isStarterText = (value: string) => (
       value === starterPrompt({ id: "creator_daily_tasks", title: "今日任务" })
@@ -578,7 +578,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
     setDiscoveryBrief((current) => current ?? brief);
     setText((current) => (current.trim() && !current.startsWith(DISCOVERY_BODY_PREFIX) && !isStarterText(current)
       ? current
-      : renderDiscoveryBody(brief)));
+      : ""));
     setLockedIntent(DISCOVERY_INTENT);
     setLockedLabel(DISCOVERY_LOCK_LABEL);
     setEntryIntent("discover");
@@ -587,9 +587,9 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
   const onDiscoveryBriefChange = (next: DiscoveryBrief) => {
     discoveryBriefRef.current = next;
     setDiscoveryBrief(next);
-    // 条件卡与提问框的条件编辑共用同一真值：芯片改了条件，正文（可编辑）同步改写。
+    // 条件直接在表单编辑；仅显式打开的完整请求同步更新，保留自由提问草稿。
     setDiscoveryFormBrief(next);
-    setText(applyChipOverride(text.startsWith(DISCOVERY_BODY_PREFIX) ? text : `${DISCOVERY_BODY_PREFIX}\n${text}`, next));
+    setText((current) => current.startsWith(DISCOVERY_BODY_PREFIX) ? applyChipOverride(current, next) : current);
     setLockedIntent(DISCOVERY_INTENT);
     setLockedLabel(DISCOVERY_LOCK_LABEL);
   };

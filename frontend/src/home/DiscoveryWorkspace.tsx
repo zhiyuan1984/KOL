@@ -134,7 +134,7 @@ export default function DiscoveryWorkspace({
             data-discovery-event-state={disc.cardMode}
             aria-label="发现条件"
           >
-            <header className="discovery-event-head">
+            <header className="discovery-event-head" data-discovery-conditions-heading={disc.cardMode}>
               <strong>{disc.cardMode === "readonly" ? "本次提交的条件" : "发现条件"}</strong>
               {disc.cardMode === "readonly" ? (
                 <span className="discovery-event-status">
@@ -221,7 +221,7 @@ export default function DiscoveryWorkspace({
               connection={disc.connection}
             />
           ) : null}
-          {(!flowStarted || startConfirmed) ? <DiscoveryNextPlan
+          {flowStarted && startConfirmed ? <DiscoveryNextPlan
             run={disc.run}
             visibleCount={disc.visible.length}
             selectedCount={disc.selected.length}
@@ -249,7 +249,7 @@ export default function DiscoveryWorkspace({
         {pendingAction && sessionId ? <p className="workspace-confirm-hint" role="status">
           ⚠ 请核对执行范围 <button className="btn ghost" type="button" onClick={() => revealWorkspace(sessionId, "center", pendingAction.id)}>查看确认卡</button>
         </p> : null}
-        <WorkspaceSubmitEmphasisContext.Provider value={pendingAction ? "secondary" : "primary"}>
+        <WorkspaceSubmitEmphasisContext.Provider value={pendingAction || !flowStarted ? "secondary" : "primary"}>
           {centerFooter}
         </WorkspaceSubmitEmphasisContext.Provider>
       </div>}

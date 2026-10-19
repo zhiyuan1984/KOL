@@ -5,7 +5,7 @@
 /* 条件卡落在中栏（≈470–520px），不是整页宽：成对的两项改纵排、标签列收窄，
    关键词与数值行照旧换行。卡片的 data-* 契约与整页形态完全一致。 */
 .scope-workspace-center .ai-discovery-card {
-  --ds-label-w: 88px;
+  --ds-label-w: var(--touch-hit-min);
 }
 .scope-workspace-center .ai-discovery-rows.is-pair {
   grid-template-columns: minmax(0, 1fr);
@@ -25,13 +25,13 @@
   参考宽度（约 458 CSS px）内把 8 个方向收进两行，两组阈值各压成一行：
   - 平台/地区/方向/关键词：标签列与选项列同行，选项按 4px 间距自然换行；
   - 粉丝上下限是一组范围，因此共享「粉丝数范围」标签；
-  - 均播与期望人数：<720px 中栏各占一行（不变量 7 不并排），标签与值同行、
+  - 均播与期望人数：按用户参考图同行，极窄容器纵排，标签与值同行、
     输入框撑满整行。
   保留原字段的 data-skill-param / API key，布局变化不改变提交语义。
 */
-.discovery-brief-form {  --ds-label-w: 88px;
+.discovery-brief-form {  --ds-label-w: var(--touch-hit-min);
   --ds-row-gap: var(--space-1);
-  --ds-control-h: var(--control-h-form);
+  --ds-control-h: var(--control-h-sm);
   --ds-chip-h: var(--control-h-sm);
   /* 关键词芯片与芯片内输入位同高：24px 档，触摸模态升到 44px 命中区。 */  --ds-token-h: var(--control-h-sm);
   --ds-chip-gap: var(--space-1);
@@ -92,7 +92,7 @@
   border-color: transparent;
   background: var(--surface-hover);
 }
-.discovery-brief-form .ai-discovery-card .discovery-chip[aria-pressed="true"] {  border-color: transparent;  background: transparent;  box-shadow: none;  color: var(--text);  font-weight: 500;}
+.discovery-brief-form .ai-discovery-card .discovery-chip[aria-pressed="true"] {  border-color: var(--ds-selected-border);  background: var(--ds-selected-bg);  box-shadow: none;  color: var(--accent-text);  font-weight: 500;}
 .discovery-brief-form .discovery-chip-check {
   display: inline-flex;
   align-items: center;
@@ -134,7 +134,8 @@
   width: var(--ds-token-h);
   height: var(--ds-token-h);
   padding: 0;
-  border: 1px dashed var(--ds-border);
+  padding-inline: var(--space-1);
+  border: 1px solid var(--ds-border);
   border-radius: var(--radius-control);
   background: transparent;
   color: var(--text-muted);
@@ -284,9 +285,9 @@
     --ds-chip-h: 44px;    --ds-token-h: 44px;
   }
 }
-/* 中栏 <720px 时只把指标对纵排（两个数字框并排会过窄）；
+/* 中栏 <360px 时把指标对纵排，避免数字框过窄；
    平台/地区/方向/关键词仍保持「标签列 + 选项列」，选项自然换行。 */
-@container home-workspace-center (max-width: 719px) {
+@container home-workspace-center (max-width: 359px) {
   .discovery-brief-form .ai-discovery-row.is-metric-pair {
     grid-template-columns: minmax(0, 1fr);
     row-gap: var(--space-1);
@@ -631,3 +632,36 @@
 
 .scope-workspace[data-home-pane="discovery"] .scope-workspace-center { container-type: inline-size; container-name: home-workspace-center; }
 @media (pointer: coarse) { .discovery-result-filters .lifecycle-tab { min-height: var(--touch-hit-min); } }
+
+/* Screenshot reference: flat, compact conditions and a trailing submit action. */
+.discovery-brief-form { position: relative; }
+.discovery-brief-form .discovery-param-icon { display: none; }
+.discovery-brief-reset { position: absolute; top: 0; right: 0; z-index: 1; }
+.discovery-brief-form [data-skill-param="platforms"] { padding-right: calc(var(--touch-hit-min) + var(--space-2)); }
+.scope-workspace[data-home-pane="discovery"] .discovery-event [data-discovery-conditions-heading="edit"] { display: none; }
+.discovery-event[data-discovery-event="conditions"] { padding-top: var(--space-3); border-top: 1px solid var(--border); }
+.discovery-brief-form [data-skill-param="keywords"] { padding-top: var(--space-1); border-top: 1px solid var(--border); }
+.discovery-brief-form .discovery-card-foot { flex-direction: row; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-top: var(--space-1); padding-top: var(--space-1); border-top: 1px solid var(--border); text-align: left; }
+.discovery-brief-form .discovery-card-note { color: var(--text-muted); font-size: var(--ds-font-sm); }
+.discovery-brief-form .discovery-card-foot [data-discovery-card-submit] { margin-left: auto; }
+@media (pointer: coarse) {
+  .discovery-brief-form .discovery-keyword-add { min-height: var(--touch-hit-min); }
+}
+
+.discovery-brief-form .ai-discovery-label { color: var(--text); }
+.discovery-brief-form .discovery-keyword-add { width: auto; padding-inline: var(--space-1); white-space: nowrap; }
+.discovery-brief-form .discovery-card-foot [data-discovery-card-submit] { background: var(--accent-text); border-color: var(--accent-text); color: var(--primary-fg); }
+.discovery-brief-form .discovery-card-foot [data-discovery-card-submit]:hover { filter: brightness(.95); }
+
+.discovery-brief-form .is-metric-pair .ai-discovery-inline-field,
+.discovery-brief-form .is-metric-pair .ai-discovery-inline-field + .ai-discovery-inline-field { grid-template-columns: max-content minmax(0, 1fr); align-items: center; }
+
+.discovery-brief-form .discovery-keyword-chip .chip-x { min-width: 0; width: var(--space-4); flex: 0 0 var(--space-4); }
+
+.discovery-brief-form .discovery-brief-reset { background: transparent; border: 0; color: var(--text-muted); }
+
+.scope-workspace[data-home-pane="discovery"] { --workspace-agent-content-w: min(var(--drawer-w-sm), max(0px, calc(100vw - var(--left-width) - var(--workspace-result-rail-min) - 2 * var(--workspace-pane-gutter)))); }
+.scope-workspace[data-home-pane="discovery"] .discovery-brief-form > .discovery-brief-reset { background: transparent; border: 0; color: var(--text-muted); }
+
+/* Keep the scroll shortcut in the gap between the note and submit action. */
+.scope-workspace[data-home-pane="discovery"] .scope-workspace-center-scroll-wrap > .scope-scroll-jump { right: 50%; transform: translateX(50%); }
