@@ -1,0 +1,36 @@
+{
+  "checked_at": "2026-10-19T23:19:03.372Z",
+  "skill": "creator_library_query",
+  "agent_status": "published",
+  "skill_binding": {
+    "agent_id": "agent:kol",
+    "skill_id": "creator_library_query",
+    "enabled": 1,
+    "version": 1,
+    "updated_at": "2026-10-19T09:39:40.639Z",
+    "release_hash": null
+  },
+  "required_definition": {
+    "code": "kol_profile",
+    "revision": 2,
+    "actions": [
+      "read_profile"
+    ]
+  },
+  "observed_definition": {
+    "code": "kol_profile",
+    "updatedAt": null,
+    "revision": 0,
+    "status": "registered",
+    "history_count": 0
+  },
+  "guard": {
+    "status": 409,
+    "data": {
+      "detail": {
+        "code": "ontology_dependency_not_published"
+      }
+    }
+  },
+  "additional_configuration_issue": "达人库查询 的资源 starrykol 未就绪"
+}
