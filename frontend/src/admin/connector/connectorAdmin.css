@@ -1730,11 +1730,12 @@
   background: var(--browse-tile);
 }
 
-/* 名称与描述同排：名称最多占 46%，描述吃剩余宽度并单行截断（tooltip 给全文）。 */
+/* 名称与描述同排：名称最多占 46%，描述吃剩余宽度并单行截断（tooltip 给全文）。
+   两者之间留 12px，否则名称和描述连成一句话、分不清边界。 */
 .connector-browse .connector-card-body {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
   min-width: 0;
 }
 
@@ -1744,6 +1745,13 @@
   min-width: 0;
   max-width: 46%;
   line-height: 20px;
+}
+
+/* 手机宽度下名称先保命：46% 会把常见名称截成 “MediaCraw…”，放宽到 58%。 */
+@media (max-width: 480px) {
+  .connector-browse .connector-card-title {
+    max-width: 58%;
+  }
 }
 
 .connector-browse .connector-card-title .connector-card-link,
@@ -1763,7 +1771,9 @@
 
 .connector-browse .connector-card-purpose {
   display: block;
-  flex: 1 1 auto;
+  /* basis 0：描述只吃名称剩下的宽度。名称按自然宽（≤上限）先落位，
+     不会在宽度不够时和描述按内容比例互相挤压、两边都截成碎片。 */
+  flex: 1 1 0;
   min-width: 0;
   margin: 0;
   font-size: var(--font-browse-desc);
