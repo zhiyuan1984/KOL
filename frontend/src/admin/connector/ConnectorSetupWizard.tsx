@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api";
 import { connectorDisableConfirm } from "../../adminConfirm";
@@ -23,7 +23,7 @@ import {
   saveConnectorConfigForm,
   type HeaderRow,
 } from "./connectorSetup";
-import { connectorHref, type ConnectorCardView } from "./entity";
+import { type ConnectorCardView } from "./entity";
 import { useDeclaredToolMount } from "./useDeclaredToolMount";
 import { initialWizardStep, type WizardStep } from "./wizardSteps";
 
@@ -184,6 +184,13 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
     },
   });
 
+  const stepBodyRef = useRef<HTMLElement | null>(null);
+
+  // 切步后焦点落到该步内容，键盘与读屏用户不用再 Tab 过步骤条。
+  useEffect(() => {
+    stepBodyRef.current?.focus({ preventScroll: true });
+  }, [step]);
+
   const statusLine = useMemo(() => {
     if (!id) return "尚未保存：保存后连接器为待验证状态，不会自动启用。";
     if (enabled) return "已启用：调用仍受平台校验与技能挂载约束。";
@@ -195,6 +202,13 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
     }
     return passedAt ? `测试通过于 ${passedAtLabel}；可启用连接器。` : "测试已通过；可启用连接器。";
   }, [enabled, id, passedAt, savedInSession, verified, version]);
+
+  // 启用步的横幅标题已经写明「已启用」/「待启用」，正文只补一句后果，避免同一事实说两遍。
+  const enableDetail = enabled
+    ? "调用仍需平台校验与技能挂载。"
+    : verified
+      ? "最近一次测试已通过，可以启用。"
+      : statusLine;
 
   const rememberSave = (savedVersion: number, message: string) => {
     setVersion(savedVersion);
@@ -328,72 +342,84 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
   };
 
   const stepFooter = (() => {
+    const note = (text: ReactNode) => <p className="connector-panel-note connector-wizard-foot-note">{text}</p>;
+    const actions = (children: ReactNode) => <div className="connector-wizard-foot-actions">{children}</div>;
+
     if (step === "save") {
       if (mode === "configure") {
         return <div ref={setSaveFooterHost} className="connector-config-save-footer" data-connector-config-save-footer />;
       }
       return (
         <>
-          <p className="connector-panel-note muted">保存只生成待验证草稿，不等于启用。</p>
-          <button
-            type="button"
-            className="btn work"
-            data-connector-panel-save
-            data-connector-wizard-primary
-            disabled={busy === "save"}
-            onClick={() => void save()}
-          >
-            {busy === "save" ? "保存中…" : "保存"}
-          </button>
+          {note("保存后可立即测试。")}
+          {actions(
+            <button
+              type="button"
+              className="btn work"
+              data-connector-panel-save
+              data-connector-wizard-primary
+              disabled={busy === "save"}
+              onClick={() => void save()}
+            >
+              {busy === "save" ? "保存中…" : "保存"}
+            </button>,
+          )}
         </>
       );
     }
     if (step === "test") {
       return (
         <>
-          <p className="connector-panel-note muted">{"测试只验证工具目录，不代表业务动作可用。"}</p>
-          <button type="button" className="btn" disabled={busy === "test"} onClick={() => setStep("save")}>上一步</button>
-          <button
-            type="button"
-            className="btn work"
-            data-connector-wizard-test
-            data-connector-wizard-primary
-            disabled={busy === "test" || !id}
-            onClick={() => void test()}
-          >
-            {busy === "test" ? "测试中…" : "运行测试"}
-          </button>
+          {note("测试只校验工具目录，不代表业务动作可用。")}
+          {actions(<>
+            <button type="button" className="btn text" disabled={busy === "test"} onClick={() => setStep("save")}>上一步</button>
+            <button
+              type="button"
+              className="btn work"
+              data-connector-wizard-test
+              data-connector-wizard-primary
+              disabled={busy === "test" || !id}
+              title={!id ? "尚未保存连接，无法测试" : undefined}
+              onClick={() => void test()}
+            >
+              {busy === "test" ? "测试中…" : "运行测试"}
+            </button>
+          </>)}
         </>
       );
     }
     if (step === "tools") {
       return (
         <>
-          <p className="connector-panel-note muted">清单只读；是否可用由平台校验与技能挂载决定。</p>
-          <button type="button" className="btn" disabled={busy === "test"} onClick={() => setStep("test")}>上一步</button>
-          <button type="button" className="btn work" data-connector-wizard-primary onClick={() => setStep("enable")}>下一步：启用</button>
+          {note("这一步不会改变连接器状态。")}
+          {actions(<>
+            <button type="button" className="btn text" disabled={busy === "test"} onClick={() => setStep("test")}>上一步</button>
+            <button type="button" className="btn work" data-connector-wizard-primary onClick={() => setStep("enable")}>下一步：启用</button>
+          </>)}
         </>
       );
     }
     return (
       <>
-        {enableBlocked && <p className="connector-panel-note muted">{enableBlocked}</p>}
-        <button type="button" className="btn" disabled={busy === "enable"} onClick={() => setStep("tools")}>上一步</button>
-        {enabled ? (
-          <button type="button" className="btn work" data-connector-wizard-primary onClick={finish}>完成</button>
-        ) : (
-          <button
-            type="button"
-            className="btn work"
-            data-connector-wizard-enable
-            data-connector-wizard-primary
-            disabled={busy === "enable" || !canEnable}
-            title={canEnable ? undefined : enableBlocked || "需先通过测试"}
-            onClick={() => void setConnectorEnabled(true)}
-          >
-            {busy === "enable" ? "启用中…" : "启用连接器"}
-          </button>
-        )}
+        {note(enableBlocked || (enabled ? "关闭窗口不会改变连接器状态。" : "启用后调用仍需技能挂载。"))}
+        {actions(<>
+          <button type="button" className="btn text" disabled={busy === "enable"} onClick={() => setStep("tools")}>上一步</button>
+          {enabled ? (
+            <button type="button" className="btn work" data-connector-wizard-primary onClick={finish}>完成</button>
+          ) : (
+            <button
+              type="button"
+              className="btn work"
+              data-connector-wizard-enable
+              data-connector-wizard-primary
+              disabled={busy === "enable" || !canEnable}
+              title={canEnable ? undefined : enableBlocked || "需先通过测试"}
+              onClick={() => void setConnectorEnabled(true)}
+            >
+              {busy === "enable" ? "启用中…" : "启用连接器"}
+            </button>
+          )}
+        </>)}
       </>
     );
   })();
@@ -425,6 +451,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
                 data-connector-wizard-tab={entry.id}
                 aria-current={step === entry.id ? "step" : undefined}
                 disabled={!reachable(entry.id)}
+                title={reachable(entry.id) ? undefined : "先保存连接，才能进入这一步"}
                 onClick={() => setStep(entry.id)}
               >
                 <span className="connector-wizard-step-n" aria-hidden>{done ? "✓" : index + 1}</span>
@@ -435,24 +462,30 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
           );
         })}
       </ol>
-      {/* 启用步渲染为 antd 高密度信息页时，状态行收进信息页内部，避免同粒度重复。 */}
+
+      {/* 状态与最近一次测试压成两行事实；启用步收进信息页，避免同粒度重复。 */}
       {step !== "enable" && (
-        <p className="connector-wizard-status" data-connector-wizard-status role="status">{statusLine}</p>
+        <div className="connector-wizard-facts-line">
+          <p className="connector-wizard-status" data-connector-wizard-status role="status">{statusLine}</p>
+          {verified ? (
+            <p className="connector-wizard-test" data-connector-wizard-test-result role="status">
+              测试通过 · {passedAtLabel || "时间由服务端记录"}{passedToolCount === null ? "" : ` · ${passedToolCount} 个工具`}{testNotice ? ` · ${testNotice}` : ""}
+            </p>
+          ) : (
+            <p className="connector-wizard-test" data-connector-wizard-test-result>
+              {version ? `当前配置版本 ${version}，尚未通过测试。` : "尚未保存配置，无法测试。"}
+            </p>
+          )}
+        </div>
       )}
-      {/* 测试结果常驻：切到工具清单步后仍能看到上一次测试的结论与免责声明；启用步收进信息页。 */}
-      {step !== "enable" && (verified ? (
-        <p className="runtime-notice" data-connector-wizard-test-result role="status">
-          测试通过（{passedAt || "时间由服务端记录"}{passedToolCount === null ? "" : ` · ${passedToolCount} 个工具`}）。{testNotice}
-        </p>
-      ) : (
-        <p className="muted" data-connector-wizard-test-result>
-          {version ? `当前配置版本 ${version}，尚未通过测试。` : "尚未保存配置，无法测试。"}
-        </p>
-      ))}
       {error && <p className="error" role="alert" data-connector-wizard-error>{error}</p>}
 
       {step === "save" && (
-      <section data-connector-wizard-step="save">
+      <section data-connector-wizard-step="save" className="connector-wizard-step-body" tabIndex={-1} ref={stepBodyRef}>
+        <div className="connector-wizard-step-head">
+          <h3 className="connector-wizard-step-title">接入配置</h3>
+          <span className="connector-wizard-step-hint">保存只生成待验证草稿，不影响线上调用</span>
+        </div>
         {mode === "create" ? (
           <>
             <div className="connector-form-grid">
@@ -466,14 +499,16 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
                 </select>
               </label>
             </div>
-            <div className="field">图标<ConnectorIconUpload variant="dialog" file={iconFile} onPick={setIconFile} /></div>
-            <label className="field"><span>备注<span className="field-optional">（可选）</span></span>
-              <textarea value={purpose} rows={5} maxLength={280} placeholder="提供 MCP 文档或说明，以告知平台如何及何时使用此 MCP" onChange={(event) => setPurpose(event.target.value)} />
-            </label>
             <label className="field">服务器 URL
               <input value={url} placeholder="https://mcp.yourserver.com/mcp" data-connector-field="url" onChange={(event) => setUrl(event.target.value)} />
             </label>
-            <div className="field"><span>自定义 headers<span className="field-optional">（可选）</span></span><HeaderRowsEditor rows={headers} onChange={setHeaders} disabled={busy === "save"} /></div>
+            <div className="field"><span>图标<span className="field-optional">（可选）</span></span><ConnectorIconUpload variant="dialog" file={iconFile} onPick={setIconFile} /></div>
+            <label className="field"><span>备注<span className="field-optional">（可选）</span></span>
+              <textarea value={purpose} rows={3} maxLength={280} placeholder="说明它提供哪些数据、什么时候该用" onChange={(event) => setPurpose(event.target.value)} />
+            </label>
+            <div className="field"><span>自定义 headers<span className="field-optional">（可选）</span></span>
+              <HeaderRowsEditor rows={headers} onChange={setHeaders} disabled={busy === "save"} />
+            </div>
             <label className="check"><input type="checkbox" checked={noAuth} onChange={(event) => setNoAuth(event.target.checked)} /> 该端点明确允许无鉴权</label>
           </>
         ) : card ? (
@@ -493,26 +528,37 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
       )}
 
       {step === "test" && (
-      <section data-connector-wizard-step="test">
-        <p className="muted">测试会调用远端 MCP 的 <code>tools/list</code>，只验证工具目录，不执行采集或其他写操作。</p>
+      <section data-connector-wizard-step="test" className="connector-wizard-step-body" tabIndex={-1} ref={stepBodyRef}>
+        <div className="connector-wizard-step-head">
+          <h3 className="connector-wizard-step-title">连通性测试</h3>
+          <span className="connector-wizard-step-hint">约 1–3 秒 · 只读</span>
+        </div>
+        <ul className="connector-wizard-checks">
+          <li>调用远端 <code>tools/list</code>，读取工具目录</li>
+          <li>不写入、不采集，也不执行任何工具</li>
+          <li>结论只代表当前身份的目录可见性</li>
+        </ul>
       </section>
       )}
 
       {step === "tools" && (
-      <section data-connector-wizard-step="tools">
-        <p className="muted">从服务端读取工具清单：工具名、描述与平台记录的风险档，全部只读。</p>
-        <button type="button" className="btn" data-connector-wizard-tools-open onClick={() => setToolsRequestKey((value) => value + 1)}>
-          {toolsRequestKey ? "重新读取工具清单" : "读取工具清单"}
-        </button>
+      <section data-connector-wizard-step="tools" className="connector-wizard-step-body" tabIndex={-1} ref={stepBodyRef}>
+        <div className="connector-wizard-step-head">
+          <h3 className="connector-wizard-step-title">工具清单</h3>
+          <span className="connector-wizard-step-hint">只读；能否调用由技能挂载决定</span>
+          <button type="button" className="btn sm connector-wizard-tools-open" data-connector-wizard-tools-open onClick={() => setToolsRequestKey((value) => value + 1)}>
+            {toolsRequestKey ? "重新读取" : "读取工具清单"}
+          </button>
+        </div>
         {id
-          ? <ConnectorToolsReadOnlyList connectorId={id} requestKey={toolsRequestKey} autoLoad={false} />
+          ? <ConnectorToolsReadOnlyList connectorId={id} requestKey={toolsRequestKey} autoLoad={false} filterable showSchema={false} />
           : <p className="muted">尚未保存连接，暂无工具清单。</p>}
       </section>
       )}
 
       {step === "enable" && (
-      <section data-connector-wizard-step="enable" className="connector-enable-info" aria-label="启用信息">
-        {/* antd Alert 形态：状态横幅。data-connector-wizard-status 在启用步收进这里，避免同粒度重复。 */}
+      <section data-connector-wizard-step="enable" className="connector-enable-info connector-wizard-step-body" tabIndex={-1} ref={stepBodyRef} aria-label="启用信息">
+        {/* 状态横幅：标题即结论，正文只补一句后果。 */}
         <div
           className={"enable-alert" + (enabled ? " is-success" : " is-info")}
           data-connector-wizard-status
@@ -527,11 +573,10 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
           </span>
           <div className="enable-alert-main">
             <strong>{enabled ? "连接器已启用" : "连接器待启用"}</strong>
-            <span>{statusLine}</span>
+            <span>{enableDetail}</span>
           </div>
-          <span className={"admin-status enable-status-mark is-" + (enabled ? "enabled" : "disabled")}><span className="admin-status-icon" aria-hidden="true">{enabled ? "✓" : "!"}</span>{enabled ? "已启用" : "未启用"}</span>
         </div>
-        {/* antd Alert 形态：测试结论。data-connector-wizard-test-result 在启用步收进这里，文案与 e2e 断言保持一致。 */}
+        {/* 测试结论：一行事实，长解释走 tooltip。 */}
         {verified ? (
           <div className="enable-alert is-success enable-test-result" data-connector-wizard-test-result role="status">
             <span className="enable-alert-icon" aria-hidden="true">
@@ -539,7 +584,9 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
             </span>
             <div className="enable-alert-main">
               <strong>测试通过</strong>
-              <span className="enable-test-result-copy">{passedAtLabel || "时间由服务端记录"}{passedToolCount === null ? "" : ` · 发现 ${passedToolCount} 个工具`}。仅验证该身份的 MCP 工具目录，不代表业务动作或其他账号可用。{testNotice}</span>
+              <span className="enable-test-result-copy" title="仅验证该身份的 MCP 工具目录，不代表业务动作或其他账号可用。">
+                {passedAtLabel || "时间由服务端记录"}{passedToolCount === null ? "" : ` · ${passedToolCount} 个工具`}{testNotice ? ` · ${testNotice}` : ""}
+              </span>
             </div>
           </div>
         ) : (
@@ -553,7 +600,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
             </div>
           </div>
         )}
-        {/* antd Descriptions 形态：三列基本信息 */}
+        {/* 事实区：状态 / 时间 / 挂载进度 / 声明数，规则单独说明。 */}
         <dl className="enable-facts" aria-label="连接器基本信息">
           <div className="enable-facts-item">
             <dt>当前状态</dt>
@@ -587,7 +634,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
             <dd>至少一个技能把它的工具挂到可用状态</dd>
           </div>
         </dl>
-        {/* 启用闸门里唯一还需要人做的一步：把工具挂到技能上。这里直接给出可完成的动作。 */}
+        {/* 启用闸门里唯一还需要人做的一步：把工具挂到技能上。 */}
         <div className="enable-mount" data-connector-wizard-mount>
           {mountGateError && <p className="enable-mount-summary" data-connector-wizard-mount-summary>技能挂载情况未读取：{mountGateError}</p>}
           <div className="enable-mount-actions">
@@ -601,15 +648,16 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
             >
               {declaredMount.busy ? "挂载中…" : "按技能定义挂载工具"}
             </button>
-            <span className="muted">仅挂载技能定义中已登记启用的工具；不改变连接器启用状态。</span>
+            <Link className="btn text" to="/admin/skills">去技能页挂载</Link>
+            <span className="muted">只挂技能定义里已启用的工具，不改连接器状态。</span>
           </div>
           {declaredMount.receipt && <p className="runtime-notice" role="status" data-connector-wizard-mount-receipt>{declaredMount.receipt}现在可以启用连接器。</p>}
           {declaredMount.failure && <p className="error" role="alert" data-connector-wizard-mount-error>{declaredMount.failure}</p>}
         </div>
-        <div className="enable-links">
-          <Link className="btn text" to={id ? connectorHref(id) : "/admin/connectors"}>查看详情与审计</Link>
-          <Link className="btn text" to="/admin/skills">去技能页挂载</Link>
-          {enabled && id && (
+        {/* 危险动作独立成区，与普通链接分开。 */}
+        {enabled && id && (
+          <div className="enable-danger">
+            <span className="enable-danger-hint">停用后调用立即失效，重新启用需再次通过测试。</span>
             <button
               type="button"
               className="btn text danger"
@@ -619,8 +667,8 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
             >
               停用连接器
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </section>
       )}
     </ModalShell>

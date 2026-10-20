@@ -23,8 +23,11 @@ function secretRowsFromConfig(config: RuntimeConnectorConfig): SecretRow[] {
 }
 
 function ConfigSection({ embedded, title, children }: { embedded: boolean; title: string; children: ReactNode }) {
-  // The existing wizard keeps its direct flex children and its own density.
-  return embedded ? <>{children}</> : <section className="connector-config-section" aria-label={title}>
+  // 嵌在向导里时保留分组标题（只降一档），否则长表单是一整片没有分段的字段。
+  return embedded ? <>
+    <h4 className="connector-wizard-section-title">{title}</h4>
+    {children}
+  </> : <section className="connector-config-section" aria-label={title}>
     <h4>{title}</h4><div className="connector-config-fields">{children}</div>
   </section>;
 }
@@ -363,7 +366,8 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
                   <input
                     className="connector-header-value"
                     value={row.value}
-                    placeholder={row.ref ? `已保存引用 ${row.ref}（不回显）；留空保持不变` : "Header 值"}
+                    placeholder={row.ref ? "已保存引用（不回显），留空保持不变" : "Header 值"}
+                    title={row.ref ? `凭据引用 ${row.ref}` : undefined}
                     aria-label="Header 值"
                     type="password"
                     autoComplete="new-password"

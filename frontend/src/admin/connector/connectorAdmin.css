@@ -1906,80 +1906,245 @@
 }
 
 /* ── 连接器设置向导（弹窗内四步）────────────────────────────────────────────
-   元素与数值唯一来源 docs/DESIGN.md §7.2 连接器设置向导；改这里的数值前先改 DESIGN.md。 */
-.connector-panel.is-form:has(.connector-wizard-steps) .connector-panel-body {
-  gap: var(--wizard-gap);
-}
+   元素与数值唯一来源 docs/DESIGN.md §7.2 连接器设置向导；改这里的数值前先改 DESIGN.md。
+   本节只保留一套定义（历史上 1918/2028 两段重复，已合并）。 */
 
+/* 弹窗标题在向导里降一档：进度条才是这一屏的主信息。 */
 .connector-panel.is-form:has(.connector-wizard-steps) {
   max-height: var(--dialog-h-wizard);
 }
 
+.connector-panel.is-form:has(.connector-wizard-steps) .connector-panel-head {
+  align-items: center;
+  padding: var(--space-3) var(--dialog-pad-x) var(--space-2);
+}
+
+.connector-panel.is-form:has(.connector-wizard-steps) .connector-panel-head h2 {
+  margin: 0;
+  font-size: var(--ds-font-ui);
+  line-height: var(--ds-line-ui);
+  font-weight: 600;
+}
+
+.connector-panel.is-form:has(.connector-wizard-steps) .connector-panel-body {
+  gap: var(--wizard-gap);
+  align-content: start;
+}
+
+/* 底部操作条：说明在左、动作在右，弹性由中间留白吸收。 */
+.connector-panel.is-form:has(.connector-wizard-steps) .connector-panel-foot {
+  align-items: center;
+  gap: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.connector-panel-foot:has(.connector-wizard-foot-note) {
+  justify-content: space-between;
+}
+
+.connector-wizard-foot-note {
+  flex: 1 1 auto;
+  margin: 0;
+  text-align: left;
+}
+
+.connector-wizard-foot-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* 步骤条：20px 圆点 + 连接线。完成=实心勾（主色底），当前=主色描边，未到=灰。 */
 .connector-wizard-steps {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--wizard-step-gap);
+  align-items: center;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+.connector-wizard-steps li {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.connector-wizard-steps li:not(:last-child) {
+  flex: 1 1 auto;
+}
+
+.connector-wizard-steps li:not(:last-child)::after {
+  content: "";
+  flex: 1 1 var(--space-3);
+  height: 1px;
+  margin: 0 var(--space-2);
+  background: var(--border);
+}
+
 .connector-wizard-step {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
   height: var(--wizard-step-h);
-  padding: 0 var(--space-2);
-  border: 1px solid var(--border-quiet);
+  padding: 0 var(--space-1);
+  border: 0;
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--hint-text);
+  color: var(--text-muted);
   font-family: inherit;
-  font-size: var(--font-hint);
-  line-height: 1;
+  font-size: var(--ds-font-sm);
+  white-space: nowrap;
   cursor: pointer;
 }
 
 .connector-wizard-step:disabled {
-  color: var(--placeholder-text);
+  color: var(--text-muted);
   cursor: default;
+  opacity: 0.55;
+}
+
+.connector-wizard-step:not(:disabled):hover {
+  color: var(--text);
+}
+
+.connector-wizard-step:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.connector-wizard-step-n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: var(--ds-font-xs);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.connector-wizard-step.done {
+  color: var(--text);
+}
+
+.connector-wizard-step.done .connector-wizard-step-n {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--bg);
 }
 
 .connector-wizard-step.on {
-  background: var(--fill-control);
-  border-color: var(--control-border-hover);
   color: var(--text);
   font-weight: 600;
 }
 
-.connector-wizard-step .connector-wizard-step-n {
-  font-variant-numeric: tabular-nums;
+.connector-wizard-step.on .connector-wizard-step-n {
+  border: 2px solid var(--accent);
+  color: var(--accent-text);
+  background: var(--bg);
+}
+
+.connector-wizard-step:disabled .connector-wizard-step-n {
+  border-color: var(--border-quiet);
+}
+
+/* 状态与最近一次测试：两行事实，各说一件事。 */
+.connector-wizard-facts-line {
+  display: grid;
+  gap: 2px;
+}
+
+.connector-wizard-status,
+.connector-wizard-test {
+  margin: 0;
+  font-size: var(--ds-font-xs);
+  line-height: var(--ds-line-sm);
 }
 
 .connector-wizard-status {
-  margin: calc(var(--wizard-status-gap) * -1) 0 0;
-  font-size: var(--font-hint);
-  color: var(--hint-text);
+  color: var(--text-muted);
 }
 
-/* 保存 / 测试 / 启用回执固定在对话框顶部；与步骤条的间距由面板自身的 gap 提供。 */
+.connector-wizard-test {
+  color: var(--text);
+}
+
+/* 保存 / 测试 / 启用回执固定在对话框顶部。 */
 .connector-wizard-receipt {
   margin: 0;
 }
 
-.connector-wizard-gates {
-  margin: 0;
-  padding-left: var(--space-4);
+/* 每步内容：顶部对齐，标题一行带提示。 */
+.connector-panel.is-form [data-connector-wizard-step] {
   display: grid;
-  gap: var(--wizard-gate-gap);
-  font-size: var(--font-hint);
-  color: var(--hint-text);
+  gap: var(--wizard-gap);
+  align-content: start;
 }
 
-.connector-wizard-actions {
+.connector-panel.is-form [data-connector-wizard-step="enable"] {
+  justify-items: stretch;
+}
+
+.connector-wizard-step-body:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-card);
+}
+
+.connector-wizard-step-head {
   display: flex;
+  align-items: baseline;
   flex-wrap: wrap;
-  gap: var(--wizard-step-gap);
+  gap: var(--space-1) var(--space-2);
+}
+
+.connector-wizard-step-title {
+  margin: 0;
+  font-size: var(--ds-font-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.connector-wizard-step-hint {
+  font-size: var(--ds-font-xs);
+  color: var(--text-muted);
+}
+
+.connector-wizard-step-head .connector-wizard-tools-open {
+  margin-left: auto;
+}
+
+.connector-wizard-checks {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: var(--space-4);
+  font-size: var(--ds-font-xs);
+  line-height: var(--ds-line-sm);
+  color: var(--text-muted);
+}
+
+/* 嵌入向导的配置分组标题：比字段标签略重，比分组标题轻。 */
+.connector-wizard-section-title {
+  margin: var(--space-2) 0 0;
+  font-size: var(--ds-font-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.connector-wizard-section-title:first-child {
+  margin-top: 0;
+}
+
+.connector-wizard-checks code {
+  font-family: var(--mono);
+  font-size: inherit;
 }
 
 /* 详情页启用被闸门拒绝时的挂载区块：与向导同一套说法与动作 */
@@ -2011,110 +2176,27 @@
   color: var(--hint-text);
 }
 
-.connector-panel.is-form [data-connector-wizard-step] {
-  display: grid;
-  gap: var(--wizard-gap);
-}
+/* ── 启用步：状态横幅 / 事实表 / 挂载 / 危险区 ──────────────────────────────
+   视觉语言对标 antd（Alert / Descriptions 紧凑形态）；颜色全部取既有 token。 */
 
-.connector-panel.is-form [data-connector-wizard-step="enable"] {
-  justify-items: start;
-}
-
-/* ── 连接器设置向导 · 启用步 antd 高密度信息页 ──────────────────────────────
-   视觉语言对标 antd（Steps / Alert / Descriptions 紧凑形态）；颜色与数值
-   全部取自 docs/DESIGN.md 与 frontend/src/styles.css 的既有 token，不新增。 */
-
-/* 步骤条：圆圈序号 + 连接线（原芯片式改为 antd Steps 形态；按钮文本顺序不变） */
-.connector-wizard-steps {
-  align-items: center;
-  gap: var(--wizard-step-gap);
-}
-.connector-wizard-steps li {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-}
-.connector-wizard-steps li:not(:last-child) {
-  flex: 1 1 auto;
-}
-.connector-wizard-steps li:not(:last-child)::after {
-  content: "";
-  flex: 1 1 var(--space-4);
-  height: 1px;
-  background: var(--border);
-  margin: 0 var(--space-2);
-}
-.connector-wizard-step {
-  border: 0;
-  background: transparent;
-  padding: 0 var(--space-1);
-  height: var(--wizard-step-h);
-  gap: var(--space-2);
-  color: var(--text-muted);
-  font-size: var(--ds-font-sm);
-  white-space: nowrap;
-}
-.connector-wizard-step-n {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: var(--control-h-sm);
-  height: var(--control-h-sm);
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: var(--bg);
-  font-size: var(--ds-font-xs);
-  color: var(--text-muted);
-}
-.connector-wizard-step.done .connector-wizard-step-n {
-  border-color: var(--accent);
-  color: var(--accent-text);
-}
-.connector-wizard-step.on {
-  background: transparent;
-  border-color: transparent;
-  color: var(--text);
-  font-weight: 600;
-}
-.connector-wizard-step.on .connector-wizard-step-n {
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
-  border-color: var(--accent);
-  color: var(--accent-text);
-}
-.connector-wizard-step:disabled {
-  color: var(--text-muted);
-  cursor: default;
-}
-.connector-wizard-step:disabled .connector-wizard-step-n {
-  border-color: var(--border-quiet);
-  color: var(--text-muted);
-  background: transparent;
-}
-.connector-wizard-step:not(:disabled):hover .connector-wizard-step-n {
-  border-color: var(--accent);
-}
-
-/* 启用步信息页容器：块级拉满 */
-.connector-panel.is-form [data-connector-wizard-step="enable"].connector-enable-info {
-  justify-items: stretch;
-}
 .connector-enable-info {
-  gap: var(--space-3);
+  gap: var(--space-2);
   container-type: inline-size;
 }
+
 /* 显式外框尺寸避免全局按钮的行高与 padding 把 32px 控件撑到 34px。 */
 .connector-panel.is-form:has(.connector-wizard-steps) .btn {
   height: var(--control-h-form);
   padding: 0 var(--space-3);
 }
+
 .connector-panel.is-form:has(.connector-wizard-steps) .btn.text {
   height: var(--control-h-sm);
   min-height: var(--control-h-sm);
   padding: 0 var(--space-1);
 }
 
-/* antd Alert 形态：图标 + 加粗标题 + 说明文字 */
+/* antd Alert 形态：图标 + 加粗标题 + 说明 */
 .enable-alert {
   display: flex;
   align-items: flex-start;
@@ -2126,6 +2208,7 @@
   font-size: var(--ds-font-sm);
   line-height: var(--leading-body);
 }
+
 .enable-alert-icon {
   flex: none;
   display: inline-flex;
@@ -2134,10 +2217,12 @@
   width: var(--control-h-sm);
   height: var(--control-h-sm);
 }
+
 .enable-alert-icon svg {
   width: 66%;
   height: 66%;
 }
+
 .enable-alert-main {
   flex: 1 1 auto;
   min-width: 0;
@@ -2146,42 +2231,46 @@
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-2);
 }
+
 .enable-alert-main strong {
   color: var(--text);
   white-space: nowrap;
 }
+
 .enable-alert-main > span {
   color: var(--text-muted);
   font-size: var(--ds-font-xs);
   min-width: 0;
 }
-.enable-alert .admin-status {
-  flex: none;
-  margin-left: auto;
-}
+
 .enable-alert.is-success {
   border-color: color-mix(in srgb, var(--success) 35%, var(--border));
   background: color-mix(in srgb, var(--success) 8%, var(--bg));
 }
+
 .enable-alert.is-success .enable-alert-icon {
   color: var(--success);
 }
+
 .enable-alert.is-info {
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
   background: color-mix(in srgb, var(--accent) 8%, var(--bg));
 }
+
 .enable-alert.is-info .enable-alert-icon {
   color: var(--accent-text);
 }
+
 .enable-alert.is-warn {
   border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
   background: color-mix(in srgb, var(--warning) 8%, var(--bg));
 }
+
 .enable-alert.is-warn .enable-alert-icon {
   color: var(--warning);
 }
 
-/* antd Descriptions 形态：三列 bordered 描述表 */
+/* antd Descriptions 形态：bordered 描述表 */
 .enable-facts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2192,6 +2281,7 @@
   background: var(--border);
   overflow: hidden;
 }
+
 .enable-facts-item {
   display: flex;
   align-items: baseline;
@@ -2200,6 +2290,7 @@
   min-width: 0;
   background: var(--bg);
 }
+
 .enable-facts-item dt {
   flex: none;
   margin: 0;
@@ -2208,6 +2299,7 @@
   color: var(--text-muted);
   white-space: nowrap;
 }
+
 .enable-facts-item dd {
   min-width: 0;
   margin: 0;
@@ -2215,6 +2307,7 @@
   color: var(--text);
   overflow-wrap: anywhere;
 }
+
 @container (min-width: 720px) {
   .enable-facts {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2227,6 +2320,7 @@
   align-items: center;
   gap: var(--space-2);
 }
+
 .enable-progress-track {
   flex: 1 1 auto;
   min-width: var(--space-4);
@@ -2235,12 +2329,14 @@
   background: var(--border-quiet);
   overflow: hidden;
 }
+
 .enable-progress-track i {
   display: block;
   height: 100%;
   background: var(--accent);
   border-radius: inherit;
 }
+
 .enable-progress > span:last-child {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -2252,29 +2348,45 @@
   gap: var(--space-2);
   justify-items: start;
 }
+
 .enable-mount-summary {
   margin: 0;
   font-size: var(--ds-font-sm);
   color: var(--text);
 }
+
 .enable-mount-actions {
   display: flex;
   align-items: center;
   gap: var(--space-3);
   flex-wrap: wrap;
 }
+
 .enable-mount-actions .muted {
-  flex: 1 1 220px;
+  flex: 1 1 200px;
   font-size: var(--ds-font-xs);
 }
 
-/* 快捷入口：L3 文字按钮；危险动作用 --danger 文字（DESIGN.md §4.2） */
-.enable-links {
+.enable-mount-actions .btn.text {
+  color: var(--accent-text);
+}
+
+/* 危险动作独立成区：分隔线 + 一句后果 + 一个文字按钮 */
+.enable-danger {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-quiet);
 }
+
+.enable-danger-hint {
+  font-size: var(--ds-font-xs);
+  color: var(--text-muted);
+}
+
 .btn.text.danger {
   color: var(--danger);
 }
