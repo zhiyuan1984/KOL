@@ -94,6 +94,8 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState("");
+  // 回执是「刚发生了什么」的瞬时反馈：4 秒后收起，但文本留在 DOM 里（读屏与测试仍可读）。
+  const [receiptVisible, setReceiptVisible] = useState(false);
   // 上次测试的服务端记录：重新打开弹窗时用来还原「测试通过但未启用」的上下文。
   const [lastProbe, setLastProbe] = useState<{ checked_at: string; tool_count: number } | null>(null);
   const [mountGate, setMountGate] = useState<SkillCoverage | null>(null);
@@ -190,6 +192,16 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
   useEffect(() => {
     stepBodyRef.current?.focus({ preventScroll: true });
   }, [step]);
+
+  useEffect(() => {
+    if (!receipt) {
+      setReceiptVisible(false);
+      return;
+    }
+    setReceiptVisible(true);
+    const timer = window.setTimeout(() => setReceiptVisible(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [receipt]);
 
   const statusLine = useMemo(() => {
     if (!id) return "尚未保存：保存后连接器为待验证状态，不会自动启用。";
@@ -437,7 +449,13 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
       {dialog}
       {/* 回执常驻对话框顶部：保存 / 测试 / 启用的结果先于步骤被看到。 */}
       {receipt && (
-        <p className="admin-receipt status-ok connector-wizard-receipt" role="status" data-connector-wizard-receipt>
+        <p
+          className={"admin-receipt status-ok connector-wizard-receipt" + (receiptVisible ? " is-visible" : "")}
+          role="status"
+          aria-live="polite"
+          aria-hidden={receiptVisible ? undefined : true}
+          data-connector-wizard-receipt
+        >
           {receipt}
         </p>
       )}
@@ -559,47 +577,36 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
 
       {step === "enable" && (
       <section data-connector-wizard-step="enable" className="connector-enable-info connector-wizard-step-body" tabIndex={-1} ref={stepBodyRef} aria-label="启用信息">
-        {/* 状态横幅：标题即结论，正文只补一句后果。 */}
-        <div
-          className={"enable-alert" + (enabled ? " is-success" : " is-info")}
-          data-connector-wizard-status
-          role="status"
-        >
-          <span className="enable-alert-icon" aria-hidden="true">
+        {/* 状态与测试结论压成两行文字：状态不随操作变化，不需要常驻横幅。 */}
+        <p className={"connector-enable-status" + (enabled ? " is-ok" : "")} data-connector-wizard-status role="status">
+          <span className="connector-enable-status-icon" aria-hidden="true">
             {enabled ? (
               <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M5.4 8.3l1.9 1.9 3.3-3.9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
             ) : (
               <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M8 7.4v3.2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /><circle cx="8" cy="5.2" r="0.9" fill="currentColor" /></svg>
             )}
           </span>
-          <div className="enable-alert-main">
-            <strong>{enabled ? "连接器已启用" : "连接器待启用"}</strong>
-            <span>{enableDetail}</span>
-          </div>
-        </div>
-        {/* 测试结论：一行事实，长解释走 tooltip。 */}
+          <strong>{enabled ? "连接器已启用" : "连接器待启用"}</strong>
+          <span>{enableDetail}</span>
+        </p>
         {verified ? (
-          <div className="enable-alert is-success enable-test-result" data-connector-wizard-test-result role="status">
-            <span className="enable-alert-icon" aria-hidden="true">
+          <p className="connector-enable-status is-ok" data-connector-wizard-test-result role="status">
+            <span className="connector-enable-status-icon" aria-hidden="true">
               <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M5.4 8.3l1.9 1.9 3.3-3.9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </span>
-            <div className="enable-alert-main">
-              <strong>测试通过</strong>
-              <span className="enable-test-result-copy" title="仅验证该身份的 MCP 工具目录，不代表业务动作或其他账号可用。">
-                {passedAtLabel || "时间由服务端记录"}{passedToolCount === null ? "" : ` · ${passedToolCount} 个工具`}{testNotice ? ` · ${testNotice}` : ""}
-              </span>
-            </div>
-          </div>
+            <strong>测试通过</strong>
+            <span title="仅验证该身份的 MCP 工具目录，不代表业务动作或其他账号可用。">
+              {passedAtLabel || "时间由服务端记录"}{passedToolCount === null ? "" : ` · ${passedToolCount} 个工具`}{testNotice ? ` · ${testNotice}` : ""}
+            </span>
+          </p>
         ) : (
-          <div className="enable-alert is-warn enable-test-result" data-connector-wizard-test-result role="status">
-            <span className="enable-alert-icon" aria-hidden="true">
+          <p className="connector-enable-status is-warn" data-connector-wizard-test-result role="status">
+            <span className="connector-enable-status-icon" aria-hidden="true">
               <svg viewBox="0 0 16 16"><path d="M8 2.2L14.6 13.4H1.4L8 2.2z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /><path d="M8 6.4v3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /><circle cx="8" cy="11.2" r="0.9" fill="currentColor" /></svg>
             </span>
-            <div className="enable-alert-main">
-              <strong>尚未通过测试</strong>
-              <span>{version ? `当前配置版本 ${version}，尚未通过测试。` : "尚未保存配置，无法测试。"}</span>
-            </div>
-          </div>
+            <strong>尚未通过测试</strong>
+            <span>{version ? `当前配置版本 ${version}，尚未通过测试。` : "尚未保存配置，无法测试。"}</span>
+          </p>
         )}
         {/* 事实区：状态 / 时间 / 挂载进度 / 声明数，规则单独说明。 */}
         <dl className="enable-facts" aria-label="连接器基本信息">

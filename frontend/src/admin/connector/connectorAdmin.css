@@ -1927,8 +1927,26 @@
 }
 
 .connector-panel.is-form:has(.connector-wizard-steps) .connector-panel-body {
-  gap: var(--wizard-gap);
+  gap: var(--space-2);
   align-content: start;
+}
+
+/* 向导内的控件统一压到 28px：32px 表单档在这四个短步骤里显得松。 */
+.connector-panel.is-form:has(.connector-wizard-steps) .field input:not([type="checkbox"]),
+.connector-panel.is-form:has(.connector-wizard-steps) .field textarea,
+.connector-panel.is-form:has(.connector-wizard-steps) .field select,
+.connector-panel.is-form:has(.connector-wizard-steps) .connector-header-row input {
+  min-height: var(--control-h);
+  padding: 4px var(--space-2);
+  font-size: var(--ds-font-sm);
+}
+
+.connector-panel.is-form:has(.connector-wizard-steps) .field {
+  gap: 2px;
+}
+
+.connector-panel.is-form:has(.connector-wizard-steps) .connector-form-grid {
+  gap: var(--space-2);
 }
 
 /* 底部操作条：说明在左、动作在右，弹性由中间留白吸收。 */
@@ -2075,15 +2093,31 @@
   color: var(--text);
 }
 
-/* 保存 / 测试 / 启用回执固定在对话框顶部。 */
+/* 保存 / 测试 / 启用回执：顶部提示，4 秒后自动收起（文本保留在 DOM，读屏与测试仍可读）。 */
 .connector-wizard-receipt {
   margin: 0;
+  max-height: 72px;
+  overflow: hidden;
+  transition: max-height 180ms ease, opacity 180ms ease, padding 180ms ease, border-width 180ms ease;
+}
+
+.connector-wizard-receipt:not(.is-visible) {
+  max-height: 0;
+  padding-block: 0;
+  border-width: 0;
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connector-wizard-receipt {
+    transition: none;
+  }
 }
 
 /* 每步内容：顶部对齐，标题一行带提示。 */
 .connector-panel.is-form [data-connector-wizard-step] {
   display: grid;
-  gap: var(--wizard-gap);
+  gap: var(--space-2);
   align-content: start;
 }
 
@@ -2211,8 +2245,8 @@
 
 /* 显式外框尺寸避免全局按钮的行高与 padding 把 32px 控件撑到 34px。 */
 .connector-panel.is-form:has(.connector-wizard-steps) .btn {
-  height: var(--control-h-form);
-  padding: 0 var(--space-3);
+  height: var(--control-h);
+  padding: 0 var(--space-2);
 }
 
 .connector-panel.is-form:has(.connector-wizard-steps) .btn.text {
@@ -2292,6 +2326,46 @@
 }
 
 .enable-alert.is-warn .enable-alert-icon {
+  color: var(--warning);
+}
+
+/* 启用步的状态与测试结论：两行文字，不再用彩色横幅占位。 */
+.connector-enable-status {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px var(--space-2);
+  margin: 0;
+  font-size: var(--ds-font-xs);
+  line-height: var(--ds-line-sm);
+  color: var(--text-muted);
+}
+
+.connector-enable-status strong {
+  font-size: var(--ds-font-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.connector-enable-status-icon {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  color: var(--text-quiet);
+}
+
+.connector-enable-status-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.connector-enable-status.is-ok .connector-enable-status-icon {
+  color: var(--success);
+}
+
+.connector-enable-status.is-warn .connector-enable-status-icon {
   color: var(--warning);
 }
 
