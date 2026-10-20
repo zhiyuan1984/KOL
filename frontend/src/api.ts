@@ -1,3 +1,5 @@
+import type { KnowledgeBusinessTaxonomy } from "../../shared/knowledge-taxonomy.js";
+
 export type HomePoolPage = {
   offset: number;
   limit: number;
@@ -1687,6 +1689,9 @@ export type KnowledgeRow = {
   expires_at?: string;
   /** 分类与库（2026-10-01 契约）：族 → 域 → 库，分类不承载权限。 */
   base_id?: string;
+  catalog_family_id?: string;
+  catalog_domain_id?: string;
+  catalog_theme_id?: string;
   base_code?: string;
   base_name?: string;
   domain_id?: string;
@@ -3194,6 +3199,10 @@ export const api = {
     return request<KnowledgeRow[]>(qs ? `/api/knowledge?${qs}` : "/api/knowledge");
   },
   /** 用户侧与管理端共用的知识分类主数据，只读且不承载权限。 */
+  knowledgeBusinessTaxonomy: (admin = false) => request<KnowledgeBusinessTaxonomy>(`/api/knowledge/business-taxonomy${admin ? "?admin=1" : ""}`).then(value => {
+    if (!value || !Array.isArray(value.nodes) || !Array.isArray(value.bindings)) throw new Error("业务目录响应无效，请重试或联系管理员。");
+    return value;
+  }),
   knowledgeTaxonomy: () => request<{ domains: KnowledgeDomainRow[]; bases: KnowledgeBaseRow[] }>("/api/knowledge/taxonomy"),
   kbMarket: () => request<KnowledgeRow[]>("/api/knowledge/market"),
   /** Authorized, read-only projection of published SKILL.md interaction contracts. */
@@ -3265,7 +3274,7 @@ export const api = {
     const qs = params.toString();
     return request<{ bases: KnowledgeBaseRow[] }>(qs ? `/api/admin/knowledge/bases?${qs}` : "/api/admin/knowledge/bases");
   },
-  adminKnowledgeBaseCreate: (body: { code?: string; name: string; domain_id: string; kind: string; description?: string }) =>
+  adminKnowledgeBaseCreate: (body: { code?: string; name: string; domain_id: string; kind: string; description?: string; ontology_theme_id?: string }) =>
     request<{ base: KnowledgeBaseRow }>("/api/admin/knowledge/bases", {
       method: "POST",
       body: JSON.stringify(body),
@@ -3273,7 +3282,7 @@ export const api = {
   /** 版本冲突返回 409：expected_version 与当前版本不一致时必须重取再提交。 */
   adminKnowledgeBaseUpdate: (
     id: string,
-    body: { name?: string; description?: string; status?: string; expected_version: number; confirmed?: boolean; expected_updated_at?: string },
+    body: { name?: string; description?: string; status?: string; expected_version: number; confirmed?: boolean; expected_updated_at?: string; ontology_theme_id?: string },
   ) =>
     request<{ base: KnowledgeBaseRow }>(`/api/admin/knowledge/bases/${encodeURIComponent(id)}`, {
       method: "PUT",

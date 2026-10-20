@@ -1,0 +1,9 @@
+
+Running 3 tests using 1 worker
+
+[WebServer] [BABEL] Note: The code generator has deoptimised the styling of /home/ubuntu/KOL/frontend/.vite-cache/deps/chunk-LTYAEEQK.js?v=4ba4e4a5 as it exceeds the max of 500KB.
+  ✓  1 e2e/knowledge-business-directory.spec.ts:42:1 › employee and admin expose identical ontology hierarchy including empty categories (9.2s)
+  ✓  2 e2e/knowledge-business-directory.spec.ts:58:1 › planning reads canonical themes, keeps legacy containers separate, and cancellation does not mutate (3.7s)
+  ✓  3 e2e/knowledge-business-directory.spec.ts:70:1 › directory remains keyboard reachable and no horizontal overflow on narrow viewports (6.6s)
+
+  3 passed (22.7s)
