@@ -1,0 +1,131 @@
+
+> lingong-workbench@0.1.0 build
+> tsc --noEmit && vite build --configLoader runner
+
+vite v6.4.3 building for production...
+transforming...
+✓ 3836 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                        0.64 kB │ gzip:   0.38 kB
+dist/assets/pdf.worker.min-r-TJsTTt.mjs            1,039.21 kB
+dist/assets/Approvals-CIpAHn0A.css                     1.70 kB │ gzip:   0.53 kB
+dist/assets/WorkspaceSearchInput-DRApUzBO.css          1.75 kB │ gzip:   0.50 kB
+dist/assets/Agents-BLnjeMWr.css                        2.58 kB │ gzip:   0.80 kB
+dist/assets/global-layout-knowledge-DkkKb-Hu.css       3.14 kB │ gzip:   0.81 kB
+dist/assets/TaskDetailPage-HxUeOVtT.css                3.69 kB │ gzip:   0.91 kB
+dist/assets/AccountSettings-DSzjrr4v.css               3.97 kB │ gzip:   1.00 kB
+dist/assets/InformationLayout-DOJNUlAG.css             5.04 kB │ gzip:   1.13 kB
+dist/assets/performance-B_aYPx7K.css                   7.11 kB │ gzip:   1.58 kB
+dist/assets/lifecycle-workspace--DO37teB.css           7.63 kB │ gzip:   1.81 kB
+dist/assets/BusinessCatalogView-CP9bMhYi.css           9.49 kB │ gzip:   1.99 kB
+dist/assets/BusinessMap-B_R8y1H6.css                  12.02 kB │ gzip:   2.27 kB
+dist/assets/Cron-gtdLd9qw.css                         12.07 kB │ gzip:   2.45 kB
+dist/assets/ReviewLeaveDialog-6V4qo-ZP.css            14.23 kB │ gzip:   2.99 kB
+dist/assets/Tasks-Dmx1RVMC.css                        15.85 kB │ gzip:   2.85 kB
+dist/assets/OntologyWorkspace-KOTwKc8A.css            27.10 kB │ gzip:   5.35 kB
+dist/assets/Mail-I5KtXUHU.css                         38.40 kB │ gzip:   5.05 kB
+dist/assets/modes-CA4KiKwy.css                        51.74 kB │ gzip:   7.79 kB
+dist/assets/knowledge-page-DL4Fn2bQ.css               66.28 kB │ gzip:   9.77 kB
+dist/assets/Home--fdxDmkW.css                         76.43 kB │ gzip:  11.80 kB
+dist/assets/AdminConsole-BU9ThsKO.css                202.39 kB │ gzip:  27.49 kB
+dist/assets/index-DabuwqQV.css                       460.48 kB │ gzip:  72.84 kB
+dist/assets/timezoneLabel-BBg53edt.js                  0.13 kB │ gzip:   0.15 kB
+dist/assets/AgentTeams-IxwYJG8t.js                     0.16 kB │ gzip:   0.15 kB
+dist/assets/discoveryWorkspaceState-Ci75cuAw.js        0.26 kB │ gzip:   0.20 kB
+dist/assets/CompactButton-BLXkLX-M.js                  0.27 kB │ gzip:   0.21 kB
+dist/assets/Partners-DnE-Qa7L.js                       0.58 kB │ gzip:   0.39 kB
+dist/assets/WorkspaceSearchInput-CFfnSU7a.js           0.61 kB │ gzip:   0.43 kB
+dist/assets/UpOutlined-Br0DibHC.js                     0.73 kB │ gzip:   0.52 kB
+dist/assets/draftContent-Baa3U45T.js                   0.73 kB │ gzip:   0.52 kB
+dist/assets/DownOutlined-DLdJxwT-.js                   0.74 kB │ gzip:   0.52 kB
+dist/assets/ArrowLeftOutlined-DIZWTBod.js              0.77 kB │ gzip:   0.56 kB
+dist/assets/InfoCircleFilled-CMlti_Nn.js               0.78 kB │ gzip:   0.53 kB
+dist/assets/WarningOutlined-CLavF7De.js                0.85 kB │ gzip:   0.60 kB
+dist/assets/DownloadOutlined-BIqOL_fn.js               0.86 kB │ gzip:   0.57 kB
+dist/assets/CalendarOutlined-CC2YWcJL.js               0.90 kB │ gzip:   0.58 kB
+dist/assets/knowledgeBusinessTaxonomy-BQiCygez.js      1.03 kB │ gzip:   0.46 kB
+dist/assets/CloseOutlined-BWKnqVXX.js                  1.21 kB │ gzip:   0.67 kB
+dist/assets/EmployeeBrowseFilters-V4O0FN3Y.js          1.30 kB │ gzip:   0.79 kB
+dist/assets/kolStages-DBI4o3kV.js                      1.32 kB │ gzip:   0.58 kB
+dist/assets/LifecycleNavigation-CVCFQHbE.js            1.33 kB │ gzip:   0.75 kB
+dist/assets/SharedSession-04dn1e_u.js                  1.69 kB │ gzip:   1.01 kB
+dist/assets/TaskTheme-DaUvIdfz.js                      2.26 kB │ gzip:   1.04 kB
+dist/assets/InformationLayout-CP_XyOCj.js              2.27 kB │ gzip:   1.01 kB
+dist/assets/ProjectTheme-DovKMN3j.js                   2.51 kB │ gzip:   1.12 kB
+dist/assets/Session-D6nmKqVY.js                        2.73 kB │ gzip:   1.40 kB
+dist/assets/stageTargets-CwG8wpWv.js                   2.89 kB │ gzip:   1.46 kB
+dist/assets/FilterChips-CJlN1-SV.js                    3.51 kB │ gzip:   1.32 kB
+dist/assets/taskStarters-BUmdcik7.js                   3.66 kB │ gzip:   2.00 kB
+dist/assets/kol-shared-BsfTF4yq.js                     3.67 kB │ gzip:   2.01 kB
+dist/assets/global-layout-knowledge-CiCoQ-2H.js        3.88 kB │ gzip:   2.04 kB
+dist/assets/useMailComposeFlow-BILuv7Mv.js             4.08 kB │ gzip:   1.77 kB
+dist/assets/taskCenterModel-rLvqNJQ0.js                4.67 kB │ gzip:   2.07 kB
+dist/assets/index-Bxbj9Da_.js                          4.73 kB │ gzip:   2.09 kB
+dist/assets/ReviewForm-D7f-THaj.js                     5.15 kB │ gzip:   2.36 kB
+dist/assets/SkillHub-D1gJAtri.js                       6.25 kB │ gzip:   2.82 kB
+dist/assets/Timeline-DC9JmuDv.js                       6.69 kB │ gzip:   2.56 kB
+dist/assets/index-DPP51y8b.js                          6.74 kB │ gzip:   2.87 kB
+dist/assets/knowledge-page-CDr5dPHN.js                 7.34 kB │ gzip:   2.86 kB
+dist/assets/zh_CN-CUwXeb0d.js                          7.35 kB │ gzip:   3.32 kB
+dist/assets/index-DGjuK3VP.js                          7.65 kB │ gzip:   3.21 kB
+dist/assets/ConfirmDialog-Ced8NEGF.js                  7.76 kB │ gzip:   2.75 kB
+dist/assets/index-BQdqX6mO.js                          8.13 kB │ gzip:   2.87 kB
+dist/assets/ReviewLeaveDialog-BAmkxcyR.js              8.39 kB │ gzip:   3.98 kB
+dist/assets/useForm-DEs5gUr1.js                        8.79 kB │ gzip:   3.75 kB
+dist/assets/Exam-7mcvgFlb.js                           8.84 kB │ gzip:   3.31 kB
+dist/assets/CrawlArtifact-BfMtkW42.js                  9.48 kB │ gzip:   3.69 kB
+dist/assets/Collapse-BwJnAxZh.js                      10.37 kB │ gzip:   3.88 kB
+dist/assets/WorkOrderSuggestions-63XVCjnb.js          10.53 kB │ gzip:   4.17 kB
+dist/assets/experts-CLJjo6Q1.js                       10.89 kB │ gzip:   4.32 kB
+dist/assets/adminConfirm-CNmxosRn.js                  11.05 kB │ gzip:   4.19 kB
+dist/assets/context-DyWFosDR.js                       11.88 kB │ gzip:   4.18 kB
+dist/assets/ApprovalTypes-CHRlqwz0.js                 13.81 kB │ gzip:   3.99 kB
+dist/assets/Pipeline-Z3uxw9Bi.js                      14.99 kB │ gzip:   5.19 kB
+dist/assets/Drawer-C92MO0cz.js                        15.01 kB │ gzip:   5.76 kB
+dist/assets/TaskDetailPage-Dxvp6_Hn.js                15.03 kB │ gzip:   5.40 kB
+dist/assets/knowledgeCopy-BsnY92KF.js                 15.25 kB │ gzip:   6.90 kB
+dist/assets/Knowledge-BFyMmFzl.js                     17.72 kB │ gzip:   6.98 kB
+dist/assets/Approvals-CfYtpnXR.js                     19.10 kB │ gzip:   6.86 kB
+dist/assets/SkillCatalog-BLQf9erw.js                  20.34 kB │ gzip:   8.02 kB
+dist/assets/PerformanceWorkspace-DQAbCBay.js          23.20 kB │ gzip:   7.68 kB
+dist/assets/AdminPerformance-DvCrcagX.js              24.25 kB │ gzip:   8.06 kB
+dist/assets/performance-mNX-qaXc.js                   24.72 kB │ gzip:  10.13 kB
+dist/assets/AccountSettings--o4_vPb4.js               25.32 kB │ gzip:   8.36 kB
+dist/assets/index-BKMLNq0Z.js                         27.53 kB │ gzip:  10.72 kB
+dist/assets/index-CJJ0FG4m.js                         27.90 kB │ gzip:   9.83 kB
+dist/assets/index-CclifOFN.js                         28.56 kB │ gzip:   9.87 kB
+dist/assets/BusinessCatalogView-j2w5viG7.js           30.89 kB │ gzip:   9.62 kB
+dist/assets/BusinessMap-CzkGklmO.js                   33.19 kB │ gzip:   9.16 kB
+dist/assets/index-L9s5tDcc.js                         36.72 kB │ gzip:  11.68 kB
+dist/assets/Agents-DGOrRHQk.js                        38.88 kB │ gzip:  13.71 kB
+dist/assets/index-C-Y5P0YI.js                         39.04 kB │ gzip:  11.56 kB
+dist/assets/Cron-D1o6Ryep.js                          45.07 kB │ gzip:  16.17 kB
+dist/assets/ComposerDock-gg2VYxhy.js                  45.55 kB │ gzip:  15.86 kB
+dist/assets/index-CHz-Xaeo.js                         46.08 kB │ gzip:  15.89 kB
+dist/assets/Pagination-BvGWZGBR.js                    49.44 kB │ gzip:  15.86 kB
+dist/assets/Reviews-COvVB0VR.js                       51.66 kB │ gzip:  16.83 kB
+dist/assets/ReviewTypes-D7wTpeMK.js                   57.49 kB │ gzip:  18.19 kB
+dist/assets/index-CpylRVCN.js                         59.02 kB │ gzip:  19.27 kB
+dist/assets/OntologyWorkspace-BPwessGD.js             60.71 kB │ gzip:  19.88 kB
+dist/assets/Mail-eMvZ7VfQ.js                          65.15 kB │ gzip:  21.60 kB
+dist/assets/Chat-DxUED8lk.js                          67.81 kB │ gzip:  23.25 kB
+dist/assets/Tasks-_uPBe5cr.js                         69.68 kB │ gzip:  23.62 kB
+dist/assets/ChatBlocks-Br2aF1vN.js                    70.76 kB │ gzip:  23.78 kB
+dist/assets/ContextIsolator-DsL3cRJu.js               81.05 kB │ gzip:  26.75 kB
+dist/assets/modes-Aun2h4Vh.js                         82.22 kB │ gzip:  28.16 kB
+dist/assets/index-Dsz6qMwm.js                         84.86 kB │ gzip:  29.31 kB
+dist/assets/vendor-Gnqvq5Uk.js                       108.36 kB │ gzip:  36.50 kB
+dist/assets/index-C2nAP6vy.js                        112.07 kB │ gzip:  36.96 kB
+dist/assets/markdown-D-gQ5y_Y.js                     157.98 kB │ gzip:  48.03 kB
+dist/assets/Table-9JeWaVZ_.js                        202.45 kB │ gzip:  63.13 kB
+dist/assets/Home-DrH90Hxf.js                         269.76 kB │ gzip:  86.68 kB
+dist/assets/pdf-CUX7TMSP.js                          412.42 kB │ gzip: 121.27 kB
+dist/assets/index-CjcYer8m.js                        469.83 kB │ gzip: 152.89 kB
+dist/assets/AdminConsole-f7lUt43L.js                 693.51 kB │ gzip: 207.88 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 16.76s

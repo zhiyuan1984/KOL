@@ -1,0 +1,38 @@
+{
+  "status": "passed",
+  "scope": "组件＋API拦截夹具浏览器；非真实通讯录导入",
+  "commands": [
+    {
+      "command": "npm run typecheck",
+      "exit_code": 0,
+      "log": "wecom-final-frontend-typecheck.log"
+    },
+    {
+      "command": "vitest run --config vitest.wecom-ontology.config.ts",
+      "exit_code": 0,
+      "tests_passed": 6,
+      "tests_failed": 0
+    },
+    {
+      "command": "PW_EXECUTABLE_PATH=/usr/bin/chromium playwright test --config playwright.wecom-ontology.config.ts",
+      "exit_code": 0,
+      "tests_passed": 3,
+      "tests_failed": 0
+    },
+    {
+      "command": "npm run build",
+      "exit_code": 0,
+      "log": "wecom-frontend-build.log"
+    }
+  ],
+  "cases": [
+    "未确认不得导入",
+    "结果不确定只读查同命令回执，不重发",
+    "重新打开与公司切换不采纳旧响应",
+    "Unix秒显示正确日期",
+    "尚未导入快照空态",
+    "员工无入口和401阻止预览",
+    "390px外页无水平溢出",
+    "管理员确认真实夹具回执与属性/关系DOM显示"
+  ]
+}

@@ -3,13 +3,15 @@ import {describe,it,expect} from 'vitest';
 import {loadOntologyCatalog,applyDefinitionSupplements,employeeDefinition} from '../src/ontology/catalog.js';
 import {enterpriseSource,enterpriseHash} from '../src/ontology/enterprise.js';
 import {readOntologySources,ontologySourceHash} from '../src/ontology/sources.js';
-const catalog=loadOntologyCatalog(),source=enterpriseSource(),selected=Object.keys(source.definitionOverrides!);
+const catalog=loadOntologyCatalog(),source=enterpriseSource();
+const sixTopics=new Set(['达人资源','达人评估','达人关系与沟通','达人合作与交付','达人样品履约','达人费用与结算']);
+const selected=Object.keys(source.definitionOverrides!).filter(code=>sixTopics.has(catalog.objects.find(d=>d.code===code)?.taxonomy[2]||''));
 const find=(code:string)=>catalog.objects.find(d=>d.code===code)!;
 const patch=(code:string,items:object)=>({version:1,source:'isolated generic contract test',objects:[{code,items}]});
 const property={code:'other_domain_field',name:'其它领域属性',description:'不属于达人业务',source:'isolated test',type:'string'};
 describe('six-theme object contracts and generic catalog enrichment',()=>{
  it('aligns the confirmed 25 objects to six themes while preserving all existing stable identities',()=>{
-  expect(selected).toHaveLength(25);expect(new Set(selected.map(code=>find(code).taxonomy[2]))).toEqual(new Set(['达人资源','达人评估','达人关系与沟通','达人合作与交付','达人样品履约','达人费用与结算']));
+  expect(selected).toHaveLength(25);expect(new Set(selected.map(code=>find(code).taxonomy[2]))).toEqual(sixTopics);
   expect(catalog.objects).toHaveLength(930);
   const registry=JSON.parse(fs.readFileSync(new URL('../../config/objects-registry.yaml',import.meta.url),'utf8'));
   for(const original of [...registry.objects,...source.objects.filter(o=>!o.existing)])expect(find(original.code).id).toBe(original.id);

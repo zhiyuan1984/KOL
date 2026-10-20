@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "kind": "state-and-action-map",
+  "status": "complete",
+  "owner": "Manus 执行代理（工程及浏览器复核）",
+  "requirement_refs": [
+    "CONST-08",
+    "CONST-10",
+    "TECH-ARCH-04",
+    "TECH-TEST-01",
+    "CONST-04",
+    "TECH-FE-01",
+    "TECH-FE-03",
+    "TECH-TEST-02",
+    "TECH-FE-02",
+    "TECH-BE-01"
+  ],
+  "subject": {
+    "task_id": "wecom-ontology-20261020",
+    "source_revision": "f224c61da50963cb5fd68ee540e70482aaf9394b"
+  },
+  "decisions": {
+    "states": [
+      {
+        "fact": "source.unavailable",
+        "stage": "来源不可用",
+        "reason": "公司绑定／连接器／只读技能或策略未就绪",
+        "next": "查看准确原因，显式修正配置；不盲重试"
+      },
+      {
+        "fact": "preview.complete",
+        "stage": "候选预览，尚未导入",
+        "reason": "完整固定版本读取通过",
+        "next": "核对版本、数量、原始字段和影响边界"
+      },
+      {
+        "fact": "commit.confirmed",
+        "stage": "确认导入来源快照",
+        "reason": "明确确认、原因和幂等命令已提交",
+        "next": "读取服务端真实回执"
+      },
+      {
+        "fact": "commit.uncertain",
+        "stage": "结果待核查",
+        "reason": "响应不能确认是否已保存",
+        "next": "保留原命令，只读查询命令回执，禁止重复新命令"
+      },
+      {
+        "fact": "snapshot.saved",
+        "stage": "已导入历史来源快照",
+        "reason": "真实回执与可分页记录存在",
+        "next": "查看当前快照版本；更新必须重新预览确认"
+      }
+    ],
+    "protected": [
+      "不是HR在职状态",
+      "不创建账号或改权限",
+      "不按姓名合并"
+    ]
+  },
+  "verification": {
+    "state": "evidence-recorded",
+    "scope": "不以隔离夹具冒充线上服务，不以代理复核冒充人类专家",
+    "evidence": [
+      {
+        "file": "wecom-backend-results.json",
+        "sha256": "dac66388c03947b7c9475aa1afd899e01e78e542b591b823a9eddf413a4c25a3",
+        "kind": "test-report"
+      },
+      {
+        "file": "wecom-frontend-results.json",
+        "sha256": "2084a3013af61e8963b688425ae60876151d3b60cfa26abb6130e3ea7cf6d59d",
+        "kind": "test-report"
+      },
+      {
+        "file": "wecom-browser-source-review.json",
+        "sha256": "1cf58dcc6dcd7df9279a2562cf2f9d02a7f6ef3bdb2d4757783a31b153e77794",
+        "kind": "browser-record"
+      }
+    ]
+  },
+  "task_id": "wecom-ontology-20261020",
+  "summary": "企业微信组织人员本体定义与独立来源快照接入，明确预览确认且不修改账号权限",
+  "status_claims": []
+}

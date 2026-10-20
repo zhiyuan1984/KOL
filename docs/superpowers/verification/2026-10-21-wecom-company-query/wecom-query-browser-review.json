@@ -1,0 +1,33 @@
+{
+  "status": "passed",
+  "reviewer": "Manus执行代理（非独立人类UX专家）",
+  "reviewedAt": "2026-10-20T16:29:13Z",
+  "scope": "前端公司查询参数与现有来源面板；真实来源尚未导入",
+  "sourceChecks": [
+    "status GET显式发送companyId查询参数和X-Ontology-Company请求头",
+    "snapshot GET显式发送companyId查询参数和X-Ontology-Company请求头",
+    "浏览器夹具强制断言两个接口的公司查询参数与请求头，3个流程全部通过",
+    "preview与commit请求不变，后台公司校验、权限及确认链未修改"
+  ],
+  "screenshots": [
+    "frontend/test-results/wecom-ontology/admin-source-panel.png",
+    "frontend/test-results/wecom-ontology/narrow-source-panel.png"
+  ],
+  "visualObservations": [
+    "管理员Drawer显示来源版本、历史同步提示及夹具回执；截图本身不证明真实导入",
+    "390px窄屏外页无水平溢出，历史来源与候选尚未导入说明可见",
+    "实例属性与关系由DOM断言核对，不宣称每条实例经独立人工审阅"
+  ],
+  "actualNoImportCheck": {
+    "companyId": "company:amperetime",
+    "httpStatus": 404,
+    "code": "wecom_snapshot_not_found",
+    "checkedAt": "2026-10-20T16:27:10Z",
+    "userChoice": "暂不导入，保留预览和已上线接入能力"
+  },
+  "limits": [
+    "修正版部署后的真实页面复核在发布后进行，此记录不冒充已经发布",
+    "不修改账号、组织成员关系、角色、工具策略或Agent绑定",
+    "已生成的历史预览过期后需重新生成与核对，不自动提交"
+  ]
+}
