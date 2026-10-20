@@ -164,9 +164,12 @@ describe('ontology relevance and applicability',()=>{
 
 describe('approved KOL information architecture refresh',()=>{
  it('retains stable identities and classifies all 25 definitions in six bounded themes',()=>{
-  const source=enterpriseSource();const corrections=source.definitionOverrides!;expect(Object.keys(corrections)).toHaveLength(25);
+  const source=enterpriseSource();const themes=new Set(['达人资源','达人评估','达人关系与沟通','达人合作与交付','达人样品履约','达人费用与结算']);
+  // WeCom source supplements are governed separately. Retain the original
+  // KOL-only twenty-five-object boundary rather than silently widening it.
+  const corrections=Object.fromEntries(Object.entries(source.definitionOverrides!).filter(([code])=>themes.has(baseline.objects.find(d=>d.code===code)?.taxonomy[2]||'')));expect(Object.keys(corrections)).toHaveLength(25);
   const revised=baseline.objects.filter(d=>corrections[d.code]);
-  expect(new Set(revised.map(d=>d.taxonomy[2]))).toEqual(new Set(['达人资源','达人评估','达人关系与沟通','达人合作与交付','达人样品履约','达人费用与结算']));
+  expect(new Set(revised.map(d=>d.taxonomy[2]))).toEqual(themes);
   for(const d of revised){expect(d.description).toContain('数据来源与责任边界');expect(d.description).not.toContain('仅登记对象类型');expect(validate(d).code).toBe(d.code);}
   expect(revised.find(d=>d.code==='kol_profile')?.id).toBe('B2');
  });
