@@ -11,6 +11,7 @@ import {
   skillUnpublishConfirm,
 } from "../adminConfirm";
 import { useAdminConfirm } from "../components/ConfirmDialog";
+import { useTransientReceipt } from "../components/useTransientReceipt";
 
 type AdminSkill = SkillRow & {
   grants?: { org: string[]; team: string[]; user: string[] };
@@ -91,7 +92,7 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
   const [sopAliases, setSopAliases] = useState("");
   const [sopSaving, setSopSaving] = useState(false);
   const [sopErr, setSopErr] = useState("");
-  const [sopNotice, setSopNotice] = useState("");
+  const { receipt: sopReceipt, showReceipt: showSopNotice, clearReceipt: clearSopNotice } = useTransientReceipt();
   const { ask, dialog } = useAdminConfirm();
   const [user, setUser] = useState("");
   const [password, setPassword] = useState("");
@@ -218,10 +219,10 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
   const saveGrant = async () => {
     if (!grantId) return;
     setSopErr("");
-    setSopNotice("");
+    clearSopNotice();
     try {
       await api.saveSkillGrants(grantId, grantDraft);
-      setSopNotice(`技能「${skills.find((row) => row.id === grantId)?.title || grantId}」分配已保存`);
+      showSopNotice(`技能「${skills.find((row) => row.id === grantId)?.title || grantId}」分配已保存`);
       await load();
       setGrantId(null);
     } catch (e) {
@@ -231,14 +232,14 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
 
   const createSkill = async () => {
     setSopErr("");
-    setSopNotice("");
+    clearSopNotice();
     setCreating(true);
     try {
       await api.createAdminSkill({
         ...createDraft,
         aliases: createDraft.aliases,
       });
-      setSopNotice(`技能「${createDraft.title || createDraft.id}」已发布`);
+      showSopNotice(`技能「${createDraft.title || createDraft.id}」已发布`);
       setCreateDraft((cur) => ({ ...cur, id: "", title: "", description: "", aliases: "" }));
       await load();
     } catch (e) {
@@ -250,10 +251,10 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
 
   const toggleMarket = async (s: AdminSkill) => {
     setSopErr("");
-    setSopNotice("");
+    clearSopNotice();
     try {
       await api.patchAdminSkill(s.id, { in_market: !s.in_market });
-      setSopNotice(s.in_market ? `技能「${s.title}」已下架` : `技能「${s.title}」已上架`);
+      showSopNotice(s.in_market ? `技能「${s.title}」已下架` : `技能「${s.title}」已上架`);
       await load();
     } catch (e) {
       setSopErr(e instanceof Error ? e.message : String(e));
@@ -263,10 +264,10 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
   const removeSkill = async (s: AdminSkill) => {
     if (s.source !== "published") return;
     setSopErr("");
-    setSopNotice("");
+    clearSopNotice();
     try {
       await api.deleteAdminSkill(s.id);
-      setSopNotice(`技能「${s.title}」已删除`);
+      showSopNotice(`技能「${s.title}」已删除`);
       await load();
     } catch (e) {
       setSopErr(e instanceof Error ? e.message : String(e));
@@ -370,7 +371,9 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
             <p className="muted">{data?.sop?.note || "技能说明在本页维护。运营在技能页只能选用动作。"}</p>
             <p className="muted">新建技能会写入运行时目录，下一轮 Codex turn 即可 extraRoots / config/write 生效。</p>
           </div>
-          {sopNotice && <p className="admin-receipt status-ok" data-admin-receipt role="status">{sopNotice}</p>}
+          {sopReceipt.text && (
+            <p className={"admin-receipt is-transient" + (sopReceipt.visible ? " is-visible" : "") + " status-ok"} data-admin-receipt role="status" aria-live="polite">{sopReceipt.text}</p>
+          )}
           {sopErr && <p className="error">{sopErr}</p>}
           <form
             className="panel sop-editor"

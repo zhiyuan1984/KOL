@@ -1703,16 +1703,18 @@
   stroke-width: 1.1;
 }
 
-/* 目录条目使用单列列表行。 */
+/* 目录条目使用单列列表行：图标砖 + 名称 + 单行描述 + 行尾动作位（DESIGN §7.3）。
+   三个分类页签（应用 / 自定义 API / 自定义 MCP）共用同一行高，条目不再拆成两行。 */
 .connector-browse .connector-grid {
+  --connector-browse-row-h: 36px; /* 28px 图标砖 + 上下各 4px */
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-1);
 }
 
 .connector-browse .connector-card {
-  min-height: 44px;
-  padding: var(--space-2) var(--space-3);
-  gap: var(--space-3);
+  min-height: var(--connector-browse-row-h);
+  padding: 0 var(--space-3);
+  gap: var(--space-2);
   align-items: center;
   border-color: var(--browse-line);
   border-radius: var(--radius-card);
@@ -1728,9 +1730,29 @@
   background: var(--browse-tile);
 }
 
-/* 标题与单行描述保持可扫描。 */
+/* 名称与描述同排：名称最多占 46%，描述吃剩余宽度并单行截断（tooltip 给全文）。 */
+.connector-browse .connector-card-body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
 .connector-browse .connector-card-title {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 46%;
   line-height: 20px;
+}
+
+.connector-browse .connector-card-title .connector-card-link,
+.connector-browse .connector-card-title strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .connector-browse .connector-card-title strong {
@@ -1740,12 +1762,23 @@
 }
 
 .connector-browse .connector-card-purpose {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
   font-size: var(--font-browse-desc);
   line-height: var(--lh-browse-desc);
   color: var(--hint-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 窄屏仍保持单行：宽度压力交给描述截断，不把行尾动作挤到第二行。 */
+@media (max-width: 860px) {
+  .connector-browse .connector-card {
+    flex-wrap: nowrap;
+  }
 }
 
 /* 行尾动作与状态保留独立可读的标记。 */

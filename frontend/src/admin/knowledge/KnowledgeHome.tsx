@@ -8,6 +8,7 @@ import WorkspaceEntry from "./WorkspaceEntry";
 import { WorkspaceActionContext } from "./WorkspaceActions";
 import { reviewApi,reviewCompany,workspaceBatch } from "../../reviews/api";
 import { useAccount } from "../../components/AuthGate";
+import { useTransientReceipt } from "../../components/useTransientReceipt";
 import type { FilterOption } from "./KnowledgeFilters";
 import KnowledgeBrowseFilters from "./KnowledgeBrowseFilters";
 import { KnowledgeBrowseWorkspace } from "../../components/KnowledgeBrowse";
@@ -73,9 +74,6 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
   const [query, setQuery] = useState<string>(restore.query || "");
   const [debouncedQuery, setDebouncedQuery] = useState<string>(restore.query || "");
   useEffect(()=>{const t=setTimeout(()=>setDebouncedQuery(query),300);return ()=>clearTimeout(t);},[query]);
-  const [receipt, setReceipt] = useState("");
-  const receiptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (receiptTimer.current) clearTimeout(receiptTimer.current); }, []);
   const [actionError, setActionError] = useState("");
   const [scope, setScope] = useState<KbScope>(restore.scope || EMPTY_SCOPE);
   const [brands, setBrands] = useState<string[]>(restore.brands || []);
@@ -94,17 +92,16 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
   useEffect(()=>{const next=viewParam(params.get("view"));if(next)setView(next);},[params]);
   useEffect(()=>{setAssetTypeFilter(assetParam(params.get("asset")));},[params]);
   useEffect(()=>{setExpiring(params.get("expiring")==="1");},[params]);
+  // 回执是「刚才那次动作」的结果，任何阶段都只停一会儿，不做常驻横幅。
+  const { receipt: receiptState, showReceipt, clearReceipt } = useTransientReceipt(3000);
   const notify = useCallback((message: string) => {
     setActionError("");
-    if (receiptTimer.current) clearTimeout(receiptTimer.current);
-    setReceipt(message);
-    if (stage === "catalog") receiptTimer.current = setTimeout(() => setReceipt(""), 3000);
-  }, [stage]);
+    showReceipt(message);
+  }, [showReceipt]);
   const fail = useCallback((cause: unknown, fallback = "操作失败") => {
-    if (receiptTimer.current) clearTimeout(receiptTimer.current);
-    setReceipt("");
+    clearReceipt();
     setActionError(errorMessage(cause, fallback));
-  }, []);
+  }, [clearReceipt]);
 
   /** 服务端过滤＋分页：筛选/搜索/页码变化即重新请求（搜索框 300ms 防抖）。 */
   const queryKey = useMemo(()=>{
@@ -404,7 +401,7 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
         <WorkspaceActionContext.Provider value={actionTarget}>
         <section className="kbv-rail kbv-browser kbw-workarea" aria-label="知识治理工作区" data-knowledge-right data-workspace-mode={mode} data-kb-active-stage={stage}>
           <KnowledgeLifecycleTabs stage={stage} onChange={changeStage} />
-          {receipt ? <p className={`admin-receipt status-ok${stage === "catalog" ? " kbplanning-toast" : ""}`} data-admin-receipt role="status">{receipt}</p> : null}
+          {receiptState.text ? <p className={`admin-receipt status-ok is-transient${receiptState.visible ? " is-visible" : ""}${stage === "catalog" ? " kbplanning-toast" : ""}`} data-admin-receipt role="status" aria-live="polite">{receiptState.text}</p> : null}
           {actionError ? <p className="error" role="alert">{actionError}</p> : null}
           {mode!=="list" && <header className="kbw-task-head"><button className="kbv-text-action" onClick={()=>switchMode(mode==="review"?"detail":"list")}>{mode==="review"?"← 返回当前知识":"← 返回列表"}</button><span>{({detail:"知识详情",edit:"修订知识",review:"发起审批",create:"新建知识",upload:"上传文件"} as Record<string,string>)[mode]}</span>{dirty && <span>未保存</span>}</header>}
           {mode==="list" && <button className="kbv-text-action knowledge-governance-back" onClick={()=>switchMode("list")}>查看知识列表</button>}

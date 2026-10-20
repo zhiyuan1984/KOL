@@ -4,7 +4,7 @@ import { defineConfig, devices } from "@playwright/test";
 const port = process.env.E2E_DENSITY_PORT || "4187";
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: ["connector-config-density.spec.ts", "connector-tabs-density.spec.ts"],
+  testMatch: ["connector-config-density.spec.ts", "connector-tabs-density.spec.ts", "connector-browse-density.spec.ts"],
   fullyParallel: false,
   workers: 1,
   retries: 0,

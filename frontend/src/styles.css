@@ -5641,6 +5641,24 @@ summary:focus-visible,
   font-size: var(--font-body);
   line-height: var(--leading-body);
 }
+/* 即时回执：动作结果只在动作后停留几秒，不变成常驻横幅。
+   收起时连高度一起过渡，下面的内容不会在它消失时跳一格。
+   与 .admin-receipt 解耦，纯文字的 feedback 行也能复用。 */
+.is-transient {
+  max-height: 96px;
+  overflow: hidden;
+  transition: max-height 180ms ease, opacity 180ms ease, padding 180ms ease, border-width 180ms ease, margin 180ms ease;
+}
+.is-transient:not(.is-visible) {
+  max-height: 0;
+  margin-bottom: 0;
+  padding-block: 0;
+  border-width: 0;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-transient { transition: none; }
+}
 .admin-confirm-layer {
   position: fixed;
   inset: 0;
