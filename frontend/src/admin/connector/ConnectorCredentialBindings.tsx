@@ -15,6 +15,13 @@ export function connectorCredentialBindings(config: RuntimeConnectorConfig | nul
   ];
 }
 
+// 凭据 ID 只在核验时有用：默认掩码，hover 看全量，避免把内部标识当正文。
+function maskReference(ref: string) {
+  // 只掩码保险库 ID（cred_…）；环境变量名是用户配置的可见值，保持原样。
+  if (!ref.startsWith("cred_") || ref.length <= 12) return ref;
+  return `${ref.slice(0, 9)}…${ref.slice(-4)}`;
+}
+
 function referenceStatus(source: string, metadata: RuntimeCredentialMetadata | undefined, loading: boolean) {
   if (source === "保险库") {
     if (loading) return "状态读取中";
@@ -99,7 +106,7 @@ export function ConnectorCredentialBindings({ config, configVersion, configLoade
               <li className="connector-credential-reference" key={`${reference.source}:${reference.name}:${reference.ref}`}>
                 <div className="connector-credential-reference-main">
                   <strong>{reference.name}</strong>
-                  <p className="muted"><span>{reference.source}</span><span aria-hidden="true"> · </span><code>{reference.ref}</code></p>
+                  <p className="muted"><span>{reference.source}</span><span aria-hidden="true"> · </span><code title={reference.ref}>{maskReference(reference.ref)}</code></p>
                 </div>
                 <div className="connector-credential-reference-status">
                   <span className={statusClass} data-connector-credential-status={reference.ref} aria-label={`${reference.name}状态`}>{status}</span>

@@ -170,9 +170,13 @@
 .connector-detail .connector-detail-tab-label { white-space: nowrap; }
 .connector-detail .connector-detail-tab-count {
   color: var(--text-quiet);
-  font-size: var(--ds-font-sm);
-  line-height: var(--ds-line-sm);
+  font-size: var(--ds-font-xs);
+  line-height: 1;
   font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 4px;
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
 }
 
 /* Configuration: 96px labels + 8px gap; 8px field rows, 12px groups. */
@@ -189,6 +193,22 @@
   gap: var(--space-1);
   min-width: 0;
 }
+/* 详情页表单：不要让控件停在 420px，右侧留一大片空白。 */
+.connector-detail .connector-config-fields {
+  max-width: 760px;
+}
+
+.connector-detail .connector-config-form .field input:not([type="checkbox"]):not([type="file"]),
+.connector-detail .connector-config-form .field select,
+.connector-detail .connector-config-form .field textarea {
+  width: 100%;
+  max-width: 100%;
+}
+
+.connector-detail .connector-config-form {
+  padding-bottom: 44px;
+}
+
 .connector-detail .connector-config-fields,
 .connector-detail .connector-config-fields .connector-form-grid {
   display: flex;
@@ -327,8 +347,8 @@
   justify-content: flex-start;
   gap: var(--space-2);
   margin: 0;
-  padding: 0 0 0 calc(var(--property-label-w-short) + var(--space-2));
-  border: 0;
+  padding: var(--space-2) 0 var(--space-1) calc(var(--property-label-w-short) + var(--space-2));
+  border-top: 1px solid var(--border);
   background: var(--bg);
 }
 .connector-detail .connector-config-footer > button { order: 0; }
@@ -420,21 +440,43 @@
   gap: var(--space-2);
 }
 .connector-detail .connector-tool-catalog-compact .connector-tools-list {
-  gap: var(--space-2);
+  gap: 0;
   margin: 0;
   padding: 0;
   border: 0;
+}
+
+.connector-detail .connector-tool-catalog-compact .connector-tool-compact:last-child {
+  border-bottom: 0;
 }
 .connector-detail .connector-tool-catalog-compact .connector-tool-compact {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: var(--space-1) var(--space-2);
+  gap: var(--space-2);
   min-width: 0;
-  min-height: 0;
-  padding: 0;
+  min-height: var(--list-row-h-compact, 32px);
+  padding: 2px var(--space-2);
   border: 0;
   border-radius: 0;
+  border-bottom: 1px solid var(--border-quiet);
+}
+
+.connector-detail .connector-tool-catalog-compact .connector-tool-main {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.connector-detail .connector-tool-catalog-compact .connector-tool-name {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.connector-detail .connector-tool-catalog-compact .connector-tool-name strong {
+  font-size: var(--ds-font-sm);
+  font-weight: 600;
 }
 .connector-detail .connector-tool-catalog-compact .connector-tool-compact:hover,
 .connector-detail .connector-tool-catalog-compact .connector-tool-compact:focus-within { background: var(--bg-subtle); }
@@ -448,11 +490,14 @@
   text-overflow: ellipsis;
 }
 .connector-detail .connector-tool-catalog-compact .connector-tool-description {
-  display: -webkit-box;
-  margin: calc(var(--space-1) / 2) 0 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
   overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 1;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--ds-font-xs);
+  color: var(--text-muted);
 }
 .connector-detail .connector-tool-catalog-compact .connector-tool-compact-meta {
   display: flex;
@@ -467,7 +512,9 @@
   padding: 0;
   border: 0;
   background: transparent;
-  font: inherit;
+  font-size: var(--ds-font-xs);
+  line-height: var(--ds-line-sm);
+  color: var(--text-muted);
   height: auto;
   min-height: 0;
   white-space: nowrap;

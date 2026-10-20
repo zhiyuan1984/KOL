@@ -5,6 +5,7 @@ import { api } from "../../api";
 import { auditTouchesConnector, governanceStatus, type AdminRow } from "../../adminGovernance";
 import { connectorDisableConfirm } from "../../adminConfirm";
 import { useAdminConfirm } from "../../components/ConfirmDialog";
+import { useTransientReceipt } from "../../components/useTransientReceipt";
 import { ProjectTheme } from "../../components/ProjectTheme";
 import { auditEventLabel } from "../../labels";
 import { errorMessage, remoteFailureMessage, type RuntimeConnectorConfig } from "../../runtimeConnectorUi";
@@ -40,9 +41,12 @@ type DetailTab = typeof DETAIL_TABS[number]["id"];
 function isDetailTab(value: string | null): value is DetailTab {
   return DETAIL_TABS.some((tab) => tab.id === value);
 }
+// 时间统一 YYYY-MM-DD HH:mm（与向导、工具抽屉同一口径，不用斜杠与秒）。
 function recordTime(value: string) {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-CN", { hour12: false });
+  if (Number.isNaN(date.getTime())) return value;
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 function codeOf(cause: unknown): string {
   const payload = (cause as { payload?: { code?: unknown; error_code?: unknown } } | null)?.payload;
@@ -77,7 +81,8 @@ function ConnectorDetailContent({ connectorId, connectors, auditRows, reload }: 
   });
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const { receipt, showReceipt, clearReceipt } = useTransientReceipt();
+
   const [activity, setActivity] = useState<{ probes: ProbeRecord[]; events: RunEvent[] } | null>(null);
   const [activityError, setActivityError] = useState("");
   const [activityLoading, setActivityLoading] = useState(true);
@@ -179,20 +184,20 @@ function ConnectorDetailContent({ connectorId, connectors, auditRows, reload }: 
     : activityLoading ? "测试记录读取中" : "尚未测试";
   const probe = async () => {
     if (configDirty && !window.confirm("接入配置有未保存改动。本次测试只使用服务端已保存配置，不包含当前草稿。是否继续测试？")) return;
-    setBusy("probe"); setError(""); setNotice("");
+    setBusy("probe"); setError(""); clearReceipt();
     try {
       const result = await api.probeRuntimeConnector(connectorId);
       setNeedsTest(false);
-      setNotice(result.notice || "测试完成。");
+      showReceipt(result.notice || "测试完成。");
       reload();
     } catch (cause) { setError(friendlyProbeFailure(codeOf(cause))); }
     finally { setBusy(""); void loadActivity(); }
   };
   const setEnabled = async (enabled: boolean) => {
-    setBusy("enable"); setError(""); setNotice("");
+    setBusy("enable"); setError(""); clearReceipt();
     try {
       await api.adminSave(`/api/admin/connectors/${encodeURIComponent(card.id)}`, { enabled }, "PATCH");
-      setNotice(enabled ? "连接器已启用。" : "连接器已停用。");
+      showReceipt(enabled ? "连接器已启用。" : "连接器已停用。");
       reload();
     } catch (cause) {
       const code = codeOf(cause);
@@ -201,8 +206,8 @@ function ConnectorDetailContent({ connectorId, connectors, auditRows, reload }: 
     } finally { setBusy(""); }
   };
   const copyId = async () => {
-    try { await navigator.clipboard.writeText(card.id); setNotice(`已复制短名 ${card.id}。`); }
-    catch { setError(`复制失败；请手动记录短名 ${card.id}。`); }
+    try { await navigator.clipboard.writeText(card.id); showReceipt(`已复制标识 ${card.id}。`); }
+    catch { setError(`复制失败；请手动记录标识 ${card.id}。`); }
   };
   const panelProps = (id: DetailTab) => ({
     id: `connector-panel-${card.id}-${id}`,
@@ -222,19 +227,19 @@ function ConnectorDetailContent({ connectorId, connectors, auditRows, reload }: 
         <ConnectorMark id={card.id} label={card.label} iconUrl={card.iconUrl} />
         <div className="connector-detail-title">
           <h2>{card.label}</h2>
-          <p className="muted">{kindLabel(card.kind)} · 短名 <code>{card.id}</code> · {card.protocol === "mcp" ? "MCP" : "HTTP"}</p>
+          <p className="muted">{kindLabel(card.kind)} · 标识 <code>{card.id}</code> · {card.protocol === "mcp" ? "MCP" : "HTTP"}</p>
           <p>{card.purpose || "未填写业务用途"}</p>
           <p className="connector-detail-test-status muted" data-connector-status-note>
             <span className={`admin-status is-${card.enabled ? "enabled" : "disabled"}`}>{card.enabled ? "已启用" : "未启用"}</span>
             <span data-connector-test-status>{testStatus}</span>
-            {latestProbe && !outdatedProbe && <small>{new Date(latestProbe.checked_at).toLocaleString("zh-CN", { hour12: false })} · {latestProbe.duration_ms}ms</small>}
+            {latestProbe && !outdatedProbe && <small>{recordTime(latestProbe.checked_at)} · {latestProbe.duration_ms}ms</small>}
           </p>
         </div>
         <div className="connector-detail-actions">
           <button type="button" className={activeTab === "config" || (!card.enabled && status.key === "verified") ? "btn text" : "btn work"} data-connector-probe disabled={busy !== ""} aria-busy={busy === "probe"} onClick={() => void probe()}>{busy === "probe" ? "测试中…" : "测试连接"}</button>
           {!card.enabled && status.key === "verified" && <button type="button" className={activeTab === "config" ? "btn text" : "btn work"} data-connector-enable disabled={busy !== "" || needsTest} onClick={() => void setEnabled(true)}>启用连接器</button>}
           <Dropdown trigger={["click"]} menu={{ items: [
-            { key: "copy", label: <span data-connector-copy-id>复制 ID</span>, onClick: () => void copyId() },
+            { key: "copy", label: <span data-connector-copy-id>复制标识</span>, onClick: () => void copyId() },
             ...(card.enabled ? [{ key: "disable", danger: true, disabled: busy !== "", label: <span data-connector-disable>停用连接器</span>, onClick: () => ask(connectorDisableConfirm(card.label, card.id), async () => { await setEnabled(false); }) }] : []),
           ] }}>
             <button type="button" className="btn text" aria-label="连接器更多操作" data-connector-more>更多操作</button>
@@ -242,7 +247,16 @@ function ConnectorDetailContent({ connectorId, connectors, auditRows, reload }: 
         </div>
       </header>
       {error && <p className="error" role="alert" data-connector-detail-error>{error}</p>}
-      {notice && <p className="admin-receipt status-ok" role="status" data-connector-detail-notice>{notice}</p>}
+      {receipt.text && (
+        <p
+          className={"admin-receipt is-transient" + (receipt.visible ? " is-visible" : "") + " status-ok"}
+          role="status"
+          aria-live="polite"
+          data-connector-detail-notice
+        >
+          {receipt.text}
+        </p>
+      )}
       {configDirty && activeTab !== "config" && <p className="connector-config-dirty-note muted" role="status">接入配置有未保存改动，草稿已保留；测试使用已保存配置。<button type="button" className="btn text" onClick={() => selectTab("config")}>返回配置</button></p>}
       {mountNeeded && <div className="connector-detail-mount" data-connector-detail-mount>
         <p className="muted">启用还差一步：至少一个技能把它已登记的工具挂到可用状态。可以按技能定义一次挂好；挂载不启用连接器。</p>
