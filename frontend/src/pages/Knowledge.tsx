@@ -4,8 +4,9 @@ import { useAccount } from "../components/AuthGate";
 import AssetTaskAction from "../components/AssetTaskAction";
 import { useBrowseRows } from "../components/useBrowseRows";
 import { readBrowseMemory, useBrowseMemory } from "../components/browseMemory";
-import { api, type KnowledgeBaseRow, type KnowledgeDomainRow, type KnowledgeRow } from "../api";
-import { type ScopeOption } from "../components/ScopeTabs";
+import { api, type KnowledgeRow } from "../api";
+import type { KnowledgeBusinessTaxonomy } from "../../../shared/knowledge-taxonomy.js";
+import { businessScopeOptions, withBusinessClassification } from "../knowledgeBusinessTaxonomy";
 import EmployeeBrowseFilters from "../components/EmployeeBrowseFilters";
 import CompactButton from "../components/CompactButton";
 import { KnowledgeBrowseWorkspace, BrowseDetailMetadata, KnowledgeListRow, ListLoadFooter, KnowledgeDetailHeader, DetailActionBar } from "../components/KnowledgeBrowse";
@@ -167,24 +168,6 @@ function KnowledgeDocumentBody({ row }: { row: KnowledgeRow }) {
   </div>;
 }
 
-/** 分类名称来自管理端主数据；计数仍按用户当前可见知识行计算。 */
-function collectScope(
-  taxonomy: { domains: KnowledgeDomainRow[]; bases: KnowledgeBaseRow[] },
-  level: "family" | "domain" | "base",
-  parentId: string,
-  counts: Record<string, number>,
-): ScopeOption[] {
-  const options = level === "base"
-    ? taxonomy.bases
-      .filter((base) => !parentId || String(base.domain_id) === parentId)
-      .map((base) => ({ id: String(base.id), name: String(base.name), count: counts[String(base.id)] ?? 0 }))
-    : taxonomy.domains
-      .filter((domain) => domain.level === level && (level === "family" || !parentId || String(domain.parent_id || "") === parentId))
-      .map((domain) => ({ id: String(domain.id), name: String(domain.name), count: counts[String(domain.id)] ?? 0 }));
-  return options
-    .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
-}
-
 /** 员工端知识库（IA v2）：三级分类 tab＋筛选标签＋中栏列表＋右栏同页详情。 */
 export default function Knowledge() {
   const { account } = useAccount();
@@ -198,7 +181,7 @@ export default function Knowledge() {
   const [taxonomyReload, setTaxonomyReload] = useState(0);
   const [taxonomyError, setTaxonomyError] = useState("");
   const [rows, setRows] = useState<KnowledgeRow[]>([]);
-  const [taxonomy, setTaxonomy] = useState<{ domains: KnowledgeDomainRow[]; bases: KnowledgeBaseRow[] }>({ domains: [], bases: [] });
+  const [taxonomy, setTaxonomy] = useState<KnowledgeBusinessTaxonomy>({ sourceVersion: "", nodes: [], bindings: [] });
   const [detailOpen, setDetailOpen] = useState(memory.detailOpen || false);
   const [selectedId, setSelectedId] = useState(memory.selectedId || "");
   const [hideFor, setHideFor] = useState("");
@@ -219,7 +202,6 @@ export default function Knowledge() {
   const [familyId, setFamilyId] = useState(memory.familyId || "");
   const [domainId, setDomainId] = useState(memory.domainId || "");
   const [baseId, setBaseId] = useState(memory.baseId || "");
-  const [showEmptyTaxonomy, setShowEmptyTaxonomy] = useState(false);
   const { listRef, toolbarRef, limit: displayLimit, more } = useBrowseRows(JSON.stringify([familyId,domainId,baseId,view,stageFilters,brandFilters,kindFilter,keyword]),memory.limit,loaded);
   const browseState = useMemo(() => ({ selectedId, detailOpen, expanded, view, query, stageFilters, brandFilters, kindFilter, familyId, domainId, baseId, limit: displayLimit }),[selectedId,detailOpen,expanded,view,query,stageFilters,brandFilters,kindFilter,familyId,domainId,baseId,displayLimit]);
   useBrowseMemory(userId,"knowledge",browseState,listRef,loaded);
@@ -246,7 +228,7 @@ export default function Knowledge() {
   useEffect(() => {
     let active = true;
     setTaxonomyLoaded(false);
-    api.knowledgeTaxonomy()
+    api.knowledgeBusinessTaxonomy()
       .then(value => { if (active) { setTaxonomy(value); setTaxonomyError(""); setTaxonomyLoaded(true); } })
       .catch((e) => { if (active) setTaxonomyError(e instanceof Error ? e.message : "无法加载知识分类"); });
     return () => { active = false; };
@@ -263,20 +245,21 @@ export default function Knowledge() {
     familyId, domainId, baseId, brandFilters, stageFilters, kindFilter, view,
     favoriteIds: favorites, recentIds,
   }), [baseId, brandFilters, domainId, familyId, favorites, kindFilter, recentIds, stageFilters, view]);
-  const facets = useMemo(() => employeeKnowledgeFacets(rows, employeeFilters), [employeeFilters, rows]);
+  const classifiedRows = useMemo(() => withBusinessClassification(rows, taxonomy), [rows, taxonomy]);
+  const facets = useMemo(() => employeeKnowledgeFacets(classifiedRows, employeeFilters), [employeeFilters, classifiedRows]);
   const searchPending = loading || query.trim() !== keyword;
   const countsReady = loaded && !searchPending && !err;
   const familyOptions = useMemo(
-    () => collectScope(taxonomy, "family", "", facets.family.values),
-    [facets.family.values, taxonomy],
+    () => businessScopeOptions(taxonomy, { familyId, domainId, baseId }, 1).map(node => ({ id: node.id, name: node.name, count: facets.family.values[node.id] ?? 0 })),
+    [facets.family.values, taxonomy, familyId, domainId, baseId],
   );
   const domainOptions = useMemo(
-    () => collectScope(taxonomy, "domain", familyId, facets.domain.values),
-    [facets.domain.values, familyId, taxonomy],
+    () => businessScopeOptions(taxonomy, { familyId, domainId, baseId }, 2).map(node => ({ id: node.id, name: node.name, count: facets.domain.values[node.id] ?? 0 })),
+    [facets.domain.values, familyId, domainId, baseId, taxonomy],
   );
   const baseOptions = useMemo(
-    () => collectScope(taxonomy, "base", domainId, facets.base.values),
-    [domainId, facets.base.values, taxonomy],
+    () => businessScopeOptions(taxonomy, { familyId, domainId, baseId }, 3).map(node => ({ id: node.id, name: node.name, count: facets.base.values[node.id] ?? 0 })),
+    [familyId, domainId, baseId, facets.base.values, taxonomy],
   );
   const brandOptions = useMemo(() => Object.keys(facets.brand.values).sort(), [facets.brand.values]);
   const kindOptions = useMemo(() => Object.keys(facets.kind.values).sort(), [facets.kind.values]);
@@ -305,18 +288,8 @@ export default function Knowledge() {
     if (baseId && !baseOptions.some((item) => item.id === baseId)) setBaseId("");
   }, [baseId, baseOptions, taxonomyLoaded]);
 
-  const filteredVisible = useMemo(() => filterEmployeeKnowledgeRows(rows, employeeFilters), [employeeFilters, rows]);
+  const filteredVisible = useMemo(() => filterEmployeeKnowledgeRows(classifiedRows, employeeFilters), [employeeFilters, classifiedRows]);
   const counts = facets.view.values;
-  const emptyTaxonomyCount = useMemo(() => {
-    if (!countsReady) return 0;
-    const axes: Array<[ScopeOption[], string]> = [[familyOptions, familyId], [domainOptions, domainId], [baseOptions, baseId]];
-    return axes
-      .reduce((sum, [options, selected]) => sum + options.filter((option) => option.count === 0 && option.id !== selected).length, 0);
-  }, [baseId, baseOptions, countsReady, domainId, domainOptions, familyId, familyOptions]);
-  const visibleTaxonomyOptions = useCallback((options: ScopeOption[], selected: string) => {
-    if (!countsReady || showEmptyTaxonomy) return options;
-    return options.filter((option) => option.count !== 0 || option.id === selected);
-  }, [countsReady, showEmptyTaxonomy]);
   const visible = useMemo(() => filteredVisible.slice(0, displayLimit), [filteredVisible, displayLimit]);
 
   const selectedRow = useMemo(
@@ -398,15 +371,15 @@ export default function Knowledge() {
           {loading ? <p className="knowledge-load-footer" role="status">{loaded ? "正在检索知识…" : "正在加载知识…"}</p> : null}
           <div ref={toolbarRef}>
           {loaded ? (
-            <EmployeeBrowseFilters
+            <EmployeeBrowseFilters businessDirectory
               search={<WorkspaceSearchInput className="kbv-search" aria-label={KB_SEARCH_LABEL} data-kb-search
                 value={query} placeholder={KB_SEARCH_PLACEHOLDER} onChange={event => setQuery(event.target.value)} />}
               scopeFallback={taxonomyError ? <><span role="alert">知识分类暂不可用：{taxonomyError}</span> <CompactButton onClick={() => setTaxonomyReload(value => value + 1)}>重试分类</CompactButton></> : taxonomyLoaded ? KB_SCOPE_NONE : "正在读取知识分类…"}
               scope={hasTaxonomy ? {
                 showCount: countsReady,
-                familyOptions: visibleTaxonomyOptions(familyOptions, familyId),
-                domainOptions: visibleTaxonomyOptions(domainOptions, domainId),
-                baseOptions: visibleTaxonomyOptions(baseOptions, baseId),
+                familyOptions: familyOptions,
+                domainOptions: domainOptions,
+                baseOptions: baseOptions,
                 familyId, domainId, baseId,
                 onFamily: id => { setFamilyId(id); setDomainId(""); setBaseId(""); },
                 onDomain: id => { setDomainId(id); setBaseId(""); }, onBase: setBaseId,
@@ -420,8 +393,8 @@ export default function Knowledge() {
               kinds={[{ value: "", label: "全部", count: facets.kind.all },
                 ...kindOptions.map(kind => ({ value: kind, label: kindLabel(kind), count: facets.kind.values[kind] }))]}
               kind={kindFilter} onKind={setKindFilter} kindAttribute="data-kb-kind" countsReady={countsReady}
-              emptyTaxonomyCount={emptyTaxonomyCount} showEmptyTaxonomy={showEmptyTaxonomy}
-              onToggleEmpty={() => setShowEmptyTaxonomy(value => !value)} anyFilter={anyFilter} onReset={resetAll}
+              emptyTaxonomyCount={0} showEmptyTaxonomy={true}
+              onToggleEmpty={() => {}} anyFilter={anyFilter} onReset={resetAll}
               clearAttributes={{ "data-kb-scope-clear": true }}
             />
           ) : null}

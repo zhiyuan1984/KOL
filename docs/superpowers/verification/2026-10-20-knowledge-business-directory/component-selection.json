@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "kind": "component-selection",
+  "status": "complete",
+  "owner": "architect/frontend/ui-ux",
+  "requirement_refs": [
+    "CONST-08",
+    "CONST-10",
+    "TECH-ARCH-04",
+    "TECH-TEST-01",
+    "CONST-04",
+    "TECH-FE-03",
+    "TECH-BE-04",
+    "TECH-TEST-02",
+    "TECH-TEST-03",
+    "TECH-FE-01",
+    "TECH-BE-01"
+  ],
+  "subject": {
+    "task_id": "knowledge-ontology-directory-20261020",
+    "source_revision": "a4a6b09e5a33de7ae1661a2ddcd11623f5483da5",
+    "feature": "knowledge-business-directory"
+  },
+  "decisions": {
+    "locked_dependency": "antd 6.6.6 / icons 6.3.4，未升级依赖",
+    "reuse": [
+      "KnowledgeFilterControls的FilterRow/FilterOptionButton/FilterAction",
+      "WorkspaceSearchInput",
+      "AdminFormDialog",
+      "antd Collapse",
+      "KnowledgeBrowseWorkspace"
+    ],
+    "new_component_reason": "两侧共用本体业务目录披露适配器，不复制通用控件",
+    "theme_source": "frontend/src/styles.css / 既有knowledge-browse和planning-tree CSS；未新增颜色或像素数值"
+  },
+  "verification": {
+    "scope": "本次目录变更",
+    "evidence": [
+      "validation.json",
+      "browser-review.json"
+    ],
+    "independent_human_review": false
+  },
+  "task_id": "knowledge-ontology-directory-20261020",
+  "summary": "员工和管理两侧以本体企业三级分类为目录，真实知识库容器通过持久映射归类；原内容与权限不变。",
+  "status_claims": [
+    {
+      "subject": "directory-feature",
+      "fact": "fixture-browser-tests",
+      "value": "passed"
+    },
+    {
+      "subject": "directory-feature",
+      "fact": "independent-human-review",
+      "value": "not-performed"
+    }
+  ]
+}

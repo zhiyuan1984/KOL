@@ -1,0 +1,62 @@
+{
+  "status": "passed",
+  "scope": "已运行的目录组件/纯函数、既有分类组件回归、HTTP fixture浏览器流程与前端构建。非真实资料加工或生产发布验证。",
+  "frontend_unit": {
+    "passed": 29,
+    "failed": 0
+  },
+  "browser": {
+    "passed": 3,
+    "failed": 0,
+    "cases": [
+      "员工/管理三级目录一致，包括零计数节点",
+      "canonical主题下内容容器与历史未归类容器分开，取消不写入",
+      "1440/768/375宽度、键盘展开、无横向溢出"
+    ]
+  },
+  "checks": [
+    {
+      "command": "npx vitest run --config vitest.business-directory.config.ts",
+      "exit_code": 0
+    },
+    {
+      "command": "PW_EXECUTABLE_PATH=/usr/bin/chromium npx playwright test --config playwright.business-directory.config.ts",
+      "exit_code": 0
+    },
+    {
+      "command": "npm run build",
+      "exit_code": 0
+    },
+    {
+      "command": "npm run typecheck --prefix backend",
+      "exit_code": 0
+    },
+    {
+      "command": "npm run validate:contracts --prefix backend",
+      "exit_code": 0
+    },
+    {
+      "command": "npm run validate:registry --prefix backend",
+      "exit_code": 0
+    }
+  ],
+  "frontend_full_regression": {
+    "passed": 126,
+    "failed": 0
+  },
+  "backend": {
+    "canonical_unit": {
+      "passed": 7,
+      "failed": 0
+    },
+    "migration_and_query_regression": {
+      "passed": 10,
+      "failed": 0
+    },
+    "planning_and_disposable_postgresql": {
+      "passed": 79,
+      "failed": 0
+    },
+    "evidence_source": "专责后端代理实际执行结果，包含随机创建/销毁临时PG数据库，未使用业务库"
+  }
+}

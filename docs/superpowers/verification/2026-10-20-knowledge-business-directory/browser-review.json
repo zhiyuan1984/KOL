@@ -1,0 +1,18 @@
+{
+  "reviewer": "Manus（代理浏览器与截图复核，非独立人类专家）",
+  "reviewed_at": "2026-10-20T05:53:49.758945+00:00",
+  "source_revision": "a4a6b09e5a33de7ae1661a2ddcd11623f5483da5",
+  "layer": "mock-browser + 源代码/已部署本体只读对照",
+  "facts": [
+    "员工与管理使用BusinessTaxonomyFilters同组件，业务族/业务域/业务主题名称一致",
+    "截图中零计数战略与经营/市场/品牌仍可点；非primary选中态",
+    "分类变更只影响分类筛选，内容ID/base_id保留",
+    "规划使用同源nodes，容器映射单独维护，原件和内容发布流程未修改"
+  ],
+  "source_compare": "改动前站点知识目录仅legacy三节点，本体18/153/354；新canonical source使用loadOntologyCatalog+enterpriseTaxonomy。实时部署后会另行记录API逐节点比对。",
+  "independent_human_review": false,
+  "screenshots": [
+    "business-directory-employee.png",
+    "business-directory-admin.png"
+  ]
+}

@@ -1568,6 +1568,7 @@ migrations.push(
   { id: "20261015_mail_labels_peer_email", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "042_20261015_mail_labels_peer_email.sql"), "utf8")] },
   { id: "20261015_knowledge_scope_async", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "043_20261015_knowledge_scope_async.sql"), "utf8")] },
   { id: "20261016_domain_confirmations", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "044_20261016_domain_confirmations.sql"), "utf8")] },
+  { id: "20261020_knowledge_ontology_theme_bindings", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "048_knowledge_ontology_theme_bindings.sql"), "utf8")] },
 );
 
 /** Immutable version/checksum metadata for release preflight; no database access. */

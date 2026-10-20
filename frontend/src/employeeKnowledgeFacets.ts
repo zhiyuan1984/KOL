@@ -30,9 +30,9 @@ export type EmployeeKnowledgeFacet = {
 export type EmployeeKnowledgeFacets = Record<EmployeeKnowledgeFacetAxis, EmployeeKnowledgeFacet>;
 
 function valueOf(row: KnowledgeRow, axis: "family" | "domain" | "base" | "kind") {
-  if (axis === "family") return String(row.family_id || "");
-  if (axis === "domain") return String(row.domain_id || "");
-  if (axis === "base") return String(row.base_id || "");
+  if (axis === "family") return String(row.catalog_family_id ?? row.family_id ?? "");
+  if (axis === "domain") return String(row.catalog_domain_id ?? row.domain_id ?? "");
+  if (axis === "base") return String(row.catalog_theme_id ?? row.base_id ?? "");
   return String(row.kind || "");
 }
 
@@ -71,9 +71,9 @@ export function filterEmployeeKnowledgeRows(
   const recent = new Set(filters.recentIds);
 
   return rows.filter((row) => {
-    if (skip !== "family" && filters.familyId && String(row.family_id || "") !== filters.familyId) return false;
-    if (skip !== "domain" && filters.domainId && String(row.domain_id || "") !== filters.domainId) return false;
-    if (skip !== "base" && filters.baseId && String(row.base_id || "") !== filters.baseId) return false;
+    if (skip !== "family" && filters.familyId && valueOf(row, "family") !== filters.familyId) return false;
+    if (skip !== "domain" && filters.domainId && valueOf(row, "domain") !== filters.domainId) return false;
+    if (skip !== "base" && filters.baseId && valueOf(row, "base") !== filters.baseId) return false;
     if (skip !== "brand" && !matchesBrand(row, brands)) return false;
     if (skip !== "stage" && !matchesStage(row, stages)) return false;
     if (skip !== "kind" && filters.kindFilter && valueOf(row, "kind") !== filters.kindFilter) return false;

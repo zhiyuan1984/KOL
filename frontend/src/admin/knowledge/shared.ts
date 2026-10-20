@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import type { KnowledgeBusinessTaxonomy } from "../../../../shared/knowledge-taxonomy.js";
 import type { KnowledgeBaseRow, KnowledgeDomainRow, KnowledgeRow } from "../../api";
 import { MAIN_STAGE_TABS } from "../../kolStages";
 import {
@@ -33,6 +34,7 @@ export type WsData = {
   page: number; page_size: number; page_count: number;
   facets: Record<string, WsFacet>; stats: WsStats;
   bases: KnowledgeBaseRow[]; domains: KnowledgeDomainRow[];
+  business_taxonomy?: KnowledgeBusinessTaxonomy;
   governance?: { family_name?: string; domain_name?: string; base_id: string; base_name: string; document_count: number; scoped_document_count: number; skill_count: number; agent_count: number } | null;
 };
 export type KbSub = (message: string) => void;

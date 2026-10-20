@@ -1,0 +1,55 @@
+{
+  "status": "passed",
+  "task_id": "knowledge-ontology-directory-20261020",
+  "errors": [],
+  "warnings": [],
+  "machine_verification": {
+    "status": "passed",
+    "checks": [
+      {
+        "id": "route-contract-schema",
+        "status": "passed"
+      },
+      {
+        "id": "knowledge-state-contract-test",
+        "status": "passed"
+      },
+      {
+        "id": "frontend-experience-test",
+        "status": "passed"
+      },
+      {
+        "id": "navigation-route-test",
+        "status": "passed"
+      },
+      {
+        "id": "backend-affected-test",
+        "status": "passed"
+      }
+    ]
+  },
+  "human_browser_review": {
+    "status": "records-present-not-automatically-judged",
+    "checks": [
+      {
+        "id": "knowledge-browser-and-source-review",
+        "status": "passed",
+        "reviewer": "Manus（代理浏览器复核，非独立人类专家）",
+        "review_record": "2026-10-20T05:53:49.761023+00:00"
+      },
+      {
+        "id": "frontend-browser-review",
+        "status": "passed",
+        "reviewer": "Manus（代理浏览器复核，非独立人类专家）",
+        "review_record": "2026-10-20T05:53:49.761120+00:00"
+      },
+      {
+        "id": "navigation-browser-review",
+        "status": "passed",
+        "reviewer": "Manus（代理浏览器复核，非独立人类专家）",
+        "review_record": "2026-10-20T05:53:49.761211+00:00"
+      }
+    ],
+    "note": "This CLI validates supplied names, hashes, and evidence categories only. It does not claim that an expert reviewed UX or that browser/source fidelity is acceptable."
+  }
+}

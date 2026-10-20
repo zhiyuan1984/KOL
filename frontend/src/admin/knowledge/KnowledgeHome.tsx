@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef, useLayoutEffect, lazy, Suspense } from "react";
 import { brandLabel, kindLabel, KB_SCOPE_FAMILY, KB_SCOPE_DOMAIN, KB_SCOPE_BASE } from "../../knowledgeCopy";
 import { MAIN_STAGE_TABS } from "../../kolStages";
+import { businessScopeOptions, isBusinessDirectoryId } from "../../knowledgeBusinessTaxonomy";
 import { stageLabel } from "../../labels";
 import { KNOWLEDGE_KIND_SPECS, errorMessage, useKbData, type KbAssetRow, type WsData } from "./shared";
 import EntryEditor from "./EntryEditor";
@@ -13,7 +14,7 @@ import type { FilterOption } from "./KnowledgeFilters";
 import KnowledgeBrowseFilters from "./KnowledgeBrowseFilters";
 import { KnowledgeBrowseWorkspace } from "../../components/KnowledgeBrowse";
 // Keep the mature planning component out of unrelated admin views.
-const CatalogView = lazy(() => import("./CatalogView"));
+const CatalogView = lazy(() => import("./BusinessCatalogView"));
 import BaseView from "./BaseView";
 import IngestView from "./IngestView";
 import BindingsView from "./BindingsView";
@@ -112,9 +113,9 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
     if(kind)p.set("kind",kind);
     if(brands.length)p.set("brands",brands.join(","));
     if(stages.length)p.set("stages",stages.join(","));
-    if(scope.familyId)p.set("family_id",scope.familyId);
-    if(scope.domainId)p.set("domain_id",scope.domainId);
-    if(scope.baseId)p.set("base_id",scope.baseId);
+    if(scope.familyId)p.set(isBusinessDirectoryId(scope.familyId) ? "catalog_family_id" : "family_id",scope.familyId);
+    if(scope.domainId)p.set(isBusinessDirectoryId(scope.domainId) ? "catalog_domain_id" : "domain_id",scope.domainId);
+    if(scope.baseId)p.set(isBusinessDirectoryId(scope.baseId) ? "catalog_theme_id" : "base_id",scope.baseId);
     if(assetTypeFilter)p.set("asset",assetTypeFilter);
     if(expiring)p.set("expiring","1");
     return p.toString();
@@ -135,6 +136,7 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
   const bases = data?.bases || [];
   const domains = data?.domains || [];
   const facets = data?.facets;
+  const businessTaxonomy = data?.business_taxonomy;
   /** facet 计数读取：服务端已按 skip 口径算好，前端只做展示映射。 */
   const fAll = (group: string) => facets?.[group]?.all ?? 0;
   const fVal = (group: string, key: string) => facets?.[group]?.values?.[key] ?? 0;
@@ -201,6 +203,7 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
   // The __none__ facet means a missing foreign key. Named “未分类” catalog nodes
   // are real records, so keep their IDs/names and label only the missing relation explicitly.
   const familyFacet = useMemo<FilterOption[]>(() => {
+    if (businessTaxonomy) return [{ value: "", label: "全部", count: fAll("catalog_family") }, ...businessScopeOptions(businessTaxonomy, scope, 1).map(node => ({ value: node.id, label: node.name, count: fVal("catalog_family", node.id) }))];
     const candidates = [
       ...domains.filter((domain) => domain.level === "family").map((domain) => ({ value: domain.id, label: domain.name })),
       { value: SCOPE_NONE, label: `未归属${KB_SCOPE_FAMILY}` },
@@ -211,9 +214,10 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
       options.push({ ...candidate, count });
     });
     return options;
-  }, [domains, facets, scope.familyId]);
+  }, [domains, facets, scope.familyId, scope.domainId, scope.baseId, businessTaxonomy]);
 
   const domainFacet = useMemo<FilterOption[]>(() => {
+    if (businessTaxonomy) return [{ value: "", label: "全部", count: fAll("catalog_domain") }, ...businessScopeOptions(businessTaxonomy, scope, 2).map(node => ({ value: node.id, label: node.name, count: fVal("catalog_domain", node.id) }))];
     const candidates = [
       ...domains
         .filter((domain) => domain.level === "domain")
@@ -231,9 +235,10 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
       options.push({ ...candidate, count });
     });
     return options;
-  }, [domains, facets, scope.familyId, scope.domainId]);
+  }, [domains, facets, scope.familyId, scope.domainId, scope.baseId, businessTaxonomy]);
 
   const baseFacet = useMemo<FilterOption[]>(() => {
+    if (businessTaxonomy) return [{ value: "", label: "全部", count: fAll("catalog_theme") }, ...businessScopeOptions(businessTaxonomy, scope, 3).map(node => ({ value: node.id, label: node.name, count: fVal("catalog_theme", node.id) }))];
     const inScope = bases.filter((base) => {
       if (scope.domainId) {
         const domainId = String(base.domain_id || "");
@@ -255,7 +260,7 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
       options.push({ ...candidate, count });
     });
     return options;
-  }, [bases, facets, scope.domainId, scope.familyId, scope.baseId]);
+  }, [bases, facets, scope.domainId, scope.familyId, scope.baseId, businessTaxonomy]);
 
   const brandCodes = useMemo(() => {
     const values = Object.keys(facets?.brand?.values || {});
@@ -375,7 +380,7 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
     <section className="kbv kbv-page kbv-filter-browser knowledge-browse knowledge-governance" data-admin-knowledge data-admin-kb-v2="home">
       <KnowledgeBrowseWorkspace detailOpen={mode !== "list" || stage !== "published"}>
         <section className="kbv-list knowledge-governance-list" aria-label="知识列表" data-knowledge-middle aria-busy={loading}>
-          <KnowledgeBrowseFilters countsReady={Boolean(data && !loading && !error)} query={query} onQuery={setQuery} scope={scope}
+          <KnowledgeBrowseFilters businessDirectory={Boolean(businessTaxonomy)} countsReady={Boolean(data && !loading && !error)} query={query} onQuery={setQuery} scope={scope}
             onReset={resetAllFilters}
             onFamily={id => setScope({ familyId: id, domainId: "", baseId: "" })}
             onDomain={id => setScope(current => ({ ...current, domainId: id, baseId: "" }))}
@@ -418,7 +423,7 @@ export default function KnowledgeHome({ initialStage = "published", routeBaseId,
                 <button type="button" className="kbv-text-action" onClick={()=>drillView("draft")}>查看草稿</button>
               </div>
             </section> : stage === "catalog" ? catalogBaseId
-              ? <BaseView id={catalogBaseId} notify={notify} fail={fail} /> : <Suspense fallback={<p className="muted" role="status">正在加载知识规划…</p>}><CatalogView notify={notify} fail={fail} /></Suspense>
+              ? <BaseView id={catalogBaseId} notify={notify} fail={fail} /> : <Suspense fallback={<p className="muted" role="status">正在加载知识规划…</p>}><CatalogView notify={notify} fail={fail} onChanged={reload} /></Suspense>
             : stage === "processing" ? <IngestView embedded notify={notify} fail={fail} />
             : stage === "bindings" ? <BindingsView notify={notify} fail={fail} />
             : stage === "graph" ? <KnowledgeGraphPanel data={summary} error={summaryError} reload={reloadSummary} />
