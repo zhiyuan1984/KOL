@@ -234,8 +234,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
     <>
       {embedded ? (
         <p className="connector-config-save-note muted" data-connector-config-save-note>
-          <span>保存仅更新配置并回到待验证，不代表连通或启用。</span>
-          <span>配置改动后须重新测试，通过后方可启用。</span>
+          保存只更新配置并回到待验证，不代表连通或启用；改动后需重新测试。
         </p>
       ) : (
         <p className="connector-panel-note muted">{dirty ? "有未保存改动；切换 Tab 会保留草稿。" : "保存只更新配置，不等于连通或启用；改动后需重新测试。"}</p>
@@ -292,7 +291,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
           <div className="field connector-config-inline"><span className="connector-config-label">图标</span>
             <ConnectorIconUpload variant="compact" file={iconFile} existingUrl={card.iconUrl} onPick={setIconFile} />
           </div>
-          <label className="field connector-config-inline connector-config-purpose"><span className={embedded ? "sr-only" : "connector-config-label"}>备注<span className="field-optional">（可选）</span></span>
+          <label className="field connector-config-inline connector-config-purpose"><span className="connector-config-label">备注<span className="field-optional">（可选）</span></span>
             <textarea
               value={purpose}
               rows={2}

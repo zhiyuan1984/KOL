@@ -2130,6 +2130,31 @@
   color: var(--text-muted);
 }
 
+/* 嵌入向导时，配置卡的最小宽度必须能让位给面板宽度：否则 headers 行会把
+   内容撑出面板右缘（表现为输入框被裁切、删除按钮贴边）。 */
+.connector-panel.is-form .connector-config-inline,
+.connector-panel.is-form .connector-header-rows,
+.connector-panel.is-form .connector-header-row,
+.connector-panel.is-form .connector-config-card,
+.connector-panel.is-form .ant-form,
+.connector-panel.is-form .ant-form-item-row {
+  min-width: 0;
+}
+
+.connector-panel.is-form .connector-config-inline {
+  grid-template-columns: minmax(0, var(--ds-label-w)) minmax(0, 1fr);
+}
+
+.connector-panel.is-form .connector-header-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto;
+}
+
+.connector-panel.is-form .connector-header-row > *,
+.connector-panel.is-form .connector-config-inline > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
 /* 嵌入向导的配置分组标题：比字段标签略重，比分组标题轻。 */
 .connector-wizard-section-title {
   margin: var(--space-2) 0 0;

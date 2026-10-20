@@ -200,7 +200,8 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
         ? `配置已保存（版本 ${version}）；改动后需重新测试才能启用。`
         : `配置已保存（版本 ${version}），尚未通过测试；启用前需要一次通过的测试。`;
     }
-    return passedAt ? `测试通过于 ${passedAtLabel}；可启用连接器。` : "测试已通过；可启用连接器。";
+    // 测试时间已在下一条事实里给出，这里不重复，避免同一行出现两次时间。
+    return "已验证通过，可以启用。";
   }, [enabled, id, passedAt, savedInSession, verified, version]);
 
   // 启用步的横幅标题已经写明「已启用」/「待启用」，正文只补一句后果，避免同一事实说两遍。
