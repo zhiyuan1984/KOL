@@ -8,7 +8,6 @@ output: task_result
 funnel: biz
 mcp: []
 capabilities: [{"id":"mail.conversations.search","version":1}]
-ontology: [{"object":"email","revision":2}]
 applicable_objects: ["email"]
 required_inputs: []
 context: {"requires":[],"prefers":["conversation"]}

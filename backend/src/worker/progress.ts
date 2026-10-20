@@ -174,6 +174,7 @@ function mcpOperation(item: Json, method: string | undefined, params: Json): Wor
 
 export type HarnessMemory = {
   reasoningById: Map<string, string>;
+  toolLabels?: Map<string, string>;
 };
 
 export function emptyHarnessMemory(): HarnessMemory {
@@ -191,7 +192,9 @@ export function progressFromHarness(
   const startedOrDone = method === "item/started" || method === "item/completed";
   const mcpLike = type === "mcpToolCall" || /mcpToolCall/i.test(methodStr);
   if (mcpLike) {
-    return { phase: "reading_data", operation: mcpOperation(item, method, params) };
+    const operation = mcpOperation(item, method, params)!;
+    const label = memory.toolLabels?.get(String(item.tool || item.name || ""));
+    return { phase: "reading_data", operation: { ...operation, ...(label ? { label } : {}) } };
   }
   if (type === "webSearch" || type === "web_search") {
     const id = itemIdOf(item, params) || "web_search";
@@ -291,7 +294,8 @@ export function upsertOperationItem(
     label: String(next.label || ""),
     status: String(next.status || "running"),
   };
-  const index = items.findIndex((item) => item.id === id || item.name === name);
+  // Different invocations of the same tool are different business steps.
+  const index = items.findIndex((item) => item.id === id);
   if (index >= 0) {
     const copy = items.slice();
     copy[index] = { ...items[index], ...row };

@@ -11,6 +11,16 @@ import {
 } from "../src/worker/progress.js";
 
 describe("Codex harness process traces", () => {
+  it("uses published business descriptions and keeps separate invocations of one capability", () => {
+    const memory = emptyHarnessMemory();
+    memory.toolLabels = new Map([["rt_alias", "读取达人档案"]]);
+    const event = progressFromHarness("item/started", { item: { id: "call-1", type: "mcpToolCall", tool: "rt_alias" } }, memory);
+    expect(event?.operation?.label).toBe("读取达人档案");
+    const first = upsertOperationItem([], event!.operation!);
+    const both = upsertOperationItem(first, { ...event!.operation!, id: "call-2" });
+    expect(both).toHaveLength(2);
+    expect(upsertOperationItem(both, { ...event!.operation!, status: "done" })).toHaveLength(2);
+  });
   it("records first observation time and preserves it across updates and completion", () => {
     const first = applyProgress([], { phase: "generating", trace: { id: "step", label: "核对快照", status: "running" } });
     expect(Number.isFinite(Date.parse(first[0].observed_at!))).toBe(true);

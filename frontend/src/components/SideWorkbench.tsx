@@ -15,6 +15,7 @@ import { resultCardOf } from "./StreamArtifact";
 import { streamTime } from "../streamOrder";
 import AgentAvatar from "./AgentAvatar";
 import type { TaskRunView } from "../runViewState";
+import ExecutionTimeline from "./ExecutionTimeline";
 import ResultRailTabs, { type ResultRailTab } from "./ResultRailTabs";
 
 /** 形状通道的字形：⚠ 只给需要人确认的 R3 等待，✓/✕ 只在真的完成或失败时出现。 */
@@ -232,6 +233,8 @@ export default function SideWorkbench({
     : statusView.live || statusView.needsConfirm || statusView.tone === "failed";
   const attention = showStatus || statusView.needsConfirm;
   const railRootRef = useRef<HTMLDivElement>(null);
+  const userReading = useRef(false);
+  const [hasNewResult, setHasNewResult] = useState(false);
   const railScrollPositions = useRef<Record<string, number>>({});
   const pendingRailScroll = useRef<ResultRailTab | null>(null);
   const userPickedTab = useRef(Boolean(readSavedRailTab(sessionId, debug)));
@@ -242,6 +245,7 @@ export default function SideWorkbench({
     const scroll = railRootRef.current?.closest<HTMLElement>(".scope-task-rail-scroll");
     if (scroll) railScrollPositions.current[activeTab] = scroll.scrollTop;
     userPickedTab.current = true;
+    userReading.current = true;
     try { sessionStorage.setItem(`ui:rail-tab:${sessionId}`, next); } catch { /* Storage is optional. */ }
     pendingRailScroll.current = next;
     setActiveTab(next);
@@ -265,6 +269,8 @@ export default function SideWorkbench({
     const saved = readSavedRailTab(sessionId, debug);
     userPickedTab.current = Boolean(saved);
     railScrollPositions.current = {};
+    userReading.current = false;
+    setHasNewResult(false);
     setActiveTab(saved || (attention ? "status" : "result"));
   }, [sessionId, attention, debug]);
   useEffect(() => {
@@ -306,7 +312,7 @@ export default function SideWorkbench({
   const stageReviewInitialized = initializedStageReviewKey === stageReviewKey;
   useEffect(() => {
     if (stageRequested && activeTab !== "result") chooseTab("result");
-  }, [stageRequested, activeTab]);
+  }, [stageRequested, latestStage?.id]);
   useEffect(() => {
     const element = stageReview.current;
     if (!stageReviewKey || !latestStage || !ready || !element
@@ -421,7 +427,9 @@ export default function SideWorkbench({
   useEffect(() => {
     if (primaryArtifactId === previousPrimaryArtifactId.current) return;
     previousPrimaryArtifactId.current = primaryArtifactId;
+    if (userReading.current || userPickedTab.current) { setHasNewResult(true); return; }
     setActiveArtifactId(primaryArtifactId);
+    if (primaryArtifactId) setActiveTab("result");
   }, [primaryArtifactId]);
   const activeArtifact = artifactRows.find((row) => row.message.id === activeArtifactId) || artifactRows.at(-1);
   const historyArtifacts = artifactRows.filter((row) => row.message.id !== activeArtifact?.message.id);
@@ -431,14 +439,25 @@ export default function SideWorkbench({
     if (message.kind === "task_result_card") return stripEngineCopy(String(resultCardOf(message).title || "任务结果"));
     return entries.find((entry) => entry.id === message.id)?.title || "成果";
   };
-  const processRows = messages
-    .filter((message) => ["process_trace", "step", "steps", "discovery_step"].includes(message.kind))
-    .slice(-5);
-  const processTitle = (message: Message) => {
-    const payload = message.payload as Record<string, unknown>;
-    const raw = String(payload.title || payload.label || payload.summary || payload.text || payload.message || "执行记录");
-    return employeeTraceLabel(raw, String(payload.kind || "")).replace(/\s+/g, " ").slice(0, 120);
+  const currentMessages = messages.slice(messages.map(message => message.kind).lastIndexOf("me") + 1);
+  const showLatestResult = () => {
+    userReading.current = false;
+    userPickedTab.current = false;
+    setHasNewResult(false);
+    setActiveArtifactId(primaryArtifactId);
+    setActiveTab("result");
   };
+  const history = historyArtifacts.length ? (
+    <details className="rail-result-history" data-rail-result-history>
+      <summary>历史与阶段输出（{historyArtifacts.length}）</summary>
+      <ol>{historyArtifacts.map(({ message }) => <li key={message.id}>
+        <button type="button" className="result-index-item" onClick={() => { setActiveArtifactId(message.id); chooseTab("result"); }}>
+          <span className="result-index-title">{artifactLabel(message)}</span>
+          <time className="result-index-time">{clock(streamTime(message))}</time>
+        </button>
+      </li>)}</ol>
+    </details>
+  ) : null;
   const tabs: Array<{ id: ResultRailTab; label: string; badge?: number }> = [
     { id: "result", label: "结果", badge: artifactRows.length > 1 ? artifactRows.length : undefined },
     { id: "status", label: "状态过程" },
@@ -463,7 +482,10 @@ export default function SideWorkbench({
       </button> : null}
       {discoveryReturn && collapsed ? <Link className="discovery-return is-collapsed-return" to={discoveryReturn} data-session-back-link>返回 AI发现</Link> : null}
       {!embedded && collapsed ? null : <>
-      <div className="rail-tab-root" ref={railRootRef}>
+      <div className="rail-tab-root" ref={railRootRef}
+        onWheel={() => { userReading.current = true; }}
+        onPointerDown={event => { if (!(event.target as HTMLElement).closest('[role="tab"]')) userReading.current = true; }}
+        onKeyDown={() => { userReading.current = true; }}>
       <details className="result-tools" data-rail-tools><summary>更多操作</summary>
       <div className="artifact-toolbar" aria-label="产物工具栏">
         {discoveryReturn ? <Link className="discovery-return" to={discoveryReturn} data-session-back-link>返回 AI发现</Link> : null}
@@ -478,6 +500,7 @@ export default function SideWorkbench({
       </div>
       </details>
       <ResultRailTabs tabs={tabs} active={activeTab} onChange={chooseTab} />
+      {hasNewResult ? <button type="button" className="result-pointer-button" data-new-result onClick={showLatestResult}>有新结果</button> : null}
       {(toolStatus || share) && <div className="share-status" role="status">{toolStatus}{share?.expires_at && <> · {new Date(share.expires_at).toLocaleString()} 过期</>}{share?.url && <><input className="share-url" aria-label="分享链接" readOnly value={share.url} onFocus={(e) => e.currentTarget.select()} /><button className="link-button" onClick={() => void navigator.clipboard.writeText(share.url || "").then(() => setToolStatus("分享链接已复制")).catch(() => setToolStatus("请手动复制链接"))}>复制链接</button></>}{share && <button className="link-button" onClick={() => void api.revokeShare(sessionId).then(() => { setShare(null); setToolStatus("分享已撤销"); }).catch((e) => setToolStatus(String(e)))}>撤销</button>}</div>}
       <div className="side-body" data-rail-panels>
         <section className="rail-panel" role="tabpanel" id="rail-panel-result" aria-labelledby="rail-tab-result" data-round-results hidden={activeTab !== "result"}>
@@ -490,22 +513,7 @@ export default function SideWorkbench({
               {activeArtifact.artifact}
             </section>
           ) : null}
-          {historyArtifacts.length ? (
-            <details className="rail-result-history" data-rail-result-history>
-              <summary>历史结果（{historyArtifacts.length}）</summary>
-              <ol>
-                {historyArtifacts.map(({ message }) => {
-                  const time = streamTime(message);
-                  return <li key={message.id}>
-                    <button type="button" className="result-index-item" onClick={() => setActiveArtifactId(message.id)}>
-                      <span className="result-index-title">{artifactLabel(message)}</span>
-                      {time ? <time className="result-index-time" dateTime={new Date(time).toISOString()}>{clock(time)}</time> : null}
-                    </button>
-                  </li>;
-                })}
-              </ol>
-            </details>
-          ) : null}
+          {activeArtifact && activeArtifact.message.id !== primaryArtifactId ? <p className="muted" data-historical-result>正在查看历史版本 · <button className="result-pointer-button" onClick={showLatestResult}>回到当前成果</button></p> : null}
           {!resultExtraInStatus ? resultExtra : null}
           {focusedMail ? (
             <section data-mail-focus>
@@ -531,7 +539,7 @@ export default function SideWorkbench({
                 </ol>
               </nav>
             ) : (
-              <p className="muted" data-result-index-empty>还没有结果。智能体的过程与成果按时间出现在中栏，这里会列出成果目录。</p>
+              <p className="muted" data-result-index-empty>成果将在生成后自动显示；当前执行反馈见中栏。</p>
             )
           ) : null}
         </section>
@@ -549,24 +557,15 @@ export default function SideWorkbench({
           ) : (
             <div className="rail-status-quiet" data-rail-status-quiet>
               <strong data-agent-status={status} data-workspace-status role="status" aria-live="polite">{statusOverride || runView?.label || statusView.copy}</strong>
-              <p>当前没有需要关注的状态；结果保存在“结果”页。</p>
+              <p>执行状态依据真实回执更新；成果保存在“结果”。</p>
             </div>
           )}
           <div className="rail-process" data-rail-process>
-            <h3>最近过程</h3>
-            {processRows.length ? (
-              <ol>
-                {processRows.map((message) => (
-                  <li key={message.id}>
-                    <button type="button" className="rail-process-row" onClick={() => locateStreamEntry(message.id)}>
-                      <time>{clock(streamTime(message))}</time>
-                      <span>{processTitle(message)}</span>
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            ) : <p className="muted">本次没有可展开的过程记录；完整过程在中栏。</p>}
+            <h3>本次处理记录</h3>
+            <ExecutionTimeline messages={currentMessages} label={employeeTraceLabel} />
           </div>
+          {history}
+
           {task?.last_error ? <p className="error" role="alert">失败原因：{task.last_error}</p> : null}
           {stageRequested ? <button type="button" className="result-pointer-button" onClick={() => chooseTab("result")}>查看待确认的阶段建议</button> : null}
           {resultExtraInStatus ? resultExtra : null}

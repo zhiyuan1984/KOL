@@ -31,9 +31,11 @@ async function main(): Promise<void> {
 
   // Recovery is PostgreSQL-only and covers all task types after planner recovery.
   const { failStaleNativePlans } = await import("./postgres/today-plan-repository.js");
-  const { failInterruptedTaskRuns } = await import("./host/task-run-recovery.js");
+  const { failInterruptedTaskRuns, completeSavedReadTaskRuns } = await import("./host/task-run-recovery.js");
   const stuck = await failStaleNativePlans("Host 重启时该规划仍在运行");
   const interrupted = await failInterruptedTaskRuns("Host 重启时该运行仍在执行");
+  const completed = await completeSavedReadTaskRuns();
+  if (completed.length) console.info(`已保存成果的只读任务已自动完成：${completed.length} 项`);
   if (stuck.length) console.warn(`未完成的规划运行已标记失败：${stuck.join("、")}`);
   if (interrupted.length) console.warn(`中断的任务运行已标记失败：${interrupted.join("、")}`);
 

@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0.0",
+  "kind": "development-delivery-record",
+  "task_contract": {
+    "file": "task-contract.json",
+    "sha256": "42d1fda8fde968b11b1e962d953d2106db59d5abdd9320cd957b21037dd9562d"
+  },
+  "artifacts": [],
+  "checks": [
+    {
+      "id": "route-contract-schema",
+      "type": "machine",
+      "status": "passed",
+      "command": "Skill dependency inventory, targeted regression, backend typecheck, contract and registry validation",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "validation.json",
+          "sha256": "472bd4deb38515000e1d39f411545a8eb411d1e33115a1bd7db9ef14c722e3e1",
+          "kind": "test-report"
+        },
+        {
+          "file": "tests.json",
+          "sha256": "3bb19ef932154f33548712561c4a450d42808c13af2cb199b9c156e7e3e9957d",
+          "kind": "test-report"
+        }
+      ]
+    }
+  ]
+}

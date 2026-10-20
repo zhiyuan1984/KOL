@@ -1615,6 +1615,7 @@ export type DraftActionsResponse = { draft_id: string; action: DraftActionView; 
 
 export type PendingAsk = {
   text: string;
+  workbench_context?: Record<string, unknown>;
   model_tier?: string;
   intent?: string;
   collaboration_id?: string;
@@ -2510,19 +2511,6 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ confirm: true }),
     }),
-  completeTask: (task: { id: string; data_version?: number | null }, acceptanceEvidence: Record<string, unknown>) =>
-    request<{ ticket_id: string; action: string; status: string; version: number; replayed: boolean; ticket?: Ticket }>(
-      `/api/tickets/${encodeURIComponent(task.id)}/commands`,
-      {
-        method: "POST",
-        headers: { "Idempotency-Key": `ticket-complete-${randomUuid()}` },
-        body: JSON.stringify({
-          action: "complete",
-          expected_version: Math.max(1, Number(task.data_version || 1)),
-          acceptance_evidence: acceptanceEvidence,
-        }),
-      },
-    ),
   promoteTask: (id: string) =>
     request<Task>(`/api/tasks/${encodeURIComponent(id)}/promote`, {
       method: "POST",

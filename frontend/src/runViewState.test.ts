@@ -7,8 +7,8 @@ const task = (status: string): Task => ({ id: "tsk_1", status } as Task);
 describe("taskRunView", () => {
   it("distinguishes generated read results, acceptance and real approval waits", () => {
     const read = { ...task("waiting"), execution: { run_id: "run", status: "completed", result_ready: true } };
-    expect(taskRunView(read, "listening")).toMatchObject({ label: "结果已生成", live: false });
-    expect(taskRunView(task("waiting"), "listening").label).toBe("结果待验收");
+    expect(taskRunView(read, "listening")).toMatchObject({ label: "已完成", live: false });
+    expect(taskRunView(task("waiting"), "listening").label).toBe("等待继续");
     expect(taskRunView(read, "waiting_approval").label).toBe("待你确认");
     expect(taskRunView({ ...read, status: "running" }, "running").live).toBe(true);
     expect(taskRunView({ ...read, status: "completed" }, "listening").label).toBe("已完成");
@@ -41,9 +41,9 @@ describe("taskRunView", () => {
 describe("taskStatusView", () => {
   const read = { ...task("waiting"), execution: { run_id: "run", status: "completed", result_ready: true } };
 
-  it("says 待你标记完成 for a ready result and never reuses 待确认", () => {
+  it("shows automatic completion for a ready result and never reuses 待确认", () => {
     const ready = taskStatusView(read, "listening");
-    expect(ready.copy).toBe("结果已生成 · 待你标记完成");
+    expect(ready.copy).toBe("已完成 · 结果已生成");
     expect(ready.copy).not.toContain("待确认");
     expect(ready.tone).toBe("done");
     expect(ready.shape).toBe("check");
@@ -60,7 +60,7 @@ describe("taskStatusView", () => {
 
   it("does not claim a result before one exists, and keeps every state on two channels", () => {
     const waiting = taskStatusView(task("waiting"), "listening");
-    expect(waiting.copy).toBe("执行已结束 · 待你核对结果");
+    expect(waiting.copy).toBe("等待继续");
     expect(waiting.copy).not.toContain("结果已生成");
     for (const status of ["pending", "running", "stopped", "cancelled", "failed", "completed"]) {
       const view = taskStatusView(task(status), "listening");

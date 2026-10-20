@@ -13,6 +13,7 @@ import { canRetryRuntimeCrawl, runtimeActionProgress } from "./action-progress.j
 import { remoteCrawlStatusValue } from "../crawl/runtime-gates.js";
 import { runtimeCandidateViews } from "../crawl/candidate-actions.js";
 import { crawlQueuePosition, drainCrawlQueue } from "../crawl/runtime-gates.js";
+import { syncRuntimeTaskState } from "../tasks/runtime-task-state.js";
 
 function actor(): string {
   const user = scopedUser();
@@ -132,6 +133,7 @@ export const runtimeActionOperations: Operation[] = [
     const action = await runtimeAction(String(input.action_id || ""), actor());
     (await authorizeConnector(action.context_json, action.connector_id));
     await postgresConnection().query("UPDATE runtime_actions SET state='cancelled',updated_at=now() WHERE id=$1 AND state='pending'", [action.id]);
+    await syncRuntimeTaskState(action.context_json.runId);
     return c.json(await view(await runtimeAction(action.id, actor())));
   } },
 ];

@@ -8,6 +8,7 @@ import { streamingNarrative } from "../../../shared/narrative.js";
 import {
   applyProgress,
   finishProcessItems,
+  finishOperationItems,
   mcpCallDisplay,
   upsertOperationItem,
   type WorkerProgress,
@@ -145,7 +146,7 @@ export function createRunTraceSink(input: { workItemId: string; runId: string | 
     if (finishing) return finishing;
     closed = true;
     items = finishProcessItems(items, failed);
-    operations = operations.map(operation => ({ ...operation, status: failed ? "failed" : "done" }));
+    operations = finishOperationItems(operations);
     narrativeStatus = failed ? "failed" : "done";
     scheduleTrace(true);
     finishing = queue.then(() => { if (persistenceFailure !== undefined) throw persistenceFailure; });

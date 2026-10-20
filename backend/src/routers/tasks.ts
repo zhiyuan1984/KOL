@@ -1656,7 +1656,6 @@ tasks.post("/tasks/:id/complete", async (c) => {
   (await ownedWorkItem(c.req.param("id")));
   throw new HttpFail(410, {
     code: "legacy_write_endpoint_retired",
-    message: "旧任务完成端点已停用；请使用带验收证据、版本和幂等键的 /api/tickets/:id/commands。",
-    migrate_to: "/api/tickets/:id/commands",
+    message: "任务完成由必要成果和真实业务回执自动判定，不接受人工标记。",
   });
 });

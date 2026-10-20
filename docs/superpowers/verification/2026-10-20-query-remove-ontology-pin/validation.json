@@ -1,0 +1,26 @@
+{
+  "status": "passed",
+  "tests": {
+    "passed": 11,
+    "failed": 0
+  },
+  "checks": [
+    {
+      "command": "npx vitest run --config vitest.task-intake.config.ts --reporter=json --outputFile=.tmp/query-dependency-tests.json",
+      "exit_code": 0
+    },
+    {
+      "command": "npm run typecheck",
+      "exit_code": 0
+    },
+    {
+      "command": "npm run validate:contracts",
+      "exit_code": 0
+    },
+    {
+      "command": "npm run validate:registry",
+      "exit_code": 0
+    }
+  ],
+  "scope": "Shipped skill parsed through actual registry and runtime ontology dependency gate with no ontology database release; existing selected skill/HTTP routing regression. Does not claim real remote query execution or deployment."
+}
