@@ -16912,3 +16912,32 @@ button.task-operation-status.is-active { background: var(--btn-text-hover-bg); b
   --mail-gmail-label-violet-bg: #f3e8fd;
   --mail-gmail-label-violet-ink: #6d3cc2;
 }
+
+/* 构建号角标（右下角）：只用来核对线上跑的是哪一版，不参与信息层级、不进无障碍树。 */
+.build-badge {
+  position: fixed;
+  right: 6px;
+  bottom: 4px;
+  z-index: 5;
+  padding: 1px 4px;
+  border-radius: var(--radius-control);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  color: var(--text-quiet);
+  opacity: 0.5;
+  user-select: none;
+  cursor: default;
+  transition: opacity var(--duration-control, 120ms) ease;
+}
+
+.build-badge:hover {
+  opacity: 0.9;
+}
+
+@media print {
+  .build-badge {
+    display: none;
+  }
+}
