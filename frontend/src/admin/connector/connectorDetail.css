@@ -338,9 +338,8 @@
   overflow-wrap: anywhere;
 }
 .connector-detail .connector-config-footer {
-  position: sticky;
-  z-index: 1;
-  bottom: 0;
+  /* 常规流：sticky 会把「保存配置」浮在最后一行字段上，看起来像盖住了内容。 */
+  position: static;
   display: flex;
   flex-wrap: wrap;
   align-items: center;

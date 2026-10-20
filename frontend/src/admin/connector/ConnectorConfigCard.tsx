@@ -261,7 +261,6 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
             <h3>接入配置</h3>
             <p className="muted">端点与请求头只以服务端引用保存；浏览器不回显任何密钥原值。</p>
           </div>
-          <span className="muted">短名 · <code>{card.id}</code></span>
         </div>
       )}
       {loading && <p className="muted" role="status">正在读取配置…</p>}

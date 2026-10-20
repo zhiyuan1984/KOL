@@ -156,7 +156,8 @@ describe("ConnectorToolsReadOnlyList detail mode", () => {
     await flush();
     expect(host.querySelector('[data-connector-tool="list_profiles"]')).toBeNull();
     expect(host.querySelector('[data-connector-tool="send_email"]')).not.toBeNull();
-    expect(host.textContent).toContain("平台风险 L3");
+    // 行内标签收敛为 L3，完整说法在 title 里。
+    expect(host.textContent).toContain("L3");
   });
 
   it("clears local filter conditions without requesting a new discovery", async () => {

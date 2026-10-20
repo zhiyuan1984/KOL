@@ -300,13 +300,13 @@ export function ConnectorToolsReadOnlyList({
                   <p className="muted connector-tool-description" title={tool.description || "无远端描述"}>{tool.description || "无远端描述"}</p>
                 </div>
                 <div className="connector-tool-compact-meta" aria-label="平台工具信息">
-                  <span className="connector-tool-category">分类：{category}</span>
+                  <span className="connector-tool-category">{category}</span>
                   {policy
-                    ? <span className={"runtime-risk risk-" + policy.risk.toLowerCase()}>平台风险 {policy.risk}</span>
-                    : <span className={detailMode ? "connector-tool-platform-state muted" : "chip"}>平台风险未记录</span>}
+                    ? <span className={"runtime-risk risk-" + policy.risk.toLowerCase()} title={`平台风险 ${policy.risk}`}>{policy.risk}</span>
+                    : <span className={detailMode ? "connector-tool-platform-state muted" : "chip"} title="平台风险档未记录">风险档未记录</span>}
                   {policy?.enabled
-                    ? <span className={detailMode ? "connector-tool-platform-state status-ok" : "chip chip-ok"}>平台已启用</span>
-                    : <span className={detailMode ? "connector-tool-platform-state status-warn" : "chip chip-warn"}>平台未启用 · 调用默认拒绝</span>}
+                    ? <span className={detailMode ? "connector-tool-platform-state status-ok" : "chip chip-ok"} title="平台已启用">已启用</span>
+                    : <span className={detailMode ? "connector-tool-platform-state status-warn" : "chip chip-warn"} title="平台未启用，调用默认拒绝">未启用 · 调用默认拒绝</span>}
                 </div>
                 {detailMode ? (
                   <button
