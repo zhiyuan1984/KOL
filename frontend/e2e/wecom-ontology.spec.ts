@@ -48,6 +48,7 @@ async function fixture(page: Page, options: { admin?: boolean; source401?: boole
     }
     if (path === '/api/ontology/workspace/wecom/status') {
       expect(route.request().headers()['x-ontology-company']).toBe('company:test');
+      expect(url.searchParams.get('companyId')).toBe('company:test');
       if (options.source401) { await route.fulfill({ status: 401, json: { detail: { code: 'wecom_company_admin_required', message: '仅公司管理员可管理企微本体来源' } } }); return; }
       await route.fulfill({ json: status }); return;
     }
@@ -56,7 +57,11 @@ async function fixture(page: Page, options: { admin?: boolean; source401?: boole
       commits += 1; commitBody = route.request().postDataJSON();
       await route.fulfill({ json: { receiptId: 'receipt-1', snapshotId: 'snapshot-1', companyId: 'company:test', source: 'wecom', sourceVersion, contentHash: preview.contentHash, rowCounts: preview.counts, reason: commitBody.reason, createdAt: '2026-10-20T06:30:00.000Z' } }); return;
     }
-    if (path === '/api/ontology/workspace/wecom/snapshot') { await route.fulfill({ json: snapshot }); return; }
+    if (path === '/api/ontology/workspace/wecom/snapshot') {
+      expect(url.searchParams.get('companyId')).toBe('company:test');
+      expect(route.request().headers()['x-ontology-company']).toBe('company:test');
+      await route.fulfill({ json: snapshot }); return;
+    }
     if (path === '/api/auth/status' || path === '/api/me') { await route.fulfill({ json: { authenticated: true, account } }); return; }
     if (path === '/api/me/preferences') { await route.fulfill({ json: {} }); return; }
     if (path === '/api/sessions' || path === '/api/tasks') { await route.fulfill({ json: [] }); return; }
@@ -90,9 +95,9 @@ test('admin previews and explicitly imports a versioned WeCom source snapshot wi
   expect(state.commitBody()).toMatchObject({ companyId: 'company:test', confirmed: true, previewToken: 'preview-1', contentHash: preview.contentHash, reason: '核对组织和人员来源快照' });
   await expect(drawer.getByText('王工', { exact: true })).toBeVisible();
   await expect(drawer.getByText(/直属上级/)).toBeVisible();
+  await page.screenshot({ path: 'test-results/wecom-ontology/admin-source-panel.png', fullPage: true, animations: 'disabled' });
   await drawer.locator('.wecom-source-footer').getByRole('button', { name: '关闭', exact: true }).click();
   expect(page.url()).toBe(originalUrl);
-  await page.screenshot({ path: 'test-results/wecom-ontology/admin-source-panel.png', fullPage: true });
 });
 
 test('employee has no WeCom source entry, and a 401 source response never offers a preview', async ({ page }) => {

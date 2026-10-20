@@ -69,8 +69,8 @@ async function request<T>(url: string, companyId: string, body?: unknown, signal
   return data as T;
 }
 
-function snapshotUrl(input: { snapshotId?: string; kind?: WecomSourceRecordKind | null; cursor?: string | null; pageSize?: number }) {
-  const query = new URLSearchParams();
+function snapshotUrl(companyId: string, input: { snapshotId?: string; kind?: WecomSourceRecordKind | null; cursor?: string | null; pageSize?: number }) {
+  const query = new URLSearchParams({ companyId });
   if (input.snapshotId) query.set('snapshotId', input.snapshotId);
   if (input.kind) query.set('kind', input.kind);
   if (input.cursor) query.set('cursor', input.cursor);
@@ -85,9 +85,9 @@ function receiptUrl(companyId: string, commandId: string) {
 }
 
 export const wecomOntologyApi = {
-  status: (companyId: string, signal?: AbortSignal) => request<WecomStatusResponse>(wecomOntologyUrls.status, companyId, undefined, signal),
+  status: (companyId: string, signal?: AbortSignal) => request<WecomStatusResponse>(`${wecomOntologyUrls.status}?${new URLSearchParams({ companyId })}`, companyId, undefined, signal),
   preview: (input: WecomPreviewRequest, signal?: AbortSignal) => request<WecomPreviewResponse>(wecomOntologyUrls.preview, input.companyId, input, signal),
   commit: (input: WecomCommitRequest, signal?: AbortSignal) => request<WecomCommitReceipt>(wecomOntologyUrls.commit, input.companyId, input, signal),
   receipt: (companyId: string, commandId: string, signal?: AbortSignal) => request<WecomReceiptLookupResponse>(receiptUrl(companyId, commandId), companyId, undefined, signal),
-  snapshot: (companyId: string, input: { snapshotId?: string; kind?: WecomSourceRecordKind | null; cursor?: string | null; pageSize?: number } = {}, signal?: AbortSignal) => request<WecomSnapshotPage | null>(snapshotUrl(input), companyId, undefined, signal),
+  snapshot: (companyId: string, input: { snapshotId?: string; kind?: WecomSourceRecordKind | null; cursor?: string | null; pageSize?: number } = {}, signal?: AbortSignal) => request<WecomSnapshotPage | null>(snapshotUrl(companyId, input), companyId, undefined, signal),
 };
