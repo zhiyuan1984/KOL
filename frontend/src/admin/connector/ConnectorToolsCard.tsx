@@ -27,6 +27,8 @@ export type ConnectorToolsReadOnlyListProps = {
   compact?: boolean;
   /** Enables detail-page browsing filters and the read-only schema Drawer. */
   detailMode?: boolean;
+  /** Raw Schema is platform-internal detail; the hub drawer turns it off. */
+  showSchema?: boolean;
   /** Receives a successful live-discovery count, suitable for the parent tab label. */
   onToolCountChange?: (count: number) => void;
   /** Reports the actual network discovery state so an owning trigger can disable itself. */
@@ -66,6 +68,7 @@ export function ConnectorToolsReadOnlyList({
   filterable = false,
   compact = false,
   detailMode = false,
+  showSchema = true,
   onToolCountChange,
   onDiscoveringChange,
 }: ConnectorToolsReadOnlyListProps) {
@@ -225,14 +228,21 @@ export function ConnectorToolsReadOnlyList({
           </div>
         </div>
       ) : filterable ? (
-        <WorkspaceSearchInput
-          className="connector-search connector-drawer-search connector-search-input"
-          data-connector-drawer-search
-          placeholder="搜索工具"
-          aria-label="搜索工具"
-          value={q}
-          onChange={(event) => setQ(event.target.value)}
-        />
+        <div className="connector-drawer-toolbar">
+          <WorkspaceSearchInput
+            className="connector-search connector-drawer-search connector-search-input"
+            data-connector-drawer-search
+            placeholder="搜索工具"
+            aria-label="搜索工具"
+            value={q}
+            onChange={(event) => setQ(event.target.value)}
+          />
+          {!detailMode && discovered && !discovering && !discoveryError && tools.length > 0 && (
+            <p className="muted connector-drawer-count" data-connector-tools-count role="status" aria-live="polite" aria-atomic="true">
+              {hasActiveFilters ? `${visible.length} / ${tools.length} 项` : `共 ${tools.length} 项`}
+            </p>
+          )}
+        </div>
       ) : null}
 
       {detailMode && discovered && (
@@ -279,7 +289,7 @@ export function ConnectorToolsReadOnlyList({
       )}
 
       {!policiesLoading && !policiesError && tools.length > 0 && (
-        <div className="connector-tools-list" data-connector-tools-list>
+        <div className={compact ? "connector-tools-list" : "connector-tools-list connector-tools-list-dense"} data-connector-tools-list>
           {visible.map((tool) => {
             const policy = policyByTool.get(policyKey(connectorId, tool.name));
             const category = displayCategory(tool);
@@ -317,26 +327,31 @@ export function ConnectorToolsReadOnlyList({
                 )}
               </article>
             ) : (
-              <article className="connector-tool" key={`${tool.name}:${tool.schema_hash}:${policy?.version ?? 0}`} data-connector-tool={tool.name}>
-                <div className="connector-tool-main">
-                  <div className="connector-tool-name">
-                    <strong>{tool.name}</strong>
-                    {policy
-                      ? <span className={"runtime-risk risk-" + policy.risk.toLowerCase()}>{policy.risk}</span>
-                      : <span className="chip">风险档未记录</span>}
+              <details className="connector-tool connector-tool-row" key={`${tool.name}:${tool.schema_hash}:${policy?.version ?? 0}`} data-connector-tool={tool.name}>
+                <summary className="connector-tool-row-line" title="展开或收起描述">
+                  <svg className="connector-tool-caret" viewBox="0 0 16 16" aria-hidden><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  <span className="connector-tool-line">
+                    <span className="connector-tool-id">{tool.name}</span>
+                    <span className="connector-tool-desc">{tool.description || "无远端描述"}</span>
+                  </span>
+                  <span
+                    className={`connector-tool-status ${policy?.enabled ? "is-ok" : "is-warn"}`}
+                    title={policy?.enabled ? "平台已启用" : "平台未启用，调用默认拒绝"}
+                  >
                     {policy?.enabled
-                      ? <span className="chip chip-ok">平台已启用</span>
-                      : <span className="chip chip-warn">未启用 · 调用默认拒绝</span>}
-                  </div>
-                  <p className="muted">{tool.description || "无远端描述"}</p>
-                </div>
-                <details className="connector-tool-detail runtime-schema">
-                  <summary>展开 Schema（只读）</summary>
-                  <code className="runtime-hash">{tool.schema_hash || "未提供来源指纹"}</code>
-                  <pre>{schemaText(tool.inputSchema || {})}</pre>
-                  <p className="muted">风险档由平台在测试时按 07 规则自动推导登记；是否可用由平台校验与技能挂载决定，本页不提供授权或范围操作。</p>
-                </details>
-              </article>
+                      ? <svg viewBox="0 0 16 16" aria-hidden><path d="M3.2 8.4l3.1 3.1 6.5-6.6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                      : <svg viewBox="0 0 16 16" aria-hidden><circle cx="8" cy="8" r="5.8" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M4.4 11.6l7.2-7.2" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>}
+                    <span className="sr-only">{policy?.enabled ? "平台已启用" : "平台未启用"}</span>
+                  </span>
+                </summary>
+                {showSchema && (
+                  <details className="connector-tool-detail runtime-schema">
+                    <summary>展开 Schema（只读）</summary>
+                    <code className="runtime-hash">{tool.schema_hash || "未提供来源指纹"}</code>
+                    <pre>{schemaText(tool.inputSchema || {})}</pre>
+                  </details>
+                )}
+              </details>
             );
           })}
         </div>
