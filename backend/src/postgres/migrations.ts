@@ -16,6 +16,7 @@ import { crawlResultSchema } from "../crawl/result-schema.js";
 import { candidateActionsSchema } from "../crawl/candidate-actions-schema.js";
 import { candidateAssessmentSchema } from "../crawl/assessment-schema.js";
 import { runtimeActionEventSchema } from "../runtime/action-event-schema.js";
+import { wecomOntologySourceSchema } from "../ontology/wecom-source-schema.js";
 
 
 /**
@@ -57,6 +58,7 @@ type SchemaMigration = {
 const migrations: SchemaMigration[] = [
   { id: "20261018_ontology_enterprise_catalog_v1", statements: [enterpriseSchema] },
   { id: "20261018_ontology_workspace_v1", statements: [ontologySchema] },
+  { id: "20261020_wecom_ontology_source_v1", statements: [wecomOntologySourceSchema] },
   { id: "20261016_performance_v1", statements: [performanceSchema] },
   { id: "20261016_performance_approval_v2", statements: [performanceApprovalSchema] },
   { id: "20261015_mail_send_reply_stale", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "047_mail_send_reply_stale.sql"), "utf8")] },

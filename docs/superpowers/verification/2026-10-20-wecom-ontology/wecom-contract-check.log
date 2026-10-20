@@ -1,0 +1,12 @@
+{
+  "status": "valid",
+  "errors": [],
+  "warnings": [],
+  "agent": "agent:kol",
+  "expert": "expert:kol",
+  "expertCount": 3,
+  "policyCount": 4,
+  "workflowCount": 3,
+  "schemaCount": 4,
+  "uxTraceCount": 2
+}

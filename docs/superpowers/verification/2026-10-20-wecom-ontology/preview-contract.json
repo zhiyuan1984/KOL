@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "kind": "preview-contract",
+  "status": "complete",
+  "owner": "Manus 执行代理（工程及浏览器复核）",
+  "requirement_refs": [
+    "CONST-08",
+    "CONST-10",
+    "TECH-ARCH-04",
+    "TECH-TEST-01",
+    "CONST-04",
+    "TECH-FE-01",
+    "TECH-FE-03",
+    "TECH-TEST-02",
+    "TECH-FE-02",
+    "TECH-BE-01"
+  ],
+  "subject": {
+    "task_id": "wecom-ontology-20261020",
+    "source_revision": "f224c61da50963cb5fd68ee540e70482aaf9394b"
+  },
+  "decisions": {
+    "media_type": "application/json versioned source snapshot",
+    "identity": [
+      "companyId",
+      "sourceVersion",
+      "departmentBatchId",
+      "userBatchId",
+      "contentHash",
+      "previewToken",
+      "expiresAt"
+    ],
+    "modes": [
+      {
+        "id": "candidate",
+        "label": "候选预览，尚未导入",
+        "source": "企业微信成功批次的完整可见分页数据"
+      },
+      {
+        "id": "snapshot",
+        "label": "已导入来源快照",
+        "source": "独立不可变本体来源表"
+      }
+    ],
+    "fidelity": "逐字段保留来源标识、属性与关系，不进行文档转换；来源Unix秒正确显示，不用导入时间冒充",
+    "fallbacks": [
+      "来源不可用如实提示",
+      "已有快照按当前权限读取",
+      "结果未知先查原命令回执"
+    ],
+    "not_applicable": "未涉及PDF/PPTX等原件转换，不宣称文档转换保真已验收"
+  },
+  "verification": {
+    "state": "evidence-recorded",
+    "scope": "不以隔离夹具冒充线上服务，不以代理复核冒充人类专家",
+    "evidence": [
+      {
+        "file": "wecom-backend-results.json",
+        "sha256": "dac66388c03947b7c9475aa1afd899e01e78e542b591b823a9eddf413a4c25a3",
+        "kind": "test-report"
+      },
+      {
+        "file": "wecom-frontend-results.json",
+        "sha256": "2084a3013af61e8963b688425ae60876151d3b60cfa26abb6130e3ea7cf6d59d",
+        "kind": "test-report"
+      },
+      {
+        "file": "wecom-browser-source-review.json",
+        "sha256": "1cf58dcc6dcd7df9279a2562cf2f9d02a7f6ef3bdb2d4757783a31b153e77794",
+        "kind": "browser-record"
+      }
+    ]
+  },
+  "task_id": "wecom-ontology-20261020",
+  "summary": "企业微信组织人员本体定义与独立来源快照接入，明确预览确认且不修改账号权限",
+  "status_claims": []
+}

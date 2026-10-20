@@ -1,0 +1,21 @@
+{
+  "status": "evidence-recorded",
+  "reviewer": "Manus 执行代理（非独立人类UX专家）",
+  "reviewedAt": "2026-10-20T15:18:36.854884+00:00",
+  "screenshots": [
+    "frontend/test-results/wecom-ontology/admin-source-panel.png",
+    "frontend/test-results/wecom-ontology/narrow-source-panel.png"
+  ],
+  "sourceComparison": [
+    "固定夹具部门ID、姓名、职位、主部门及直接上级来源与canonical org_unit/user/membership的DOM投影断言一致",
+    "企业微信部门ID保持数字；原始成员部门对象不丢sortOrder/isLeader/syncedAt",
+    "原有930对象、18/153/354三级目录保持不变",
+    "来自Unix秒1792481924的日期不误显示为1970",
+    "默认收起工程映射，候选数量出现在确认前"
+  ],
+  "limits": [
+    "截图覆盖元数据、候选计数、历史来源说明与回执；完整实例属性保真依靠DOM断言和组件/PG测试，不宣称每一条实例经过人工审阅",
+    "尚未验证线上来源导入；发布后读取真实接口，保存快照前需要明确确认",
+    "没有PDF/PPTX转换，也没有独立人类UX审阅"
+  ]
+}

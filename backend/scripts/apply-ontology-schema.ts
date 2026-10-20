@@ -1,10 +1,14 @@
-import { ontologySchema } from '../src/ontology/schema.js';
-import { closePostgresPool, postgresTransaction } from '../src/postgres/pool.js';
-// Narrow installation path for this feature; no unrelated migrations or seed data.
+import { applyPostgresMigrations } from '../src/postgres/migrations.js';
+import { closePostgresPool, postgresPool } from '../src/postgres/pool.js';
+// Narrow, ledger-backed installation path.  The workspace schema precedes the
+// independent WeCom source snapshot tables; this command never seeds instances
+// or widens a runtime Agent/connector grant.
 try {
-  await postgresTransaction(async client=>{
-    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['ontology-schema-v1']);
-    await client.query(ontologySchema);
-  });
-  console.log('Ontology PostgreSQL schema is ready. No business instances were modified.');
+  const client = await postgresPool().connect();
+  try {
+    for (const id of ['20261018_ontology_workspace_v1', '20261020_wecom_ontology_source_v1']) {
+      await applyPostgresMigrations(client, { only: id });
+    }
+  } finally { client.release(); }
+  console.log('Ontology and WeCom source PostgreSQL schemas are ready from the formal ledger. No business instances or runtime grants were modified.');
 } finally { await closePostgresPool(); }
