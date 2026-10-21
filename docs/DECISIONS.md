@@ -2,6 +2,23 @@
 
 本文件只记录「为什么」，不替代现行宪法、基本法或实施细则。现行规则以 `docs/` 下对应正文为准。
 
+## ADR-2026-10-21：连接器启用与使用解耦；人员权限仍只由 Agent 绑定决定
+
+- **状态**：已接受（用户 2026-10-21 明确「按你的建议执行」；仅解耦启用与使用，人员权限仍只在 Agent）。
+- **决定者**：用户（产品发起人）；平台产品经理（连接器治理与启用语义）、权限域/架构师（Agent 锚点与运行时校验）、后端专家、UI/UX 专家、前端专家、测试经理。
+- **背景**：线上 `codeup/main` 的 `PATCH /admin/connectors/:id {enabled:true}` 仍要求 `status=verified` **且**至少一个技能已把该连接器的工具挂到可用状态（`connector_skill_binding_required`）。这条门禁来自 ADR-2026-09-27「技能是人员授权单位」；ADR-2026-10-03 已把人员授权锚点改为 Agent，但保留了门禁。结果是：`mem0-mcp` 测试通过、8 个工具、0 个已上线技能声明、0/0 挂载时，自动挂载按钮禁用，启用连接器按钮可点但必然 409；而 `README.md` 原本写的是「测试 → 启用 → 挂载」。当连接器是平台级/Agent 级资源、尚无技能认领时，页面成为死局。
+- **决定**：
+  1. **启用只看验证**：连接器启用要求 `status=verified`、已保存配置、最近一次 probe 成功且 `config_version` 等于当前配置版本；删除 `connector_skill_binding_required` 与技能挂载前置。
+  2. **挂载是能力依赖，不是人员授权**：技能→连接器/工具绑定继续作为运行时依赖；调用仍按 `人 → Agent → 技能 → 连接器 → 工具` 四层校验，并保留工具策略、schema hash、L1/L2/L3、确认、审批与回执。启用一个暂无消费者的连接器不会向任何人暴露工具。
+  3. **使用情况只读**：已上线/已定义技能声明数、已挂载工具数只用于呈现与审计，不阻止启用；不再用「无孤儿连接器」作为硬门禁。若产品仍要治理孤儿连接器，用使用报告/警告/删除前确认，而不是启用前置。
+  4. **probe 与启用分离**：`verified + enabled=0` 的连接器可以重新 probe；MCP 目录 probe 仍只读，不启动业务动作，也不改变启用状态。
+  5. **文案归位**：页面不再把「技能挂载」写成「启用条件/权限」；人员资格只由 Agent 绑定决定，调用还要求该 Agent 装配的技能已挂载此工具。
+- **取代关系**：取代 ADR-2026-09-27 的「启用门禁（verified + 技能已绑定工具）」；取代 ADR-2026-10-03 中「启用门禁继续有效」这半句。ADR-2026-09-29「按技能声明批量挂载」继续有效，但改为可选的使用/挂载动作，不再承担启用前置。历史文本保留供追溯。
+- **保留**：测试即登记、工具风险目录、schema hash、L1/L2/L3、运行时四层校验、审计、`connector_verification_required`（未验证/配置版本变化仍拒绝启用）。
+- **影响资产**：`backend/src/routers/enterprise.ts`、`backend/src/routers/connector-operations.ts`、`backend/src/runtime/skill-coverage.ts`、`backend/tests/connector-enable-gate.test.ts`、`backend/tests/skill-declared-mount.test.ts`、`backend/tests/connector-operations.test.ts`、`frontend/src/admin/connector/ConnectorSetupWizard.tsx`、`ConnectorDetail.tsx`、`connectorSetup.ts`、`frontend/e2e/connector-admin.spec.ts`、`docs/skill-runtime-operations.md`、`docs/org-permissions.md`、`docs/ia-information-architecture.md`、`docs/db-data-dictionary.md`、`README.md`、`docs/superpowers/specs/2026-09-27-connector-setup-wizard-design.md`、`docs/superpowers/plans/2026-09-27-connector-setup-wizard*.md`。
+- **审宪记录**：需求「线上 mem0-mcp 测试通过但无技能声明，无法启用；按权限只在 Agent 层修正」→ 主责 平台产品经理 + 权限域/架构师 + 后端专家 + UI/UX 专家 + 前端专家 + 测试经理 → 宪法 CONST-02（平台/业务分离）、CONST-03（确定规则由程序执行）、CONST-04（前端不重写权限）、CONST-05（人员资格只在 Agent；确认/审批不放松）、CONST-08（先审宪）、CONST-09（不偷改法）、CONST-10（不伪造完成）→ 基本法 `PRODUCT.md` PROD-PLAT-04/05、`TECHNOLOGY.md` TECH-BE-07、`docs/org-permissions.md` 连接器治理与 Agent 数据范围、`docs/07-mcp-data-contract.md` 工具风险/真实调用、`docs/ia-information-architecture.md` 使用≠治理 → **规则冲突，不是单纯实现 bug**：代码符合旧门禁，但旧门禁的授权理由已被 ADR-2026-10-03 取代；README、org-permissions、设计稿、ops 文档对启用条件各说各话。按 CONST-08 先由产品/权限负责人裁定本 ADR，再改代码；不静默删除运行时闸门 → 下一步：按本 ADR 实施后端/前端/测试/文档，并补真实浏览器走查。
+- **限制**：本次不强制「技能页只能挂载 SKILL.md 已声明工具」（声明 vs 绑定双真相仍存在）；本次先把技能风险画像改为「声明 ∪ 已挂载」，避免未声明 L3 工具被低估。声明=绑定的硬收敛另立计划，先审计存量未声明绑定。
+
 ## ADR-2026-10-15（二）：通讯紧凑工作台——正文补全、标签跟人走、AI 候选确认
 
 - **状态**：已接受（用户批准本轮目标与计划，并选定 D1=A：标签跟人走，peer_email 级）。
@@ -516,6 +533,8 @@
 
 
 ## ADR-2026-09-29：按技能声明批量挂载连接器工具，并由服务端状态恢复向导入口步
+
+> **2026-10-21 取代注记**：本 ADR 的「启用步承载挂载动作、启用被拒时补救」保留为历史；启用门禁本身已由 ADR-2026-10-21 解耦。`mount-declared` 继续作为可选的使用/挂载动作，不再承担启用前置。
 
 - **状态**：已接受。
 - **决定者**：用户（产品发起人）；平台产品经理负责治理动作与呈现口径；后端专家负责扫描读模型与批量写入；UI/UX 专家负责向导与技能页。

@@ -23,7 +23,36 @@ export function declaredToolRisk(toolName: string, policyRisk?: string): "L1" | 
   return /send|decrypt|delete|upload|import|changeLifecycleStage/i.test(toolName) ? "L3" : "L1";
 }
 
-export async function skillToolProfile(skillId:string,mcp:readonly string[],capabilities?:readonly CapabilityReference[]):Promise<{connectors:string[];connectors_mounted:boolean;risk:"L1"|"L2"|"L3"|null}>{await ensureRuntimeSchema();const declared=parseDeclaredMcp(mcp).filter((tool)=>tool.declared_as!==DOCUMENT_TOOL);const mounted=[...new Set((await listSkillConnectorBindings()).filter((row)=>String(row.skill_id)===skillId&&Number(row.enabled)===1).map((row)=>String(row.connector_id)))];const declaredConnectors=[...new Set(declared.map((tool)=>tool.connector_id).filter(Boolean))];const policies=new Map((await rows("SELECT connector_id,tool_name,risk FROM runtime_tool_policies")).map((row)=>[keyOf(String(row.connector_id),String(row.tool_name)),String(row.risk)]));let risk:"L1"|"L2"|"L3"|null=mcp.includes(DOCUMENT_TOOL)?"L1":null;for(const tool of declared){const level:"L1"|"L2"|"L3"=declaredToolRisk(tool.tool_name, policies.get(keyOf(tool.connector_id,tool.tool_name)));if(!risk||RISK_ORDER[level]>RISK_ORDER[risk])risk=level;}const floor=capabilityRiskFloor(capabilities??(await taskDefinition(skillId))?.capabilities??[],await publishedOperationCatalog());if(floor&&(!risk||RISK_ORDER[floor]>RISK_ORDER[risk]))risk=floor;return{connectors:mounted.length?mounted:declaredConnectors,connectors_mounted:mounted.length>0,risk};}
+export async function skillToolProfile(
+  skillId: string,
+  mcp: readonly string[],
+  capabilities?: readonly CapabilityReference[],
+): Promise<{ connectors: string[]; connectors_mounted: boolean; risk: "L1" | "L2" | "L3" | null }> {
+  await ensureRuntimeSchema();
+  const declared = parseDeclaredMcp(mcp).filter((tool) => tool.declared_as !== DOCUMENT_TOOL);
+  const mounted = [...new Set((await listSkillConnectorBindings())
+    .filter((row) => String(row.skill_id) === skillId && Number(row.enabled) === 1)
+    .map((row) => String(row.connector_id)))];
+  const mountedTools = (await listSkillToolBindings())
+    .filter((row) => String(row.skill_id) === skillId && Number(row.enabled) === 1);
+  const declaredConnectors = [...new Set(declared.map((tool) => tool.connector_id).filter(Boolean))];
+  const policies = new Map((await rows("SELECT connector_id,tool_name,risk FROM runtime_tool_policies"))
+    .map((row) => [keyOf(String(row.connector_id), String(row.tool_name)), String(row.risk)]));
+  let risk: "L1" | "L2" | "L3" | null = mcp.includes(DOCUMENT_TOOL) ? "L1" : null;
+  const includeRisk = (connectorId: string, toolName: string) => {
+    const level = declaredToolRisk(toolName, policies.get(keyOf(connectorId, toolName)));
+    if (!risk || RISK_ORDER[level] > RISK_ORDER[risk]) risk = level;
+  };
+  for (const tool of declared) includeRisk(tool.connector_id, tool.tool_name);
+  // A mount can outlive a SKILL.md edit; include it so the profile cannot understate risk.
+  for (const tool of mountedTools) includeRisk(String(tool.connector_id), String(tool.tool_name));
+  const floor = capabilityRiskFloor(
+    capabilities ?? (await taskDefinition(skillId))?.capabilities ?? [],
+    await publishedOperationCatalog(),
+  );
+  if (floor && (!risk || RISK_ORDER[floor] > RISK_ORDER[risk])) risk = floor;
+  return { connectors: mounted.length ? mounted : declaredConnectors, connectors_mounted: mounted.length > 0, risk };
+}
 
 export type CoverageTool={connector_id:string;connector_label?:string;tool_name:string;declared_as:string;state:ToolMountState;policy_risk?:"L1"|"L2"|"L3";policy_enabled?:boolean;connector_enabled?:boolean;connector_status?:string};
 function isPolicyEnabled(value:number|boolean|undefined):boolean{return value===true||Number(value)===1;}

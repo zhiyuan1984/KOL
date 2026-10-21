@@ -100,7 +100,7 @@ afterEach(async () => {
   else process.env.MEDIACRAWLER_MCP_URL = originalMediaCrawlerUrl;
 });
 
-describe("connector enable gate follows Skill bindings only", () => {
+describe("connector enable gate follows verification, not Skill mounts", () => {
   it("requires a boolean enabled flag so numeric 0 cannot silently change connector state", async () => {
     const created = await call("POST", "/api/admin/connectors", { id: "gate_boolean", label: "Gate Boolean", purpose: "启用门禁用例" });
     expect(created.status).toBe(201);
@@ -108,7 +108,8 @@ describe("connector enable gate follows Skill bindings only", () => {
     expect(invalid.status).toBe(400);
     expect(invalid.body).toMatchObject({ detail: { code: "connector_enabled_must_be_boolean" } });
   });
-  it("requires a version-matched directory probe and Skill mount for MediaCrawler", async () => {
+
+  it("requires a version-matched directory probe; Skill mounts are not an enable gate", async () => {
     const id = "gate_hostcrawler";
     await verifiedConnector(id);
     process.env.MEDIACRAWLER_MCP_URL = "https://crawler.example/mcp";
@@ -120,63 +121,37 @@ describe("connector enable gate follows Skill bindings only", () => {
     await setEnabled(id, 409, "connector_verification_required");
     expect((await call("GET", `/api/admin/runtime/connectors/${id}/activity`)).status).toBe(200);
     (await getConn().query("INSERT INTO runtime_connector_probes\n      (connector_id,config_version,actor_id,checked_at,status,probe_kind,tool_count,duration_ms,error_code)\n      VALUES($1,2,'admin','now','succeeded','mcp_tools_list',1,100,NULL)",[id]));
-    await setEnabled(id, 409, "connector_skill_binding_required");
-    await bindTool(id);
-    await setEnabled(id, 200);
+    const enabled = await setEnabled(id, 200);
+    expect(enabled.body).toMatchObject({ id, enabled: true });
     (await setConnectorConfig(id, { url: process.env.MEDIACRAWLER_MCP_URL, allow_unauthenticated: true }, 2));
     await setEnabled(id, 409, "connector_verification_required");
   });
 
-  it("requires verification plus enabled Skill→Connector and Skill→Tool bindings", async () => {
-    const draft = await call("POST", "/api/admin/connectors", { id: "gate_draft", label: "Gate Draft", purpose: "启用门禁用例" });
-    expect(draft.status, JSON.stringify(draft.body)).toBe(201);
-    await setEnabled("gate_draft", 409, "connector_verification_required");
-
+  it("enables a verified connector with no Skill or tool bindings", async () => {
     await verifiedConnector("gate_mcp");
-    await setEnabled("gate_mcp", 409, "connector_skill_binding_required");
-
-    // A Skill→Connector binding alone mounts nothing: one tool must be bound too.
-    const linked = await call("PUT", `/api/admin/runtime/skills/${SKILL}/connectors/gate_mcp`, { enabled: true, expected_version: 0 });
-    expect(linked.status).toBe(200);
-    await setEnabled("gate_mcp", 409, "connector_skill_binding_required");
-
-    const policy = await call("PUT", "/api/admin/runtime/connectors/gate_mcp/tools/list_records", {
-      enabled: true, risk: "L1", access: "read", schema_hash: "a".repeat(64), expected_version: 0,
-    });
-    expect(policy.status).toBe(200);
-    await setEnabled("gate_mcp", 409, "connector_skill_binding_required");
-
-    const mount = await call("PUT", `/api/admin/runtime/skills/${SKILL}/tools/gate_mcp/list_records`, { enabled: true, expected_version: 0 });
-    expect(mount.status).toBe(200);
     const enabled = await setEnabled("gate_mcp", 200);
     expect(enabled.body).toMatchObject({ id: "gate_mcp", enabled: true });
+    const row = (await getConn().query("SELECT enabled FROM connectors WHERE id=$1", ["gate_mcp"])).rows[0] as { enabled: unknown };
+    expect(Number(row.enabled)).toBe(1);
   });
 
-  it("returns to the 409 gate once either Skill binding is disabled", async () => {
+  it("keeps the connector enabled when Skill bindings are disabled", async () => {
     await verifiedConnector("gate_toggle");
     await bindTool("gate_toggle");
-    const connectorsUrl = `/api/admin/runtime/skills/${SKILL}/connectors`;
+    await setEnabled("gate_toggle", 200);
     const toolsUrl = `/api/admin/runtime/skills/${SKILL}/tools`;
+    const connectorsUrl = `/api/admin/runtime/skills/${SKILL}/connectors`;
 
-    const unlinked = await call("PUT", `/api/admin/runtime/skills/${SKILL}/connectors/gate_toggle`, {
-      enabled: false, expected_version: await bindingVersion(connectorsUrl, "gate_toggle"),
-    });
-    expect(unlinked.status).toBe(200);
-    await setEnabled("gate_toggle", 409, "connector_skill_binding_required");
-
-    await call("PUT", `/api/admin/runtime/skills/${SKILL}/connectors/gate_toggle`, {
-      enabled: true, expected_version: await bindingVersion(connectorsUrl, "gate_toggle"),
-    });
     const unmounted = await call("PUT", `/api/admin/runtime/skills/${SKILL}/tools/gate_toggle/list_records`, {
       enabled: false, expected_version: await bindingVersion(toolsUrl, "gate_toggle"),
     });
     expect(unmounted.status).toBe(200);
-    await setEnabled("gate_toggle", 409, "connector_skill_binding_required");
-
-    const remounted = await call("PUT", `/api/admin/runtime/skills/${SKILL}/tools/gate_toggle/list_records`, {
-      enabled: true, expected_version: await bindingVersion(toolsUrl, "gate_toggle"),
+    const unlinked = await call("PUT", `/api/admin/runtime/skills/${SKILL}/connectors/gate_toggle`, {
+      enabled: false, expected_version: await bindingVersion(connectorsUrl, "gate_toggle"),
     });
-    expect(remounted.status).toBe(200);
-    await setEnabled("gate_toggle", 200);
+    expect(unlinked.status).toBe(200);
+
+    const row = (await getConn().query("SELECT enabled FROM connectors WHERE id=$1", ["gate_toggle"])).rows[0] as { enabled: unknown };
+    expect(Number(row.enabled)).toBe(1);
   });
 });

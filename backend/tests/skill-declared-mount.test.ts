@@ -183,11 +183,11 @@ describe("skill coverage over declared MCP tools", () => {
     expect(numericEnabled(disabled)).toMatchObject({ risk: "L3", enabled: 0 });
   });
 
-  it("mounts declared tools, skips the rest, stays idempotent, then opens the enable gate", async () => {
-    // 挂载前闸门仍关：没有启用的工具绑定就没有「在用」连接器。
-    const gated = await call("PATCH", `/api/admin/connectors/${CONNECTOR}`, { enabled: true });
-    expect(gated.status).toBe(409);
-    expect(gated.body).toMatchObject({ detail: { code: "connector_skill_binding_required" } });
+  it("mounts declared tools, skips the rest, and stays idempotent while the connector is already enabled", async () => {
+    // 启用不再依赖技能挂载；挂载只决定哪些技能能调用。
+    const enabledBeforeMount = await call("PATCH", `/api/admin/connectors/${CONNECTOR}`, { enabled: true });
+    expect(enabledBeforeMount.status, JSON.stringify(enabledBeforeMount.body)).toBe(200);
+    expect(enabledBeforeMount.body).toMatchObject({ id: CONNECTOR, enabled: true });
 
     const listed = await call("GET", coverageUrl(CONNECTOR));
     const target = (listed.body.skills as Record<string, any>[]).find((entry) => entry.skill_id === SKILL);
@@ -214,9 +214,9 @@ describe("skill coverage over declared MCP tools", () => {
       { tool_name: "pageKolProfiles", enabled: 1 },
       { tool_name: "previewEmailDraft", enabled: 1 },
     ]);
-    // 挂载不放行策略行，也不启用连接器本体。
+    // 挂载不放行策略行；连接器启用是独立动作，挂载不会把它改回停用。
     expect(numericEnabled((await getConn().query("SELECT enabled FROM runtime_tool_policies WHERE connector_id=$1 AND tool_name='decryptKolContact'",[CONNECTOR])).rows[0])).toMatchObject({ enabled: 0 });
-    expect(numericEnabled((await getConn().query("SELECT enabled FROM connectors WHERE id=$1",[CONNECTOR])).rows[0])).toMatchObject({ enabled: 0 });
+    expect(numericEnabled((await getConn().query("SELECT enabled FROM connectors WHERE id=$1",[CONNECTOR])).rows[0])).toMatchObject({ enabled: 1 });
 
     const events = (await getConn().query("SELECT event_type,payload FROM audit_events WHERE event_type='runtime.skill_mount.declared' ORDER BY id",[])).rows as { payload: string }[];
     expect(events).toHaveLength(1);

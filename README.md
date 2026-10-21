@@ -195,7 +195,7 @@ Lead Skill 生成采集计划
 - `headers_secret_refs["X-MCP-API-KEY"]`：组织级 MCP API Key。
 - `bearer_secret_ref` 或 `headers_secret_refs.Authorization`：Starry JWT；也可显式选择 `credential_provider="user-account"` 与 `credential_account_id`，由保险柜检查账号归属。
 
-完成连接测试、启用连接器，再把工具挂到 Agent 所装配的技能。人员使用资格只绑定 Agent，不再给员工单独授 Skill/MCP/API 权限。远端邮箱 ACL 和红人可见范围仍按 Starry JWT 身份生效。
+完成连接测试、启用连接器，再把工具挂到 Agent 所装配的技能；启用不要求先挂载，工具挂载只决定哪些技能能调用。人员使用资格只绑定 Agent，不再给员工单独授 Skill/MCP/API 权限。远端邮箱 ACL 和红人可见范围仍按 Starry JWT 身份生效。
 
 个人设置提交的邮箱 JWT 先存入保险柜，邮箱记录只保留引用；调用失败不会改用进程身份重试。旧邮箱令牌需在发布切换时迁移，见[切换与验收记录](docs/superpowers/plans/2026-10-04-starry-vault-cutover.md)。保险柜主密钥 `RUNTIME_CREDENTIAL_MASTER_KEY` 仍由服务部署提供，须在迁移和运行时保持一致。
 

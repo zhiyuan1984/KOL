@@ -2043,6 +2043,15 @@
   background: var(--border);
 }
 
+@media (max-width: 440px) {
+  .connector-wizard-steps li:not(:last-child)::after {
+    margin: 0 var(--space-1);
+  }
+  .connector-wizard-step {
+    gap: var(--space-1);
+  }
+}
+
 .connector-wizard-step {
   display: inline-flex;
   align-items: center;

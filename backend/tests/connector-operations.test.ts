@@ -66,6 +66,12 @@ describe("connector operations (isolated inspector, no external service)", () =>
     expect((await getConn().query("SELECT enabled,status FROM connectors WHERE id='probe_fixture'",[])).rows[0])
       .toMatchObject({ enabled: 0, status: "verified" });
 
+    // A verified connector that is not enabled can be re-probed without enabling it.
+    const verifiedReprobe = await a.request(root + "/probe", { method: "POST" });
+    expect(verifiedReprobe.status).toBe(200);
+    expect((await getConn().query("SELECT enabled,status FROM connectors WHERE id='probe_fixture'",[])).rows[0])
+      .toMatchObject({ enabled: 0, status: "verified" });
+
     (await getConn().query("UPDATE connectors SET enabled=1,status='verified' WHERE id='probe_fixture'",[]));
     const reprobe = await a.request(root + "/probe", { method: "POST" });
     expect(reprobe.status).toBe(200);
@@ -100,7 +106,7 @@ describe("connector operations (isolated inspector, no external service)", () =>
     const response = await a.request(root + "/probe", {method:"POST"});
     expect(await response.json()).toMatchObject({status:"failed", error_code:"runtime_binding_changed",live_verified:false});
   });
-  it("blocks disabled connectors and rejects anonymous production governance", async () => {
+  it("blocks disabled connectors that are not verified and rejects anonymous production governance", async () => {
     let called = false;
     const a = app(async () => { called = true; return []; });
     (await getConn().query("UPDATE connectors SET enabled=0 WHERE id='probe_fixture'",[]));

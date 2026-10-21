@@ -8,10 +8,9 @@ import { isConnectorIdValid, slugFromLabel } from "./entity";
 
 export type HeaderRow = { name: string; value: string };
 
-/** 启用闸门被拒时，服务端错误码对应的说法；未知码交给调用方兜底。 */
+/** 启用被拒时，服务端错误码对应的说法；未知码交给调用方兜底。 */
 export function friendlyEnableFailure(code: string): string {
   if (code === "connector_verification_required") return "先完成一次通过的测试，连接器才会被允许启用。";
-  if (code === "connector_skill_binding_required") return "尚无技能绑定其工具，请按技能定义挂载后再启用。";
   return "";
 }
 

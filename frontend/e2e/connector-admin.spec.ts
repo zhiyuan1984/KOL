@@ -449,7 +449,7 @@ test("wizard explains a credential-vault 503 instead of a bare request failure",
   await expect(panel.locator("[data-connector-wizard-receipt]")).toHaveCount(0);
 });
 
-test("wizard keeps the enable gate and the honest state when the server refuses", async ({ page }) => {
+test("wizard enables a verified connector without requiring Skill mounts", async ({ page }) => {
   await page.route("**/api/admin/runtime/connectors/*/config", (route) => route.fulfill({
     json: {
       config: { protocol: "mcp", transport: "streamable-http", url: "https://mcp.e2e.example/mcp", allow_unauthenticated: true, timeout_ms: 30000 },
@@ -465,7 +465,7 @@ test("wizard keeps the enable gate and the honest state when the server refuses"
   }));
   await page.route("**/api/admin/connectors/starrykol", async (route) => {
     if (route.request().method() !== "PATCH") return route.continue();
-    await route.fulfill({ status: 409, json: { detail: { code: "connector_skill_binding_required" } } });
+    await route.fulfill({ json: { id: "starrykol", enabled: true } });
   });
 
   await page.goto("/admin/connectors");
@@ -475,7 +475,7 @@ test("wizard keeps the enable gate and the honest state when the server refuses"
   await panel.locator("[data-connector-wizard-tab='save']").click();
   await expect(panel.locator("[data-connector-wizard-step='save']")).toBeVisible();
 
-  // 改配置 → 回到「需重新测试」：测试步是唯一推进键，启用键当时不可用。
+  // 改配置 → 回到「需重新测试」：测试步是唯一推进键。
   await panel.locator("[data-connector-panel-save]").click();
   await expect(panel.locator("[data-connector-wizard-step='test']")).toBeVisible();
   await expect(panel.locator("[data-connector-wizard-status]")).toContainText("需重新测试");
@@ -483,11 +483,12 @@ test("wizard keeps the enable gate and the honest state when the server refuses"
   await expect(panel.locator("[data-connector-wizard-step='tools']")).toBeVisible();
   await panel.locator("[data-connector-wizard-primary]").click();
   await expect(panel.locator("[data-connector-wizard-enable]")).toBeEnabled();
+  await expect(panel.locator(".enable-facts")).toContainText("不影响启用");
   await panel.locator("[data-connector-wizard-enable]").click();
-  // 服务器拒绝 → 原样显示原因，并保持置灰（不伪造成功）。
-  await expect(panel.locator("[data-connector-wizard-error]")).toContainText("尚无技能绑定其工具，请按技能定义挂载后再启用。");
-  await expect(panel.locator("[data-connector-wizard-enable]")).toBeDisabled();
-  await expect(panel.locator(".connector-panel-note")).toContainText("尚无技能绑定其工具");
+  // 没有技能挂载也能启用；回执说明人员资格与调用依赖。
+  await expect(panel.locator("[data-connector-wizard-error]")).toHaveCount(0);
+  await expect(panel.locator("[data-connector-wizard-receipt]")).toContainText("连接器已启用");
+  await expect(panel.locator("[data-connector-wizard-receipt]")).toContainText("人员资格由 Agent 绑定决定");
 });
 
 test("已验证未启用的连接器重开向导直接落在启用步，并可按技能定义挂载", async ({ page }) => {
@@ -552,13 +553,16 @@ test("已验证未启用的连接器重开向导直接落在启用步，并可�
   await expect(panel.locator("[data-connector-wizard-step='enable']")).toBeVisible();
   await expect(panel.locator("[data-connector-wizard-step='save']")).toHaveCount(0);
   // 最近一次测试时间来自服务端记录；当前原生向导按本地可读格式呈现，不能退回旧ISO DOM。
-  await expect(panel.locator("[data-connector-wizard-test-result]")).toContainText("2026-09-29 02:00:00");
+  // 具体小时随运行环境时区变化，只钉日期与本地格式。
+  await expect(panel.locator("[data-connector-wizard-test-result]")).toContainText("2026-09-29");
+  await expect(panel.locator("[data-connector-wizard-test-result]")).not.toContainText("2026-09-29T");
   await expect(panel.locator("[data-connector-wizard-test-result]")).toContainText("4 个工具");
   // 原生启用页用事实卡和可执行入口取代旧摘要；仍须清楚展示挂载缺口、已上线声明与可用动作。
   await expect(panel.locator(".enable-progress")).toContainText("已挂 0/2 个");
   const enableFacts = panel.locator(".enable-facts-item");
-  await expect(enableFacts.nth(4)).toContainText("技能声明1 个已上线技能声明了它的工具");
-  await expect(enableFacts.nth(5)).toContainText("启用条件至少一个技能把它的工具挂到可用状态");
+  await expect(enableFacts.nth(4)).toContainText("1 个已上线技能");
+  await expect(enableFacts.nth(4)).toContainText("0 个已定义技能");
+  await expect(enableFacts.nth(5)).toContainText("不影响启用");
   await expect(panel.locator("[data-connector-wizard-mount-declared]")).toBeEnabled();
   await expect(panel.locator("[data-connector-wizard-status]")).toHaveCount(1);
   await expect(panel.locator("[data-connector-wizard-test-result]")).toHaveCount(1);
