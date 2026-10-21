@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SseError, SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport, StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
+import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { Json } from "../types.js";
 
 export type RemoteMcpOptions = {
@@ -14,6 +15,9 @@ export type RemoteMcpOptions = {
   /** Omitted keeps the streamable-http transport used by existing connectors. */
   transport?: "streamable-http" | "sse";
   fetch?: typeof fetch;
+  authProvider?: OAuthClientProvider;
+  /** Opaque identity used to detect OAuth account changes before a tool call. */
+  authIdentity?: string;
 };
 
 /** Bounds a single remote catalog refresh if an endpoint returns a bad cursor chain. */
@@ -174,7 +178,7 @@ export class RemoteMcpClient {
     if (trimmedToken && !hasHeader(headers, "authorization") && !hasHeader(headers, "x-mcp-api-key")) {
       headers.Authorization = `Bearer ${trimmedToken}`;
     }
-    if (!hasAuthenticationHeader(headers) && !options.allowUnauthenticated) {
+    if (!hasAuthenticationHeader(headers) && !options.allowUnauthenticated && !options.authProvider) {
       throw new Error("MCP auth header is required");
     }
     this.timeoutMs = options.timeoutMs ?? 30_000;
@@ -199,6 +203,7 @@ export class RemoteMcpClient {
         eventSourceInit: { fetch: guardedFetch },
       })
       : new StreamableHTTPClientTransport(endpoint, {
+        ...(options.authProvider ? { authProvider: options.authProvider } : {}),
         requestInit: { headers },
         fetch: guardedFetch,
       });

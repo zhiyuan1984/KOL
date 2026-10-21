@@ -3627,6 +3627,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+  userOAuthConnectors: () =>
+    request<Array<{ id: string; label: string; authorized: boolean }>>(
+      "/api/admin/runtime/connectors/oauth-available",
+    ),
+  startConnectorOAuth: (connectorId: string) =>
+    request<{ authorization_url: string; expires_in_seconds: number }>(
+      "/api/admin/runtime/connectors/" + encodeURIComponent(connectorId) + "/oauth/start",
+      { method: "POST", body: JSON.stringify({}) },
+    ),
   runtimeConnectorActivity: (connectorId: string, limit = 30) =>
     request<{
       probes: Array<{

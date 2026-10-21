@@ -319,7 +319,7 @@ async function callRemoteCrawlTool(context: RuntimeContext, tool: "start_crawl" 
   const auth = isPlatformPrincipal(context.userId)
     ? (await authorizeBackgroundCrawl(context))
     : (await authorizeConnector(context, "claw"));
-  const client = (await createConfiguredClient(context, auth.configuration.config, mcpFactory));
+  const client = (await createConfiguredClient(context, "claw", auth.configuration.config, mcpFactory));
   try {
     const raw = await client.callToolRaw(tool, args);
     if (raw.isError) throw new Error(`remote ${tool} returned error`);

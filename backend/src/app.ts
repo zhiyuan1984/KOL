@@ -26,6 +26,7 @@ import { enterprise } from "./routers/enterprise.js";
 import { skillRuntimeRouter } from "./routers/skill-runtime.js";
 import { runtimeDiscoveryRouter } from "./routers/runtime-discovery.js";
 import { connectorOperationsRouter } from "./routers/connector-operations.js";
+import { connectorOAuthRouter } from "./routers/connector-oauth.js";
 import { connectorCredentialsRouter } from "./routers/connector-credentials.js";
 import { connectorIconsRouter } from "./routers/connector-icons.js";
 import { connectorImportRouter } from "./routers/connector-import.js";
@@ -178,6 +179,7 @@ export async function createApp(): Promise<Hono> {
   app.route("/api", costsRouter);
   app.route("/api", runtimeDiscoveryRouter);
   app.route("/api", connectorOperationsRouter);
+  app.route("/api", connectorOAuthRouter);
   app.route("/api", connectorCredentialsRouter);
   app.route("/api", connectorIconsRouter);
   app.route("/api", connectorImportRouter);

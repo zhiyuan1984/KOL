@@ -148,7 +148,7 @@ export async function backgroundToolRuntime(
   mcpFactory: (options: RemoteMcpOptions) => RuntimeRemote = (options) => new RemoteMcpClient(options),
 ): Promise<BackgroundToolInvoker> {
   const { configuration } = (await authorizeBackgroundCrawl(context));
-  const client = (await createConfiguredClient(context, configuration.config, mcpFactory));
+  const client = (await createConfiguredClient(context, "claw", configuration.config, mcpFactory));
   let closed = false;
   return {
     async discover() {

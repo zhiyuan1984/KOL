@@ -24,6 +24,10 @@
 .settings-v2 .settings-primary:not(:disabled):hover, .settings-memory-drawer .settings-primary:not(:disabled):hover { background: var(--primary-hover); border-color: var(--primary-hover); color: var(--primary-fg); }
 .settings-v2 .settings-primary:disabled { background: var(--bg-subtle); border-color: var(--border); color: var(--text-faint); }
 .settings-list-tools { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; margin-bottom: var(--space-3); }
+.settings-mcp-oauth-list { list-style: none; padding: 0; margin: var(--space-3) 0; }
+.settings-mcp-oauth-list > li { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); border-top: 1px solid var(--border); padding-block: var(--space-2); }
+.settings-mcp-oauth-list > li p { margin: var(--space-1) 0 0; }
+.settings-mcp-oauth-list > li strong { overflow-wrap: anywhere; }
 .settings-list-tools .ant-input-search { max-width: var(--workspace-search-max-w); }
 .settings-v2 .ant-alert { margin-block: var(--space-2); font-size: var(--ds-font-sm); }
 .settings-v2 .ant-pagination { margin-top: var(--space-3); }

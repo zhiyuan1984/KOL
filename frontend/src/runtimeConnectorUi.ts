@@ -29,6 +29,7 @@ export type RuntimeConnectorConfig = {
   bearer_env?: string;
   credential_provider?: string;
   credential_account_id?: string;
+  oauth_enabled?: boolean;
   allow_unauthenticated?: boolean;
   timeout_ms?: number;
   headers_secret_refs?: Record<string, string>;
@@ -230,6 +231,7 @@ export function remoteFailureMessage(code: string): string {
   if (code === "runtime_probe_task_id_missing") return "start_crawl 未返回任务 ID，无法自动停止；请检查远端是否残留采集任务。";
   if (code === "runtime_probe_stop_failed") return "采集已启动，但 stop_crawl 失败；请在远端检查并停止该任务，连接未通过验证。";
   if (code === "runtime_remote_unauthorized") return "远端拒绝授权（401）：请更新连接器凭据（API key / Bearer）后重新测试。";
+  if (code === "runtime_oauth_authorization_required") return "此 MCP 尚未绑定你的账号。请到个人设置 → MCP 账号完成 OAuth 授权后重试。";
   if (code === "runtime_remote_forbidden") return "远端禁止访问（403）：该凭据无权访问此端点。";
   if (code === "runtime_remote_not_found") return "远端未找到该端点（404）：请核对 URL 路径与传输类型。";
   if (code === "runtime_remote_rate_limited") return "远端限流（429）：请稍后重试。";

@@ -23,6 +23,7 @@ export async function createManagedClient(connectorId: string, userId: string, c
   }
   const client = (await createConfiguredClient(
     { userId, agentId: "", skillId: "", runId: "business-gateway" },
+    connectorId,
     timeoutMs && timeoutMs > 0 ? { ...config, timeout_ms: timeoutMs } : config,
   ));
   return {

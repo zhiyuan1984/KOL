@@ -57,6 +57,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
   const [urlEnv, setUrlEnv] = useState("");
   const [timeoutMs, setTimeoutMs] = useState("30000");
   const [noAuth, setNoAuth] = useState(false);
+  const [oauthEnabled, setOauthEnabled] = useState(false);
   const [secretRows, setSecretRows] = useState<SecretRow[]>([{ name: "", value: "" }]);
   const [envRefs, setEnvRefs] = useState<Record<string, string>>({});
   const [bearerRef, setBearerRef] = useState("");
@@ -70,7 +71,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [dirty, setDirty] = useState(false);
-  const snapshot = JSON.stringify([label, purpose, protocol, transport, url, urlEnv, timeoutMs, noAuth, secretRows, envRefs, bearerRef, bearerEnv, httpTools]);
+  const snapshot = JSON.stringify([label, purpose, protocol, transport, url, urlEnv, timeoutMs, noAuth, oauthEnabled, secretRows, envRefs, bearerRef, bearerEnv, httpTools]);
   const savedSnapshot = useRef<string | null>(null);
   // The baseline is taken only after an explicit config load, never on Tab switches.
   const captureBaseline = useRef(true);
@@ -101,6 +102,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
       setUrlEnv(config.url_env || "");
       setTimeoutMs(String(config.timeout_ms || 30_000));
       setNoAuth(config.allow_unauthenticated === true);
+      setOauthEnabled(config.oauth_enabled === true);
       setSecretRows(secretRowsFromConfig(config));
       setEnvRefs(config.headers_env || {});
       setBearerRef(config.bearer_secret_ref || "");
@@ -183,6 +185,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
         url: url.trim(),
         urlEnv,
         noAuth,
+        oauthEnabled,
         timeoutMs: timeout,
         headerRows: rows,
         envRefs,
@@ -411,6 +414,10 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
             <label className="check connector-check-row">
               <input type="checkbox" checked={noAuth} onChange={(event) => setNoAuth(event.target.checked)} /> 该端点明确允许无鉴权
             </label>
+            {protocol === "mcp" && transport === "streamable-http" && <label className="check connector-check-row">
+              <input type="checkbox" checked={oauthEnabled} onChange={(event) => setOauthEnabled(event.target.checked)} /> 启用 OAuth（每位使用者分别授权）
+            </label>}
+            {oauthEnabled && <p className="muted">保存后，当前登录用户可在连接器详情中授权自己的账号；凭据不会由其他用户共用。OAuth 回调要求启用登录并配置 APP_ORIGIN。</p>}
           </div>
           </ConfigSection>
           </Form>
