@@ -199,6 +199,23 @@ async function sessionUser(c: Context): Promise<AppUser | undefined> {
   return row ? (hydrateNativeAuthority((await mapUser(row)))) : undefined;
 }
 
+/**
+ * Authenticates the same current PostgreSQL workbench session without invoking
+ * authority hydration.  It is for explicitly read-only request paths whose
+ * browser visit must not bootstrap organization/runtime state or persist an
+ * auxiliary ticket-principal mirror.
+ */
+async function readOnlySessionUser(c: Context): Promise<AppUser | undefined> {
+  const token = cookies(c)[COOKIE];
+  if (!token) return undefined;
+  const [row] = await postgresQuery<Row>(
+    `SELECT u.* FROM auth_sessions s JOIN users u ON u.id = s.user_id
+      WHERE s.id_hash = $1 AND s.expires_at > $2 AND u.active = 1`,
+    [hashToken(token), nowIso()],
+  );
+  return row ? mapUser(row) : undefined;
+}
+
 function publicPath(path: string): boolean {
   return path === "/api/health" ||
     path === "/api/version" ||
@@ -225,6 +242,15 @@ export const authMiddleware: MiddlewareHandler = async (c, next) => {
   const user = await sessionUser(c);
   if (!user && !publicPath(new URL(c.req.url).pathname)) throw new HttpFail(401, "authentication required");
   return user ? (requestUser.run(user, next)) : (next());
+};
+
+/** Same cookie/session rules as authMiddleware, intentionally without writes or bootstrap work. */
+export const readOnlyAuthMiddleware: MiddlewareHandler = async (c, next) => {
+  if (authDisabled()) return next();
+  if (c.req.method === "OPTIONS") return next();
+  const user = await readOnlySessionUser(c);
+  if (!user && !publicPath(new URL(c.req.url).pathname)) throw new HttpFail(401, "authentication required");
+  return user ? requestUser.run(user, next) : next();
 };
 
 async function userPublic(user: AppUser): Promise<Json> {

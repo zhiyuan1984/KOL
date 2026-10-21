@@ -6,7 +6,7 @@ import { Hono } from "hono";
 import { compress } from "hono/compress";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
-import { authDisabled, authMiddleware, authRouter, ensureDemoAdmin, scopedUser } from "./auth.js";
+import { authDisabled, authMiddleware, authRouter, ensureDemoAdmin, readOnlyAuthMiddleware, scopedUser } from "./auth.js";
 import { clawRouter, starryRouter } from "./adapters/httpMount.js";
 import { clawMode, codexMode, DEMO_ADMIN, DEMO_USER, frontendDist } from "./config.js";
 import { codexBinOk, isTestRuntime } from "./codex-runtime.js";
@@ -42,7 +42,7 @@ import { tickets } from "./routers/tickets.js";
 import { performanceRouter } from "./routers/performance.js";
 import { kol } from "./routers/kol.js";
 import { kolDashboards } from "./routers/kol-dashboards.js";
-import { syncWorkbenchTicketPrincipal, withTicketPrincipal } from "./ticket-domain/auth.js";
+import { syncWorkbenchTicketPrincipal, ticketPrincipalFromWorkbenchUser, withTicketPrincipal } from "./ticket-domain/auth.js";
 import { crawlRouter } from "./routers/crawl.js";
 import { knowledge } from "./routers/knowledge.js";
 import { capabilityRouter } from "./routers/capability.js";
@@ -67,6 +67,7 @@ import { seedIfEmpty } from "./seed.js";
 import { events } from "./routers/events.js";
 import { reconcileTickets } from "./tickets.js";
 import { reconcileDocumentJobs } from "./host/knowledge-documents.js";
+import { businessMapRouter } from "./routers/business-map.js";
 
 /** 需要同步 workbench ticket principal（PG 镜像、可审计外键）的正式权限路径。 */
 export function isFormalAuthorityPath(pathname: string): boolean {
@@ -108,6 +109,19 @@ export async function createApp(): Promise<Hono> {
     // Scheduler tick can authenticate with a dedicated secret and therefore
     // intentionally bypasses browser ticket-session middleware.
     if (pathname === "/api/cron/internal/tick") return next();
+    // Business-map browsing is deliberately an R1 read: authenticate the same
+    // workbench session, but do not create/update ticket account mirrors or
+    // bootstrap organization authority just because a page was opened.
+    if (pathname.startsWith("/api/business-map")) {
+      return readOnlyAuthMiddleware(c, async () => {
+        const user = scopedUser() || (authDisabled() ? {
+          id: DEMO_USER.id, username: DEMO_USER.handle, name: DEMO_USER.name,
+          email: DEMO_ADMIN.email, roles: ["employee", "admin"], active: true,
+        } : undefined);
+        if (!user) return next();
+        return withTicketPrincipal(ticketPrincipalFromWorkbenchUser(user), next);
+      });
+    }
     // The existing workbench session is the only browser authentication domain.
     // Formal-ticket and scheduling requests mirror its server-verified claims
     // into PostgreSQL for auditable foreign keys; they never request another
@@ -208,6 +222,7 @@ export async function createApp(): Promise<Hono> {
   app.route("/api", homeToday);
   app.route("/api", workReport);
   app.route("/api", misc);
+  app.route("/api", businessMapRouter);
   app.route("/api", ontologyWorkspace);
   app.route("/api", ontology);
   // Formal ticket endpoints are isolated from the legacy `/tasks` router so

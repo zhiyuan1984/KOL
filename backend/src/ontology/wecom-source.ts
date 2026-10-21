@@ -65,7 +65,7 @@ export type WecomOntologyRuntime = {
   captureStatus(): Promise<{ binding: WecomRuntimeBinding; syncStatus: WecomSyncStatus }>;
   listDepartments(binding: WecomRuntimeBinding, args: { pageSize: number; cursor?: string }): Promise<WecomRemoteEnvelope<WecomRemotePage<WecomDepartmentRecord>>>;
   listUsers(binding: WecomRuntimeBinding, args: { departmentId: number; includeDescendants: true; pageSize: number; cursor?: string }): Promise<WecomRemoteEnvelope<WecomRemotePage<WecomPersonRecord>>>;
-  currentBinding(): Promise<WecomRuntimeBinding>;
+  currentBinding(options?: { readonly?: boolean }): Promise<WecomRuntimeBinding>;
 };
 
 const sourceKinds = new Set<WecomSourceRecordKind>(["department", "person", "membership"]);
@@ -153,6 +153,17 @@ function sameSourceVersion(left: WecomSnapshotVersion, right: WecomSnapshotVersi
     && left.version === right.version
     && left.departmentBatchId === right.departmentBatchId
     && left.userBatchId === right.userBatchId;
+}
+/** A preview save timestamp is not a source observation timestamp. */
+function normalizedSourceObservedAt(value: number | string | null | undefined): string | null {
+  let date: Date | null = null;
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) date = new Date(value);
+  else if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^\d{13}$/.test(trimmed)) date = new Date(Number(trimmed));
+    else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(trimmed)) date = new Date(trimmed);
+  }
+  return date && Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 function unwrapRemotePayload(raw: Json): Record<string, unknown> {
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
@@ -285,8 +296,11 @@ function parsePersonPage(raw: Json): WecomRemoteEnvelope<WecomRemotePage<WecomPe
 }
 
 /** Resolve a real, published platform-sync assembly; never build a Host MCP client. */
-export async function resolveWecomOntologyRuntimeBinding(db: Db = postgresPool()): Promise<WecomRuntimeBinding> {
-  await ensureRuntimeSchema();
+export async function resolveWecomOntologyRuntimeBinding(db: Db = postgresPool(), options: { initialize?: boolean } = {}): Promise<WecomRuntimeBinding> {
+  // Preview/commit retain their established initialization behavior.  Business
+  // reading supplies initialize:false and fails closed if no published binding
+  // already exists; it must never create bootstrap rows just to render a page.
+  if (options.initialize !== false) await ensureRuntimeSchema();
   const names = Object.values(wecomOntologyRuntimeTools);
   const result = await db.query<{
     skill_id: string; agent_skill_version: number; connector_config_version: number; connector_binding_version: number;
@@ -340,7 +354,7 @@ export async function resolveWecomOntologyRuntimeBinding(db: Db = postgresPool()
 }
 
 export const managedWecomOntologyRuntime: WecomOntologyRuntime = {
-  async currentBinding() { return resolveWecomOntologyRuntimeBinding(); },
+  async currentBinding(options) { return resolveWecomOntologyRuntimeBinding(postgresPool(), { initialize: !options?.readonly }); },
   async captureStatus() {
     const before = await resolveWecomOntologyRuntimeBinding();
     const raw = await runPlatformSkillTool(before.skillId, before.connectorId, before.tools.syncStatus, {});
@@ -810,6 +824,46 @@ export class WecomOntologySourceService {
         VALUES($1,$2,$3,$4,$5,$6)`, [companyId, this.actor.id, commandId, commandHash, JSON.stringify(receipt), createdAt]);
       return receipt;
     });
+  }
+
+  /**
+   * Revalidates the current company administration, source-company binding and
+   * mounted read-only runtime without calling the remote provider.
+   */
+  async isConnected(companyIdInput: string): Promise<boolean> {
+    const companyId = nonEmpty(companyIdInput, "companyId");
+    await this.assertAccess(companyId);
+    await this.runtime.currentBinding({ readonly: true });
+    return true;
+  }
+
+  /**
+   * Returns only the newest preview saved by this caller for this company.
+   * Expiry prevents import only; historical reading remains read-only.  This
+   * deliberately never reads confirmed snapshots, invokes preview(), or calls
+   * commit(), so a business-map read cannot become an import pathway.
+   */
+  async historicalPreview(companyIdInput: string): Promise<{ createdAt: string; observedAt: string | null; rows: WecomSnapshotRow[] } | null> {
+    const companyId = nonEmpty(companyIdInput, "companyId");
+    await this.assertAccess(companyId);
+    await this.runtime.currentBinding({ readonly: true });
+    const result = await postgresPool().query<{ payload: PreviewRow['payload']; source_version_json: WecomSnapshotVersion; created_at: string }>(
+      `SELECT payload,source_version_json,created_at FROM ontology_wecom_source_previews
+        WHERE company_id=$1 AND actor_id=$2
+        ORDER BY created_at DESC,id DESC LIMIT 1`,
+      [companyId, this.actor.id],
+    );
+    const preview = result.rows[0];
+    if (!preview) return null;
+    const rows = preview.payload?.rows;
+    if (!Array.isArray(rows) || rows.length > WECOM_ONTOLOGY_MAX_ROWS * 3 || rows.some((row) => !sourceKinds.has(row.kind))) {
+      sourceFailure("wecom_preview_corrupt", "已保存的企微历史预览无法读取", 502);
+    }
+    const observedAt = normalizedSourceObservedAt(preview.source_version_json?.lastSyncedAt)
+      || normalizedSourceObservedAt(preview.source_version_json?.publishedAt);
+    // createdAt is intentionally retained only for internal ordering/audit use;
+    // callers must label observedAt as the source collection/publication time.
+    return { createdAt: preview.created_at, observedAt, rows };
   }
 
   /** Read only the caller's own import receipt after current access and binding checks. */

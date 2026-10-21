@@ -67,6 +67,7 @@ describe("admin sidebar parity", () => {
       "employees",
       "performance",
       "overview",
+      "business-map",
       "lead-funnel",
       "project-delivery",
       "connectors",
@@ -115,9 +116,10 @@ describe("admin sidebar parity", () => {
     const assetIds = ADMIN_NAV_GROUPS.find((group) => group.label === "资产")!.rows.map((row) => row.id);
     expect(assetIds).toEqual(["connectors", "knowledge", "agents", "ontology", "approval-types"]);
     expect(ADMIN_NAV_GROUPS.flatMap((group) => group.rows.map((row) => row.id))).not.toContain("approvals");
-    // 「业务地图」一行映射两个看板路由（侧栏高亮与面板分节共用）。
+    // 「业务地图」指向对象—实体—记录阅读页；两个专项地址仍共享侧栏高亮与各自面板。
     const businessMap = ADMIN_NAV_GROUPS.flatMap((group) => group.rows).find((row) => row.id === "business-map");
-    expect(businessMap?.sections).toEqual(["lead-funnel", "project-delivery"]);
+    expect(businessMap?.href).toBe("/admin/business-map");
+    expect(businessMap?.sections).toEqual(["business-map", "lead-funnel", "project-delivery"]);
     for (const group of ADMIN_NAV_GROUPS) {
       expect(group.label.length).toBeGreaterThan(0);
       for (const row of group.rows) {
@@ -131,6 +133,7 @@ describe("admin sidebar parity", () => {
     expect(adminTabOf("/admin/audit")).toBe("audit");
     expect(adminTabOf("/admin/approval-types")).toBe("approval-types");
     expect(adminTabOf("/admin/connectors/conn_a")).toBe("connectors");
+    expect(adminTabOf("/admin/business-map")).toBe("business-map");
     expect(adminTabOf("/admin/lead-funnel")).toBe("lead-funnel");
     expect(adminTabOf("/admin/project-delivery")).toBe("project-delivery");
     expect(adminTabOf("/admin/business-domains")).toBe("business-domains");
