@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import { api, type AiTaskWorkOrderList, type OrganizationTicketRawCountReport, type OrganizationTicketStageRawReport, type TicketAccountBindingOptions, type TicketOrganizationQualityReport, type WorkOrderAutomationRelease, type WorkOrderTemplate, type WorkOrderTemplateDraftInput } from "../api";
 import { useAccount } from "../components/AuthGate";
 import { useAdminConfirm } from "../components/ConfirmDialog";
+import { useTransientReceipt } from "../components/useTransientReceipt";
 import { ActionGroup, HorizontalForm, PropertyList, TruncatableText } from "../components/InformationLayout";
 import { LifecycleNavigation } from "../components/LifecycleNavigation";
 import { LifecycleWorkspace } from "../components/LifecycleWorkspace";
@@ -63,7 +64,7 @@ export default function AdminWorkOrders() {
   const [level, setLevel] = useState<WorkOrderTemplateDraftInput["automation_level"]>("A1");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const { receipt, showReceipt, clearReceipt } = useTransientReceipt();
 
   const load = useCallback(async () => {
     const current = ++generation.current;
@@ -101,8 +102,8 @@ export default function AdminWorkOrders() {
   const idempotency = () => `wot-${randomUuid()}`;
 
   async function write(run: () => Promise<unknown>, success: string) {
-    setBusy(true); setError(""); setNotice("");
-    try { await run(); setNotice(success); await load(); }
+    setBusy(true); setError(""); clearReceipt();
+    try { await run(); showReceipt(success); await load(); }
     catch (cause) { throw new Error(safeError(cause, "操作未完成，请重试或查看审计记录。")); }
     finally { setBusy(false); }
   }
@@ -246,7 +247,7 @@ export default function AdminWorkOrders() {
     <LifecycleWorkspace title="工单治理" value={view} onChange={setView}
       meta={<>{account?.name || account?.handle || account?.email || "—"} · 数据时间 {time(quality?.as_of)}<details className="work-order-source-detail"><summary>数据来源</summary><PropertyList className="work-order-source-properties" labelWidth="short" items={[{ key: "registry-revision", label: "组织来源版本", value: quality?.registry_revision, emptyText: "—" }, { key: "seeded-at", label: "最近同步", value: time(quality?.seeded_at), emptyText: "—" }]} /><p>PostgreSQL 正式工单与组织授权数据；缺失信息阻止正式建单。</p></details></>}
       actions={<>{links}<button type="button" className="lifecycle-text-action" disabled={loading || busy} onClick={retry}>{loading ? "读取中…" : "刷新"}</button></>}
-      feedback={<>{notice ? <p role="status" className="status-ok" data-admin-receipt>{notice}</p> : null}{error ? <p role="alert" className="error">{error}</p> : null}</>}
+      feedback={<>{receipt.text ? <p role="status" className={"status-ok is-transient" + (receipt.visible ? " is-visible" : "")} data-admin-receipt aria-live="polite">{receipt.text}</p> : null}{error ? <p role="alert" className="error">{error}</p> : null}</>}
       views={[{ id: "overview", label: "治理概览", content: overview }, { id: "binding", label: "人员绑定", content: binding }, { id: "templates", label: "AI 工单模板", count: reads.templates.status === "ready" ? templates.length : null, content: templateView }]} />
   </div>;
 }

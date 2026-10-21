@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "kind": "navigation-contract",
+  "status": "complete",
+  "owner": "ui-ux/platform-product-manager/frontend",
+  "requirement_refs": [
+    "CONST-08",
+    "CONST-10",
+    "TECH-ARCH-04",
+    "TECH-TEST-01",
+    "CONST-04",
+    "TECH-FE-03",
+    "TECH-BE-04",
+    "TECH-TEST-02",
+    "TECH-TEST-03",
+    "TECH-FE-01",
+    "TECH-BE-01"
+  ],
+  "subject": {
+    "task_id": "knowledge-ontology-directory-20261020",
+    "source_revision": "a4a6b09e5a33de7ae1661a2ddcd11623f5483da5",
+    "feature": "knowledge-business-directory"
+  },
+  "decisions": {
+    "nodes": [
+      "/kb",
+      "/admin/knowledge",
+      "/admin/knowledge?stage=catalog",
+      "现有base/entry/document深链"
+    ],
+    "local_switches": [
+      "族变更清空域和主题，域变更清空主题",
+      "目录展开更多不触发写入",
+      "未归类知识库与本体目录分开表达"
+    ],
+    "route_migration": false,
+    "identity_preservation": [
+      "知识条目id",
+      "知识库base_id",
+      "文档id",
+      "原既有URL",
+      "审批/历史版本引用"
+    ]
+  },
+  "verification": {
+    "scope": "本次目录变更",
+    "evidence": [
+      "validation.json",
+      "browser-review.json"
+    ],
+    "independent_human_review": false
+  },
+  "task_id": "knowledge-ontology-directory-20261020",
+  "summary": "员工和管理两侧以本体企业三级分类为目录，真实知识库容器通过持久映射归类；原内容与权限不变。",
+  "status_claims": [
+    {
+      "subject": "directory-feature",
+      "fact": "fixture-browser-tests",
+      "value": "passed"
+    },
+    {
+      "subject": "directory-feature",
+      "fact": "independent-human-review",
+      "value": "not-performed"
+    }
+  ]
+}

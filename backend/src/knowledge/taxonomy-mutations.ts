@@ -10,13 +10,14 @@ import { requireAdmin } from '../auth.js';
 import { postgresTransaction } from '../postgres/pool.js';
 import { HttpFail } from '../host/errors.js';
 import { knowledgeBindingMatchesRow } from './binding-selector.js';
+import { requestedThemeBinding } from './business-taxonomy.js';
 
 type Row = Record<string, any>;
 export type CatalogConfirmation = { confirmed?: unknown; expected_updated_at?: unknown };
 export type DomainPatch = CatalogConfirmation & { name?: string; sort?: number | null; status?: string; note?: string };
-export type BasePatch = CatalogConfirmation & { name?: string; description?: string; status?: string; expected_version?: number | null; domain_id?: string; kind?: string };
+export type BasePatch = CatalogConfirmation & { name?: string; description?: string; status?: string; expected_version?: number | null; domain_id?: string; kind?: string; ontology_theme_id?: unknown };
 export type CreateCatalogDomainInput = { code?: unknown; name?: unknown; level?: unknown; parent_id?: unknown; sort?: unknown; note?: unknown };
-export type CreateCatalogBaseInput = { code?: unknown; name?: unknown; domain_id?: unknown; kind?: unknown; description?: unknown; settings?: unknown; external_ref?: unknown };
+export type CreateCatalogBaseInput = { code?: unknown; name?: unknown; domain_id?: unknown; kind?: unknown; description?: unknown; settings?: unknown; external_ref?: unknown; ontology_theme_id?: unknown };
 type Blocker = { code: string; message: string; count: number };
 const LOCK_KEY = 'knowledge-taxonomy-mutation-v1';
 const DOMAIN_CODE_RE = /^[a-z][a-z0-9_]*$/;
@@ -188,6 +189,28 @@ async function record(db: PoolClient, actor: string, kind: 'domain' | 'base', ac
     [new Date().toISOString(), actor, `knowledge.${kind}.${action}`, JSON.stringify({ id: target?.id, before: summary(before), after: summary(after), confirmed: ['delete', 'archive'].includes(action), expected_updated_at: before?.updated_at ?? null })]);
   return result.rows[0]?.id;
 }
+async function saveThemeBinding(db: PoolClient, actor: string, baseId: string, request: ReturnType<typeof requestedThemeBinding>) {
+  if (!request.provided) return null;
+  const before = (await db.query(`SELECT base_id,theme_id,source_version,created_by,created_at,updated_by,updated_at
+    FROM knowledge_ontology_theme_bindings WHERE base_id=$1 FOR UPDATE`, [baseId])).rows[0] || null;
+  let after: Row | null = null;
+  if (request.themeId === null) {
+    await db.query('DELETE FROM knowledge_ontology_theme_bindings WHERE base_id=$1', [baseId]);
+  } else {
+    after = (await db.query(`INSERT INTO knowledge_ontology_theme_bindings
+      (base_id,theme_id,source_version,created_by,updated_by)
+      VALUES($1,$2,$3,$4,$4)
+      ON CONFLICT(base_id) DO UPDATE SET theme_id=EXCLUDED.theme_id,source_version=EXCLUDED.source_version,
+        updated_by=EXCLUDED.updated_by,updated_at=now()
+      RETURNING base_id,theme_id,source_version,created_by,created_at,updated_by,updated_at`,
+    [baseId, request.themeId, request.sourceVersion, actor])).rows[0];
+  }
+  await db.query(`INSERT INTO audit_events(ts,actor,event_type,payload) VALUES($1,$2,$3,$4)`, [
+    new Date().toISOString(), actor, request.themeId === null ? 'knowledge.base.theme_binding.remove' : 'knowledge.base.theme_binding.save',
+    JSON.stringify({ base_id: baseId, before, after, source_version: request.sourceVersion }),
+  ]);
+  return after;
+}
 async function mutation<T>(destructive: boolean, fn: (db: PoolClient, actor: string) => Promise<T>): Promise<T> {
   const actor = requireAdmin().id;
   try {
@@ -260,6 +283,7 @@ export async function createCatalogBase(input: CreateCatalogBaseInput) {
     const externalRef = input.external_ref == null || input.external_ref === '' ? null : JSON.stringify(input.external_ref);
     if (kind === 'structured' && externalRef) fail(400, 'knowledge_base_external_ref_forbidden', '结构化知识库不能带 external_ref');
     const code = await uniqueBaseCode(db, input.code);
+    const themeBinding = requestedThemeBinding(input.ontology_theme_id);
     const now = new Date().toISOString();
     const base = (await db.query(`INSERT INTO knowledge_bases
       (id,code,name,domain_id,kind,description,owner_user_id,status,settings,external_ref,version,created_at,updated_at)
@@ -267,9 +291,12 @@ export async function createCatalogBase(input: CreateCatalogBaseInput) {
     [`kbase_${randomUUID().replaceAll('-', '')}`, code, name, domainId, kind, String(input.description ?? ''), actor,
       JSON.stringify(jsonObject(input.settings)), externalRef, now])).rows[0];
     await record(db, actor, 'base', 'create', null, base);
+    await saveThemeBinding(db, actor, String(base.id), themeBinding);
     const view = (await db.query(`SELECT b.*,d.name AS domain_name,d.parent_id AS family_id,f.name AS family_name,
+      binding.theme_id AS ontology_theme_id,
       (SELECT COUNT(*) FROM knowledge k WHERE k.base_id=b.id) AS entries FROM knowledge_bases b
-      LEFT JOIN knowledge_domains d ON d.id=b.domain_id LEFT JOIN knowledge_domains f ON f.id=d.parent_id WHERE b.id=$1`, [base.id])).rows[0];
+      LEFT JOIN knowledge_domains d ON d.id=b.domain_id LEFT JOIN knowledge_domains f ON f.id=d.parent_id
+      LEFT JOIN knowledge_ontology_theme_bindings binding ON binding.base_id=b.id WHERE b.id=$1`, [base.id])).rows[0];
     return { base: { ...view, settings: parse(view.settings || '{}'), external_ref: view.external_ref ? parse(view.external_ref) : null,
       version: Number(view.version), entries: Number(view.entries || 0), description: view.description ?? '', owner_user_id: view.owner_user_id ?? '' } };
   });
@@ -328,6 +355,7 @@ export async function editCatalogBase(id: string, patch: BasePatch) {
     if (patch.expected_version == null || !Number.isFinite(Number(patch.expected_version))) fail(400, 'knowledge_base_version_required', 'expected_version required');
     if (Number(patch.expected_version) !== Number(row.version)) fail(409, 'knowledge_base_version_conflict', '知识库已变更，请刷新后重试');
     if ((patch.domain_id != null && patch.domain_id !== row.domain_id) || (patch.kind != null && patch.kind !== row.kind)) fail(400, 'knowledge_base_immutable', '不允许修改知识库所属主题域或类型');
+    const themeBinding = requestedThemeBinding(patch.ontology_theme_id);
     const name = patch.name == null ? row.name : String(patch.name).trim(), status = patch.status ?? row.status;
     if (!name || !['active', 'archived'].includes(status)) fail(400, 'knowledge_taxonomy_invalid', '名称或状态无效');
     if (archive) blocked('base', 'archive', await baseBlockers(db, row, 'archive'));
@@ -340,9 +368,12 @@ export async function editCatalogBase(id: string, patch: BasePatch) {
     const after = (await db.query(`UPDATE knowledge_bases SET name=$2,description=$3,status=$4,version=version+1,updated_at=$5 WHERE id=$1 RETURNING *`,
       [id, name, patch.description ?? row.description, status, nextStamp(row.updated_at)])).rows[0];
     await record(db, actor, 'base', archive ? 'archive' : 'save', row, after);
+    await saveThemeBinding(db, actor, id, themeBinding);
     const view = (await db.query(`SELECT b.*,d.name AS domain_name,d.parent_id AS family_id,f.name AS family_name,
+      binding.theme_id AS ontology_theme_id,
       (SELECT COUNT(*) FROM knowledge k WHERE k.base_id=b.id) AS entries FROM knowledge_bases b
-      LEFT JOIN knowledge_domains d ON d.id=b.domain_id LEFT JOIN knowledge_domains f ON f.id=d.parent_id WHERE b.id=$1`, [id])).rows[0];
+      LEFT JOIN knowledge_domains d ON d.id=b.domain_id LEFT JOIN knowledge_domains f ON f.id=d.parent_id
+      LEFT JOIN knowledge_ontology_theme_bindings binding ON binding.base_id=b.id WHERE b.id=$1`, [id])).rows[0];
     return { base: { ...view, settings: parse(view.settings || '{}'), external_ref: view.external_ref ? parse(view.external_ref) : null,
       version: Number(view.version), entries: Number(view.entries || 0), description: view.description ?? '', owner_user_id: view.owner_user_id ?? '' } };
   });

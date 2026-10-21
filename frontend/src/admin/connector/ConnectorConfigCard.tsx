@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Form } from "antd";
 import { api } from "../../api";
@@ -22,7 +22,17 @@ function secretRowsFromConfig(config: RuntimeConnectorConfig): SecretRow[] {
   return rows.length ? rows : [{ name: "", value: "" }];
 }
 
-export function ConnectorConfigCard({ card, reload, embedded = false, saveFooterHost, onSaved, onLoaded }: {
+function ConfigSection({ embedded, title, children }: { embedded: boolean; title: string; children: ReactNode }) {
+  // 嵌在向导里时保留分组标题（只降一档），否则长表单是一整片没有分段的字段。
+  return embedded ? <>
+    <h4 className="connector-wizard-section-title">{title}</h4>
+    {children}
+  </> : <section className="connector-config-section" aria-label={title}>
+    <h4>{title}</h4><div className="connector-config-fields">{children}</div>
+  </section>;
+}
+
+export function ConnectorConfigCard({ card, reload, embedded = false, saveFooterHost, onSaved, onLoaded, onConfigLoaded, onDirtyChange }: {
   card: ConnectorCardView;
   reload: () => void;
   /** Rendered inside the setup wizard: heading drops and save becomes that step's primary action. */
@@ -32,6 +42,9 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
   onSaved?: (version: number) => void;
   /** Reports the server's stored config version after each load (0 when none is saved). */
   onLoaded?: (version: number, probeMode?: "directory" | "mediacrawler_start") => void;
+  /** Reference-only snapshot for the detail page; never includes secret values. */
+  onConfigLoaded?: (config: RuntimeConnectorConfig | null, version: number) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -44,6 +57,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
   const [urlEnv, setUrlEnv] = useState("");
   const [timeoutMs, setTimeoutMs] = useState("30000");
   const [noAuth, setNoAuth] = useState(false);
+  const [oauthEnabled, setOauthEnabled] = useState(false);
   const [secretRows, setSecretRows] = useState<SecretRow[]>([{ name: "", value: "" }]);
   const [envRefs, setEnvRefs] = useState<Record<string, string>>({});
   const [bearerRef, setBearerRef] = useState("");
@@ -56,6 +70,21 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const snapshot = JSON.stringify([label, purpose, protocol, transport, url, urlEnv, timeoutMs, noAuth, oauthEnabled, secretRows, envRefs, bearerRef, bearerEnv, httpTools]);
+  const savedSnapshot = useRef<string | null>(null);
+  // The baseline is taken only after an explicit config load, never on Tab switches.
+  const captureBaseline = useRef(true);
+  useEffect(() => {
+    if (loading || loadError) return;
+    if (captureBaseline.current) {
+      savedSnapshot.current = snapshot;
+      captureBaseline.current = false;
+    }
+    const changed = snapshot !== savedSnapshot.current || iconFile !== null;
+    setDirty(changed);
+    onDirtyChange?.(changed);
+  }, [snapshot, iconFile, loading, loadError, onDirtyChange]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -66,12 +95,14 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
       const config = result.config;
       setVersion(result.version);
       onLoaded?.(result.version, result.probe_mode);
+      onConfigLoaded?.(config, result.version);
       setProtocol(config.protocol === "http" ? "http" : "mcp");
       setTransport(config.transport === "sse" ? "sse" : "streamable-http");
       setUrl(config.url || "");
       setUrlEnv(config.url_env || "");
       setTimeoutMs(String(config.timeout_ms || 30_000));
       setNoAuth(config.allow_unauthenticated === true);
+      setOauthEnabled(config.oauth_enabled === true);
       setSecretRows(secretRowsFromConfig(config));
       setEnvRefs(config.headers_env || {});
       setBearerRef(config.bearer_secret_ref || "");
@@ -82,6 +113,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
       if (status === 404) {
         setVersion(0);
         onLoaded?.(0);
+        onConfigLoaded?.(null, 0);
         setSecretRows([{ name: "", value: "" }]);
         setEnvRefs({});
         setBearerRef("");
@@ -93,9 +125,10 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
         setLoadError(errorMessage(cause, "无法读取连接器配置"));
       }
     } finally {
+      captureBaseline.current = true;
       setLoading(false);
     }
-  }, [card.id, card.protocol, onLoaded]);
+  }, [card.id, card.protocol, onLoaded, onConfigLoaded]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { setLabel(card.label); setPurpose(card.purpose); }, [card.label, card.purpose]);
@@ -152,6 +185,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
         url: url.trim(),
         urlEnv,
         noAuth,
+        oauthEnabled,
         timeoutMs: timeout,
         headerRows: rows,
         envRefs,
@@ -203,11 +237,10 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
     <>
       {embedded ? (
         <p className="connector-config-save-note muted" data-connector-config-save-note>
-          <span>保存仅更新配置并回到待验证，不代表连通或启用。</span>
-          <span>配置改动后须重新测试，通过后方可启用。</span>
+          保存只更新配置并回到待验证，不代表连通或启用；改动后需重新测试。
         </p>
       ) : (
-        <p className="connector-panel-note muted">保存只更新配置，不等于连通或启用；改动后需重新测试。</p>
+        <p className="connector-panel-note muted">{dirty ? "有未保存改动；切换 Tab 会保留草稿。" : "保存只更新配置，不等于连通或启用；改动后需重新测试。"}</p>
       )}
       <button
         type="button"
@@ -218,7 +251,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
         aria-busy={busy}
         onClick={() => void submit()}
       >
-        {busy ? "保存中…" : "保存"}
+        {busy ? "保存中…" : embedded ? "保存" : "保存配置"}
       </button>
     </>
   );
@@ -231,7 +264,6 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
             <h3>接入配置</h3>
             <p className="muted">端点与请求头只以服务端引用保存；浏览器不回显任何密钥原值。</p>
           </div>
-          <span className="muted">短名 · <code>{card.id}</code></span>
         </div>
       )}
       {loading && <p className="muted" role="status">正在读取配置…</p>}
@@ -246,11 +278,12 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
           {error && <p className="error" role="alert" data-connector-config-error>{error}</p>}
           {notice && <p className="runtime-notice" role="status">{notice}</p>}
           <Form component="div" layout="horizontal" className="connector-config-form">
+          <ConfigSection embedded={embedded} title="基础信息">
           <div className="connector-form-grid">
-            <label className="field connector-config-inline"><span className="connector-config-label">服务器名称</span>
+            <label className="field connector-config-inline connector-field-name"><span className="connector-config-label">服务器名称</span>
               <input value={label} maxLength={120} data-connector-field="label" onChange={(event) => setLabel(event.target.value)} />
             </label>
-            {protocol === "mcp" && <label className="field connector-config-inline"><span className="connector-config-label">传输类型</span>
+            {protocol === "mcp" && <label className="field connector-config-inline connector-field-transport"><span className="connector-config-label">传输类型</span>
               <select value={transport} data-connector-field="transport" onChange={(event) => setTransport(event.target.value as RuntimeConnectorTransport)}>
                 <option value="streamable-http">HTTP</option>
                 <option value="sse">SSE</option>
@@ -258,12 +291,12 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
             </label>}
           </div>
           <div className="field connector-config-inline"><span className="connector-config-label">图标</span>
-            <ConnectorIconUpload variant={embedded ? "compact" : "dialog"} file={iconFile} existingUrl={card.iconUrl} onPick={setIconFile} />
+            <ConnectorIconUpload variant="compact" file={iconFile} existingUrl={card.iconUrl} onPick={setIconFile} />
           </div>
-          <label className="field connector-config-purpose"><span className={embedded ? "sr-only" : undefined}>备注<span className="field-optional">（可选）</span></span>
+          <label className="field connector-config-inline connector-config-purpose"><span className="connector-config-label">备注<span className="field-optional">（可选）</span></span>
             <textarea
               value={purpose}
-              rows={embedded ? 2 : 5}
+              rows={2}
               maxLength={280}
               data-connector-field="purpose"
               placeholder={embedded ? "备注（可选）" : "提供 MCP 文档或说明，以告知平台如何及何时使用此 MCP"}
@@ -271,7 +304,9 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
               onChange={(event) => setPurpose(event.target.value)}
             />
           </label>
-          <label className="field connector-config-inline"><span className="connector-config-label">{protocol === "mcp" ? "服务器 URL" : "API Base URL"}</span>
+          </ConfigSection>
+          <ConfigSection embedded={embedded} title="端点与鉴权">
+          <label className="field connector-config-inline connector-field-url"><span className="connector-config-label">{protocol === "mcp" ? "服务器 URL" : "API Base URL"}</span>
             <input
               value={url}
               placeholder={urlEnv
@@ -317,7 +352,11 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
           <div className="field connector-config-inline connector-config-headers"><span className="connector-config-label">自定义 headers</span>
             <div className="connector-header-rows" data-connector-header-rows>
               {secretRows.map((row, index) => (
-                <div className="connector-header-row" key={index}>
+                <div className={"connector-header-row" + (row.removed ? " is-pending-removal" : "")} key={index}>
+                  {row.removed ? <div className="connector-header-removal" data-connector-header-removal>
+                    <span className="muted" role="status">已标记移除 <code>{row.name}</code>，保存后生效。</span>
+                    <button type="button" className="btn text" disabled={busy} onClick={() => updateRow(index, { removed: false })}>撤销移除</button>
+                  </div> : <>
                   <HeaderNameInput
                     value={row.name}
                     ariaLabel="Header 名称"
@@ -328,7 +367,8 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
                   <input
                     className="connector-header-value"
                     value={row.value}
-                    placeholder={row.ref ? `已保存引用 ${row.ref}（不回显）；留空保持不变` : "Header 值"}
+                    placeholder={row.ref ? "已保存引用（不回显），留空保持不变" : "Header 值"}
+                    title={row.ref ? `凭据引用 ${row.ref}` : undefined}
                     aria-label="Header 值"
                     type="password"
                     autoComplete="new-password"
@@ -348,6 +388,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
                     <svg viewBox="0 0 16 16" aria-hidden><path d="M3 4.5h10M6.5 4.5V3h3v1.5M5 4.5l.6 8h4.8l.6-8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
                   </button>
                   <HeaderNameHint name={row.name} bearerReference={Boolean(bearerRef || bearerEnv)} />
+                  </>}
                 </div>
               ))}
               <button type="button" className="btn sm" disabled={busy} data-connector-header-add onClick={() => setSecretRows((rows) => [...rows, { name: "", value: "" }])}>
@@ -364,18 +405,25 @@ export function ConnectorConfigCard({ card, reload, embedded = false, saveFooter
               {bearerRef && <li>Bearer 凭据引用 · <code>{bearerRef}</code>（不回显）</li>}
             </ul>
           )}
+          </ConfigSection>
+          <ConfigSection embedded={embedded} title="请求选项">
           <div className="connector-form-grid">
-            <label className="field connector-config-inline"><span className="connector-config-label">超时（毫秒）</span>
-              <input type="number" min="1" max="120000" value={timeoutMs} onChange={(event) => setTimeoutMs(event.target.value)} />
+            <label className="field connector-config-inline connector-field-timeout"><span className="connector-config-label">超时（毫秒）</span>
+              <input type="number" min="1" max="120000" value={timeoutMs} data-connector-field="timeout" onChange={(event) => setTimeoutMs(event.target.value)} />
             </label>
             <label className="check connector-check-row">
               <input type="checkbox" checked={noAuth} onChange={(event) => setNoAuth(event.target.checked)} /> 该端点明确允许无鉴权
             </label>
+            {protocol === "mcp" && transport === "streamable-http" && <label className="check connector-check-row">
+              <input type="checkbox" checked={oauthEnabled} onChange={(event) => setOauthEnabled(event.target.checked)} /> 启用 OAuth（每位使用者分别授权）
+            </label>}
+            {oauthEnabled && <p className="muted">保存后，当前登录用户可在连接器详情中授权自己的账号；凭据不会由其他用户共用。OAuth 回调要求启用登录并配置 APP_ORIGIN。</p>}
           </div>
+          </ConfigSection>
           </Form>
           {embedded
             ? saveFooterHost && createPortal(saveAction, saveFooterHost)
-            : <div className="connector-card-actions">{saveAction}</div>}
+            : <div className="connector-card-actions connector-config-footer">{saveAction}</div>}
         </>
       )}
     </section>

@@ -1,0 +1,166 @@
+{
+  "schema_version": "1.0.0",
+  "kind": "development-delivery-record",
+  "task_contract": {
+    "file": "task-contract.json",
+    "sha256": "5ecad84a3d5d164e421653cb4097542dada4b87de804aff8a14b74e8a330f48d"
+  },
+  "artifacts": [
+    {
+      "id": "state-and-action-map",
+      "file": "state-and-action-map.json",
+      "sha256": "5bea90020fe02e0a81228adc12c474313b8160ef8220398c7aeecd84d870b1a7",
+      "status": "complete"
+    },
+    {
+      "id": "layout-contract",
+      "file": "layout-contract.json",
+      "sha256": "8eb0bfb56a8e5cf2eb57376c2503f13cf681a4b0dbd0a89063c72447ecc4d96c",
+      "status": "complete"
+    },
+    {
+      "id": "component-selection",
+      "file": "component-selection.json",
+      "sha256": "1d20a774f674329332a6cf387dfba101de787581f0d19de4cf14f93bf3b810a3",
+      "status": "complete"
+    },
+    {
+      "id": "preview-contract",
+      "file": "preview-contract.json",
+      "sha256": "7e3e9f311e26475bf0f36e0665579a8698d5a4124cd9674f00c1789beb8df077",
+      "status": "complete"
+    },
+    {
+      "id": "async-contract",
+      "file": "async-contract.json",
+      "sha256": "070aeef09eef892f641b6cd4d4aaff4e9f296e8b7d97b538e05bde2c92cbd3ae",
+      "status": "complete"
+    },
+    {
+      "id": "browser-and-source-evidence",
+      "file": "browser-and-source-evidence.json",
+      "sha256": "3e102e56cf11146e369fcde00eb41afd840b55a767e20527bd8e5048125908e0",
+      "status": "complete"
+    },
+    {
+      "id": "navigation-contract",
+      "file": "navigation-contract.json",
+      "sha256": "81dea4b8f844cf6cd38e182d85b5344cdfa5a91020c90115abe1231819a0db1a",
+      "status": "complete"
+    }
+  ],
+  "checks": [
+    {
+      "id": "route-contract-schema",
+      "type": "machine",
+      "status": "passed",
+      "evidence": [
+        {
+          "file": "validation.json",
+          "sha256": "1dc6249847094a3338ecab544051e80514c6e6b59802b6fa57123ca8b2ec5226",
+          "kind": "test-report"
+        }
+      ],
+      "command": "目录单元29、知识组件126、浏览器3、后端7+10+79、前后端类型检查、后端契约与registry检查",
+      "exit_code": 0
+    },
+    {
+      "id": "knowledge-state-contract-test",
+      "type": "machine",
+      "status": "passed",
+      "evidence": [
+        {
+          "file": "validation.json",
+          "sha256": "1dc6249847094a3338ecab544051e80514c6e6b59802b6fa57123ca8b2ec5226",
+          "kind": "test-report"
+        }
+      ],
+      "command": "目录单元29、知识组件126、浏览器3、后端7+10+79、前后端类型检查、后端契约与registry检查",
+      "exit_code": 0
+    },
+    {
+      "id": "knowledge-browser-and-source-review",
+      "type": "human-browser",
+      "status": "passed",
+      "evidence": [
+        {
+          "file": "browser-review.json",
+          "sha256": "893977ab9b2ca3873c48765c53824be6661c15c07b901f59ec82325ceca97661",
+          "kind": "browser-record"
+        }
+      ],
+      "reviewer": "Manus（代理浏览器复核，非独立人类专家）",
+      "reviewed_at": "2026-10-20T05:53:49.761023+00:00"
+    },
+    {
+      "id": "frontend-experience-test",
+      "type": "machine",
+      "status": "passed",
+      "evidence": [
+        {
+          "file": "validation.json",
+          "sha256": "1dc6249847094a3338ecab544051e80514c6e6b59802b6fa57123ca8b2ec5226",
+          "kind": "test-report"
+        }
+      ],
+      "command": "目录单元29、知识组件126、浏览器3、后端7+10+79、前后端类型检查、后端契约与registry检查",
+      "exit_code": 0
+    },
+    {
+      "id": "frontend-browser-review",
+      "type": "human-browser",
+      "status": "passed",
+      "evidence": [
+        {
+          "file": "browser-review.json",
+          "sha256": "893977ab9b2ca3873c48765c53824be6661c15c07b901f59ec82325ceca97661",
+          "kind": "browser-record"
+        }
+      ],
+      "reviewer": "Manus（代理浏览器复核，非独立人类专家）",
+      "reviewed_at": "2026-10-20T05:53:49.761120+00:00"
+    },
+    {
+      "id": "navigation-route-test",
+      "type": "machine",
+      "status": "passed",
+      "evidence": [
+        {
+          "file": "validation.json",
+          "sha256": "1dc6249847094a3338ecab544051e80514c6e6b59802b6fa57123ca8b2ec5226",
+          "kind": "test-report"
+        }
+      ],
+      "command": "目录单元29、知识组件126、浏览器3、后端7+10+79、前后端类型检查、后端契约与registry检查",
+      "exit_code": 0
+    },
+    {
+      "id": "navigation-browser-review",
+      "type": "human-browser",
+      "status": "passed",
+      "evidence": [
+        {
+          "file": "browser-review.json",
+          "sha256": "893977ab9b2ca3873c48765c53824be6661c15c07b901f59ec82325ceca97661",
+          "kind": "browser-record"
+        }
+      ],
+      "reviewer": "Manus（代理浏览器复核，非独立人类专家）",
+      "reviewed_at": "2026-10-20T05:53:49.761211+00:00"
+    },
+    {
+      "id": "backend-affected-test",
+      "type": "machine",
+      "status": "passed",
+      "evidence": [
+        {
+          "file": "validation.json",
+          "sha256": "1dc6249847094a3338ecab544051e80514c6e6b59802b6fa57123ca8b2ec5226",
+          "kind": "test-report"
+        }
+      ],
+      "command": "目录单元29、知识组件126、浏览器3、后端7+10+79、前后端类型检查、后端契约与registry检查",
+      "exit_code": 0
+    }
+  ]
+}

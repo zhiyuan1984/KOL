@@ -4,6 +4,7 @@ import { RightOutlined, SettingOutlined, ToolOutlined } from "@ant-design/icons"
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { governanceStatus, type AdminRow } from "../../adminGovernance";
+import { useTransientReceipt } from "../../components/useTransientReceipt";
 import { ConnectorMark } from "./ConnectorMark";
 import { ApiConfigPanel, JsonImportPanel, ModalShell, UrlAddPanel } from "./ConnectorPanels";
 import { ConnectorSetupWizard, McpConfigPanel } from "./ConnectorSetupWizard";
@@ -60,8 +61,8 @@ export function ConnectorHub({ connectors, loading, onSave, reload }: {
   const [panel, setPanel] = useState<CreatePanelKind | null>(null);
   const [toolsCard, setToolsCard] = useState<ConnectorCardView | null>(null);
   const [configCard, setConfigCard] = useState<ConnectorCardView | null>(null);
-  const [notice, setNotice] = useState("");
   const [noticeTone, setNoticeTone] = useState<"ok" | "warn">("ok");
+  const { receipt, showReceipt } = useTransientReceipt();
   const [error, setError] = useState("");
   const [adding, setAdding] = useState("");
 
@@ -72,8 +73,8 @@ export function ConnectorHub({ connectors, loading, onSave, reload }: {
   const finishPanel = (message: string, tone: "ok" | "warn" = "ok") => {
     setPanel(null);
     setError("");
-    setNotice(message);
     setNoticeTone(tone);
+    showReceipt(message);
     reload();
   };
 
@@ -81,8 +82,8 @@ export function ConnectorHub({ connectors, loading, onSave, reload }: {
   const finishConfig = (message: string, tone: "ok" | "warn" = "ok") => {
     setConfigCard(null);
     setError("");
-    setNotice(message);
     setNoticeTone(tone);
+    showReceipt(message);
     reload();
   };
 
@@ -155,14 +156,16 @@ export function ConnectorHub({ connectors, loading, onSave, reload }: {
         </div>
       </div>
 
-      {notice && (
+      {/* 回执只描述刚才那一次动作：几秒后自动收起，不占连接器列表上方的固定横幅位。 */}
+      {receipt.text && (
         <p
-          className={"admin-receipt " + (noticeTone === "warn" ? "connector-receipt-warn" : "status-ok")}
+          className={"admin-receipt is-transient" + (receipt.visible ? " is-visible" : "") + (noticeTone === "warn" ? " connector-receipt-warn" : " status-ok")}
           role="status"
+          aria-live="polite"
           data-connector-notice
           data-connector-notice-tone={noticeTone}
         >
-          {notice}
+          {receipt.text}
         </p>
       )}
       {error && <p className="error" role="alert">{error}</p>}
@@ -327,7 +330,7 @@ function ConnectorBrowseModal({ cards, loading, adding, onAddBuiltin, onCreate, 
                 <span className="connector-mark connector-mark-letter" aria-hidden>+</span>
                 <div className="connector-card-body">
                   <div className="connector-card-title"><strong>新建自定义 MCP</strong></div>
-                  <p className="connector-card-purpose">配置服务器名称、传输类型、URL 与请求头。</p>
+                  <p className="connector-card-purpose" title="配置服务器名称、传输类型、URL 与请求头。">配置服务器名称、传输类型、URL 与请求头。</p>
                 </div>
               </button>
             )}
@@ -336,7 +339,7 @@ function ConnectorBrowseModal({ cards, loading, adding, onAddBuiltin, onCreate, 
                 <span className="connector-mark connector-mark-letter" aria-hidden>+</span>
                 <div className="connector-card-body">
                   <div className="connector-card-title"><strong>新建自定义 HTTP API</strong></div>
-                  <p className="connector-card-purpose">填写名称与密钥；Base URL 与动作在详情配置。</p>
+                  <p className="connector-card-purpose" title="填写名称与密钥；Base URL 与动作在详情配置。">填写名称与密钥；Base URL 与动作在详情配置。</p>
                 </div>
               </button>
             )}
@@ -448,7 +451,7 @@ function ConnectorCard({ card, onOpen, onViewTools, onOpenConfig, plain = false 
             <strong>{card.label}</strong>
           </Link>
         </div>
-        <p className="connector-card-purpose">{card.purpose || "未填写业务用途"}</p>
+        <p className="connector-card-purpose" title={card.purpose || "未填写业务用途"}>{card.purpose || "未填写业务用途"}</p>
       </div>
       <div className="connector-card-side">
         <span className="connector-added">
@@ -466,7 +469,7 @@ function CatalogCard({ id, label, purpose, busy, onAdd }: { id: string; label: s
       <ConnectorMark id={id} label={label} />
       <div className="connector-card-body">
         <div className="connector-card-title"><strong>{label}</strong></div>
-        <p className="connector-card-purpose">{purpose}</p>
+        <p className="connector-card-purpose" title={purpose}>{purpose}</p>
       </div>
       <div className="connector-card-side">
         <button type="button" className="connector-plus" aria-label={`加入目录：${label}`} disabled={busy} onClick={onAdd}>

@@ -7,11 +7,13 @@ import StarryBindForm from '../components/StarryBindForm';
 import { formatSettingsReceiptTime, readSettingsReceipt, writeSettingsReceipt, type SettingsReceipt } from '../settingsReceipt';
 import '../settings/settings.css';
 import { ProfileSettings, PreferenceSettings, PasswordSettings, MemorySettings, PrivacySettings } from '../settings/SettingsPanels';
+import { McpAccountSettings } from '../settings/McpAccountSettings';
 
 const categories = [
   { key: 'profile', label: '个人资料' }, { key: 'starry', label: '账号与邮箱' },
   { key: 'preferences', label: '工作偏好' }, { key: 'security', label: '账户安全' },
   { key: 'memories', label: '记忆' }, { key: 'privacy', label: '隐私与数据' },
+  { key: 'mcp', label: 'MCP 账号' },
 ];
 export default function AccountSettings() {
   const { account, refresh } = useAccount();
@@ -58,6 +60,7 @@ export default function AccountSettings() {
       {tab === 'security' && <PasswordSettings onDirty={setDirty} />}
       {tab === 'memories' && <MemorySettings onDirty={setDirty} onReceipt={recordReceipt} />}
       {tab === 'privacy' && <PrivacySettings onDirty={setDirty} onReceipt={recordReceipt} />}
+      {tab === 'mcp' && <McpAccountSettings />}
       {receipt && receiptTab === tab && <details className="settings-operation-receipt" data-settings-receipt={receipt.kind}>
         <summary>最近操作 · {formatSettingsReceiptTime(receipt.at)}</summary>
         <p data-settings-receipt-text>{receipt.text}</p>

@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { dataDir } from "../config.js";
 import { startDocument, publishedDocumentSourceFile } from "../host/knowledge-documents.js";
-import { scopedUser } from "../auth.js";
+import { authDisabled, scopedUser } from "../auth.js";
 import { assertRuntimeSkill } from "../runtime/execution.js";
 import { hasDocumentTool, documentDependencies } from "../runtime/document-knowledge.js";
 import { runtimeKnowledgeManifest,saveScope } from '../knowledge/scopes.js';
@@ -82,7 +82,8 @@ import {
   undeprecate,
 } from "../host/knowledge.js";
 import type { Json } from "../types.js";
-import { postgresQuery } from "../postgres/pool.js";
+import { postgresQuery, postgresTransaction } from "../postgres/pool.js";
+import { readKnowledgeBusinessTaxonomy } from '../knowledge/business-taxonomy.js';
 import { publicationContext, publicationState, bindPublication, preparePublication, checkPublication,
   knowledgeReviewMaterial, knowledgeReviewTrial, retryPublication, publishApprovedDocument, createDocumentRevision,replaceDraftDocument } from "../knowledge/publication.js";
 
@@ -183,6 +184,13 @@ knowledge.get("/knowledge/composer", async (c) => c.json((await composerItems())
 knowledge.get("/knowledge/market", async (c) => c.json((await listMarket())));
 knowledge.get("/knowledge/question-templates", async (c) => c.json((await questionTemplates())));
 knowledge.get("/knowledge/taxonomy", async (c) => c.json((await publicKnowledgeTaxonomy())));
+knowledge.get("/knowledge/business-taxonomy", async (c) => {
+  const includeArchived = c.req.query("admin") === "1";
+  if (includeArchived) requireAdmin();
+  else if (!scopedUser() && !authDisabled()) throw new HttpFail(401, "authentication required");
+  c.header("Cache-Control", "private, no-store");
+  return c.json(await postgresTransaction(db => readKnowledgeBusinessTaxonomy(db, { activeOnly: !includeArchived })));
+});
 knowledge.get("/knowledge/:id/versions", async (c) => c.json((await listVersions(c.req.param("id")))));
 knowledge.get("/knowledge/:id", async (c) => {
   const row = (await knowledgeRow(c.req.param("id")));

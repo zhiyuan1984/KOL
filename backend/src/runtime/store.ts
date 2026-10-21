@@ -45,6 +45,7 @@ export type ConnectorConfig = {
   bearer_env?: string;
   credential_provider?: string;
   credential_account_id?: string;
+  oauth_enabled?: boolean;
   allow_unauthenticated?: boolean;
   timeout_ms?: number;
   headers_secret_refs?: Record<string, string>;
@@ -278,7 +279,7 @@ export function validateConnectorConfig(value: unknown): ConnectorConfig {
   if (!isPlainObject(value)) invalid("connector config must be an object");
   assertKnownKeys(value, [
     "protocol", "transport", "url", "url_env", "headers_env", "bearer_env", "credential_provider",
-    "credential_account_id", "allow_unauthenticated", "timeout_ms", "headers_secret_refs", "bearer_secret_ref",
+    "credential_account_id", "oauth_enabled", "allow_unauthenticated", "timeout_ms", "headers_secret_refs", "bearer_secret_ref",
     "http_tools",
   ], "connector config");
 
@@ -343,6 +344,18 @@ export function validateConnectorConfig(value: unknown): ConnectorConfig {
   if (value.credential_account_id !== undefined) {
     if (!config.credential_provider) invalid("credential_account_id requires credential_provider");
     config.credential_account_id = assertReferenceId(value.credential_account_id, "credential_account_id");
+  }
+  if (value.oauth_enabled !== undefined) {
+    config.oauth_enabled = assertBoolean(value.oauth_enabled, "oauth_enabled");
+    if (config.oauth_enabled && ((config.protocol || "mcp") !== "mcp" || (config.transport && config.transport !== "streamable-http"))) {
+      invalid("OAuth authorization is supported only for Streamable HTTP MCP connectors");
+    }
+    if (config.oauth_enabled && (config.bearer_env || config.bearer_secret_ref || hasExplicitAuthorization)) {
+      invalid("OAuth cannot be combined with static Authorization credentials");
+    }
+    if (config.oauth_enabled && config.credential_provider) {
+      invalid("OAuth cannot be combined with a static user account credential binding");
+    }
   }
   if (config.credential_provider === "user-account" && !config.credential_account_id) {
     invalid("user-account credential_provider requires credential_account_id");

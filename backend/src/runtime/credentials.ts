@@ -171,6 +171,10 @@ export async function credentialReferencedByRuntimeConfig(id: string, client?: P
   const binding = client ? await client.query<Row>("SELECT 1 FROM user_starry_bindings WHERE bearer_token=$1 LIMIT 1", [credentialIdValue])
     : { rows: await postgresQuery<Row>("SELECT 1 FROM user_starry_bindings WHERE bearer_token=$1 LIMIT 1", [credentialIdValue]) };
   if (binding.rows.length) return true;
+  const oauth = client
+    ? await client.query<Row>("SELECT 1 FROM runtime_connector_oauth_accounts WHERE credential_id=$1 UNION ALL SELECT 1 FROM runtime_connector_oauth_pending WHERE credential_id=$1 LIMIT 1", [credentialIdValue])
+    : { rows: await postgresQuery<Row>("SELECT 1 FROM runtime_connector_oauth_accounts WHERE credential_id=$1 UNION ALL SELECT 1 FROM runtime_connector_oauth_pending WHERE credential_id=$1 LIMIT 1", [credentialIdValue]) };
+  if (oauth.rows.length) return true;
   const configs = client ? await client.query<Row>("SELECT config_json FROM runtime_connector_config")
     : { rows: await postgresQuery<Row>("SELECT config_json FROM runtime_connector_config") };
   for (const row of configs.rows) { try { if (configReferencesCredential(JSON.parse(String(row.config_json)), credentialIdValue)) return true; } catch { /* invalid persisted configs fail closed at their owner */ } }
@@ -193,6 +197,20 @@ export async function resolveSecretReference(id: string, userId?: string): Promi
   if (row.status !== "active") fail("runtime_credential_unavailable", 403);
   if (row.type === "user_account") { if (!userId || userId !== row.owner_user_id) fail("runtime_credential_access_denied", 403); await postgresTransaction(async (client) => (requireActiveOwner(userId, client))); }
   return decryptRuntimeCredential(row);
+}
+/** Replaces a user's OAuth state/token bundle without exposing plaintext in metadata or audit rows. */
+export async function replaceUserCredentialSecret(id: string, userId: string, value: string): Promise<void> {
+  const exactId = credentialId(id);
+  const clear = secretValue(value);
+  await postgresTransaction(async (client) => {
+    const row = await requireStored(exactId, client);
+    if (row.type !== "user_account" || row.owner_user_id !== userId || row.status !== "active") fail("runtime_credential_access_denied", 403);
+    const encrypted = encryptRuntimeCredential(exactId, userId, clear);
+    await client.query(
+      "UPDATE runtime_credentials SET ciphertext=$1,nonce=$2,auth_tag=$3,version=version+1,updated_at=$4 WHERE id=$5",
+      [encrypted.ciphertext, encrypted.nonce, encrypted.authTag, new Date().toISOString(), exactId],
+    );
+  });
 }
 export async function resolveAccountHeaders(accountId: string, userId: string): Promise<Record<string, string>> {
   const exactAccountId = credentialId(accountId); if (!userId || typeof userId !== "string") fail("runtime_credential_account_required", 403);

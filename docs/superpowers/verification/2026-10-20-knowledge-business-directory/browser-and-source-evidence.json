@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "kind": "browser-and-source-evidence",
+  "status": "complete",
+  "owner": "test-manager/ui-ux",
+  "requirement_refs": [
+    "CONST-08",
+    "CONST-10",
+    "TECH-ARCH-04",
+    "TECH-TEST-01",
+    "CONST-04",
+    "TECH-FE-03",
+    "TECH-BE-04",
+    "TECH-TEST-02",
+    "TECH-TEST-03",
+    "TECH-FE-01",
+    "TECH-BE-01"
+  ],
+  "subject": {
+    "task_id": "knowledge-ontology-directory-20261020",
+    "source_revision": "a4a6b09e5a33de7ae1661a2ddcd11623f5483da5",
+    "feature": "knowledge-business-directory"
+  },
+  "decisions": {
+    "layers": [
+      "目录纯函数/组件单元",
+      "HTTP fixture浏览器流程",
+      "源代码和本体源目录比对"
+    ],
+    "critical_cases": [
+      "零内容主题保留",
+      "两侧同目录",
+      "父子级联",
+      "原baseID不变",
+      "历史未归类保留",
+      "取消零写入",
+      "375px键盘无横溢出"
+    ],
+    "evidence_records": [
+      "frontend-directory-tests.json",
+      "browser-tests.log",
+      "frontend-build.log",
+      "browser-review.json",
+      "business-directory-employee.png",
+      "business-directory-admin.png"
+    ],
+    "unverified": [
+      "独立人类UI/UX复核",
+      "未变更的文档加工/原件转换保真"
+    ]
+  },
+  "verification": {
+    "scope": "本次目录变更",
+    "evidence": [
+      "validation.json",
+      "browser-review.json"
+    ],
+    "independent_human_review": false
+  },
+  "task_id": "knowledge-ontology-directory-20261020",
+  "summary": "员工和管理两侧以本体企业三级分类为目录，真实知识库容器通过持久映射归类；原内容与权限不变。",
+  "status_claims": [
+    {
+      "subject": "directory-feature",
+      "fact": "fixture-browser-tests",
+      "value": "passed"
+    },
+    {
+      "subject": "directory-feature",
+      "fact": "independent-human-review",
+      "value": "not-performed"
+    }
+  ]
+}

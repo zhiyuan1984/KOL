@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { platformLabel, regionLabel } from "./discoveryTemplate";
 import type { DiscoveryBrief, DiscoveryTemplate } from "./discoveryTemplate";
 import {
@@ -39,7 +39,6 @@ export default function DiscoverySearchCard({ brief, catalog, onChange, schema, 
    *  父方应优先用它提交：flushDraft 的 onChange 与 onSubmit 同一次事件里发生，只读自身 state 会漏掉最后一个词。 */
   onSubmit?: (brief?: DiscoveryBrief) => void;
 }) {
-  const [resetVersion, setResetVersion] = useState(0);
   const keywordFieldRef = useRef<KeywordChipFieldHandle | null>(null);
   const options = {
     platforms: catalog?.platforms?.length ? catalog.platforms : OVERSEAS_DISCOVERY_PLATFORMS,
@@ -56,18 +55,16 @@ export default function DiscoverySearchCard({ brief, catalog, onChange, schema, 
     const words = flushed ?? (Array.isArray(brief.keywords) ? brief.keywords : []);
     onSubmit?.(words === brief.keywords ? brief : { ...brief, keywords: words });
   };
-  const card = <SkillParamCard key={resetVersion} fields={schema?.length ? schema : FALLBACK_FIELDS}
+  const card = <SkillParamCard fields={schema?.length ? schema : FALLBACK_FIELDS}
       values={brief as unknown as Record<string, unknown>} optionSets={options}
       tokenFields={TOKEN_FIELDS} pristineValues={PRISTINE_DISCOVERY_VALUES}
       hideTitle compactDiscoveryLayout mode={mode} keywordFieldRef={keywordFieldRef}
       onFieldChange={update}
       footer={onSubmit ? <div className="discovery-card-foot">
-        {mode === "edit" ? <span className="discovery-card-note">核对后再开始采集</span> : null}
         {mode === "edit" ? <button type="button" className="btn" data-discovery-card-submit
           disabled={submitting} aria-busy={submitting || undefined} onClick={submit}>{submitting ? "提交中…" : submitLabel || "提交条件，核对参数"}</button> : null}
       </div> : undefined} />;
   return <div className="discovery-brief-form">
-    {mode === "edit" ? <button type="button" className="btn text discovery-brief-reset" data-discovery-reset disabled={submitting} onClick={() => { setResetVersion((version) => version + 1); onChange(defaultDiscoveryBrief()); }}>重置</button> : null}
     {mode === "ready" ? <details className="discovery-submitted-conditions" data-discovery-submitted-conditions>
       <summary>{brief.platforms.map(code => platformLabel(code, options.platforms)).join("、") || "未选平台"}
         {` · ${regionLabel(brief.region, options.regions)} · ${brief.keywords.length} 个关键词 · 查看已提交条件`}</summary>

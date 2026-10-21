@@ -13,7 +13,7 @@ import { createConfiguredClient, type RuntimeContext } from "./execution.js";
  */
 export async function probeMediaCrawlerStart(context: RuntimeContext, config: ConnectorConfig): Promise<void> {
   if ((config.protocol || "mcp") !== "mcp" || config.transport === "sse") throw new HttpFail(409, { code: "runtime_probe_mode_invalid" });
-  const client = (await createConfiguredClient(context, config));
+  const client = (await createConfiguredClient(context, "claw", config));
   let taskId = "";
   try {
     const started = await client.callToolRaw("start_crawl", {

@@ -38,13 +38,14 @@ function distribution(
   level: ScopeLevel,
   label: string,
   categories: Array<{ id: string; name: string }>,
+  facetKey: string = level,
 ): Distribution | null {
-  const facet = data.facets?.[level];
+  const facet = data.facets?.[facetKey];
   const all = statCount(facet?.all);
   const values = facet?.values;
   if (all === null || !values || typeof values !== "object") return null;
 
-  const candidates = [
+  const candidates = facetKey.startsWith("catalog_") ? categories : [
     ...categories,
     {
       id: "__none__",
@@ -104,7 +105,11 @@ export function KnowledgeAssetsPanel({ data, error, reload, onPendingDocuments, 
     action: onExpiring, dot: "var(--accent)",
   }];
 
-  const distributions = [
+  const distributions = data.business_taxonomy ? [
+    distribution(data, "family", "业务族", data.business_taxonomy.nodes.filter(node => node.level === 1), "catalog_family"),
+    distribution(data, "domain", "业务域", data.business_taxonomy.nodes.filter(node => node.level === 2), "catalog_domain"),
+    distribution(data, "base", "业务主题", data.business_taxonomy.nodes.filter(node => node.level === 3), "catalog_theme"),
+  ] : [
     distribution(data, "family", "业务族", (data.domains || []).filter(item => item.level === "family")),
     distribution(data, "domain", "业务域", (data.domains || []).filter(item => item.level === "domain")),
     distribution(data, "base", "知识库", data.bases || []),
@@ -119,6 +124,7 @@ export function KnowledgeAssetsPanel({ data, error, reload, onPendingDocuments, 
     </header>
     <p className="knowledge-assets-scope muted">分类分布使用当前权限范围全局统计；中栏数量为当前筛选结果，计数范围不同。</p>
 
+    {data.business_taxonomy && <p className="knowledge-assets-scope muted">业务目录与本体一致；未归类资产仍保留在全局总数和知识规划的未归类知识库中。</p>}
     <nav className="kbadmin-queue" data-kb-asset-queue aria-label="资产健康队列">
       {queue.map(row => {
         const inner = (<>

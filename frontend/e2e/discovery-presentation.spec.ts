@@ -201,7 +201,7 @@ test("submitted discovery stays in its workspace while task loading is delayed",
   const errors = await intercept(page, 1600);
   await page.goto("/?tab=discovery");
   await expect(page.locator("[data-discovery-search-card]")).toBeVisible();
-  await page.locator("[data-discovery-card-submit]").click();
+  await page.locator("[data-home] [data-ai-prompt-submit]").click();
   await expect(page).toHaveURL(/tab=discovery/);
   await expect(page.locator("[data-workspace-session]")).toHaveAttribute("data-workspace-session", task.session_id);
   await expect(page.locator("[data-discovery-start-confirm]")).toBeVisible();
@@ -226,7 +226,7 @@ test("focused stream links remain reachable during live content growth", async (
   });
   try {
     await page.goto("/?tab=discovery");
-    await page.locator("[data-discovery-card-submit]").click();
+    await page.locator("[data-home] [data-ai-prompt-submit]").click();
     await started;
     await expect(page.locator("[data-discovery-start-confirm]")).toBeInViewport();
     const stream = page.locator(".scope-workspace-center-scroll");
@@ -257,7 +257,7 @@ test("Home uses one directional jump control without covering the composer", asy
   const errors = await intercept(page);
   await page.goto("/?tab=discovery");
   const pane = page.locator(".scope-workspace-center-scroll");
-  await expect(pane).toBeVisible({ timeout: 15000 });
+  await expect(pane).toBeVisible();
   await pane.locator(".scope-workspace-center-scroll-content").evaluate(el => {
     for (let i = 0; i < 40; i++) {
       const p = document.createElement("p");
@@ -282,6 +282,7 @@ test("short discovery reveals focused input after context growth and respects ma
   await page.emulateMedia({ reducedMotion: "reduce" });
   const errors = await intercept(page);
   await page.goto("/?tab=discovery");
+  await page.getByRole("button", { name: "编辑完整请求" }).click();
   await page.locator("[data-home] [data-composer-input]").fill("保留尺寸变化时的草稿");
   const submit = page.locator("[data-home] [data-ai-prompt-submit]");
   await submit.focus();
@@ -584,107 +585,3 @@ for (const theme of ["light", "dark"]) {
     }
   });
 }
-
-for (const width of [375, 768, 1101, 1280, 1720, 1920]) {
-  test('reference discovery conditions remain compact and reset locally at ' + width, async ({page}, info) => {
-    await page.setViewportSize({width, height: width === 1280 ? 600 : 914});
-    await intercept(page);
-    const writes: string[] = [];
-    page.on('request', request => { if (request.method() === 'POST') writes.push(request.url()); });
-    await page.goto('/?tab=discovery');
-    const form = page.locator('.discovery-brief-form').first();
-    await expect(form.locator('[data-discovery-reset]')).toBeVisible();
-    await expect(page.locator('[data-discovery-conditions-heading="edit"]')).toBeHidden();
-    await expect(page.locator('[data-home] [data-composer-input]')).toHaveValue('');
-    await expect(page.locator('[data-home] [data-ai-prompt-submit]')).toBeDisabled();
-    await expect(form.locator('[data-discovery-keywords-add]')).toHaveText('＋添加');
-    const min = form.locator('[data-discovery-min-followers]');
-    const initial = await min.inputValue();
-    await min.fill('23456');
-    await expect(min).toHaveValue('23,456');
-    await form.locator('[data-discovery-keywords-add]').click();
-    await form.locator('[data-discovery-keywords-input]').fill('discarded keyword draft');
-    await form.locator('[data-discovery-reset]').click();
-    await expect(form.locator('[data-discovery-keywords-popup]')).toHaveCount(0);
-    await expect(min).toHaveValue(initial);
-    await expect(form.locator('.discovery-card-note')).toHaveText('核对后再开始采集');
-    const bounds = await form.evaluate(el => ({width: el.clientWidth, scrollWidth: el.scrollWidth}));
-    expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.width + 1);
-    expect(writes).toEqual([]);
-    const submit = form.locator('[data-discovery-card-submit]');
-    await submit.scrollIntoViewIfNeeded();
-    await expect.poll(() => submit.evaluate(el => {
-      const r = el.getBoundingClientRect();
-      return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
-    })).toBe(true);
-    await page.screenshot({path: info.outputPath('reference-' + width + '.png')});
-  });
-}
-
-
-test('reference image density uses compact controls and flush continuation lines', async ({browser}, info) => {
-  // The supplied full-page reference is 1720x914 at approximately 140% pixel scale.
-  const context = await browser.newContext({viewport: {width: 1228, height: 653}, deviceScaleFactor: 1.4});
-  const page = await context.newPage();
-  try {
-    await intercept(page);
-    await page.goto('/?tab=discovery');
-    const form = page.locator('.discovery-brief-form').first();
-    await expect(form).toBeVisible();
-    const geometry = await form.evaluate(el => {
-      const box = (node: Element) => { const r = node.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height}; };
-      const tags = [...el.querySelectorAll('[data-discovery-keyword-chip]')].map(node => ({...box(node),word:node.getAttribute('data-discovery-keyword-chip')}));
-      const directions = [...el.querySelectorAll('[data-discovery-preset]')].map(box);
-      return {
-        form: box(el),
-        inputs: [...el.querySelectorAll('input.is-number')].map(box),
-        selected: [...el.querySelectorAll('.discovery-chip[aria-pressed="true"]')].map(box),
-        tags,
-        directionRow: box(el.querySelector('[data-skill-param="directions"]')!),
-        directions,
-        keywordRow: box(el.querySelector('[data-skill-param="keywords"]')!),
-        submit: box(el.querySelector('[data-discovery-card-submit]')!),
-      };
-    });
-    await info.attach('reference-geometry', {body: JSON.stringify(geometry,null,2), contentType:'application/json'});
-    await page.screenshot({path: info.outputPath('reference-scale-full.png')});
-    await form.screenshot({path: info.outputPath('reference-scale-form.png')});
-    for (const control of [...geometry.inputs,...geometry.selected,...geometry.tags,geometry.submit]) expect(control.height).toBe(20);
-    expect(geometry.form.height).toBeLessThanOrEqual(220);
-    const keywordLines = [...new Set(geometry.tags.map(tag => Math.round(tag.y)))];
-    expect(keywordLines).toHaveLength(3);
-    expect(keywordLines.map(y => geometry.tags.filter(tag => Math.round(tag.y)===y).map(tag => tag.word))).toEqual([
-      ['camping','outdoor camping','camping gear','van life'],
-      ['RV travel','RV living','portable power station','solar generator'],
-      ['energy storage','road trip'],
-    ]);
-    for (const y of keywordLines.slice(1)) expect(Math.abs(geometry.tags.find(tag => Math.round(tag.y)===y)!.x-geometry.keywordRow.x)).toBeLessThanOrEqual(1);
-    const lastDirection = geometry.directions.at(-1)!;
-    expect(lastDirection.y).toBeGreaterThan(geometry.directions[0].y);
-    expect(Math.abs(lastDirection.x - geometry.directionRow.x)).toBeLessThanOrEqual(1);
-  } finally { await context.close(); }
-});
-
-
-test('reference density preserves touch targets and keyword editing', async ({browser}) => {
-  const context = await browser.newContext({viewport:{width:375,height:900},hasTouch:true});
-  const page = await context.newPage();
-  try {
-    await intercept(page);
-    await page.goto('/?tab=discovery');
-    const form = page.locator('.discovery-brief-form').first();
-    await expect(form).toBeVisible();
-    await expect(form.locator('[data-discovery-min-followers]')).toHaveCSS('height','44px');
-    const selected = form.locator('.discovery-chip[aria-pressed="true"]').first();
-    const bounds = await selected.boundingBox();
-    expect(bounds!.height).toBeGreaterThanOrEqual(44);
-    expect(bounds!.width).toBeGreaterThanOrEqual(44);
-    const add = form.locator('[data-discovery-keywords-add]');
-    await add.tap();
-    await expect(form.locator('[data-discovery-keywords-input]')).toBeFocused();
-    await form.locator('[data-discovery-keywords-input]').fill('touch draft');
-    await form.locator('[data-discovery-reset]').tap();
-    await expect(form.locator('[data-discovery-keywords-popup]')).toHaveCount(0);
-    expect(await form.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
-  } finally { await context.close(); }
-});

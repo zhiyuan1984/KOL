@@ -1,0 +1,86 @@
+{
+  "reviewer": "Codex agent, implementation and screenshot inspection only",
+  "base_revision": "cd12dd8",
+  "sources": [
+    {
+      "file": "frontend/src/pages/Home.tsx",
+      "sha256": "bfe24a0bfe8180ba2d04fc5599b685c6bd464644e6021d5bcb533eaa74c891fa"
+    },
+    {
+      "file": "frontend/src/home/ScopeWorkspace.tsx",
+      "sha256": "cae456d7ff464905679b48ed10c3807329dc255782f4f1a72d8ad66c1d03fafa"
+    },
+    {
+      "file": "frontend/src/api.ts",
+      "sha256": "c13fb109736ff5c4135e10e98c4f831ca7c0d29d96fb14fa88d636d5f10e6b04"
+    },
+    {
+      "file": "frontend/e2e/creator-query-context.spec.ts",
+      "sha256": "3133911e4116e95c8a84e5d4aaf287ec1f91abc5a778380c2f793f6544c665e5"
+    },
+    {
+      "file": "frontend/playwright.query-context.config.ts",
+      "sha256": "227da683364fce0f8fe913cf79fdd0363bc171679b627149f89864baa46b12a3"
+    },
+    {
+      "file": "backend/src/routers/tasks.ts",
+      "sha256": "2bf0c1ee1155db8d9ae2186f4423412a7ba0745767032c48358370ff1b66b86c"
+    },
+    {
+      "file": "backend/src/tasks/recognize.ts",
+      "sha256": "583eb15a5375874b6a93ab8f9e6e79762fe9da87cb8713162957451b536cd160"
+    },
+    {
+      "file": "backend/tests/task-intake-clarification.test.ts",
+      "sha256": "92fd24a52f2e68dccaf380eb5b42d74b441c91418d6650b78e7ba43fa1a540aa"
+    },
+    {
+      "file": "backend/tests/task-recognize-selected.test.ts",
+      "sha256": "0d437d4911dece6ccd88732592e294b8d71730d4c16095229d77239e3837341f"
+    },
+    {
+      "file": "backend/vitest.task-intake.config.ts",
+      "sha256": "de148c68329c4da47c18b6d882e6646dc34d6fc8a7d30bf4fe29aeedbaf7f835"
+    }
+  ],
+  "constitutional_review": {
+    "requirement": "达人库查询保持已选意图、呈现真实执行阻碍，不混入今日计划",
+    "responsible_roles": [
+      "ui-ux",
+      "frontend",
+      "backend",
+      "test-manager"
+    ],
+    "constitution": [
+      "CONST-01",
+      "CONST-03",
+      "CONST-04",
+      "CONST-05",
+      "CONST-07",
+      "CONST-08",
+      "CONST-10"
+    ],
+    "laws": [
+      "PROD-AGENT-01",
+      "PROD-AGENT-03",
+      "PROD-AGENT-09",
+      "TECH-FE-01",
+      "TECH-TEST-01"
+    ],
+    "conclusion": "符合",
+    "evidence": "保留显式技能；无授权路由仍阻止执行；模型不重判已撤下技能；未生成达人或执行回执。",
+    "next": "具名人员复核截图后，按已有发布门禁发布并核验真实请求。"
+  },
+  "visual_review": {
+    "inspected": [
+      "query-blocked.png",
+      "query-375.png"
+    ],
+    "observations": [
+      "选中查询后的标题与结果栏归属于当前任务",
+      "无今日计划空态或计划按钮混入结果栏",
+      "窄屏提交按钮和结果说明可见"
+    ],
+    "human_review": "pending; no human approval is inferred from agent inspection"
+  }
+}

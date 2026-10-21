@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "kind": "browser-and-source-evidence",
+  "status": "complete",
+  "owner": "Manus 执行代理（工程及浏览器复核）",
+  "requirement_refs": [
+    "CONST-08",
+    "CONST-10",
+    "TECH-ARCH-04",
+    "TECH-TEST-01",
+    "CONST-04",
+    "TECH-FE-01",
+    "TECH-FE-03",
+    "TECH-TEST-02",
+    "TECH-FE-02",
+    "TECH-BE-01"
+  ],
+  "subject": {
+    "task_id": "wecom-ontology-20261020",
+    "source_revision": "f224c61da50963cb5fd68ee540e70482aaf9394b"
+  },
+  "decisions": {
+    "layers": [
+      "定义纯测试",
+      "远端IO夹具＋真实隔离PostgreSQL",
+      "API夹具浏览器",
+      "执行代理对截图与来源字段核对"
+    ],
+    "evidence_records": [
+      {
+        "file": "wecom-backend-results.json",
+        "sha256": "dac66388c03947b7c9475aa1afd899e01e78e542b591b823a9eddf413a4c25a3",
+        "kind": "test-report"
+      },
+      {
+        "file": "wecom-frontend-results.json",
+        "sha256": "2084a3013af61e8963b688425ae60876151d3b60cfa26abb6130e3ea7cf6d59d",
+        "kind": "test-report"
+      },
+      {
+        "file": "wecom-browser-source-review.json",
+        "sha256": "1cf58dcc6dcd7df9279a2562cf2f9d02a7f6ef3bdb2d4757783a31b153e77794",
+        "kind": "browser-record"
+      },
+      {
+        "file": "wecom-frontend-build.log",
+        "sha256": "2742fdce97b7de2c261e0d43b27d66e31bf4bac3f40401c923c35f51ba488205",
+        "kind": "test-report"
+      }
+    ],
+    "unverified": [
+      "真实开发站点来源导入需部署和明确确认后另行验证",
+      "没有声称独立人类UX专家已审核"
+    ],
+    "review_questions": [
+      "哪个公司和来源版本？",
+      "候选是否已导入？",
+      "最新来源采集时间和数量？",
+      "当前下一步与影响边界？"
+    ]
+  },
+  "verification": {
+    "state": "evidence-recorded",
+    "scope": "不以隔离夹具冒充线上服务，不以代理复核冒充人类专家",
+    "evidence": [
+      {
+        "file": "wecom-backend-results.json",
+        "sha256": "dac66388c03947b7c9475aa1afd899e01e78e542b591b823a9eddf413a4c25a3",
+        "kind": "test-report"
+      },
+      {
+        "file": "wecom-frontend-results.json",
+        "sha256": "2084a3013af61e8963b688425ae60876151d3b60cfa26abb6130e3ea7cf6d59d",
+        "kind": "test-report"
+      },
+      {
+        "file": "wecom-browser-source-review.json",
+        "sha256": "1cf58dcc6dcd7df9279a2562cf2f9d02a7f6ef3bdb2d4757783a31b153e77794",
+        "kind": "browser-record"
+      }
+    ]
+  },
+  "task_id": "wecom-ontology-20261020",
+  "summary": "企业微信组织人员本体定义与独立来源快照接入，明确预览确认且不修改账号权限",
+  "status_claims": []
+}

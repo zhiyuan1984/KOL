@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）",
+  "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；企业微信通讯录来源字段及组织人员语义补充（2026-10-20）",
   "objects": [
     {
       "code": "kol_profile",
@@ -2325,6 +2325,1038 @@
             "description": "费用约定、结算、发票、付款申请和财务付款成功分别记录；定义和结算状态不触发付款。",
             "clause": "BIZ-14/17",
             "source": "config/ontology-enterprise-catalog.json definitionOverrides（main@65b2b027确认的六主题/25对象）；BIZ-14/17"
+          }
+        ]
+      }
+    },
+    {
+      "code": "org_unit",
+      "items": {
+        "properties": [
+          {
+            "code": "wecom_department_id",
+            "name": "企业微信部门ID",
+            "type": "number",
+            "description": "读取部门 id，和公司／租户及来源共同识别；parentId=0是外部根边界，不创建虚构上级。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_name",
+            "name": "企业微信部门名称",
+            "type": "text",
+            "description": "读取 name，仅显示名称；同名部门依靠ID与路径区分。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_parent_id",
+            "name": "企业微信上级部门ID",
+            "type": "reference",
+            "description": "读取 parentId，仅引用同批次可见部门；父节点不可见时保留缺失标记。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_sort_order",
+            "name": "部门排序",
+            "type": "number",
+            "description": "读取 sortOrder，仅用于展示排序。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_leader_user_ids",
+            "name": "部门负责人外部引用",
+            "type": "structured",
+            "description": "读取 leaderUserIds 数组，只作为企业微信通讯录的负责人证据；不据此授予平台角色或范围。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_path",
+            "name": "来源部门路径",
+            "type": "text",
+            "description": "读取 path，供同名部门辨识；不是权限凭证。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_parent_unavailable",
+            "name": "上级不可见标记",
+            "type": "boolean",
+            "description": "读取 parentUnavailable；缺失不等于上级被删除。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_source_ref",
+            "name": "企业微信来源引用",
+            "type": "reference",
+            "description": "公司／租户＋连接器＋外部稳定ID形成的来源引用，独立于现有组织与账号ID；不按姓名合并。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_source_version",
+            "name": "来源同步版本",
+            "type": "number",
+            "description": "对应成功发布的 version；分页结果与确认必须绑定同一版本，不代表HR事实版本。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_synced_at",
+            "name": "来源采集时间",
+            "type": "datetime",
+            "description": "来源记录 syncedAt，保留原始时间；不得用本地导入时间冒充，历史快照须提示。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          }
+        ],
+        "relations": [
+          {
+            "code": "wecom_parent",
+            "name": "来源上级组织",
+            "target": "org_unit",
+            "cardinality": "N:1",
+            "description": "以同公司快照中的parentId建立上下级关系；根节点和不可见父节点不建立虚构边。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "inverse": "wecom_children"
+          },
+          {
+            "code": "wecom_children",
+            "name": "来源下级组织",
+            "target": "org_unit",
+            "cardinality": "1:N",
+            "description": "来源上级关系的反向查询，只覆盖当前可见同步范围。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "inverse": "wecom_parent"
+          },
+          {
+            "code": "wecom_members",
+            "name": "来源组织成员",
+            "target": "user",
+            "cardinality": "N:N",
+            "description": "以departments.departmentId建立成员关系，独立于平台生效成员关系。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "inverse": "wecom_member_departments"
+          },
+          {
+            "code": "wecom_leaders",
+            "name": "来源负责人",
+            "target": "user",
+            "cardinality": "N:N",
+            "description": "以leaderUserIds形成负责人证据，不转换为平台权限。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          }
+        ],
+        "rules": [
+          {
+            "code": "wecom_identity_scope",
+            "name": "来源身份与权限边界",
+            "description": "只使用公司／租户、连接器与来源稳定ID映射；部门归属、负责人和职位文本不自动创建账号或修改角色、Agent资格和数据范围。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "clause": "CONST-05/06；TECH-BE-01/02/03/08；docs/org-permissions.md §Canonical 标识及关系模型"
+          },
+          {
+            "code": "wecom_snapshot_basis",
+            "name": "快照版本与缺失边界",
+            "description": "所有分页必须来自同一成功发布版本及部门/成员批次，完整读取才能确认导入；历史快照明确提示，范围外未找到不等于删除或离职。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "clause": "CONST-05/06；TECH-BE-01/02/03/08；docs/org-permissions.md §Canonical 标识及关系模型"
+          }
+        ]
+      }
+    },
+    {
+      "code": "user",
+      "items": {
+        "properties": [
+          {
+            "code": "wecom_user_id",
+            "name": "企业微信成员ID",
+            "type": "text",
+            "description": "读取 userId 原值作为来源稳定ID，不按名字匹配或将其当作工号、手机号码。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_name",
+            "name": "通讯录姓名",
+            "type": "text",
+            "description": "读取 name；允许同名，不自动合并或创建站点账号。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_position_text",
+            "name": "通讯录职位文本",
+            "type": "text",
+            "description": "读取 position 原文。仅代表通讯录职位描述，不等于已确认岗位主档、岗位编制或任职资格。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_main_department_id",
+            "name": "来源主部门引用",
+            "type": "reference",
+            "description": "读取 mainDepartmentId；只在可见快照中建立外部引用，不调整站点实际主组织。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_activation_status",
+            "name": "企业微信激活状态",
+            "type": "enum",
+            "description": "读取 activationStatus 原值，仅为企业微信账号激活状态，不代表在职、离职或劳动关系状态。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_direct_leader_ids",
+            "name": "直接上级外部引用",
+            "type": "structured",
+            "description": "读取 directLeaderUserIds 数组，仅记录来源汇报关系；未找到的人保留外部引用未解析，不捏造人员。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_departments",
+            "name": "可见部门成员关系",
+            "type": "structured",
+            "description": "读取 departments 数组（departmentId、sortOrder、isLeader、syncedAt），区分主部门与其他可见归属；不复制用户。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_source_ref",
+            "name": "企业微信来源引用",
+            "type": "reference",
+            "description": "公司／租户＋连接器＋外部稳定ID形成的来源引用，独立于现有组织与账号ID；不按姓名合并。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_source_version",
+            "name": "来源同步版本",
+            "type": "number",
+            "description": "对应成功发布的 version；分页结果与确认必须绑定同一版本，不代表HR事实版本。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_synced_at",
+            "name": "来源采集时间",
+            "type": "datetime",
+            "description": "来源记录 syncedAt，保留原始时间；不得用本地导入时间冒充，历史快照须提示。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          }
+        ],
+        "relations": [
+          {
+            "code": "wecom_member_departments",
+            "name": "来源所属部门",
+            "target": "org_unit",
+            "cardinality": "N:N",
+            "description": "同一人员可在多个部门；只保留来源证据，不修改账号、平台组织或Agent使用资格。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "inverse": "wecom_members"
+          },
+          {
+            "code": "wecom_main_department",
+            "name": "来源主部门",
+            "target": "org_unit",
+            "cardinality": "N:1",
+            "description": "来源mainDepartmentId单值引用，缺失保持未知。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_direct_leaders",
+            "name": "来源直接上级",
+            "target": "user",
+            "cardinality": "N:N",
+            "description": "来源directLeaderUserIds，可多上级、可缺失；不是审批链。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "inverse": "wecom_direct_reports"
+          },
+          {
+            "code": "wecom_direct_reports",
+            "name": "来源直接下属",
+            "target": "user",
+            "cardinality": "N:N",
+            "description": "来源直接上级关系反向查询；不按部门树推导真人汇报关系。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "inverse": "wecom_direct_leaders"
+          }
+        ],
+        "rules": [
+          {
+            "code": "wecom_identity_scope",
+            "name": "来源身份与权限边界",
+            "description": "只使用公司／租户、连接器与来源稳定ID映射；部门归属、负责人和职位文本不自动创建账号或修改角色、Agent资格和数据范围。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "clause": "CONST-05/06；TECH-BE-01/02/03/08；docs/org-permissions.md §Canonical 标识及关系模型"
+          },
+          {
+            "code": "wecom_snapshot_basis",
+            "name": "快照版本与缺失边界",
+            "description": "所有分页必须来自同一成功发布版本及部门/成员批次，完整读取才能确认导入；历史快照明确提示，范围外未找到不等于删除或离职。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "clause": "CONST-05/06；TECH-BE-01/02/03/08；docs/org-permissions.md §Canonical 标识及关系模型"
+          }
+        ]
+      }
+    },
+    {
+      "code": "membership",
+      "items": {
+        "properties": [
+          {
+            "code": "wecom_member_user_id",
+            "name": "成员外部ID",
+            "type": "reference",
+            "description": "来源userId。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_department_id",
+            "name": "归属部门外部ID",
+            "type": "reference",
+            "description": "来源departments.departmentId。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_is_main",
+            "name": "是否来源主部门",
+            "type": "boolean",
+            "description": "仅比较当前mainDepartmentId和departmentId；不改平台主组织。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_is_leader",
+            "name": "成员负责人标记",
+            "type": "number",
+            "description": "读取departments.isLeader原值，保留来源而不推断权限。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_membership_order",
+            "name": "成员排序",
+            "type": "number",
+            "description": "读取departments.sortOrder，展示排序。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_position_text",
+            "name": "通讯录职位文本",
+            "type": "text",
+            "description": "只记录来源职位，不推测编制及任期。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_source_ref",
+            "name": "企业微信来源引用",
+            "type": "reference",
+            "description": "公司／租户＋连接器＋外部稳定ID形成的来源引用，独立于现有组织与账号ID；不按姓名合并。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_source_version",
+            "name": "来源同步版本",
+            "type": "number",
+            "description": "对应成功发布的 version；分页结果与确认必须绑定同一版本，不代表HR事实版本。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_synced_at",
+            "name": "来源采集时间",
+            "type": "datetime",
+            "description": "来源记录 syncedAt，保留原始时间；不得用本地导入时间冒充，历史快照须提示。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          }
+        ],
+        "relations": [
+          {
+            "code": "wecom_member",
+            "name": "来源成员",
+            "target": "user",
+            "cardinality": "N:1",
+            "description": "通过来源稳定ID引用成员，不以姓名合并。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_organization",
+            "name": "来源归属部门",
+            "target": "org_unit",
+            "cardinality": "N:1",
+            "description": "来源部门关联，独立于生效组织成员表。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          }
+        ],
+        "rules": [
+          {
+            "code": "wecom_identity_scope",
+            "name": "来源身份与权限边界",
+            "description": "只使用公司／租户、连接器与来源稳定ID映射；部门归属、负责人和职位文本不自动创建账号或修改角色、Agent资格和数据范围。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "clause": "CONST-05/06；TECH-BE-01/02/03/08；docs/org-permissions.md §Canonical 标识及关系模型"
+          },
+          {
+            "code": "wecom_snapshot_basis",
+            "name": "快照版本与缺失边界",
+            "description": "所有分页必须来自同一成功发布版本及部门/成员批次，完整读取才能确认导入；历史快照明确提示，范围外未找到不等于删除或离职。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "clause": "CONST-05/06；TECH-BE-01/02/03/08；docs/org-permissions.md §Canonical 标识及关系模型"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b14_b4d203dea5b9121c",
+      "items": {
+        "properties": [
+          {
+            "code": "wecom_department_id",
+            "name": "企业微信部门ID",
+            "type": "number",
+            "description": "读取部门 id，和公司／租户及来源共同识别；parentId=0是外部根边界，不创建虚构上级。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_name",
+            "name": "企业微信部门名称",
+            "type": "text",
+            "description": "读取 name，仅显示名称；同名部门依靠ID与路径区分。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_parent_id",
+            "name": "企业微信上级部门ID",
+            "type": "reference",
+            "description": "读取 parentId，仅引用同批次可见部门；父节点不可见时保留缺失标记。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_sort_order",
+            "name": "部门排序",
+            "type": "number",
+            "description": "读取 sortOrder，仅用于展示排序。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_leader_user_ids",
+            "name": "部门负责人外部引用",
+            "type": "structured",
+            "description": "读取 leaderUserIds 数组，只作为企业微信通讯录的负责人证据；不据此授予平台角色或范围。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_path",
+            "name": "来源部门路径",
+            "type": "text",
+            "description": "读取 path，供同名部门辨识；不是权限凭证。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_parent_unavailable",
+            "name": "上级不可见标记",
+            "type": "boolean",
+            "description": "读取 parentUnavailable；缺失不等于上级被删除。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_source_ref",
+            "name": "企业微信来源引用",
+            "type": "reference",
+            "description": "公司／租户＋连接器＋外部稳定ID形成的来源引用，独立于现有组织与账号ID；不按姓名合并。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_source_version",
+            "name": "来源同步版本",
+            "type": "number",
+            "description": "对应成功发布的 version；分页结果与确认必须绑定同一版本，不代表HR事实版本。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_synced_at",
+            "name": "来源采集时间",
+            "type": "datetime",
+            "description": "来源记录 syncedAt，保留原始时间；不得用本地导入时间冒充，历史快照须提示。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          }
+        ],
+        "relations": [
+          {
+            "code": "wecom_departments",
+            "name": "来源部门",
+            "target": "org_unit",
+            "cardinality": "1:N",
+            "description": "当前可见组织树的部门引用，不声明根部门等于平台公司主档。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          }
+        ],
+        "rules": [
+          {
+            "code": "wecom_identity_scope",
+            "name": "来源身份与权限边界",
+            "description": "只使用公司／租户、连接器与来源稳定ID映射；部门归属、负责人和职位文本不自动创建账号或修改角色、Agent资格和数据范围。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "clause": "CONST-05/06；TECH-BE-01/02/03/08；docs/org-permissions.md §Canonical 标识及关系模型"
+          },
+          {
+            "code": "wecom_snapshot_basis",
+            "name": "快照版本与缺失边界",
+            "description": "所有分页必须来自同一成功发布版本及部门/成员批次，完整读取才能确认导入；历史快照明确提示，范围外未找到不等于删除或离职。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "clause": "CONST-05/06；TECH-BE-01/02/03/08；docs/org-permissions.md §Canonical 标识及关系模型"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b14_f128cdf1dae21223",
+      "items": {
+        "properties": [
+          {
+            "code": "wecom_department_id",
+            "name": "企业微信部门ID",
+            "type": "number",
+            "description": "读取部门 id，和公司／租户及来源共同识别；parentId=0是外部根边界，不创建虚构上级。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_name",
+            "name": "企业微信部门名称",
+            "type": "text",
+            "description": "读取 name，仅显示名称；同名部门依靠ID与路径区分。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_parent_id",
+            "name": "企业微信上级部门ID",
+            "type": "reference",
+            "description": "读取 parentId，仅引用同批次可见部门；父节点不可见时保留缺失标记。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_sort_order",
+            "name": "部门排序",
+            "type": "number",
+            "description": "读取 sortOrder，仅用于展示排序。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_leader_user_ids",
+            "name": "部门负责人外部引用",
+            "type": "structured",
+            "description": "读取 leaderUserIds 数组，只作为企业微信通讯录的负责人证据；不据此授予平台角色或范围。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_path",
+            "name": "来源部门路径",
+            "type": "text",
+            "description": "读取 path，供同名部门辨识；不是权限凭证。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_parent_unavailable",
+            "name": "上级不可见标记",
+            "type": "boolean",
+            "description": "读取 parentUnavailable；缺失不等于上级被删除。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_source_ref",
+            "name": "企业微信来源引用",
+            "type": "reference",
+            "description": "公司／租户＋连接器＋外部稳定ID形成的来源引用，独立于现有组织与账号ID；不按姓名合并。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_source_version",
+            "name": "来源同步版本",
+            "type": "number",
+            "description": "对应成功发布的 version；分页结果与确认必须绑定同一版本，不代表HR事实版本。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_synced_at",
+            "name": "来源采集时间",
+            "type": "datetime",
+            "description": "来源记录 syncedAt，保留原始时间；不得用本地导入时间冒充，历史快照须提示。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          }
+        ],
+        "relations": [
+          {
+            "code": "wecom_parent_department",
+            "name": "来源上级部门",
+            "target": "ent_b14_f128cdf1dae21223",
+            "cardinality": "N:1",
+            "description": "以同批次可见parentId关联上级部门。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "inverse": "wecom_child_departments"
+          },
+          {
+            "code": "wecom_child_departments",
+            "name": "来源下级部门",
+            "target": "ent_b14_f128cdf1dae21223",
+            "cardinality": "1:N",
+            "description": "来源parentId关系反向查询。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "inverse": "wecom_parent_department"
+          },
+          {
+            "code": "wecom_department_employees",
+            "name": "来源部门员工",
+            "target": "ent_b14_a1f5d5fcbdc4d510",
+            "cardinality": "N:N",
+            "description": "只包含当前通讯录可见关系。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "inverse": "wecom_employee_departments"
+          },
+          {
+            "code": "wecom_department_leaders",
+            "name": "来源部门负责人",
+            "target": "ent_b14_a1f5d5fcbdc4d510",
+            "cardinality": "N:N",
+            "description": "保留leaderUserIds或明确isLeader证据，不授予权限。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          }
+        ],
+        "rules": [
+          {
+            "code": "wecom_identity_scope",
+            "name": "来源身份与权限边界",
+            "description": "只使用公司／租户、连接器与来源稳定ID映射；部门归属、负责人和职位文本不自动创建账号或修改角色、Agent资格和数据范围。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "clause": "CONST-05/06；TECH-BE-01/02/03/08；docs/org-permissions.md §Canonical 标识及关系模型"
+          },
+          {
+            "code": "wecom_snapshot_basis",
+            "name": "快照版本与缺失边界",
+            "description": "所有分页必须来自同一成功发布版本及部门/成员批次，完整读取才能确认导入；历史快照明确提示，范围外未找到不等于删除或离职。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "clause": "CONST-05/06；TECH-BE-01/02/03/08；docs/org-permissions.md §Canonical 标识及关系模型"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b14_345b3c5bd988b2d6",
+      "items": {
+        "properties": [
+          {
+            "code": "wecom_child_department_id",
+            "name": "子部门来源ID",
+            "type": "reference",
+            "description": "来源部门id。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_parent_department_id",
+            "name": "父部门来源ID",
+            "type": "reference",
+            "description": "来源parentId；0为根边界，缺失不建立虚构边。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_parent_unavailable",
+            "name": "父部门不可见",
+            "type": "boolean",
+            "description": "缺失上级只标记未解析。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_source_ref",
+            "name": "企业微信来源引用",
+            "type": "reference",
+            "description": "公司／租户＋连接器＋外部稳定ID形成的来源引用，独立于现有组织与账号ID；不按姓名合并。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_source_version",
+            "name": "来源同步版本",
+            "type": "number",
+            "description": "对应成功发布的 version；分页结果与确认必须绑定同一版本，不代表HR事实版本。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_synced_at",
+            "name": "来源采集时间",
+            "type": "datetime",
+            "description": "来源记录 syncedAt，保留原始时间；不得用本地导入时间冒充，历史快照须提示。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          }
+        ],
+        "relations": [
+          {
+            "code": "wecom_child",
+            "name": "来源下级部门",
+            "target": "ent_b14_f128cdf1dae21223",
+            "cardinality": "N:1",
+            "description": "同租户及快照中的子部门。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_parent",
+            "name": "来源上级部门",
+            "target": "ent_b14_f128cdf1dae21223",
+            "cardinality": "N:1",
+            "description": "同租户及快照中的上级部门；根边界不产生父节点。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          }
+        ],
+        "rules": [
+          {
+            "code": "wecom_snapshot_basis",
+            "name": "快照版本与缺失边界",
+            "description": "所有分页必须来自同一成功发布版本及部门/成员批次，完整读取才能确认导入；历史快照明确提示，范围外未找到不等于删除或离职。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "clause": "CONST-05/06；TECH-BE-01/02/03/08；docs/org-permissions.md §Canonical 标识及关系模型"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b14_a1f5d5fcbdc4d510",
+      "items": {
+        "properties": [
+          {
+            "code": "wecom_user_id",
+            "name": "企业微信成员ID",
+            "type": "text",
+            "description": "读取 userId 原值作为来源稳定ID，不按名字匹配或将其当作工号、手机号码。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_name",
+            "name": "通讯录姓名",
+            "type": "text",
+            "description": "读取 name；允许同名，不自动合并或创建站点账号。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_position_text",
+            "name": "通讯录职位文本",
+            "type": "text",
+            "description": "读取 position 原文。仅代表通讯录职位描述，不等于已确认岗位主档、岗位编制或任职资格。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_main_department_id",
+            "name": "来源主部门引用",
+            "type": "reference",
+            "description": "读取 mainDepartmentId；只在可见快照中建立外部引用，不调整站点实际主组织。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_activation_status",
+            "name": "企业微信激活状态",
+            "type": "enum",
+            "description": "读取 activationStatus 原值，仅为企业微信账号激活状态，不代表在职、离职或劳动关系状态。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_direct_leader_ids",
+            "name": "直接上级外部引用",
+            "type": "structured",
+            "description": "读取 directLeaderUserIds 数组，仅记录来源汇报关系；未找到的人保留外部引用未解析，不捏造人员。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_departments",
+            "name": "可见部门成员关系",
+            "type": "structured",
+            "description": "读取 departments 数组（departmentId、sortOrder、isLeader、syncedAt），区分主部门与其他可见归属；不复制用户。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_source_ref",
+            "name": "企业微信来源引用",
+            "type": "reference",
+            "description": "公司／租户＋连接器＋外部稳定ID形成的来源引用，独立于现有组织与账号ID；不按姓名合并。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_source_version",
+            "name": "来源同步版本",
+            "type": "number",
+            "description": "对应成功发布的 version；分页结果与确认必须绑定同一版本，不代表HR事实版本。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_synced_at",
+            "name": "来源采集时间",
+            "type": "datetime",
+            "description": "来源记录 syncedAt，保留原始时间；不得用本地导入时间冒充，历史快照须提示。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          }
+        ],
+        "relations": [
+          {
+            "code": "wecom_employee_departments",
+            "name": "来源所属部门",
+            "target": "ent_b14_f128cdf1dae21223",
+            "cardinality": "N:N",
+            "description": "来源departments成员关系，支持多部门不复制员工。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "inverse": "wecom_department_employees"
+          },
+          {
+            "code": "wecom_employee_leaders",
+            "name": "来源直接上级",
+            "target": "ent_b14_a1f5d5fcbdc4d510",
+            "cardinality": "N:N",
+            "description": "读取directLeaderUserIds，不推测审批权。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "inverse": "wecom_employee_reports"
+          },
+          {
+            "code": "wecom_employee_reports",
+            "name": "来源直接下属",
+            "target": "ent_b14_a1f5d5fcbdc4d510",
+            "cardinality": "N:N",
+            "description": "来源直接上级的反向查询，不从组织树推导。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "inverse": "wecom_employee_leaders"
+          }
+        ],
+        "rules": [
+          {
+            "code": "wecom_identity_scope",
+            "name": "来源身份与权限边界",
+            "description": "只使用公司／租户、连接器与来源稳定ID映射；部门归属、负责人和职位文本不自动创建账号或修改角色、Agent资格和数据范围。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "clause": "CONST-05/06；TECH-BE-01/02/03/08；docs/org-permissions.md §Canonical 标识及关系模型"
+          },
+          {
+            "code": "wecom_snapshot_basis",
+            "name": "快照版本与缺失边界",
+            "description": "所有分页必须来自同一成功发布版本及部门/成员批次，完整读取才能确认导入；历史快照明确提示，范围外未找到不等于删除或离职。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "clause": "CONST-05/06；TECH-BE-01/02/03/08；docs/org-permissions.md §Canonical 标识及关系模型"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b14_f60282c6d68918d5",
+      "items": {
+        "properties": [
+          {
+            "code": "wecom_user_id",
+            "name": "企业微信成员ID",
+            "type": "text",
+            "description": "读取 userId 原值作为来源稳定ID，不按名字匹配或将其当作工号、手机号码。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_name",
+            "name": "通讯录姓名",
+            "type": "text",
+            "description": "读取 name；允许同名，不自动合并或创建站点账号。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_position_text",
+            "name": "通讯录职位文本",
+            "type": "text",
+            "description": "读取 position 原文。仅代表通讯录职位描述，不等于已确认岗位主档、岗位编制或任职资格。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_main_department_id",
+            "name": "来源主部门引用",
+            "type": "reference",
+            "description": "读取 mainDepartmentId；只在可见快照中建立外部引用，不调整站点实际主组织。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_activation_status",
+            "name": "企业微信激活状态",
+            "type": "enum",
+            "description": "读取 activationStatus 原值，仅为企业微信账号激活状态，不代表在职、离职或劳动关系状态。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_direct_leader_ids",
+            "name": "直接上级外部引用",
+            "type": "structured",
+            "description": "读取 directLeaderUserIds 数组，仅记录来源汇报关系；未找到的人保留外部引用未解析，不捏造人员。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_departments",
+            "name": "可见部门成员关系",
+            "type": "structured",
+            "description": "读取 departments 数组（departmentId、sortOrder、isLeader、syncedAt），区分主部门与其他可见归属；不复制用户。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_source_ref",
+            "name": "企业微信来源引用",
+            "type": "reference",
+            "description": "公司／租户＋连接器＋外部稳定ID形成的来源引用，独立于现有组织与账号ID；不按姓名合并。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_source_version",
+            "name": "来源同步版本",
+            "type": "number",
+            "description": "对应成功发布的 version；分页结果与确认必须绑定同一版本，不代表HR事实版本。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_synced_at",
+            "name": "来源采集时间",
+            "type": "datetime",
+            "description": "来源记录 syncedAt，保留原始时间；不得用本地导入时间冒充，历史快照须提示。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          }
+        ],
+        "relations": [
+          {
+            "code": "wecom_record_employee",
+            "name": "来源员工",
+            "target": "ent_b14_a1f5d5fcbdc4d510",
+            "cardinality": "N:1",
+            "description": "通过外部userId指向本体来源员工，不能据此创建平台登录账号。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          }
+        ],
+        "rules": [
+          {
+            "code": "wecom_identity_scope",
+            "name": "来源身份与权限边界",
+            "description": "只使用公司／租户、连接器与来源稳定ID映射；部门归属、负责人和职位文本不自动创建账号或修改角色、Agent资格和数据范围。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "clause": "CONST-05/06；TECH-BE-01/02/03/08；docs/org-permissions.md §Canonical 标识及关系模型"
+          },
+          {
+            "code": "wecom_snapshot_basis",
+            "name": "快照版本与缺失边界",
+            "description": "所有分页必须来自同一成功发布版本及部门/成员批次，完整读取才能确认导入；历史快照明确提示，范围外未找到不等于删除或离职。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "clause": "CONST-05/06；TECH-BE-01/02/03/08；docs/org-permissions.md §Canonical 标识及关系模型"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b14_3d834a5b98df29e2",
+      "items": {
+        "properties": [
+          {
+            "code": "wecom_user_id",
+            "name": "来源员工ID",
+            "type": "reference",
+            "description": "来源userId。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_department_id",
+            "name": "来源部门ID",
+            "type": "reference",
+            "description": "来源部门关系departmentId。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_position_text",
+            "name": "通讯录职位文本",
+            "type": "text",
+            "description": "来源position；仅是采集时观察到的描述，不等于已确认岗位主档。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_main_department_id",
+            "name": "来源主部门ID",
+            "type": "reference",
+            "description": "读取mainDepartmentId，不改变平台生效任职。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_source_ref",
+            "name": "企业微信来源引用",
+            "type": "reference",
+            "description": "公司／租户＋连接器＋外部稳定ID形成的来源引用，独立于现有组织与账号ID；不按姓名合并。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_source_version",
+            "name": "来源同步版本",
+            "type": "number",
+            "description": "对应成功发布的 version；分页结果与确认必须绑定同一版本，不代表HR事实版本。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_synced_at",
+            "name": "来源采集时间",
+            "type": "datetime",
+            "description": "来源记录 syncedAt，保留原始时间；不得用本地导入时间冒充，历史快照须提示。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          }
+        ],
+        "relations": [
+          {
+            "code": "wecom_assignment_employee",
+            "name": "来源员工",
+            "target": "ent_b14_a1f5d5fcbdc4d510",
+            "cardinality": "N:1",
+            "description": "对应快照观察到的人员。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_assignment_department",
+            "name": "来源部门",
+            "target": "ent_b14_f128cdf1dae21223",
+            "cardinality": "N:1",
+            "description": "对应快照观察到的归属。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          }
+        ],
+        "rules": [
+          {
+            "code": "wecom_not_hr_tenure",
+            "name": "任职事实边界",
+            "description": "通讯录快照只能记录观察到的职位与部门；不生成正式任职起止时间、劳动合同、在职状态或调动事件。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "clause": "CONST-05/06；TECH-BE-01/02/03/08；docs/org-permissions.md §Canonical 标识及关系模型"
+          },
+          {
+            "code": "wecom_identity_scope",
+            "name": "来源身份与权限边界",
+            "description": "只使用公司／租户、连接器与来源稳定ID映射；部门归属、负责人和职位文本不自动创建账号或修改角色、Agent资格和数据范围。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "clause": "CONST-05/06；TECH-BE-01/02/03/08；docs/org-permissions.md §Canonical 标识及关系模型"
+          }
+        ]
+      }
+    },
+    {
+      "code": "ent_b14_39a0ae1ee3c9fe4f",
+      "items": {
+        "properties": [
+          {
+            "code": "wecom_position_text",
+            "name": "来源职位文本",
+            "type": "text",
+            "description": "企业微信position仅为职位文本，可用于待核对候选；同名不合并为正式岗位，不凭文本建立编制。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_source_ref",
+            "name": "企业微信来源引用",
+            "type": "reference",
+            "description": "公司／租户＋连接器＋外部稳定ID形成的来源引用，独立于现有组织与账号ID；不按姓名合并。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_source_version",
+            "name": "来源同步版本",
+            "type": "number",
+            "description": "对应成功发布的 version；分页结果与确认必须绑定同一版本，不代表HR事实版本。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          },
+          {
+            "code": "wecom_synced_at",
+            "name": "来源采集时间",
+            "type": "datetime",
+            "description": "来源记录 syncedAt，保留原始时间；不得用本地导入时间冒充，历史快照须提示。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权"
+          }
+        ],
+        "rules": [
+          {
+            "code": "wecom_position_not_master",
+            "name": "岗位主档待核对",
+            "description": "通讯录不提供已核实岗位主档ID、编制数量、职责或任职资格。正式岗位主档仍须HR权威来源补充，当前不得由职位文本自动建档。",
+            "source": "企业微信 wecom-mcp 已核对的成功同步快照字段；docs/org-permissions.md §组织与租户；2026-10-20 用户授权",
+            "clause": "CONST-05/06；TECH-BE-01/02/03/08；docs/org-permissions.md §Canonical 标识及关系模型"
           }
         ]
       }

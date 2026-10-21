@@ -83,6 +83,7 @@ export type ConnectorConfigForm = {
   /** Endpoint supplied by a server-side environment variable instead of a literal URL. */
   urlEnv?: string;
   noAuth: boolean;
+  oauthEnabled?: boolean;
   timeoutMs?: number;
   /** Plaintext values are vaulted first; `cred_…` values are already references. */
   headerRows: HeaderRow[];
@@ -112,6 +113,7 @@ export async function saveConnectorConfigForm(input: ConnectorConfigForm, curren
   const config: RuntimeConnectorConfig & { expected_version: number } = {
     protocol: input.protocol,
     allow_unauthenticated: input.noAuth,
+    oauth_enabled: input.oauthEnabled === true,
     timeout_ms: input.timeoutMs ?? 30_000,
     expected_version: currentVersion,
   };

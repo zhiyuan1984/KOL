@@ -8,7 +8,6 @@ output: task_result
 funnel: reach
 mcp: []
 capabilities: [{"id":"creator.dictionary.options","version":1},{"id":"creator.stages.options","version":1},{"id":"creator.risks.options","version":1}]
-ontology: [{"object":"kol_profile","revision":2}]
 applicable_objects: ["kol_profile"]
 required_inputs: []
 context: {"requires":[],"prefers":[]}

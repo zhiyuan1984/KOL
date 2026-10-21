@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { api, type KnowledgeRow } from "../api";
 import { examAssignConfirm, examPublishConfirm } from "../adminConfirm";
 import { useAdminConfirm } from "../components/ConfirmDialog";
+import { useTransientReceipt } from "../components/useTransientReceipt";
 import { rowTitle, type AdminRow } from "../adminGovernance";
 import { statusLabel } from "../knowledgeCopy";
 
@@ -96,7 +97,7 @@ export default function AdminExams({
   const [manualKind, setManualKind] = useState("true_false");
   const [manualOptions, setManualOptions] = useState("");
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const { receipt, showReceipt } = useTransientReceipt();
 
   const exam = exams.find((row) => String(row.id) === examId);
   const publishedKnowledge = useMemo(
@@ -179,7 +180,7 @@ export default function AdminExams({
     setError("");
     try {
       await fn();
-      setNotice(message);
+      showReceipt(message);
       onReload();
       await loadSide(examId);
     } catch (e) {
@@ -209,7 +210,7 @@ export default function AdminExams({
       }
     }
     if (done) {
-      setNotice(`已采纳 ${done} 道`);
+      showReceipt(`已采纳 ${done} 道`);
       setAcceptSel([]);
       onReload();
       await loadSide(examId);
@@ -229,7 +230,9 @@ export default function AdminExams({
   return (
     <section className="admin-govern admin-exams" data-admin-exams>
       {dialog}
-      {notice && <p className="admin-receipt status-ok" data-admin-receipt role="status">{notice}</p>}
+      {receipt.text && (
+        <p className={"admin-receipt is-transient" + (receipt.visible ? " is-visible" : "") + " status-ok"} data-admin-receipt role="status" aria-live="polite">{receipt.text}</p>
+      )}
       {error && <p className="error" role="alert">{error}</p>}
 
       <header className="admin-section-head exam-page-head">

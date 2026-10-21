@@ -385,13 +385,13 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
   }, [homeReadScope]);
   const [sort, setSort] = useState("priority");
   const initialHomeMode = sessionRoute ? "discovery" : parseHomeMode(new URLSearchParams(window.location.search).get("tab"));
-  // AI发现 tab：条件卡首帧就位，提问框留给自由输入。
+  // AI发现 tab：条件卡与提问框正文在首帧就位，不等 GET /api/home/discovery/template。
   const discoveryEntryTab = initialHomeMode === "discovery";
   const todayEntryDefault = !discoveryEntryTab && initialHomeMode === "today";
   const todoEntryDefault = !discoveryEntryTab && initialHomeMode === "todo";
   const [text, setText] = useState(
     discoveryEntryTab
-      ? ""
+      ? renderDiscoveryBody(defaultDiscoveryBrief())
       : todayEntryDefault
         ? starterPrompt({ id: "creator_daily_tasks", title: "今日任务" })
         : todoEntryDefault
@@ -560,14 +560,14 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
   };
 
   /**
-   * 进入 AI发现：条件卡取本地默认 brief，提问框保留员工草稿。
-   * 只清理系统起始文本，用户别处打的字不动。
+   * 进入 AI发现：条件卡与提问框正文都取本地默认 brief，首屏既有条件也可编辑。
+   * 只在提问框为空、或已经是【发现任务】正文时才写入 —— 用户别处打的字不动。
    * 不走 openDiscoveryTemplate（那会 stash 草稿，等同显式点选）。
    */
   const seedDiscoveryEntry = () => {
     const brief = discoveryFormBrief || discoveryBrief || defaultDiscoveryBrief();
     setDiscoveryFormBrief((current) => current ?? brief);
-    // 模板起始文本不算用户输入：切到 AI发现 时清理系统起始文本，
+    // 模板起始文本不算用户输入：切到 AI发现 时允许被发现正文替换，
     // 只有员工真正打过的字才受保护。
     const isStarterText = (value: string) => (
       value === starterPrompt({ id: "creator_daily_tasks", title: "今日任务" })
@@ -577,7 +577,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
     setDiscoveryBrief((current) => current ?? brief);
     setText((current) => (current.trim() && !current.startsWith(DISCOVERY_BODY_PREFIX) && !isStarterText(current)
       ? current
-      : ""));
+      : renderDiscoveryBody(brief)));
     setLockedIntent(DISCOVERY_INTENT);
     setLockedLabel(DISCOVERY_LOCK_LABEL);
     setEntryIntent("discover");
@@ -586,9 +586,9 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
   const onDiscoveryBriefChange = (next: DiscoveryBrief) => {
     discoveryBriefRef.current = next;
     setDiscoveryBrief(next);
-    // 条件直接在表单编辑；仅显式打开的完整请求同步更新，保留自由提问草稿。
+    // 条件卡与提问框的条件编辑共用同一真值：芯片改了条件，正文（可编辑）同步改写。
     setDiscoveryFormBrief(next);
-    setText((current) => current.startsWith(DISCOVERY_BODY_PREFIX) ? applyChipOverride(current, next) : current);
+    setText(applyChipOverride(text.startsWith(DISCOVERY_BODY_PREFIX) ? text : `${DISCOVERY_BODY_PREFIX}\n${text}`, next));
     setLockedIntent(DISCOVERY_INTENT);
     setLockedLabel(DISCOVERY_LOCK_LABEL);
   };
@@ -627,6 +627,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
     // Picking a skill is an explicit choice: it releases any one-shot preset and
     // must never inherit a stale preset starter as its own prompt.
     releasePreset();
+    setFeedback(null);
     const pickedDefinition = definitions.find((definition) => definition.id === skill.id);
     setText((current) => (
       isPresetStarterText(current)
@@ -1905,10 +1906,12 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
         }
         setFeedback({
           ...recognized,
+          requested_task_type: recognized.requested_task_type || intent || undefined,
           needs_clarification: true,
           clarification_kind: recognized.clarification_kind || (missing.length ? "missing_fields" : "direction"),
           clarification: recognized.clarification
             || recognized.message
+            || resolution.next_action
             || (missing.length ? missingFieldsMessage(missing, "可使用输入框补充后再执行。") : "请补充任务所需信息后再执行。"),
           candidates: recognized.candidates || resolution.alternatives?.map((candidate) => ({
             id: candidate.task_type || candidate.id || "",
@@ -2164,6 +2167,8 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
   };
 
   const activateTodaySkill = () => {
+    setFeedback(null);
+    setErr("");
     setPreset("creator_daily_tasks");
     setMode("today");
     setLockedIntent("creator_daily_tasks");
@@ -2173,6 +2178,8 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
   };
 
   const activateTodoSkill = () => {
+    setFeedback(null);
+    setErr("");
     setPreset("todo_plan");
     setMode("todo");
     setLockedIntent("todo_plan");
@@ -2187,6 +2194,9 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
       && definition.employee_visible !== false
       && ![DISCOVERY_INTENT, "today_plan", "todo_plan", "creator_daily_tasks"].includes(definition.id))
     : undefined;
+  const selectedTaskTitle = genericParamDefinition?.title || (lockedIntent
+    && !["creator_daily_tasks", "today_plan", "todo_plan"].includes(lockedIntent) ? lockedLabel : null);
+  const suppressPlanEmpty = Boolean(selectedTaskTitle || feedback || intakeRunning || err || enqueueNotice || queuedNotice);
   const activeSkillTemplate = selectedSkillTemplate?.skill_id === lockedIntent
     ? selectedSkillTemplate
     : genericParamDefinition?.ui_template
@@ -2330,10 +2340,12 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
                 ? `还缺${feedback.resolution.missing_fields.map((field) => fieldLabel(field)).join("、")}`
                 : "还缺必要字段")
               : feedbackKind === "direction"
-                ? "需要确认任务方向"
+                ? (feedback.requested_task_type
+                  ? `${definitions.find((definition) => definition.id === feedback.requested_task_type)?.title || lockedLabel || "所选任务"}暂未开始`
+                  : "需要确认任务方向")
                 : `已识别 ${feedbackTasks.length || 1} 个任务`}
           </strong>
-          <p>{feedback.clarification || feedback.message || (feedbackKind === "direction" ? "请选择最符合你意图的任务，不会自动执行。" : "任务已创建，可分别查看。")}</p>
+          <p>{feedback.clarification || feedback.message || feedback.resolution?.next_action || (feedbackKind === "direction" ? "请选择最符合你意图的任务，不会自动执行。" : "任务已创建，可分别查看。")}</p>
           {understood.length ? (
             <ul className="creation-feedback-fields">
               {understood.map((line) => <li key={line}>{line}</li>)}
@@ -2473,6 +2485,7 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
           setLockedLabel(null);
           applyLockedKnowledge(null);
           setSelectedSkillTemplate(null);
+          setFeedback(null);
           setSkillParamValues({});
           setSkillParamErrors({});
           setSkillParamTouched(new Set());
@@ -2582,10 +2595,12 @@ export default function Home({ sessionRoute }: { sessionRoute?: { id: string; ta
               memoryPending={activePlan.memoryTasks === null}
               centerHeader={(
                 <div className="home-hero today-center-hero">
-                  <h1 data-home-title={paneScope}>{SCOPE_CONFIG[paneScope].heroTitle}</h1>
+                  <h1 data-home-title={paneScope}>{selectedTaskTitle || SCOPE_CONFIG[paneScope].heroTitle}</h1>
                 </div>
               )}
               centerSupplement={renderInteractionFeedback()}
+              suppressPlanEmpty={suppressPlanEmpty}
+              taskIntake={selectedTaskTitle ? { resultTitle: activeSkillTemplate?.output.title || "任务结果" } : undefined}
               centerFooter={renderComposerDock()}
             />
           ) : null}

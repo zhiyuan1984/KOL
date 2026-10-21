@@ -1,0 +1,106 @@
+{
+  "status": "passed",
+  "scope": {
+    "modified_files": [
+      "/home/ubuntu/KOL/backend/src/ontology/wecom-source.ts",
+      "/home/ubuntu/KOL/backend/tests/wecom-definition.test.ts",
+      "/home/ubuntu/KOL/backend/tests/wecom-source.postgres.test.ts"
+    ],
+    "not_modified_by_this_worker": [
+      "shared contracts",
+      "schema migration/assets",
+      "HTTP router/configuration"
+    ]
+  },
+  "implemented": [
+    "Dedicated opaque remote-page cursor validator accepts up to 4096 characters and returns the cursor unchanged; source IDs remain independently capped at 256 characters.",
+    "WeCom list-user runtime contract now sends a validated safe integer departmentId to the MCP while external/upstream source IDs remain strings.",
+    "Department ontology property wecom_department_id is a validated number to match its declared schema; user wecom_departments now preserves complete structured membership evidence (departmentId, sortOrder, isLeader, syncedAt).",
+    "Runtime binding resolution now requires skill_lifecycle.stage='published'.",
+    "collectPages rejects source total changes across pages even when the source version remains unchanged.",
+    "Company-admin access checks current users.roles in PostgreSQL together with current account, organization scope, and source-company binding; it no longer relies on a cached TicketPrincipal role list.",
+    "Commit recomputes the stored preview payload content hash before importing; mismatched stored payloads fail closed.",
+    "Commit replays and snapshot reads require currentBinding, so a revoked connector/skill blocks reads/replays. Added read-only same-actor receipt(companyId, commandId), using parameterized SQL and current access/binding checks."
+  ],
+  "tests_added": {
+    "definition": [
+      "Exactly 10 WeCom-supplemented definitions; 86 attributes, 23 relations, 18 rules.",
+      "org_unit/user/membership property counts 16/15/11.",
+      "930-object catalog and 18/153/354 taxonomy hierarchy remain unchanged.",
+      "activation status is asserted to remain a raw WeCom account value, not an HR status."
+    ],
+    "real_postgres_source_fixture": [
+      "Uses freshTestDatabase({empty:true}), whose native manifest calls applyPostgresMigrations; mocks only remote runtime I/O.",
+      "Covers active company DB administration, source-company binding, multi-root snapshot construction, 360-character opaque cursor forwarding, numeric MCP department arguments, source field projection, immutable commit, replay, receipt same-actor isolation, snapshot pagination/tamper rejection, cross-company/member denial, unconfirmed/expired/version-changed/corrupt preview rejection, duplicate/missing/changed-total pagination rejection, and connector-revocation gates.",
+      "Captures and compares all protected business tables (organization_units, organization_people, organization_memberships, users, agent_bindings) around the successful source preview/commit path."
+    ]
+  },
+  "commands": [
+    {
+      "command": "npx vitest run tests/wecom-definition.test.ts --reporter=verbose",
+      "cwd": "/home/ubuntu/KOL/backend",
+      "exit_code": 0,
+      "counts": {
+        "test_files_passed": 1,
+        "tests_passed": 3,
+        "tests_failed": 0
+      },
+      "log": "/home/ubuntu/jobs/job_aqsNzan1/wecom-definition.log"
+    },
+    {
+      "command": "npm run typecheck",
+      "cwd": "/home/ubuntu/KOL/backend",
+      "exit_code": 0,
+      "counts": {
+        "typescript_errors": 0
+      },
+      "log": "/home/ubuntu/jobs/job_aqsNzan1/wecom-typecheck.log"
+    },
+    {
+      "command": "npx vitest run tests/ontology.test.ts tests/ontology-six-topics.test.ts tests/wecom-definition.test.ts --reporter=verbose",
+      "cwd": "/home/ubuntu/KOL/backend",
+      "exit_code": 0,
+      "counts": {
+        "test_files_passed": 3,
+        "tests_passed": 32,
+        "tests_failed": 0
+      },
+      "log": "/home/ubuntu/jobs/job_aqsNzan1/wecom-ontology-regression.log"
+    },
+    {
+      "command": "TEST_DATABASE_URL=postgres://ubuntu:ontology_test@127.0.0.1:5432/postgres TEST_DB_TEMPLATE=template0 npx vitest run tests/wecom-source.postgres.test.ts --reporter=verbose",
+      "cwd": "/home/ubuntu/KOL/backend",
+      "exit_code": 1,
+      "counts": {
+        "test_files_failed": 1,
+        "tests_skipped_before_execution": 2,
+        "tests_executed": 0
+      },
+      "log": "/home/ubuntu/jobs/job_aqsNzan1/wecom-source-postgres.log",
+      "failure": "PostgreSQL returned 28P01: password authentication failed for user ubuntu before freshTestDatabase could CREATE a disposable database. No business database or business-table mutation was attempted."
+    },
+    {
+      "command": "Dedicated localhost TEST_DATABASE_URL, TEST_DB_TEMPLATE=template0: vitest tests/wecom-source.postgres.test.ts",
+      "exit_code": 0,
+      "counts": {
+        "tests_passed": 2,
+        "tests_failed": 0
+      },
+      "log": "/home/ubuntu/wecom-real-pg.log"
+    },
+    {
+      "command": "Dedicated localhost TEST_DATABASE_URL, TEST_DB_TEMPLATE=template0: vitest tests/wecom-setup.postgres.test.ts",
+      "exit_code": 0,
+      "counts": {
+        "tests_passed": 2,
+        "tests_failed": 0
+      },
+      "log": "/home/ubuntu/wecom-setup-pg.log"
+    }
+  ],
+  "fastest_blocker": null,
+  "caveats": [
+    "最初的旧测试凭据失效已通过专用本机角色解决；不使用业务数据库。",
+    "真实PostgreSQL使用完整原生迁移；远端MCP调用仍使用确定性夹具，线上另行验证。"
+  ]
+}

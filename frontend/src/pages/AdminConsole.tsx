@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { api } from "../api";
 import { useAccount } from "../components/AuthGate";
+import { useTransientReceipt } from "../components/useTransientReceipt";
 import { Admin as LegacyAdmin } from "./SimplePages";
 import AdminKnowledge from "./AdminKnowledge";
 import AdminExams from "./AdminExams";
@@ -55,7 +56,7 @@ export default function AdminConsole() {
   const [policy, setPolicy] = useState<AdminRow>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const { receipt, showReceipt } = useTransientReceipt();
   const tab = adminTabOf(location.pathname);
 
   const load = useCallback(() => {
@@ -83,7 +84,7 @@ export default function AdminConsole() {
     setError("");
     try {
       await api.adminSave(path, body, method);
-      setNotice(message);
+      showReceipt(message);
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "保存失败");
@@ -103,7 +104,9 @@ export default function AdminConsole() {
   return (
     <div className="admin-shell" data-admin-ia="governance">
       <div className="admin-body">
-        {notice && <p className="admin-receipt status-ok" data-admin-receipt role="status">{notice}</p>}
+        {receipt.text && (
+          <p className={"admin-receipt is-transient" + (receipt.visible ? " is-visible" : "") + " status-ok"} data-admin-receipt role="status" aria-live="polite">{receipt.text}</p>
+        )}
         {error && <p className="error" role="alert">{error}</p>}
 
         {tab === "employees" && <EmployeeDirectoryV2 users={users as DirectoryEmployee[]} onReload={load} />}

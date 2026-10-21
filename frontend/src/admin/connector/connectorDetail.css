@@ -1,0 +1,686 @@
+/* Detail-only compact density. DESIGN tokens + the user's explicit 13/20/28
+   contract; gaps are owned by one layout level, never by default margins. */
+.connector-detail {
+  --control-h-form: var(--control-h);
+  --ds-label-w: var(--property-label-w-short);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+  container-type: inline-size;
+}
+.connector-detail .admin-crumb,
+.connector-detail .connector-detail-card :is(p, h3, h4, ul, ol, dl),
+.connector-detail .connector-detail-hero :is(p, h2),
+.connector-detail > :is(p, div[role="alert"]) {
+  margin: 0;
+}
+.connector-detail .connector-detail-hero {
+  gap: var(--space-2);
+  padding: var(--space-3);
+  margin: 0;
+}
+.connector-detail .connector-detail-hero > .connector-mark {
+  width: var(--control-h);
+  height: var(--control-h);
+}
+.connector-detail .connector-detail-title {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--space-1) / 2);
+  min-width: 0;
+}
+.connector-detail .connector-detail-title :is(h2, p, small, code),
+.connector-detail .connector-detail-card :is(h3, h4, p, label, small, code, time),
+.connector-detail .connector-detail-test-status {
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+}
+.connector-detail :is(h2, h3) { font-weight: 600; }
+.connector-detail :is(h4, strong) { font-weight: 500; }
+.connector-detail .connector-detail-test-status,
+.connector-detail .connector-detail-actions,
+.connector-detail .connector-config-dirty-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+.connector-detail .connector-detail-test-status {
+  margin-top: calc(var(--space-1) / 2);
+}
+.connector-detail .connector-detail-card {
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-3);
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+  container-type: inline-size;
+}
+.connector-detail .connector-card-head {
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.connector-detail .connector-card-head > div:first-child {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: calc(var(--space-1) / 2);
+  min-width: 0;
+}
+.connector-detail .connector-card-head > :is(button, span) { flex: 0 0 auto; }
+.connector-detail .connector-detail-card :is(.btn, .icon-btn),
+.connector-detail .connector-detail-actions .btn,
+.connector-detail .connector-config-dirty-note .btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: var(--control-h);
+  min-height: var(--control-h);
+  min-width: 0;
+  margin: 0;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-control);
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+  white-space: nowrap;
+}
+.connector-detail .connector-detail-card .btn.text,
+.connector-detail .connector-detail-actions .btn.text,
+.connector-detail .connector-config-dirty-note .btn.text {
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent-text);
+}
+.connector-detail .connector-detail-card .btn.text:hover:not(:disabled),
+.connector-detail .connector-detail-actions .btn.text:hover:not(:disabled),
+.connector-detail .connector-config-dirty-note .btn.text:hover:not(:disabled) {
+  background: var(--btn-text-hover-bg);
+}
+.connector-detail :is(button, input, textarea, select):focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+.connector-detail .connector-detail-panel {
+  min-width: 0;
+  container-type: inline-size;
+}
+.connector-detail .connector-detail-panel[hidden] { display: none !important; }
+.connector-detail .connector-detail-panel:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: calc(var(--focus-ring-width) * -1);
+}
+
+/* Four tabs: one baseline, 28px visual box, readable focus inside the strip. */
+.connector-detail .connector-detail-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--space-2);
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: thin;
+}
+.connector-detail .connector-detail-tabs > button[role="tab"] {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  height: var(--control-h);
+  min-height: var(--control-h);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-quiet);
+  font: inherit;
+  cursor: pointer;
+  transition: color var(--duration-control), background var(--duration-control);
+}
+.connector-detail .connector-detail-tabs > button[role="tab"][aria-selected="true"] {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.connector-detail .connector-detail-tabs > button[role="tab"][aria-selected="true"]::after {
+  position: absolute;
+  right: var(--space-2);
+  bottom: 0;
+  left: var(--space-2);
+  height: var(--workspace-tab-indicator-h);
+  background: var(--accent);
+  content: "";
+}
+.connector-detail .connector-detail-tabs > button[role="tab"]:hover:not(:disabled) {
+  color: var(--accent-text);
+  background: var(--btn-text-hover-bg);
+}
+.connector-detail .connector-detail-tabs > button[role="tab"]:focus-visible {
+  outline-offset: calc(var(--focus-ring-width) * -1);
+}
+.connector-detail .connector-detail-tab-label { white-space: nowrap; }
+.connector-detail .connector-detail-tab-count {
+  color: var(--text-quiet);
+  font-size: var(--ds-font-xs);
+  line-height: 1;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 4px;
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+}
+
+/* Configuration: 96px labels + 8px gap; 8px field rows, 12px groups. */
+.connector-detail .connector-config-form.ant-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  font: inherit;
+}
+.connector-detail .connector-config-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+/* 详情页表单：不要让控件停在 420px，右侧留一大片空白。 */
+.connector-detail .connector-config-fields {
+  max-width: 760px;
+}
+
+.connector-detail .connector-config-form .field input:not([type="checkbox"]):not([type="file"]),
+.connector-detail .connector-config-form .field select,
+.connector-detail .connector-config-form .field textarea {
+  width: 100%;
+  max-width: 100%;
+}
+
+.connector-detail .connector-config-form {
+  padding-bottom: 44px;
+}
+
+.connector-detail .connector-config-fields,
+.connector-detail .connector-config-fields .connector-form-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.connector-detail .connector-config-form .connector-config-inline {
+  display: grid;
+  grid-template-columns: var(--property-label-w-short) minmax(0, 1fr);
+  align-items: center;
+  gap: 0 var(--space-2);
+  min-width: 0;
+  margin: 0;
+  font: inherit;
+}
+.connector-detail .connector-config-form .connector-config-label {
+  min-width: 0;
+  color: var(--text);
+  font-weight: 400;
+}
+.connector-detail .connector-config-form .field :is(input:not([type="checkbox"]), select) {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: var(--control-h);
+  min-height: var(--control-h);
+  margin: 0;
+  padding: 0 var(--space-2);
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+}
+.connector-detail .connector-config-form .connector-field-name > input { max-width: var(--field-value-max-w); }
+.connector-detail .connector-config-form :is(.connector-field-transport > select, .connector-field-timeout > input) {
+  width: 100%;
+  max-width: calc(var(--control-h) * 4);
+}
+.connector-detail .connector-config-form .connector-field-url > input { max-width: var(--field-value-wide-max-w); }
+.connector-detail .connector-config-form .connector-config-purpose,
+.connector-detail .connector-config-form .connector-config-headers { align-items: start; }
+.connector-detail .connector-config-form :is(.connector-config-purpose, .connector-config-headers) > .connector-config-label {
+  padding-top: var(--space-1);
+}
+.connector-detail .connector-config-form .connector-config-purpose > textarea {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--field-value-wide-max-w);
+  height: calc(var(--ds-line-sm) * 2 + var(--space-2) + 2px);
+  min-height: calc(var(--ds-line-sm) * 2 + var(--space-2) + 2px);
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+  resize: vertical;
+}
+.connector-detail .connector-config-inline > small {
+  grid-column: 2;
+  margin-top: calc(var(--space-1) / 2);
+}
+.connector-detail .connector-config-form .connector-icon-field.is-compact {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+}
+.connector-detail .connector-config-form .is-compact .connector-icon-preview {
+  box-sizing: border-box;
+  flex: 0 0 var(--control-h);
+  width: var(--control-h);
+  height: var(--control-h);
+}
+.connector-detail .connector-config-form .is-compact .connector-icon-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+.connector-detail .connector-config-form .is-compact .connector-icon-actions > p { flex-basis: auto; }
+.connector-detail .connector-config-form .is-compact .connector-icon-actions > .error { flex-basis: 100%; }
+.connector-detail .connector-config-form input[type="file"] { display: none; }
+.connector-detail .connector-config-form .connector-header-rows {
+  gap: var(--space-2);
+  width: 100%;
+  max-width: var(--field-value-wide-max-w);
+  min-width: 0;
+}
+.connector-detail .connector-config-form .connector-header-row {
+  grid-template-columns: minmax(0, calc(var(--property-label-w-short) * 2)) minmax(0, 1fr) var(--control-h);
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+.connector-detail .connector-config-form .connector-header-row .icon-btn {
+  width: var(--control-h);
+  padding: 0;
+}
+.connector-detail .connector-config-form .connector-header-rows > .btn { align-self: flex-start; }
+.connector-detail .connector-config-form .connector-header-hint { font: inherit; }
+.connector-detail .connector-header-removal {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+.connector-detail .connector-config-form .connector-check-row,
+.connector-detail .connector-config-form .connector-ref-list {
+  margin: 0 0 0 calc(var(--property-label-w-short) + var(--space-2));
+  font: inherit;
+}
+.connector-detail .connector-config-form .connector-check-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  align-self: flex-start;
+  min-height: var(--control-h);
+}
+.connector-detail .connector-config-form .connector-check-row input[type="checkbox"] { margin: 0; }
+.connector-detail .connector-config-form .connector-ref-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--space-1) / 2);
+  padding: 0;
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+.connector-detail .connector-config-footer {
+  /* 常规流：sticky 会把「保存配置」浮在最后一行字段上，看起来像盖住了内容。 */
+  position: static;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2) 0 var(--space-1) calc(var(--property-label-w-short) + var(--space-2));
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+.connector-detail .connector-config-footer > button { order: 0; }
+.connector-detail .connector-config-footer > p { order: 1; flex: 1 1 auto; }
+
+/* Catalog toolbar, local filtering, and catalog rows. */
+.connector-detail .connector-tool-catalog-compact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.connector-detail .connector-tool-catalog-toolbar,
+.connector-detail .connector-tool-catalog-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.connector-detail .connector-tool-catalog-filters > label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font: inherit;
+}
+.connector-detail .connector-tool-catalog-filters > label > span { white-space: nowrap; color: var(--text-quiet); }
+.connector-detail .connector-tool-catalog-filters select {
+  box-sizing: border-box;
+  width: auto;
+  min-width: 0;
+  height: var(--control-h);
+  min-height: var(--control-h);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+#root .connector-detail .connector-tool-catalog-compact .workspace-search-input.ant-input-affix-wrapper {
+  display: inline-flex;
+  flex: 0 1 var(--workspace-search-max-w);
+  align-items: center;
+  box-sizing: border-box;
+  width: min(100%, var(--workspace-search-max-w));
+  min-width: 0;
+  height: var(--control-h);
+  min-height: var(--control-h);
+  margin: 0;
+  padding: 0 var(--space-2);
+  gap: var(--space-2);
+  border-radius: var(--radius-control);
+  font: inherit;
+}
+#root .connector-detail .connector-tool-catalog-compact .workspace-search-input .ant-input {
+  height: auto;
+  min-height: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  line-height: var(--ds-line-sm);
+}
+#root .connector-detail .connector-tool-catalog-compact .workspace-search-input .ant-input-prefix { margin: 0; }
+.connector-detail .connector-tool-catalog-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(var(--space-1) / 2) var(--space-2);
+}
+.connector-detail .connector-tool-catalog-count,
+.connector-detail .connector-tool-catalog-category-note { margin: 0; font: inherit; }
+.connector-detail .connector-tool-catalog-toolbar-meta {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+.connector-detail .connector-tool-catalog-filter-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.connector-detail .connector-tool-catalog-compact .connector-tools-list {
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.connector-detail .connector-tool-catalog-compact .connector-tool-compact:last-child {
+  border-bottom: 0;
+}
+.connector-detail .connector-tool-catalog-compact .connector-tool-compact {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: var(--list-row-h-compact, 32px);
+  padding: 2px var(--space-2);
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border-quiet);
+}
+
+.connector-detail .connector-tool-catalog-compact .connector-tool-main {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.connector-detail .connector-tool-catalog-compact .connector-tool-name {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.connector-detail .connector-tool-catalog-compact .connector-tool-name strong {
+  font-size: var(--ds-font-sm);
+  font-weight: 600;
+}
+.connector-detail .connector-tool-catalog-compact .connector-tool-compact:hover,
+.connector-detail .connector-tool-catalog-compact .connector-tool-compact:focus-within { background: var(--bg-subtle); }
+.connector-detail .connector-tool-catalog-compact .connector-tool-main { min-width: 0; }
+.connector-detail .connector-tool-catalog-compact .connector-tool-name { gap: var(--space-2); }
+.connector-detail .connector-tool-catalog-compact .connector-tool-name strong {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.connector-detail .connector-tool-catalog-compact .connector-tool-description {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--ds-font-xs);
+  color: var(--text-muted);
+}
+.connector-detail .connector-tool-catalog-compact .connector-tool-compact-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+.connector-detail .connector-tool-catalog-compact :is(.connector-tool-category, .runtime-risk, .connector-tool-platform-state) {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: var(--ds-font-xs);
+  line-height: var(--ds-line-sm);
+  color: var(--text-muted);
+  height: auto;
+  min-height: 0;
+  white-space: nowrap;
+}
+.connector-detail .connector-tool-catalog-compact .connector-tool-schema-button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent-text);
+}
+.connector-detail .connector-tool-catalog-compact .connector-tool-schema-button:hover:not(:disabled) { background: var(--btn-text-hover-bg); }
+
+/* Reference bindings and audit rows: one owner for every vertical gap. */
+.connector-detail .connector-credential-reference-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.connector-detail .connector-credential-reference-list > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.connector-detail .connector-credential-reference-main,
+.connector-detail .connector-credential-reference-status {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--space-1) / 2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.connector-detail .connector-credential-reference-status { justify-self: start; }
+.connector-detail .connector-credential-binding-action-row,
+.connector-detail .connector-credential-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.connector-detail .connector-credential-header-actions { flex: 0 0 auto; }
+.connector-detail .connector-credential-binding-action-row { align-self: flex-start; }
+.connector-detail .connector-credential-binding-action-row > button { order: 0; }
+.connector-detail .connector-credential-binding-action-copy {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--space-1) / 2);
+  order: 1;
+  min-width: 0;
+}
+.connector-detail .connector-audit-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  min-width: 0;
+}
+.connector-detail .connector-audit-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.connector-detail .connector-audit-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.connector-detail .connector-audit-list > li {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--space-1) / 2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+}
+.connector-detail .connector-audit-record-head,
+.connector-detail .connector-audit-record-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(var(--space-1) / 2) var(--space-2);
+}
+.connector-detail .connector-audit-record-head { font-weight: 500; }
+.connector-detail .connector-audit-record-meta { font-variant-numeric: tabular-nums; }
+.connector-detail .connector-audit-result { font-weight: 500; }
+.connector-detail .connector-audit-error-code { color: var(--danger); overflow-wrap: anywhere; }
+.connector-detail :is(.connector-detail-card > div[role="alert"], .runtime-state) { gap: var(--space-1); }
+.connector-detail :is(.runtime-state, .runtime-notice, .admin-receipt) { margin: 0; font-size: var(--ds-font-sm); line-height: var(--ds-line-sm); }
+.connector-detail :is(code, .runtime-hash) { min-width: 0; overflow-wrap: anywhere; }
+
+/* Portals are scoped explicitly; they do not inherit .connector-detail. */
+.connector-detail-tool-schema-drawer .ant-drawer-header,
+.connector-global-vault-drawer .ant-drawer-header { padding: var(--space-3); }
+.connector-detail-tool-schema-drawer .ant-drawer-body,
+.connector-global-vault-drawer .ant-drawer-body { padding: var(--space-3); }
+.connector-detail-tool-schema-drawer :is(.ant-drawer-title, p, h4, dt, dd, code, pre),
+.connector-global-vault-drawer > .ant-drawer-content-wrapper .ant-drawer-title,
+.connector-global-vault-drawer [data-connector-global-vault-warning] {
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+}
+.connector-detail-tool-schema-drawer .connector-tool-schema-readonly {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.connector-detail-tool-schema-drawer .connector-tool-schema-readonly :is(p, h4, dl, dd) { margin: 0; }
+.connector-detail-tool-schema-drawer .connector-tool-schema-readonly dl > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.connector-detail-tool-schema-drawer .connector-tool-schema-readonly dt { color: var(--text-quiet); }
+.connector-detail-tool-schema-drawer .connector-tool-schema-readonly pre {
+  max-width: 100%;
+  margin: 0;
+  padding: var(--space-2);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  color: var(--text);
+  font-family: var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.connector-detail-tool-schema-drawer :is(code, .runtime-hash),
+.connector-global-vault-drawer :is(code, .runtime-hash) { min-width: 0; overflow-wrap: anywhere; }
+.connector-global-vault-drawer :is(.runtime-vault, .runtime-vault-form) { min-width: 0; }
+.connector-global-vault-drawer [data-connector-global-vault-warning] { margin: 0 0 var(--space-3); }
+
+@container (min-width: 720px) {
+  .connector-detail .connector-audit-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container (max-width: 720px) {
+  .connector-detail .connector-tool-catalog-compact .connector-tool-compact { grid-template-columns: minmax(0, 1fr) auto; }
+  .connector-detail .connector-tool-catalog-compact .connector-tool-main { grid-column: 1; grid-row: 1; }
+  .connector-detail .connector-tool-catalog-compact .connector-tool-schema-button { grid-column: 2; grid-row: 1; }
+  .connector-detail .connector-tool-catalog-compact .connector-tool-compact-meta { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; }
+}
+@container (max-width: 480px) {
+  .connector-detail .connector-config-form .connector-config-inline { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+  .connector-detail .connector-config-form :is(.connector-config-purpose, .connector-config-headers) > .connector-config-label { padding-top: 0; }
+  .connector-detail .connector-config-inline > small { grid-column: 1; margin-top: 0; }
+  .connector-detail .connector-config-form :is(.connector-check-row, .connector-ref-list) { margin-left: 0; }
+  .connector-detail .connector-config-footer { padding-left: 0; }
+  .connector-detail .connector-config-form .connector-header-row { grid-template-columns: minmax(0, 1fr) var(--control-h); }
+  .connector-detail .connector-config-form .connector-header-row .connector-header-name { grid-column: 1; grid-row: 1; }
+  .connector-detail .connector-config-form .connector-header-row .icon-btn { grid-column: 2; grid-row: 1; }
+  .connector-detail .connector-config-form .connector-header-row .connector-header-value { grid-column: 1 / -1; grid-row: 2; }
+  .connector-detail .connector-credential-reference-list > li { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+  .connector-detail .connector-tool-catalog-toolbar .connector-tool-catalog-filters { flex-basis: 100%; }
+}
+@media (max-width: 720px) {
+  .connector-global-vault-drawer .runtime-vault-form { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .connector-detail .connector-detail-tabs > button[role="tab"] { transition: none; }
+}

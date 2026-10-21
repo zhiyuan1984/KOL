@@ -1,0 +1,809 @@
+{
+  "schema_version": 1,
+  "kind": "task-contract",
+  "status": "complete",
+  "owner": "project-manager",
+  "requirement_refs": [
+    "CONST-08",
+    "CONST-10",
+    "TECH-ARCH-04",
+    "TECH-TEST-01",
+    "CONST-04",
+    "TECH-FE-01",
+    "TECH-FE-03",
+    "TECH-TEST-02"
+  ],
+  "subject": {
+    "task_id": "wecom-company-query-hotfix-20261021",
+    "intents": [
+      "修复企业微信来源状态与快照请求遗漏显式公司查询参数，保持只读和暂不导入"
+    ],
+    "paths": [
+      "frontend/src/ontology/wecomApi.ts",
+      "frontend/e2e/wecom-ontology.spec.ts"
+    ]
+  },
+  "decisions": {
+    "route_selection": [
+      {
+        "id": "governed-task-contract",
+        "match_reasons": [
+          "base:governed-task-contract"
+        ]
+      },
+      {
+        "id": "frontend-experience",
+        "match_reasons": [
+          "path:frontend/src/ontology/wecomApi.ts",
+          "path:frontend/e2e/wecom-ontology.spec.ts"
+        ]
+      }
+    ],
+    "responsibility_roles": [
+      "project-manager",
+      "ui-ux",
+      "frontend",
+      "test-manager"
+    ],
+    "mandatory_reading": [
+      "AGENTS.md",
+      "docs/AGENTS.md",
+      "docs/CONSTITUTION.md",
+      "docs/TECHNOLOGY.md",
+      "docs/DESIGN.md",
+      "docs/ia-information-architecture.md",
+      "frontend/AGENTS.md"
+    ],
+    "required_skill_ids": [
+      "governed-task-routing",
+      "ux-task-and-state-design",
+      "responsive-page-layout",
+      "antd-component-engineering",
+      "ui-evidence-verification"
+    ]
+  },
+  "verification": {
+    "preflight": {
+      "status": "passed",
+      "method": "actual-file-load-and-hash",
+      "loaded_file_count": 28
+    }
+  },
+  "task": {
+    "id": "wecom-company-query-hotfix-20261021",
+    "intents": [
+      "修复企业微信来源状态与快照请求遗漏显式公司查询参数，保持只读和暂不导入"
+    ],
+    "paths": [
+      "frontend/src/ontology/wecomApi.ts",
+      "frontend/e2e/wecom-ontology.spec.ts"
+    ]
+  },
+  "matched_routes": [
+    {
+      "id": "governed-task-contract",
+      "match_reasons": [
+        "base:governed-task-contract"
+      ]
+    },
+    {
+      "id": "frontend-experience",
+      "match_reasons": [
+        "path:frontend/src/ontology/wecomApi.ts",
+        "path:frontend/e2e/wecom-ontology.spec.ts"
+      ]
+    }
+  ],
+  "governance": {
+    "roles": [
+      "project-manager",
+      "ui-ux",
+      "frontend",
+      "test-manager"
+    ],
+    "clauses": [
+      "CONST-08",
+      "CONST-10",
+      "TECH-ARCH-04",
+      "TECH-TEST-01",
+      "CONST-04",
+      "TECH-FE-01",
+      "TECH-FE-03",
+      "TECH-TEST-02"
+    ],
+    "must_read": [
+      "AGENTS.md",
+      "docs/AGENTS.md",
+      "docs/CONSTITUTION.md",
+      "docs/TECHNOLOGY.md",
+      "docs/DESIGN.md",
+      "docs/ia-information-architecture.md",
+      "frontend/AGENTS.md"
+    ],
+    "skills": [
+      {
+        "id": "governed-task-routing",
+        "version": "1.0.0",
+        "skill_file": ".agents/skills/governed-task-routing/SKILL.md",
+        "source_hash": "24a0651e8d501653e792f03cbbd44ac06d4ea6d5b5a741f376132c62f774a840",
+        "template_hashes": [
+          {
+            "path": ".agents/skills/governed-task-routing/templates/task-contract.json",
+            "sha256": "7384798838f72fc4e602c4552aa71a98e2c00f5a1975153a41e56fac091be729",
+            "bytes": 891,
+            "purposes": [
+              "skill template governed-task-routing"
+            ]
+          }
+        ],
+        "dependency_hashes": [
+          {
+            "path": "AGENTS.md",
+            "sha256": "6f16d56c20d14879851a2c445ffca77598687a83eac63d440bbb33b18051a07f",
+            "bytes": 8305,
+            "purposes": [
+              "mandatory reading",
+              "skill dependency governed-task-routing"
+            ]
+          },
+          {
+            "path": "docs/CONSTITUTION.md",
+            "sha256": "d9a2ec9287b4d2f73d423885ddc8d83ad547f13e38ad21b5928ed27982c250c2",
+            "bytes": 11645,
+            "purposes": [
+              "mandatory reading",
+              "skill dependency governed-task-routing"
+            ]
+          },
+          {
+            "path": "config/development-task-routes.yaml",
+            "sha256": "d11c6922b323ff438169008efd80b19d5589fe735ce6fadec887018813c21ff1",
+            "bytes": 8737,
+            "purposes": [
+              "skill dependency governed-task-routing",
+              "task routing configuration"
+            ]
+          },
+          {
+            "path": "schemas/development-task.schema.json",
+            "sha256": "74a9f6e3c3568f44ac27b9437bd11de74dea474926fbd229d491e7216bf94e17",
+            "bytes": 8160,
+            "purposes": [
+              "development task schema",
+              "skill dependency governed-task-routing"
+            ]
+          },
+          {
+            "path": "docs/governance/development-component-catalog.md",
+            "sha256": "471bca68831e47fa0a461c41e534281b3eec2ac79d1be3e37f7cd2227f12a7db",
+            "bytes": 8115,
+            "purposes": [
+              "skill dependency governed-task-routing"
+            ]
+          },
+          {
+            "path": ".agents/skills/governed-task-routing/references/provenance.md",
+            "sha256": "854f679b94d27043b56dd5a79ed6ddd7daa23d622281b25985e19f24c6cef6cb",
+            "bytes": 537,
+            "purposes": [
+              "skill dependency governed-task-routing"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "ux-task-and-state-design",
+        "version": "1.0.0",
+        "skill_file": ".agents/skills/ux-task-and-state-design/SKILL.md",
+        "source_hash": "fbecb116df38107d7462b475ec2af39fdc296dc12ade1eb237b29d08c6a2fe41",
+        "template_hashes": [
+          {
+            "path": ".agents/skills/ux-task-and-state-design/templates/state-and-action-map.json",
+            "sha256": "648d27e06f56a8f843b8170deed84af3305a98dec651296b64d66a5250a5555d",
+            "bytes": 1784,
+            "purposes": [
+              "skill template ux-task-and-state-design"
+            ]
+          }
+        ],
+        "dependency_hashes": [
+          {
+            "path": "docs/DESIGN.md",
+            "sha256": "7bb29ca12f75f8fa425129d3eb27ce9848cb69394d18e73f0792fd010d7f7472",
+            "bytes": 152315,
+            "purposes": [
+              "mandatory reading",
+              "skill dependency ux-task-and-state-design"
+            ]
+          },
+          {
+            "path": "docs/TECHNOLOGY.md",
+            "sha256": "553d5491739165d38a1b2ba658174dadc7dd718c77d6707ddd3f557e2840e076",
+            "bytes": 16784,
+            "purposes": [
+              "mandatory reading",
+              "skill dependency ux-task-and-state-design"
+            ]
+          },
+          {
+            "path": "docs/ia-information-architecture.md",
+            "sha256": "0d2c34cad073429143431e447961100de29ecb8cd06b8b7a6f776da45bd32389",
+            "bytes": 12335,
+            "purposes": [
+              "mandatory reading",
+              "skill dependency ux-task-and-state-design"
+            ]
+          },
+          {
+            "path": "docs/governance/development-component-catalog.md",
+            "sha256": "471bca68831e47fa0a461c41e534281b3eec2ac79d1be3e37f7cd2227f12a7db",
+            "bytes": 8115,
+            "purposes": [
+              "skill dependency governed-task-routing",
+              "skill dependency ux-task-and-state-design"
+            ]
+          },
+          {
+            "path": ".agents/skills/ux-task-and-state-design/references/provenance.md",
+            "sha256": "854f679b94d27043b56dd5a79ed6ddd7daa23d622281b25985e19f24c6cef6cb",
+            "bytes": 537,
+            "purposes": [
+              "skill dependency ux-task-and-state-design"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "responsive-page-layout",
+        "version": "1.0.0",
+        "skill_file": ".agents/skills/responsive-page-layout/SKILL.md",
+        "source_hash": "2c5b770d3d5e0753f6f3ecc010286aeb62a88386823b0dbdefde188fad21a2c0",
+        "template_hashes": [
+          {
+            "path": ".agents/skills/responsive-page-layout/templates/layout-contract.json",
+            "sha256": "0aed2b1a0c9f2cfcc609151431ba19a585b797d54c7c398d581bb20b2795bdf2",
+            "bytes": 937,
+            "purposes": [
+              "skill template responsive-page-layout"
+            ]
+          }
+        ],
+        "dependency_hashes": [
+          {
+            "path": "docs/DESIGN.md",
+            "sha256": "7bb29ca12f75f8fa425129d3eb27ce9848cb69394d18e73f0792fd010d7f7472",
+            "bytes": 152315,
+            "purposes": [
+              "mandatory reading",
+              "skill dependency responsive-page-layout",
+              "skill dependency ux-task-and-state-design"
+            ]
+          },
+          {
+            "path": "docs/TECHNOLOGY.md",
+            "sha256": "553d5491739165d38a1b2ba658174dadc7dd718c77d6707ddd3f557e2840e076",
+            "bytes": 16784,
+            "purposes": [
+              "mandatory reading",
+              "skill dependency responsive-page-layout",
+              "skill dependency ux-task-and-state-design"
+            ]
+          },
+          {
+            "path": "frontend/package.json",
+            "sha256": "b55eddccbc8f55a320545317bb5de16db00aa671773bd8fc82e134aa8f684f1f",
+            "bytes": 2307,
+            "purposes": [
+              "skill dependency responsive-page-layout"
+            ]
+          },
+          {
+            "path": "docs/governance/development-component-catalog.md",
+            "sha256": "471bca68831e47fa0a461c41e534281b3eec2ac79d1be3e37f7cd2227f12a7db",
+            "bytes": 8115,
+            "purposes": [
+              "skill dependency governed-task-routing",
+              "skill dependency responsive-page-layout",
+              "skill dependency ux-task-and-state-design"
+            ]
+          },
+          {
+            "path": ".agents/skills/responsive-page-layout/references/provenance.md",
+            "sha256": "854f679b94d27043b56dd5a79ed6ddd7daa23d622281b25985e19f24c6cef6cb",
+            "bytes": 537,
+            "purposes": [
+              "skill dependency responsive-page-layout"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "antd-component-engineering",
+        "version": "1.0.0",
+        "skill_file": ".agents/skills/antd-component-engineering/SKILL.md",
+        "source_hash": "c18734db96cf36cee86ef59517b03121aad0b4755825d6931d764f99349928a8",
+        "template_hashes": [
+          {
+            "path": ".agents/skills/antd-component-engineering/templates/component-selection.json",
+            "sha256": "1b881db896b8f3eb6e0674b8efe96589241a294819c5bbcc6d897d737efeb31c",
+            "bytes": 1123,
+            "purposes": [
+              "skill template antd-component-engineering"
+            ]
+          }
+        ],
+        "dependency_hashes": [
+          {
+            "path": "docs/DESIGN.md",
+            "sha256": "7bb29ca12f75f8fa425129d3eb27ce9848cb69394d18e73f0792fd010d7f7472",
+            "bytes": 152315,
+            "purposes": [
+              "mandatory reading",
+              "skill dependency antd-component-engineering",
+              "skill dependency responsive-page-layout",
+              "skill dependency ux-task-and-state-design"
+            ]
+          },
+          {
+            "path": "docs/TECHNOLOGY.md",
+            "sha256": "553d5491739165d38a1b2ba658174dadc7dd718c77d6707ddd3f557e2840e076",
+            "bytes": 16784,
+            "purposes": [
+              "mandatory reading",
+              "skill dependency antd-component-engineering",
+              "skill dependency responsive-page-layout",
+              "skill dependency ux-task-and-state-design"
+            ]
+          },
+          {
+            "path": "frontend/package.json",
+            "sha256": "b55eddccbc8f55a320545317bb5de16db00aa671773bd8fc82e134aa8f684f1f",
+            "bytes": 2307,
+            "purposes": [
+              "skill dependency antd-component-engineering",
+              "skill dependency responsive-page-layout"
+            ]
+          },
+          {
+            "path": "frontend/src/styles.css",
+            "sha256": "c5678eff176bf3b93dbcc2cc47466eb5c60e5bc3a20930bde2b9025a495b801f",
+            "bytes": 571070,
+            "purposes": [
+              "skill dependency antd-component-engineering"
+            ]
+          },
+          {
+            "path": "docs/governance/development-component-catalog.md",
+            "sha256": "471bca68831e47fa0a461c41e534281b3eec2ac79d1be3e37f7cd2227f12a7db",
+            "bytes": 8115,
+            "purposes": [
+              "skill dependency antd-component-engineering",
+              "skill dependency governed-task-routing",
+              "skill dependency responsive-page-layout",
+              "skill dependency ux-task-and-state-design"
+            ]
+          },
+          {
+            "path": ".agents/skills/antd-component-engineering/references/provenance.md",
+            "sha256": "854f679b94d27043b56dd5a79ed6ddd7daa23d622281b25985e19f24c6cef6cb",
+            "bytes": 537,
+            "purposes": [
+              "skill dependency antd-component-engineering"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "ui-evidence-verification",
+        "version": "1.0.0",
+        "skill_file": ".agents/skills/ui-evidence-verification/SKILL.md",
+        "source_hash": "93df18b23dbe8a4b6af6c0893cd3dba79fddd8be43d0b360848b6fec5c3e7f9b",
+        "template_hashes": [
+          {
+            "path": ".agents/skills/ui-evidence-verification/templates/browser-and-source-evidence.json",
+            "sha256": "fd5a4a4b254f960e9102307f6d10c943720095477f4dda2b57aaef3280a2a612",
+            "bytes": 1060,
+            "purposes": [
+              "skill template ui-evidence-verification"
+            ]
+          }
+        ],
+        "dependency_hashes": [
+          {
+            "path": "docs/CONSTITUTION.md",
+            "sha256": "d9a2ec9287b4d2f73d423885ddc8d83ad547f13e38ad21b5928ed27982c250c2",
+            "bytes": 11645,
+            "purposes": [
+              "mandatory reading",
+              "skill dependency governed-task-routing",
+              "skill dependency ui-evidence-verification"
+            ]
+          },
+          {
+            "path": "docs/TECHNOLOGY.md",
+            "sha256": "553d5491739165d38a1b2ba658174dadc7dd718c77d6707ddd3f557e2840e076",
+            "bytes": 16784,
+            "purposes": [
+              "mandatory reading",
+              "skill dependency antd-component-engineering",
+              "skill dependency responsive-page-layout",
+              "skill dependency ui-evidence-verification",
+              "skill dependency ux-task-and-state-design"
+            ]
+          },
+          {
+            "path": "docs/DESIGN.md",
+            "sha256": "7bb29ca12f75f8fa425129d3eb27ce9848cb69394d18e73f0792fd010d7f7472",
+            "bytes": 152315,
+            "purposes": [
+              "mandatory reading",
+              "skill dependency antd-component-engineering",
+              "skill dependency responsive-page-layout",
+              "skill dependency ui-evidence-verification",
+              "skill dependency ux-task-and-state-design"
+            ]
+          },
+          {
+            "path": "frontend/package.json",
+            "sha256": "b55eddccbc8f55a320545317bb5de16db00aa671773bd8fc82e134aa8f684f1f",
+            "bytes": 2307,
+            "purposes": [
+              "skill dependency antd-component-engineering",
+              "skill dependency responsive-page-layout",
+              "skill dependency ui-evidence-verification"
+            ]
+          },
+          {
+            "path": "docs/governance/development-component-catalog.md",
+            "sha256": "471bca68831e47fa0a461c41e534281b3eec2ac79d1be3e37f7cd2227f12a7db",
+            "bytes": 8115,
+            "purposes": [
+              "skill dependency antd-component-engineering",
+              "skill dependency governed-task-routing",
+              "skill dependency responsive-page-layout",
+              "skill dependency ui-evidence-verification",
+              "skill dependency ux-task-and-state-design"
+            ]
+          },
+          {
+            "path": ".agents/skills/ui-evidence-verification/references/provenance.md",
+            "sha256": "854f679b94d27043b56dd5a79ed6ddd7daa23d622281b25985e19f24c6cef6cb",
+            "bytes": 537,
+            "purposes": [
+              "skill dependency ui-evidence-verification"
+            ]
+          }
+        ]
+      }
+    ],
+    "loaded_files": [
+      {
+        "path": ".agents/skills/antd-component-engineering/references/provenance.md",
+        "sha256": "854f679b94d27043b56dd5a79ed6ddd7daa23d622281b25985e19f24c6cef6cb",
+        "bytes": 537,
+        "purposes": [
+          "skill dependency antd-component-engineering"
+        ]
+      },
+      {
+        "path": ".agents/skills/antd-component-engineering/SKILL.md",
+        "sha256": "c18734db96cf36cee86ef59517b03121aad0b4755825d6931d764f99349928a8",
+        "bytes": 2427,
+        "purposes": [
+          "skill source antd-component-engineering"
+        ]
+      },
+      {
+        "path": ".agents/skills/antd-component-engineering/templates/component-selection.json",
+        "sha256": "1b881db896b8f3eb6e0674b8efe96589241a294819c5bbcc6d897d737efeb31c",
+        "bytes": 1123,
+        "purposes": [
+          "skill template antd-component-engineering"
+        ]
+      },
+      {
+        "path": ".agents/skills/governed-task-routing/references/provenance.md",
+        "sha256": "854f679b94d27043b56dd5a79ed6ddd7daa23d622281b25985e19f24c6cef6cb",
+        "bytes": 537,
+        "purposes": [
+          "skill dependency governed-task-routing"
+        ]
+      },
+      {
+        "path": ".agents/skills/governed-task-routing/SKILL.md",
+        "sha256": "24a0651e8d501653e792f03cbbd44ac06d4ea6d5b5a741f376132c62f774a840",
+        "bytes": 2511,
+        "purposes": [
+          "skill source governed-task-routing"
+        ]
+      },
+      {
+        "path": ".agents/skills/governed-task-routing/templates/task-contract.json",
+        "sha256": "7384798838f72fc4e602c4552aa71a98e2c00f5a1975153a41e56fac091be729",
+        "bytes": 891,
+        "purposes": [
+          "skill template governed-task-routing"
+        ]
+      },
+      {
+        "path": ".agents/skills/responsive-page-layout/references/provenance.md",
+        "sha256": "854f679b94d27043b56dd5a79ed6ddd7daa23d622281b25985e19f24c6cef6cb",
+        "bytes": 537,
+        "purposes": [
+          "skill dependency responsive-page-layout"
+        ]
+      },
+      {
+        "path": ".agents/skills/responsive-page-layout/SKILL.md",
+        "sha256": "2c5b770d3d5e0753f6f3ecc010286aeb62a88386823b0dbdefde188fad21a2c0",
+        "bytes": 2351,
+        "purposes": [
+          "skill source responsive-page-layout"
+        ]
+      },
+      {
+        "path": ".agents/skills/responsive-page-layout/templates/layout-contract.json",
+        "sha256": "0aed2b1a0c9f2cfcc609151431ba19a585b797d54c7c398d581bb20b2795bdf2",
+        "bytes": 937,
+        "purposes": [
+          "skill template responsive-page-layout"
+        ]
+      },
+      {
+        "path": ".agents/skills/ui-evidence-verification/references/provenance.md",
+        "sha256": "854f679b94d27043b56dd5a79ed6ddd7daa23d622281b25985e19f24c6cef6cb",
+        "bytes": 537,
+        "purposes": [
+          "skill dependency ui-evidence-verification"
+        ]
+      },
+      {
+        "path": ".agents/skills/ui-evidence-verification/SKILL.md",
+        "sha256": "93df18b23dbe8a4b6af6c0893cd3dba79fddd8be43d0b360848b6fec5c3e7f9b",
+        "bytes": 2553,
+        "purposes": [
+          "skill source ui-evidence-verification"
+        ]
+      },
+      {
+        "path": ".agents/skills/ui-evidence-verification/templates/browser-and-source-evidence.json",
+        "sha256": "fd5a4a4b254f960e9102307f6d10c943720095477f4dda2b57aaef3280a2a612",
+        "bytes": 1060,
+        "purposes": [
+          "skill template ui-evidence-verification"
+        ]
+      },
+      {
+        "path": ".agents/skills/ux-task-and-state-design/references/provenance.md",
+        "sha256": "854f679b94d27043b56dd5a79ed6ddd7daa23d622281b25985e19f24c6cef6cb",
+        "bytes": 537,
+        "purposes": [
+          "skill dependency ux-task-and-state-design"
+        ]
+      },
+      {
+        "path": ".agents/skills/ux-task-and-state-design/SKILL.md",
+        "sha256": "fbecb116df38107d7462b475ec2af39fdc296dc12ade1eb237b29d08c6a2fe41",
+        "bytes": 2442,
+        "purposes": [
+          "skill source ux-task-and-state-design"
+        ]
+      },
+      {
+        "path": ".agents/skills/ux-task-and-state-design/templates/state-and-action-map.json",
+        "sha256": "648d27e06f56a8f843b8170deed84af3305a98dec651296b64d66a5250a5555d",
+        "bytes": 1784,
+        "purposes": [
+          "skill template ux-task-and-state-design"
+        ]
+      },
+      {
+        "path": "AGENTS.md",
+        "sha256": "6f16d56c20d14879851a2c445ffca77598687a83eac63d440bbb33b18051a07f",
+        "bytes": 8305,
+        "purposes": [
+          "mandatory reading",
+          "skill dependency governed-task-routing"
+        ]
+      },
+      {
+        "path": "config/development-skill-registry.yaml",
+        "sha256": "c713a482625d50d3271a91895651c5e5018bad16ac364415bbea0444ad73915b",
+        "bytes": 4405,
+        "purposes": [
+          "skill registry"
+        ]
+      },
+      {
+        "path": "config/development-task-routes.yaml",
+        "sha256": "d11c6922b323ff438169008efd80b19d5589fe735ce6fadec887018813c21ff1",
+        "bytes": 8737,
+        "purposes": [
+          "skill dependency governed-task-routing",
+          "task routing configuration"
+        ]
+      },
+      {
+        "path": "docs/AGENTS.md",
+        "sha256": "0bb7d43ece31bcde380bb8cda74203db44baa9ff07b27744fc5e6390dc955509",
+        "bytes": 5873,
+        "purposes": [
+          "mandatory reading"
+        ]
+      },
+      {
+        "path": "docs/CONSTITUTION.md",
+        "sha256": "d9a2ec9287b4d2f73d423885ddc8d83ad547f13e38ad21b5928ed27982c250c2",
+        "bytes": 11645,
+        "purposes": [
+          "mandatory reading",
+          "skill dependency governed-task-routing",
+          "skill dependency ui-evidence-verification"
+        ]
+      },
+      {
+        "path": "docs/DESIGN.md",
+        "sha256": "7bb29ca12f75f8fa425129d3eb27ce9848cb69394d18e73f0792fd010d7f7472",
+        "bytes": 152315,
+        "purposes": [
+          "mandatory reading",
+          "skill dependency antd-component-engineering",
+          "skill dependency responsive-page-layout",
+          "skill dependency ui-evidence-verification",
+          "skill dependency ux-task-and-state-design"
+        ]
+      },
+      {
+        "path": "docs/governance/development-component-catalog.md",
+        "sha256": "471bca68831e47fa0a461c41e534281b3eec2ac79d1be3e37f7cd2227f12a7db",
+        "bytes": 8115,
+        "purposes": [
+          "skill dependency antd-component-engineering",
+          "skill dependency governed-task-routing",
+          "skill dependency responsive-page-layout",
+          "skill dependency ui-evidence-verification",
+          "skill dependency ux-task-and-state-design"
+        ]
+      },
+      {
+        "path": "docs/ia-information-architecture.md",
+        "sha256": "0d2c34cad073429143431e447961100de29ecb8cd06b8b7a6f776da45bd32389",
+        "bytes": 12335,
+        "purposes": [
+          "mandatory reading",
+          "skill dependency ux-task-and-state-design"
+        ]
+      },
+      {
+        "path": "docs/TECHNOLOGY.md",
+        "sha256": "553d5491739165d38a1b2ba658174dadc7dd718c77d6707ddd3f557e2840e076",
+        "bytes": 16784,
+        "purposes": [
+          "mandatory reading",
+          "skill dependency antd-component-engineering",
+          "skill dependency responsive-page-layout",
+          "skill dependency ui-evidence-verification",
+          "skill dependency ux-task-and-state-design"
+        ]
+      },
+      {
+        "path": "frontend/AGENTS.md",
+        "sha256": "abe7be3b41fa7e4fcf46b29caf2a62c95628cdb906ee76cd3c6151158ffa2394",
+        "bytes": 2025,
+        "purposes": [
+          "mandatory reading"
+        ]
+      },
+      {
+        "path": "frontend/package.json",
+        "sha256": "b55eddccbc8f55a320545317bb5de16db00aa671773bd8fc82e134aa8f684f1f",
+        "bytes": 2307,
+        "purposes": [
+          "skill dependency antd-component-engineering",
+          "skill dependency responsive-page-layout",
+          "skill dependency ui-evidence-verification"
+        ]
+      },
+      {
+        "path": "frontend/src/styles.css",
+        "sha256": "c5678eff176bf3b93dbcc2cc47466eb5c60e5bc3a20930bde2b9025a495b801f",
+        "bytes": 571070,
+        "purposes": [
+          "skill dependency antd-component-engineering"
+        ]
+      },
+      {
+        "path": "schemas/development-task.schema.json",
+        "sha256": "74a9f6e3c3568f44ac27b9437bd11de74dea474926fbd229d491e7216bf94e17",
+        "bytes": 8160,
+        "purposes": [
+          "development task schema",
+          "skill dependency governed-task-routing"
+        ]
+      }
+    ]
+  },
+  "required_outputs": [
+    {
+      "id": "task-contract",
+      "fulfillment": "preflight",
+      "owner_roles": [
+        "project-manager"
+      ],
+      "route_ids": [
+        "governed-task-contract"
+      ]
+    },
+    {
+      "id": "state-and-action-map",
+      "fulfillment": "delivery",
+      "owner_roles": [
+        "ui-ux",
+        "frontend"
+      ],
+      "route_ids": [
+        "frontend-experience"
+      ]
+    },
+    {
+      "id": "layout-contract",
+      "fulfillment": "delivery",
+      "owner_roles": [
+        "ui-ux",
+        "frontend"
+      ],
+      "route_ids": [
+        "frontend-experience"
+      ]
+    },
+    {
+      "id": "component-selection",
+      "fulfillment": "delivery",
+      "owner_roles": [
+        "architect",
+        "frontend",
+        "ui-ux"
+      ],
+      "route_ids": [
+        "frontend-experience"
+      ]
+    },
+    {
+      "id": "browser-and-source-evidence",
+      "fulfillment": "delivery",
+      "owner_roles": [
+        "test-manager",
+        "ui-ux"
+      ],
+      "route_ids": [
+        "frontend-experience"
+      ]
+    }
+  ],
+  "required_checks": [
+    {
+      "id": "route-contract-schema",
+      "type": "machine",
+      "description": "Validate the selected task contract, actual loaded files, and delivery record schema.",
+      "route_ids": [
+        "governed-task-contract"
+      ]
+    },
+    {
+      "id": "frontend-experience-test",
+      "type": "machine",
+      "description": "Run the affected component, integration, or E2E test with a saved test report.",
+      "route_ids": [
+        "frontend-experience"
+      ]
+    },
+    {
+      "id": "frontend-browser-review",
+      "type": "human-browser",
+      "description": "A named reviewer records a browser review for the applicable viewport and interaction states.",
+      "route_ids": [
+        "frontend-experience"
+      ]
+    }
+  ]
+}

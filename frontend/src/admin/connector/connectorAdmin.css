@@ -730,6 +730,214 @@
   color: var(--text-muted);
 }
 
+.connector-tool-name strong {
+  font-size: var(--ds-font-sm);
+  font-weight: 600;
+}
+
+/* 工具清单：单行高密度（docs/DESIGN.md §9.3.1 compact 32px 档）
+   一行 = 箭头 + 工具名 + 描述 + 状态图标。描述默认收成一行；
+   点开后在原行内按行宽自然折行，从行首左边缘继续，不做悬挂缩进。 */
+.connector-tools-list-dense {
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+
+.connector-tool-row {
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.connector-tool-row:last-child {
+  border-bottom: 0;
+}
+
+.connector-tool-row-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-height: var(--list-row-h-compact, 32px);
+  padding: 6px var(--space-3);
+  list-style: none;
+  cursor: pointer;
+  border-radius: 0;
+}
+
+.connector-tool-row-line::-webkit-details-marker {
+  display: none;
+}
+
+.connector-tool-row-line:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.connector-tool-row:hover .connector-tool-row-line {
+  background: var(--bg-subtle);
+}
+
+.connector-tool-caret {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  margin-top: 4px;
+  color: var(--text-quiet);
+  transition: transform 120ms ease;
+}
+
+.connector-tool-row[open] .connector-tool-caret {
+  transform: rotate(90deg);
+  color: var(--text-muted);
+}
+
+/* 折叠态压成一行；展开态回到常规流，换行从行首开始。 */
+.connector-tool-line {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow: hidden;
+  font-size: var(--ds-font-xs);
+  line-height: 18px;
+}
+
+.connector-tool-row[open] .connector-tool-line {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+/* 工具名：完整可见、不加粗、正文色。 */
+.connector-tool-id {
+  margin-right: var(--space-2);
+  font-size: var(--ds-font-sm);
+  font-weight: 400;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* 描述：比工具名小一档、灰一档。 */
+.connector-tool-desc {
+  font-size: var(--ds-font-xs);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.connector-tool-status {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.connector-tool-status svg {
+  width: var(--icon-sm, 14px);
+  height: var(--icon-sm, 14px);
+  flex: 0 0 auto;
+}
+
+.connector-tool-status.is-ok { color: var(--success-text); }
+.connector-tool-status.is-warn { color: var(--warning-text); }
+
+/* 向导第三步仍展示 Schema：展开块与行首对齐，不贴边。 */
+.connector-tool-row > .connector-tool-detail {
+  margin: 0 var(--space-3) var(--space-2);
+}
+
+@media (max-width: 760px) {
+  .connector-tool-row-line {
+    padding: var(--space-1) var(--space-3);
+  }
+}
+
+.connector-tool .runtime-risk {
+  font-size: var(--font-xs);
+  line-height: 1;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-chip-square);
+  color: var(--text-muted);
+}
+
+.connector-tool .runtime-risk.risk-l1 { color: var(--success-text); border-color: color-mix(in srgb, var(--success) 38%, transparent); }
+.connector-tool .runtime-risk.risk-l2 { color: var(--warning-text); border-color: color-mix(in srgb, var(--warning) 38%, transparent); }
+.connector-tool .runtime-risk.risk-l3 { color: var(--danger-text); border-color: color-mix(in srgb, var(--danger) 38%, transparent); }
+
+.connector-tool-detail {
+  border-top: 1px dashed var(--line);
+  padding-top: var(--space-2);
+}
+
+.connector-tool-detail summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+  border-radius: var(--radius-control);
+}
+
+.connector-tool-detail summary::-webkit-details-marker {
+  display: none;
+}
+
+.connector-tool-detail summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 4px solid currentColor;
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+  transition: transform 120ms ease;
+}
+
+.connector-tool-detail[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.connector-tool-detail summary:hover {
+  color: var(--text);
+}
+
+.connector-tool-detail summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.connector-drawer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* 表头（搜索+计数）压到 28px 控件高。 */
+.connector-drawer-toolbar .connector-drawer-search {
+  min-height: var(--control-h, 28px);
+  padding: 2px var(--space-2);
+}
+
+.connector-drawer-toolbar .connector-drawer-search {
+  flex: 1 1 auto;
+}
+
+.connector-drawer-count {
+  margin: 0;
+  flex: 0 0 auto;
+  font-size: var(--ds-font-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.connector-drawer-footnote {
+  margin: 0;
+  font-size: var(--ds-font-xs);
+}
+
 .connector-check-row {
   align-self: end;
 }
@@ -794,7 +1002,8 @@
   top: 0;
   right: 0;
   height: 100dvh;
-  width: min(760px, calc(100vw - 24px));
+  /* 宽表用 lg 档（docs/DESIGN.md §6.3）；工具清单是横向信息，用 md 宽会留下大量空列。 */
+  width: min(var(--drawer-w-lg, 960px), calc(100vw - 24px));
   display: flex;
   flex-direction: column;
   border-left: 1px solid var(--border);
@@ -804,26 +1013,40 @@
 
 .connector-drawer-head {
   display: flex;
-  gap: var(--space-3);
-  align-items: flex-start;
+  gap: var(--space-2);
+  align-items: center;
   justify-content: space-between;
-  padding: var(--space-4);
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
 }
 
 .connector-drawer-title {
   display: flex;
-  gap: var(--space-3);
-  align-items: flex-start;
+  gap: var(--space-2);
+  align-items: center;
   min-width: 0;
 }
 
+/* 抽屉标题只作为定位锚点，不抢内容的视觉层级（docs/DESIGN.md §5 字号阶梯）。 */
 .connector-drawer-title h2 {
-  margin: 0 0 2px;
+  margin: 0;
+  font-size: var(--ds-font-sm);
+  line-height: 20px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.connector-drawer-title p {
-  margin: 0;
+.connector-drawer-title .connector-mark {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+}
+
+.connector-drawer-actions .btn.text {
+  height: var(--control-h-sm, 24px);
+  min-height: var(--control-h-sm, 24px);
 }
 
 .connector-drawer-actions {
@@ -837,10 +1060,10 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--space-4);
+  padding: var(--space-2) var(--space-3);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 
 .connector-drawer-note {
@@ -1480,16 +1703,18 @@
   stroke-width: 1.1;
 }
 
-/* 目录条目使用单列列表行。 */
+/* 目录条目使用单列列表行：图标砖 + 名称 + 单行描述 + 行尾动作位（DESIGN §7.3）。
+   三个分类页签（应用 / 自定义 API / 自定义 MCP）共用同一行高，条目不再拆成两行。 */
 .connector-browse .connector-grid {
+  --connector-browse-row-h: 36px; /* 28px 图标砖 + 上下各 4px */
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-1);
 }
 
 .connector-browse .connector-card {
-  min-height: 44px;
-  padding: var(--space-2) var(--space-3);
-  gap: var(--space-3);
+  min-height: var(--connector-browse-row-h);
+  padding: 0 var(--space-3);
+  gap: var(--space-2);
   align-items: center;
   border-color: var(--browse-line);
   border-radius: var(--radius-card);
@@ -1505,9 +1730,37 @@
   background: var(--browse-tile);
 }
 
-/* 标题与单行描述保持可扫描。 */
+/* 名称与描述同排：名称最多占 46%，描述吃剩余宽度并单行截断（tooltip 给全文）。
+   两者之间留 12px，否则名称和描述连成一句话、分不清边界。 */
+.connector-browse .connector-card-body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
 .connector-browse .connector-card-title {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 46%;
   line-height: 20px;
+}
+
+/* 手机宽度下名称先保命：46% 会把常见名称截成 “MediaCraw…”，放宽到 58%。 */
+@media (max-width: 480px) {
+  .connector-browse .connector-card-title {
+    max-width: 58%;
+  }
+}
+
+.connector-browse .connector-card-title .connector-card-link,
+.connector-browse .connector-card-title strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .connector-browse .connector-card-title strong {
@@ -1517,12 +1770,25 @@
 }
 
 .connector-browse .connector-card-purpose {
+  display: block;
+  /* basis 0：描述只吃名称剩下的宽度。名称按自然宽（≤上限）先落位，
+     不会在宽度不够时和描述按内容比例互相挤压、两边都截成碎片。 */
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
   font-size: var(--font-browse-desc);
   line-height: var(--lh-browse-desc);
   color: var(--hint-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 窄屏仍保持单行：宽度压力交给描述截断，不把行尾动作挤到第二行。 */
+@media (max-width: 860px) {
+  .connector-browse .connector-card {
+    flex-wrap: nowrap;
+  }
 }
 
 /* 行尾动作与状态保留独立可读的标记。 */
@@ -1683,80 +1949,304 @@
 }
 
 /* ── 连接器设置向导（弹窗内四步）────────────────────────────────────────────
-   元素与数值唯一来源 docs/DESIGN.md §7.2 连接器设置向导；改这里的数值前先改 DESIGN.md。 */
-.connector-panel.is-form:has(.connector-wizard-steps) .connector-panel-body {
-  gap: var(--wizard-gap);
-}
+   元素与数值唯一来源 docs/DESIGN.md §7.2 连接器设置向导；改这里的数值前先改 DESIGN.md。
+   本节只保留一套定义（历史上 1918/2028 两段重复，已合并）。 */
 
+/* 弹窗标题在向导里降一档：进度条才是这一屏的主信息。 */
 .connector-panel.is-form:has(.connector-wizard-steps) {
   max-height: var(--dialog-h-wizard);
 }
 
+.connector-panel.is-form:has(.connector-wizard-steps) .connector-panel-head {
+  align-items: center;
+  padding: var(--space-3) var(--dialog-pad-x) var(--space-2);
+}
+
+.connector-panel.is-form:has(.connector-wizard-steps) .connector-panel-head h2 {
+  margin: 0;
+  font-size: var(--ds-font-ui);
+  line-height: var(--ds-line-ui);
+  font-weight: 600;
+}
+
+.connector-panel.is-form:has(.connector-wizard-steps) .connector-panel-body {
+  gap: var(--space-2);
+  align-content: start;
+}
+
+/* 向导内的控件统一压到 28px：32px 表单档在这四个短步骤里显得松。 */
+.connector-panel.is-form:has(.connector-wizard-steps) .field input:not([type="checkbox"]),
+.connector-panel.is-form:has(.connector-wizard-steps) .field textarea,
+.connector-panel.is-form:has(.connector-wizard-steps) .field select,
+.connector-panel.is-form:has(.connector-wizard-steps) .connector-header-row input {
+  min-height: var(--control-h);
+  padding: 4px var(--space-2);
+  font-size: var(--ds-font-sm);
+}
+
+.connector-panel.is-form:has(.connector-wizard-steps) .field {
+  gap: 2px;
+}
+
+.connector-panel.is-form:has(.connector-wizard-steps) .connector-form-grid {
+  gap: var(--space-2);
+}
+
+/* 底部操作条：说明在左、动作在右，弹性由中间留白吸收。 */
+.connector-panel.is-form:has(.connector-wizard-steps) .connector-panel-foot {
+  align-items: center;
+  gap: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.connector-panel-foot:has(.connector-wizard-foot-note) {
+  justify-content: space-between;
+}
+
+.connector-wizard-foot-note {
+  flex: 1 1 auto;
+  margin: 0;
+  text-align: left;
+}
+
+.connector-wizard-foot-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* 步骤条：20px 圆点 + 连接线。完成=实心勾（主色底），当前=主色描边，未到=灰。 */
 .connector-wizard-steps {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--wizard-step-gap);
+  align-items: center;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+.connector-wizard-steps li {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.connector-wizard-steps li:not(:last-child) {
+  flex: 1 1 auto;
+}
+
+.connector-wizard-steps li:not(:last-child)::after {
+  content: "";
+  flex: 1 1 var(--space-3);
+  height: 1px;
+  margin: 0 var(--space-2);
+  background: var(--border);
+}
+
 .connector-wizard-step {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
   height: var(--wizard-step-h);
-  padding: 0 var(--space-2);
-  border: 1px solid var(--border-quiet);
+  padding: 0 var(--space-1);
+  border: 0;
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--hint-text);
+  color: var(--text-muted);
   font-family: inherit;
-  font-size: var(--font-hint);
-  line-height: 1;
+  font-size: var(--ds-font-sm);
+  white-space: nowrap;
   cursor: pointer;
 }
 
 .connector-wizard-step:disabled {
-  color: var(--placeholder-text);
+  color: var(--text-muted);
   cursor: default;
+  opacity: 0.55;
+}
+
+.connector-wizard-step:not(:disabled):hover {
+  color: var(--text);
+}
+
+.connector-wizard-step:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.connector-wizard-step-n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: var(--ds-font-xs);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.connector-wizard-step.done {
+  color: var(--text);
+}
+
+.connector-wizard-step.done .connector-wizard-step-n {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--bg);
 }
 
 .connector-wizard-step.on {
-  background: var(--fill-control);
-  border-color: var(--control-border-hover);
   color: var(--text);
   font-weight: 600;
 }
 
-.connector-wizard-step .connector-wizard-step-n {
-  font-variant-numeric: tabular-nums;
+.connector-wizard-step.on .connector-wizard-step-n {
+  border: 2px solid var(--accent);
+  color: var(--accent-text);
+  background: var(--bg);
+}
+
+.connector-wizard-step:disabled .connector-wizard-step-n {
+  border-color: var(--border-quiet);
+}
+
+/* 状态与最近一次测试：两行事实，各说一件事。 */
+.connector-wizard-facts-line {
+  display: grid;
+  gap: 2px;
+}
+
+.connector-wizard-status,
+.connector-wizard-test {
+  margin: 0;
+  font-size: var(--ds-font-xs);
+  line-height: var(--ds-line-sm);
 }
 
 .connector-wizard-status {
-  margin: calc(var(--wizard-status-gap) * -1) 0 0;
-  font-size: var(--font-hint);
-  color: var(--hint-text);
+  color: var(--text-muted);
 }
 
-/* 保存 / 测试 / 启用回执固定在对话框顶部；与步骤条的间距由面板自身的 gap 提供。 */
+.connector-wizard-test {
+  color: var(--text);
+}
+
+/* 保存 / 测试 / 启用回执：顶部提示，4 秒后自动收起（文本保留在 DOM，读屏与测试仍可读）。 */
 .connector-wizard-receipt {
   margin: 0;
+  max-height: 72px;
+  overflow: hidden;
+  transition: max-height 180ms ease, opacity 180ms ease, padding 180ms ease, border-width 180ms ease;
 }
 
-.connector-wizard-gates {
+.connector-wizard-receipt:not(.is-visible) {
+  max-height: 0;
+  padding-block: 0;
+  border-width: 0;
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connector-wizard-receipt {
+    transition: none;
+  }
+}
+
+/* 每步内容：顶部对齐，标题一行带提示。 */
+.connector-panel.is-form [data-connector-wizard-step] {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+}
+
+.connector-panel.is-form [data-connector-wizard-step="enable"] {
+  justify-items: stretch;
+}
+
+.connector-wizard-step-body:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-card);
+}
+
+.connector-wizard-step-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+}
+
+.connector-wizard-step-title {
+  margin: 0;
+  font-size: var(--ds-font-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.connector-wizard-step-hint {
+  font-size: var(--ds-font-xs);
+  color: var(--text-muted);
+}
+
+.connector-wizard-step-head .connector-wizard-tools-open {
+  margin-left: auto;
+}
+
+.connector-wizard-checks {
+  display: grid;
+  gap: var(--space-1);
   margin: 0;
   padding-left: var(--space-4);
-  display: grid;
-  gap: var(--wizard-gate-gap);
-  font-size: var(--font-hint);
-  color: var(--hint-text);
+  font-size: var(--ds-font-xs);
+  line-height: var(--ds-line-sm);
+  color: var(--text-muted);
 }
 
-.connector-wizard-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--wizard-step-gap);
+/* 嵌入向导时，配置卡的最小宽度必须能让位给面板宽度：否则 headers 行会把
+   内容撑出面板右缘（表现为输入框被裁切、删除按钮贴边）。 */
+.connector-panel.is-form .connector-config-inline,
+.connector-panel.is-form .connector-header-rows,
+.connector-panel.is-form .connector-header-row,
+.connector-panel.is-form .connector-config-card,
+.connector-panel.is-form .ant-form,
+.connector-panel.is-form .ant-form-item-row {
+  min-width: 0;
+}
+
+.connector-panel.is-form .connector-config-inline {
+  grid-template-columns: minmax(0, var(--ds-label-w)) minmax(0, 1fr);
+}
+
+.connector-panel.is-form .connector-header-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto;
+}
+
+.connector-panel.is-form .connector-header-row > *,
+.connector-panel.is-form .connector-config-inline > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* 嵌入向导的配置分组标题：比字段标签略重，比分组标题轻。 */
+.connector-wizard-section-title {
+  margin: var(--space-2) 0 0;
+  font-size: var(--ds-font-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.connector-wizard-section-title:first-child {
+  margin-top: 0;
+}
+
+.connector-wizard-checks code {
+  font-family: var(--mono);
+  font-size: inherit;
 }
 
 /* 详情页启用被闸门拒绝时的挂载区块：与向导同一套说法与动作 */
@@ -1788,110 +2278,27 @@
   color: var(--hint-text);
 }
 
-.connector-panel.is-form [data-connector-wizard-step] {
-  display: grid;
-  gap: var(--wizard-gap);
-}
+/* ── 启用步：状态横幅 / 事实表 / 挂载 / 危险区 ──────────────────────────────
+   视觉语言对标 antd（Alert / Descriptions 紧凑形态）；颜色全部取既有 token。 */
 
-.connector-panel.is-form [data-connector-wizard-step="enable"] {
-  justify-items: start;
-}
-
-/* ── 连接器设置向导 · 启用步 antd 高密度信息页 ──────────────────────────────
-   视觉语言对标 antd（Steps / Alert / Descriptions 紧凑形态）；颜色与数值
-   全部取自 docs/DESIGN.md 与 frontend/src/styles.css 的既有 token，不新增。 */
-
-/* 步骤条：圆圈序号 + 连接线（原芯片式改为 antd Steps 形态；按钮文本顺序不变） */
-.connector-wizard-steps {
-  align-items: center;
-  gap: var(--wizard-step-gap);
-}
-.connector-wizard-steps li {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-}
-.connector-wizard-steps li:not(:last-child) {
-  flex: 1 1 auto;
-}
-.connector-wizard-steps li:not(:last-child)::after {
-  content: "";
-  flex: 1 1 var(--space-4);
-  height: 1px;
-  background: var(--border);
-  margin: 0 var(--space-2);
-}
-.connector-wizard-step {
-  border: 0;
-  background: transparent;
-  padding: 0 var(--space-1);
-  height: var(--wizard-step-h);
-  gap: var(--space-2);
-  color: var(--text-muted);
-  font-size: var(--ds-font-sm);
-  white-space: nowrap;
-}
-.connector-wizard-step-n {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: var(--control-h-sm);
-  height: var(--control-h-sm);
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: var(--bg);
-  font-size: var(--ds-font-xs);
-  color: var(--text-muted);
-}
-.connector-wizard-step.done .connector-wizard-step-n {
-  border-color: var(--accent);
-  color: var(--accent-text);
-}
-.connector-wizard-step.on {
-  background: transparent;
-  border-color: transparent;
-  color: var(--text);
-  font-weight: 600;
-}
-.connector-wizard-step.on .connector-wizard-step-n {
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
-  border-color: var(--accent);
-  color: var(--accent-text);
-}
-.connector-wizard-step:disabled {
-  color: var(--text-muted);
-  cursor: default;
-}
-.connector-wizard-step:disabled .connector-wizard-step-n {
-  border-color: var(--border-quiet);
-  color: var(--text-muted);
-  background: transparent;
-}
-.connector-wizard-step:not(:disabled):hover .connector-wizard-step-n {
-  border-color: var(--accent);
-}
-
-/* 启用步信息页容器：块级拉满 */
-.connector-panel.is-form [data-connector-wizard-step="enable"].connector-enable-info {
-  justify-items: stretch;
-}
 .connector-enable-info {
-  gap: var(--space-3);
+  gap: var(--space-2);
   container-type: inline-size;
 }
+
 /* 显式外框尺寸避免全局按钮的行高与 padding 把 32px 控件撑到 34px。 */
 .connector-panel.is-form:has(.connector-wizard-steps) .btn {
-  height: var(--control-h-form);
-  padding: 0 var(--space-3);
+  height: var(--control-h);
+  padding: 0 var(--space-2);
 }
+
 .connector-panel.is-form:has(.connector-wizard-steps) .btn.text {
   height: var(--control-h-sm);
   min-height: var(--control-h-sm);
   padding: 0 var(--space-1);
 }
 
-/* antd Alert 形态：图标 + 加粗标题 + 说明文字 */
+/* antd Alert 形态：图标 + 加粗标题 + 说明 */
 .enable-alert {
   display: flex;
   align-items: flex-start;
@@ -1903,6 +2310,7 @@
   font-size: var(--ds-font-sm);
   line-height: var(--leading-body);
 }
+
 .enable-alert-icon {
   flex: none;
   display: inline-flex;
@@ -1911,10 +2319,12 @@
   width: var(--control-h-sm);
   height: var(--control-h-sm);
 }
+
 .enable-alert-icon svg {
   width: 66%;
   height: 66%;
 }
+
 .enable-alert-main {
   flex: 1 1 auto;
   min-width: 0;
@@ -1923,42 +2333,86 @@
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-2);
 }
+
 .enable-alert-main strong {
   color: var(--text);
   white-space: nowrap;
 }
+
 .enable-alert-main > span {
   color: var(--text-muted);
   font-size: var(--ds-font-xs);
   min-width: 0;
 }
-.enable-alert .admin-status {
-  flex: none;
-  margin-left: auto;
-}
+
 .enable-alert.is-success {
   border-color: color-mix(in srgb, var(--success) 35%, var(--border));
   background: color-mix(in srgb, var(--success) 8%, var(--bg));
 }
+
 .enable-alert.is-success .enable-alert-icon {
   color: var(--success);
 }
+
 .enable-alert.is-info {
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
   background: color-mix(in srgb, var(--accent) 8%, var(--bg));
 }
+
 .enable-alert.is-info .enable-alert-icon {
   color: var(--accent-text);
 }
+
 .enable-alert.is-warn {
   border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
   background: color-mix(in srgb, var(--warning) 8%, var(--bg));
 }
+
 .enable-alert.is-warn .enable-alert-icon {
   color: var(--warning);
 }
 
-/* antd Descriptions 形态：三列 bordered 描述表 */
+/* 启用步的状态与测试结论：两行文字，不再用彩色横幅占位。 */
+.connector-enable-status {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px var(--space-2);
+  margin: 0;
+  font-size: var(--ds-font-xs);
+  line-height: var(--ds-line-sm);
+  color: var(--text-muted);
+}
+
+.connector-enable-status strong {
+  font-size: var(--ds-font-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.connector-enable-status-icon {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  color: var(--text-quiet);
+}
+
+.connector-enable-status-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.connector-enable-status.is-ok .connector-enable-status-icon {
+  color: var(--success);
+}
+
+.connector-enable-status.is-warn .connector-enable-status-icon {
+  color: var(--warning);
+}
+
+/* antd Descriptions 形态：bordered 描述表 */
 .enable-facts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1969,6 +2423,7 @@
   background: var(--border);
   overflow: hidden;
 }
+
 .enable-facts-item {
   display: flex;
   align-items: baseline;
@@ -1977,6 +2432,7 @@
   min-width: 0;
   background: var(--bg);
 }
+
 .enable-facts-item dt {
   flex: none;
   margin: 0;
@@ -1985,6 +2441,7 @@
   color: var(--text-muted);
   white-space: nowrap;
 }
+
 .enable-facts-item dd {
   min-width: 0;
   margin: 0;
@@ -1992,6 +2449,7 @@
   color: var(--text);
   overflow-wrap: anywhere;
 }
+
 @container (min-width: 720px) {
   .enable-facts {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2004,6 +2462,7 @@
   align-items: center;
   gap: var(--space-2);
 }
+
 .enable-progress-track {
   flex: 1 1 auto;
   min-width: var(--space-4);
@@ -2012,12 +2471,14 @@
   background: var(--border-quiet);
   overflow: hidden;
 }
+
 .enable-progress-track i {
   display: block;
   height: 100%;
   background: var(--accent);
   border-radius: inherit;
 }
+
 .enable-progress > span:last-child {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -2029,29 +2490,45 @@
   gap: var(--space-2);
   justify-items: start;
 }
+
 .enable-mount-summary {
   margin: 0;
   font-size: var(--ds-font-sm);
   color: var(--text);
 }
+
 .enable-mount-actions {
   display: flex;
   align-items: center;
   gap: var(--space-3);
   flex-wrap: wrap;
 }
+
 .enable-mount-actions .muted {
-  flex: 1 1 220px;
+  flex: 1 1 200px;
   font-size: var(--ds-font-xs);
 }
 
-/* 快捷入口：L3 文字按钮；危险动作用 --danger 文字（DESIGN.md §4.2） */
-.enable-links {
+.enable-mount-actions .btn.text {
+  color: var(--accent-text);
+}
+
+/* 危险动作独立成区：分隔线 + 一句后果 + 一个文字按钮 */
+.enable-danger {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-quiet);
 }
+
+.enable-danger-hint {
+  font-size: var(--ds-font-xs);
+  color: var(--text-muted);
+}
+
 .btn.text.danger {
   color: var(--danger);
 }

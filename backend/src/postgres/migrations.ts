@@ -16,6 +16,7 @@ import { crawlResultSchema } from "../crawl/result-schema.js";
 import { candidateActionsSchema } from "../crawl/candidate-actions-schema.js";
 import { candidateAssessmentSchema } from "../crawl/assessment-schema.js";
 import { runtimeActionEventSchema } from "../runtime/action-event-schema.js";
+import { wecomOntologySourceSchema } from "../ontology/wecom-source-schema.js";
 
 
 /**
@@ -57,6 +58,7 @@ type SchemaMigration = {
 const migrations: SchemaMigration[] = [
   { id: "20261018_ontology_enterprise_catalog_v1", statements: [enterpriseSchema] },
   { id: "20261018_ontology_workspace_v1", statements: [ontologySchema] },
+  { id: "20261020_wecom_ontology_source_v1", statements: [wecomOntologySourceSchema] },
   { id: "20261016_performance_v1", statements: [performanceSchema] },
   { id: "20261016_performance_approval_v2", statements: [performanceApprovalSchema] },
   { id: "20261015_mail_send_reply_stale", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "047_mail_send_reply_stale.sql"), "utf8")] },
@@ -1123,6 +1125,7 @@ const migrations: SchemaMigration[] = [
   { id: "20261015_047_pool_sync_native_schema", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "20261015_047_pool_sync_native_schema.sql"), "utf8")] },
   { id: "20261015_048_mail_memory_cache_native_schema", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "20261015_048_mail_memory_cache_native_schema.sql"), "utf8")] },
   { id: "20261016_049_mail_memory_progress", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "20261016_049_mail_memory_progress.sql"), "utf8")] },
+  { id: "20261021_050_runtime_connector_oauth_accounts", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "20261021_050_runtime_connector_oauth_accounts.sql"), "utf8")] },
   {id:'20261018_ontology_relevance_v1',statements:[relevanceSchema]},
   {id:'20261018_ontology_organization_links_v1',statements:[organizationLinksSchema]},
   {id:'20261018_capability_operation_governance_v1',statements:[operationSchema]},
@@ -1568,6 +1571,7 @@ migrations.push(
   { id: "20261015_mail_labels_peer_email", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "042_20261015_mail_labels_peer_email.sql"), "utf8")] },
   { id: "20261015_knowledge_scope_async", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "043_20261015_knowledge_scope_async.sql"), "utf8")] },
   { id: "20261016_domain_confirmations", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "044_20261016_domain_confirmations.sql"), "utf8")] },
+  { id: "20261020_knowledge_ontology_theme_bindings", statements: [fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "migrations", "048_knowledge_ontology_theme_bindings.sql"), "utf8")] },
 );
 
 /** Immutable version/checksum metadata for release preflight; no database access. */

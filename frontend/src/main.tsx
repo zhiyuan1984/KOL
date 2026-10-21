@@ -21,6 +21,15 @@ window.addEventListener("vite:preloadError", () => {
   location.reload();
 });
 
+// 角落构建号：只用于核对线上版本，不进 React 树、不进无障碍树。
+const buildCommit = typeof __BUILD_COMMIT__ === "string" ? __BUILD_COMMIT__ : "dev";
+const buildBadge = document.createElement("div");
+buildBadge.className = "build-badge";
+buildBadge.textContent = buildCommit;
+buildBadge.title = `前端构建 ${buildCommit}`;
+buildBadge.setAttribute("aria-hidden", "true");
+document.body.appendChild(buildBadge);
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <RouterProvider router={createBrowserRouter([{path:"*",element:<App />}])} />

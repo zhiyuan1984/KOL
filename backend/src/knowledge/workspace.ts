@@ -4,6 +4,7 @@ import { postgresReviewContext } from "../approval/review-postgres-access.js";
 import { postgresTransaction } from "../postgres/pool.js";
 import { HttpFail } from "../host/errors.js";
 import { knowledgeKindSpec } from "../knowledge-kinds.js";
+import { canonicalKnowledgeBusinessTaxonomy, catalogPathByTheme, readKnowledgeBusinessTaxonomyForBases, resolveCatalogThemeIds } from './business-taxonomy.js';
 
 type Row = Record<string, any>;
 const parse = (value: any, fallback: any) => { if(value == null || value === "") return fallback; return typeof value === "string" ? JSON.parse(value) : value; };
@@ -39,7 +40,7 @@ function entryProjection(row:Row):Row {
 export async function workspaceData(actor:string,tenant?:string,filter?:WorkspaceFilter) {
   return postgresTransaction(async db=>{
     const ctx=await workspaceContext(db,actor,tenant), ids=await owners(db,ctx.people);
-    const f=normalizeFilter(filter);
+    const f=normalizeWorkspaceFilter(filter);
     const base={ids,tenant:ctx.tenant};
     // 主列表：条目与非结构化资料的对齐 UNION，服务端过滤＋分页（A）。
     const {sql:unionSQL,params:unionParams}=buildUnion(base,f,null,e=>e?ROW_COLS:DOC_COLS);
@@ -53,8 +54,11 @@ export async function workspaceData(actor:string,tenant?:string,filter?:Workspac
     const facets=await facetCounts(db,base,f);
     // 驾驶舱聚合（不限用户筛选）：状态分布＋各队列计数/最长等待。
     const stats=await workspaceStats(db,base);
-    const bases=(await db.query(`SELECT b.*,d.name AS domain_name,d.parent_id AS family_id,f.name AS family_name FROM knowledge_bases b LEFT JOIN knowledge_domains d ON d.id=b.domain_id LEFT JOIN knowledge_domains f ON f.id=d.parent_id
-      LEFT JOIN knowledge_publication_bindings binding ON binding.base_id=b.id WHERE binding.tenant IS NULL OR binding.tenant=$1 ORDER BY b.name,b.id`,[ctx.tenant])).rows;
+    const bases=(await db.query(`SELECT b.*,d.name AS domain_name,d.parent_id AS family_id,f.name AS family_name,
+      ontology_binding.theme_id AS ontology_theme_id FROM knowledge_bases b LEFT JOIN knowledge_domains d ON d.id=b.domain_id LEFT JOIN knowledge_domains f ON f.id=d.parent_id
+      LEFT JOIN knowledge_publication_bindings binding ON binding.base_id=b.id
+      LEFT JOIN knowledge_ontology_theme_bindings ontology_binding ON ontology_binding.base_id=b.id
+      WHERE binding.tenant IS NULL OR binding.tenant=$1 ORDER BY b.name,b.id`,[ctx.tenant])).rows;
     const domains=(await db.query("SELECT * FROM knowledge_domains ORDER BY sort,name,id")).rows;
     const governance=(await db.query(`SELECT f.name AS family_name,d.name AS domain_name,b.id AS base_id,b.name AS base_name,
       COUNT(DISTINCT doc.id)::int AS document_count,
@@ -70,7 +74,9 @@ export async function workspaceData(actor:string,tenant?:string,filter?:Workspac
       LEFT JOIN runtime_agent_skills ras ON ras.skill_id=bind.skill_id AND ras.enabled=1
       WHERE b.status='active' AND b.id='kbase_546516e4dbc4'
       GROUP BY f.name,d.name,b.id,b.name`)).rows[0] || null;
-    return {tenant:ctx.tenant,rows,total,page,page_size:f.pageSize,page_count:pageCount,facets,stats,bases,domains,governance};
+    const visibleActiveBaseIds=[...new Set(bases.filter(base=>base.status==='active').map(base=>String(base.id)))];
+    const business_taxonomy=await readKnowledgeBusinessTaxonomyForBases(db,visibleActiveBaseIds);
+    return {tenant:ctx.tenant,rows,total,page,page_size:f.pageSize,page_count:pageCount,facets,stats,bases,domains,governance,business_taxonomy};
   },{isolation:"REPEATABLE READ"});
 }
 
@@ -80,10 +86,13 @@ export type WorkspaceFilter={
   page?:number;pageSize?:number;q?:string;
   view?:string;kind?:string;brands?:string[];stages?:string[];
   familyId?:string;domainId?:string;baseId?:string;
+  catalogFamilyId?:string;catalogDomainId?:string;catalogThemeId?:string;
   asset?:string;expiring?:boolean;
 };
-export type NormFilter=Required<Omit<WorkspaceFilter,"q"|"kind"|"familyId"|"domainId"|"baseId"|"asset">>
-  & {q:string;kind:string;familyId:string;domainId:string;baseId:string;asset:""|"entry"|"document"};
+export type NormFilter=Required<Omit<WorkspaceFilter,"q"|"kind"|"familyId"|"domainId"|"baseId"|"catalogFamilyId"|"catalogDomainId"|"catalogThemeId"|"asset">>
+  & {q:string;kind:string;familyId:string;domainId:string;baseId:string;
+    catalogFamilyId:string;catalogDomainId:string;catalogThemeId:string;catalogThemeIds:string[];catalogFilterActive:boolean;
+    asset:""|"entry"|"document"};
 const VIEW_STATUS_SQL:Record<string,string>={pending:"pending_review",published:"published",draft:"draft",disabled:"archived"};
 const SCOPE_NONE="__none__";
 
@@ -100,19 +109,24 @@ export function parseWorkspaceFilter(query:Record<string,string|undefined>):Work
     kind:(query.kind||"").trim(),
     brands:csv(query.brands),stages:csv(query.stages),
     familyId:(query.family_id||"").trim(),domainId:(query.domain_id||"").trim(),baseId:(query.base_id||"").trim(),
+    catalogFamilyId:(query.catalog_family_id||"").trim(),catalogDomainId:(query.catalog_domain_id||"").trim(),catalogThemeId:(query.catalog_theme_id||"").trim(),
     asset:asset==="entry"||asset==="document"?asset:"",
     expiring:query.expiring==="1",
   };
 }
-function normalizeFilter(filter?:WorkspaceFilter):NormFilter{
+export function normalizeWorkspaceFilter(filter?:WorkspaceFilter):NormFilter{
   const f=parseWorkspaceFilter({
     page:String(filter?.page ?? ""),page_size:String(filter?.pageSize ?? ""),
     q:filter?.q,view:filter?.view,kind:filter?.kind,
     brands:(filter?.brands||[]).join(","),stages:(filter?.stages||[]).join(","),
     family_id:filter?.familyId,domain_id:filter?.domainId,base_id:filter?.baseId,
+    catalog_family_id:filter?.catalogFamilyId,catalog_domain_id:filter?.catalogDomainId,catalog_theme_id:filter?.catalogThemeId,
     asset:filter?.asset,expiring:filter?.expiring?"1":"",
   });
-  return f as NormFilter;
+  return {...f,
+    catalogThemeIds:resolveCatalogThemeIds(f),
+    catalogFilterActive:Boolean(f.catalogFamilyId||f.catalogDomainId||f.catalogThemeId),
+  } as NormFilter;
 }
 const likeEscape=(s:string)=>s.replace(/[\\%_]/g,m=>"\\"+m);
 /** 条目 projected status 的 SQL 复刻（与 entryProjection 同语义）：有在途审批→pending_review，有未发布草稿→draft。 */
@@ -136,6 +150,11 @@ export function filterWhere(f:NormFilter,entry:boolean,from:number):{sql:string;
   if(f.familyId) conds.push(f.familyId===SCOPE_NONE?`(f.id IS NULL)`:`(f.id = ${p(f.familyId)})`);
   if(f.domainId) conds.push(f.domainId===SCOPE_NONE?`(d.id IS NULL)`:`(d.id = ${p(f.domainId)})`);
   if(f.baseId) conds.push(f.baseId===SCOPE_NONE?`(k.base_id IS NULL)`:`(k.base_id = ${p(f.baseId)})`);
+  const catalogActive=f.catalogFilterActive ?? Boolean(f.catalogFamilyId||f.catalogDomainId||f.catalogThemeId);
+  const catalogThemes=f.catalogThemeIds || [];
+  if(catalogActive) conds.push(catalogThemes.length
+    ?`(EXISTS(SELECT 1 FROM knowledge_ontology_theme_bindings catalog_binding WHERE catalog_binding.base_id=k.base_id AND catalog_binding.theme_id=ANY(${p(catalogThemes)}::text[])))`
+    :`(1=0)`);
   if(f.expiring) conds.push(entry
     ?`(k.expires_at IS NOT NULL AND k.expires_at<>'' AND k.expires_at::timestamptz <= NOW() + INTERVAL '30 days')`
     // knowledge_documents 无 expires_at 列：资料不参与到期筛选（与旧行为一致）。
@@ -181,6 +200,11 @@ export function buildUnion(base:{ids:any[];tenant:string},f:NormFilter,skip:stri
   if(skip==="view")ff.view="all";if(skip==="kind")ff.kind="";if(skip==="brand")ff.brands=[];
   if(skip==="stage")ff.stages=[];if(skip==="family")ff.familyId="";if(skip==="domain")ff.domainId="";
   if(skip==="base")ff.baseId="";if(skip==="asset")ff.asset="";if(skip==="expiring")ff.expiring=false;
+  if(skip==="catalog_family")ff.catalogFamilyId="";
+  if(skip==="catalog_domain")ff.catalogDomainId="";
+  if(skip==="catalog_theme")ff.catalogThemeId="";
+  ff.catalogThemeIds=resolveCatalogThemeIds(ff);
+  ff.catalogFilterActive=Boolean(ff.catalogFamilyId||ff.catalogDomainId||ff.catalogThemeId);
   // 注意：q（搜索）不参与 skip，各组计数都在搜索结果集上算，与点选 chip 后的列表同源。
   const parts:string[]=[];const params:any[]=[base.ids,base.tenant];
   if(ff.asset!=="document"){
@@ -223,6 +247,29 @@ export async function facetCounts(db:PoolClient,base:{ids:any[];tenant:string},f
   out.family=await count("family",()=>"COALESCE(f.id,'"+SCOPE_NONE+"') AS family_id",u=>`${u}.family_id`);
   out.domain=await count("domain",()=>"COALESCE(d.id,'"+SCOPE_NONE+"') AS domain_id",u=>`${u}.domain_id`);
   out.base=await count("base",()=>"COALESCE(k.base_id,'"+SCOPE_NONE+"') AS base_id",u=>`${u}.base_id`);
+  // Catalog facets deliberately start with every canonical node at zero. This
+  // retains valid but currently unused themes while their counts still derive
+  // only from the same permission-filtered UNION as the workspace list.
+  const canonical=canonicalKnowledgeBusinessTaxonomy();
+  const paths=catalogPathByTheme(canonical.nodes);
+  const catalog=async(skip:"catalog_family"|"catalog_domain"|"catalog_theme",level:1|2|3):Promise<FacetResult>=>{
+    const {sql,params}=buildUnion(base,f,skip,e=>e?`k.id,'entry' AS asset_type,k.base_id`:`k.id,'document' AS asset_type,k.base_id`);
+    const rows=(await db.query(`SELECT mapping.theme_id AS theme_id,COUNT(DISTINCT (u.asset_type || ':' || u.id)) AS c
+      FROM (${sql}) u JOIN knowledge_ontology_theme_bindings mapping ON mapping.base_id=u.base_id
+      GROUP BY mapping.theme_id`,params)).rows;
+    const values:Record<string,number>=Object.fromEntries(canonical.nodes.filter(node=>node.level===level).map(node=>[node.id,0]));
+    let all=0;
+    for(const row of rows){
+      const count=Number(row.c),themeId=String(row.theme_id),path=paths.get(themeId);
+      const id=level===3?themeId:level===2?path?.domainId:path?.familyId;
+      if(!id || values[id]===undefined)continue;
+      values[id]+=count;all+=count;
+    }
+    return {all,values};
+  };
+  out.catalog_family=await catalog("catalog_family",1);
+  out.catalog_domain=await catalog("catalog_domain",2);
+  out.catalog_theme=await catalog("catalog_theme",3);
   // 阶段：一行可属多阶段，un-nest 后按 id 去重计数；空阶段单独计数（ chips 语义：空阶段计入每个 stage chip）。
   {
     const {sql,params}=buildUnion(base,f,"stage",
@@ -239,7 +286,9 @@ export async function facetCounts(db:PoolClient,base:{ids:any[];tenant:string},f
   return out;
 }
 export async function workspaceStats(db:PoolClient,base:{ids:any[];tenant:string}){
-  const f:NormFilter={...parseWorkspaceFilter({}) as NormFilter,page:1,pageSize:20,q:"",kind:"",familyId:"",domainId:"",baseId:"",asset:"",view:"all",brands:[],stages:[],expiring:false};
+  const f:NormFilter={...normalizeWorkspaceFilter({}),page:1,pageSize:20,q:"",kind:"",familyId:"",domainId:"",baseId:"",
+    catalogFamilyId:"",catalogDomainId:"",catalogThemeId:"",catalogThemeIds:[],catalogFilterActive:false,
+    asset:"",view:"all",brands:[],stages:[],expiring:false};
   const {sql:u,params}=buildUnion(base,f,null,e=>e?`${ENTRY_STATUS_SQL} AS status`:"k.status AS status");
   const statusRows=(await db.query(`SELECT u.status AS k,COUNT(*) AS c FROM (${u}) u GROUP BY 1`,params)).rows;
   const status:Record<string,number>={};

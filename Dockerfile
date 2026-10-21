@@ -3,6 +3,7 @@ WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json* frontend/.npmrc* ./
 RUN npm install --ignore-scripts=false --foreground-scripts
 COPY frontend ./
+COPY shared /src/shared
 RUN npm run build
 
 FROM node:22-bookworm
@@ -21,6 +22,12 @@ RUN cd /app/backend && npm install --omit=dev --ignore-scripts=false --foregroun
   && (npm rebuild better-sqlite3 --ignore-scripts=false || true) \
   && (npm rebuild esbuild --ignore-scripts=false || node ./node_modules/esbuild/install.js)
 COPY backend /app/backend
+COPY shared /app/shared
+COPY config /app/config
+COPY agents /app/agents
+COPY experts /app/experts
+COPY policies /app/policies
+COPY scripts /app/scripts
 COPY --from=fe /src/frontend/dist /app/frontend/dist
 ENV LINGONG_DATA=/app/data
 ENV CODEX_MODE=real

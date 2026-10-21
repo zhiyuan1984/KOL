@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "kind": "component-selection",
+  "status": "complete",
+  "owner": "frontend/ui-ux",
+  "requirement_refs": [
+    "CONST-08",
+    "CONST-10",
+    "PROD-AGENT-03",
+    "TECH-TEST-01"
+  ],
+  "subject": {
+    "task_id": "creator-query-context-20261020",
+    "source_revision": "cd12dd8 + recorded source hashes"
+  },
+  "decisions": {
+    "reuse": [
+      "ScopeWorkspace",
+      "WorkspaceShell",
+      "ComposerDock",
+      "creation-feedback"
+    ],
+    "added": "No new controls or libraries",
+    "dependency_versions": "Existing lockfile retained, including antd 6.6.6"
+  },
+  "verification": {
+    "evidence": [
+      "backend-tests.json",
+      "browser-tests.json",
+      "source-review.json"
+    ],
+    "human_review": "user accepted the presented fix for release; independent expert review not claimed"
+  },
+  "task_id": "creator-query-context-20261020",
+  "summary": "Explicit query context and truthful intake recovery; automated evidence is separate from human/live acceptance.",
+  "status_claims": []
+}

@@ -8,7 +8,6 @@ output: task_result
 funnel: reach
 mcp: []
 capabilities: [{"id":"creator.query","version":1},{"id":"creator.profile.read","version":1},{"id":"creator.platform_data.read","version":1},{"id":"mail.conversations.query","version":1,"optional":true}]
-ontology: [{"object":"kol_profile","revision":2,"actions":["read_profile"]}]
 applicable_objects: ["kol_profile"]
 required_inputs: []
 context: {"requires":[],"prefers":["creator"]}

@@ -1,3 +1,4 @@
+import { useTransientReceipt } from "../components/useTransientReceipt";
 import { timezoneLabel } from "../timezoneLabel";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import {
@@ -34,7 +35,7 @@ export default function AdminCosts() {
   const [employees, setEmployees] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [notice, setNotice] = useState("");
+  const { receipt, showReceipt, clearReceipt } = useTransientReceipt();
   const [saveError, setSaveError] = useState("");
   const [editing, setEditing] = useState("");
   const [tick, setTick] = useState(0);
@@ -70,7 +71,7 @@ export default function AdminCosts() {
 
   const saveBudget = async (row: AdminCostBudgetRow, form: HTMLFormElement) => {
     const draft = readBudgetDraft(form);
-    setNotice("");
+    clearReceipt();
     setSaveError("");
     if (typeof draft === "string") {
       setSaveError(draft);
@@ -87,7 +88,7 @@ export default function AdminCosts() {
         expected_version: row.version ?? 0,
       });
       setEditing("");
-      setNotice(`${scopeLabel(row, employees)}预算已保存。`);
+      showReceipt(`${scopeLabel(row, employees)}预算已保存。`);
       reload();
     } catch (e: unknown) {
       if (isBudgetConflict(e)) {
@@ -107,7 +108,9 @@ export default function AdminCosts() {
 
   return (
     <section className="admin-govern" data-admin-page="costs">
-      {notice && <p className="admin-receipt status-ok" data-admin-receipt role="status">{notice}</p>}
+      {receipt.text && (
+        <p className={"admin-receipt is-transient" + (receipt.visible ? " is-visible" : "") + " status-ok"} data-admin-receipt role="status" aria-live="polite">{receipt.text}</p>
+      )}
       {loadError && <p className="error" role="alert">{loadError}</p>}
       {saveError && <p className="error" role="alert" data-cost-save-error>{saveError}</p>}
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Card, Checkbox, Collapse, Descriptions, Empty, Form, Input, Modal, Select, Spin, Table, Tabs, Tag, message } from "antd";
 import { useAdminConfirm } from "../components/ConfirmDialog";
+import { useTransientReceipt } from "../components/useTransientReceipt";
 
 /**
  * 管理端 · 本体（统一页，Phase 3）。
@@ -451,7 +452,8 @@ export default function AdminOntology() {
   const [regQuery, setRegQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  // 重新读取 / 审批响应的回执是即时消息：几秒后自己收起。
+  const { receipt, showReceipt, clearReceipt } = useTransientReceipt();
   const [showConfig, setShowConfig] = useState(false);
   const loadSequence = useRef(0);
 
@@ -504,7 +506,7 @@ export default function AdminOntology() {
     try {
       const latestStatus = await loadLatest(nextScope);
       setLatestByScope((current) => ({ ...current, [nextScope]: latestStatus }));
-      setNotice(`已重新读取「${SCOPES.find((item) => item.id === nextScope)?.label || nextScope}」的最新审批状态。`);
+      showReceipt(`已重新读取「${SCOPES.find((item) => item.id === nextScope)?.label || nextScope}」的最新审批状态。`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "无法读取最新审批状态");
     }
@@ -578,7 +580,7 @@ export default function AdminOntology() {
     if (submitting) return;
     setSubmitting(true);
     setError("");
-    setNotice("");
+    clearReceipt();
     const body: Record<string, string> = { scope, summary: summary.trim() };
     if (title.trim()) body.title = title.trim();
     if (selectedRef && selectedRef !== WORKING_PREVIEW_REF) body.change_ref = selectedRef;
@@ -589,11 +591,11 @@ export default function AdminOntology() {
         method: "POST",
         body: JSON.stringify(body),
       });
-      setNotice("待审批请求已响应；正在重新读取该范围的真实最新审批状态。");
+      showReceipt("待审批请求已响应；正在重新读取该范围的真实最新审批状态。");
       try {
         const latestStatus = await loadLatest(scope);
         setLatestByScope((current) => ({ ...current, [scope]: latestStatus }));
-        setNotice(`待审批请求已响应；已重新读取「${activeLabel}」的真实最新审批状态。`);
+        showReceipt(`待审批请求已响应；已重新读取「${activeLabel}」的真实最新审批状态。`);
         setSummary("");
         setTitle("");
         setTargetDigest("");
@@ -781,7 +783,7 @@ export default function AdminOntology() {
       <p style={{ color: "#666", marginBottom: 12 }}>
         域地图 → 域详情 → 注册表 → 审批。浏览当前注册表基线与最新审批状态。此页面不会写入配置文件；文件变更始终通过 Git 完成，发起审批不产生 CEO 批准。
       </p>
-      {notice ? <Alert type="success" showIcon message={notice} style={{ marginBottom: 8 }} /> : null}
+      {receipt.text ? <Alert type="success" showIcon className={"is-transient" + (receipt.visible ? " is-visible" : "")} message={receipt.text} style={{ marginBottom: 8 }} /> : null}
       {error ? (
         <Alert
           type="error"

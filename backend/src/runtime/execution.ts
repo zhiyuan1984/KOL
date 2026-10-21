@@ -14,6 +14,7 @@ import { RemoteMcpClient, type RemoteMcpOptions } from "../mcp/remote.js";
 import { requireTaskDefinition } from "../tasks/registry.js";
 import type { Json, Row } from "../types.js";
 import { resolveAccountHeaders, resolveSecretReference } from "./credentials.js";
+import { userOAuthProvider } from "./oauth-credentials.js";
 import { assertResolvedConnectorEndpointSafe, assertSafeConnectorEndpoint, fetchWithConnectorEgressPolicy, HttpConnectorClient } from "./http.js";
 import { ensureRuntimeSchema, getAgentSkills, getSkillConnectors, getSkillTool, getConnectorConfig, getToolPolicy, type ConnectorConfig } from "./store.js";
 import { canUseAgent, canUseSkill } from "./organization-tree.js";
@@ -228,7 +229,11 @@ function envValue(name: string): string {
   if (!value) reject("runtime_credential_unavailable", 503);
   return value;
 }
-export async function connectorOptions(context: RuntimeContext, config: ConnectorConfig): Promise<RemoteMcpOptions> {
+export function connectorOptions(context: RuntimeContext, config: ConnectorConfig): Promise<RemoteMcpOptions>;
+export function connectorOptions(context: RuntimeContext, connectorId: string, config: ConnectorConfig): Promise<RemoteMcpOptions>;
+export async function connectorOptions(context: RuntimeContext, connectorOrConfig: string | ConnectorConfig, maybeConfig?: ConnectorConfig): Promise<RemoteMcpOptions> {
+  const connectorId = typeof connectorOrConfig === "string" ? connectorOrConfig : "";
+  const config = typeof connectorOrConfig === "string" ? maybeConfig! : connectorOrConfig;
   const url = config.url || (config.url_env ? envValue(config.url_env) : "");
   const isMcp = (config.protocol || "mcp") === "mcp";
   // MCP connectors intentionally follow the same direct-fetch path as the
@@ -265,14 +270,30 @@ export async function connectorOptions(context: RuntimeContext, config: Connecto
       }
     }
   }
+  const oauth = config.oauth_enabled ? await userOAuthProvider(connectorId, context.userId) : undefined;
+  if (config.oauth_enabled && !oauth) reject("runtime_oauth_authorization_required", 401);
+  if (config.oauth_enabled) {
+    try { parsed = assertSafeConnectorEndpoint(url); } catch (error) {
+      if (error instanceof HttpFail) throw error;
+      return reject("runtime_endpoint_invalid", 409);
+    }
+  }
   return { url, token: "", headers, allowUnauthenticated: config.allow_unauthenticated === true,
     timeoutMs: config.timeout_ms ?? 30_000,
+    ...(oauth ? { authProvider: oauth.provider, authIdentity: oauth.credentialId } : {}),
     // An MCP connector keeps its explicitly configured transport; omitted stays streamable-http.
     ...((config.protocol || "mcp") === "mcp" ? { transport: config.transport } : {}),
     // MCP intentionally omits a custom fetch so the SDK uses the same default
     // Node fetch as the built-in MediaCrawler/AI discovery path. HTTP action
     // connectors keep the guarded fetch and same-origin policy.
-    ...(isMcp ? {} : {
+    ...(isMcp && config.oauth_enabled ? {
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        const destination = new URL(input instanceof Request ? input.url : String(input));
+        assertSafeConnectorEndpoint(destination.toString());
+        await assertResolvedConnectorEndpointSafe(destination);
+        return fetchWithConnectorEgressPolicy(input, { ...init, redirect: "error" });
+      },
+    } : isMcp ? {} : {
       fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
         const destination = new URL(input instanceof Request ? input.url : String(input));
         if (destination.origin !== parsed!.origin) reject("runtime_endpoint_invalid", 409);
@@ -283,14 +304,29 @@ export async function connectorOptions(context: RuntimeContext, config: Connecto
 }
 
 /** Create the protocol-specific remote using only a validated, reference-only configuration. */
-export async function createConfiguredClient(
+export function createConfiguredClient(
   context: RuntimeContext,
   config: ConnectorConfig,
-  mcpFactory: (options: RemoteMcpOptions) => RuntimeRemote = (options) => new RemoteMcpClient(options),
+  mcpFactory?: (options: RemoteMcpOptions) => RuntimeRemote,
+): Promise<RuntimeRemote>;
+export function createConfiguredClient(
+  context: RuntimeContext,
+  connectorId: string,
+  config: ConnectorConfig,
+  mcpFactory?: (options: RemoteMcpOptions) => RuntimeRemote,
+): Promise<RuntimeRemote>;
+export async function createConfiguredClient(
+  context: RuntimeContext,
+  connectorOrConfig: string | ConnectorConfig,
+  configOrFactory?: ConnectorConfig | ((options: RemoteMcpOptions) => RuntimeRemote),
+  maybeFactory?: (options: RemoteMcpOptions) => RuntimeRemote,
 ): Promise<RuntimeRemote> {
-  const options = await connectorOptions(context, config);
+  const connectorId = typeof connectorOrConfig === "string" ? connectorOrConfig : "";
+  const config = typeof connectorOrConfig === "string" ? configOrFactory as ConnectorConfig : connectorOrConfig;
+  const mcpFactory = typeof connectorOrConfig === "string" ? maybeFactory : configOrFactory as ((options: RemoteMcpOptions) => RuntimeRemote) | undefined;
+  const options = await connectorOptions(context, connectorId, config);
   if ((config.protocol || "mcp") === "http") return new HttpConnectorClient(httpOptions(options), config);
-  return mcpFactory(options);
+  return (mcpFactory || ((remoteOptions) => new RemoteMcpClient(remoteOptions)))(options);
 }
 
 function httpOptions(options: RemoteMcpOptions) {
@@ -337,9 +373,9 @@ export class SkillExecution {
     for (const client of this.clients) void client.close().catch(() => undefined);
     this.clients.clear();
   }
-  private async client(context: RuntimeContext, config: ConnectorConfig): Promise<RuntimeRemote> {
+  private async client(context: RuntimeContext, connectorId: string, config: ConnectorConfig): Promise<RuntimeRemote> {
     this.active();
-    const client = (await createConfiguredClient(context, config, this.clientFactory));
+    const client = (await createConfiguredClient(context, connectorId, config, this.clientFactory));
     this.clients.add(client);
     return client;
   }
@@ -364,8 +400,8 @@ export class SkillExecution {
       try {
         const before = (await authorizeConnector(this.context, connectorId));
         const beforeStamp = authorizationStamp(before);
-        const options = await connectorOptions(this.context, before.configuration.config);
-        client = (await this.client(this.context, before.configuration.config));
+        const options = await connectorOptions(this.context, connectorId, before.configuration.config);
+        client = (await this.client(this.context, connectorId, before.configuration.config));
         const remoteTools = await client.listTools();
         assertNoCredentialEcho(remoteTools, options.headers);
         this.active();
@@ -477,12 +513,12 @@ export class SkillExecution {
         return { ...current, policy, toolBinding };
       };
       let authorized = (await check());
-      const options = await connectorOptions(this.context, authorized.configuration.config);
-      const credentialStamp = runtimeHash({ url: options.url, headers: options.headers });
+      const options = await connectorOptions(this.context, handle.connectorId, authorized.configuration.config);
+      const credentialStamp = runtimeHash({ url: options.url, headers: options.headers, authIdentity: options.authIdentity });
       const guardedCheck = async () => {
         const current = (await check());
-        const currentOptions = await connectorOptions(this.context, current.configuration.config);
-        if (credentialStamp !== runtimeHash({ url: currentOptions.url, headers: currentOptions.headers })) {
+        const currentOptions = await connectorOptions(this.context, handle.connectorId, current.configuration.config);
+        if (credentialStamp !== runtimeHash({ url: currentOptions.url, headers: currentOptions.headers, authIdentity: currentOptions.authIdentity })) {
           reject("runtime_credentials_changed", 409);
         }
         return current;
@@ -621,8 +657,8 @@ export async function inspectConnectorTools(context: RuntimeContext, connectorId
   const connector = (await postgresQuery<Row>("SELECT id FROM connectors WHERE id=$1", [connectorId]))[0] as Row | undefined;
   if (!connector) reject("runtime_connector_not_found", 404);
   if (!configuration) reject("runtime_connector_not_configured", 409);
-  const options = await connectorOptions(context, configuration.config);
-  const client = (await createConfiguredClient(context, configuration.config));
+  const options = await connectorOptions(context, connectorId, configuration.config);
+  const client = (await createConfiguredClient(context, connectorId, configuration.config));
   try {
     const tools = await client.listTools();
     assertNoCredentialEcho(tools, options.headers);

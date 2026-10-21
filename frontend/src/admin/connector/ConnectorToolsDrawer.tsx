@@ -26,13 +26,10 @@ export function ConnectorToolsDrawer({ card, onClose }: {
         <header className="connector-drawer-head">
           <div className="connector-drawer-title">
             <ConnectorMark id={card.id} label={card.label} iconUrl={card.iconUrl} />
-            <div>
-              <h2>{card.label} · 工具</h2>
-              <p className="muted" data-connector-drawer-counts>该连接器暴露的工具清单（只读）。</p>
-            </div>
+            <h2>{card.label} · 工具</h2>
           </div>
           <div className="connector-drawer-actions">
-            <button type="button" className="btn sm" data-connector-drawer-discover onClick={() => setRequestKey((value) => value + 1)}>
+            <button type="button" className="btn text sm" data-connector-drawer-discover onClick={() => setRequestKey((value) => value + 1)}>
               重新发现
             </button>
             <button type="button" className="icon-btn" aria-label="关闭" data-connector-drawer-close onClick={onClose}>
@@ -42,9 +39,13 @@ export function ConnectorToolsDrawer({ card, onClose }: {
         </header>
 
         <div className="connector-drawer-body">
-          <p className="muted connector-drawer-note">清单只读；工具是否可用由平台校验与技能挂载决定。授权只对技能。</p>
-          <ConnectorToolsReadOnlyList connectorId={card.id} requestKey={requestKey} filterable />
-          <p className="muted">
+          <ConnectorToolsReadOnlyList
+            connectorId={card.id}
+            requestKey={requestKey}
+            filterable
+            showSchema={false}
+          />
+          <p className="muted connector-drawer-footnote">
             需要改动连接信息或做验证，请前往 <Link to={connectorHref(card.id)}>连接器详情</Link>。
           </p>
         </div>

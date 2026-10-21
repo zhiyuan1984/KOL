@@ -19,6 +19,7 @@ vi.mock('../src/postgres/pool.js', () => ({ postgresTransaction: async (fn: (db:
   finally { db.release(); }
 } }));
 import { createCatalogBase, createCatalogDomain, deleteCatalogBase, editCatalogBase } from '../src/knowledge/taxonomy-mutations.js';
+import { canonicalKnowledgeBusinessTaxonomy } from '../src/knowledge/business-taxonomy.js';
 
 const enabled = process.env.KNOWLEDGE_TAXONOMY_PG_TEST === '1' && Boolean(process.env.TEST_DATABASE_URL);
 const stamp = '2026-10-08T10:00:00.000Z';
@@ -73,7 +74,7 @@ describe.skipIf(!enabled)('taxonomy real PostgreSQL migration and two-connection
   }, 30_000);
   beforeEach(async () => {
     // This is exclusively the database created above, containing test fixtures.
-    await state.pool.query('TRUNCATE knowledge_bindings,skill_knowledge_configs,knowledge,knowledge_versions,knowledge_documents,knowledge_domains,knowledge_bases,execution_jobs,audit_events CASCADE');
+    await state.pool.query('TRUNCATE knowledge_bindings,skill_knowledge_configs,knowledge,knowledge_versions,knowledge_documents,knowledge_ontology_theme_bindings,knowledge_domains,knowledge_bases,execution_jobs,audit_events CASCADE');
     await state.pool.query(`INSERT INTO knowledge_domains(id,code,name,level,parent_id,status,created_at,updated_at)
       VALUES('family','family','Family','family',NULL,'active',$1,$1),('domain','domain','Domain','domain','family','active',$1,$1)`, [stamp]);
     await state.pool.query(`INSERT INTO knowledge_bases(id,code,name,domain_id,kind,status,version,created_at,updated_at)
@@ -95,6 +96,37 @@ describe.skipIf(!enabled)('taxonomy real PostgreSQL migration and two-connection
       expect.objectContaining({ event_type: 'knowledge.domain.create', payload: expect.stringContaining(family.domain.code) }),
       expect.objectContaining({ event_type: 'knowledge.domain.create', payload: expect.stringContaining(domain.domain.code) }),
     ]));
+  });
+  it('creates and audits a primary ontology theme binding without moving the legacy base, retains it across a versioned edit, and relies on FK restrict for deletion', async () => {
+    const taxonomy = canonicalKnowledgeBusinessTaxonomy();
+    const themeId = taxonomy.nodes.find(node => node.level === 3)!.id;
+    const created = await createCatalogBase({ name: 'Themed base', domain_id: 'domain', kind: 'structured', ontology_theme_id: themeId });
+    expect(created.base).toMatchObject({ domain_id: 'domain', ontology_theme_id: themeId, version: 1 });
+    const binding = (await state.pool.query('SELECT base_id,theme_id,source_version FROM knowledge_ontology_theme_bindings WHERE base_id=$1', [created.base.id])).rows[0];
+    expect(binding).toMatchObject({ base_id: created.base.id, theme_id: themeId, source_version: taxonomy.sourceVersion });
+
+    const edited = await editCatalogBase(created.base.id, {
+      name: 'Themed base v2', description: 'base contents stay in place', expected_version: 1,
+      expected_updated_at: created.base.updated_at,
+    });
+    expect(edited.base).toMatchObject({ domain_id: 'domain', ontology_theme_id: themeId, version: 2 });
+    expect((await state.pool.query('SELECT theme_id FROM knowledge_ontology_theme_bindings WHERE base_id=$1', [created.base.id])).rows[0].theme_id).toBe(themeId);
+    expect((await state.pool.query("SELECT 1 FROM audit_events WHERE event_type='knowledge.base.theme_binding.save' AND payload::jsonb->>'base_id'=$1", [created.base.id])).rowCount).toBe(1);
+
+    const writer = await state.pool.connect();
+    try {
+      await writer.query('BEGIN');
+      await writer.query("SELECT set_config('knowledge.taxonomy_mutation','allowed',true)");
+      await expect(writer.query('DELETE FROM knowledge_bases WHERE id=$1', [created.base.id])).rejects.toMatchObject({ code: '23503' });
+      await writer.query('ROLLBACK');
+    } finally { writer.release(); }
+
+    const unmapped = await editCatalogBase(created.base.id, {
+      expected_version: 2, expected_updated_at: edited.base.updated_at, ontology_theme_id: '',
+    });
+    expect(unmapped.base).toMatchObject({ ontology_theme_id: null, version: 3 });
+    expect((await state.pool.query('SELECT 1 FROM knowledge_ontology_theme_bindings WHERE base_id=$1', [created.base.id])).rowCount).toBe(0);
+    expect((await state.pool.query("SELECT 1 FROM audit_events WHERE event_type='knowledge.base.theme_binding.remove' AND payload::jsonb->>'base_id'=$1", [created.base.id])).rowCount).toBe(1);
   });
   it('preserves explicit code conflicts and refuses archived parents for newly created nodes', async () => {
     await expect(createCatalogDomain({ name: 'Conflict', level: 'family', code: 'family' })).rejects.toMatchObject({ status: 409, detail: { code: 'knowledge_domain_code_conflict' } });
@@ -121,7 +153,7 @@ describe.skipIf(!enabled)('taxonomy real PostgreSQL migration and two-connection
     const writer = await state.pool.connect();
     try {
       await writer.query('BEGIN'); await writer.query(insertion, [stamp]);
-      const outcome = (await deleteCatalogBase('base', confirmation).then(value => ({ value, error: null }), error => ({ value: null, error })));
+      const outcome = deleteCatalogBase('base', confirmation).then(value => ({ value, error: null }), error => ({ value: null, error }));
       await waitForMutationLock();
       await writer.query('COMMIT'); expect((await outcome).error).toMatchObject({ status: 409 });
       expect((await state.pool.query("SELECT 1 FROM knowledge_bases WHERE id='base'")).rowCount).toBe(1);
@@ -155,8 +187,8 @@ describe.skipIf(!enabled)('taxonomy real PostgreSQL migration and two-connection
       await writer.query(`INSERT INTO knowledge_bindings(id,skill_id,selector,created_at,updated_at)
         VALUES('binding','test_skill','{"tags":["support"]}',$1,$1)`, [stamp]);
       await writer.query("UPDATE knowledge SET tags='support' WHERE id='entry'");
-      const outcome = (await editCatalogBase('base', { ...confirmation, expected_version: 1, status: 'archived' })
-        .then(value => ({ value, error: null }), error => ({ value: null, error })));
+      const outcome = editCatalogBase('base', { ...confirmation, expected_version: 1, status: 'archived' })
+        .then(value => ({ value, error: null }), error => ({ value: null, error }));
       await waitForMutationLock();
       await writer.query('COMMIT'); expect((await outcome).error).toMatchObject({ status: 409 });
     } finally { await writer.query('ROLLBACK'); writer.release(); }

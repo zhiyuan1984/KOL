@@ -139,6 +139,16 @@ export async function recognizeTaskIntent(input: {
   let lockedType = input.task_type && (await taskDefinition(String(input.task_type)))
     ? String(input.task_type)
     : "";
+  // An explicit choice is not free text. A withdrawn/unavailable skill must
+  // not silently fall through to a classifier and become a different task.
+  if (input.task_type && input.task_type !== "free" && !lockedType) {
+    return {
+      task_type: null, confidence: 0, entities: input.entities || {}, missing_fields: [], alternatives: [],
+      needs_clarification: true, clarification_kind: "direction", source: "locked",
+      error: "所选技能当前不可用。",
+      next_action: "请重新读取技能目录，或选择有使用资格的智能体后重试。",
+    };
+  }
   if (!text && !lockedType) {
     return {
       task_type: null,

@@ -1,0 +1,112 @@
+{
+  "schema_version": "1.0.0",
+  "kind": "development-delivery-record",
+  "task_contract": {
+    "file": "task-contract.json",
+    "sha256": "a6427c3ad168a6d0193e2409769c8ae093c96781d20aee74f00cec9c3d7dd812"
+  },
+  "artifacts": [
+    {
+      "id": "state-and-action-map",
+      "file": "state-and-action-map.json",
+      "sha256": "b30296506f2b2874a92c193c423d9b0cad251f64b8e4aede1b88f729069fc2a4",
+      "status": "complete"
+    },
+    {
+      "id": "layout-contract",
+      "file": "layout-contract.json",
+      "sha256": "d4151da17755db82cca496087c40d45cd6dd3a4e1b5e8ceaf6a01671181d7ee4",
+      "status": "complete"
+    },
+    {
+      "id": "component-selection",
+      "file": "component-selection.json",
+      "sha256": "ce6b607e6aa2cf7785a8e6e1272db3e942dbca915f67fcc44f891f7d0ba60ae0",
+      "status": "complete"
+    },
+    {
+      "id": "browser-and-source-evidence",
+      "file": "browser-and-source-evidence.json",
+      "sha256": "bd8d0b18de16d640f7c59eef7ab8110c2652030d5ca2c1dbb747c5a51cf8743f",
+      "status": "complete"
+    }
+  ],
+  "checks": [
+    {
+      "id": "route-contract-schema",
+      "type": "machine",
+      "status": "passed",
+      "command": "node .tmp/finalize-query-evidence.mjs",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "schema-check.json",
+          "kind": "test-report",
+          "sha256": "63e443132c86964ca3e285bd770dd798284754ded318e16e9d65b931f19eb35d"
+        }
+      ]
+    },
+    {
+      "id": "frontend-experience-test",
+      "type": "machine",
+      "status": "passed",
+      "exit_code": 0,
+      "command": "npm run build; playwright test --config playwright.query-context.config.ts",
+      "evidence": [
+        {
+          "file": "browser-tests.json",
+          "kind": "test-report",
+          "sha256": "7f35ee2260e6f84938e9b6af6c7f78232d4180dd51a22f9fe18ad683d3fd2f46"
+        },
+        {
+          "file": "frontend-build.log",
+          "kind": "test-report",
+          "sha256": "ffe7ed570180c5c22516389cbab982e6b98cbe1a8c027eb2e74f990713acda8d"
+        }
+      ]
+    },
+    {
+      "id": "backend-affected-test",
+      "type": "machine",
+      "status": "passed",
+      "exit_code": 0,
+      "command": "npm run typecheck; vitest run --config vitest.task-intake.config.ts --configLoader runner",
+      "evidence": [
+        {
+          "file": "backend-tests.json",
+          "kind": "test-report",
+          "sha256": "05ecc82a02b453cbc2a976e228db6ad58757f195917823ee131f74ec38312f01"
+        },
+        {
+          "file": "backend-typecheck.log",
+          "kind": "test-report",
+          "sha256": "f423c5c29f66d6f2bc6191680fc36cabbdb6b5d532e368542ed4ed07bac4c31f"
+        }
+      ]
+    },
+    {
+      "id": "frontend-browser-review",
+      "type": "human-browser",
+      "status": "passed",
+      "evidence": [
+        {
+          "file": "query-blocked.png",
+          "kind": "screenshot",
+          "sha256": "ad985fd05ebcc660fb6bfd5160eec8a568eba009335df443936a8df56703c573"
+        },
+        {
+          "file": "source-review.json",
+          "kind": "source-review",
+          "sha256": "8d9ae3a8b92bb54014beb2d75de198755f92797026d03fc7c0c0dc72933e1106"
+        },
+        {
+          "file": "user-release-approval.json",
+          "kind": "browser-record",
+          "sha256": "7b4d1e7c6bef25a096a8ebb7a5320214ff4e4e9ea36763b965621d3451db6733"
+        }
+      ],
+      "reviewer": "本会话用户（发布决策人）",
+      "reviewed_at": "2026-10-19T22:49:11.344Z"
+    }
+  ]
+}

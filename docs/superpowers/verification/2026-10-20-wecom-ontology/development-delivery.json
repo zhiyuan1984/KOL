@@ -1,0 +1,126 @@
+{
+  "schema_version": "1.0.0",
+  "kind": "development-delivery-record",
+  "task_contract": {
+    "file": "task-contract.json",
+    "sha256": "074d9a6702934cb8eabf6d25cc22cf8e0eed7fb4fd8c51bd5a8574c3ac29649f"
+  },
+  "artifacts": [
+    {
+      "id": "state-and-action-map",
+      "file": "state-and-action-map.json",
+      "sha256": "7ab967801981f2d20d56596f6ad6d10057374bb05c456b9adf74873d370e70fd",
+      "status": "complete"
+    },
+    {
+      "id": "layout-contract",
+      "file": "layout-contract.json",
+      "sha256": "99bd51412e139030772f217b2aa8d806a0e7cd7075e25b86a1d78d065692b35b",
+      "status": "complete"
+    },
+    {
+      "id": "component-selection",
+      "file": "component-selection.json",
+      "sha256": "ab67bff2c6eeda20312cdd56b472193479a3acb45205513156fae7e4a2d22b47",
+      "status": "complete"
+    },
+    {
+      "id": "browser-and-source-evidence",
+      "file": "browser-and-source-evidence.json",
+      "sha256": "773581be81db02b6c18c8fb7812ad27bc779b735f9e757c7f3f7f702f716d267",
+      "status": "complete"
+    },
+    {
+      "id": "preview-contract",
+      "file": "preview-contract.json",
+      "sha256": "0548e730890f97cccabde57ff5c9ffa01d680b0359caa3e3ba453a512dc169cf",
+      "status": "complete"
+    }
+  ],
+  "checks": [
+    {
+      "id": "route-contract-schema",
+      "type": "machine",
+      "status": "passed",
+      "command": "Saved actual commands and exit codes in wecom-backend-results.json",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "wecom-backend-results.json",
+          "sha256": "dac66388c03947b7c9475aa1afd899e01e78e542b591b823a9eddf413a4c25a3",
+          "kind": "test-report"
+        }
+      ]
+    },
+    {
+      "id": "frontend-experience-test",
+      "type": "machine",
+      "status": "passed",
+      "command": "Saved actual commands and exit codes in wecom-frontend-results.json",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "wecom-frontend-results.json",
+          "sha256": "2084a3013af61e8963b688425ae60876151d3b60cfa26abb6130e3ea7cf6d59d",
+          "kind": "test-report"
+        }
+      ]
+    },
+    {
+      "id": "frontend-browser-review",
+      "type": "human-browser",
+      "status": "passed",
+      "reviewer": "Manus 执行代理（非独立人类UX专家）",
+      "reviewed_at": "2026-10-20T15:19:39.731535+00:00",
+      "evidence": [
+        {
+          "file": "wecom-browser-source-review.json",
+          "sha256": "1cf58dcc6dcd7df9279a2562cf2f9d02a7f6ef3bdb2d4757783a31b153e77794",
+          "kind": "browser-record"
+        }
+      ]
+    },
+    {
+      "id": "document-preview-test",
+      "type": "machine",
+      "status": "passed",
+      "command": "Saved actual commands and exit codes in wecom-frontend-results.json",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "wecom-frontend-results.json",
+          "sha256": "2084a3013af61e8963b688425ae60876151d3b60cfa26abb6130e3ea7cf6d59d",
+          "kind": "test-report"
+        }
+      ]
+    },
+    {
+      "id": "document-source-compare",
+      "type": "human-browser",
+      "status": "passed",
+      "reviewer": "Manus 执行代理（非独立人类UX专家）",
+      "reviewed_at": "2026-10-20T15:19:39.731561+00:00",
+      "evidence": [
+        {
+          "file": "wecom-browser-source-review.json",
+          "sha256": "1cf58dcc6dcd7df9279a2562cf2f9d02a7f6ef3bdb2d4757783a31b153e77794",
+          "kind": "browser-record"
+        }
+      ]
+    },
+    {
+      "id": "backend-affected-test",
+      "type": "machine",
+      "status": "passed",
+      "command": "Saved actual commands and exit codes in wecom-backend-results.json",
+      "exit_code": 0,
+      "evidence": [
+        {
+          "file": "wecom-backend-results.json",
+          "sha256": "dac66388c03947b7c9475aa1afd899e01e78e542b591b823a9eddf413a4c25a3",
+          "kind": "test-report"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "kind": "component-selection",
+  "status": "complete",
+  "owner": "Manus 执行代理（证据整理；不替代独立人类UX复核）",
+  "requirement_refs": [
+    "CONST-08",
+    "CONST-10",
+    "TECH-ARCH-04",
+    "TECH-TEST-01",
+    "CONST-04",
+    "TECH-FE-01",
+    "TECH-FE-03",
+    "TECH-TEST-02"
+  ],
+  "subject": {
+    "task_id": "wecom-company-query-hotfix-20261021",
+    "source_revision": "2fd3bb1880c18a2f98e4f7fc81e7972fb001908a",
+    "paths": [
+      "frontend/src/ontology/wecomApi.ts",
+      "frontend/e2e/wecom-ontology.spec.ts"
+    ]
+  },
+  "decisions": {
+    "changed_paths": [
+      "frontend/src/ontology/wecomApi.ts",
+      "frontend/e2e/wecom-ontology.spec.ts"
+    ],
+    "reuse": "现有 wecom API 与 E2E 流程",
+    "new_dependencies": [],
+    "backend_or_permission_changes": false
+  },
+  "verification": {
+    "state": "evidence-recorded",
+    "scope": "只读 hotfix；不以证据记录冒充生产能力",
+    "evidence": [
+      {
+        "file": "wecom-query-typecheck.log",
+        "sha256": "3001580de5a19e30b6324bfc0c1a0c4f0184612b9304293931832a3bec99e700",
+        "kind": "test-report"
+      },
+      {
+        "file": "wecom-query-component-results.json",
+        "sha256": "31bfc34b485d1dd720afc3df2bc9cfd1a61b951b6e22a9f259a00fcf23e4a8ff",
+        "kind": "test-report"
+      },
+      {
+        "file": "wecom-query-browser-results.json",
+        "sha256": "6bb24bf7d3de216f3f0ccf37a1f0962973947aca28c8472563fd26e5e63e341e",
+        "kind": "browser-record"
+      },
+      {
+        "file": "wecom-query-build.log",
+        "sha256": "424debfb2d18827bef1378be07d914d1c442e8da12d3e60188c7ba16b0985419",
+        "kind": "test-report"
+      },
+      {
+        "file": "wecom-query-browser-review.json",
+        "sha256": "7f8661ae9726d6836f843979d432459438c9b87add3c36e9bb82590614d465d1",
+        "kind": "browser-record"
+      }
+    ]
+  },
+  "task_id": "wecom-company-query-hotfix-20261021",
+  "summary": "企业微信来源 status/snapshot 请求补齐显式 companyId 查询范围与 X-Ontology-Company header；保持只读、暂不导入。",
+  "status_claims": []
+}
