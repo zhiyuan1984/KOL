@@ -291,6 +291,7 @@ skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/config", async (c
     "bearer_env",
     "credential_provider",
     "credential_account_id",
+    "oauth_enabled",
     "allow_unauthenticated",
     "timeout_ms",
     "headers_secret_refs",
