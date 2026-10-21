@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Linux 服务器入口：装依赖、编原生绑定、构建前端，再起 Host（默认 0.0.0.0:8765）。
+# Linux 服务器入口：快速校验既有运行时依赖后启动 API Host（默认 0.0.0.0:8765）。
+# 前端由 nginx 从 /var/www/lingong/ui/current 静态提供；依赖安装、原生重建和
+# 前端构建只能在 scripts/deploy.sh 的旧 API 仍可服务阶段完成，不能藏在启动路径。
 # 密钥只从仓库根目录 .env 读入；不要把 API key / token 写进本脚本。
 # git fetch / remote 由外层 wrapper 负责。
 set -euo pipefail
@@ -38,36 +40,10 @@ load_dotenv() {
   done < "$file"
 }
 
-need_install() {
-  local dir="$1" marker="$2"
-  [ ! -e "$dir/node_modules/$marker" ] && return 0
-  [ -f "$dir/package-lock.json" ] && [ "$dir/package-lock.json" -nt "$dir/node_modules" ] && return 0
-  return 1
-}
-
-install_pkg() {
-  local dir="$1"
-  echo "安装依赖：$dir"
-  if [ -f "$dir/package-lock.json" ]; then
-    (cd "$dir" && npm ci --ignore-scripts=false --foreground-scripts)
-  else
-    (cd "$dir" && npm install --ignore-scripts=false --foreground-scripts)
-  fi
-}
-
-frontend_stale() {
-  [ ! -f "$ROOT/frontend/dist/index.html" ] && return 0
-  local newer
-  newer="$(find "$ROOT/frontend/src" "$ROOT/frontend/index.html" "$ROOT/frontend/package.json" "$ROOT/frontend/vite.config.ts" \
-    -newer "$ROOT/frontend/dist/index.html" -print -quit 2>/dev/null || true)"
-  [ -n "$newer" ]
-}
-
-[ -f "$ROOT/backend/package.json" ] && [ -f "$ROOT/frontend/package.json" ] \
-  || die "未找到 backend/ 与 frontend/，请从仓库根目录运行 scripts/start.sh。"
+[ -f "$ROOT/backend/package.json" ] \
+  || die "未找到 backend/package.json，请从仓库根目录运行 scripts/start.sh。"
 
 require_cmd node
-require_cmd npm
 node_major="$(node -p 'Number(process.versions.node.split(".")[0])')"
 [ "$node_major" -ge 22 ] || die "需要 Node.js 22+（当前 $(node -v)）。CI / Docker 使用 Node 22。"
 
@@ -90,24 +66,12 @@ if [ "${CODEX_MODE,,}" = "real" ]; then
   fi
 fi
 
-if need_install "$ROOT/backend" "tsx"; then
-  install_pkg "$ROOT/backend"
-fi
-if need_install "$ROOT/frontend" "vite"; then
-  install_pkg "$ROOT/frontend"
-fi
-
-# shellcheck source=native.sh
-. "$ROOT/scripts/native.sh"
-(cd "$ROOT/backend" && build_esbuild)
-(cd "$ROOT/frontend" && build_esbuild)
-
-if frontend_stale; then
-  echo "构建前端（后端静态托管 frontend/dist）…"
-  echo "注意：前端有改动，本次重启要在启动路径里构建，服务会中断约 60–90 秒（nginx 返回等待页）。" >&2
-  echo "下次部署请用 scripts/deploy.sh：先在旧进程仍对外服务时构建，再重启，中断约 5 秒。" >&2
-  (cd "$ROOT/frontend" && npm run build)
-fi
+[ -d "$ROOT/backend/node_modules" ] \
+  || die "缺少 backend/node_modules；start.sh 不安装依赖。请在旧 API 仍服务时运行 scripts/deploy.sh。"
+[ -x "$ROOT/backend/node_modules/.bin/tsx" ] \
+  || die "缺少 backend/node_modules/.bin/tsx；start.sh 不安装或重建。请运行 scripts/deploy.sh。"
+(cd "$ROOT/backend" && node -e "require.resolve('tsx')") \
+  || die "backend tsx 运行时依赖不完整；start.sh 不安装或重建。请运行 scripts/deploy.sh。"
 
 mkdir -p "$LINGONG_DATA/uploads" "$LINGONG_DATA/boxes" "$LINGONG_DATA/published-skills"
 
@@ -142,7 +106,4 @@ free_listen_port() {
 echo "灵工启动 → 0.0.0.0:${LINGONG_PORT}  CODEX_MODE=${CODEX_MODE}  AUTH_MODE=${AUTH_MODE}"
 free_listen_port "$LINGONG_PORT"
 cd "$ROOT/backend"
-if [ -x "$ROOT/backend/node_modules/.bin/tsx" ]; then
-  exec "$ROOT/backend/node_modules/.bin/tsx" src/index.ts
-fi
-exec npx tsx src/index.ts
+exec "$ROOT/backend/node_modules/.bin/tsx" src/index.ts
