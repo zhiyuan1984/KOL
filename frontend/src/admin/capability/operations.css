@@ -1,7 +1,0 @@
-.operation-governance { min-width: 0; }
-.operation-columns { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: flex-start; }
-.operation-list { flex: 1 1 var(--field-value-max-w); min-width: 0; max-width: 100%; }
-.operation-editor { flex: 2 1 var(--field-value-wide-max-w); min-width: 0; max-width: 100%; }
-.operation-preview .ant-modal-body { max-height: calc(var(--dialog-h-max) - var(--control-h-lg) * 4); overflow: auto; }
-.operation-json { white-space: pre-wrap; overflow-wrap: anywhere; }
-.operation-history { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); border-bottom: 1px solid var(--border); }

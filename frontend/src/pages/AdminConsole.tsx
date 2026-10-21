@@ -17,7 +17,6 @@ import AdminAudit from "./AdminAudit";
 import AdminOntology from "./AdminOntology";
 import { ConnectorDetail } from "../admin/connector/ConnectorDetail";
 import { ConnectorHub } from "../admin/connector/ConnectorHub";
-import {OperationGovernance} from '../admin/capability/OperationGovernance';
 import type { DirectoryEmployee } from "../admin/employees/EmployeeDirectory";
 import { EmployeeDirectoryV2 } from "../admin/employees/EmployeeDirectoryV2";
 import {
@@ -97,6 +96,8 @@ export default function AdminConsole() {
     return <div className="admin-shell" data-admin-ia="governance"><div className="admin-body"><AdminScheduling /></div></div>;
   }
   if (!account?.available_modes?.includes("admin")) return <Navigate to="/" replace />;
+  // Retired catalog: old bookmarks return to connector management.
+  if (section === "connectors" && detailId === "-/operations") return <Navigate to="/admin/connectors" replace />;
   if (section === "starry") return <Navigate to="/settings?tab=starry" replace />;
 
   return (
@@ -110,7 +111,7 @@ export default function AdminConsole() {
           <AdminAgents />
         )}
         {tab === "connectors" && (
-          detailId === '-/operations' ? <OperationGovernance connectors={connectors}/>:detailId
+          detailId
             ? <ConnectorDetail connectorId={detailId} connectors={connectors} auditRows={auditRows} reload={load} />
             : <ConnectorHub connectors={connectors} loading={loading} onSave={save} reload={load} />
         )}

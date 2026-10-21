@@ -127,7 +127,6 @@ export function ConnectorHub({ connectors, loading, onSave, reload }: {
             onChange={(event) => setQ(event.target.value)}
           />
         <div className="connector-hub-actions">
-          <Link className="btn btn-text" to="/admin/connectors/-/operations">可执行能力</Link>
           <button type="button" className="btn" data-connector-browse-toggle onClick={() => setBrowseOpen(true)}>
             浏览连接器
           </button>
