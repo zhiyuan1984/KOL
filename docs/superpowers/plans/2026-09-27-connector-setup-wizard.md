@@ -1,5 +1,7 @@
 # 连接器设置向导与技能唯一授权 Implementation Plan
 
+> **2026-10-21 取代注记**：人员授权锚点已改为 Agent（ADR-2026-10-03）；启用门禁已由 ADR-2026-10-21 解耦，`connector_skill_binding_required` 不再是预期结果。本文件保留历史，实施以现行 ADR 与当前代码为准。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 把连接器的授权收口为「只对技能」，并把连接器设置做成弹窗内四步向导（保存 → 测试 → 工具清单只读 → 启用）。

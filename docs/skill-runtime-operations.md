@@ -47,13 +47,13 @@
 | 实时发现远端工具 | `GET /admin/runtime/connectors/:connectorId/discovery` | 无；返回工具描述/schema 及 `schema_hash`，**不自动授权** |
 | 查看单工具策略 | `GET /admin/runtime/connectors/:connectorId/tools/:toolName` | 无 |
 | 登记/停用工具策略 | `PUT /admin/runtime/connectors/:connectorId/tools/:toolName` | `enabled`, `risk`, `access`, `schema_hash`, `expected_version`；测试（probe）成功后平台会自动登记缺失策略并刷新指纹，本接口用于覆盖、停用与内核调整 |
-| 当前用户可用技能能力 | `GET /agents/:agentId/capabilities` | 只读；按技能授权（`user_skill_grants`）说明技能级可用能力，不返回连接器/工具清单；无凭据/端点；`live_verified: false` |
+| 当前用户可用技能能力 | `GET /agents/:agentId/capabilities` | 只读；说明该 Agent 装配且已发布的技能能力；人员资格按 Agent 绑定，不读 `user_skill_grants`；不返回连接器/工具清单；无凭据/端点；`live_verified: false` |
 
 解绑保存 `enabled=0` 墓碑，不读时重种。删除 Connector 会通过 FK 级联删除其 runtime 配置、资源绑定和工具策略；删除仍是需要单独审慎操作的治理动作。
 
 ### 按定义挂载（mount-declared）
 
-启用连接器的前提是「至少一个技能把它已登记的工具挂到可用状态」（`connector_skill_binding_required`）。这条接口把技能自己的声明（`backend/skills/<id>/SKILL.md` 的 `mcp: ["<connector>.<tool>", …]`）与连接器已登记工具对齐，一次确认后批量落库：
+连接器启用只要求最近一次测试通过且测试对应的配置版本等于当前配置版本；技能挂载不再是启用前置（ADR-2026-10-21）。这条接口把技能自己的声明（`backend/skills/<id>/SKILL.md` 的 `mcp: ["<connector>.<tool>", …]`）与连接器已登记工具对齐，一次确认后批量落库，作为可选的调用范围配置：
 
 - 目标技能：省略 `skill_ids` 时只覆盖扫描出的**已上线**技能（已挂数字员工且 `published`）；显式给出 `skill_ids` 时按给定列表处理，未知技能返回 400 `unknown_skill`。
 - 只挂声明里有的工具，不扩展、不推断；每个技能先确保「技能→连接器」绑定启用，再逐条启用「技能→工具」绑定（沿用 `expected_version` 比较并交换）。

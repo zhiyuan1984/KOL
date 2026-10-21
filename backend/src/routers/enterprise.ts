@@ -55,6 +55,11 @@ enterprise.use("/sessions/:sid",async (c,next) => {
   await next();
 });
 
+/**
+ * Enabling a connector is an infrastructure decision: the saved configuration
+ * must have passed its current probe. Skill/tool bindings are execution
+ * dependencies and are re-checked at call time; they do not authorize people.
+ */
 export async function assertConnectorEnableBasis(client: PoolClient, id: string): Promise<void> {
   const connector = (await client.query<Row>("SELECT id,status,enabled FROM connectors WHERE id=$1 FOR UPDATE", [id])).rows[0];
   if (!connector) throw new HttpFail(404, "connector not found");
@@ -69,11 +74,6 @@ export async function assertConnectorEnableBasis(client: PoolClient, id: string)
     || Number(probe.config_version) !== Number(config.version)) {
     throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
   }
-  const mounted = (await client.query<Row>(`SELECT t.skill_id FROM runtime_skill_tools t
-    JOIN runtime_skill_connectors c ON c.skill_id=t.skill_id AND c.connector_id=t.connector_id
-    WHERE t.connector_id=$1 AND t.enabled=1 AND c.enabled=1
-    FOR SHARE OF t,c`, [id])).rows[0];
-  if (!mounted) throw new HttpFail(409, { code: "connector_skill_binding_required", connector_id: id });
 }
 
 function parseJson(value: unknown, fallback: unknown): unknown {

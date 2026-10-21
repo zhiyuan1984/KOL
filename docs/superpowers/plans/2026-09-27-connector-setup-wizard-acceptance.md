@@ -1,5 +1,7 @@
 # 连接器设置向导 + 技能唯一授权：业务验收方案
 
+> **2026-10-21 取代注记**：人员授权锚点已改为 Agent（ADR-2026-10-03）；启用门禁已由 ADR-2026-10-21 解耦，`connector_skill_binding_required` 不再是预期结果。本文件保留历史，验收以现行 ADR 与当前测试为准。
+
 - 日期：2026-09-27
 - 对象：本次改动（四步向导、只读工具清单、技能唯一授权、启用门禁换新）
 - 依据：`docs/superpowers/specs/2026-09-27-connector-setup-wizard-design.md`、`docs/DECISIONS.md` ADR-2026-09-27

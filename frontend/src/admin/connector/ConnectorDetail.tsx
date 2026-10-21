@@ -15,7 +15,6 @@ import { ConnectorMark } from "./ConnectorMark";
 import { ConnectorToolsCard } from "./ConnectorToolsCard";
 import { friendlyEnableFailure } from "./connectorSetup";
 import { connectorCardView, kindLabel } from "./entity";
-import { useDeclaredToolMount } from "./useDeclaredToolMount";
 import "./connectorAdmin.css";
 import "./connectorDetail.css";
 
@@ -72,13 +71,6 @@ function ConnectorDetailContent({ connectorId, connectors, auditRows, reload }: 
   const raw = connectors.find((row) => String(row.id) === connectorId);
   const card = raw ? connectorCardView(raw) : null;
   const { ask, dialog } = useAdminConfirm();
-  const [mountNeeded, setMountNeeded] = useState(false);
-  const declaredMount = useDeclaredToolMount({
-    ask,
-    connectorId: card?.id ?? null,
-    connectorLabel: card?.label || "该连接器",
-    onDone: () => { setMountNeeded(false); reload(); },
-  });
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const { receipt, showReceipt, clearReceipt } = useTransientReceipt();
@@ -201,7 +193,6 @@ function ConnectorDetailContent({ connectorId, connectors, auditRows, reload }: 
       reload();
     } catch (cause) {
       const code = codeOf(cause);
-      setMountNeeded(code === "connector_skill_binding_required");
       setError(friendlyEnableFailure(code) || errorMessage(cause, "连接器状态未更新"));
     } finally { setBusy(""); }
   };
@@ -258,12 +249,7 @@ function ConnectorDetailContent({ connectorId, connectors, auditRows, reload }: 
         </p>
       )}
       {configDirty && activeTab !== "config" && <p className="connector-config-dirty-note muted" role="status">接入配置有未保存改动，草稿已保留；测试使用已保存配置。<button type="button" className="btn text" onClick={() => selectTab("config")}>返回配置</button></p>}
-      {mountNeeded && <div className="connector-detail-mount" data-connector-detail-mount>
-        <p className="muted">启用还差一步：至少一个技能把它已登记的工具挂到可用状态。可以按技能定义一次挂好；挂载不启用连接器。</p>
-        <button type="button" className="btn text" data-connector-detail-mount-declared disabled={declaredMount.busy} onClick={declaredMount.mount}>{declaredMount.busy ? "挂载中…" : "按技能定义挂载工具"}</button>
-        {declaredMount.receipt && <p className="runtime-notice" role="status">{declaredMount.receipt}现在可以再点「启用连接器」。</p>}
-        {declaredMount.failure && <p className="error" role="alert">{declaredMount.failure}</p>}
-      </div>}
+      <p className="muted" data-connector-usage-note>启用只代表连接器可用；人员资格由 Agent 绑定决定，哪些技能能调用由技能页的挂载决定。</p>
       <div className="connector-detail-tabs" role="tablist" aria-label="连接器管理导航" data-connector-detail-tabs>
         {DETAIL_TABS.map((tab, index) => <button
           key={tab.id} ref={(node) => { tabButtons.current[tab.id] = node; }}

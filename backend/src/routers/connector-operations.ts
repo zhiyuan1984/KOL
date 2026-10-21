@@ -15,7 +15,7 @@ async function connector(id:string):Promise<Row>{const row=(await postgresQuery<
 const TRACE_FIELDS=["connector_id","agent_id","skill_id","run_id","session_id","call_id","tool","tool_name","schema_hash","version","connector_version","policy_version","action","duration_ms","code","dispatched","is_error"];
 function tracePayload(value:unknown):Json{let parsed:Json={};try{parsed=JSON.parse(String(value||"{}"));}catch{return{};}const safe:Json={};for(const key of TRACE_FIELDS){const item=parsed[key];if(typeof item==="string")safe[key]=item.slice(0,320);else if(typeof item==="boolean"||typeof item==="number"||item===null)safe[key]=item;}return safe;}
 type Inspector=(context:RuntimeContext,connectorId:string)=>Promise<Json[]>;type StartProbe=(context:RuntimeContext,config:ConnectorConfig)=>Promise<void>;
-async function lockProbeBasis(client:PoolClient,id:string,version:number):Promise<Row>{const current=(await client.query<Row>("SELECT id,enabled,status FROM connectors WHERE id=$1 FOR UPDATE",[id])).rows[0];if(!current)throw new HttpFail(404,{code:"connector_not_found"});if(Number(current.enabled)!==1&&!["draft","pending_verification","verification_failed"].includes(String(current.status)))throw new HttpFail(403,{code:"runtime_connector_disabled"});const config=(await client.query<Row>("SELECT version FROM runtime_connector_config WHERE connector_id=$1 FOR SHARE",[id])).rows[0];if(!config||Number(config.version)!==version)throw new HttpFail(409,{code:"runtime_binding_changed"});return current;}
+async function lockProbeBasis(client:PoolClient,id:string,version:number):Promise<Row>{const current=(await client.query<Row>("SELECT id,enabled,status FROM connectors WHERE id=$1 FOR UPDATE",[id])).rows[0];if(!current)throw new HttpFail(404,{code:"connector_not_found"});if(Number(current.enabled)!==1&&!["draft","pending_verification","verification_failed","verified"].includes(String(current.status)))throw new HttpFail(403,{code:"runtime_connector_disabled"});const config=(await client.query<Row>("SELECT version FROM runtime_connector_config WHERE connector_id=$1 FOR SHARE",[id])).rows[0];if(!config||Number(config.version)!==version)throw new HttpFail(409,{code:"runtime_binding_changed"});return current;}
 
 /** Audit uses the transaction's physical client so no successful probe can commit without its receipt. */
 async function writeProbeAudit(client:PoolClient,actor:string,eventType:string,payload:Json,now:string):Promise<void>{
@@ -30,7 +30,7 @@ export function createConnectorOperationsRouter(inspect:Inspector=inspectConnect
     const id=c.req.param("connectorId");
     if(process.env.NODE_ENV!=="test")requireManagedConnector(id);
     const initial=await connector(id);
-    if(Number(initial.enabled)!==1&&!["draft","pending_verification","verification_failed"].includes(String(initial.status)))throw new HttpFail(403,{code:"runtime_connector_disabled"});
+    if(Number(initial.enabled)!==1&&!["draft","pending_verification","verification_failed","verified"].includes(String(initial.status)))throw new HttpFail(403,{code:"runtime_connector_disabled"});
     const before=await getConnectorConfig(id);
     if(!before)throw new HttpFail(409,{code:"runtime_connector_not_configured"});
     const started=Date.now();

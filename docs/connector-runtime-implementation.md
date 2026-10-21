@@ -45,7 +45,7 @@
 
 配置只提供受控端点和凭据引用；Runtime 在每次发现、调用前复查：
 
-- 当前用户持有该技能（`user_skill_grants`）、Agent→Skill 绑定、Skill→Connector 绑定；连接器与工具不按人授权（[DECISIONS.md](DECISIONS.md) ADR-2026-09-27「对外只暴露技能」）；
+- 人员通过 Agent 使用资格进入（ADR-2026-10-03；不读已退役的 `user_skill_grants`）、Agent→Skill 绑定、Skill→Connector 绑定；连接器与工具不按人授权；
 - 工具策略、工具 Schema 指纹、Skill→Tool 挂载版本；
 - 连接器启停、凭据引用和连接配置版本。
 

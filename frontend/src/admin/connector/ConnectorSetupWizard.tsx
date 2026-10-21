@@ -36,7 +36,7 @@ const STEPS: Array<{ id: WizardStep; label: string }> = [
 
 function friendlyProbeFailure(code: string): string {
   if (code === "AbortError" || code === "request_aborted") return "测试已取消或连接中断；请确认服务可访问后重试。";
-  if (code === "runtime_connector_disabled") return "连接器已停用，无法测试。请在完成验证后再启用。";
+  if (code === "runtime_connector_disabled") return "连接器当前状态不允许测试；请检查连接器状态后重试。";
   if (code === "runtime_connector_not_configured") return "尚未保存接入配置。请先保存连接草稿。";
   if (code === "runtime_endpoint_invalid") return "尚未填写 Base URL，或端点无效；请在接入配置中补齐后再测试。";
   const remote = remoteFailureMessage(code);
@@ -54,8 +54,9 @@ function formatProbeTime(value: string): string {
 /**
  * Connection setup wizard: 保存 → 测试 → 工具清单（只读）→ 启用.
  * One solid main action per step; every write keeps its own side effect and
- * receipt (保存 / 测试 / 启用 are never merged). Authorization is not part of
- * this dialog — tools become reachable by mounting them onto a skill.
+ * receipt (保存 / 测试 / 启用 are never merged). Enabling is an infrastructure
+ * decision; people reach tools through Agents and Skill→Tool mounts, which are
+ * checked at call time.
  */
 export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone, reload }: {
   mode: "create" | "configure";
@@ -89,7 +90,6 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
   const [toolCount, setToolCount] = useState<number | null>(null);
   const [enabled, setEnabled] = useState(Boolean(card?.enabled));
   const [savedInSession, setSavedInSession] = useState(false);
-  const [enableBlocked, setEnableBlocked] = useState("");
   const [toolsRequestKey, setToolsRequestKey] = useState(0);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -106,7 +106,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
     setVersion((current) => current || loaded);
   }, []);
 
-  const canEnable = Boolean(id) && !enabled && verified && !enableBlocked;
+  const canEnable = Boolean(id) && !enabled && verified;
   // 本会话的测试结果优先；重新打开弹窗时回落到服务端记录的上次测试。
   const passedAt = testedAt || lastProbe?.checked_at || "";
   const passedToolCount = toolCount ?? lastProbe?.tool_count ?? null;
@@ -165,14 +165,21 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
     if (step === "enable" && id) void loadMountGate();
   }, [step, id, loadMountGate]);
 
-  // 启用闸门的可执行部分：扫描出的已上线技能里，声明了本连接器工具且现在就能挂的那些。
+  // 使用情况只读：启用不依赖它；自动挂载仍只处理已上线技能。
   const gate = useMemo(() => {
-    const rows = (mountGate?.skills || []).filter((row) => row.implementation === "live");
-    const mounted = rows.reduce((sum, row) => sum + row.mounted_tools, 0);
-    const mountable = rows.reduce((sum, row) => sum + mountableDeclaredCount(row), 0);
-    const pending = rows.reduce((sum, row) => sum + row.pending_tools, 0);
-    const declared = rows.reduce((sum, row) => sum + row.declared_tools, 0);
-    return { skills: rows.length, mounted, mountable, skipped: pending - mountable, declared };
+    const rows = mountGate?.skills || [];
+    const live = rows.filter((row) => row.implementation === "live");
+    const defined = rows.filter((row) => row.implementation === "defined");
+    const mounted = live.reduce((sum, row) => sum + row.mounted_tools, 0);
+    const mountable = live.reduce((sum, row) => sum + mountableDeclaredCount(row), 0);
+    const declared = live.reduce((sum, row) => sum + row.declared_tools, 0);
+    return {
+      liveSkills: live.length,
+      definedSkills: defined.length,
+      mounted,
+      mountable,
+      declared,
+    };
   }, [mountGate]);
 
   const declaredMount = useDeclaredToolMount({
@@ -180,7 +187,6 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
     connectorId: id,
     connectorLabel: card?.label || label.trim() || (id ?? ""),
     onDone: async () => {
-      setEnableBlocked("");
       await loadMountGate();
       reload?.();
     },
@@ -205,7 +211,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
 
   const statusLine = useMemo(() => {
     if (!id) return "尚未保存：保存后连接器为待验证状态，不会自动启用。";
-    if (enabled) return "已启用：调用仍受平台校验与技能挂载约束。";
+    if (enabled) return "已启用：人员资格由 Agent 绑定决定；调用还要求该技能已挂载此工具。";
     if (!verified) {
       if (!version) return "尚未通过测试：启用前需要一次通过的测试。";
       return savedInSession
@@ -218,7 +224,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
 
   // 启用步的横幅标题已经写明「已启用」/「待启用」，正文只补一句后果，避免同一事实说两遍。
   const enableDetail = enabled
-    ? "调用仍需平台校验与技能挂载。"
+    ? "人员资格由 Agent 绑定决定；调用还要求该技能已挂载此工具。"
     : verified
       ? "最近一次测试已通过，可以启用。"
       : statusLine;
@@ -230,7 +236,6 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
     setTestedAt("");
     setTestNotice("");
     setToolCount(null);
-    setEnableBlocked("");
     setIconFile(null);
     setReceipt(message);
     setStep("test");
@@ -296,7 +301,6 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
       setTestNotice(result.notice || "");
       setToolCount(result.tool_count);
       setLastProbe({ checked_at: result.checked_at || "", tool_count: result.tool_count });
-      setEnableBlocked("");
       setReceipt(`测试通过：发现 ${result.tool_count} 个工具。`);
       setStep("tools");
       // 测试通过会把服务端状态改为「已验证」，列表立即刷新，卡片不必等关闭弹窗。
@@ -321,18 +325,12 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
     try {
       await api.adminSave(`/api/admin/connectors/${encodeURIComponent(id)}`, { enabled: next }, "PATCH");
       setEnabled(next);
-      if (next) setEnableBlocked("");
       setReceipt(next
-        ? "连接器已启用；调用仍需当前 Agent 使用资格与技能挂载。"
+        ? "连接器已启用；人员资格由 Agent 绑定决定，调用还要求技能已挂载此工具。"
         : "连接器已停用；重新测试通过后可再次启用。");
       reload?.();
     } catch (cause) {
-      const code = errorCodeOf(cause);
-      const friendly = friendlyEnableFailure(code);
-      if (next && code === "connector_skill_binding_required") {
-        setEnableBlocked(friendly || "尚无技能绑定其工具，请先在技能页挂载。");
-      }
-      setError(friendly || errorMessage(cause, "连接器状态未更新"));
+      setError(friendlyEnableFailure(errorCodeOf(cause)) || errorMessage(cause, "连接器状态未更新"));
     } finally {
       setBusy("");
     }
@@ -340,7 +338,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
 
   const finish = () => {
     if (enabled) {
-      onDone("连接器已启用；调用仍需当前 Agent 使用资格与技能挂载。");
+      onDone("连接器已启用；人员资格由 Agent 绑定决定，调用还要求技能已挂载此工具。");
       return;
     }
     // 只有本次会话真的保存过，才回执版本；否则只是关闭，不伪造状态。
@@ -414,7 +412,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
     }
     return (
       <>
-        {note(enableBlocked || (enabled ? "关闭窗口不会改变连接器状态。" : "启用后调用仍需技能挂载。"))}
+        {note(enabled ? "关闭窗口不会改变连接器状态。" : "启用只代表连接器可用；哪些技能能调用由技能挂载决定。")}
         {actions(<>
           <button type="button" className="btn text" disabled={busy === "enable"} onClick={() => setStep("tools")}>上一步</button>
           {enabled ? (
@@ -426,7 +424,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
               data-connector-wizard-enable
               data-connector-wizard-primary
               disabled={busy === "enable" || !canEnable}
-              title={canEnable ? undefined : enableBlocked || "需先通过测试"}
+              title={canEnable ? undefined : "需先通过测试"}
               onClick={() => void setConnectorEnabled(true)}
             >
               {busy === "enable" ? "启用中…" : "启用连接器"}
@@ -608,7 +606,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
             <span>{version ? `当前配置版本 ${version}，尚未通过测试。` : "尚未保存配置，无法测试。"}</span>
           </p>
         )}
-        {/* 事实区：状态 / 时间 / 挂载进度 / 声明数，规则单独说明。 */}
+        {/* 事实区：状态 / 时间 / 使用情况；使用情况不影响启用。 */}
         <dl className="enable-facts" aria-label="连接器基本信息">
           <div className="enable-facts-item">
             <dt>当前状态</dt>
@@ -629,37 +627,42 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
                 <span className="enable-progress-track" aria-hidden="true">
                   <i style={{ width: `${gate.declared ? Math.round((gate.mounted / gate.declared) * 100) : 0}%` }} />
                 </span>
-                <span>已挂 {gate.mounted}/{gate.declared} 个</span>
+                <span>已挂 {gate.mounted}/{gate.declared} 个（已上线技能）</span>
               </span>
             </dd>
           </div>
           <div className="enable-facts-item">
             <dt>技能声明</dt>
-            <dd>{gate.skills} 个已上线技能声明了它的工具</dd>
+            <dd>{gate.liveSkills} 个已上线技能 · {gate.definedSkills} 个已定义技能声明了它的工具</dd>
           </div>
           <div className="enable-facts-item">
-            <dt>启用条件</dt>
-            <dd>至少一个技能把它的工具挂到可用状态</dd>
+            <dt>使用情况</dt>
+            <dd>不影响启用；未挂载时调用仍会被拒绝</dd>
           </div>
         </dl>
-        {/* 启用闸门里唯一还需要人做的一步：把工具挂到技能上。 */}
+        {/* 使用与挂载是可选的后续动作；启用不依赖它。 */}
         <div className="enable-mount" data-connector-wizard-mount>
           {mountGateError && <p className="enable-mount-summary" data-connector-wizard-mount-summary>技能挂载情况未读取：{mountGateError}</p>}
+          {!mountGateError && mountGate && (
+            <p className="enable-mount-summary" data-connector-wizard-mount-summary>
+              已上线技能可自动挂载 {gate.mountable} 个声明工具；{gate.definedSkills} 个已定义技能需在技能页确认。
+            </p>
+          )}
           <div className="enable-mount-actions">
             <button
               type="button"
               className="btn"
               data-connector-wizard-mount-declared
               disabled={declaredMount.busy || !id || gate.mountable === 0}
-              title={gate.mountable === 0 ? "没有可自动挂载的声明工具：先完成测试登记工具，或去技能页逐项选择" : undefined}
+              title={gate.mountable === 0 ? "没有可自动挂载的已上线技能声明；可去技能页为草稿技能手动挂载" : undefined}
               onClick={declaredMount.mount}
             >
               {declaredMount.busy ? "挂载中…" : "按技能定义挂载工具"}
             </button>
-            <Link className="btn text" to="/admin/skills">去技能页挂载</Link>
+            <Link className="btn text" to="/admin/skills">去技能页挂载（可选）</Link>
             <span className="muted">只挂技能定义里已启用的工具，不改连接器状态。</span>
           </div>
-          {declaredMount.receipt && <p className="runtime-notice" role="status" data-connector-wizard-mount-receipt>{declaredMount.receipt}现在可以启用连接器。</p>}
+          {declaredMount.receipt && <p className="runtime-notice" role="status" data-connector-wizard-mount-receipt>{declaredMount.receipt}连接器启用不受影响。</p>}
           {declaredMount.failure && <p className="error" role="alert" data-connector-wizard-mount-error>{declaredMount.failure}</p>}
         </div>
         {/* 危险动作独立成区，与普通链接分开。 */}
