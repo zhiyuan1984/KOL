@@ -1,0 +1,159 @@
+/* 业务地图：对象目录与只读记录同页，数值仅复用 DESIGN.md 已登记 token。 */
+.business-map-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(var(--workspace-result-rail-min), var(--workspace-result-rail-ideal));
+  min-width: 0;
+  height: var(--business-map-frame-height, 100%);
+  min-height: 0;
+  color: var(--text);
+  font-size: var(--ds-font-sm);
+}
+
+.admin-body.admin-body--business-map { padding: 0; }
+.admin-body.admin-body--business-map > .admin-business-map { width: 100%; max-width: none; margin-inline: 0; }
+
+.business-map-catalog,
+.business-map-records {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--space-3) var(--space-4);
+}
+
+.business-map-catalog { border-right: 1px solid var(--border); grid-template-rows: auto auto minmax(0, 1fr) auto; }
+.business-map-records { gap: var(--space-3); overflow-y: auto; }
+.business-map-title { margin: 0; font-size: var(--ds-font-sm); font-weight: 600; line-height: var(--ds-line-sm); }
+.business-map-context,
+.business-map-help,
+.business-map-path,
+.business-map-source-note,
+.business-map-state,
+.business-map-empty,
+.business-map-record-total { margin: 0; color: var(--text-quiet); font-size: var(--ds-font-xs); line-height: var(--ds-line-helper); }
+.business-map-title-block { display: grid; gap: var(--space-1); }
+
+.business-map-filters,
+.business-map-record-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.business-map-filter-label { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--text-quiet); font-size: var(--ds-font-xs); }
+.business-map-filter-label select,
+.business-map-filter-label input,
+.business-map-search {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: var(--control-h-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--ds-font-sm);
+}
+.business-map-filter-label select,
+.business-map-filter-label input { max-inline-size: 100%; padding: 0 var(--space-1); }
+.business-map-domain-select { inline-size: calc(var(--space-5) * 8); min-inline-size: 0; max-inline-size: 100%; font-size: var(--ds-font-sm); }
+.business-map-search { flex: 1 1 var(--workspace-search-max-w); max-inline-size: var(--workspace-search-max-w); padding: 0 var(--workspace-search-pad-x); }
+.business-map-filter-label input { inline-size: calc(var(--space-5) * 8); }
+
+.business-map-filter-label select:focus-visible,
+.business-map-filter-label input:focus-visible,
+.business-map-search:focus-visible,
+.business-map-icon-button:focus-visible,
+.business-map-text-button:focus-visible,
+.business-map-entity:focus-visible,
+.business-map-record-expand:focus-visible,
+.business-map-link:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: var(--focus-ring-offset); }
+
+.business-map-directory { display: grid; align-content: start; min-width: 0; min-height: 0; overflow-y: auto; margin-top: var(--space-3); border-top: 1px solid var(--border); }
+.business-map-object { min-width: 0; border-bottom: 1px solid var(--border); }
+.business-map-object-row,
+.business-map-entity,
+.business-map-record-summary { min-height: var(--list-row-h-compact); }
+.business-map-object-row { display: grid; grid-template-columns: var(--control-h-sm) minmax(0, 1fr); align-items: center; }
+.business-map-icon-button,
+.business-map-record-expand { display: inline-grid; place-items: center; min-width: var(--control-h-sm); min-height: var(--control-h-sm); padding: 0; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--accent-text); font: inherit; cursor: pointer; }
+.business-map-icon-button:hover,
+.business-map-record-expand:hover { background: var(--btn-text-hover-bg); }
+.business-map-chevron { display: inline-block; transition: transform var(--duration-control); }
+.business-map-chevron[data-expanded="true"] { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .business-map-chevron { transition: none; } }
+.business-map-breadcrumb { display: flex; min-width: 0; align-items: baseline; gap: var(--space-1); overflow: hidden; white-space: nowrap; }
+.business-map-breadcrumb span { overflow: hidden; color: var(--text-quiet); text-overflow: ellipsis; }
+.business-map-breadcrumb strong { overflow: hidden; color: var(--text); font-weight: 600; text-overflow: ellipsis; }
+.business-map-breadcrumb i { flex: 0 0 auto; color: var(--text-faint); font-style: normal; }
+.business-map-entities { display: grid; padding-left: var(--control-h-sm); }
+.business-map-entity { display: flex; align-items: center; min-width: 0; padding: 0 var(--space-2); border: 0; border-left: var(--space-1) solid transparent; background: transparent; color: var(--text); font: inherit; font-size: var(--ds-font-sm); text-align: left; cursor: pointer; }
+.business-map-entity:hover { background: var(--bg-subtle); }
+.business-map-entity[aria-current="true"] { border-left-color: var(--accent); background: var(--btn-text-hover-bg); font-weight: 600; }
+.business-map-entity > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.business-map-status { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--text-quiet); font-size: var(--ds-font-xs); white-space: nowrap; }
+.business-map-status::before { width: var(--space-1); height: var(--space-1); border-radius: 50%; background: currentColor; content: ""; }
+.business-map-status[data-status="ready"] { color: var(--success-text); }
+.business-map-status[data-status="not_connected"],
+.business-map-status[data-status="not_read"] { color: var(--warning-text); }
+.business-map-status[data-status="forbidden"] { color: var(--danger-text); }
+.business-map-scope-filter { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--text-quiet); font-size: var(--ds-font-xs); white-space: nowrap; }
+
+.business-map-record-table { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); }
+.business-map-record-head,
+.business-map-record-summary { display: grid; grid-template-columns: var(--control-h-sm) repeat(var(--business-map-column-count), minmax(0, 1fr)); min-width: 0; }
+.business-map-record-head { min-height: var(--table-header-h); background: var(--bg-subtle); color: var(--text-quiet); font-size: var(--ds-font-sm); font-weight: 500; }
+.business-map-record-head > span,
+.business-map-record-summary > span { display: flex; align-items: center; min-width: 0; padding: 0 var(--space-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.business-map-record-row { min-width: 0; border-top: 1px solid var(--border); }
+.business-map-record-summary { background: var(--surface); }
+.business-map-record-summary:hover { background: var(--bg-subtle); }
+.business-map-record-value { color: var(--text); font-size: var(--ds-font-sm); }
+.business-map-record-detail { display: grid; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); background: var(--bg-subtle); }
+.business-map-field-flow { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-start; gap: var(--space-2); min-width: 0; }
+.business-map-compact-field { display: inline-flex; flex: 0 1 auto; align-items: baseline; min-width: 0; max-inline-size: 100%; color: var(--text); }
+.business-map-compact-field[data-width="small"] { flex-basis: calc(var(--space-5) * 5); }
+.business-map-compact-field[data-width="medium"] { flex-basis: calc(var(--space-5) * 8); }
+.business-map-compact-field[data-width="wide"] { flex-basis: calc(var(--space-5) * 12); }
+.business-map-field-label { flex: 0 0 auto; color: var(--text-quiet); font-size: var(--ds-font-xs); }
+.business-map-field-value { min-width: 0; overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+.business-map-field-value:focus-visible { overflow: visible; outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: var(--focus-ring-offset); overflow-wrap: anywhere; white-space: normal; }
+.business-map-long-field { position: relative; display: flex; align-items: baseline; min-width: 0; gap: var(--space-1); color: var(--text); }
+.business-map-long-preview { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.business-map-long-probe { position: absolute; visibility: hidden; white-space: pre; inline-size: 0; max-inline-size: 0; overflow: hidden; pointer-events: none; }
+.business-map-long-field[data-expanded="true"] { align-items: flex-start; }
+.business-map-long-field[data-expanded="true"] .business-map-long-preview { overflow: visible; overflow-wrap: anywhere; text-overflow: clip; white-space: pre-wrap; }
+.business-map-text-button { flex: 0 0 auto; min-height: var(--control-h-sm); padding: 0 var(--btn-text-pad-x); border: 0; border-radius: var(--radius-control); background: transparent; color: var(--accent-text); font: inherit; font-size: var(--ds-font-sm); cursor: pointer; }
+.business-map-text-button:hover:not(:disabled) { background: var(--btn-text-hover-bg); }
+.business-map-text-button:disabled { color: var(--text-faint); cursor: not-allowed; }
+.business-map-links { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.business-map-link { border: 0; background: transparent; color: var(--accent-text); font: inherit; font-size: var(--ds-font-sm); text-decoration: underline; cursor: pointer; }
+.business-map-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2); }
+.business-map-state { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); }
+.business-map-state[data-state="error"] { border-color: var(--danger); }
+.business-map-state[data-state="forbidden"] { border-color: var(--danger); }
+@media (max-width: 1100px) {
+  .business-map-workspace { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .business-map-catalog { border-right: 0; border-bottom: 1px solid var(--border); max-block-size: 50dvh; }
+  .business-map-records { overflow-y: visible; }
+}
+@media (max-width: 719px) {
+  .business-map-catalog,
+  .business-map-records { padding: var(--space-3); }
+  .business-map-search { flex-basis: 100%; max-inline-size: none; }
+  .business-map-record-head > span:not(:nth-child(2)),
+  .business-map-record-summary > span:not(:nth-child(2)) { display: none; }
+  .business-map-record-head,
+  .business-map-record-summary { grid-template-columns: var(--control-h-sm) minmax(0, 1fr); }
+  .business-map-record-head > span:nth-child(2) { grid-column: 2; }
+  .business-map-pagination { justify-content: flex-start; }
+}
+@media (pointer: coarse) {
+  .business-map-icon-button,
+  .business-map-record-expand,
+  .business-map-text-button,
+  .business-map-entity { min-height: var(--touch-hit-min); }
+}
