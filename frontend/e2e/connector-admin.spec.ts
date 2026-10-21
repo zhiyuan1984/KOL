@@ -553,7 +553,9 @@ test("已验证未启用的连接器重开向导直接落在启用步，并可�
   await expect(panel.locator("[data-connector-wizard-step='enable']")).toBeVisible();
   await expect(panel.locator("[data-connector-wizard-step='save']")).toHaveCount(0);
   // 最近一次测试时间来自服务端记录；当前原生向导按本地可读格式呈现，不能退回旧ISO DOM。
-  await expect(panel.locator("[data-connector-wizard-test-result]")).toContainText("2026-09-29 02:00:00");
+  // 具体小时随运行环境时区变化，只钉日期与本地格式。
+  await expect(panel.locator("[data-connector-wizard-test-result]")).toContainText("2026-09-29");
+  await expect(panel.locator("[data-connector-wizard-test-result]")).not.toContainText("2026-09-29T");
   await expect(panel.locator("[data-connector-wizard-test-result]")).toContainText("4 个工具");
   // 原生启用页用事实卡和可执行入口取代旧摘要；仍须清楚展示挂载缺口、已上线声明与可用动作。
   await expect(panel.locator(".enable-progress")).toContainText("已挂 0/2 个");
