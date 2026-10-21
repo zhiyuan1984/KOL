@@ -14,6 +14,8 @@ import AdminScheduling from "./AdminScheduling";
 import AdminWorkOrders from "./AdminWorkOrders";
 import AdminWorkReport from "./AdminWorkReport";
 import AdminBusinessMap from "./AdminBusinessMap";
+import AdminLeadFunnel from "./AdminLeadFunnel";
+import AdminProjectDelivery from "./AdminProjectDelivery";
 import AdminAudit from "./AdminAudit";
 import AdminOntology from "./AdminOntology";
 import { ConnectorDetail } from "../admin/connector/ConnectorDetail";
@@ -60,7 +62,7 @@ export default function AdminConsole() {
   const tab = adminTabOf(location.pathname);
 
   const load = useCallback(() => {
-    if (tab === "work-orders" || tab === "scheduling" || tab === "ontology") {
+    if (tab === "work-orders" || tab === "scheduling" || tab === "ontology" || tab === "business-map" || tab === "lead-funnel" || tab === "project-delivery") {
       setError("");
       setLoading(false);
       return;
@@ -103,7 +105,7 @@ export default function AdminConsole() {
 
   return (
     <div className="admin-shell" data-admin-ia="governance">
-      <div className="admin-body">
+      <div className={"admin-body" + (tab === "business-map" ? " admin-body--business-map" : "")}>
         {receipt.text && (
           <p className={"admin-receipt is-transient" + (receipt.visible ? " is-visible" : "") + " status-ok"} data-admin-receipt role="status" aria-live="polite">{receipt.text}</p>
         )}
@@ -127,9 +129,9 @@ export default function AdminConsole() {
         {tab === "master-data" && <AdminMasterData />}
         {tab === "cost" && <AdminCosts />}
         {tab === "overview" && <AdminWorkReport />}
-        {(tab === "lead-funnel" || tab === "project-delivery") && (
-          <AdminBusinessMap active={tab === "lead-funnel" ? "lead-funnel" : "project-delivery"} />
-        )}
+        {tab === "business-map" && <AdminBusinessMap />}
+        {tab === "lead-funnel" && <div data-admin-business-map="lead-funnel"><AdminLeadFunnel /></div>}
+        {tab === "project-delivery" && <div data-admin-business-map="project-delivery"><AdminProjectDelivery /></div>}
         {tab === "scheduling" && <AdminScheduling />}
         {tab === "work-orders" && <AdminWorkOrders />}
         {tab === "audit" && <AdminAudit />}

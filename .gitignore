@@ -46,3 +46,5 @@ frontend/verify-*.cjs
 
 # 本轮独立界面回归输出（非产品源代码）
 /frontend/test-results-*/
+/.business-map-ci/
+/frontend/.vite-business-map-cache/
