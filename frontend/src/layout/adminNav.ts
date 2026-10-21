@@ -8,7 +8,7 @@ export type AdminNavRow = {
   href: string;
   /** 24×24 描边路径，与 Workbench 的 Ico 同口径（stroke 1.85、currentColor）。 */
   icon: string;
-  /** 一行代表多个路由分节（如「业务地图」含线索漏斗 / 项目交付两个看板路由）；缺省时仅 `id` 一个分节。 */
+  /** 一行可代表多个路由分节（如业务地图与保留的专项深链）；缺省时仅 `id` 一个分节。 */
   sections?: string[];
   end?: boolean;
 };
@@ -23,7 +23,7 @@ export type AdminNavGroup = {
  *  href / id / 面板与权限闸门不随文字变动。
  *  2026-09-29 增补「成本」（ADR-2026-09-29）：平台配置簇顺序为 数据 / 成本 / 配置。
  *  2026-10-04 按用户口径「治理」改名「Agent」、图标对齐员工端（ADR-2026-10-04）；上面 2026-09-27 行的「治理」即该条目前名。
- *  2026-10-12 按用户口径（ADR-2026-10-12）：线索漏斗 + 项目交付并为「业务地图」一行（sections 映射两个看板路由）；
+ *  2026-10-21：业务地图指向对象—实体—记录阅读页；线索漏斗与项目交付保留既有深链并共享侧栏高亮；
  *  「知识」改名「知识库」；「审批」从菜单去掉（分节保留于 ADMIN_HIDDEN_SECTIONS，深链仍可用）；
  *  「Agent」由数字员工簇移入资产簇、排在「知识库」与「本体」之间（连接器 / 知识库 / Agent 同组）。 */
 export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
@@ -50,9 +50,9 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       {
         id: "business-map",
         label: "业务地图",
-        href: "/admin/lead-funnel",
+        href: "/admin/business-map",
         icon: "M9 4 4 6v14l5-2 6 2 5-2V4l-5 2z M9 4v14 M15 6v14",
-        sections: ["lead-funnel", "project-delivery"],
+        sections: ["business-map", "lead-funnel", "project-delivery"],
       },
     ],
   },
